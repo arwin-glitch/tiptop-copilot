@@ -43,8 +43,9 @@ Verified on this machine:
 | `netlify` | **not installed** |
 | `docker` | **not installed** |
 
-The repository has **three local commits on `master`, no remote, and no
-configured git identity** (commits so far used a per-command `-c user.name`).
+The repository has **local commits on `master`, no remote, and no configured git
+identity** (commits so far used a per-command `-c user.name`). Run
+`git log --oneline` for the current count.
 
 So before anything can be pushed or deployed, someone has to either install a
 CLI and authenticate it, or do the deploy through a web dashboard.
@@ -193,7 +194,8 @@ npm run dev:demo      # the whole product, no credentials
 | `npm run build` | pass |
 | `npx playwright test` | **38 passed** (17 demo flow, 21 mobile/a11y) |
 
-Working tree is clean. Three commits on `master`. Nothing pushed anywhere.
+Working tree is clean. All work is committed on `master`. Nothing pushed
+anywhere.
 
 ---
 

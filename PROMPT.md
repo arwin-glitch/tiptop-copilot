@@ -39,8 +39,8 @@ patterns.
 ## Current state
 
 `npm run verify` (format, lint, typecheck, 423 tests, production build) and
-`npm run test:e2e` (38 tests) both pass. Five local commits on `master`, clean
-working tree, **no remote**. All documentation is written.
+`npm run test:e2e` (38 tests) both pass. All work is committed on `master`,
+clean working tree, **no remote**. All documentation is written.
 
 Confirm this yourself before changing anything — do not take it on trust.
 
