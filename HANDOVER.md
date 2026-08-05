@@ -1,10 +1,24 @@
 # HANDOVER — TipTop Copilot build
 
-**Paste this whole file into a fresh session along with the original build prompt.**
+> **Status: the build described below is complete.**
+>
+> Everything in §2 was finished in a second session. `npm run verify` (format,
+> lint, typecheck, 423 tests, production build) and `npm run test:e2e` (38
+> tests) both pass. All twelve missing documents are written. The demo has been
+> walked end to end at desktop and mobile widths. Work is committed locally on
+> `master`; nothing has been pushed.
+>
+> **What is still needed is credentials, not code** — see
+> [PUBLISH_CHECKLIST.md](PUBLISH_CHECKLIST.md) §0.
+>
+> §0 (environment) and §3–§6 below remain accurate and useful. §1 and §2 are
+> kept as a record of what the second session started from; the notes in §2
+> mark what each item became.
 
-This is a mid-build handover. A large, coherent implementation already exists.
-**Do not restart, re-scaffold, or re-plan.** Read this, verify state, and
-continue from "What is left".
+---
+
+This was a mid-build handover. A large, coherent implementation already existed.
+**Do not restart, re-scaffold, or re-plan.**
 
 ---
 
@@ -93,9 +107,28 @@ integration tests exercise real grounding.
 
 ---
 
-## 2. What is left
+## 2. What was left — all now done
 
-In priority order.
+Each item below is annotated with what it became.
+
+### 2a. Run the validations — **done, all pass**
+
+`lint` needed four fixes (two `react-hooks/set-state-in-effect`, two unused
+imports); `format:check` needed one `npm run format`; `build` passed first
+time. The validations then surfaced eight real defects, all fixed and listed
+in [CHANGELOG.md](CHANGELOG.md).
+
+### 2b. Finish the test suite — **done: 423 unit/integration, 38 e2e**
+
+### 2c. Docs — **done: all twelve written, README replaced**
+
+### 2d. Final passes — **done: git initialised, demo walked, mobile and
+accessibility verified, `.demo-data/` ignored**
+
+---
+
+<details>
+<summary>Original text of §2, kept for the record</summary>
 
 ### 2a. Run the validations (nothing has been run yet)
 
@@ -162,11 +195,14 @@ Missing: `ARCHITECTURE.md`, `SECURITY.md`, `DATA_MODEL.md`, `AI_PROMPTS.md`,
 - Accessibility pass.
 - Add `.demo-data/` to `.gitignore` (verify it is there).
 
+</details>
+
 ---
 
 ## 3. Non-negotiable invariants — do not regress these
 
-These are the product's spine. Several tests exist specifically to protect them.
+These are the product's spine. Every one now has at least one test that fails if
+it is broken; see the table in [TESTING.md](TESTING.md) §1.
 
 1. **Unknown stays unknown.** A field the sources do not state is `null`. No
    defaults, no sentinels, no inference-as-value. Extraction refuses to write a
