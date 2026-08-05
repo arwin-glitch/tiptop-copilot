@@ -1,0 +1,220 @@
+@import 'tailwindcss';
+
+/*
+ * TipTop Copilot design system.
+ *
+ * Editorial and restrained: warm paper, ink-black type, one structural accent,
+ * and colour reserved almost entirely for recommendation state. Typography does
+ * the hierarchy work so the interface can stay quiet.
+ *
+ * No paid or externally-hosted fonts: a serif display stack for editorial
+ * headings, a system sans for the interface, and a system mono for figures.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', sans-serif;
+  --font-serif: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --radius-card: 0.625rem;
+
+  --color-paper: #faf8f4;
+  --color-paper-raised: #ffffff;
+  --color-ink: #14161a;
+
+  /* Recommendation palette — the only saturated colour in the product. */
+  --color-rec-advance: #1c6b4a;
+  --color-rec-dig: #1d5b8f;
+  --color-rec-monitor: #8a6212;
+  --color-rec-pass: #8b3a2f;
+  --color-rec-insufficient: #5b5f66;
+}
+
+:root {
+  color-scheme: light;
+
+  --bg: #faf8f4;
+  --bg-raised: #ffffff;
+  --bg-sunken: #f2efe8;
+  --bg-hover: #efece4;
+
+  --fg: #14161a;
+  --fg-muted: #5c6069;
+  --fg-subtle: #83878f;
+
+  --border: #e2ddd2;
+  --border-strong: #cdc7b9;
+
+  --accent: #1f3a5f;
+  --accent-fg: #ffffff;
+  --accent-soft: #e8edf4;
+
+  --focus: #1f3a5f;
+
+  --ok: #1c6b4a;
+  --warn: #8a6212;
+  --danger: #8b3a2f;
+  --info: #1d5b8f;
+
+  --ok-soft: #e6f0ea;
+  --warn-soft: #f7f0dc;
+  --danger-soft: #f7e8e5;
+  --info-soft: #e6eef6;
+  --neutral-soft: #eeece7;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --bg: #0e0f11;
+  --bg-raised: #16181b;
+  --bg-sunken: #191b1f;
+  --bg-hover: #202329;
+
+  --fg: #eceae5;
+  --fg-muted: #a2a6ad;
+  --fg-subtle: #7c8189;
+
+  --border: #292c32;
+  --border-strong: #3a3e46;
+
+  --accent: #9db8dd;
+  --accent-fg: #0e0f11;
+  --accent-soft: #1a2330;
+
+  --focus: #9db8dd;
+
+  --ok: #67c194;
+  --warn: #d8b263;
+  --danger: #e08b7c;
+  --info: #86b4e0;
+
+  --ok-soft: #142218;
+  --warn-soft: #241f10;
+  --danger-soft: #241512;
+  --info-soft: #131d28;
+  --neutral-soft: #1c1f23;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-sunken: var(--bg-sunken);
+  --color-bg-hover: var(--bg-hover);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-border-default: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger-soft: var(--danger-soft);
+  --color-info-soft: var(--info-soft);
+  --color-neutral-soft: var(--neutral-soft);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv05', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Respect the iOS home indicator and notch when installed to the home screen. */
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-serif);
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* A single, high-contrast focus treatment everywhere. */
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--fg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Untrusted text: preserved formatting, never interpreted as markup. */
+  .plain-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: var(--font-sans);
+  }
+
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--bg-sunken) 0%,
+      var(--bg-hover) 50%,
+      var(--bg-sunken) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
