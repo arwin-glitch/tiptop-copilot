@@ -35,7 +35,9 @@ test.describe('mobile layout', () => {
   for (const path of PAGES) {
     test(`${path} never scrolls horizontally`, async ({ page }) => {
       await page.goto(path);
-      await page.waitForLoadState('networkidle');
+      // Wait for rendered content, not `networkidle` — this app streams RSC
+      // payloads, so the network is never reliably idle and the wait flakes.
+      await expect(page.locator('h1')).toBeVisible();
 
       const overflow = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,

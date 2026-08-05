@@ -161,18 +161,59 @@ function attr(attrs: string, name: string): string | null {
   return m?.[1] ?? null;
 }
 
+/**
+ * Sentences, not physical lines.
+ *
+ * Email bodies are hard-wrapped at around 80 characters, so quoting a line
+ * yields a fragment that stops mid-clause. Paragraphs are unwrapped first and
+ * then split on sentence boundaries, which is what makes a quoted claim
+ * readable when it is shown back to the user.
+ */
+function sentencesIn(text: string): string[] {
+  return text
+    .split(/\n{2,}/)
+    .flatMap((paragraph) =>
+      paragraph
+        .replace(/\s*\n\s*/g, ' ')
+        .trim()
+        .split(/(?<=[.!?])\s+/),
+    )
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function findQuote(
   sources: MockSource[],
   pattern: RegExp,
 ): { id: string; quote: string; page: number | null } | null {
   for (const s of sources) {
-    for (const line of s.text.split('\n')) {
-      if (pattern.test(line) && line.trim().length > 8) {
-        return { id: s.id, quote: line.trim().slice(0, 300), page: s.page };
+    for (const candidate of sentencesIn(s.text)) {
+      if (pattern.test(candidate) && candidate.length > 8) {
+        return { id: s.id, quote: candidate.slice(0, 300), page: s.page };
       }
     }
   }
   return null;
+}
+
+/** One sentence, terminated exactly once — the fixture text may already end in a stop. */
+function sentence(text: string): string {
+  const trimmed = text.trim().replace(/[.\s]+$/, '');
+  return trimmed ? `${trimmed}.` : '';
+}
+
+/**
+ * A quoted fragment, cut at a word boundary rather than mid-word, and closed
+ * with an ellipsis when it was cut. Stopping a truncated clause with a full
+ * stop reads as a finished sentence that trails off, which is worse than
+ * saying plainly that there is more.
+ */
+function clause(text: string, max: number): string {
+  const flat = text.trim().replace(/\s+/g, ' ');
+  if (flat.length <= max) return sentence(flat);
+  const cut = flat.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > 40 ? cut.slice(0, lastSpace) : cut).replace(/[,;:.\s]+$/, '')}…`;
 }
 
 function cite(hit: { id: string; quote: string; page: number | null } | null) {
@@ -584,9 +625,11 @@ function mockAnalyzeDeal(context: MockContext, sources: MockSource[]) {
   }));
 
   return {
-    thirty_second_overview: `${company}: ${String(deal.product_summary ?? 'product description not stated in the sources')}. ${
+    thirty_second_overview: `${company}: ${sentence(
+      String(deal.product_summary ?? 'product description not stated in the sources'),
+    )} ${
       revenueHit
-        ? `Reported: ${revenueHit.quote.slice(0, 120)}.`
+        ? `Reported: ${clause(revenueHit.quote, 120)}`
         : 'No revenue figure appears in the sources.'
     } The decision turns on ${weakest ? weakest.key.replace(/_/g, ' ') : 'evidence coverage'}.`,
     recommendation,

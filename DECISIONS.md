@@ -232,3 +232,114 @@ Bucket `deal-attachments`, private, 15-minute signed URLs minted per request
 after an authorization check. Filenames are normalised to a safe slug plus a
 random suffix; the original filename is stored as metadata only. MIME type is
 validated against a magic-byte sniff, not just the client-declared header.
+
+---
+
+## Verification pass (session 2)
+
+### D-039 — `/login` forced dynamic, and why that class of bug is worth a decision
+
+**Context.** `/login` reads `isDemoMode()` and `capabilityReport()` to decide
+which sign-in path to offer. With no session cookie to read, it used no dynamic
+API, so Next prerendered it at build time. A production build made without
+`DEMO_MODE` therefore served "authentication is not configured" for ever — and
+`npm run start:demo` could not get past it. The entire demo was unreachable.
+
+**Decision.** `export const dynamic = 'force-dynamic'` on `/login`, with a
+comment stating why. `/privacy` and `/offline` stay static: they read nothing.
+
+**Why.** The general rule this establishes: **a page whose output depends on
+runtime environment must declare itself dynamic, even when it uses no dynamic
+API.** Reading `process.env` is not a signal Next can see. Every other
+env-dependent page in the app already had the declaration; this one was missed
+precisely because it has no session read to make the dependency obvious.
+
+### D-040 — Rate limits fail towards the user, never into a server error
+
+**Context.** `enterDemoAction` was capped at 20 entries per minute on a single
+global key, and threw on trip. The e2e suite hit it, and so would a room of
+people opening a shared demo link. The result was a bare "A server error
+occurred" page with no explanation and no way forward.
+
+**Decision.** The ceiling is 60/minute, and tripping it redirects to
+`/login?busy=1`, where a notice explains the wait and states that nothing was
+lost.
+
+**Why.** Everywhere else in this codebase an expected failure travels as a typed
+`Result` carrying `stillUsable`. A rate limit is the most expected failure there
+is. Throwing was inconsistent with the whole error model, and it converted a
+one-minute wait into something that looks like the product is broken.
+
+### D-041 — The e2e suite resets the demo store and never reuses a server
+
+**Context.** The demo store is file-backed and survives between runs, and the
+server holds it in memory. Steps that assert a starting state — "this deal has
+not been analysed yet" — passed on the first run and failed for ever after.
+
+**Decision.** `tests/e2e/global-setup.ts` deletes `.demo-data/e2e` before the
+run, and `reuseExistingServer: false`.
+
+**Why.** An e2e suite whose purpose is reproducing the demo has to be
+reproducible itself. The cost is one server start per run; the alternative is a
+suite that quietly stops testing the interesting cases. Deleting the store file
+is a complete reset because `DemoStore` reseeds from fixtures when the file is
+missing.
+
+### D-042 — `server-only` aliased in tests, with the boundary asserted separately
+
+**Context.** The `server-only` package throws unless resolved under the
+`react-server` condition, which only Next applies. Every service module imports
+it, so no integration test could load one.
+
+**Decision.** `vitest.config.mts` aliases `server-only` to a no-op stub, and
+`tests/unit/env-boundary.test.ts` asserts the real boundary: it walks every file
+under `src/`, finds those marked `'use client'`, and fails if any imports a
+server-only module or reads a non-public `process.env` key.
+
+**Why.** The alias removes a build-time marker, so something has to replace the
+guarantee it was providing. A static check over the actual source is stronger
+than the marker anyway — it catches a client component reading
+`process.env.SECRET` directly, which the marker never would.
+
+### D-043 — Two-pass `startOfDayUtc`
+
+**Context.** The original computed the timezone offset at noon UTC and applied
+it to midnight. On the two DST changeover days each year the offset at noon is
+not the offset at midnight, so the "today" window was an hour out — pulling in a
+23:00 event from yesterday, or missing a 00:30 event today.
+
+**Decision.** Two passes: probe at noon for a first guess, then re-measure the
+offset at the instant that guess landed on, which is the one that actually
+applies.
+
+**Why.** One iteration is sufficient for every standard one-hour transition and
+costs two `Intl` formats instead of one, on a function called a handful of times
+per request. The alternative — a date library — is a dependency for a
+twelve-line function.
+
+### D-044 — Detector gaps fixed rather than tests loosened
+
+**Context.** Two injection patterns did not match what they were written for.
+`scoring_manipulation` required the object to carry no noun, so it missed "mark
+this deal as ADVANCE" — the exact phrasing of the product's own demo payload.
+`credential_exfiltration` required the credential term before the verb, so it
+missed "send me your api key", which is the more natural phrasing of the two.
+
+**Decision.** Both regexes widened. Neither test was relaxed.
+
+**Why.** A detector that misses its own demo payload is not a detector. It is
+worth stating that the fence — not the detector — is the actual defence, so
+these were gaps in defence-in-depth rather than in the primary control; that is
+a reason to fix them cheaply, not a reason to leave them.
+
+### D-045 — An override requires a reason
+
+**Context.** `overrideRecommendation` accepted an empty note, while
+`recordDecision` had always refused an empty rationale.
+
+**Decision.** An override with a blank reason is `invalid_input`.
+
+**Why.** The function's own contract says it records that Nick disagreed *and
+why*. The override is what the whole app and the exported memo will show; the
+reason is the only part of it that carries information forward. Accepting a
+blank one silently discards the signal the feature exists to capture.
