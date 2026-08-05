@@ -123,18 +123,30 @@ Verify current terms before committing — these change.
 
 | Host | Free tier | The catch |
 | --- | --- | --- |
-| **Vercel** | Hobby | **Hobby is non-commercial use only.** An internal tool for a VC fund is commercial use. Best Next.js support by a distance, but Path B likely needs a paid plan to be within terms. Path A demo is arguably fine — confirm. |
+| **Vercel** | Hobby | **Hobby is non-commercial use only.** Best Next.js support by a distance, but see the note below. |
 | **Netlify** | Yes | Commercial use permitted. Next.js support via adapter; good, not seamless. |
 | **Cloudflare Workers/Pages** | Generous | Commercial permitted. Needs OpenNext, and this app uses Node APIs (`node:crypto`, `pdfjs-dist`, `mammoth`, `jszip`) so `nodejs_compat` must be on and PDF extraction wants testing. |
 | **Render** | Yes | Commercial permitted. Free services **spin down when idle** — first request after a pause is slow. |
 
-**Recommendation:** Path A on Netlify or Render for the demo — free, no terms
-problem, working today. Move to Path B on a paid plan when real mail is
-connected.
+#### On "it's only two of us"
 
-The licence question is the one to settle first. Deploying a fund's internal
-tool to a non-commercial tier is the kind of thing nobody notices until an
-account is suspended.
+This comes up, and it is the wrong axis. A non-commercial term keys on
+**commercial character, not audience size**. The question is not how many people
+log in — it is whether the deployment is being used to run a business. A
+two-person internal tool that triages a fund's deal flow is commercial use; a
+public portfolio site with fifty thousand visitors is not.
+
+Not legal advice, and terms change — check the current wording rather than
+trusting this note.
+
+**Recommendation:** it does not matter much, because the alternatives are free
+*and* unrestricted. Render and Netlify permit commercial use on their free
+tiers, so sidestepping the question costs nothing but Vercel's smoother Next.js
+integration. Put Path A on Render or Netlify today; move to a paid plan when
+Nick's real mailbox is connected and it is doing real work.
+
+Path A is arguably evaluation rather than production use, so the stakes there
+are low either way. Path B is where it would actually matter.
 
 ### 1c. The one setting that matters most
 

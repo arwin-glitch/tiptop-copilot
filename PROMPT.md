@@ -65,8 +65,12 @@ Read `NEXT_SESSION.md` §1b-2 and tell me which path applies before you start.
   after about a week idle with no point-in-time recovery.
 
 **Check the host's licence terms before deploying.** Vercel's Hobby plan is
-non-commercial use only, and this is a VC fund's internal tool. If a host would
-put me in breach, say so and propose another — do not just deploy and hope.
+non-commercial use only. Only two of us will use this, but that is the wrong
+axis — a non-commercial term is about whether it runs a business, not about
+audience size, and this triages a fund's deal flow. Render and Netlify permit
+commercial use free, so prefer one of those and the question does not arise. If
+a host would put me in breach, say so and propose another — do not just deploy
+and hope.
 
 Do not spend any money without telling me the specific amount first and getting
 a yes.
