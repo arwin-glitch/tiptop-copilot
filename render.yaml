@@ -1,0 +1,47 @@
+# Render Blueprint — TipTop Copilot, demo deployment (Path A).
+#
+# This describes a DEMO deployment and nothing else. Demo mode uses a
+# file-backed store and a deterministic offline model, so it needs no Supabase,
+# no Google OAuth and no Anthropic key. Every company, person and number it
+# shows is fictional.
+#
+# Demo mode has NO AUTHENTICATION: anyone who reaches the URL gets a workspace.
+# That is acceptable here only because the data is invented. Do not point this
+# blueprint at real credentials — a real deployment must set DEMO_MODE=false and
+# follow PUBLISH_CHECKLIST.md instead.
+#
+# Render runs the app as an ordinary Node process (`next start`), not through a
+# serverless adapter, so the writable working directory the demo store needs is
+# simply there. The disk is still ephemeral: a redeploy or a restart resets the
+# fixtures, which is the intended behaviour for a demo.
+
+services:
+  - type: web
+    name: tiptop-copilot-demo
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:demo
+    # /api/health requires a session, so it cannot serve as the health check.
+    # /login is dynamic, unauthenticated and cheap.
+    healthCheckPath: /login
+    envVars:
+      # Parity with the toolchain the suites were verified against. If Render
+      # cannot fetch this exact version, 22 also satisfies `engines`.
+      - key: NODE_VERSION
+        value: 24.19.0
+
+      # NEXT_PUBLIC_DEMO_MODE is inlined at build time, so it must be present
+      # for `npm run build`, not just at runtime. Render exposes service env
+      # vars to the build, which is why setting it here is sufficient.
+      - key: DEMO_MODE
+        value: 'true'
+      - key: NEXT_PUBLIC_DEMO_MODE
+        value: 'true'
+
+      # Signs the session cookie; at least 32 characters. Entered in the Render
+      # dashboard, never committed — `sync: false` is what keeps it out of this
+      # file. Without it, demo mode substitutes an ephemeral key and sessions
+      # drop on every restart.
+      - key: SESSION_SECRET
+        sync: false

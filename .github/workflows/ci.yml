@@ -1,0 +1,50 @@
+# Runs the full suite on every push and pull request.
+#
+# `verify` is format:check + lint + typecheck + the 423 unit and integration
+# tests + a production build. The e2e job is separate because it needs a
+# browser download and starts a real server, so failing it should read
+# differently from failing a typecheck.
+#
+# Neither job needs a secret: the e2e server runs in demo mode with the
+# throwaway values in playwright.config.ts.
+
+name: verify
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
