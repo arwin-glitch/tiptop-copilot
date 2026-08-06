@@ -41,25 +41,25 @@ for. That is the entire point of this project. **If a proposed design
 reintroduces a per-token API key, it has missed the point — say so rather than
 building it.**
 
-### 1b. The constraint that decides the design
+### 1b. Whose mailbox — settled, but verify it
 
-**The Gmail and Calendar connectors are bound to whoever is signed in — that is
-`arwin@tiptop.vc`, not Nick.**
+**Arwin has a connector connected to Nick's account.** The assistant is for
+Nick's mail and calendar. This was the open question in an earlier draft and it
+is now answered — do not re-ask it.
 
-Everything the app was going to do centres on *Nick's* mailbox. A skill running
-in Arwin's Claude Code cannot read it. Establish which of these is true before
-building:
+**Verify it once before building on it**, because everything downstream assumes
+it: read the connected profile, or list a couple of threads, and confirm the
+account that actually comes back is Nick's rather than `arwin@tiptop.vc`. A
+connector that silently resolves to the wrong mailbox would produce a daily
+outlook that looks perfectly plausible and is about the wrong person.
 
-- The assistant is **for Arwin**, over Arwin's own mail — build it, it works
-  today.
-- The assistant is **for Nick** — then it has to run in Nick's Claude Code, with
-  his connectors, and the deliverable is a skill *file* he installs, not a
-  running thing. Design for portability: no absolute paths, no local state.
-- **Shared mailbox or delegation** — verify what the connector actually exposes
-  before assuming it works. Do not design around a capability you have not
-  confirmed.
+Two consequences worth holding on to:
 
-Ask this question first. It changes what gets built.
+- **This is real correspondence** — LP conversations, founder discussions,
+  whatever else is in a partner's inbox. Not fixtures. Treat every handling
+  decision accordingly, and see §3 on what a skill does and does not guarantee.
+- **Nick should know before it runs, not after.** Reading a partner's mailbox
+  on a schedule is a thing he agrees to, not a thing he discovers.
 
 ### 1c. Verify the tools exist before designing around them
 
@@ -177,6 +177,7 @@ message or an event.
 
 ## 8. First message to send back
 
-Before building, report: which mailbox this is for (§1b), which connectors
-actually exist in the session (§1c), and what the skill will and will not be
-able to guarantee (§3). Then propose the shape and wait.
+Before building, report: that the connector resolves to Nick's account and how
+that was confirmed (§1b), which connectors actually exist in the session (§1c),
+and what the skill will and will not be able to guarantee (§3). Then propose
+the shape and wait.
