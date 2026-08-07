@@ -50,3 +50,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Internal integration notes — must not reach the public remote.
+/BRAIN_INTEGRATION.md
