@@ -97,57 +97,14 @@ begin
 end;
 $$;
 
--- Membership predicates used by every RLS policy.
+-- The membership predicates `is_org_member` and `has_org_role` used to live
+-- here. They do not any more, and they cannot: both are `language sql`, which
+-- Postgres validates at creation time, and both read `organization_members` —
+-- a table created in `20260101000100_core_tables.sql`. Defining them in this
+-- migration made it impossible to apply the schema in filename order at all:
 --
--- SECURITY DEFINER with a pinned search_path: the policy needs to read
--- organization_members, but organization_members is itself protected by RLS,
--- which would recurse. Defining the check here breaks the cycle without
--- widening what a caller can read.
-
-create or replace function is_org_member(target_org uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from organization_members m
-    where m.organization_id = target_org
-      and m.user_id = auth.uid()
-  );
-$$;
-
-create or replace function has_org_role(target_org uuid, minimum org_role)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from organization_members m
-    where m.organization_id = target_org
-      and m.user_id = auth.uid()
-      and case m.role
-            when 'owner'  then 4
-            when 'admin'  then 3
-            when 'member' then 2
-            when 'viewer' then 1
-          end
-          >=
-          case minimum
-            when 'owner'  then 4
-            when 'admin'  then 3
-            when 'member' then 2
-            when 'viewer' then 1
-          end
-  );
-$$;
-
-comment on function is_org_member(uuid) is
-  'True when the current auth.uid() belongs to the organization. Used by every RLS policy.';
-comment on function has_org_role(uuid, org_role) is
-  'True when the current user holds at least the given role in the organization.';
+--   ERROR: 42P01: relation "organization_members" does not exist
+--
+-- They now sit at the top of `20260101000600_row_level_security.sql`, which is
+-- the first migration that uses them. Nothing between 000100 and 000600
+-- references them, so that is the latest safe point and the clearest one.

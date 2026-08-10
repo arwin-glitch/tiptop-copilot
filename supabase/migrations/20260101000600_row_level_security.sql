@@ -10,6 +10,67 @@
 -- (a leaked anon key, a direct PostgREST call, a future client-side query) and
 -- are the reason such a leak is not a data breach.
 
+-- Membership predicates used by every policy below.
+--
+-- These are defined here rather than alongside the other helpers in
+-- `20260101000000` because they are `language sql`, which Postgres validates
+-- when the function is created — and they read `organization_members`, which
+-- does not exist until `20260101000100`. Declaring them any earlier makes the
+-- schema impossible to apply in order.
+--
+-- SECURITY DEFINER with a pinned search_path: the policy needs to read
+-- organization_members, but organization_members is itself protected by RLS,
+-- which would recurse. Defining the check here breaks the cycle without
+-- widening what a caller can read.
+
+create or replace function is_org_member(target_org uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from organization_members m
+    where m.organization_id = target_org
+      and m.user_id = auth.uid()
+  );
+$$;
+
+create or replace function has_org_role(target_org uuid, minimum org_role)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from organization_members m
+    where m.organization_id = target_org
+      and m.user_id = auth.uid()
+      and case m.role
+            when 'owner'  then 4
+            when 'admin'  then 3
+            when 'member' then 2
+            when 'viewer' then 1
+          end
+          >=
+          case minimum
+            when 'owner'  then 4
+            when 'admin'  then 3
+            when 'member' then 2
+            when 'viewer' then 1
+          end
+  );
+$$;
+
+comment on function is_org_member(uuid) is
+  'True when the current auth.uid() belongs to the organization. Used by every RLS policy.';
+comment on function has_org_role(uuid, org_role) is
+  'True when the current user holds at least the given role in the organization.';
+
 alter table organizations enable row level security;
 alter table organization_members enable row level security;
 alter table user_profiles enable row level security;
