@@ -45,6 +45,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // `?tasks=sync` runs the mailbox sync and the watch renewal but skips brief
+  // generation. This exists because the two want completely different
+  // cadences: mail should be picked up every few minutes, while the outlook is
+  // a once-a-morning artefact. Regenerating it on every poll would be ~40
+  // deep-tier calls a day per organization — free today with no API key, and
+  // the single largest line on the bill the moment there is one.
+  const tasks = new URL(request.url).searchParams.get('tasks') ?? 'all';
+  const briefsEnabled = tasks !== 'sync';
+
   const store = getStore();
   const results: {
     organization: string;
@@ -124,12 +133,16 @@ export async function POST(request: NextRequest) {
     }
 
     let briefStatus: string;
-    try {
-      const brief = await generateDailyBrief(auth, { force: true });
-      briefStatus = brief.ok ? 'ok' : `skipped: ${brief.error.code}`;
-    } catch (error) {
-      briefStatus = `failed: ${(error as Error)?.message?.slice(0, 120)}`;
-      log.error('Cron brief generation failed', { organizationId: organization.id });
+    if (!briefsEnabled) {
+      briefStatus = 'skipped: tasks=sync';
+    } else {
+      try {
+        const brief = await generateDailyBrief(auth, { force: true });
+        briefStatus = brief.ok ? 'ok' : `skipped: ${brief.error.code}`;
+      } catch (error) {
+        briefStatus = `failed: ${(error as Error)?.message?.slice(0, 120)}`;
+        log.error('Cron brief generation failed', { organizationId: organization.id });
+      }
     }
 
     results.push({

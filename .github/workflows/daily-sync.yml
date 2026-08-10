@@ -1,43 +1,48 @@
-# Calls the app's scheduled job: sync every connected mailbox, then
-# pre-generate the daily outlook.
+# The daily job: sync every connected mailbox, renew the Gmail push
+# registration, and generate the outlook.
 #
-# The job itself lives at /api/cron/daily and has existed since the first
-# commit. Nothing ever called it — it refuses unauthenticated callers by
-# design, and no scheduler was configured, so every sync was a button press.
+# New mail does not depend on this. Gmail pushes to Pub/Sub, which calls
+# /api/integrations/google/gmail-push, and the app syncs the delta within
+# seconds. This runs once a morning for three reasons:
 #
-# GitHub Actions rather than Render Cron because Render's cron jobs run on paid
-# instances, and rather than an external pinger because that would mean handing
-# CRON_SECRET to a third party.
+#   1. The outlook is a once-a-day artefact and a deep-tier model call. It is
+#      the largest cost in the system once an API key exists, and regenerating
+#      it on a poll would be roughly forty a day per organization.
+#   2. `users.watch` lapses after seven days — Google's limit, not a setting —
+#      and a lapsed registration stops delivering silently. A mailbox that has
+#      stopped notifying looks exactly like a quiet mailbox. This renews it.
+#   3. It is the safety net if push ever stops: a full sync still runs daily.
 #
-# UNVERIFIED until its first scheduled run. Use "Run workflow" on the Actions
-# tab to test it now rather than waiting until tomorrow.
+# So the schedule is not redundant with push. It is what keeps push alive.
 
-name: daily sync
+name: daily
 
 on:
   schedule:
-    # 11:00 UTC on weekdays — 06:00 in America/Chicago during daylight saving,
-    # 05:00 outside it. GitHub's scheduler is UTC only and does not follow DST,
-    # so this drifts by an hour twice a year. Adjust the hour if that matters;
-    # it is a brief, not a market open.
+    # 11:00 UTC weekdays — 06:00 in America/Chicago during daylight saving,
+    # 05:00 outside it. GitHub's scheduler is UTC only and does not follow DST.
     - cron: '0 11 * * 1-5'
-  # So it can be run by hand, which is also how you test it.
   workflow_dispatch:
+    inputs:
+      tasks:
+        description: 'all (includes the outlook) or sync (mail and watch only)'
+        required: false
+        default: all
+        type: choice
+        options: [all, sync]
 
-# Never let two runs overlap. A sync is idempotent, but two concurrent ones on a
-# free instance with 512MB is a waste of a cold start.
 concurrency:
-  group: daily-sync
+  group: daily
   cancel-in-progress: false
 
 jobs:
-  sync:
+  daily:
     runs-on: ubuntu-latest
     steps:
       - name: Wake the service
         # The free Render instance sleeps after 15 minutes idle and takes about
-        # 50 seconds to come back. Waking it with a cheap unauthenticated GET
-        # first means the real request is not the one paying for the cold start.
+        # 50 seconds to return. Waking it with a cheap unauthenticated GET means
+        # the real request is not the one paying for the cold start.
         run: |
           curl -sS -o /dev/null -w 'wake: HTTP %{http_code} in %{time_total}s\n' \
             --max-time 180 --retry 3 --retry-delay 20 --retry-all-errors \
@@ -45,7 +50,7 @@ jobs:
         env:
           APP_URL: ${{ vars.APP_URL || 'https://tiptop-copilot.onrender.com' }}
 
-      - name: Run the daily job
+      - name: Run the job
         run: |
           set -euo pipefail
 
@@ -54,7 +59,9 @@ jobs:
             exit 1
           fi
 
-          status=$(curl -sS -X POST "${APP_URL}/api/cron/daily" \
+          echo "tasks=${TASKS}"
+
+          status=$(curl -sS -X POST "${APP_URL}/api/cron/daily?tasks=${TASKS}" \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             --max-time 300 \
             -o response.json -w '%{http_code}')
@@ -64,13 +71,14 @@ jobs:
           cat response.json || true
           echo
 
-          # A non-2xx is a real failure and should show as one: a scheduled job
-          # that quietly stops running is worse than one that never existed,
+          # A non-2xx is a real failure and should look like one. A scheduled
+          # job that quietly stops running is worse than one that never existed,
           # because everyone assumes it is working.
           if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
-            echo "::error::Daily job failed with HTTP ${status}"
+            echo "::error::Job failed with HTTP ${status}"
             exit 1
           fi
         env:
           APP_URL: ${{ vars.APP_URL || 'https://tiptop-copilot.onrender.com' }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TASKS: ${{ github.event.inputs.tasks || 'all' }}
