@@ -111,6 +111,22 @@ export async function supabaseServerClient() {
 /* ------------------------------------------------------------- resolution */
 
 /**
+ * Why identity resolution ended where it did.
+ *
+ * A null AuthContext and a *successfully* resolved one are indistinguishable
+ * from outside the server: both produce a redirect. When the two disagree
+ * between one request and the next, the browser sees only
+ * ERR_TOO_MANY_REDIRECTS, which names neither the stage nor the reason.
+ *
+ * One line per resolution, no secrets — a user id prefix at most. This exists
+ * because a live redirect loop cost two wrong diagnoses that a single log line
+ * would have settled.
+ */
+function traceAuth(stage: string, detail: Record<string, string | number | boolean> = {}): void {
+  console.warn(`[auth] ${stage} ${JSON.stringify(detail)}`);
+}
+
+/**
  * Resolve the caller's identity and organization.
  *
  * Returns null when unauthenticated. Everything downstream takes an
@@ -140,9 +156,18 @@ export async function getAuthContext(): Promise<AuthContext | null> {
   }
 
   const supabase = await supabaseServerClient();
-  if (!supabase) return null;
+  if (!supabase) {
+    traceAuth('null: supabase not configured');
+    return null;
+  }
   const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) return null;
+  if (error || !data.user) {
+    traceAuth('null: no user from getUser', {
+      error: error?.message ?? 'none',
+      status: error?.status ?? 0,
+    });
+    return null;
+  }
 
   // Deliberately after the identity check: `getStore()` now refuses outside
   // demo mode when no database is configured, and /login must still render its
@@ -151,10 +176,19 @@ export async function getAuthContext(): Promise<AuthContext | null> {
   const userId = data.user.id;
   const memberships = await store.membershipsForUser(userId);
   const membership = memberships[0];
-  if (!membership) return null;
+  if (!membership) {
+    traceAuth('null: user has no organization membership', { user: userId.slice(0, 8) });
+    return null;
+  }
 
   const organization = await store.organizationById(membership.organization_id);
-  if (!organization) return null;
+  if (!organization) {
+    traceAuth('null: membership points at a missing organization', {
+      user: userId.slice(0, 8),
+      org: membership.organization_id.slice(0, 8),
+    });
+    return null;
+  }
 
   let profile = await store.userProfileById(userId);
   if (!profile) {
@@ -171,6 +205,12 @@ export async function getAuthContext(): Promise<AuthContext | null> {
       updated_at: now,
     });
   }
+
+  traceAuth('resolved', {
+    user: userId.slice(0, 8),
+    org: membership.organization_id.slice(0, 8),
+    role: membership.role,
+  });
 
   return {
     userId,
