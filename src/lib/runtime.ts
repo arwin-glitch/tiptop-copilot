@@ -2,6 +2,7 @@ import 'server-only';
 import { createClient } from '@supabase/supabase-js';
 import { AnthropicProvider } from '@/lib/ai/anthropic';
 import { MockAIProvider } from '@/lib/ai/mock';
+import { UnavailableAIProvider } from '@/lib/ai/unavailable';
 import type { AIProvider } from '@/lib/ai/provider';
 import {
   GoogleCalendarProvider,
@@ -62,7 +63,16 @@ export function getStore(): DataStore {
 export function getAI(): AIProvider {
   if (aiSingleton) return aiSingleton;
   const e = env();
-  aiSingleton = e.demoMode || !e.anthropicApiKey ? new MockAIProvider() : new AnthropicProvider();
+  if (e.demoMode) {
+    // Fictional data: the deterministic stub is the demonstration.
+    aiSingleton = new MockAIProvider();
+  } else if (!e.anthropicApiKey) {
+    // Real data and no key. Refusing is the only safe answer — the mock would
+    // have written a plausible analysis of an actual deal. See UnavailableAIProvider.
+    aiSingleton = new UnavailableAIProvider();
+  } else {
+    aiSingleton = new AnthropicProvider();
+  }
   return aiSingleton;
 }
 

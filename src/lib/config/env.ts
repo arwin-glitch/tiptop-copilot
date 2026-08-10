@@ -256,7 +256,9 @@ export function capabilityReport(): CapabilityCheck[] {
     status: has(e.anthropicApiKey) ? 'ready' : e.demoMode ? 'demo' : 'missing',
     detail: has(e.anthropicApiKey)
       ? `Key present. Fast model: ${e.modelFast}. Deep model: ${e.modelDeep}.`
-      : 'Not set. Demo mode uses a deterministic offline model stub.',
+      : e.demoMode
+        ? 'Not set. Demo mode uses a deterministic offline model stub.'
+        : 'Not set. Every AI feature reports itself as unavailable rather than generating anything. Email, calendar, deals, documents, tasks and portfolio are unaffected.',
     variables: ['ANTHROPIC_API_KEY', 'AI_MODEL_FAST', 'AI_MODEL_DEEP'],
     required: true,
   });

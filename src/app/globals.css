@@ -23,82 +23,99 @@
 
   --radius-card: 0.625rem;
 
-  --color-paper: #faf8f4;
+  /* Brand palette, from the TipTop brand pack:
+     #241B1B ink · #2C5345 deep green · #2B6D56 green · #0FC382 bright green
+     #84DBE0 blue accent · #FAF8F6 paper · #FFFFFF white
+     "Built on a foundation of shades of green with neutral and blue accents." */
+  --color-paper: #faf8f6;
   --color-paper-raised: #ffffff;
-  --color-ink: #14161a;
+  --color-ink: #241b1b;
+  --color-brand-green: #2b6d56;
+  --color-brand-green-deep: #2c5345;
+  --color-brand-green-bright: #0fc382;
+  --color-brand-blue: #84dbe0;
 
-  /* Recommendation palette — the only saturated colour in the product. */
-  --color-rec-advance: #1c6b4a;
-  --color-rec-dig: #1d5b8f;
+  /* Recommendation palette. Kept as a distinct signal system, but pulled into
+     the brand's green/blue family so it reads as one product.
+     #0FC382 and #84DBE0 are deliberately absent here: both are far too light
+     for body text on paper (2.2:1 and worse). They appear as fills and as the
+     dark-theme accent, never as small type on a light background. */
+  --color-rec-advance: #2b6d56;
+  --color-rec-dig: #17646b;
   --color-rec-monitor: #8a6212;
   --color-rec-pass: #8b3a2f;
-  --color-rec-insufficient: #5b5f66;
+  --color-rec-insufficient: #635b59;
 }
 
 :root {
   color-scheme: light;
 
-  --bg: #faf8f4;
+  --bg: #faf8f6;
   --bg-raised: #ffffff;
-  --bg-sunken: #f2efe8;
-  --bg-hover: #efece4;
+  --bg-sunken: #f1efec;
+  --bg-hover: #ebe8e4;
 
-  --fg: #14161a;
-  --fg-muted: #5c6069;
-  --fg-subtle: #83878f;
+  --fg: #241b1b;
+  --fg-muted: #5f5654;
+  --fg-subtle: #8a8180;
 
-  --border: #e2ddd2;
-  --border-strong: #cdc7b9;
+  --border: #e4e0da;
+  --border-strong: #cbc5bd;
 
-  --accent: #1f3a5f;
+  --accent: #2b6d56;
   --accent-fg: #ffffff;
-  --accent-soft: #e8edf4;
+  --accent-soft: #e6f2ec;
 
-  --focus: #1f3a5f;
+  --focus: #2b6d56;
 
-  --ok: #1c6b4a;
+  --ok: #2b6d56;
   --warn: #8a6212;
   --danger: #8b3a2f;
-  --info: #1d5b8f;
+  --info: #17646b;
 
-  --ok-soft: #e6f0ea;
+  --ok-soft: #e6f2ec;
   --warn-soft: #f7f0dc;
   --danger-soft: #f7e8e5;
-  --info-soft: #e6eef6;
-  --neutral-soft: #eeece7;
+  --info-soft: #e7f6f7;
+  --neutral-soft: #efece8;
 }
 
 .dark {
   color-scheme: dark;
 
-  --bg: #0e0f11;
-  --bg-raised: #16181b;
-  --bg-sunken: #191b1f;
-  --bg-hover: #202329;
+  /* The brand's #241B1B is the *raised* surface here, not the page: a dark UI
+     needs the page to sit below its cards, so the base is a shade deeper and
+     the brand ink carries the panels. */
+  --bg: #191212;
+  --bg-raised: #241b1b;
+  --bg-sunken: #1f1717;
+  --bg-hover: #2e2423;
 
-  --fg: #eceae5;
-  --fg-muted: #a2a6ad;
-  --fg-subtle: #7c8189;
+  --fg: #faf8f6;
+  --fg-muted: #b3a9a7;
+  --fg-subtle: #8b8280;
 
-  --border: #292c32;
-  --border-strong: #3a3e46;
+  --border: #362b2a;
+  --border-strong: #4a3d3b;
 
-  --accent: #9db8dd;
-  --accent-fg: #0e0f11;
-  --accent-soft: #1a2330;
+  /* #0FC382 is 7.4:1 on this background — the bright green finally has
+     somewhere it belongs. */
+  --accent: #0fc382;
+  --accent-fg: #241b1b;
+  --accent-soft: #16332a;
 
-  --focus: #9db8dd;
+  --focus: #0fc382;
 
-  --ok: #67c194;
+  --ok: #3fd39b;
   --warn: #d8b263;
   --danger: #e08b7c;
-  --info: #86b4e0;
+  --info: #84dbe0;
 
-  --ok-soft: #142218;
+  --ok-soft: #13241d;
   --warn-soft: #241f10;
   --danger-soft: #241512;
-  --info-soft: #131d28;
-  --neutral-soft: #1c1f23;
+  --info-soft: #12262a;
+  --neutral-soft: #221b1a;
 }
 
 @theme inline {

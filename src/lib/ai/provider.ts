@@ -106,10 +106,14 @@ export interface ToolConversationResponse<T> {
 /**
  * The AI seam. `AnthropicProvider` talks to the real API; `MockAIProvider`
  * produces deterministic, evidence-derived output so the whole product is
- * testable and demonstrable without a key.
+ * testable and demonstrable without a key; `UnavailableAIProvider` refuses,
+ * which is the only safe answer when the data is real and no key is set.
+ *
+ * The mock is reachable in demo mode alone. Fabricated analysis of fictional
+ * companies is a demonstration; the same output over a real deal is a hazard.
  */
 export interface AIProvider {
-  readonly kind: 'anthropic' | 'mock';
+  readonly kind: 'anthropic' | 'mock' | 'none';
   /** False when the provider cannot serve requests (e.g. missing API key). */
   available(): boolean;
 

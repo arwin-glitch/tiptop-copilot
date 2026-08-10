@@ -1,5 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="TipTop Copilot">
-  <rect width="32" height="32" rx="8" fill="#14161a"/>
-  <rect x="12" y="8" width="14" height="4.5" rx="2.25" fill="#faf8f4"/>
-  <rect x="6" y="19.5" width="14" height="4.5" rx="2.25" fill="#faf8f4"/>
+  <rect width="32" height="32" rx="8" fill="#2b6d56"/>
+  <g transform="translate(5 9.35) scale(0.15863)" fill="#ffffff">
+    <path d="M66.2955 26.3643L42.7802 83.8142L20.8093 83.8148L47.122 19.2074H6.98452L0 0H54.6497L66.2955 26.3643Z"/>
+    <path d="M72.3906 26.3643L95.9059 83.8142L117.877 83.8148L91.564 19.2074H131.702L138.686 0H84.0363L72.3906 26.3643Z"/>
+  </g>
 </svg>

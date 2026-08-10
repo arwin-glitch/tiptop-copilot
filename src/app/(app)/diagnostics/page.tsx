@@ -91,7 +91,10 @@ export default async function DiagnosticsPage() {
           <CardContent>
             <dl className="space-y-2 text-sm">
               <Row label="Data store" value={store.kind} />
-              <Row label="AI provider" value={ai.kind} />
+              <Row
+                label="AI provider"
+                value={`${ai.kind}${ai.available() ? '' : ' (unavailable)'}`}
+              />
               <Row
                 label="Research provider"
                 value={`${research.kind}${research.available() ? '' : ' (unavailable)'}`}
