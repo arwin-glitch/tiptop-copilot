@@ -4,6 +4,7 @@ import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
 import { generateDailyBrief } from '@/lib/services/brief';
+import { ensureGmailWatch } from '@/lib/services/gmail-watch';
 import { syncMailbox } from '@/lib/services/inbox';
 import type { AuthContext } from '@/lib/auth/session';
 import type { Organization, OrganizationMember, UserProfile } from '@/lib/types/domain';
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
   const results: {
     organization: string;
     sync: string;
+    watch: string;
     brief: string;
   }[] = [];
 
@@ -72,6 +74,7 @@ export async function POST(request: NextRequest) {
       results.push({
         organization: organization.name,
         sync: 'skipped: no members',
+        watch: 'skipped',
         brief: 'skipped',
       });
       continue;
@@ -82,6 +85,7 @@ export async function POST(request: NextRequest) {
       results.push({
         organization: organization.name,
         sync: 'skipped: no profile',
+        watch: 'skipped',
         brief: 'skipped',
       });
       continue;
@@ -107,6 +111,18 @@ export async function POST(request: NextRequest) {
       log.error('Cron sync failed', { organizationId: organization.id });
     }
 
+    // Registers on the first run and renews thereafter. Gmail caps a watch at
+    // seven days, and a lapsed one stops delivering silently — a mailbox that
+    // has stopped notifying looks exactly like a quiet mailbox.
+    let watchStatus: string;
+    try {
+      const watch = await ensureGmailWatch(auth);
+      watchStatus = watch.ok ? watch.value.state : `failed: ${watch.error.code}`;
+    } catch (error) {
+      watchStatus = `failed: ${(error as Error)?.message?.slice(0, 120)}`;
+      log.error('Cron watch renewal failed', { organizationId: organization.id });
+    }
+
     let briefStatus: string;
     try {
       const brief = await generateDailyBrief(auth, { force: true });
@@ -116,7 +132,12 @@ export async function POST(request: NextRequest) {
       log.error('Cron brief generation failed', { organizationId: organization.id });
     }
 
-    results.push({ organization: organization.name, sync: syncStatus, brief: briefStatus });
+    results.push({
+      organization: organization.name,
+      sync: syncStatus,
+      watch: watchStatus,
+      brief: briefStatus,
+    });
   }
 
   return NextResponse.json(

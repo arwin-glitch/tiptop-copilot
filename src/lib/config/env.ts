@@ -75,6 +75,13 @@ export interface AppEnv {
   researchApiKey: string | undefined;
 
   cronSecret: string | undefined;
+  /**
+   * Full Pub/Sub topic name for Gmail push, e.g.
+   * `projects/tiptop-copilot/topics/gmail-push`. Unset means no push
+   * registration is attempted and the mailbox is synced on the daily schedule
+   * and on demand — which is a working configuration, not a broken one.
+   */
+  gmailPushTopic: string | undefined;
   demoDataDir: string;
 }
 
@@ -123,6 +130,7 @@ export function env(): AppEnv {
     researchApiKey: str('RESEARCH_API_KEY'),
 
     cronSecret: str('CRON_SECRET'),
+    gmailPushTopic: str('GMAIL_PUSH_TOPIC'),
     demoDataDir: str('DEMO_DATA_DIR') ?? '.demo-data',
   };
   return cached;

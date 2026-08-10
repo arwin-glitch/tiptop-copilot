@@ -26,7 +26,17 @@ import { isSupabaseAuthCookie } from '@/lib/auth/cookies';
 const SESSION_COOKIES = ['tiptop_session', 'tiptop_demo_session'];
 
 /** Paths reachable without a session. */
-const PUBLIC_PATHS = ['/login', '/privacy', '/api/live', '/api/auth', '/api/cron'];
+const PUBLIC_PATHS = [
+  '/login',
+  '/privacy',
+  '/api/live',
+  '/api/auth',
+  '/api/cron',
+  // Cloud Pub/Sub delivers Gmail notifications here and carries no session
+  // cookie. Listed individually rather than opening /api/integrations, which
+  // is otherwise session-authenticated; the route checks its own shared secret.
+  '/api/integrations/google/gmail-push',
+];
 
 /**
  * Refresh the Supabase session, persisting any rotated tokens onto `response`.

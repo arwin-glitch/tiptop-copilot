@@ -3,6 +3,7 @@ import { authOrError } from '@/lib/auth/session';
 import { revokeAndForget } from '@/lib/google/oauth';
 import { getStore } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
+import { stopGmailWatch } from '@/lib/services/gmail-watch';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { statusForError } from '@/lib/util/result';
 
@@ -23,6 +24,12 @@ export async function POST() {
   if (!integration) {
     return NextResponse.json({ ok: true, revokedRemotely: false, note: 'Nothing was connected.' });
   }
+
+  // Before the token is revoked, while the call can still be authorised.
+  // Otherwise Gmail keeps publishing to the topic for a mailbox nobody is
+  // watching, and the push endpoint wakes a sleeping instance to do nothing
+  // until the registration expires a week later.
+  await stopGmailWatch(auth.value, integration);
 
   const result = await revokeAndForget(store, integration);
   if (!result.ok) {

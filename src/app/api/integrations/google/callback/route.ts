@@ -97,6 +97,7 @@ export async function GET(request: NextRequest) {
     last_sync_at: null,
     last_sync_error: null,
     sync_cursor: null,
+    watch_expires_at: existing?.watch_expires_at ?? null,
     created_at: existing?.created_at ?? now,
     updated_at: now,
   };

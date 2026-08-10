@@ -309,6 +309,7 @@ export function buildDemoDb(now: Date = new Date()): DemoDb {
       last_sync_at: hoursAgo(now, 1),
       last_sync_error: null,
       sync_cursor: 'demo-cursor-1',
+      watch_expires_at: null,
       created_at: daysAgo(now, 30),
       updated_at: nowIso,
     },

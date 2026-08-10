@@ -92,6 +92,61 @@ export class GmailProvider implements EmailProvider {
     }
   }
 
+  /**
+   * Register for push notifications on this mailbox.
+   *
+   * Gmail does not call an application directly: it publishes to a Cloud
+   * Pub/Sub topic, which then pushes to whatever endpoint the subscription
+   * names. So this call registers interest, and the delivery path is
+   * configured entirely in Google Cloud.
+   *
+   * The registration lapses after seven days — Google's limit, not a choice —
+   * so `expiresAt` is stored and the daily job renews it. A watch that silently
+   * stopped would look exactly like a quiet mailbox.
+   *
+   * The returned historyId is the point to resume from. It is only used when
+   * there is no cursor already; overwriting a live cursor with this would skip
+   * everything that arrived between the last sync and now.
+   */
+  async watch(topicName: string): Promise<Result<{ historyId: string; expiresAt: string }>> {
+    const response = await this.request<{ historyId?: string; expiration?: string }>('/watch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        topicName,
+        // INBOX only. Watching every label would wake the app for drafts, sent
+        // mail and label changes — noise that costs a cold start each time.
+        labelIds: ['INBOX'],
+        labelFilterBehavior: 'include',
+      }),
+    });
+    if (!response.ok) return response;
+
+    const { historyId, expiration } = response.value;
+    if (!historyId || !expiration) {
+      return err('provider_unavailable', 'Gmail did not return a watch registration.', {
+        retryable: true,
+      });
+    }
+    // `expiration` is epoch milliseconds as a string.
+    return ok({
+      historyId,
+      expiresAt: new Date(Number(expiration)).toISOString(),
+    });
+  }
+
+  /**
+   * Cancel push notifications.
+   *
+   * Called on disconnect. Without it Gmail keeps publishing to the topic for a
+   * mailbox nobody is watching, and the endpoint answers every one of them.
+   */
+  async stopWatch(): Promise<Result<true>> {
+    const response = await this.request<unknown>('/stop', { method: 'POST' });
+    if (!response.ok) return response;
+    return ok(true);
+  }
+
   async listMessages(options: ListMessagesOptions): Promise<Result<ListMessagesResult>> {
     if (options.cursor) {
       const incremental = await this.listViaHistory(options);

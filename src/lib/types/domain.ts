@@ -60,6 +60,12 @@ export interface Integration {
   last_sync_error: string | null;
   /** Provider history cursor (Gmail historyId / Calendar syncToken). */
   sync_cursor: string | null;
+  /**
+   * When the Gmail `users.watch` registration lapses. Google caps it at seven
+   * days, so it is renewed by the daily job. Null means push is not registered
+   * and the mailbox is synced on the schedule and on demand instead.
+   */
+  watch_expires_at: IsoDateTime | null;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
 }
