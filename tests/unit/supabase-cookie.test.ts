@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSupabaseAuthCookie } from '@/proxy';
+import { isSupabaseAuthCookie } from '@/lib/auth/cookies';
 
 /**
  * Recognising a Supabase session cookie.

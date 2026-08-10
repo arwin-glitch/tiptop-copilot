@@ -1,6 +1,7 @@
 import 'server-only';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
+import { isSupabaseAuthCookie } from '@/lib/auth/cookies';
 import { env } from '@/lib/config/env';
 import { signedValue, verifySignedValue } from '@/lib/security/crypto';
 import type { Organization, OrgRole, UserProfile } from '@/lib/types/domain';
@@ -127,6 +128,20 @@ function traceAuth(stage: string, detail: Record<string, string | number | boole
 }
 
 /**
+ * Was this request carrying a session at all?
+ *
+ * An anonymous visitor resolving to null is the ordinary case, not an event —
+ * and Render's health check hits /login every five seconds, so logging it
+ * unconditionally buries the signal under thousands of lines that mean nothing.
+ * A request that *has* a session cookie and still fails to resolve is the thing
+ * worth a line.
+ */
+async function hadSessionCookie(): Promise<boolean> {
+  const jar = await cookies();
+  return jar.getAll().some((c) => isSupabaseAuthCookie(c.name));
+}
+
+/**
  * Resolve the caller's identity and organization.
  *
  * Returns null when unauthenticated. Everything downstream takes an
@@ -162,10 +177,16 @@ export async function getAuthContext(): Promise<AuthContext | null> {
   }
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) {
-    traceAuth('null: no user from getUser', {
-      error: error?.message ?? 'none',
-      status: error?.status ?? 0,
-    });
+    // Silent for anonymous visitors — see hadSessionCookie(). A cookie that is
+    // present and still does not resolve is the interesting case: an expired
+    // session, a rotated token that was not persisted, or a cookie the proxy
+    // and the page disagree about.
+    if (await hadSessionCookie()) {
+      traceAuth('null: session cookie present but no user', {
+        error: error?.message ?? 'none',
+        status: error?.status ?? 0,
+      });
+    }
     return null;
   }
 

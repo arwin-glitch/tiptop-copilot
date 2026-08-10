@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { isSupabaseAuthCookie } from '@/lib/auth/cookies';
 
 /**
  * Next.js 16 renamed `middleware` to `proxy`. This runs on the Node runtime.
@@ -23,26 +24,6 @@ import { NextResponse, type NextRequest } from 'next/server';
  */
 
 const SESSION_COOKIES = ['tiptop_session', 'tiptop_demo_session'];
-
-/**
- * Does this cookie name carry a Supabase session?
- *
- * Supabase splits the auth cookie into numbered chunks when it exceeds the
- * 4KB-per-cookie limit — `sb-<ref>-auth-token.0`, `.1`, and so on — and whether
- * it does depends on how much the identity provider returns. Google, with a
- * name and an avatar URL, is comfortably over.
- *
- * Matching only the unchunked name cost a live deployment a redirect loop that
- * looked like anything but this. The proxy concluded there was no session and
- * sent /today to /login; the page reassembled the chunks perfectly well,
- * resolved the session, and sent it back to /today. Neither side was wrong on
- * its own terms, and the browser saw only ERR_TOO_MANY_REDIRECTS.
- *
- * Exported for the test that pins this behaviour.
- */
-export function isSupabaseAuthCookie(name: string): boolean {
-  return /^sb-.+-auth-token(\.\d+)?$/.test(name);
-}
 
 /** Paths reachable without a session. */
 const PUBLIC_PATHS = ['/login', '/privacy', '/api/live', '/api/auth', '/api/cron'];
