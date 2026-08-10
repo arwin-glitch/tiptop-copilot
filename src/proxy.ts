@@ -35,12 +35,14 @@ const PUBLIC_PATHS = ['/login', '/privacy', '/api/live', '/api/auth', '/api/cron
  * redirects to /login with an explanation — not as a proxy-level error on every
  * route including the login page itself.
  */
-async function refreshSession(request: NextRequest, response: NextResponse): Promise<void> {
+async function refreshSession(request: NextRequest): Promise<NextResponse> {
   // Read process.env directly rather than through `env()`: this module is
   // reached by the proxy runtime, and the config module is `server-only`.
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
-  if (!url || !key) return;
+  if (!url || !key) return NextResponse.next({ request });
+
+  let response = NextResponse.next({ request });
 
   try {
     const supabase = createServerClient(url, key, {
@@ -49,6 +51,20 @@ async function refreshSession(request: NextRequest, response: NextResponse): Pro
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
+          // Both halves are load-bearing, and writing only one is worse than
+          // writing neither.
+          //
+          // The request copy is what the Server Component downstream will read.
+          // Without it, that component sees the *old* refresh token — which
+          // Supabase has just retired, because rotation is single-use — tries
+          // to refresh with it, fails, and resolves to "not signed in".
+          //
+          // The response copy is what reaches the browser, so the next request
+          // carries the new pair rather than the retired one.
+          for (const { name, value } of cookiesToSet) {
+            request.cookies.set(name, value);
+          }
+          response = NextResponse.next({ request });
           for (const { name, value, options } of cookiesToSet) {
             response.cookies.set(name, value, options);
           }
@@ -62,6 +78,8 @@ async function refreshSession(request: NextRequest, response: NextResponse): Pro
     // Network blip, misconfigured project, malformed cookie. Let the request
     // through and let the page decide what to show.
   }
+
+  return response;
 }
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
@@ -94,15 +112,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return withSecurityHeaders(NextResponse.redirect(target));
   }
 
-  const response = NextResponse.next();
-
   // Only when a Supabase session is actually present. Demo sessions are signed
   // by this app and need no refresh, and an anonymous visitor has nothing to
   // rotate — calling out to Supabase for either would add a network round trip
   // to every static asset request for no reason.
-  if (supabaseSession) {
-    await refreshSession(request, response);
-  }
+  const response = supabaseSession ? await refreshSession(request) : NextResponse.next();
 
   return withSecurityHeaders(response);
 }
