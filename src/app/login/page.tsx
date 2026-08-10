@@ -19,6 +19,39 @@ export const metadata: Metadata = { title: 'Sign in' };
  */
 export const dynamic = 'force-dynamic';
 
+/**
+ * What the sign-in routes redirect back with. Each says what happened and what
+ * to do; none names a configuration value that would tell an anonymous visitor
+ * anything about the deployment.
+ */
+const AUTH_ERRORS: Record<string, { title: string; detail: string }> = {
+  domain: {
+    title: 'That account is not permitted.',
+    detail:
+      'Access is limited to TipTop accounts. You were signed out again. If you believe this is wrong, ask an administrator to check the permitted domains.',
+  },
+  denied: {
+    title: 'Sign-in was cancelled.',
+    detail: 'You declined at the Google consent screen, or the provider refused. Try again.',
+  },
+  not_configured: {
+    title: 'Authentication is not configured.',
+    detail: 'This deployment has no identity provider set up yet. An administrator needs to.',
+  },
+  no_code: {
+    title: 'Sign-in did not complete.',
+    detail: 'Google did not return an authorization code. Start again from this page.',
+  },
+  exchange: {
+    title: 'Sign-in could not be completed.',
+    detail: 'The authorization code could not be exchanged for a session. Try again.',
+  },
+  provider: {
+    title: 'Could not reach Google.',
+    detail: 'The sign-in provider did not respond. Try again in a moment.',
+  },
+};
+
 export default async function LoginPage({
   searchParams,
 }: {
@@ -27,9 +60,18 @@ export default async function LoginPage({
   const auth = await getAuthContext();
   if (auth) redirect('/today');
 
-  const busy = (await searchParams).busy === '1';
+  const params = await searchParams;
+  const busy = params.busy === '1';
+  const authError = typeof params.error === 'string' ? params.error : null;
   const demo = isDemoMode();
-  const supabaseReady = capabilityReport().find((c) => c.key === 'supabase')?.status === 'ready';
+
+  // Both halves, not just the anon key. Signing in against a project with no
+  // service-role key would succeed and then fail on the first data read, which
+  // is a worse experience than not offering the button.
+  const report = capabilityReport();
+  const supabaseReady =
+    report.find((c) => c.key === 'supabase')?.status === 'ready' &&
+    report.find((c) => c.key === 'supabase_service')?.status === 'ready';
 
   return (
     <main
@@ -58,6 +100,16 @@ export default async function LoginPage({
                 <p className="mt-1 text-[var(--fg-muted)]">
                   Too many workspaces were opened in the last minute. Wait about a minute and try
                   again — nothing is wrong and nothing was lost.
+                </p>
+              </Notice>
+            ) : null}
+
+            {authError ? (
+              <Notice tone="warn" className="mt-4">
+                <p className="font-medium">{AUTH_ERRORS[authError]?.title ?? 'Sign-in failed.'}</p>
+                <p className="mt-1 text-[var(--fg-muted)]">
+                  {AUTH_ERRORS[authError]?.detail ??
+                    'Something went wrong completing sign-in. Try again.'}
                 </p>
               </Notice>
             ) : null}

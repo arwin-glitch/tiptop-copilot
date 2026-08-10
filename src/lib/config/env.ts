@@ -60,6 +60,16 @@ export interface AppEnv {
   googleClientSecret: string | undefined;
   googleRedirectUri: string;
 
+  /**
+   * Email domains permitted to sign in, lowercase and without the `@`.
+   *
+   * Empty means no restriction, which is not the same as safe: the
+   * `on_auth_user_created` trigger provisions an organization for every new
+   * user, so an unrestricted project hands a workspace to anyone who can reach
+   * the login page. `/diagnostics` reports the difference.
+   */
+  authAllowedDomains: readonly string[];
+
   researchProvider: ResearchProviderName;
   researchApiUrl: string | undefined;
   researchApiKey: string | undefined;
@@ -99,6 +109,11 @@ export function env(): AppEnv {
     googleClientId: str('GOOGLE_CLIENT_ID'),
     googleClientSecret: str('GOOGLE_CLIENT_SECRET'),
     googleRedirectUri: str('GOOGLE_REDIRECT_URI') ?? `${appUrl}/api/integrations/google/callback`,
+
+    authAllowedDomains: (str('AUTH_ALLOWED_EMAIL_DOMAINS') ?? '')
+      .split(',')
+      .map((d) => d.trim().toLowerCase().replace(/^@/, ''))
+      .filter(Boolean),
 
     researchProvider: ((): ResearchProviderName => {
       const v = (str('RESEARCH_PROVIDER') ?? 'none').toLowerCase();
@@ -245,7 +260,7 @@ export function capabilityReport(): CapabilityCheck[] {
     status: has(e.supabaseServiceRoleKey) ? 'ready' : e.demoMode ? 'demo' : 'missing',
     detail: has(e.supabaseServiceRoleKey)
       ? 'Present. Used server-side only for storage signing and scheduled jobs.'
-      : 'Not set. Storage signing and cron jobs will be unavailable.',
+      : 'Not set. Outside demo mode the app refuses to start a database or storage session rather than falling back to fixtures, so this is required, not optional.',
     variables: ['SUPABASE_SERVICE_ROLE_KEY'],
     required: true,
   });
@@ -272,6 +287,18 @@ export function capabilityReport(): CapabilityCheck[] {
       ? `OAuth client configured. Redirect URI: ${e.googleRedirectUri}`
       : 'Not configured. Inbox and Calendar run on fixtures until connected.',
     variables: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'],
+    required: false,
+  });
+
+  checks.push({
+    key: 'auth_domains',
+    label: 'Permitted sign-in domains',
+    status: e.authAllowedDomains.length > 0 ? 'ready' : e.demoMode ? 'demo' : 'missing',
+    detail:
+      e.authAllowedDomains.length > 0
+        ? `Sign-in restricted to ${e.authAllowedDomains.map((d) => `@${d}`).join(', ')}.`
+        : 'Unrestricted. Any account the identity provider accepts is given its own workspace, because the database provisions an organization for every new user. Set this before inviting anyone.',
+    variables: ['AUTH_ALLOWED_EMAIL_DOMAINS'],
     required: false,
   });
 

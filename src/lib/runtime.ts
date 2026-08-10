@@ -46,8 +46,15 @@ let storageSingleton: StorageProvider | null = null;
 export function getStore(): DataStore {
   if (storeSingleton) return storeSingleton;
   const e = env();
-  if (e.demoMode || !e.supabaseUrl || !e.supabaseServiceRoleKey) {
+  if (e.demoMode) {
     storeSingleton = new DemoStore(() => buildDemoDb(new Date()) as never);
+  } else if (!e.supabaseUrl || !e.supabaseServiceRoleKey) {
+    // Falling back to fixtures here would serve invented companies as real —
+    // and the demo banner is gated on DEMO_MODE, so nothing on screen would
+    // say so. Failing loudly is the only honest option.
+    throw new Error(
+      'No database is configured. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, or set DEMO_MODE=true to run on fixtures deliberately. Refusing to serve demo data outside demo mode.',
+    );
   } else {
     // Server-side data access uses the service role and relies on explicit
     // organization scoping in SupabaseStore plus RLS as the second gate.
@@ -92,10 +99,17 @@ export function getResearchProvider(): ResearchProvider {
 export function getStorage(): StorageProvider {
   if (storageSingleton) return storageSingleton;
   const e = env();
-  storageSingleton =
-    e.demoMode || !e.supabaseServiceRoleKey
-      ? new LocalStorageProvider()
-      : new SupabaseStorageProvider();
+  if (e.demoMode) {
+    storageSingleton = new LocalStorageProvider();
+  } else if (!e.supabaseServiceRoleKey) {
+    // Local disk on a hosted container is ephemeral: a pitch deck uploaded
+    // today is gone at the next deploy, silently. Refuse instead.
+    throw new Error(
+      'No file storage is configured. Set SUPABASE_SERVICE_ROLE_KEY, or set DEMO_MODE=true. Refusing to write attachments to ephemeral local disk outside demo mode.',
+    );
+  } else {
+    storageSingleton = new SupabaseStorageProvider();
+  }
   return storageSingleton;
 }
 

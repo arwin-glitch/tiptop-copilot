@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { resetEnvCache } from '@/lib/config/env';
-import { getAI, resetRuntime } from '@/lib/runtime';
+import { getAI, getStorage, getStore, resetRuntime } from '@/lib/runtime';
 
 /**
  * Which AI provider serves a given environment.
@@ -85,5 +85,46 @@ describe('AI provider selection', () => {
   it('uses the real provider once a key is present', () => {
     setEnv({ DEMO_MODE: 'false', ANTHROPIC_API_KEY: 'sk-ant-not-a-real-key' });
     expect(getAI().kind).toBe('anthropic');
+  });
+});
+
+/**
+ * The same hazard, twice more. Both used to substitute demo behaviour whenever
+ * a credential was missing — and the demo banner is gated on DEMO_MODE, so
+ * outside demo mode nothing on screen would have said the companies were
+ * invented or that the uploads were about to vanish.
+ */
+describe('store and storage selection', () => {
+  it('serves fixtures in demo mode', () => {
+    setEnv({ DEMO_MODE: 'true', NEXT_PUBLIC_SUPABASE_URL: undefined });
+    expect(getStore().kind).toBe('demo');
+  });
+
+  it('refuses to serve fixtures as real data', () => {
+    setEnv({
+      DEMO_MODE: 'false',
+      NEXT_PUBLIC_SUPABASE_URL: undefined,
+      SUPABASE_URL: undefined,
+      SUPABASE_SERVICE_ROLE_KEY: undefined,
+    });
+    expect(() => getStore()).toThrow(/refusing to serve demo data/i);
+  });
+
+  it('refuses when only the service role key is missing', () => {
+    // The dangerous half: a URL and anon key are enough for sign-in to work,
+    // so this configuration would have looked healthy right up to the point
+    // where invented deals appeared.
+    setEnv({
+      DEMO_MODE: 'false',
+      NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-key',
+      SUPABASE_SERVICE_ROLE_KEY: undefined,
+    });
+    expect(() => getStore()).toThrow(/SUPABASE_SERVICE_ROLE_KEY/);
+  });
+
+  it('refuses to write attachments to ephemeral local disk outside demo mode', () => {
+    setEnv({ DEMO_MODE: 'false', SUPABASE_SERVICE_ROLE_KEY: undefined });
+    expect(() => getStorage()).toThrow(/ephemeral local disk/i);
   });
 });

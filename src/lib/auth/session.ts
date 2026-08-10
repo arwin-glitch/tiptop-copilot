@@ -51,6 +51,14 @@ export async function endSession(): Promise<void> {
   const jar = await cookies();
   jar.delete(DEMO_SESSION_COOKIE);
   jar.delete(SESSION_COOKIE);
+
+  if (!env().demoMode) {
+    // Supabase keeps its own `sb-*-auth-token` cookies, which the proxy counts
+    // as a session. Dropping only our two would leave a signed-out user able to
+    // walk straight back in.
+    const supabase = await supabaseServerClient();
+    await supabase?.auth.signOut();
+  }
 }
 
 async function readDemoSession(): Promise<DemoSessionPayload | null> {
@@ -104,9 +112,9 @@ export async function supabaseServerClient() {
  */
 export async function getAuthContext(): Promise<AuthContext | null> {
   const e = env();
-  const store = getStore();
 
   if (e.demoMode) {
+    const store = getStore();
     const session = await readDemoSession();
     if (!session) return null;
     const organization = await store.organizationById(session.organizationId);
@@ -130,6 +138,10 @@ export async function getAuthContext(): Promise<AuthContext | null> {
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) return null;
 
+  // Deliberately after the identity check: `getStore()` now refuses outside
+  // demo mode when no database is configured, and /login must still render its
+  // "not configured" notice rather than throwing.
+  const store = getStore();
   const userId = data.user.id;
   const memberships = await store.membershipsForUser(userId);
   const membership = memberships[0];

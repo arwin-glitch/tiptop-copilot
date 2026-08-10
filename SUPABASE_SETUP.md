@@ -135,27 +135,54 @@ client you create in [GOOGLE_OAUTH_SETUP.md](GOOGLE_OAUTH_SETUP.md).
 - Site URL: your `APP_URL`
 - Redirect URLs: `${APP_URL}/**`
 
-Since this is an internal tool for one organization, restrict who can sign in:
-either turn off public signups and invite users by hand, or add a domain
-restriction. Do this **before** the first real deployment, not after.
+The app's own callback is `${APP_URL}/api/auth/callback`, which `${APP_URL}/**`
+covers. Sign-in is served by `/api/auth/google`; the Gmail and Calendar
+integration is a separate consent at `/api/integrations/google/callback`.
+
+Since this is an internal tool for one organization, restrict who can sign in.
+Do it in **both** places, because they fail differently:
+
+- **`AUTH_ALLOWED_EMAIL_DOMAINS=tiptop.vc`** in the app. The callback rejects
+  anything else and signs the session straight back out.
+- **Supabase dashboard** — turn off public signups, or add a domain
+  restriction. This stops an unwanted `auth.users` row being created at all.
+
+Do this **before** the first real deployment, not after. See §7 for why.
 
 ---
 
-## 7. Bootstrap the first organization
+## 7. The first organization creates itself
 
-Sign in once so Supabase Auth creates your user, then in the SQL editor:
+**Do not insert an organization by hand.** Migration
+`20260101000700_storage_and_bootstrap.sql` installs an `on_auth_user_created`
+trigger that, for every new user with no membership, creates a profile, an
+organization named from the email domain, an `owner` membership and the default
+thesis.
+
+So the first `@tiptop.vc` sign-in produces an organization with the slug
+`tiptop-vc` on its own. An earlier version of this document told you to insert
+that row manually; doing so now fails with a duplicate-key error on
+`organizations.slug`, because the trigger got there first.
+
+Two consequences worth understanding:
+
+1. **Whoever signs in first becomes the owner.** Make sure that is Nick, or
+   whoever should hold it.
+2. **Every subsequent new user gets their *own* organization**, not membership
+   of yours — the trigger only skips users who already have a membership. To
+   add someone to an existing organization, insert their `organization_members`
+   row before they first sign in, or move them afterwards:
 
 ```sql
-insert into organizations (name, slug)
-values ('TipTop VC', 'tiptop-vc')
-returning id;
+-- Find them, then attach them to the right organization.
+select id, email from auth.users order by created_at desc limit 10;
 
--- Use the returned id, and your user id from Authentication → Users:
 insert into organization_members (organization_id, user_id, role)
-values ('<organization-id>', '<your-user-id>', 'owner');
+values ('<organization-id>', '<their-user-id>', 'member')
+on conflict do nothing;
 ```
 
-Without a membership row you will authenticate successfully and then see
+Without a membership row a user authenticates successfully and then sees
 nothing, because every read is scoped through `organization_members`. That is
 the isolation working, not a bug.
 

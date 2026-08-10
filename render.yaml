@@ -31,12 +31,11 @@ services:
       - key: NODE_VERSION
         value: 24.19.0
 
-      # NEXT_PUBLIC_DEMO_MODE is inlined at build time, so it must be present
-      # for `npm run build`, not just at runtime. Render exposes service env
-      # vars to the build, which is why setting it here is sufficient.
+      # DEMO_MODE is read server-side only; nothing in the app reads a
+      # NEXT_PUBLIC_ variant, so it is not set here. (An earlier version of this
+      # file claimed it was inlined at build time and therefore required. It
+      # is not, and it never was.)
       - key: DEMO_MODE
-        value: 'true'
-      - key: NEXT_PUBLIC_DEMO_MODE
         value: 'true'
 
       # Signs the session cookie; at least 32 characters. Entered in the Render

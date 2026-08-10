@@ -140,9 +140,31 @@ Only sent to models that support it. The fast tier never receives it —
 
 Setup walkthrough: [GOOGLE_OAUTH_SETUP.md](GOOGLE_OAUTH_SETUP.md).
 
+### `AUTH_ALLOWED_EMAIL_DOMAINS` — set this before anyone else has the URL
+Comma-separated email domains permitted to sign in, e.g. `tiptop.vc`. A leading
+`@` and surrounding spaces are tolerated; matching is on the full domain, so
+`nottiptop.vc` and `tiptop.vc.example.com` are both rejected.
+
+Empty means no restriction. That is deliberate — a first deployment must not
+lock out its own operator — but it is not a safe resting state. The
+`on_auth_user_created` trigger in `20260101000700_storage_and_bootstrap.sql`
+creates an organization with **owner** role for every new user, so an
+unrestricted project gives a working workspace to anyone who completes Google
+sign-in. Their data is isolated from yours by organization scoping, but the
+login screen's promise that "access is limited to members of the TipTop
+organization" is only true once this is set.
+
+`/diagnostics` reports the unrestricted state as missing rather than ready.
+
 ### `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET`
 Optional. Without them, Inbox and Calendar run on fixtures and Settings says the
 integration is not configured.
+
+These are for the **Gmail and Calendar integration**, not for sign-in. Sign-in
+is Supabase Auth's own Google provider, configured in the Supabase dashboard,
+with the callback `${APP_URL}/api/auth/callback` registered as a redirect URL
+there. The two flows can share one Google client, but they are separate
+consents: one establishes who you are, the other what the app may read.
 
 ### `GOOGLE_REDIRECT_URI`
 Defaults to `${APP_URL}/api/integrations/google/callback`. Set explicitly only
