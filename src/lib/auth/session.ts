@@ -94,8 +94,14 @@ export async function supabaseServerClient() {
             jar.set(name, value, options);
           }
         } catch {
-          // Called from a Server Component where cookies are read-only. The
-          // session refresh still happens in the proxy, so this is safe to skip.
+          // Called from a Server Component, where cookies are read-only.
+          //
+          // Safe to skip *only because* `refreshSession()` in src/proxy.ts runs
+          // first on every request carrying a Supabase session and persists any
+          // rotated tokens there. Without that, the rotated pair is discarded
+          // here and the next request arrives with a spent refresh token — which
+          // presents as a redirect loop between /login and /today, not as an
+          // authentication error. Do not remove the proxy refresh.
         }
       },
     },
