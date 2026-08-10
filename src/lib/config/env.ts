@@ -242,15 +242,49 @@ export function capabilityReport(): CapabilityCheck[] {
     required: true,
   });
 
-  const supabaseReady = has(e.supabaseUrl) && has(e.supabaseAnonKey);
+  // A path on the project URL is the single easiest mistake to make here: the
+  // Supabase dashboard shows both the bare project URL and the RESTful
+  // endpoint ending `/rest/v1`, and copying the wrong one produces
+  // `https://<ref>.supabase.co/rest/v1/auth/v1/authorize` — which answers
+  // {"message":"No API key found in request"} and says nothing about the cause.
+  const supabaseUrlPath = (() => {
+    if (!has(e.supabaseUrl)) return null;
+    try {
+      const path = new URL(e.supabaseUrl as string).pathname.replace(/\/$/, '');
+      return path === '' ? null : path;
+    } catch {
+      return 'malformed';
+    }
+  })();
+
+  const supabaseReady = has(e.supabaseUrl) && has(e.supabaseAnonKey) && supabaseUrlPath === null;
   checks.push({
     key: 'supabase',
     label: 'Supabase database & auth',
     status: supabaseReady ? 'ready' : e.demoMode ? 'demo' : 'missing',
     detail: supabaseReady
       ? 'Project URL and anon key present.'
-      : 'Not configured. Demo mode uses a local file-backed store instead.',
+      : supabaseUrlPath === 'malformed'
+        ? 'NEXT_PUBLIC_SUPABASE_URL is not a valid URL.'
+        : supabaseUrlPath !== null
+          ? `NEXT_PUBLIC_SUPABASE_URL must be the bare project origin, with no path. It currently ends in "${supabaseUrlPath}" — that is the RESTful endpoint, not the project URL. Remove the path.`
+          : 'Not configured. Demo mode uses a local file-backed store instead.',
     variables: ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY'],
+    required: true,
+  });
+
+  // APP_URL silently defaults to localhost, and it builds every OAuth redirect.
+  // Left unset on a hosted deployment, sign-in sends the user to their own
+  // machine — a failure that looks like the identity provider's fault.
+  const appUrlIsLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(e.appUrl);
+  checks.push({
+    key: 'app_url',
+    label: 'Public origin',
+    status: e.demoMode ? 'demo' : appUrlIsLocal ? 'missing' : 'ready',
+    detail: appUrlIsLocal
+      ? `APP_URL is "${e.appUrl}". On a hosted deployment this must be the public origin, because every OAuth redirect is built from it — sign-in will send the user to their own machine.`
+      : `Public origin: ${e.appUrl}`,
+    variables: ['APP_URL'],
     required: true,
   });
 
