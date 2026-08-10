@@ -70,6 +70,15 @@ services:
     name: tiptop-copilot
     runtime: node
     plan: free
+    # Must match the Supabase project's region. Every page runs several queries
+    # in sequence server-side, so a cross-region gap is paid repeatedly per
+    # request — it costs far more than the distance from any one user to the
+    # app, which is a single round trip. Ohio pairs with Supabase us-east-2 and
+    # is the nearest free region to the daily user in Texas.
+    #
+    # Neither Render nor Supabase can move a service between regions. Changing
+    # this means deleting the service and letting the Blueprint recreate it.
+    region: ohio
     buildCommand: npm ci && npm run build
     startCommand: npm run start
     healthCheckPath: /login
