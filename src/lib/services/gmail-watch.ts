@@ -4,6 +4,7 @@ import { GmailProvider } from '@/lib/email/gmail';
 import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
+import { getPrimaryIntegration } from '@/lib/services/inbox';
 import type { Integration } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
 
@@ -39,11 +40,17 @@ export async function ensureGmailWatch(auth: AuthContext): Promise<Result<WatchO
   }
 
   const store = getStore();
-  const integrations = (await store.list('integrations', auth.organizationId, {})) as Integration[];
-  const integration = integrations.find(
-    (i) => i.provider === 'google' && i.status === 'connected' && i.user_id === auth.userId,
-  );
-  if (!integration) return ok({ state: 'not-connected' });
+
+  // The organization's connection, not the caller's. An integration belongs to
+  // the person who authorised it, and the daily job runs as whichever owner
+  // comes first — which is not necessarily the same person. Filtering by
+  // user_id here reported "not-connected" for a mailbox that was connected and
+  // syncing perfectly well, because `syncMailbox` resolves it by organization
+  // and this did not. Same lookup, same answer.
+  const integration = await getPrimaryIntegration(store, auth.organizationId);
+  if (!integration || integration.provider !== 'google' || integration.status !== 'connected') {
+    return ok({ state: 'not-connected' });
+  }
 
   const existing = integration.watch_expires_at ? Date.parse(integration.watch_expires_at) : 0;
   const renewing = existing > 0;
