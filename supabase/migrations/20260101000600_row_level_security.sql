@@ -235,3 +235,33 @@ create policy audit_events_select on audit_events
 
 comment on policy encrypted_tokens_no_client_access on encrypted_provider_tokens is
   'Deliberately denies all client reads. Provider tokens are server-only and additionally require an encryption key held outside the database.';
+
+-- ----------------------------------------------------------------- grants --
+--
+-- Without these the schema is unusable, and the failure is opaque: the server
+-- authenticates a user successfully and then the first query raises
+--
+--   permission denied for table organization_members
+--
+-- Supabase grants the API roles privileges on new tables only when the
+-- project's "Automatically expose new tables" setting is on. That setting is
+-- off by default and Supabase itself recommends leaving it off — so a schema
+-- that relies on it works or fails depending on a checkbox in a dashboard, set
+-- once, months earlier, by someone who has forgotten. Granting explicitly here
+-- makes the migrations self-sufficient either way.
+--
+-- Only `service_role` gets table access. Every read and write in this
+-- application happens server-side under that role; `anon` and `authenticated`
+-- never query a table directly, so they get schema usage and nothing more.
+-- The RLS policies above remain the boundary if that ever changes.
+
+grant usage on schema public to anon, authenticated, service_role;
+
+grant all privileges on all tables in schema public to service_role;
+grant all privileges on all sequences in schema public to service_role;
+grant all privileges on all functions in schema public to service_role;
+
+-- Anything created later, by a future migration, inherits the same.
+alter default privileges in schema public grant all on tables to service_role;
+alter default privileges in schema public grant all on sequences to service_role;
+alter default privileges in schema public grant all on functions to service_role;

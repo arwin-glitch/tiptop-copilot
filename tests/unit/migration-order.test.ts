@@ -164,6 +164,47 @@ describe('generated columns are immutable', () => {
   });
 });
 
+/**
+ * The schema must grant its own privileges.
+ *
+ * Supabase grants the API roles access to new tables only when a project
+ * setting called "Automatically expose new tables" is on — and Supabase itself
+ * recommends leaving it off. A schema that relies on it therefore works or
+ * fails depending on a checkbox ticked once, in a dashboard, months earlier.
+ *
+ * Ours relied on it, and the failure was opaque: sign-in succeeded, then the
+ * first query raised `permission denied for table organization_members`.
+ */
+describe('the schema grants its own privileges', () => {
+  const sql = readdirSync(DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .map((f) => readFileSync(path.join(DIR, f), 'utf8'))
+    .join('\n');
+
+  it('grants table privileges to service_role', () => {
+    expect(sql).toMatch(/grant all privileges on all tables in schema public to service_role/i);
+  });
+
+  it('grants schema usage to the API roles', () => {
+    expect(sql).toMatch(/grant usage on schema public to[^;]*service_role/i);
+  });
+
+  it('sets default privileges so later tables inherit them', () => {
+    expect(sql).toMatch(
+      /alter default privileges in schema public grant all on tables to service_role/i,
+    );
+  });
+
+  it('does not grant table access to anon', () => {
+    // Every query runs server-side under the service role. Granting anon table
+    // access would make a leaked publishable key materially worse, and RLS
+    // would become the only thing standing in the way rather than the second
+    // thing.
+    expect(sql).not.toMatch(/grant\s+(all|select)[^;]*on all tables in schema public to[^;]*anon/i);
+  });
+});
+
 describe('migrations apply in filename order', () => {
   const { files, tables, forward } = analyse();
 
