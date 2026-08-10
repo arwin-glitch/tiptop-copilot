@@ -70,15 +70,48 @@ to answer.
   http://localhost:3000
   https://your-production-domain
   ```
-- Authorised redirect URIs:
+- Authorised redirect URIs — **there are two, for two different flows**:
   ```
+  https://<supabase-project-ref>.supabase.co/auth/v1/callback
   http://localhost:3000/api/integrations/google/callback
   https://your-production-domain/api/integrations/google/callback
   ```
 
+### Why two
+
+They are genuinely separate consents and it is worth understanding which is
+which, because the symptoms of getting them confused look identical.
+
+**Sign-in** goes through Supabase Auth, not through this app. The browser goes
+to Google, Google returns to **Supabase**, and Supabase then redirects to the
+app's `/api/auth/callback`. So the URI Google needs is Supabase's — the app's
+own callback is never registered with Google for this flow, and registering it
+will not help.
+
+**The Gmail and Calendar integration** is the app's own OAuth flow, handled by
+`/api/integrations/google/*`, and that one *does* use
+`${APP_URL}/api/integrations/google/callback`.
+
+One client can serve both; add all the URIs above to it. The scopes differ —
+sign-in requests only identity, the integration requests the three read-only
+scopes in §2 — and Google will ask the user to consent separately. That is
+correct: agreeing to identify yourself is not agreeing to let software read your
+mail.
+
 The redirect URI must match **character for character** — scheme, host, port,
 path, and no trailing slash. A mismatch produces `redirect_uri_mismatch`, and it
 is by a wide margin the most common failure in this setup.
+
+### Enabling sign-in in Supabase
+
+**Authentication → Providers → Google**: enable it and paste the same client ID
+and secret. Supabase shows you the exact callback URL to register — use that
+value rather than typing the pattern above from memory.
+
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the app's environment are for
+the **integration only**. Sign-in reads its credentials from Supabase, so it
+works with those two variables unset — which is the intended state for a
+deployment that wants real accounts but not yet a connected mailbox.
 
 Copy the client ID and secret.
 
