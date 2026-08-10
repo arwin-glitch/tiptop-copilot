@@ -97,6 +97,33 @@ begin
 end;
 $$;
 
+-- Joining a text array, safe for a stored generated column.
+--
+-- `array_to_string` is marked STABLE, not IMMUTABLE, so Postgres refuses it in
+-- a generated column:
+--
+--   ERROR: 42P17: generation expression is not immutable
+--
+-- That marking is conservative for the general `anyarray` case, where output
+-- depends on the element type's output function. For `text[]` joined by a
+-- constant separator there is no such dependence — the result is a pure
+-- function of its inputs — so declaring this wrapper IMMUTABLE is accurate
+-- rather than a convenient lie. Restricting the signature to `text[]` is what
+-- makes that true; do not widen it to `anyarray`.
+
+create or replace function text_array_to_string(arr text[], sep text)
+returns text
+language sql
+immutable
+strict
+parallel safe
+as $$
+  select array_to_string(arr, sep);
+$$;
+
+comment on function text_array_to_string(text[], text) is
+  'Immutable array_to_string restricted to text[], for use in generated columns.';
+
 -- The membership predicates `is_org_member` and `has_org_role` used to live
 -- here. They do not any more, and they cannot: both are `language sql`, which
 -- Postgres validates at creation time, and both read `organization_members` —

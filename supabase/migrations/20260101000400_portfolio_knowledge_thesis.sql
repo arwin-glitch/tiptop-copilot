@@ -176,7 +176,8 @@ alter table network_contacts
     setweight(to_tsvector('english', coalesce(full_name, '')), 'A') ||
     setweight(to_tsvector('english', coalesce(company, '') || ' ' || coalesce(title, '')), 'B') ||
     setweight(to_tsvector('english',
-      coalesce(relationship, '') || ' ' || array_to_string(expertise, ' ') || ' ' || coalesce(notes, '')
+      coalesce(relationship, '') || ' ' || text_array_to_string(expertise, ' ') || ' ' ||
+      coalesce(notes, '')
     ), 'C')
   ) stored;
 

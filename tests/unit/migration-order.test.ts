@@ -100,6 +100,70 @@ function describeAll(refs: Reference[]): string {
     .join('\n');
 }
 
+/**
+ * Stored generated columns may only call IMMUTABLE functions. Postgres refuses
+ * anything else:
+ *
+ *   ERROR: 42P17: generation expression is not immutable
+ *
+ * `array_to_string` was in `network_contacts.search_vector` and is marked
+ * STABLE, so the schema could not be applied. The allowlist is deliberately
+ * short: adding to it should require checking `provolatile` in pg_proc, not a
+ * guess. `to_tsvector` is immutable only in its two-argument form, so the
+ * config argument is checked separately.
+ */
+const IMMUTABLE_IN_GENERATED = new Set([
+  'coalesce',
+  'setweight',
+  'to_tsvector',
+  'text_array_to_string',
+]);
+
+function generatedExpressions(): { file: string; expression: string }[] {
+  const out: { file: string; expression: string }[] = [];
+  for (const file of readdirSync(DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()) {
+    const sql = readFileSync(path.join(DIR, file), 'utf8');
+    for (const m of sql.matchAll(/generated always as\s*\(([\s\S]*?)\)\s*stored/gi)) {
+      out.push({ file, expression: m[1] as string });
+    }
+  }
+  return out;
+}
+
+describe('generated columns are immutable', () => {
+  const expressions = generatedExpressions();
+
+  it('finds the generated columns', () => {
+    expect(expressions.length).toBeGreaterThan(0);
+  });
+
+  it('calls only allowlisted immutable functions', () => {
+    const offenders: string[] = [];
+    for (const { file, expression } of expressions) {
+      for (const m of expression.matchAll(/\b([a-z_][a-z0-9_]*)\s*\(/gi)) {
+        const fn = (m[1] as string).toLowerCase();
+        if (!IMMUTABLE_IN_GENERATED.has(fn)) offenders.push(`${file}: ${fn}()`);
+      }
+    }
+    expect([...new Set(offenders)].join('\n')).toBe('');
+  });
+
+  it('always gives to_tsvector an explicit text search config', () => {
+    // The one-argument form depends on default_text_search_config, which is a
+    // session setting — so it is STABLE and would be rejected.
+    const offenders: string[] = [];
+    for (const { file, expression } of expressions) {
+      for (const m of expression.matchAll(/to_tsvector\s*\(\s*([^,)]*)/gi)) {
+        const firstArg = (m[1] as string).trim();
+        if (!/^'[a-z_]+'$/i.test(firstArg)) offenders.push(`${file}: to_tsvector(${firstArg}…`);
+      }
+    }
+    expect(offenders.join('\n')).toBe('');
+  });
+});
+
 describe('migrations apply in filename order', () => {
   const { files, tables, forward } = analyse();
 
