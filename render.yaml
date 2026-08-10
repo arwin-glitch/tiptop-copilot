@@ -1,21 +1,29 @@
-# Render Blueprint — TipTop Copilot, demo deployment (Path A).
+# Render Blueprint — TipTop Copilot.
 #
-# This describes a DEMO deployment and nothing else. Demo mode uses a
-# file-backed store and a deterministic offline model, so it needs no Supabase,
-# no Google OAuth and no Anthropic key. Every company, person and number it
-# shows is fictional.
+# Two services from one repository:
 #
-# Demo mode has NO AUTHENTICATION: anyone who reaches the URL gets a workspace.
-# That is acceptable here only because the data is invented. Do not point this
-# blueprint at real credentials — a real deployment must set DEMO_MODE=false and
-# follow PUBLISH_CHECKLIST.md instead.
+#   tiptop-copilot-demo   DEMO_MODE=true    fictional data, no login, shareable
+#   tiptop-copilot        DEMO_MODE unset   real data, sign-in required
+#
+# They are deliberately separate rather than one service with a flag, because
+# the demo's whole value is that it can be handed to someone with no
+# credentials, and the real deployment's whole value is that it cannot.
 #
 # Render runs the app as an ordinary Node process (`next start`), not through a
-# serverless adapter, so the writable working directory the demo store needs is
-# simply there. The disk is still ephemeral: a redeploy or a restart resets the
-# fixtures, which is the intended behaviour for a demo.
+# serverless adapter.
 
 services:
+  # ────────────────────────────────────────────────────────────── demo ──
+  #
+  # Demo mode uses a file-backed store and a deterministic offline model, so it
+  # needs no Supabase, no Google OAuth and no Anthropic key. Every company,
+  # person and number it shows is fictional.
+  #
+  # It has NO AUTHENTICATION: anyone who reaches the URL gets a workspace. That
+  # is acceptable only because the data is invented. Never point this service at
+  # a real credential.
+  #
+  # Its disk is ephemeral, so a redeploy resets the fixtures. That is intended.
   - type: web
     name: tiptop-copilot-demo
     runtime: node
@@ -43,4 +51,76 @@ services:
       # file. Without it, demo mode substitutes an ephemeral key and sessions
       # drop on every restart.
       - key: SESSION_SECRET
+        sync: false
+
+  # ────────────────────────────────────────────────────────────── real ──
+  #
+  # Every value below is `sync: false`: entered in the Render dashboard, never
+  # in this file. The repository is public.
+  #
+  # DEMO_MODE is deliberately ABSENT rather than set to 'false'. The app reads
+  # it as a boolean defaulting to false, so absence is the safe state — and a
+  # variable that is not here cannot be flipped to 'true' by an edit to this
+  # file and quietly serve fixtures to a fund.
+  #
+  # Without SUPABASE_SERVICE_ROLE_KEY the app now refuses to start a database or
+  # storage session rather than falling back to the demo store. A failed boot is
+  # the intended outcome; invented companies presented as real is not.
+  - type: web
+    name: tiptop-copilot
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: 24.19.0
+
+      # Public origin. Used to build both OAuth redirect URIs, so it must match
+      # the Render URL exactly — a mismatch fails sign-in with a provider error
+      # that says nothing useful.
+      - key: APP_URL
+        sync: false
+
+      # Signs the session cookie. At least 32 characters.
+      - key: SESSION_SECRET
+        sync: false
+
+      # AES-256-GCM key for stored Google tokens. Must decode to exactly 32
+      # bytes of base64. Losing it means every Google connection is
+      # re-established from scratch; there is no re-encryption path, by design.
+      - key: APP_ENCRYPTION_KEY
+        sync: false
+
+      # Database. Without the service role key the app refuses to start.
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+      # Who may sign in, e.g. tiptop.vc. Empty means anyone who completes Google
+      # sign-in is given their own workspace, because the database provisions an
+      # organization for every new user. Set this before the URL reaches anyone.
+      - key: AUTH_ALLOWED_EMAIL_DOMAINS
+        sync: false
+
+      # Gmail and Calendar. Optional: without them those surfaces report
+      # themselves as not connected rather than failing.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+      # The only variable here that costs money. Without it every AI surface
+      # reports itself unavailable — it does not fabricate, and it does not fall
+      # back to the demo model.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # Authenticates the scheduled daily job. Without it that endpoint rejects
+      # every caller, which is the correct failure.
+      - key: CRON_SECRET
         sync: false
