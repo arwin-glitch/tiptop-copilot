@@ -8,6 +8,33 @@ throughout.
 
 ---
 
+## [0.2.0] — 2026-08-17
+
+### Prompts
+
+- **draft-reply@2.0.0** — the draft voice now matches Nick's actual sent mail
+  (greeting forms, verdict-first openings, natural exclamation points, his own
+  reference phrasings) instead of a sanitised register; adds a hard guardrail
+  against committing money, allocations or terms in any draft; and confines
+  LinkedIn links to outbound introductions — formal full names in the
+  "please meet" lines only, URLs only from supplied sources, never guessed.
+- **scheduling-reply@1.0.0** (new) — pure meeting logistics are drafted in the
+  EA's voice with an introduction and signature, checked against a snapshot of
+  the synced calendar: no overlaps, 8am–6pm Central only, hour-long in-person
+  blocks with travel buffers, reschedules treat the moving slot as free,
+  cancellations get a warm rebook offer, and the draft never initiates moving
+  one of Nick's commitments. New `DraftKind: 'scheduling'` routes to it and
+  supplies the calendar snapshot from synced records.
+- **email-classification@1.3.0** — importance now weighs whose court the ball
+  is in, and list mail, cold pitches, notifications and marketing are pinned to
+  low importance with no deep fetch.
+
+The app remains read-only against Gmail and Calendar. Mailbox-side labelling
+and Gmail drafts are owned by the external triage routines; app drafts stay
+copy-paste, and the write-scope test keeps that structural.
+
+---
+
 ## [0.1.0] — 2026-08-05
 
 First complete build. Every screen works, the full suite passes, and the demo

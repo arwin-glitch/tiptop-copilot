@@ -11,6 +11,7 @@ import {
 } from '@/lib/security/injection';
 import { checkAiBudget, recordAiUsage } from '@/lib/security/limits';
 import type {
+  CalendarEvent,
   Deal,
   DealAnalysis,
   DraftKind,
@@ -107,6 +108,27 @@ export async function createDraft(
     (recipients[0] ? recipients[0].split('@')[0] : null) ??
     'there';
 
+  // Scheduling drafts are checked against the synced calendar. The snapshot is
+  // read from records the app already holds — the calendar itself is never
+  // written to, and stale sync makes the prompt propose fewer, safer slots.
+  let upcomingCalendar: Array<Record<string, unknown>> | null = null;
+  if (input.kind === 'scheduling') {
+    const events = (await store.list(
+      'calendar_events',
+      auth.organizationId,
+      { gte: { starts_at: new Date().toISOString() } },
+      { orderBy: [{ field: 'starts_at', direction: 'asc' }], limit: 40 },
+    )) as CalendarEvent[];
+    upcomingCalendar = events.map((e) => ({
+      title: e.is_private ? 'Private event' : e.title,
+      starts_at: e.starts_at,
+      ends_at: e.ends_at,
+      all_day: e.all_day,
+      location: e.location,
+      likely_in_person: Boolean(e.location && !/\b(meet|zoom|teams|webex)\b/i.test(e.location)),
+    }));
+  }
+
   const context = {
     kind: input.kind,
     company_name: deal?.company_name ?? portfolio?.name ?? null,
@@ -120,14 +142,17 @@ export async function createDraft(
         ? (analysis?.biggest_concern ?? deal?.outcome ?? '')
         : (analysis?.recommended_next_step ?? ''),
     recommendation: analysis?.recommendation ?? null,
+    ...(upcomingCalendar ? { upcoming_calendar: upcomingCalendar } : {}),
   };
+
+  const prompt = input.kind === 'scheduling' ? PROMPTS.schedulingReply : PROMPTS.draftReply;
 
   const ai = getAI();
   const response = await ai.generateStructured({
     tier: 'deep',
     operation: 'draft.reply',
-    promptVersion: PROMPTS.draftReply.version,
-    system: PROMPTS.draftReply.system,
+    promptVersion: prompt.version,
+    system: prompt.system,
     messages: [
       {
         role: 'user',
@@ -150,7 +175,7 @@ Write the draft. This will be reviewed and sent by Nick himself — the product 
     organizationId: auth.organizationId,
     userId: auth.userId,
     operation: 'draft.reply',
-    promptVersion: PROMPTS.draftReply.version,
+    promptVersion: prompt.version,
     usage: response.ok ? response.value.usage : null,
     ok: response.ok,
     errorCode: response.ok ? null : response.error.code,
@@ -171,7 +196,7 @@ Write the draft. This will be reviewed and sent by Nick himself — the product 
     email_message_id: input.emailMessageId ?? null,
     sent: false,
     model: response.value.usage.model,
-    prompt_version: PROMPTS.draftReply.version,
+    prompt_version: prompt.version,
     created_by: auth.userId,
     created_at: now,
     updated_at: now,

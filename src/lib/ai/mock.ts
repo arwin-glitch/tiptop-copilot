@@ -881,6 +881,24 @@ ${reason || 'I can help with the ask. Let me come back to you this week with nam
 
 Nick`;
       break;
+    case 'scheduling':
+      subject = `Re: ${String(context.subject ?? 'scheduling')}`;
+      body = `Hi ${recipient},
+
+Great to meet you! I'm Arwin, I support Nick and help coordinate his calendar. Would any of the following times work for a quick call?
+
+• Tuesday 10:00–10:30 AM CT
+• Wednesday 2:00–2:30 PM CT
+
+Happy to work around your schedule if none of these fit.
+
+Best,
+Arwin
+
+Arwin Reyes
+EA to Nick Tippmann | TipTop VC
+arwin@tiptop.vc`;
+      break;
     default:
       subject = `Re: ${String(context.subject ?? company)}`;
       body = `Hi ${recipient},
@@ -903,7 +921,9 @@ Nick`;
         ? 'Decline clearly and courteously with the real reason.'
         : kind === 'missing_information'
           ? 'Request the specific items needed to make a decision.'
-          : 'Move the conversation forward.',
+          : kind === 'scheduling'
+            ? "Propose conflict-free times on Nick's behalf as his EA."
+            : 'Move the conversation forward.',
     asserted_facts: facts,
   };
 }

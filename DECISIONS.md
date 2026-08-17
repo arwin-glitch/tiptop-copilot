@@ -343,3 +343,46 @@ a reason to fix them cheaply, not a reason to leave them.
 why*. The override is what the whole app and the exported memo will show; the
 reason is the only part of it that carries information forward. Accepting a
 blank one silently discards the signal the feature exists to capture.
+
+### D-046 — The draft voice is Nick's actual voice
+
+**Context.** `draft-reply@1.2.0` prescribed a generic direct-warm register and
+banned exclamation marks. Reading Nick's real sent mail while operating the
+mailbox triage routines showed the opposite: natural exclamation points,
+"Hey X -" greetings, verdict-first openings, and recurring signature phrasings
+("Thanks for sharing this and thinking of me!", "will review internally and
+circle back").
+
+**Decision.** `draft-reply@2.0.0` encodes the observed voice with reference
+phrasings lifted from the outbox, adds a hard guardrail — no commitments,
+amounts, allocations or legal terms in any draft — and confines LinkedIn links
+to outbound introductions, on formal full names only, with URLs taken only from
+supplied sources.
+
+**Why.** A draft Nick has to rewrite to sound like himself saves nothing; the
+evidence for the voice is his own sent mail. The guardrail exists because a
+warmer voice makes accidental commitment language more likely, not less. The
+link rule follows his house style, and "verified or unlinked" beats a plausible
+but wrong profile in a live introduction.
+
+### D-047 — Scheduling drafts speak as the EA, against a calendar snapshot
+
+**Context.** Scheduling logistics are handled by Arwin, not Nick — and the
+external triage routines already answer such threads in Arwin's voice after
+checking the calendar. The app drafted everything as Nick and never looked at
+the calendar at all.
+
+**Decision.** A new `DraftKind: 'scheduling'` routes to
+`scheduling-reply@1.0.0`, which speaks as Arwin (introduction and signature)
+and receives a snapshot of upcoming synced `calendar_events` to propose
+conflict-free, business-hours slots with travel buffers around in-person
+commitments. Reschedules treat the moving slot as free; cancellations get a
+warm rebook offer; the prompt never initiates moving one of Nick's
+commitments. The app stays read-only: the draft proposes, nothing writes to
+the calendar, and the Google write-scope test keeps that true.
+
+**Why.** The division of labour is deliberate: the routines act in the
+mailbox; the app judges and drafts for copy-paste. Giving the app the same
+scheduling intelligence without any new authority keeps one brain across both
+surfaces. The snapshot comes from records rather than a live tool call so a
+stale sync degrades to fewer, safer proposals instead of wrong ones.

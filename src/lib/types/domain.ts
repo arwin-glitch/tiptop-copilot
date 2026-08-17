@@ -845,7 +845,8 @@ export type DraftKind =
   | 'follow_up'
   | 'meeting_request'
   | 'portfolio_reply'
-  | 'generic_reply';
+  | 'generic_reply'
+  | 'scheduling';
 
 export interface GeneratedDraft {
   id: Uuid;

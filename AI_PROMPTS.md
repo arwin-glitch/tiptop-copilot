@@ -1,7 +1,7 @@
 # AI prompts
 
-Where the prompts live, how they are versioned, and — the part that matters
-most — where the model's authority stops.
+Where the prompts live, how they are versioned, and â€” the part that matters
+most â€” where the model's authority stops.
 
 Source: `src/lib/ai/prompts/index.ts`. Schemas: `src/lib/ai/schemas.ts`.
 
@@ -36,14 +36,15 @@ record that prompt produced:
 
 ```ts
 export const PROMPT_VERSIONS = {
-  emailClassification:   'email-classification@1.2.0',
+  emailClassification:   'email-classification@1.3.0',
   dealExtraction:        'deal-extraction@1.3.0',
   attachmentExtraction:  'attachment-extraction@1.1.0',
   dealAnalysis:          'deal-analysis@1.4.0',
   dailyOutlook:          'daily-outlook@1.3.0',
   conversationalToolUse: 'chat-tools@1.3.0',
   portfolioUpdate:       'portfolio-update@1.2.0',
-  draftReply:            'draft-reply@1.2.0',
+  draftReply:            'draft-reply@2.0.0',
+  schedulingReply:       'scheduling-reply@1.0.0',
   injectionDetection:    'injection-detection@1.1.0',
   dealComparison:        'deal-comparison@1.1.0',
 } as const;
@@ -63,7 +64,7 @@ or the meaning of a field changes.
 
 ---
 
-## 3. `CORE_RULES` — present in every system prompt
+## 3. `CORE_RULES` â€” present in every system prompt
 
 Four blocks, each earning its place.
 
@@ -87,7 +88,7 @@ asked; an attempt must be *reported in the answer*, not passed over.
   extrapolate, or fill a gap with a plausible value.
 - Distinguish a verified fact, a founder's claim, a third party's claim, your
   own inference, and Nick's own note.
-- A founder's numbers are a founder claim until corroborated — and say so.
+- A founder's numbers are a founder claim until corroborated â€” and say so.
 
 ### Authority limits
 - You may recommend. You may not decide.
@@ -100,26 +101,27 @@ asked; an attempt must be *reported in the answer*, not passed over.
 - Never initiate or describe executing a financial transaction.
 - Use only the tools given, and never claim to have used a tool you did not.
 
-These are belt to the code's braces. Each one is *also* enforced structurally —
-by an enum, a check constraint, a missing function, or a validator — because a
+These are belt to the code's braces. Each one is *also* enforced structurally â€”
+by an enum, a check constraint, a missing function, or a validator â€” because a
 prompt is guidance and a constraint is a guarantee.
 
 ---
 
-## 4. The ten prompts
+## 4. The eleven prompts
 
 | Prompt | Tier | Schema | Job |
 | --- | --- | --- | --- |
-| `emailClassification` | fast | `emailClassificationSchema` | Category, importance 0–100, whether a deep fetch is warranted, whether it contains instructions to an AI. Metadata and snippet only. |
+| `emailClassification` | fast | `emailClassificationSchema` | Category, importance 0â€“100, whether a deep fetch is warranted, whether it contains instructions to an AI. Metadata and snippet only. |
 | `dealExtraction` | fast | `dealExtractionSchema` | 28 fields, each with a value-or-null, a provenance type, a citation and a confidence. |
-| `attachmentExtraction` | fast | — | Page-aware reading of a deck or document. |
+| `attachmentExtraction` | fast | â€” | Page-aware reading of a deck or document. |
 | `dealAnalysis` | deep | `dealAnalysisSchema` | Per-category score and rationale with citations, red flags, upside and downside, diligence questions. |
 | `dailyOutlook` | deep | `dailyOutlookSchema` | Narrows and phrases a candidate set already assembled from records. |
 | `conversationalToolUse` | deep | `chatAnswerSchema` | Ask. Reaches data only through the allowlisted tools. |
 | `portfolioUpdate` | fast | `portfolioUpdateSchema` | Typed ask, urgency, and suggested contacts **from the supplied list only**. |
-| `draftReply` | deep | `draftReplySchema` | A draft, plus the facts it asserts so they can be checked before sending. |
+| `draftReply` | deep | `draftReplySchema` | A draft in Nick's observed voice, plus the facts it asserts so they can be checked before sending. Never commits money or terms; LinkedIn links only in outbound intros, on formal full names, from supplied sources. |
+| `schedulingReply` | deep | `draftReplySchema` | Meeting logistics drafted in the EA's voice (introduction + signature), checked against a supplied snapshot of the synced calendar: no overlaps, 8am–6pm CT, hour + travel buffers for in-person, reschedules free the moving slot, cancellations get a warm rebook offer, never initiates moving Nick's commitments. |
 | `injectionDetection` | fast | `injectionDetectionSchema` | Second opinion on suspicious spans. Advisory: it can add to the deterministic flag, never clear it. |
-| `dealComparison` | deep | `dealComparisonSchema` | Compares 2–4 deals on the dimensions that would change a decision. |
+| `dealComparison` | deep | `dealComparisonSchema` | Compares 2â€“4 deals on the dimensions that would change a decision. |
 
 Tiers come from `AI_MODEL_FAST` and `AI_MODEL_DEEP`. Model ids are never
 hard-coded at a call site.
@@ -130,9 +132,9 @@ hard-coded at a call site.
 
 Every structured call sends a Zod schema converted by `toModelJsonSchema()`:
 
-- `$ref`/`$defs` are inlined — Zod 4 emits draft-2020-12; the API wants it flat.
+- `$ref`/`$defs` are inlined â€” Zod 4 emits draft-2020-12; the API wants it flat.
 - Unsupported keywords are stripped (`minLength`, `maxLength`, `minimum`,
-  `pattern`, `format`, …).
+  `pattern`, `format`, â€¦).
 - Every object gets `additionalProperties: false` and a complete `required`
   array.
 
@@ -163,7 +165,7 @@ null means unscored, which is not zero.
 
 `claude-haiku-4-5` does not support adaptive thinking or `effort`.
 `AnthropicProvider` gates both behind `supportsAdaptiveThinking()` and
-`supportsEffort()` — sending them to Haiku is a 400.
+`supportsEffort()` â€” sending them to Haiku is a 400.
 
 ---
 
@@ -188,7 +190,7 @@ It runs whenever `DEMO_MODE=true` or `ANTHROPIC_API_KEY` is absent.
 1. Edit the prompt in `src/lib/ai/prompts/index.ts`.
 2. Bump its version in `PROMPT_VERSIONS`.
 3. If the output shape changed, update the Zod schema and its unit test.
-4. `npm test` — the schema tests will catch a shape change; the integration
+4. `npm test` â€” the schema tests will catch a shape change; the integration
    tests will catch a behavioural one.
 5. `npm run dev:demo` and walk the affected screen. The offline model derives
    from fixtures, so a grounding regression is visible immediately.
