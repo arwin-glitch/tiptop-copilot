@@ -5,7 +5,11 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
   return (
     <div
       className={cn(
-        'rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]',
+        // A raised surface now actually looks raised. The border alone was
+        // doing all the work, which is why a page of cards read as a page of
+        // outlines. `--elevation-raised` is deliberately faint — one step, not
+        // a drop shadow.
+        'shadow-raised rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]',
         className,
       )}
       {...props}
@@ -53,12 +57,29 @@ export function CardFooter({ className, ...props }: React.HTMLAttributes<HTMLDiv
   );
 }
 
-/** Small label above a value in a definition-style layout. */
-export function FieldLabel({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) {
+/**
+ * The small uppercase label that names a value, a sub-section or a column.
+ *
+ * It renders as whatever element the position calls for, because this label is
+ * sometimes a real heading in the document outline (`h2`/`h3` inside a card),
+ * sometimes the term half of a definition list (`dt`), and sometimes just a
+ * caption (`p`/`span`). Getting that wrong is not cosmetic — the accessibility
+ * suite reads the heading structure.
+ *
+ * `font-sans` is explicit because the base layer sets a serif face on h1–h3,
+ * and a serif micro-caps label looks like a mistake.
+ */
+export function FieldLabel({
+  className,
+  as: Tag = 'span',
+  ...props
+}: React.HTMLAttributes<HTMLElement> & {
+  as?: 'span' | 'p' | 'dt' | 'h2' | 'h3' | 'h4';
+}) {
   return (
-    <span
+    <Tag
       className={cn(
-        'text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase',
+        'text-micro font-sans font-medium tracking-wider text-[var(--fg-subtle)] uppercase',
         className,
       )}
       {...props}

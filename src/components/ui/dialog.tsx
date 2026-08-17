@@ -15,7 +15,10 @@ function Overlay({
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>) {
   return (
     <DialogPrimitive.Overlay
-      className={cn('fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px]', className)}
+      className={cn(
+        'fixed inset-0 z-[var(--z-overlay)] bg-black/40 backdrop-blur-[2px]',
+        className,
+      )}
       {...props}
     />
   );
@@ -36,7 +39,7 @@ export function DialogContent({
       <Overlay />
       <DialogPrimitive.Content
         className={cn(
-          'fixed top-1/2 left-1/2 z-50 flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)] shadow-xl',
+          'shadow-overlay fixed top-1/2 left-1/2 z-[var(--z-overlay)] flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--bg-raised)]',
           className,
         )}
         {...props}
@@ -95,7 +98,7 @@ export function Drawer({
       <Overlay />
       <DialogPrimitive.Content
         className={cn(
-          'fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-[var(--border)] bg-[var(--bg-raised)] shadow-2xl',
+          'shadow-overlay fixed inset-y-0 right-0 z-[var(--z-overlay)] flex w-full max-w-xl flex-col border-l border-[var(--border)] bg-[var(--bg-raised)]',
           className,
         )}
         {...props}

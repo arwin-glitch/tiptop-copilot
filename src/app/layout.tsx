@@ -54,9 +54,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="min-h-dvh antialiased">
+        {/* The skip link outranks the demo banner deliberately. Both used to sit
+            on z-50, and the banner renders later in the document, so the first
+            thing a keyboard user reached could be painted underneath it. */}
         <a
           href="#main"
-          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-[var(--accent)] focus:px-3 focus:py-2 focus:text-sm focus:text-[var(--accent-fg)]"
+          className="focus:shadow-lifted sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[var(--z-toast)] focus:rounded-md focus:bg-[var(--accent)] focus:px-3 focus:py-2 focus:text-sm focus:text-[var(--accent-fg)]"
         >
           Skip to content
         </a>

@@ -21,7 +21,59 @@
   --font-mono:
     ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
+  --radius-field: 0.375rem;
   --radius-card: 0.625rem;
+  --radius-panel: 0.875rem;
+
+  /* Type scale.
+     Named for the job rather than the size, because the sizes are unusual: this
+     is a dense product and the useful steps sit between Tailwind's defaults.
+     The default `text-xs`/`sm`/`base` scale is left untouched and still works —
+     these are additions, so no existing class changes meaning. */
+  --text-micro: 0.6875rem; /* 11px — eyebrows, badge text, table meta */
+  --text-micro--line-height: 1.45;
+  --text-mini: 0.75rem; /* 12px — dense secondary lines */
+  --text-mini--line-height: 1.45;
+  --text-note: 0.8125rem; /* 13px — chips, compact controls */
+  --text-note--line-height: 1.5;
+  --text-read: 0.9375rem; /* 15px — prose set for reading, not scanning */
+  --text-read--line-height: 1.65;
+  --text-title: 1.0625rem; /* 17px — card and section titles */
+  --text-title--line-height: 1.35;
+  --text-display: 1.75rem; /* 28px — page h1 */
+  --text-display--line-height: 1.15;
+  --text-display-lg: 2.125rem; /* 34px — the one screen that earns it */
+  --text-display-lg--line-height: 1.1;
+
+  /* Motion.
+     Fast and purposeful: nothing here is slow enough to wait for. The
+     reduced-motion block at the end of this file collapses all of it. */
+  --ease-entrance: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  --animate-fade-in: fade-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-rise: rise 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 
   /* Brand palette, from the TipTop brand pack:
      #241B1B ink · #2C5345 deep green · #2B6D56 green · #0FC382 bright green
@@ -78,6 +130,41 @@
   --danger-soft: #f7e8e5;
   --info-soft: #e7f6f7;
   --neutral-soft: #efece8;
+
+  /* Elevation.
+     Tinted with the brand ink rather than pure black: a neutral-black shadow
+     over #FAF8F6 paper reads grey and dirty, and the warmth is the whole point
+     of the palette. Three steps only — a surface is resting, lifted, or over
+     the page. Anything more and the hierarchy stops meaning anything. */
+  --elevation-raised: 0 1px 2px rgb(36 27 27 / 0.04), 0 1px 1px rgb(36 27 27 / 0.03);
+  --elevation-lifted: 0 2px 4px rgb(36 27 27 / 0.05), 0 4px 12px rgb(36 27 27 / 0.05);
+  --elevation-overlay: 0 8px 24px rgb(36 27 27 / 0.1), 0 2px 6px rgb(36 27 27 / 0.06);
+
+  /* Motion durations. Paired with the --ease-* tokens in @theme. */
+  --motion-instant: 90ms;
+  --motion-fast: 140ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+
+  /* Stacking order, named so the numbers stop being guesses. Previously z-30,
+     z-40 and z-50 were picked independently in three files and the dialog
+     shared a layer with the demo banner. */
+  --z-sticky: 20;
+  --z-header: 30;
+  --z-nav: 40;
+  --z-banner: 50;
+  --z-overlay: 60;
+  --z-toast: 70;
+
+  /* Page rhythm. One gutter and one stack step, so screens agree. */
+  --gutter: 1rem;
+  --stack: 1.5rem;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --gutter: 1.5rem;
+  }
 }
 
 .dark {
@@ -116,6 +203,16 @@
   --danger-soft: #241512;
   --info-soft: #12262a;
   --neutral-soft: #221b1a;
+
+  /* A shadow on a dark ground barely reads, so elevation here is carried by a
+     deeper cast *plus* a one-pixel top highlight — the panel catches light
+     rather than dropping shade. Same three steps, same token names, so no
+     component needs to know which theme it is in. */
+  --elevation-raised: inset 0 1px 0 rgb(250 248 246 / 0.03), 0 1px 2px rgb(0 0 0 / 0.35);
+  --elevation-lifted:
+    inset 0 1px 0 rgb(250 248 246 / 0.04), 0 2px 6px rgb(0 0 0 / 0.4), 0 8px 20px rgb(0 0 0 / 0.3);
+  --elevation-overlay:
+    inset 0 1px 0 rgb(250 248 246 / 0.05), 0 12px 32px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.4);
 }
 
 @theme inline {
@@ -140,6 +237,13 @@
   --color-danger-soft: var(--danger-soft);
   --color-info-soft: var(--info-soft);
   --color-neutral-soft: var(--neutral-soft);
+
+  /* `inline` so these resolve through the cascade: one `shadow-raised` class
+     picks up the warm shadow on paper and the highlight-plus-cast in dark,
+     without a `dark:` variant at any call site. */
+  --shadow-raised: var(--elevation-raised);
+  --shadow-lifted: var(--elevation-lifted);
+  --shadow-overlay: var(--elevation-overlay);
 }
 
 @layer base {
@@ -187,6 +291,16 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    /* The tokens are collapsed as well as the computed durations: anything
+       that reads --motion-* directly (a JS-driven transition, an inline style)
+       gets the same answer as a CSS transition does. */
+    :root {
+      --motion-instant: 1ms;
+      --motion-fast: 1ms;
+      --motion-base: 1ms;
+      --motion-slow: 1ms;
+    }
+
     *,
     *::before,
     *::after {

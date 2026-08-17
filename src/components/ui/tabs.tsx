@@ -28,7 +28,7 @@ export function TabsTrigger({
   return (
     <TabsPrimitive.Trigger
       className={cn(
-        'relative -mb-px shrink-0 border-b-2 border-transparent px-3 py-2 text-sm font-medium whitespace-nowrap text-[var(--fg-muted)] transition-colors',
+        'relative -mb-px shrink-0 border-b-2 border-transparent px-3 py-2 text-sm font-medium whitespace-nowrap text-[var(--fg-muted)] transition-colors duration-[var(--motion-fast)]',
         'hover:text-[var(--fg)]',
         'data-[state=active]:border-[var(--accent)] data-[state=active]:text-[var(--fg)]',
         className,
@@ -42,5 +42,12 @@ export function TabsContent({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>) {
-  return <TabsPrimitive.Content className={cn('pt-4 outline-none', className)} {...props} />;
+  // A short fade on arrival, so switching tabs reads as a change rather than a
+  // flicker. The reduced-motion block in globals.css collapses it to nothing.
+  return (
+    <TabsPrimitive.Content
+      className={cn('animate-fade-in pt-4 outline-none', className)}
+      {...props}
+    />
+  );
 }
