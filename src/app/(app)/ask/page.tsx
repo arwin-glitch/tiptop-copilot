@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { requireAuth } from '@/lib/auth/session';
-import { getStore } from '@/lib/runtime';
+import { getAI, getStore } from '@/lib/runtime';
 import { getThread, listThreads, SUGGESTED_QUESTIONS } from '@/lib/services/chat';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { AskClient } from '@/components/ask/ask-client';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, FieldLabel } from '@/components/ui/card';
 import type { ChatMessage, Deal } from '@/lib/types/domain';
 import { relativeTime } from '@/lib/util/time';
 
@@ -25,6 +25,11 @@ export default async function AskPage({
   const auth = await requireAuth();
   const store = getStore();
 
+  // Asked on the server, before anything is drawn. Previously this screen
+  // offered a composer and eight suggested questions with no key configured,
+  // and only said so as a toast *after* the user had typed and pressed Ask.
+  const aiAvailable = getAI().available();
+
   const [threads, deal] = await Promise.all([
     listThreads(auth.organizationId, auth.userId, 15),
     dealId ? (store.get('deals', auth.organizationId, dealId) as Promise<Deal | null>) : null,
@@ -40,7 +45,11 @@ export default async function AskPage({
     <PageShell className="max-w-4xl">
       <PageHeader
         title="Ask TipTop"
-        subtitle="One question, one direct answer, with the record it came from."
+        subtitle={
+          aiAvailable
+            ? 'One question, one direct answer, with the record it came from.'
+            : 'Answering questions needs an AI provider, which is not connected. Past conversations are still here to read.'
+        }
       />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_220px]">
@@ -51,14 +60,13 @@ export default async function AskPage({
           dealName={deal?.company_name ?? null}
           suggestions={SUGGESTED_QUESTIONS}
           initialQuestion={initialQuestion}
+          aiAvailable={aiAvailable}
         />
 
         <aside className="order-first lg:order-last">
           <Card>
             <CardContent className="pt-4">
-              <h2 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                Recent
-              </h2>
+              <FieldLabel as="h2">Recent</FieldLabel>
               {threads.length === 0 ? (
                 <p className="mt-2 text-xs text-[var(--fg-subtle)]">No conversations yet.</p>
               ) : (

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { requireAuth } from '@/lib/auth/session';
-import { getStore } from '@/lib/runtime';
+import { getAI, getStore } from '@/lib/runtime';
 import { getPrimaryIntegration, listInbox } from '@/lib/services/inbox';
 import { listDeals } from '@/lib/services/deals';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
@@ -28,7 +28,14 @@ export default async function InboxPage({
     <PageShell>
       <PageHeader
         title="Inbox"
-        subtitle="Metadata is synced by default. Full message text is fetched when you open a message or when the classifier flags it as consequential."
+        subtitle={
+          // The old copy promised a classifier. With no provider connected
+          // there isn't one, and describing behaviour the app cannot perform
+          // is the same failure as offering a button that cannot work.
+          getAI().available()
+            ? 'Metadata is synced by default. Full message text is fetched when you open a message or when the classifier flags it as consequential.'
+            : 'Metadata is synced by default. Full message text is fetched when you open a message. Nothing is classified automatically — no AI provider is connected.'
+        }
       />
       <Suspense fallback={<SkeletonText lines={8} />}>
         <InboxContent
@@ -89,6 +96,7 @@ async function InboxContent({
       selectedId={selectedId}
       mailboxConnected={Boolean(integration && integration.status === 'connected')}
       filters={{ q, category, unread, days }}
+      aiAvailable={getAI().available()}
     />
   );
 }

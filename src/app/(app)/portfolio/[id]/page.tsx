@@ -2,10 +2,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/auth/session';
+import { getAI } from '@/lib/runtime';
 import { getPortfolioDetail } from '@/lib/services/portfolio';
 import { PageHeader, PageShell, DataRow, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, FieldLabel } from '@/components/ui/card';
 import { EmptyState, PlainText } from '@/components/ui/feedback';
 import { ClassifyEmailButton, RequestActions } from '@/components/portfolio/portfolio-client';
 import { CreateFollowUpButton, TaskControls } from '@/components/today/today-actions';
@@ -37,6 +38,7 @@ export default async function PortfolioCompanyPage({
 
   const { company, contacts, updates, tasks, emails } = detail;
   const openTasks = tasks.filter((t) => t.status === 'open');
+  const aiAvailable = getAI().available();
 
   return (
     <PageShell>
@@ -120,7 +122,10 @@ export default async function PortfolioCompanyPage({
                       >
                         {m.subject ?? '(no subject)'}
                       </Link>
-                      <ClassifyEmailButton messageId={m.id} />
+                      {/* Same model call as the Inbox actions, so it is gated
+                          the same way rather than left as the one button on
+                          the site that still fails. */}
+                      {aiAvailable ? <ClassifyEmailButton messageId={m.id} /> : null}
                     </div>
                     <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
                       {m.from_name ?? m.from_address} · {relativeTime(m.sent_at)}
@@ -140,9 +145,7 @@ export default async function PortfolioCompanyPage({
         <aside className="space-y-6">
           <Card>
             <CardContent className="pt-4">
-              <h2 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                Company
-              </h2>
+              <FieldLabel as="h2">Company</FieldLabel>
               <dl className="mt-2 divide-y divide-[var(--border)]">
                 <DataRow label="Stage">{company.current_stage ?? unknown()}</DataRow>
                 <DataRow label="Latest round">{company.latest_round ?? unknown()}</DataRow>
@@ -168,9 +171,7 @@ export default async function PortfolioCompanyPage({
 
           <Card>
             <CardContent className="pt-4">
-              <h2 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                Contacts
-              </h2>
+              <FieldLabel as="h2">Contacts</FieldLabel>
               {contacts.length === 0 ? (
                 <p className="mt-2 text-sm text-[var(--fg-subtle)]">None recorded.</p>
               ) : (
@@ -191,9 +192,7 @@ export default async function PortfolioCompanyPage({
 
           <Card>
             <CardContent className="pt-4">
-              <h2 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                Tasks
-              </h2>
+              <FieldLabel as="h2">Tasks</FieldLabel>
               {openTasks.length === 0 ? (
                 <p className="mt-2 text-sm text-[var(--fg-subtle)]">No open tasks.</p>
               ) : (

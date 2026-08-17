@@ -26,9 +26,10 @@ import {
 import { CreateFollowUpButton } from '@/components/today/today-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, FieldLabel } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { EmptyState, Notice, PlainText } from '@/components/ui/feedback';
+import { NotConfigured } from '@/components/ui/not-configured';
 import { Input, Select } from '@/components/ui/form';
 import {
   EMAIL_CATEGORIES,
@@ -51,12 +52,15 @@ export function InboxClient({
   selectedId,
   mailboxConnected,
   filters,
+  aiAvailable,
 }: {
   messages: InboxMessageView[];
   deals: Pick<Deal, 'id' | 'company_name'>[];
   selectedId: string | null;
   mailboxConnected: boolean;
   filters: { q: string; category: string; unread: boolean; days: string };
+  /** Decided on the server. Gates the three actions here that call a model. */
+  aiAvailable: boolean;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -232,7 +236,7 @@ export function InboxClient({
 
       <div className="min-w-0">
         {selected ? (
-          <MessageDetail message={selected} deals={deals} />
+          <MessageDetail message={selected} deals={deals} aiAvailable={aiAvailable} />
         ) : (
           <Card>
             <CardContent className="pt-5">
@@ -250,9 +254,11 @@ export function InboxClient({
 function MessageDetail({
   message,
   deals,
+  aiAvailable,
 }: {
   message: InboxMessageView;
   deals: Pick<Deal, 'id' | 'company_name'>[];
+  aiAvailable: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
@@ -307,57 +313,65 @@ function MessageDetail({
         ) : null}
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="primary"
-            loading={pending}
-            onClick={() =>
-              run(
-                () => analyzeAsDealAction(message.id),
-                (data) => {
-                  const d = data as { dealId: string; created: boolean; duplicates: number };
-                  toast.success(
-                    d.created ? 'Deal created and analysed' : 'Attached to existing deal',
-                    {
-                      description:
-                        d.duplicates > 0
-                          ? `${d.duplicates} possible duplicate(s) flagged for review.`
-                          : undefined,
-                      action: { label: 'Open', onClick: () => router.push(`/deals/${d.dealId}`) },
-                    },
-                  );
-                },
-              )
-            }
-          >
-            <Sparkles aria-hidden="true" />
-            Analyse as deal
-          </Button>
+          {/* "Analyse as deal" and "Draft reply" are both model calls. Attaching
+              to an existing deal, categorising, creating a task and ignoring are
+              not, so they stay available with the provider switched off — the
+              Inbox remains fully usable, it just stops offering to think. */}
+          {aiAvailable ? (
+            <Button
+              size="sm"
+              variant="primary"
+              loading={pending}
+              onClick={() =>
+                run(
+                  () => analyzeAsDealAction(message.id),
+                  (data) => {
+                    const d = data as { dealId: string; created: boolean; duplicates: number };
+                    toast.success(
+                      d.created ? 'Deal created and analysed' : 'Attached to existing deal',
+                      {
+                        description:
+                          d.duplicates > 0
+                            ? `${d.duplicates} possible duplicate(s) flagged for review.`
+                            : undefined,
+                        action: { label: 'Open', onClick: () => router.push(`/deals/${d.dealId}`) },
+                      },
+                    );
+                  },
+                )
+              }
+            >
+              <Sparkles aria-hidden="true" />
+              Analyse as deal
+            </Button>
+          ) : null}
 
           <AttachToDealButton messageId={message.id} deals={deals} />
 
-          <Button
-            size="sm"
-            variant="secondary"
-            loading={pending}
-            onClick={() =>
-              run(
-                () =>
-                  createDraftAction({
-                    kind: 'generic_reply',
-                    emailMessageId: message.id,
-                    dealId: message.linked_deal_id ?? undefined,
-                  }),
-                (data) => {
-                  const d = data as { subject: string; body: string };
-                  setDraft(d);
-                  toast.success('Draft created — not sent');
-                },
-              )
-            }
-          >
-            Draft reply
-          </Button>
+          {aiAvailable ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={pending}
+              onClick={() =>
+                run(
+                  () =>
+                    createDraftAction({
+                      kind: 'generic_reply',
+                      emailMessageId: message.id,
+                      dealId: message.linked_deal_id ?? undefined,
+                    }),
+                  (data) => {
+                    const d = data as { subject: string; body: string };
+                    setDraft(d);
+                    toast.success('Draft created — not sent');
+                  },
+                )
+              }
+            >
+              Draft reply
+            </Button>
+          ) : null}
 
           <CreateFollowUpButton
             emailMessageId={message.id}
@@ -381,6 +395,19 @@ function MessageDetail({
             {message.is_ignored ? 'Un-ignore' : 'Ignore'}
           </Button>
         </div>
+
+        {!aiAvailable ? (
+          // Says why two buttons are missing. A silently shorter toolbar reads
+          // as a product that never had the feature, rather than one where a
+          // capability is switched off.
+          <NotConfigured
+            variant="inline"
+            className="mt-3"
+            title="Analysing and drafting are unavailable."
+            description="No AI provider is connected. You can still attach this message to a deal, set its category, create a task or ignore it."
+            action={{ label: 'See what is configured', href: '/diagnostics' }}
+          />
+        ) : null}
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <label className="text-xs text-[var(--fg-subtle)]" htmlFor="recategorize">
@@ -412,9 +439,7 @@ function MessageDetail({
 
         {draft ? (
           <div className="mt-4 rounded-md border border-[var(--border)] bg-[var(--bg-sunken)] p-3">
-            <p className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-              Draft — not sent
-            </p>
+            <FieldLabel as="p">Draft — not sent</FieldLabel>
             <p className="mt-1.5 text-sm font-medium">{draft.subject}</p>
             <PlainText text={draft.body} className="mt-2 text-[var(--fg-muted)]" />
             <Button
@@ -433,9 +458,7 @@ function MessageDetail({
 
         {message.attachments.length > 0 ? (
           <div className="mt-5">
-            <h3 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-              Attachments
-            </h3>
+            <FieldLabel as="h3">Attachments</FieldLabel>
             <ul className="mt-2 space-y-2">
               {message.attachments.map((a) => (
                 <li
@@ -473,9 +496,9 @@ function MessageDetail({
         ) : null}
 
         <div className="mt-5 border-t border-[var(--border)] pt-4">
-          <h3 className="mb-2 text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
+          <FieldLabel as="h3" className="mb-2">
             Message
-          </h3>
+          </FieldLabel>
           {message.body_text ? (
             <PlainText text={message.body_text} className="max-h-[420px] overflow-y-auto" />
           ) : (

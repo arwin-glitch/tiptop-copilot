@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PlainText } from '@/components/ui/feedback';
+import { NotConfigured } from '@/components/ui/not-configured';
 import { Textarea } from '@/components/ui/form';
 import { CitationChip, SourceDrawer } from '@/components/evidence/source-drawer';
 import type { ChatMessage, Citation } from '@/lib/types/domain';
@@ -28,6 +29,7 @@ export function AskClient({
   dealName,
   suggestions,
   initialQuestion,
+  aiAvailable,
 }: {
   initialMessages: ChatMessage[];
   threadId: string | null;
@@ -35,6 +37,12 @@ export function AskClient({
   dealName: string | null;
   suggestions: readonly string[];
   initialQuestion: string;
+  /**
+   * Decided on the server. When false the composer is not rendered at all
+   * rather than rendered and disabled: an input that cannot accept input is
+   * worse than an honest explanation of why it is missing.
+   */
+  aiAvailable: boolean;
 }) {
   const router = useRouter();
   const [messages, setMessages] = React.useState<ChatMessage[]>(initialMessages);
@@ -95,11 +103,14 @@ export function AskClient({
   }
 
   React.useEffect(() => {
+    // A `?q=` deep link from elsewhere in the app would otherwise auto-fire a
+    // question that is guaranteed to fail, producing an error toast on arrival.
+    if (!aiAvailable) return;
     if (initialQuestion && !askedInitial.current && initialMessages.length === 0) {
       askedInitial.current = true;
       submit(initialQuestion);
     }
-  }, [initialQuestion, initialMessages.length, submit]);
+  }, [aiAvailable, initialQuestion, initialMessages.length, submit]);
 
   React.useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -117,7 +128,14 @@ export function AskClient({
         </div>
       ) : null}
 
-      {messages.length === 0 ? (
+      {!aiAvailable ? (
+        <NotConfigured
+          className="mb-5"
+          title="Ask is unavailable"
+          description="Answering a question means running a model over your records, and no AI provider is connected. Nothing is guessed from memory, so the question is not attempted at all."
+          stillWorks="Every record Ask would have searched is browsable directly — email in the Inbox, pipeline in Deals, companies in Portfolio, and extracted facts on each deal page."
+        />
+      ) : messages.length === 0 ? (
         <div className="mb-5">
           <p className="mb-3 text-sm text-[var(--fg-muted)]">
             Ask about email, deals, documents, prior decisions, portfolio, tasks and calendar.
@@ -129,7 +147,7 @@ export function AskClient({
                 key={s}
                 type="button"
                 onClick={() => submit(s)}
-                className="rounded-full border border-[var(--border)] px-3 py-1.5 text-[13px] text-[var(--fg-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]"
+                className="text-note rounded-full border border-[var(--border)] px-3 py-1.5 text-[var(--fg-muted)] transition-colors duration-[var(--motion-instant)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]"
               >
                 {s}
               </button>
@@ -167,45 +185,47 @@ export function AskClient({
       </ol>
       <div ref={endRef} />
 
-      <form
-        className="sticky bottom-16 mt-5 lg:bottom-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit(question);
-        }}
-      >
-        <div className="rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg-raised)] p-2 shadow-sm">
-          <Textarea
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                submit(question);
-              }
-            }}
-            rows={2}
-            placeholder={dealName ? `Ask about ${dealName}…` : 'Ask about anything in TipTop…'}
-            aria-label="Your question"
-            className="min-h-0 resize-none border-0 bg-transparent px-2 py-1.5 focus-visible:outline-none"
-          />
-          <div className="flex items-center justify-between gap-2 px-2 pb-1">
-            <span className="text-[11px] text-[var(--fg-subtle)]">
-              Answers cite their sources. Unknowns are stated, not filled in.
-            </span>
-            <Button
-              type="submit"
-              size="sm"
-              variant="primary"
-              loading={pending}
-              disabled={!question.trim()}
-            >
-              Ask
-              <CornerDownLeft aria-hidden="true" />
-            </Button>
+      {aiAvailable ? (
+        <form
+          className="sticky bottom-16 mt-5 lg:bottom-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit(question);
+          }}
+        >
+          <div className="shadow-lifted rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg-raised)] p-2">
+            <Textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  submit(question);
+                }
+              }}
+              rows={2}
+              placeholder={dealName ? `Ask about ${dealName}…` : 'Ask about anything in TipTop…'}
+              aria-label="Your question"
+              className="min-h-0 resize-none border-0 bg-transparent px-2 py-1.5 focus-visible:outline-none"
+            />
+            <div className="flex items-center justify-between gap-2 px-2 pb-1">
+              <span className="text-micro text-[var(--fg-subtle)]">
+                Answers cite their sources. Unknowns are stated, not filled in.
+              </span>
+              <Button
+                type="submit"
+                size="sm"
+                variant="primary"
+                loading={pending}
+                disabled={!question.trim()}
+              >
+                Ask
+                <CornerDownLeft aria-hidden="true" />
+              </Button>
+            </div>
           </div>
-        </div>
-      </form>
+        </form>
+      ) : null}
     </div>
   );
 }

@@ -3,11 +3,13 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { AlertTriangle, ArrowRight, Calendar, Mail } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
+import { getAI } from '@/lib/runtime';
 import { gatherTodayData, generateDailyBrief, getTodaysBrief } from '@/lib/services/brief';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
 import { Badge, RecommendationBadge } from '@/components/ui/badge';
 import { EmptyState, Notice, SkeletonText } from '@/components/ui/feedback';
+import { AiNotConfigured } from '@/components/ui/not-configured';
 import { Button } from '@/components/ui/button';
 import { GeneratedMeta } from '@/components/evidence/source-drawer';
 import { BriefItemRow, ExpandableSection, OpenSourcesButton } from '@/components/today/sections';
@@ -53,13 +55,20 @@ async function TodayContent() {
 
   // Generate on first view of the day so the page is never empty on arrival;
   // an explicit refresh regenerates it.
+  //
+  // The failure is kept as a code, not just a message, because "no provider is
+  // connected" and "the provider returned an error" are different situations
+  // for the reader: one is a setting, the other is a fault. Rendering both as
+  // the same amber warning made a deliberate configuration look like a bug.
   let brief = await getTodaysBrief(auth, now);
-  let briefError: string | null = null;
+  let briefError: { code: string; message: string } | null = null;
   if (!brief) {
     const generated = await generateDailyBrief(auth, { now });
     if (generated.ok) brief = generated.value;
-    else briefError = generated.error.message;
+    else briefError = { code: generated.error.code, message: generated.error.message };
   }
+
+  const aiAvailable = getAI().available();
 
   const citations: Citation[] = brief?.citations ?? [];
   const firstName = auth.profile.full_name?.split(' ')[0] ?? 'there';
@@ -80,13 +89,20 @@ async function TodayContent() {
         subtitle="What matters, why it matters, and what to do about it."
         actions={
           <>
-            <Button asChild variant="secondary" size="sm">
-              <Link href="/ask?q=What%20actually%20needs%20my%20attention%20today%3F">
-                Ask about today
-              </Link>
-            </Button>
+            {/* Both of these are model calls. With no provider connected they
+                would fail on click, so they are absent rather than offered —
+                an action that cannot succeed is not an action. */}
+            {aiAvailable ? (
+              <>
+                <Button asChild variant="secondary" size="sm">
+                  <Link href="/ask?q=What%20actually%20needs%20my%20attention%20today%3F">
+                    Ask about today
+                  </Link>
+                </Button>
+                <RefreshOutlookButton />
+              </>
+            ) : null}
             <CreateFollowUpButton />
-            <RefreshOutlookButton />
           </>
         }
       />
@@ -99,10 +115,16 @@ async function TodayContent() {
         />
       ) : null}
 
-      {briefError ? (
+      {briefError && briefError.code === 'not_configured' ? (
+        <AiNotConfigured
+          className="mb-6"
+          what="The daily outlook"
+          stillWorks="Everything below — your calendar, follow-ups, important email, new deals and portfolio requests — is read straight from your records and is complete."
+        />
+      ) : briefError ? (
         <Notice tone="warn" className="mb-5">
           <p className="font-medium">The outlook could not be generated.</p>
-          <p className="mt-1 text-[var(--fg-muted)]">{briefError}</p>
+          <p className="mt-1 text-[var(--fg-muted)]">{briefError.message}</p>
           <p className="mt-1 text-[var(--fg-muted)]">
             Everything below is read straight from your records and is unaffected.
           </p>
@@ -128,9 +150,9 @@ async function TodayContent() {
 
             {brief.priorities.length > 0 ? (
               <div className="mt-5">
-                <h3 className="mb-2 text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
+                <FieldLabel as="h3" className="mb-2">
                   Top {brief.priorities.length}
-                </h3>
+                </FieldLabel>
                 <ol className="space-y-2.5">
                   {brief.priorities.map((item, i) => (
                     <li key={item.id} className="flex gap-3">
@@ -157,9 +179,9 @@ async function TodayContent() {
 
             {brief.recommended_actions.length > 0 ? (
               <div className="mt-5 rounded-md bg-[var(--bg-sunken)] p-3.5">
-                <h3 className="mb-2 text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
+                <FieldLabel as="h3" className="mb-2">
                   Do next
-                </h3>
+                </FieldLabel>
                 <ul className="space-y-1.5">
                   {brief.recommended_actions.map((action, i) => (
                     <li key={i} className="flex gap-2 text-sm">
