@@ -8,6 +8,51 @@ throughout.
 
 ---
 
+## [0.3.0] — 2026-08-17
+
+Design pass. No schema change, no new environment variable, no new dependency.
+
+### Design system
+
+- The token layer gained the tiers it was missing: **elevation** (three steps,
+  tinted with the brand ink on paper and carried by a top highlight in dark),
+  a named **type scale**, **motion** durations and easings, a **z-index scale**
+  to replace three files picking `z-30`/`z-40`/`z-50` independently, and page
+  gutter/stack rhythm. The palette is unchanged; `#0FC382` remains a dark-theme
+  accent and a fill, never text on paper.
+- New primitives: `Table` (sticky header, numeric alignment, mandatory scroll
+  container), `Stat`/`StatGroup`, `Toolbar`/`FilterChip`, and `NotConfigured`.
+- `FieldLabel` is now used everywhere. Its exact class string had been
+  hand-written 30 times across 9 files while the primitive itself went unused.
+- `cn()` declares the new font sizes to `tailwind-merge`. Without that it read
+  `text-micro` as a colour, deduped it against `text-[var(--fg-subtle)]`, and
+  silently dropped every label's size — with a green build and a green suite.
+
+### Capability states
+
+Every AI-derived surface now decides on the server whether a provider exists,
+and says so in place rather than after the fact. `/ask` no longer offers a
+composer and eight suggestions that fail into a toast; `/today`, the deal
+scorecard, the Inbox (Analyse as deal, Draft reply) and the portfolio Classify
+button all state what is off, what still works, and where to look. Everything
+that reads from records — attach to deal, categorise, tasks, memo export —
+stays available.
+
+### Shell
+
+Navigation is grouped (Working / Records / System) with an accent rail marking
+the current page, `/diagnostics` gains the nav entry it never had, the account
+block gets a proper hierarchy, and the mobile header names the current section.
+
+### Deals
+
+`/deals` is a sortable table above `lg` — sticky header, `aria-sort`, tabular
+figures, ordering held in the URL — and a purpose-built card list below it
+rather than a compressed table. An unscored deal renders as absent, never as
+zero, and sorts to the end in both directions. Five end-to-end tests cover it.
+
+---
+
 ## [0.2.0] — 2026-08-17
 
 ### Prompts

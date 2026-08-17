@@ -7,11 +7,11 @@ import { GitCompare, Search } from 'lucide-react';
 import { compareDealsAction } from '@/app/actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, FieldLabel } from '@/components/ui/card';
 import { Input } from '@/components/ui/form';
 import { PlainText } from '@/components/ui/feedback';
+import { FilterChip, FilterChipRow } from '@/components/ui/toolbar';
 import type { DealStage } from '@/lib/types/domain';
-import { cn } from '@/lib/util/cn';
 
 export function DealsFilterBar({
   stages,
@@ -57,53 +57,24 @@ export function DealsFilterBar({
         />
       </form>
 
-      <div className="-mx-1 flex scrollbar-thin gap-1.5 overflow-x-auto px-1 pb-1">
-        <StageChip
-          active={!stage}
+      <FilterChipRow aria-label="Filter by stage">
+        <FilterChip
+          pressed={!stage}
           label="All"
           count={Object.values(counts).reduce((a, b) => a + b, 0)}
-          onClick={() => setParam('stage', null)}
+          onToggle={() => setParam('stage', null)}
         />
         {stages.map((s) => (
-          <StageChip
+          <FilterChip
             key={s.key}
-            active={stage === s.key}
+            pressed={stage === s.key}
             label={s.label}
             count={counts[s.key] ?? 0}
-            onClick={() => setParam('stage', s.key)}
+            onToggle={() => setParam('stage', s.key)}
           />
         ))}
-      </div>
+      </FilterChipRow>
     </div>
-  );
-}
-
-function StageChip({
-  active,
-  label,
-  count,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  count: number;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        'shrink-0 rounded-full border px-3 py-1 text-[13px] whitespace-nowrap transition-colors',
-        active
-          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--fg)]'
-          : 'border-[var(--border)] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
-      )}
-    >
-      {label}
-      <span className="tabular ml-1.5 text-[var(--fg-subtle)]">{count}</span>
-    </button>
   );
 }
 
@@ -141,20 +112,12 @@ export function ComparePanel({ deals }: { deals: { id: string; company_name: str
         <div className="border-t border-[var(--border)] px-4 py-3">
           <div className="flex flex-wrap gap-1.5">
             {deals.map((d) => (
-              <button
+              <FilterChip
                 key={d.id}
-                type="button"
-                onClick={() => toggle(d.id)}
-                aria-pressed={selected.includes(d.id)}
-                className={cn(
-                  'rounded-full border px-2.5 py-1 text-[13px] transition-colors',
-                  selected.includes(d.id)
-                    ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
-                    : 'border-[var(--border)] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
-                )}
-              >
-                {d.company_name}
-              </button>
+                label={d.company_name}
+                pressed={selected.includes(d.id)}
+                onToggle={() => toggle(d.id)}
+              />
             ))}
           </div>
 
@@ -250,9 +213,7 @@ export function ComparePanel({ deals }: { deals: { id: string; company_name: str
 
                 {result.whatWouldChange.length > 0 ? (
                   <div className="mt-4">
-                    <h4 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                      What would change the answer
-                    </h4>
+                    <FieldLabel as="h4">What would change the answer</FieldLabel>
                     <ul className="mt-1.5 space-y-1">
                       {result.whatWouldChange.map((item, i) => (
                         <li key={i} className="text-sm text-[var(--fg-muted)]">

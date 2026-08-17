@@ -5,7 +5,7 @@ import { getStore } from '@/lib/runtime';
 import { listPortfolio, openRequests } from '@/lib/services/portfolio';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, FieldLabel } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/feedback';
 import {
   AddPortfolioButton,
@@ -97,9 +97,7 @@ export default async function PortfolioPage() {
 
                       {update.suggested_action ? (
                         <div className="mt-3 rounded-md bg-[var(--bg-sunken)] p-3">
-                          <p className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                            Suggested action
-                          </p>
+                          <FieldLabel as="p">Suggested action</FieldLabel>
                           <p className="mt-1 text-sm">{update.suggested_action}</p>
                           {suggested.length > 0 ? (
                             <ul className="mt-2 space-y-1">

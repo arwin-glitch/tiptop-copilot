@@ -3,13 +3,16 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AlertTriangle, Mail, Paperclip } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
+import { getAI } from '@/lib/runtime';
 import { getDealDetail, factHistory } from '@/lib/services/deals';
 import { effectiveRecommendation } from '@/lib/services/deal-analysis';
 import { PageHeader, PageShell, DataRow } from '@/components/shell/page-header';
 import { Badge, ProvenanceBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
 import { EmptyState, Notice, PlainText } from '@/components/ui/feedback';
+import { AiNotConfigured } from '@/components/ui/not-configured';
+import { Stat, StatGroup } from '@/components/ui/stat';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CitationList, GeneratedMeta, SourceDrawer } from '@/components/evidence/source-drawer';
 import {
@@ -94,6 +97,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
   const recommendation = analysis ? effectiveRecommendation(analysis) : null;
   const citations = analysis?.citations ?? [];
   const openTasks = tasks.filter((t) => t.status === 'open');
+  const aiAvailable = getAI().available();
 
   return (
     <PageShell>
@@ -103,30 +107,33 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
         subtitle={
           deal.product_summary ?? 'No product summary has been extracted from the sources yet.'
         }
+        meta={
+          deal.website ? (
+            <a
+              href={deal.website}
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+              className="text-sm text-[var(--accent)] underline-offset-2 hover:underline"
+            >
+              {deal.domain ?? deal.website}
+            </a>
+          ) : null
+        }
         actions={
           <>
             <StageSelect dealId={deal.id} stage={deal.stage} stages={stages} />
-            <Button asChild variant="secondary" size="sm">
-              <Link href={`/ask?deal=${deal.id}`}>Ask about this deal</Link>
-            </Button>
+            {/* Export stays: the memo is assembled from stored facts and works
+                with the model switched off. The other two are model calls. */}
+            {aiAvailable ? (
+              <Button asChild variant="secondary" size="sm">
+                <Link href={`/ask?deal=${deal.id}`}>Ask about this deal</Link>
+              </Button>
+            ) : null}
             <ExportMemoButton dealId={deal.id} companyName={deal.company_name} />
-            <ReanalyzeButton dealId={deal.id} />
+            {aiAvailable ? <ReanalyzeButton dealId={deal.id} /> : null}
           </>
         }
       />
-
-      {deal.website ? (
-        <p className="-mt-3 mb-5 text-sm">
-          <a
-            href={deal.website}
-            target="_blank"
-            rel="noopener noreferrer nofollow"
-            className="text-[var(--accent)] underline-offset-2 hover:underline"
-          >
-            {deal.domain ?? deal.website}
-          </a>
-        </p>
-      ) : null}
 
       {analysis ? (
         <Card className="mb-6">
@@ -153,35 +160,44 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-[15px] leading-relaxed">{analysis.thirty_second_overview}</p>
+            <p className="text-read max-w-prose">{analysis.thirty_second_overview}</p>
 
-            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Metric
+            {/* Four boxed cells became one ruled strip. The figures belong to
+                each other — they are four readings of the same analysis — and
+                boxing each one separately said the opposite. */}
+            <StatGroup className="mt-5" columns={4}>
+              <Stat
+                size="sm"
                 label="Quality"
-                value={`${analysis.quality_score}/100`}
+                value={analysis.quality_score}
+                unit="/100"
                 hint={`of ${analysis.attempted_weight} pts attempted`}
               />
-              <Metric
+              <Stat
+                size="sm"
                 label="Data completeness"
-                value={`${analysis.data_completeness}%`}
+                value={analysis.data_completeness}
+                unit="%"
                 hint="of the scorecard evidenced"
               />
-              <Metric
+              <Stat
+                size="sm"
                 label="Evidence quality"
-                value={`${analysis.evidence_quality}%`}
+                value={analysis.evidence_quality}
+                unit="%"
                 hint="weighted by source type"
               />
-              <Metric
+              <Stat
+                size="sm"
                 label="Confidence"
-                value={`${analysis.confidence}%`}
+                value={analysis.confidence}
+                unit="%"
                 hint="in this recommendation"
               />
-            </div>
+            </StatGroup>
 
             <div className="mt-4 rounded-md bg-[var(--bg-sunken)] p-3.5">
-              <p className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                Recommended next step
-              </p>
+              <FieldLabel as="p">Recommended next step</FieldLabel>
               <p className="mt-1 text-sm">{analysis.recommended_next_step}</p>
               <p className="mt-2 text-sm text-[var(--fg-muted)]">{analysis.rationale}</p>
             </div>
@@ -208,7 +224,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
             </div>
           </CardContent>
         </Card>
-      ) : (
+      ) : aiAvailable ? (
         <Card className="mb-6">
           <CardContent className="pt-5">
             <EmptyState
@@ -224,6 +240,14 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
             </div>
           </CardContent>
         </Card>
+      ) : (
+        // Same situation, different reason. Offering "Run an analysis" with no
+        // provider connected sends the reader to a button that always fails.
+        <AiNotConfigured
+          className="mb-6"
+          what="The scorecard"
+          stillWorks="Every fact extracted for this deal, its sources, attachments, notes, tasks and decision history are on the tabs below, and each one can be corrected by hand."
+        />
       )}
 
       {analysis && analysis.red_flags.length > 0 ? (
@@ -342,27 +366,19 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
 
                 <div className="mt-5 grid gap-4 sm:grid-cols-2">
                   <div>
-                    <h3 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                      Strongest evidence
-                    </h3>
+                    <FieldLabel as="h3">Strongest evidence</FieldLabel>
                     <p className="mt-1.5 text-sm">{analysis.strongest_evidence}</p>
                   </div>
                   <div>
-                    <h3 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                      Biggest concern
-                    </h3>
+                    <FieldLabel as="h3">Biggest concern</FieldLabel>
                     <p className="mt-1.5 text-sm">{analysis.biggest_concern}</p>
                   </div>
                   <div>
-                    <h3 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                      Upside case
-                    </h3>
+                    <FieldLabel as="h3">Upside case</FieldLabel>
                     <p className="mt-1.5 text-sm text-[var(--fg-muted)]">{analysis.upside_case}</p>
                   </div>
                   <div>
-                    <h3 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                      Downside case
-                    </h3>
+                    <FieldLabel as="h3">Downside case</FieldLabel>
                     <p className="mt-1.5 text-sm text-[var(--fg-muted)]">
                       {analysis.downside_case}
                     </p>
@@ -371,9 +387,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
 
                 {analysis.competitive_context ? (
                   <div className="mt-5">
-                    <h3 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                      Competitive context
-                    </h3>
+                    <FieldLabel as="h3">Competitive context</FieldLabel>
                     <p className="mt-1.5 text-sm text-[var(--fg-muted)]">
                       {analysis.competitive_context}
                     </p>
@@ -382,7 +396,11 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
               </CardContent>
             </Card>
           ) : (
-            <p className="text-sm text-[var(--fg-muted)]">Run an analysis to see the scorecard.</p>
+            <p className="text-sm text-[var(--fg-muted)]">
+              {aiAvailable
+                ? 'Run an analysis to see the scorecard.'
+                : 'The scorecard is scored by a model, and no AI provider is connected. Key facts, Sources and Decisions are recorded independently and are complete.'}
+            </p>
           )}
         </TabsContent>
 
@@ -454,9 +472,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
 
               {people.length > 0 ? (
                 <div className="mt-5 border-t border-[var(--border)] pt-4">
-                  <h3 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                    People
-                  </h3>
+                  <FieldLabel as="h3">People</FieldLabel>
                   <ul className="mt-2 space-y-2">
                     {people.map((p) => (
                       <li key={p.id} className="text-sm">
@@ -486,9 +502,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
             <CardContent className="pt-4">
               {analysis ? (
                 <>
-                  <h3 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                    Priority diligence questions
-                  </h3>
+                  <FieldLabel as="h3">Priority diligence questions</FieldLabel>
                   {analysis.diligence_questions.length > 0 ? (
                     <ol className="mt-2 space-y-2">
                       {analysis.diligence_questions.map((q, i) => (
@@ -511,9 +525,9 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                     </p>
                   )}
 
-                  <h3 className="mt-5 text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
+                  <FieldLabel as="h3" className="mt-5">
                     Missing information
-                  </h3>
+                  </FieldLabel>
                   {analysis.missing_information.length > 0 ? (
                     <ul className="mt-2 space-y-1.5">
                       {analysis.missing_information.map((m, i) => (
@@ -530,9 +544,9 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
 
                   {deal.open_questions.length > 0 ? (
                     <>
-                      <h3 className="mt-5 text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
+                      <FieldLabel as="h3" className="mt-5">
                         Open questions from the sources
-                      </h3>
+                      </FieldLabel>
                       <ul className="mt-2 space-y-1.5">
                         {deal.open_questions.map((q, i) => (
                           <li key={i} className="text-sm text-[var(--fg-muted)]">
@@ -550,9 +564,9 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
               )}
 
               <div className="mt-6 border-t border-[var(--border)] pt-4">
-                <h3 className="mb-2 text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
+                <FieldLabel as="h3" className="mb-2">
                   Draft a reply
-                </h3>
+                </FieldLabel>
                 <DraftButtons dealId={deal.id} recommendation={recommendation} />
                 <p className="mt-2 text-xs text-[var(--fg-subtle)]">
                   Drafts are created for you to review and send yourself. This product has no send
@@ -562,9 +576,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
 
               {drafts.length > 0 ? (
                 <div className="mt-5">
-                  <h3 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                    Saved drafts
-                  </h3>
+                  <FieldLabel as="h3">Saved drafts</FieldLabel>
                   <ul className="mt-2 space-y-3">
                     {drafts.map((d) => (
                       <li key={d.id} className="rounded-md border border-[var(--border)] p-3">
@@ -597,9 +609,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                 />
               ) : (
                 <>
-                  <h3 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                    Source emails
-                  </h3>
+                  <FieldLabel as="h3">Source emails</FieldLabel>
                   <ul className="mt-2 space-y-2">
                     {messages.map((m) => (
                       <li key={m.id} className="rounded-md border border-[var(--border)] p-3">
@@ -627,9 +637,9 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
 
                   {attachments.length > 0 ? (
                     <>
-                      <h3 className="mt-5 text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
+                      <FieldLabel as="h3" className="mt-5">
                         Attachments
-                      </h3>
+                      </FieldLabel>
                       <ul className="mt-2 space-y-2">
                         {attachments.map((a) => (
                           <li key={a.id} className="rounded-md border border-[var(--border)] p-3">
@@ -675,9 +685,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
         <TabsContent value="decisions">
           <Card>
             <CardContent className="pt-4">
-              <h3 className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-                Record a decision
-              </h3>
+              <FieldLabel as="h3">Record a decision</FieldLabel>
               <p className="mt-1.5 mb-3 text-sm text-[var(--fg-muted)]">
                 Only you can record a decision. The assistant recommends; it never decides, and it
                 cannot mark a deal invested.
@@ -727,9 +735,9 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                 <CreateFollowUpButton dealId={deal.id} />
               </div>
 
-              <h3 className="mt-5 text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
+              <FieldLabel as="h3" className="mt-5">
                 Tasks
-              </h3>
+              </FieldLabel>
               {openTasks.length === 0 ? (
                 <p className="mt-2 text-sm text-[var(--fg-subtle)]">No open tasks.</p>
               ) : (
@@ -756,9 +764,9 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                 </ul>
               )}
 
-              <h3 className="mt-5 text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
+              <FieldLabel as="h3" className="mt-5">
                 Notes
-              </h3>
+              </FieldLabel>
               {notes.length === 0 ? (
                 <p className="mt-2 text-sm text-[var(--fg-subtle)]">No notes yet.</p>
               ) : (
@@ -811,17 +819,5 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
         </TabsContent>
       </Tabs>
     </PageShell>
-  );
-}
-
-function Metric({ label, value, hint }: { label: string; value: string; hint: string }) {
-  return (
-    <div className="rounded-md border border-[var(--border)] p-2.5">
-      <p className="text-[10px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-        {label}
-      </p>
-      <p className="tabular mt-0.5 font-serif text-lg font-semibold">{value}</p>
-      <p className="text-[10px] text-[var(--fg-subtle)]">{hint}</p>
-    </div>
   );
 }

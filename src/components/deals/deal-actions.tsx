@@ -16,6 +16,7 @@ import {
 } from '@/app/actions';
 import { Badge, RecommendationBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FieldLabel } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Field, Input, Select, Textarea } from '@/components/ui/form';
 import { PlainText } from '@/components/ui/feedback';
@@ -377,9 +378,7 @@ export function CorrectFieldButton({
       >
         <div className="space-y-4">
           <div>
-            <p className="text-[11px] font-medium tracking-wider text-[var(--fg-subtle)] uppercase">
-              Extracted value
-            </p>
+            <FieldLabel as="p">Extracted value</FieldLabel>
             <p className="mt-1 text-sm">
               {currentValue ?? <span className="text-[var(--fg-subtle)] italic">Not stated</span>}
             </p>
