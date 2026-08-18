@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { DataStore } from '@/lib/db/store';
 import { scanForInjection } from '@/lib/security/injection';
 import { err, ok, type Result } from '@/lib/util/result';
-import type { Deal, MeetingNote, PortfolioCompany } from '@/lib/types/domain';
+import type { CalendarEvent, Deal, MeetingNote, PortfolioCompany } from '@/lib/types/domain';
 
 /**
  * Meeting notes from Granola.
@@ -71,13 +71,77 @@ export function normaliseAttendees(
   return attendees;
 }
 
+/** Lowercased letters and digits only, so formatting differences cannot block a match. */
+function normaliseTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+const CALENDAR_MATCH_WINDOW_MS = 3 * 86_400_000;
+
+/**
+ * The synced calendar event a note is about, or null. Exact normalised-title
+ * equality within a three-day window — never similarity, because "matched to
+ * the wrong meeting" would attribute a conversation to the wrong company,
+ * which is worse than no attribution at all.
+ */
+async function matchCalendarEvent(
+  store: DataStore,
+  organizationId: string,
+  title: string,
+  occurredAt: string,
+): Promise<CalendarEvent | null> {
+  const target = normaliseTitle(title);
+  if (!target) return null;
+  const time = Date.parse(occurredAt);
+
+  const events = (await store.list(
+    'calendar_events',
+    organizationId,
+    {},
+    { orderBy: [{ field: 'starts_at', direction: 'desc' }], limit: 500 },
+  )) as CalendarEvent[];
+
+  const candidates = events.filter(
+    (event) =>
+      !event.is_private &&
+      normaliseTitle(event.title) === target &&
+      Math.abs(Date.parse(event.starts_at) - time) <= CALENDAR_MATCH_WINDOW_MS,
+  );
+
+  // Two same-titled events in the window (a recurring series) is ambiguity,
+  // and ambiguity recovers nothing rather than guessing an occurrence.
+  if (candidates.length !== 1) return null;
+  return candidates[0] ?? null;
+}
+
 export async function ingestGranolaNote(
   store: DataStore,
   organizationId: string,
   payload: GranolaNotePayload,
   now: Date = new Date(),
 ): Promise<Result<{ id: string; created: boolean; flagged: boolean }>> {
-  const attendees = normaliseAttendees(payload.attendee_emails, payload.attendee_names);
+  let attendees = normaliseAttendees(payload.attendee_emails, payload.attendee_names);
+  let occurredAt = new Date(payload.occurred_at).toISOString();
+
+  // A note that arrives without attendees — a Slack summary post carries none —
+  // can often be completed from the calendar the app already syncs: an event
+  // whose title matches the note's exactly, near the note's time, is the
+  // meeting the note is about. This is copying from our own record on an exact
+  // match, not inference; a near-miss title recovers nothing.
+  if (attendees.length === 0) {
+    const match = await matchCalendarEvent(store, organizationId, payload.title, occurredAt);
+    if (match) {
+      attendees = match.attendees
+        .filter((a) => a.email && a.email.includes('@'))
+        .map((a) => ({ name: a.name ?? null, email: a.email.toLowerCase() }));
+      // The event's start is when the meeting happened; a Slack post's
+      // timestamp is merely when the summary was shared.
+      occurredAt = match.starts_at;
+    }
+  }
 
   // Notes are prose someone else controls the content of, which makes them the
   // same class of input as email bodies: scan, annotate, never hide.
@@ -92,7 +156,7 @@ export async function ingestGranolaNote(
     // newer content updates in place rather than being dropped as a duplicate.
     const updated = await store.update('meeting_notes', organizationId, existing.id, {
       title: payload.title,
-      occurred_at: new Date(payload.occurred_at).toISOString(),
+      occurred_at: occurredAt,
       attendees,
       content: payload.content,
       source_url: payload.source_url ?? null,
@@ -109,7 +173,7 @@ export async function ingestGranolaNote(
     provider: 'granola',
     external_id: payload.external_id,
     title: payload.title,
-    occurred_at: new Date(payload.occurred_at).toISOString(),
+    occurred_at: occurredAt,
     attendees,
     content: payload.content,
     source_url: payload.source_url ?? null,

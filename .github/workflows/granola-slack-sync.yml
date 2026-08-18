@@ -1,0 +1,35 @@
+# Forwards Granola's Slack posts to the Copilot every five minutes.
+#
+# Gated on the repository variable GRANOLA_SLACK_SYNC being 'enabled', so the
+# schedule exists in the repo without producing a red run every five minutes
+# before the secrets are configured. To turn it on:
+#
+#   Settings → Secrets and variables → Actions
+#     Variables:  GRANOLA_SLACK_SYNC = enabled
+#     Secrets:    SLACK_BOT_TOKEN, GRANOLA_SLACK_CHANNEL, GRANOLA_WEBHOOK_URL
+#
+# GitHub schedules are best-effort: "every 5 minutes" in practice means every
+# 5–15. The webhook upserts on the note id, so overlapping or delayed runs are
+# harmless by construction.
+
+name: granola-slack-sync
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: ${{ vars.GRANOLA_SLACK_SYNC == 'enabled' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: node scripts/granola-slack-sync.mjs
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          GRANOLA_SLACK_CHANNEL: ${{ secrets.GRANOLA_SLACK_CHANNEL }}
+          GRANOLA_WEBHOOK_URL: ${{ secrets.GRANOLA_WEBHOOK_URL }}

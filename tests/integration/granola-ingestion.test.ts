@@ -249,3 +249,58 @@ describe('email transport', () => {
     expect(email.is_ignored).toBe(false);
   });
 });
+
+describe('calendar attendee recovery', () => {
+  it('completes an attendee-less note from the exactly-matching calendar event', async () => {
+    // "Girder AI — reference call debrief" is on today's fixture calendar with
+    // Tom Whitfield on the attendee list. A Slack summary of that meeting
+    // arrives with no attendees; the synced calendar supplies them.
+    const payload = GRANOLA_NOTE_SCHEMA.parse({
+      external_id: 'slack-summary-girder',
+      title: 'Girder AI — reference call debrief',
+      occurred_at: new Date().toISOString(),
+      content: 'Summary: accuracy holds on standard bids; onboarding overrun acknowledged.',
+    });
+
+    const result = await ingestGranolaNote(harness.store, harness.auth.organizationId, payload);
+    expect(result.ok).toBe(true);
+
+    const note = (await harness.store.findOne('meeting_notes', harness.auth.organizationId, {
+      eq: { external_id: 'slack-summary-girder' },
+    })) as MeetingNote | null;
+    expect(note?.attendees.map((a) => a.email)).toContain('tom@girderai.demo');
+  });
+
+  it('recovers nothing when no event matches — absent, never guessed', async () => {
+    const payload = GRANOLA_NOTE_SCHEMA.parse({
+      external_id: 'slack-summary-unmatched',
+      title: 'A meeting the calendar has never heard of',
+      occurred_at: new Date().toISOString(),
+      content: 'Summary text.',
+    });
+
+    await ingestGranolaNote(harness.store, harness.auth.organizationId, payload);
+
+    const note = (await harness.store.findOne('meeting_notes', harness.auth.organizationId, {
+      eq: { external_id: 'slack-summary-unmatched' },
+    })) as MeetingNote | null;
+    expect(note?.attendees).toEqual([]);
+  });
+
+  it('never overrides attendees the payload already carries', async () => {
+    const payload = GRANOLA_NOTE_SCHEMA.parse({
+      external_id: 'full-note-girder',
+      title: 'Girder AI — reference call debrief',
+      occurred_at: new Date().toISOString(),
+      attendee_emails: 'someone@else.demo',
+      content: 'Full note with its own attendee list.',
+    });
+
+    await ingestGranolaNote(harness.store, harness.auth.organizationId, payload);
+
+    const note = (await harness.store.findOne('meeting_notes', harness.auth.organizationId, {
+      eq: { external_id: 'full-note-girder' },
+    })) as MeetingNote | null;
+    expect(note?.attendees.map((a) => a.email)).toEqual(['someone@else.demo']);
+  });
+});
