@@ -19,6 +19,7 @@ import type {
   Integration,
   KnowledgeChunk,
   KnowledgeDocument,
+  MeetingNote,
   NetworkContact,
   Organization,
   OrganizationMember,
@@ -65,6 +66,7 @@ export interface DemoDb {
   knowledge_documents: KnowledgeDocument[];
   knowledge_chunks: KnowledgeChunk[];
   network_contacts: NetworkContact[];
+  meeting_notes: MeetingNote[];
   thesis_versions: ThesisVersion[];
   [key: string]: unknown[];
 }
@@ -1593,6 +1595,64 @@ Check size, ownership target, geography and traction requirements are not set he
 
   const deal_analyses: DealAnalysis[] = [];
 
+  /* -------------------------------------------------------- meeting notes */
+  //
+  // What Granola sends through the Zapier webhook, as it would have landed.
+  // Both are past meetings: a note only exists after the conversation, and the
+  // relationship list already treats future bookings as appointments rather
+  // than contact.
+  const meeting_notes: MeetingNote[] = [
+    {
+      id: ID.noteGirderDebrief,
+      organization_id: ORG,
+      provider: 'granola',
+      external_id: 'demo-granola-girder-ref-1',
+      title: 'Girder AI — reference call debrief with Tom',
+      occurred_at: daysAgo(now, 6),
+      attendees: [
+        { name: 'Nick Tippmann', email: 'nick@tiptop.demo' },
+        { name: 'Tom Whitfield', email: 'tom@girderai.demo' },
+      ],
+      content: `Debrief with Tom after the Arborworks reference call.
+
+Their estimator put accuracy at "90% of a senior estimator" on standard
+commercial bids; complex civil work still goes to a human first. No headcount
+reduction — the win is bid volume, up roughly 40%.
+
+Tom acknowledged the onboarding overrun unprompted: 11 weeks against a quoted
+6, mostly data cleanup on the customer's side. Says the new importer cuts it
+to 4; no customer has completed on the new path yet.`,
+      source_url: null,
+      injection_flagged: false,
+      created_at: daysAgo(now, 6),
+      updated_at: daysAgo(now, 6),
+    },
+    {
+      id: ID.noteLedgerlyBoard,
+      organization_id: ORG,
+      provider: 'granola',
+      external_id: 'demo-granola-ledgerly-board-1',
+      title: 'Ledgerly — pre-board sync with Maya',
+      occurred_at: daysAgo(now, 13),
+      attendees: [
+        { name: 'Nick Tippmann', email: 'nick@tiptop.demo' },
+        { name: 'Maya Chen', email: 'maya@ledgerly.demo' },
+      ],
+      content: `Pre-board walk-through with Maya.
+
+Cash: 14 months at current burn. Hiring plan holds at two backend engineers.
+The VP Sales search is the open thread — three finalists, decision before the
+board meeting.
+
+Maya wants the board conversation to focus on the enterprise pricing
+experiment, not the fundraise timing.`,
+      source_url: null,
+      injection_flagged: false,
+      created_at: daysAgo(now, 13),
+      updated_at: daysAgo(now, 13),
+    },
+  ];
+
   return {
     organizations,
     organization_members,
@@ -1626,5 +1686,6 @@ Check size, ownership target, geography and traction requirements are not set he
     audit_events: [],
     user_feedback: [],
     sync_runs: [],
+    meeting_notes,
   };
 }

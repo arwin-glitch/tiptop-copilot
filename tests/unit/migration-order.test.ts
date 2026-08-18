@@ -210,7 +210,9 @@ describe('migrations apply in filename order', () => {
 
   it('finds the migrations', () => {
     expect(files.length).toBeGreaterThan(0);
-    expect(tables.size).toBe(34);
+    // Pinned so an accidentally-deleted migration is caught. Bump it when a
+    // migration legitimately adds a table — most recently meeting_notes.
+    expect(tables.size).toBe(35);
   });
 
   it('declares no SQL function before a table it reads', () => {

@@ -616,6 +616,31 @@ export interface KnowledgeChunk {
   created_at: IsoDateTime;
 }
 
+/**
+ * A meeting note ingested from an external note-taker (Granola today).
+ *
+ * `content` is untrusted third-party text: it is scanned on ingestion and
+ * `injection_flagged` annotates anything instruction-shaped, but the text is
+ * always stored verbatim and only ever rendered as text. Links to deals,
+ * companies and people are derived at read time from `attendees` — never
+ * persisted — so a wrong inference cannot outlive the records it was made from.
+ */
+export interface MeetingNote {
+  id: Uuid;
+  organization_id: Uuid;
+  provider: 'granola';
+  /** The note's identity in the source system; ingestion upserts on this. */
+  external_id: string;
+  title: string;
+  occurred_at: IsoDateTime;
+  attendees: { name: string | null; email: string }[];
+  content: string;
+  source_url: string | null;
+  injection_flagged: boolean;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
 export interface NetworkContact {
   id: Uuid;
   organization_id: Uuid;

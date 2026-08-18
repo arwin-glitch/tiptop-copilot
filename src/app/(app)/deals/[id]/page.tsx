@@ -3,8 +3,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AlertTriangle, Mail, Paperclip } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
-import { getAI } from '@/lib/runtime';
+import { getAI, getStore } from '@/lib/runtime';
+import { notesForDeal } from '@/lib/services/meetings';
 import { getDealDetail, factHistory } from '@/lib/services/deals';
+import { MeetingNoteList } from '@/components/meetings/meeting-note-list';
 import { effectiveRecommendation } from '@/lib/services/deal-analysis';
 import { PageHeader, PageShell, DataRow } from '@/components/shell/page-header';
 import { Badge, ProvenanceBadge } from '@/components/ui/badge';
@@ -98,6 +100,13 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
   const citations = analysis?.citations ?? [];
   const openTasks = tasks.filter((t) => t.status === 'open');
   const aiAvailable = getAI().available();
+
+  const meetingNotes = await notesForDeal(
+    getStore(),
+    auth.organizationId,
+    deal,
+    people.map((p) => p.email).filter((e): e is string => Boolean(e)),
+  );
 
   return (
     <PageShell>
@@ -599,6 +608,16 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
         </TabsContent>
 
         <TabsContent value="sources">
+          {meetingNotes.length > 0 ? (
+            <Card className="mb-4">
+              <CardContent className="pt-4">
+                <FieldLabel as="h3">Meetings</FieldLabel>
+                <div className="mt-2">
+                  <MeetingNoteList notes={meetingNotes} timezone={auth.profile.timezone} />
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
           <Card>
             <CardContent className="pt-4">
               {messages.length === 0 && attachments.length === 0 ? (

@@ -20,6 +20,7 @@ import type {
   Integration,
   KnowledgeChunk,
   KnowledgeDocument,
+  MeetingNote,
   NetworkContact,
   Organization,
   OrganizationMember,
@@ -70,6 +71,7 @@ export interface TableMap {
   knowledge_documents: KnowledgeDocument;
   knowledge_chunks: KnowledgeChunk;
   network_contacts: NetworkContact;
+  meeting_notes: MeetingNote;
   thesis_versions: ThesisVersion;
   daily_briefs: DailyBrief;
   chat_threads: ChatThread;

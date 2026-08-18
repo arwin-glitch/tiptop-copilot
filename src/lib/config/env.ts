@@ -75,6 +75,7 @@ export interface AppEnv {
   researchApiKey: string | undefined;
 
   cronSecret: string | undefined;
+  granolaWebhookSecret: string | undefined;
   /**
    * Full Pub/Sub topic name for Gmail push, e.g.
    * `projects/tiptop-copilot/topics/gmail-push`. Unset means no push
@@ -130,6 +131,7 @@ export function env(): AppEnv {
     researchApiKey: str('RESEARCH_API_KEY'),
 
     cronSecret: str('CRON_SECRET'),
+    granolaWebhookSecret: str('GRANOLA_WEBHOOK_SECRET'),
     gmailPushTopic: str('GMAIL_PUSH_TOPIC'),
     demoDataDir: str('DEMO_DATA_DIR') ?? '.demo-data',
   };
@@ -373,6 +375,17 @@ export function capabilityReport(): CapabilityCheck[] {
       ? 'Present. Cron endpoints require a matching bearer token.'
       : 'Not set. Scheduled sync/outlook endpoints will reject all callers.',
     variables: ['CRON_SECRET'],
+    required: false,
+  });
+
+  checks.push({
+    key: 'granola',
+    label: 'Granola meeting notes',
+    status: has(e.granolaWebhookSecret) ? 'ready' : 'optional-missing',
+    detail: has(e.granolaWebhookSecret)
+      ? 'Present. The webhook accepts notes carrying the matching token.'
+      : 'Not set. The meeting-notes webhook rejects all callers; nothing else is affected.',
+    variables: ['GRANOLA_WEBHOOK_SECRET'],
     required: false,
   });
 

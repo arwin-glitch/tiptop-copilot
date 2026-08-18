@@ -2,8 +2,10 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/auth/session';
-import { getAI } from '@/lib/runtime';
+import { getAI, getStore } from '@/lib/runtime';
+import { notesForCompany } from '@/lib/services/meetings';
 import { getPortfolioDetail } from '@/lib/services/portfolio';
+import { MeetingNoteList } from '@/components/meetings/meeting-note-list';
 import { PageHeader, PageShell, DataRow, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, FieldLabel } from '@/components/ui/card';
@@ -39,6 +41,13 @@ export default async function PortfolioCompanyPage({
   const { company, contacts, updates, tasks, emails } = detail;
   const openTasks = tasks.filter((t) => t.status === 'open');
   const aiAvailable = getAI().available();
+
+  const meetingNotes = await notesForCompany(
+    getStore(),
+    auth.organizationId,
+    company,
+    contacts.map((c) => c.email).filter((e): e is string => Boolean(e)),
+  );
 
   return (
     <PageShell>
@@ -102,6 +111,11 @@ export default async function PortfolioCompanyPage({
                 ))}
               </ul>
             )}
+          </section>
+
+          <section>
+            <SectionHeading count={meetingNotes.length}>Meetings</SectionHeading>
+            <MeetingNoteList notes={meetingNotes} timezone={auth.profile.timezone} />
           </section>
 
           <section>

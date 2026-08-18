@@ -91,6 +91,10 @@ export const DEMO_IDS = {
   updateLedgerly: id(1300),
   updateStonebridge: id(1301),
 
+  // Meeting notes (Granola)
+  noteGirderDebrief: id(1500),
+  noteLedgerlyBoard: id(1501),
+
   // Integrations
   integrationGoogle: id(1400),
 } as const;

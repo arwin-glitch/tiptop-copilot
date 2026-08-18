@@ -36,6 +36,9 @@ const PUBLIC_PATHS = [
   // cookie. Listed individually rather than opening /api/integrations, which
   // is otherwise session-authenticated; the route checks its own shared secret.
   '/api/integrations/google/gmail-push',
+  // Machine endpoint like gmail-push: authenticates with its own shared
+  // secret, compared in constant time inside the route.
+  '/api/integrations/granola/webhook',
 ];
 
 /**

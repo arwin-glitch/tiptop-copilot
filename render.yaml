@@ -133,3 +133,8 @@ services:
       # every caller, which is the correct failure.
       - key: CRON_SECRET
         sync: false
+
+      # Authenticates Zapier's Granola meeting-note deliveries. Optional:
+      # without it the webhook rejects every caller and notes do not arrive.
+      - key: GRANOLA_WEBHOOK_SECRET
+        sync: false

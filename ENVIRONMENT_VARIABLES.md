@@ -203,6 +203,13 @@ trigger a sync.
 node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 ```
 
+### `GRANOLA_WEBHOOK_SECRET`
+
+Token required by `/api/integrations/granola/webhook`, the endpoint Zapier
+POSTs Granola meeting notes to (`?token=` in the Zap's URL). Unset, the
+endpoint rejects every caller and nothing else in the product is affected —
+meeting notes simply do not arrive. Generate it the same way as `CRON_SECRET`.
+
 ---
 
 ## Ceilings
