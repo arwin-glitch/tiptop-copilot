@@ -6,6 +6,7 @@ import {
   Activity,
   BookOpen,
   Briefcase,
+  Users,
   CheckSquare,
   Inbox,
   MessageSquare,
@@ -37,6 +38,7 @@ export const NAV_ITEMS = [
   { href: '/deals', label: 'Deals', icon: Target },
   { href: '/ask', label: 'Ask', icon: MessageSquare },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase },
+  { href: '/network', label: 'Network', icon: Users },
   { href: '/knowledge', label: 'Knowledge', icon: BookOpen },
   { href: '/tasks', label: 'Tasks', icon: CheckSquare },
   { href: '/settings', label: 'Settings', icon: Settings },
@@ -45,7 +47,7 @@ export const NAV_ITEMS = [
 
 const GROUPS: { label: string; hrefs: string[] }[] = [
   { label: 'Working', hrefs: ['/today', '/inbox', '/deals', '/ask'] },
-  { label: 'Records', hrefs: ['/portfolio', '/knowledge', '/tasks'] },
+  { label: 'Records', hrefs: ['/portfolio', '/network', '/knowledge', '/tasks'] },
   { label: 'System', hrefs: ['/settings', '/diagnostics'] },
 ];
 

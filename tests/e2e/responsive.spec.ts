@@ -22,6 +22,7 @@ const PAGES = [
   '/deals',
   '/ask',
   '/portfolio',
+  '/network',
   '/knowledge',
   '/tasks',
   '/settings',
