@@ -35,6 +35,7 @@ export type AuditAction =
   | 'email.attached_to_deal'
   | 'email.ignored'
   | 'email.body_fetched'
+  | 'meeting_note.ingested_from_email'
   | 'attachment.extracted'
   | 'attachment.downloaded'
   | 'knowledge.uploaded'

@@ -6,9 +6,11 @@ import {
   normaliseAttendees,
   notesForCompany,
   notesForDeal,
+  parseGranolaEmail,
 } from '@/lib/services/meetings';
+import { promoteGranolaEmail } from '@/lib/services/inbox';
 import { DEMO_IDS } from '@/lib/demo/ids';
-import type { Deal, MeetingNote, PortfolioCompany } from '@/lib/types/domain';
+import type { Deal, EmailMessage, MeetingNote, PortfolioCompany } from '@/lib/types/domain';
 
 /**
  * Granola ingestion.
@@ -149,5 +151,101 @@ describe('read-time linking', () => {
       'maya@ledgerly.demo',
     ]);
     expect(notes.some((n) => n.title.includes('Ledgerly'))).toBe(true);
+  });
+});
+
+describe('email transport', () => {
+  const ENVELOPE = [
+    'granola-note-v1',
+    'external_id: granola-mail-1',
+    'occurred_at: 2026-08-16T15:00:00.000Z',
+    'attendee_emails: nick@tiptop.demo, priya@vetrix.demo',
+    'attendee_names: Nick Tippmann, Dr. Priya Raman',
+    '---',
+    'Priya confirmed the year-six cap in writing.',
+    '',
+    '-- Sent via Zapier',
+  ].join('\n');
+
+  function emailRow(over: Partial<EmailMessage> = {}): EmailMessage {
+    const now = new Date().toISOString();
+    return {
+      id: crypto.randomUUID(),
+      organization_id: harness.auth.organizationId,
+      thread_id: crypto.randomUUID(),
+      provider: 'google',
+      provider_message_id: `granola-mail-${Math.random().toString(36).slice(2)}`,
+      from_name: 'Granola via Zapier',
+      from_address: 'arwin@tiptop.demo',
+      to_addresses: ['nick@tiptop.demo'],
+      cc_addresses: [],
+      subject: '[granola] Vetrix — licensing follow-up',
+      snippet: 'granola-note-v1 external_id: granola-mail-1',
+      sent_at: now,
+      is_unread: true,
+      body_text: ENVELOPE,
+      body_fetched_at: now,
+      body_hash: null,
+      has_attachments: false,
+      category: 'unknown',
+      category_confidence: null,
+      category_source: null,
+      importance: null,
+      is_ignored: false,
+      linked_deal_id: null,
+      injection_flagged: false,
+      created_at: now,
+      updated_at: now,
+      ...over,
+    } as EmailMessage;
+  }
+
+  it('parses the envelope and strips the Zapier footer', () => {
+    const payload = parseGranolaEmail('[granola] Vetrix — licensing follow-up', ENVELOPE);
+    expect(payload).not.toBeNull();
+    expect(payload?.external_id).toBe('granola-mail-1');
+    expect(payload?.title).toBe('Vetrix — licensing follow-up');
+    expect(payload?.content).toBe('Priya confirmed the year-six cap in writing.');
+  });
+
+  it('rejects a body without the marker, whatever the subject claims', () => {
+    expect(parseGranolaEmail('[granola] Looks right', 'just an ordinary email')).toBeNull();
+  });
+
+  it('promotes a transport email to a meeting note and retires the email', async () => {
+    const row = emailRow();
+    await harness.store.insert('email_messages', row);
+
+    const promoted = await promoteGranolaEmail(harness.auth, row.id);
+    expect(promoted).toBe(true);
+
+    const note = (await harness.store.findOne('meeting_notes', harness.auth.organizationId, {
+      eq: { external_id: 'granola-mail-1' },
+    })) as MeetingNote | null;
+    expect(note?.content).toBe('Priya confirmed the year-six cap in writing.');
+
+    const email = (await harness.store.get(
+      'email_messages',
+      harness.auth.organizationId,
+      row.id,
+    )) as EmailMessage;
+    expect(email.is_ignored).toBe(true);
+    expect(email.category).toBe('administrative');
+    expect(email.category_source).toBe('rule');
+  });
+
+  it('leaves a mis-formatted transport email visible rather than swallowing it', async () => {
+    const row = emailRow({ body_text: 'the Zap template lost its fields', subject: '[granola] X' });
+    await harness.store.insert('email_messages', row);
+
+    const promoted = await promoteGranolaEmail(harness.auth, row.id);
+    expect(promoted).toBe(false);
+
+    const email = (await harness.store.get(
+      'email_messages',
+      harness.auth.organizationId,
+      row.id,
+    )) as EmailMessage;
+    expect(email.is_ignored).toBe(false);
   });
 });

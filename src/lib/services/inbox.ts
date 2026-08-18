@@ -21,6 +21,7 @@ import type {
   SyncRun,
   Deal,
 } from '@/lib/types/domain';
+import { ingestGranolaNote, isGranolaNoteEmail, parseGranolaEmail } from '@/lib/services/meetings';
 import { newId, sha256, syncIdempotencyKey } from '@/lib/util/hash';
 import { emailDomain, sanitizeFilename, snippet } from '@/lib/util/text';
 import { err, ok, type Result } from '@/lib/util/result';
@@ -195,6 +196,16 @@ export async function syncMailbox(
     ]);
     if (result.created) created++;
     else updated++;
+
+    // A Granola note travelling as email is transport, not correspondence.
+    // Promote it to a meeting note before classification would waste a model
+    // call on it. Needs no AI, so it works with the provider switched off.
+    if (isGranolaNoteEmail(header.subject)) {
+      const promoted = await promoteGranolaEmail(auth, result.row.id);
+      if (promoted) continue;
+      // Parse failed: fall through and treat it as ordinary email, visible in
+      // the Inbox — a broken Zap template must not make messages disappear.
+    }
 
     // Classify only what we have not classified before, or what changed.
     if (!existing || existing.category === 'unknown') {
@@ -504,6 +515,53 @@ export async function ignoreMessage(
  * deliberate act: the user opened it, the classifier flagged it, or automatic
  * deep analysis is switched on.
  */
+/**
+ * Turn a Granola transport email into a meeting note.
+ *
+ * Returns true only when the envelope parsed and the note was ingested; the
+ * email is then marked ignored and categorised by rule, because its entire
+ * content now lives somewhere more visible. On any failure it returns false
+ * and the email stays exactly as it arrived — a mis-mapped Zap template gets
+ * a visible email in the Inbox rather than a silently swallowed note.
+ */
+export async function promoteGranolaEmail(auth: AuthContext, messageId: string): Promise<boolean> {
+  const store = getStore();
+
+  // The routine sync stores metadata only; the envelope lives in the body.
+  const fetched = await fetchFullMessage(auth, messageId);
+  if (!fetched.ok) return false;
+
+  const message = (await store.get(
+    'email_messages',
+    auth.organizationId,
+    messageId,
+  )) as EmailMessage | null;
+  if (!message) return false;
+
+  const payload = parseGranolaEmail(message.subject, message.body_text);
+  if (!payload) return false;
+
+  const ingested = await ingestGranolaNote(store, auth.organizationId, payload);
+  if (!ingested.ok) return false;
+
+  await store.update('email_messages', auth.organizationId, messageId, {
+    is_ignored: true,
+    category: 'administrative',
+    category_source: 'rule',
+  });
+
+  await recordAudit(store, {
+    organizationId: auth.organizationId,
+    userId: auth.userId,
+    action: 'meeting_note.ingested_from_email',
+    entityType: 'email_message',
+    entityId: messageId,
+    metadata: { note_id: ingested.value.id, flagged: ingested.value.flagged },
+  });
+
+  return true;
+}
+
 export async function fetchFullMessage(
   auth: AuthContext,
   messageId: string,

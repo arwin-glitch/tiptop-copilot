@@ -198,3 +198,78 @@ export async function noteCountsByEmail(
   }
   return counts;
 }
+
+/* ------------------------------------------------------- email transport */
+
+/**
+ * Granola notes can also arrive as email, sent by a free Zapier Gmail action
+ * into the synced mailbox. The email is pure transport: its body is a
+ * line-oriented envelope this module defines, the Zap template fills in, and
+ * this parser reads back. Controlling both ends is the point — no guessing at
+ * someone else's email formatting, and a change to Granola's own emails can
+ * never break this path because Granola's own emails are not involved.
+ *
+ * Format (plain text):
+ *
+ *   granola-note-v1
+ *   external_id: <granola note id>
+ *   occurred_at: <ISO date-time>
+ *   attendee_emails: a@x.com, b@y.com
+ *   attendee_names: Alice, Bob
+ *   ---
+ *   <the note, verbatim, to the end>
+ */
+
+export const GRANOLA_EMAIL_SUBJECT_PREFIX = '[granola]';
+const GRANOLA_EMAIL_MARKER = 'granola-note-v1';
+
+export function isGranolaNoteEmail(subject: string | null): boolean {
+  return (subject ?? '').trim().toLowerCase().startsWith(GRANOLA_EMAIL_SUBJECT_PREFIX);
+}
+
+export function parseGranolaEmail(
+  subject: string | null,
+  bodyText: string | null,
+): GranolaNotePayload | null {
+  if (!bodyText || !isGranolaNoteEmail(subject)) return null;
+
+  const lines = bodyText.split(/\r?\n/);
+  let index = 0;
+  while (index < lines.length && lines[index]!.trim() === '') index++;
+  if (lines[index]?.trim().toLowerCase() !== GRANOLA_EMAIL_MARKER) return null;
+  index++;
+
+  const fields: Record<string, string> = {};
+  for (; index < lines.length; index++) {
+    const line = lines[index]!;
+    if (line.trim() === '---') {
+      index++;
+      break;
+    }
+    const colon = line.indexOf(':');
+    if (colon === -1) continue;
+    fields[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
+  }
+
+  // Everything after the divider is the note. A trailing "sent via Zapier"
+  // footer is stripped; anything else stays verbatim.
+  const content = lines
+    .slice(index)
+    .join('\n')
+    .replace(/\n+-*\s*sent (from|by|via) zapier[\s\S]*$/i, '')
+    .trim();
+
+  const title = (subject ?? '').trim().slice(GRANOLA_EMAIL_SUBJECT_PREFIX.length).trim();
+
+  const candidate = {
+    external_id: fields['external_id'] ?? '',
+    title: title || 'Untitled meeting',
+    occurred_at: fields['occurred_at'] ?? '',
+    attendee_emails: fields['attendee_emails'] ?? '',
+    attendee_names: fields['attendee_names'] ?? '',
+    content,
+  };
+
+  const parsed = GRANOLA_NOTE_SCHEMA.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
