@@ -18,5 +18,6 @@ export interface SlackPayload {
 }
 
 export function unescapeSlackText(text: string): string;
+export function isBlockedUnfurl(text: string): boolean;
 export function isGranolaMessage(message: unknown): boolean;
 export function toPayload(message: SlackMessage): SlackPayload | null;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isBlockedUnfurl,
   isGranolaMessage,
   toPayload,
   unescapeSlackText,
@@ -72,5 +73,26 @@ describe('unescapeSlackText', () => {
     expect(unescapeSlackText('see <https://x.com|the site> &amp; more')).toBe(
       'see the site (https://x.com) & more',
     );
+  });
+});
+
+describe('blocked link previews', () => {
+  // Verbatim from #granola-notes: what Slack posts when the note is private.
+  const BLOCKED = {
+    ts: '1787321022.387009',
+    text: '*<https://notes.granola.ai/t/aa8eaf4e-88f2-48c8-a9c8-2e08115e4479|Granola meeting notes>*\nBeautiful meeting notes, powered by AI. No bots, no busywork.\n\n:lock: *Private meeting notes*\nLog in to Granola to view this note',
+    bot_profile: { name: 'Nick Tippmann (with Granola)' },
+  };
+
+  it('refuses a post that is only a blocked preview', () => {
+    // It looks like a Granola message and carries a real note id, so every
+    // earlier check passes — this is the one that has to stop it.
+    expect(isGranolaMessage(BLOCKED)).toBe(true);
+    expect(toPayload(BLOCKED)).toBeNull();
+  });
+
+  it('would otherwise have filed marketing copy as a meeting record', () => {
+    expect(isBlockedUnfurl(BLOCKED.text)).toBe(true);
+    expect(isBlockedUnfurl('Vetrix sync — Priya confirmed the cap.')).toBe(false);
   });
 });

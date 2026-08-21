@@ -59,11 +59,32 @@ export function isGranolaMessage(message) {
  * converge on one row. A post with no link falls back to its Slack timestamp,
  * which is unique and stable for that message.
  */
+/**
+ * True when a post carries nothing but a blocked link preview.
+ *
+ * Granola shares a *link*, and Slack unfurls it. When the note is private —
+ * which every one of Nick's is — the unfurl cannot read it, so the post
+ * degrades to Granola's own marketing copy plus "Log in to Granola to view
+ * this note". The only real information left is the note id in the URL.
+ *
+ * Ingesting that would file a meeting called "Granola meeting notes" whose
+ * body is an advert, against whichever company the calendar happened to
+ * match. Junk that looks like a record is worse than an empty section, so
+ * these are refused outright.
+ */
+export function isBlockedUnfurl(text) {
+  return (
+    /log in to granola to view this note/i.test(text) ||
+    /:?lock:?\s*\*?private meeting notes/i.test(text)
+  );
+}
+
 export function toPayload(message) {
   if (!isGranolaMessage(message)) return null;
 
   const text = unescapeSlackText(message.text).trim();
   if (!text) return null;
+  if (isBlockedUnfurl(text)) return null;
 
   const linkMatch = /notes\.granola\.ai\/[a-z]\/([A-Za-z0-9-]+)/.exec(text);
   const externalId = linkMatch ? linkMatch[1] : `slack-${message.ts}`;
