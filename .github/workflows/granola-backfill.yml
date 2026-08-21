@@ -1,8 +1,14 @@
 # Keeps the app's meeting notes level with Granola.
 #
-# Runs every half hour as a catch-up, and on demand for a full import. Granola
-# lists newest first, so each run finds whatever arrived since the last one in
-# the first page or two and stops — a handful of requests, not nine hundred.
+# Runs every half hour as a catch-up, and on demand for a full import. A
+# catch-up asks Granola for everything changed since shortly before the newest
+# meeting already stored, so a routine run is one request, not nine hundred.
+#
+# It asks by time, never by position. The first version of this assumed Granola
+# returns notes newest first and stopped once two pages held nothing new;
+# Granola documents no such order, so the run stopped on page two of old
+# history every time and fetched nothing for three days while every check
+# stayed green.
 #
 # At :17 and :47 rather than :00 and :30. GitHub's scheduler is best-effort and
 # queues shared runners; the top and half of the hour are the two most
@@ -31,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       pages:
-        description: 'Note pages per request (each page is ~10 notes)'
+        description: 'Note pages per request (each page is up to 30 notes)'
         required: false
         default: '1'
       full:
@@ -54,5 +60,5 @@ jobs:
         env:
           GRANOLA_WEBHOOK_URL: ${{ secrets.GRANOLA_WEBHOOK_URL }}
           PAGES: ${{ inputs.pages || '1' }}
-          # 0 disables the early stop, which is what a full import wants.
-          STOP_AFTER_KNOWN: ${{ inputs.full && '0' || '2' }}
+          # Unset on a scheduled run, which is always a catch-up.
+          FULL: ${{ inputs.full }}

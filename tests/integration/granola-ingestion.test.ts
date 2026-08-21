@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHarness, type Harness } from '../helpers/harness';
 import {
+  catchUpSince,
+  existingNoteVersions,
   GRANOLA_NOTE_SCHEMA,
   ingestGranolaNote,
+  isNoteUnchanged,
   normaliseAttendees,
   notesForCompany,
   notesForDeal,
@@ -302,5 +305,84 @@ describe('calendar attendee recovery', () => {
       eq: { external_id: 'full-note-girder' },
     })) as MeetingNote | null;
     expect(note?.attendees.map((a) => a.email)).toEqual(['someone@else.demo']);
+  });
+});
+
+/**
+ * The catch-up window.
+ *
+ * This is the machinery that replaced a stopping rule built on an ordering
+ * Granola never promised. The old rule stopped once two consecutive pages held
+ * nothing new; the first page held old history, so every run stopped there and
+ * fetched nothing, for three days, with every suite green.
+ *
+ * These tests pin the two properties that make the replacement safe: the
+ * window is derived from data that actually landed, and it always reaches back
+ * far enough to cover Granola's own publishing lag.
+ */
+describe('the catch-up window', () => {
+  const NOW = new Date('2026-08-21T17:00:00.000Z');
+
+  async function storeNote(occurredAt: string, externalId: string) {
+    return ingestGranolaNote(harness.store, harness.auth.organizationId, {
+      ...PAYLOAD,
+      external_id: externalId,
+      occurred_at: occurredAt,
+    });
+  }
+
+  it('reaches back beyond the newest meeting held, to cover Granola’s lag', async () => {
+    await storeNote('2026-08-18T10:00:00.000Z', 'granola-newest');
+    const since = await catchUpSince(harness.store, harness.auth.organizationId, NOW);
+    // Three days before the newest meeting stored, not the meeting itself: a
+    // note published late must still fall inside the window.
+    expect(since).toBe('2026-08-15T10:00:00.000Z');
+  });
+
+  it('walks everything when there is nothing stored yet', async () => {
+    // A first import has no anchor, and inventing one would skip the history.
+    await harness.store.removeWhere('meeting_notes', harness.auth.organizationId, {});
+    expect(await catchUpSince(harness.store, harness.auth.organizationId, NOW)).toBeNull();
+  });
+
+  it('never lets a future-dated meeting push the window past now', async () => {
+    // occurred_at comes from the calendar, so a scheduled meeting next month
+    // would otherwise move the window forward and hide everything behind it.
+    await storeNote('2026-09-30T10:00:00.000Z', 'granola-scheduled');
+    const since = await catchUpSince(harness.store, harness.auth.organizationId, NOW);
+    expect(since).toBe('2026-08-18T17:00:00.000Z');
+  });
+
+  it('reports what it already holds, so unchanged notes need no fetch', async () => {
+    await storeNote('2026-08-18T10:00:00.000Z', 'granola-held');
+    const held = await existingNoteVersions(harness.store, harness.auth.organizationId, [
+      'granola-held',
+      'granola-never-seen',
+    ]);
+    expect(held.has('granola-held')).toBe(true);
+    expect(held.has('granola-never-seen')).toBe(false);
+  });
+});
+
+/**
+ * Deciding whether to spend a fetch.
+ *
+ * Getting this wrong in the cautious direction costs one request. Getting it
+ * wrong the other way keeps a stale note for ever, so anything unknown must
+ * resolve to "fetch it".
+ */
+describe('recognising a note we already have', () => {
+  it('skips a note untouched since we stored it', () => {
+    expect(isNoteUnchanged('2026-08-20T12:00:00Z', '2026-08-20T09:00:00Z')).toBe(true);
+  });
+
+  it('fetches a note edited at Granola after we stored it', () => {
+    expect(isNoteUnchanged('2026-08-20T09:00:00Z', '2026-08-20T12:00:00Z')).toBe(false);
+  });
+
+  it('fetches when either side is missing or unparseable', () => {
+    expect(isNoteUnchanged(undefined, '2026-08-20T09:00:00Z')).toBe(false);
+    expect(isNoteUnchanged('2026-08-20T09:00:00Z', null)).toBe(false);
+    expect(isNoteUnchanged('not a date', '2026-08-20T09:00:00Z')).toBe(false);
   });
 });

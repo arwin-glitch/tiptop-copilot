@@ -212,33 +212,83 @@ export function toIngestPayload(note: GranolaRemoteNote): GranolaNotePayload | n
 /* ------------------------------------------------------------- the backlog */
 
 const GRANOLA_LIST_SCHEMA = z.object({
-  notes: z.array(z.object({ id: z.string() })).default([]),
+  notes: z
+    .array(
+      z.object({
+        id: z.string(),
+        created_at: z.string().nullish(),
+        updated_at: z.string().nullish(),
+      }),
+    )
+    .default([]),
   hasMore: z.boolean().default(false),
   cursor: z.string().nullish(),
 });
 
+/** A note as the list endpoint describes it — identity and timestamps, no content. */
+export interface GranolaListedNote {
+  id: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 export interface GranolaNotePage {
-  noteIds: string[];
+  notes: GranolaListedNote[];
   cursor: string | null;
   hasMore: boolean;
 }
 
+export interface ListGranolaNotesOptions {
+  cursor?: string | null;
+  /** Only notes changed at or after this instant. ISO 8601. */
+  updatedAfter?: string | null;
+  /** Only notes first written at or after this instant. ISO 8601. */
+  createdAfter?: string | null;
+  /** 1–30. Granola's own maximum is 30; its default is 10. */
+  pageSize?: number;
+}
+
+/** Granola's documented ceiling for `page_size`. */
+const MAX_PAGE_SIZE = 30;
+
 /**
- * One page of the note backlog, newest first.
+ * One page of the note backlog.
  *
- * The webhook only fires on change, so it can never reach a meeting that
- * happened before the endpoint existed — and Nick's history is the larger part
- * of the value. This is how the backfill walks it: cursor-based, ten or so
- * notes a page, ids only. The content still comes from `fetchGranolaNote`, so
- * a backfilled note and a live one travel exactly the same path and land in
- * the same shape.
+ * **The order is not documented and must not be assumed.** An earlier version
+ * of this file asserted "newest first" and built the catch-up on it: read a
+ * page, stop once two consecutive pages hold nothing new. Granola does not
+ * promise that order and did not deliver it, so the first page was old notes
+ * we already had, the stop fired immediately, and the poller reported "caught
+ * up" every half hour while three days of meetings sat unfetched. Every suite
+ * was green throughout — the stopping rule's only test re-implemented the rule
+ * instead of calling it, so it agreed with the bug.
+ *
+ * The fix is to stop inferring recency from position. `updated_after` is a
+ * documented filter, so a catch-up asks for the window it actually wants and
+ * reads the answer to the end, whatever order it arrives in. Ordering becomes
+ * something we neither know nor need.
+ *
+ * The content still comes from `fetchGranolaNote`, so a backfilled note and a
+ * live one travel the same path and land in the same shape. The timestamps
+ * returned here are what let the caller skip that fetch for a note it already
+ * holds unchanged.
  */
-export async function listGranolaNotes(cursor?: string | null): Promise<Result<GranolaNotePage>> {
+export async function listGranolaNotes(
+  options: ListGranolaNotesOptions = {},
+): Promise<Result<GranolaNotePage>> {
   const apiKey = env().granolaApiKey;
   if (!apiKey) return err('not_configured', 'GRANOLA_API_KEY is not set.');
 
   const url = new URL('https://public-api.granola.ai/v1/notes');
-  if (cursor) url.searchParams.set('cursor', cursor);
+  if (options.cursor) url.searchParams.set('cursor', options.cursor);
+  if (options.updatedAfter) url.searchParams.set('updated_after', options.updatedAfter);
+  if (options.createdAfter) url.searchParams.set('created_after', options.createdAfter);
+  if (options.pageSize) {
+    url.searchParams.set(
+      'page_size',
+      String(Math.min(Math.max(Math.trunc(options.pageSize), 1), MAX_PAGE_SIZE)),
+    );
+  }
 
   let response: Response;
   try {
@@ -261,7 +311,11 @@ export async function listGranolaNotes(cursor?: string | null): Promise<Result<G
   }
 
   return ok({
-    noteIds: parsed.data.notes.map((n) => n.id),
+    notes: parsed.data.notes.map((n) => ({
+      id: n.id,
+      createdAt: n.created_at ?? null,
+      updatedAt: n.updated_at ?? null,
+    })),
     cursor: parsed.data.cursor ?? null,
     hasMore: parsed.data.hasMore,
   });

@@ -338,6 +338,93 @@ export function parseGranolaEmail(
   return parsed.success ? parsed.data : null;
 }
 
+/* ------------------------------------------------------------- the catch-up */
+
+/**
+ * How far back a catch-up looks beyond the newest meeting it already holds.
+ *
+ * Granola publishes a note only once the AI summary and transcript exist, so a
+ * note's arrival lags its meeting — by minutes usually, by longer if the app
+ * was offline when the call ended. The window has to cover that lag or the
+ * note that was late is the note that is missed permanently. Three days is
+ * comfortably more than the observed lag and still small enough that a routine
+ * catch-up is one request.
+ */
+export const CATCH_UP_OVERLAP_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
+ * The instant a catch-up should ask Granola about, or null to walk everything.
+ *
+ * Derived from the newest meeting we hold rather than stored as a watermark,
+ * because a stored watermark can advance past a note that failed to ingest and
+ * strand it for ever. This cannot: the window is always anchored to data that
+ * actually landed.
+ *
+ * Clamped to the present because `occurred_at` comes from the calendar event,
+ * and a note attached to a scheduled future meeting would otherwise push the
+ * window past now and hide everything behind it.
+ */
+export async function catchUpSince(
+  store: DataStore,
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<string | null> {
+  const newest = (await store.list(
+    'meeting_notes',
+    organizationId,
+    {},
+    { orderBy: [{ field: 'occurred_at', direction: 'desc' }], limit: 1 },
+  )) as MeetingNote[];
+
+  const latest = newest[0]?.occurred_at;
+  if (!latest) return null; // nothing here yet: this is a first import, not a catch-up
+
+  const at = Date.parse(latest);
+  if (Number.isNaN(at)) return null;
+
+  return new Date(Math.min(at, now.getTime()) - CATCH_UP_OVERLAP_MS).toISOString();
+}
+
+/**
+ * What we already hold, keyed by Granola's note id.
+ *
+ * One query per page rather than one per note. The value is our row's
+ * `updated_at`, which is the moment we last wrote it: compare it against the
+ * note's `updated_at` at Granola and a note untouched since we stored it needs
+ * no content fetch at all. That comparison is what turned a full import from
+ * nine hundred fetches into a few dozen — and the volume of those fetches was
+ * what made the host answer 502 partway through every run.
+ */
+export async function existingNoteVersions(
+  store: DataStore,
+  organizationId: string,
+  externalIds: string[],
+): Promise<Map<string, string>> {
+  if (externalIds.length === 0) return new Map();
+
+  const rows = (await store.list('meeting_notes', organizationId, {
+    eq: { provider: 'granola' },
+    in: { external_id: externalIds },
+  })) as MeetingNote[];
+
+  return new Map(rows.map((row) => [row.external_id, row.updated_at]));
+}
+
+/**
+ * Is the copy we hold already current?
+ *
+ * Only when we know both sides. An unparseable or absent timestamp means fetch
+ * it — being wrong here costs one request, and the opposite mistake silently
+ * keeps a stale note for ever.
+ */
+export function isNoteUnchanged(ourUpdatedAt: string | undefined, theirUpdatedAt: string | null) {
+  if (!ourUpdatedAt || !theirUpdatedAt) return false;
+  const ours = Date.parse(ourUpdatedAt);
+  const theirs = Date.parse(theirUpdatedAt);
+  if (Number.isNaN(ours) || Number.isNaN(theirs)) return false;
+  return ours >= theirs;
+}
+
 /* ---------------------------------------------------------- the index page */
 
 export interface MeetingListOptions {

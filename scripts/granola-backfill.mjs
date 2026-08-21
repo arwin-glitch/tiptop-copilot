@@ -33,10 +33,25 @@ export function backfillUrlFrom(webhookUrl) {
   return url;
 }
 
-async function callOnce(url, cursor, pages) {
+/**
+ * The URL for one call in the walk.
+ *
+ * Separate from the request so the mode logic is testable without a server:
+ * whether a call declares itself a full import is the difference between
+ * re-reading nine hundred notes and reading the handful that changed.
+ */
+export function callUrl(url, { cursor, pages, full } = {}) {
   const target = new URL(url);
-  target.searchParams.set('pages', String(pages));
+  target.searchParams.set('pages', String(pages ?? 1));
   if (cursor) target.searchParams.set('cursor', cursor);
+  // Only on the opening call: once a walk has a cursor it carries its own
+  // window, and re-declaring the mode mid-walk would restart it.
+  if (full && !cursor) target.searchParams.set('full', '1');
+  return target;
+}
+
+async function callOnce(url, cursor, pages, full) {
+  const target = callUrl(url, { cursor, pages, full });
 
   const started = Date.now();
   let response;
@@ -109,44 +124,47 @@ async function main() {
     return;
   }
 
-  // One page — about ten notes — per call. Small enough that a free instance
-  // finishes comfortably inside the timeout; the loop below does the volume.
+  // One page per call. Small enough that a free instance finishes comfortably
+  // inside the timeout; the loop below does the volume.
   const pages = Number.parseInt(process.env.PAGES ?? '1', 10);
   // A ceiling rather than a target: it stops as soon as Granola says there is
   // no more, and only exists so a paging bug cannot loop for ever.
   const maxCalls = Number.parseInt(process.env.MAX_CALLS ?? '400', 10);
 
   /**
-   * How many consecutive pages of nothing-new before stopping.
+   * Walk the whole history rather than catching up.
    *
-   * Granola lists newest first, so a catch-up run finds whatever arrived since
-   * last time in the first page or two and then walks into history it already
-   * has. Without this it would re-read all nine hundred notes every hour to
-   * discover one. Two pages of confirmation rather than one, because a note
-   * edited long ago can surface among recent ones and produce a page that is
-   * all updates without meaning the catch-up is finished.
+   * A catch-up asks the server for notes changed since shortly before the
+   * newest meeting it holds, and reads that answer to the end — it is bounded
+   * by the window it requested, so it needs no stopping rule here.
    *
-   * Set to 0 for a genuine full import, which is what the first run wants.
+   * There used to be one: stop after two consecutive pages with nothing new.
+   * It assumed Granola returns newest first. Granola documents no such order
+   * and does not deliver it, so in production the first page was history we
+   * already had, the rule fired on page two, and every run reported "caught
+   * up" having fetched nothing — for three days, while the suites stayed
+   * green. The rule is gone rather than corrected; there is nothing about
+   * position worth trusting.
    */
-  const stopAfterKnown = Number.parseInt(process.env.STOP_AFTER_KNOWN ?? '2', 10);
+  const full = /^(1|true|yes|on)$/i.test(process.env.FULL ?? '');
 
   let cursor = process.env.START_CURSOR || null;
   let created = 0;
   let updated = 0;
   let skipped = 0;
-  let quietPages = 0;
+  let unchanged = 0;
 
   await wake(url);
   console.log(
-    stopAfterKnown > 0
-      ? `Catching up. Stops after ${stopAfterKnown} pages with nothing new.\n`
-      : 'Full import. Walks the entire history.\n',
+    full
+      ? 'Full import. Walks the entire history.\n'
+      : 'Catching up on everything changed since the newest meeting already stored.\n',
   );
 
   for (let call = 1; call <= maxCalls; call++) {
     let result;
     try {
-      result = await callOnce(url, cursor, pages);
+      result = await callOnce(url, cursor, pages, full);
     } catch (error) {
       console.error(`\nStopped on call ${call}: ${error.message}`);
       if (cursor) console.error(`Resume with START_CURSOR=${cursor}`);
@@ -158,23 +176,23 @@ async function main() {
     created += newHere;
     updated += result.updated ?? 0;
     skipped += result.skipped ?? 0;
+    unchanged += result.unchanged ?? 0;
     cursor = result.cursor ?? null;
+
+    // The window is worth saying once, on the call that established it: it is
+    // the whole basis of a catch-up, and a wrong one is otherwise invisible.
+    if (call === 1 && result.since)
+      console.log(`Window: everything changed since ${result.since}.`);
 
     console.log(
       `call ${call}: +${newHere} new, ${result.updated ?? 0} updated, ` +
-        `${result.skipped ?? 0} skipped  (running total ${created + updated})`,
+        `${result.unchanged ?? 0} unchanged, ${result.skipped ?? 0} skipped`,
     );
 
     if (!result.hasMore) {
-      console.log(`\nDone. ${created} imported, ${updated} already present, ${skipped} skipped.`);
-      return;
-    }
-
-    quietPages = newHere > 0 ? 0 : quietPages + 1;
-    if (stopAfterKnown > 0 && quietPages >= stopAfterKnown) {
       console.log(
-        `\nCaught up. ${created} new note${created === 1 ? '' : 's'} imported; ` +
-          `the rest was already here.`,
+        `\nDone. ${created} imported, ${updated} re-read and updated, ` +
+          `${unchanged} already current, ${skipped} skipped.`,
       );
       return;
     }

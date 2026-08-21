@@ -36,6 +36,12 @@ export default async function MeetingsPage({
 async function MeetingsContent({ q }: { q: string }) {
   const auth = await requireAuth();
   const notes = await listMeetingNotes(getStore(), auth.organizationId, { search: q || undefined });
+  // `notes` is one page, capped by listMeetingNotes. Reading its length as the
+  // meeting count showed a flat "500" — the cap, presented as a fact — while
+  // the real figure was 922. A stat that reports a limit is worse than no stat.
+  const total = await getStore().count('meeting_notes', auth.organizationId, {
+    eq: { provider: 'granola' },
+  });
 
   const people = new Set<string>();
   const companies = new Set<string>();
@@ -51,7 +57,12 @@ async function MeetingsContent({ q }: { q: string }) {
   return (
     <>
       <StatGroup className="mb-5" columns={3}>
-        <Stat size="sm" label="Meetings" value={notes.length} hint="notes from Granola" />
+        <Stat
+          size="sm"
+          label="Meetings"
+          value={q ? notes.length : total}
+          hint={q ? `matching, of ${total}` : 'notes from Granola'}
+        />
         <Stat size="sm" label="People" value={people.size} hint="across every meeting" />
         <Stat size="sm" label="Organisations" value={companies.size} hint="by email domain" />
       </StatGroup>

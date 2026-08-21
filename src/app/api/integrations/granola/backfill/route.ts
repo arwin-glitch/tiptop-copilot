@@ -4,7 +4,12 @@ import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
 import { fetchGranolaNote, listGranolaNotes, toIngestPayload } from '@/lib/services/granola-api';
-import { ingestGranolaNote } from '@/lib/services/meetings';
+import {
+  catchUpSince,
+  existingNoteVersions,
+  ingestGranolaNote,
+  isNoteUnchanged,
+} from '@/lib/services/meetings';
 import type { Organization } from '@/lib/types/domain';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +30,22 @@ export const maxDuration = 300;
  * stopped at; the caller loops until `hasMore` is false. Ingestion is
  * idempotent on the note id, so an interrupted run is resumed simply by
  * calling again — at worst a page is re-read, never duplicated.
+ *
+ * Two modes, and the difference matters:
+ *
+ * - **Catch-up** (the default, and what the every-half-hour poller runs) asks
+ *   Granola for notes changed since shortly before the newest meeting we hold,
+ *   then reads that answer to the end. It is bounded by the window, not by a
+ *   guess about ordering.
+ * - **Full** (`?full=1`) walks the entire history with no filter, for a first
+ *   import or a rebuild.
+ *
+ * Neither mode assumes an order. The previous version did — it stopped once
+ * two consecutive pages held nothing new, which is only sound if the newest
+ * notes come first, and Granola documents no such promise. In production the
+ * first page was history we already had, so every catch-up stopped on page two
+ * and reported success while nothing was fetched. Position tells us nothing
+ * here; `updated_after` tells us exactly what we asked.
  *
  * Authenticated by the same shared token as the token-based webhook path. It
  * spends API quota and writes records, so it is deliberately not something an
@@ -77,13 +98,31 @@ export async function POST(request: NextRequest) {
   const pages = clamp(Number.parseInt(url.searchParams.get('pages') ?? '3', 10), 1, 10);
   let cursor = url.searchParams.get('cursor');
 
+  // A full import takes no window; a catch-up takes the one the caller named,
+  // or works out its own from the newest meeting already stored. A cursor is a
+  // continuation of a walk already in progress, so it carries its own window
+  // and must not be given a second one.
+  const full = isTruthy(url.searchParams.get('full'));
+  const continuing = Boolean(cursor);
+  const since =
+    full || continuing
+      ? null
+      : (url.searchParams.get('since') ?? (await catchUpSince(getStore(), organizationId)));
+
   let created = 0;
   let updated = 0;
   let skipped = 0;
+  let unchanged = 0;
   let hasMore = false;
 
   for (let page = 0; page < pages; page++) {
-    const listed = await listGranolaNotes(cursor);
+    const listed = await listGranolaNotes({
+      cursor,
+      updatedAfter: since,
+      // Granola's maximum. Three times fewer round trips than the default of
+      // ten, on an endpoint that returns identity and timestamps only.
+      pageSize: 30,
+    });
     if (!listed.ok) {
       log.error('Granola backfill could not list notes', { code: listed.error.code });
       return NextResponse.json(
@@ -92,8 +131,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    for (const noteId of listed.value.noteIds) {
-      const note = await fetchGranolaNote(noteId);
+    // What we already hold from this page, in one query rather than one each.
+    const held = await existingNoteVersions(
+      getStore(),
+      organizationId,
+      listed.value.notes.map((n) => n.id),
+    );
+
+    for (const listedNote of listed.value.notes) {
+      // The note is unchanged since we stored it, so its content cannot have
+      // changed either. Skipping the fetch here is what keeps a full import
+      // inside the host's limits: it is one request per *new* note, not one
+      // per note that exists.
+      if (isNoteUnchanged(held.get(listedNote.id), listedNote.updatedAt)) {
+        unchanged++;
+        continue;
+      }
+
+      const note = await fetchGranolaNote(listedNote.id);
       if (!note.ok) {
         // One unreadable note must not end the run: a note out of the key's
         // scope is an expected outcome, not a failure of the import.
@@ -147,10 +202,22 @@ export async function POST(request: NextRequest) {
     created,
     updated,
     skipped,
+    // Already held and untouched at Granola, so never fetched.
+    unchanged,
     hasMore,
+    // The window this call asked for, echoed so a caller — or a log read six
+    // months from now — can see what was actually requested rather than infer
+    // it. Null means the whole history.
+    since,
     // Feed this back as ?cursor= to continue where this call stopped.
     cursor,
   });
+}
+
+/** Query flags arrive as text; treat the usual affirmatives as true. */
+function isTruthy(value: string | null): boolean {
+  if (!value) return false;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
 
 function clamp(value: number, min: number, max: number): number {

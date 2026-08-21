@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backfillUrlFrom } from '../../scripts/granola-backfill.mjs';
+import { backfillUrlFrom, callUrl } from '../../scripts/granola-backfill.mjs';
 
 /**
  * The backfill driver reuses the webhook secret rather than asking for a
@@ -32,32 +32,40 @@ describe('deriving the backfill URL', () => {
 });
 
 /**
- * The early stop is what makes hourly polling affordable: without it every run
- * would re-walk the whole history to discover the one note that arrived. Two
- * quiet pages rather than one, because an old note edited today surfaces among
- * recent ones and can produce a page that is all updates without meaning the
- * catch-up has reached the end.
+ * Which mode a call declares.
+ *
+ * This replaces a test of the old stopping rule — stop after two consecutive
+ * pages with nothing new — which was worthless in the specific way that hurts:
+ * it re-implemented the rule inside the test file rather than calling the
+ * shipped code, so it proved only that the test agreed with itself. The rule
+ * rested on Granola returning newest first, which Granola does not promise;
+ * in production every catch-up stopped on page two of old history having
+ * fetched nothing, and this suite stayed green for the three days it did so.
+ *
+ * A test that imports the real function cannot drift from it like that.
  */
-describe('catch-up stopping rule', () => {
-  function runsUntilStop(pages: number[], stopAfterKnown: number): number {
-    let quiet = 0;
-    for (let i = 0; i < pages.length; i++) {
-      quiet = pages[i]! > 0 ? 0 : quiet + 1;
-      if (stopAfterKnown > 0 && quiet >= stopAfterKnown) return i + 1;
-    }
-    return pages.length;
-  }
+describe('choosing the mode for a call', () => {
+  const BASE = backfillUrlFrom(WEBHOOK);
 
-  it('stops after two consecutive pages with nothing new', () => {
-    expect(runsUntilStop([3, 0, 0, 0, 0], 2)).toBe(3);
+  it('asks for a catch-up by default, and never mentions full', () => {
+    const url = callUrl(BASE, { pages: 1 });
+    expect(url.searchParams.get('full')).toBeNull();
+    expect(url.searchParams.get('pages')).toBe('1');
   });
 
-  it('keeps going when a page in between still has something new', () => {
-    // The trap: stopping on the first quiet page would miss the note on page 3.
-    expect(runsUntilStop([2, 0, 1, 0, 0], 2)).toBe(5);
+  it('declares a full import on the opening call when asked', () => {
+    expect(callUrl(BASE, { pages: 1, full: true }).searchParams.get('full')).toBe('1');
   });
 
-  it('never stops early during a full import', () => {
-    expect(runsUntilStop([0, 0, 0, 0, 0], 0)).toBe(5);
+  it('never re-declares full once the walk has a cursor', () => {
+    // A cursor continues a walk that already has its window. Re-declaring the
+    // mode mid-walk would start it again from the top, for ever.
+    const url = callUrl(BASE, { pages: 1, full: true, cursor: 'abc' });
+    expect(url.searchParams.get('full')).toBeNull();
+    expect(url.searchParams.get('cursor')).toBe('abc');
+  });
+
+  it('keeps the token through every call in the walk', () => {
+    expect(callUrl(BASE, { pages: 1, cursor: 'abc' }).searchParams.get('token')).toBe('abc123');
   });
 });

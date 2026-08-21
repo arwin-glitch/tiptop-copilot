@@ -1,7 +1,9 @@
 import { createHmac } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetEnvCache } from '@/lib/config/env';
 import {
   isIngestableEvent,
+  listGranolaNotes,
   toIngestPayload,
   verifyGranolaSignature,
   GRANOLA_EVENT_SCHEMA,
@@ -157,5 +159,98 @@ describe('mapping a fetched note', () => {
     const adhoc = toIngestPayload({ ...NOTE, calendar_event: null })!;
     expect(adhoc.occurred_at).toBe('2026-08-21T16:02:00.000Z');
     expect(adhoc.title).toBe('Vetrix — corpus licensing walk-through');
+  });
+});
+
+/**
+ * What a catch-up actually asks Granola for.
+ *
+ * This is the part that was wrong in production and had no test at all. The
+ * request used to carry nothing but an optional cursor, and the caller decided
+ * it had caught up by watching for pages with nothing new — sound only if the
+ * newest notes come first. Granola documents no order. Three days of meetings
+ * went unfetched while every suite passed.
+ *
+ * So the assertions here are about the query string, because the query string
+ * is the whole fix: name the window, and position stops mattering.
+ */
+describe('asking Granola for the backlog', () => {
+  const KEY = 'grn_test_key';
+
+  function respondWith(body: unknown) {
+    const calls: URL[] = [];
+    vi.stubGlobal('fetch', async (input: URL | string) => {
+      calls.push(new URL(String(input)));
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    return calls;
+  }
+
+  beforeEach(() => {
+    process.env.GRANOLA_API_KEY = KEY;
+    resetEnvCache();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.GRANOLA_API_KEY;
+    resetEnvCache();
+  });
+
+  const PAGE = {
+    notes: [
+      {
+        id: 'not_1d3tmYTlCICgjy',
+        created_at: '2026-08-20T09:00:00Z',
+        updated_at: '2026-08-20T09:40:00Z',
+      },
+    ],
+    hasMore: false,
+    cursor: null,
+  };
+
+  it('sends the window as updated_after rather than trusting the order', async () => {
+    const calls = respondWith(PAGE);
+    await listGranolaNotes({ updatedAfter: '2026-08-15T00:00:00.000Z' });
+    expect(calls[0]!.searchParams.get('updated_after')).toBe('2026-08-15T00:00:00.000Z');
+  });
+
+  it('asks for the largest page Granola allows, and never more', async () => {
+    const calls = respondWith(PAGE);
+    await listGranolaNotes({ pageSize: 500 });
+    // Granola's documented ceiling. Asking past it is a 400, not a bigger page.
+    expect(calls[0]!.searchParams.get('page_size')).toBe('30');
+  });
+
+  it('omits every filter it was not given', async () => {
+    const calls = respondWith(PAGE);
+    await listGranolaNotes();
+    const sent = calls[0]!.searchParams;
+    expect(sent.get('updated_after')).toBeNull();
+    expect(sent.get('created_after')).toBeNull();
+    expect(sent.get('cursor')).toBeNull();
+  });
+
+  it('keeps each note’s timestamps, which is what lets a fetch be skipped', async () => {
+    respondWith(PAGE);
+    const page = await listGranolaNotes({});
+    expect(page.ok).toBe(true);
+    if (!page.ok) return;
+    expect(page.value.notes[0]).toEqual({
+      id: 'not_1d3tmYTlCICgjy',
+      createdAt: '2026-08-20T09:00:00Z',
+      updatedAt: '2026-08-20T09:40:00Z',
+    });
+  });
+
+  it('tolerates a note the list describes without timestamps', async () => {
+    respondWith({ notes: [{ id: 'not_1d3tmYTlCICgjy' }], hasMore: false, cursor: null });
+    const page = await listGranolaNotes({});
+    expect(page.ok).toBe(true);
+    if (!page.ok) return;
+    expect(page.value.notes[0]!.updatedAt).toBeNull();
   });
 });
