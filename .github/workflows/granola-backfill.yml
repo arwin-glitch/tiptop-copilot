@@ -1,0 +1,34 @@
+# Imports the Granola backlog — every note that existed before the webhook did.
+#
+# Manual only. There is no schedule: this is a one-off catch-up, and the live
+# webhook covers everything from here on. Safe to run again at any time —
+# ingestion is idempotent on the note id, so a second run updates rather than
+# duplicates.
+#
+#   Actions -> granola-backfill -> Run workflow
+#
+# Uses the GRANOLA_WEBHOOK_URL secret the Slack sync already holds.
+
+name: granola-backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      pages:
+        description: 'Note pages per request (each page is ~10 notes)'
+        required: false
+        default: '3'
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: node scripts/granola-backfill.mjs
+        env:
+          GRANOLA_WEBHOOK_URL: ${{ secrets.GRANOLA_WEBHOOK_URL }}
+          PAGES: ${{ inputs.pages }}
