@@ -116,13 +116,32 @@ async function main() {
   // no more, and only exists so a paging bug cannot loop for ever.
   const maxCalls = Number.parseInt(process.env.MAX_CALLS ?? '400', 10);
 
+  /**
+   * How many consecutive pages of nothing-new before stopping.
+   *
+   * Granola lists newest first, so a catch-up run finds whatever arrived since
+   * last time in the first page or two and then walks into history it already
+   * has. Without this it would re-read all nine hundred notes every hour to
+   * discover one. Two pages of confirmation rather than one, because a note
+   * edited long ago can surface among recent ones and produce a page that is
+   * all updates without meaning the catch-up is finished.
+   *
+   * Set to 0 for a genuine full import, which is what the first run wants.
+   */
+  const stopAfterKnown = Number.parseInt(process.env.STOP_AFTER_KNOWN ?? '2', 10);
+
   let cursor = process.env.START_CURSOR || null;
   let created = 0;
   let updated = 0;
   let skipped = 0;
+  let quietPages = 0;
 
   await wake(url);
-  console.log('Importing the Granola backlog. Already-imported notes update in place.\n');
+  console.log(
+    stopAfterKnown > 0
+      ? `Catching up. Stops after ${stopAfterKnown} pages with nothing new.\n`
+      : 'Full import. Walks the entire history.\n',
+  );
 
   for (let call = 1; call <= maxCalls; call++) {
     let result;
@@ -135,18 +154,28 @@ async function main() {
       return;
     }
 
-    created += result.created ?? 0;
+    const newHere = result.created ?? 0;
+    created += newHere;
     updated += result.updated ?? 0;
     skipped += result.skipped ?? 0;
     cursor = result.cursor ?? null;
 
     console.log(
-      `call ${call}: +${result.created ?? 0} new, ${result.updated ?? 0} updated, ` +
+      `call ${call}: +${newHere} new, ${result.updated ?? 0} updated, ` +
         `${result.skipped ?? 0} skipped  (running total ${created + updated})`,
     );
 
     if (!result.hasMore) {
       console.log(`\nDone. ${created} imported, ${updated} already present, ${skipped} skipped.`);
+      return;
+    }
+
+    quietPages = newHere > 0 ? 0 : quietPages + 1;
+    if (stopAfterKnown > 0 && quietPages >= stopAfterKnown) {
+      console.log(
+        `\nCaught up. ${created} new note${created === 1 ? '' : 's'} imported; ` +
+          `the rest was already here.`,
+      );
       return;
     }
   }

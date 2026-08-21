@@ -1,28 +1,45 @@
-# Imports the Granola backlog — every note that existed before the webhook did.
+# Keeps the app's meeting notes level with Granola.
 #
-# Manual only. There is no schedule: this is a one-off catch-up, and the live
-# webhook covers everything from here on. Safe to run again at any time —
-# ingestion is idempotent on the note id, so a second run updates rather than
-# duplicates.
+# Runs hourly as a catch-up, and on demand for a full import. Granola lists
+# newest first, so an hourly run finds whatever arrived since the last one in
+# the first page or two and stops — a handful of requests, not nine hundred.
 #
-#   Actions -> granola-backfill -> Run workflow
+# This exists because webhook delivery cannot be relied on while the app is on
+# a free instance that sleeps after fifteen minutes: a delivery arriving at a
+# cold server gets no answer in time. Polling has no such deadline. If the app
+# ever moves to an always-on instance, the webhook becomes the live path and
+# this can drop to a daily safety net.
 #
-# Uses the GRANOLA_WEBHOOK_URL secret the Slack sync already holds.
+# Scheduled runs need the repository variable GRANOLA_BACKFILL=enabled, so the
+# schedule ships dormant rather than failing hourly before the secrets exist.
+# The manual button always works.
+#
+#   Settings -> Secrets and variables -> Actions
+#     Variables: GRANOLA_BACKFILL = enabled
+#     Secrets:   GRANOLA_WEBHOOK_URL  (the webhook URL including ?token=)
 
 name: granola-backfill
 
 on:
+  schedule:
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       pages:
         description: 'Note pages per request (each page is ~10 notes)'
         required: false
         default: '1'
+      full:
+        description: 'Full import — walk the entire history, not just what is new'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   backfill:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.GRANOLA_BACKFILL == 'enabled' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,4 +48,6 @@ jobs:
       - run: node scripts/granola-backfill.mjs
         env:
           GRANOLA_WEBHOOK_URL: ${{ secrets.GRANOLA_WEBHOOK_URL }}
-          PAGES: ${{ inputs.pages }}
+          PAGES: ${{ inputs.pages || '1' }}
+          # 0 disables the early stop, which is what a full import wants.
+          STOP_AFTER_KNOWN: ${{ inputs.full && '0' || '2' }}
