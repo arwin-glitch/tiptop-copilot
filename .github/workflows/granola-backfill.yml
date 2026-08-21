@@ -1,8 +1,13 @@
 # Keeps the app's meeting notes level with Granola.
 #
-# Runs hourly as a catch-up, and on demand for a full import. Granola lists
-# newest first, so an hourly run finds whatever arrived since the last one in
+# Runs every half hour as a catch-up, and on demand for a full import. Granola
+# lists newest first, so each run finds whatever arrived since the last one in
 # the first page or two and stops — a handful of requests, not nine hundred.
+#
+# At :17 and :47 rather than :00 and :30. GitHub's scheduler is best-effort and
+# queues shared runners; the top and half of the hour are the two most
+# contended minutes there are, and a job asked for then is the most likely to
+# be delayed or dropped. Odd offsets are consistently more punctual.
 #
 # This exists because webhook delivery cannot be relied on while the app is on
 # a free instance that sleeps after fifteen minutes: a delivery arriving at a
@@ -11,8 +16,8 @@
 # this can drop to a daily safety net.
 #
 # Scheduled runs need the repository variable GRANOLA_BACKFILL=enabled, so the
-# schedule ships dormant rather than failing hourly before the secrets exist.
-# The manual button always works.
+# schedule ships dormant rather than failing twice an hour before the secrets
+# exist. The manual button always works.
 #
 #   Settings -> Secrets and variables -> Actions
 #     Variables: GRANOLA_BACKFILL = enabled
@@ -22,7 +27,7 @@ name: granola-backfill
 
 on:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '17,47 * * * *'
   workflow_dispatch:
     inputs:
       pages:
