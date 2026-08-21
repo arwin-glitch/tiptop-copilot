@@ -76,6 +76,8 @@ export interface AppEnv {
 
   cronSecret: string | undefined;
   granolaWebhookSecret: string | undefined;
+  granolaSigningSecret: string | undefined;
+  granolaApiKey: string | undefined;
   /**
    * Full Pub/Sub topic name for Gmail push, e.g.
    * `projects/tiptop-copilot/topics/gmail-push`. Unset means no push
@@ -132,6 +134,8 @@ export function env(): AppEnv {
 
     cronSecret: str('CRON_SECRET'),
     granolaWebhookSecret: str('GRANOLA_WEBHOOK_SECRET'),
+    granolaSigningSecret: str('GRANOLA_SIGNING_SECRET'),
+    granolaApiKey: str('GRANOLA_API_KEY'),
     gmailPushTopic: str('GMAIL_PUSH_TOPIC'),
     demoDataDir: str('DEMO_DATA_DIR') ?? '.demo-data',
   };
@@ -378,14 +382,22 @@ export function capabilityReport(): CapabilityCheck[] {
     required: false,
   });
 
+  // Granola needs both halves: the signature proves a delivery is genuine, and
+  // the key fetches the content the delivery deliberately omits. Either alone
+  // is a dead end, so they are reported as one capability.
+  const granolaNative = has(e.granolaSigningSecret) && has(e.granolaApiKey);
   checks.push({
     key: 'granola',
     label: 'Granola meeting notes',
-    status: has(e.granolaWebhookSecret) ? 'ready' : 'optional-missing',
-    detail: has(e.granolaWebhookSecret)
-      ? 'Present. The webhook accepts notes carrying the matching token.'
-      : 'Not set. The meeting-notes webhook rejects all callers; nothing else is affected.',
-    variables: ['GRANOLA_WEBHOOK_SECRET'],
+    status: granolaNative || has(e.granolaWebhookSecret) ? 'ready' : 'optional-missing',
+    detail: granolaNative
+      ? 'Connected. Granola signs each delivery and the API key fetches the note it names.'
+      : has(e.granolaSigningSecret)
+        ? 'Deliveries can be verified, but GRANOLA_API_KEY is missing — a webhook carries only a note id, never its content, so nothing can be read.'
+        : has(e.granolaApiKey)
+          ? 'Notes could be fetched, but GRANOLA_SIGNING_SECRET is missing, so no delivery can be trusted.'
+          : 'Not set. Meeting notes do not arrive; nothing else is affected.',
+    variables: ['GRANOLA_SIGNING_SECRET', 'GRANOLA_API_KEY', 'GRANOLA_WEBHOOK_SECRET'],
     required: false,
   });
 

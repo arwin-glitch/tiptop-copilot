@@ -39,6 +39,8 @@ const PUBLIC_PATHS = [
   // Machine endpoint like gmail-push: authenticates with its own shared
   // secret, compared in constant time inside the route.
   '/api/integrations/granola/webhook',
+  // Same shared-secret contract; imports the Granola backlog on demand.
+  '/api/integrations/granola/backfill',
 ];
 
 /**
