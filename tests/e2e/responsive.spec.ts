@@ -23,6 +23,7 @@ const PAGES = [
   '/ask',
   '/portfolio',
   '/network',
+  '/meetings',
   '/knowledge',
   '/tasks',
   '/settings',

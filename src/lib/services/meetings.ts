@@ -337,3 +337,48 @@ export function parseGranolaEmail(
   const parsed = GRANOLA_NOTE_SCHEMA.safeParse(candidate);
   return parsed.success ? parsed.data : null;
 }
+
+/* ---------------------------------------------------------- the index page */
+
+export interface MeetingListOptions {
+  search?: string;
+  limit?: number;
+}
+
+/**
+ * Every meeting note, newest first.
+ *
+ * The deal and company pages only show a note once an attendee's domain
+ * matches a record that exists, which is the right rule there and a trap
+ * everywhere else: a meeting with a company the fund has never opened a file
+ * on would be stored and invisible. This is the view that always has it.
+ */
+export async function listMeetingNotes(
+  store: DataStore,
+  organizationId: string,
+  options: MeetingListOptions = {},
+): Promise<MeetingNote[]> {
+  const notes = (await store.list(
+    'meeting_notes',
+    organizationId,
+    {},
+    {
+      orderBy: [{ field: 'occurred_at', direction: 'desc' }],
+      limit: options.limit ?? 500,
+    },
+  )) as MeetingNote[];
+
+  const search = options.search?.trim().toLowerCase();
+  if (!search) return notes;
+
+  return notes.filter(
+    (note) =>
+      note.title.toLowerCase().includes(search) ||
+      note.content.toLowerCase().includes(search) ||
+      note.attendees.some(
+        (a) =>
+          a.email.toLowerCase().includes(search) ||
+          (a.name?.toLowerCase().includes(search) ?? false),
+      ),
+  );
+}
