@@ -1,12 +1,16 @@
 # Runs the full suite on every push and pull request.
 #
-# `verify` is format:check + lint + typecheck + the 423 unit and integration
-# tests + a production build. The e2e job is separate because it needs a
-# browser download and starts a real server, so failing it should read
-# differently from failing a typecheck.
+# `verify` is format:check + lint + typecheck + the unit and integration tests
+# + a production build. The e2e job is separate because it needs a browser
+# download and starts a real server, so failing it should read differently
+# from failing a typecheck.
 #
 # Neither job needs a secret: the e2e server runs in demo mode with the
 # throwaway values in playwright.config.ts.
+#
+# The e2e job must build first — see the comment on that step. It did not, and
+# every run of this workflow failed for it while the suite passed on the
+# machine of anyone who checked.
 
 name: verify
 
@@ -41,6 +45,16 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      # Playwright's webServer runs `next start`, which serves a build rather
+      # than making one. Without this the server exits immediately with
+      # "Could not find a production build in the '.next' directory" and the
+      # job fails before a single test runs.
+      #
+      # It passed locally the whole time this was broken, because anyone
+      # running the suite by hand had just run `npm run verify` — which ends in
+      # `next build` and leaves `.next` populated. A clean checkout has no such
+      # leftovers. Do not delete this step to save a minute.
+      - run: npm run build
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()

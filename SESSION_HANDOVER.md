@@ -14,8 +14,12 @@ Everything described here is committed and pushed to `master`
 > where they appear and explained in §7. In short: the poller's catch-up rested
 > on Granola returning notes newest first, which Granola does not promise and
 > does not do; the "922 notes in production" figure was an import truncated by
-> a 502, not a complete history; and the untested guess that Render's sleeping
-> broke webhook delivery is still just as untested.
+> a 502, not a complete history; and "no webhook delivery has ever succeeded"
+> stopped being true at about 18:00 on 21 August, while a warm instance made
+> the cold-start theory look right.
+>
+> **§7.3 also corrects a conclusion drawn earlier in §7 itself**, within the
+> same session. Read to the end of it before acting on any of it.
 
 ---
 
@@ -182,13 +186,18 @@ combination can run at once without duplicating a meeting.
 
 ### Why polling, not the webhook
 
-**No webhook delivery has ever succeeded.** All 922 notes came from the
+~~**No webhook delivery has ever succeeded.**~~ All 922 notes came from the
 backfill. The likely cause is that Render's free instance sleeps after fifteen
 minutes and a delivery arriving at a cold server gets no answer in time.
+
+*True until about 18:00 on 21 August, when one succeeded — see §7.3. It landed
+after an afternoon of constant traffic had kept the instance warm, which is the
+best evidence yet that the sleeping theory above is the right one.*
 
 **Unconfirmed** — Granola's Webhooks page has a "Last delivery" column that
 was never checked. If it reads "Never", the problem is configuration, not
 sleeping, and is fixable for free. **This is the first thing to check.**
+*Still worth reading, and it now has at least one success to show.*
 
 So `.github/workflows/granola-backfill.yml` polls every 30 minutes (`:17` and
 `:47` — the top and half of the hour are the most contended scheduler slots).
@@ -339,27 +348,54 @@ never been seen** — every previous run had died before reaching them. The "922
 notes in production" in §3 was never the history; it was the point where the
 502 landed. The true total is 1,327.
 
-### 7.3 What is left is not ours
+### 7.3 The pipeline works. Two specific meetings are missing.
 
 That full import enumerated every page Granola will serve, to a final partial
-page of 7, with zero skipped. We now hold all 1,327 notes.
+page of 7, with zero skipped. At 17:45 UTC we held all 1,327 notes and **none
+was dated later than 18 August**, although Nick had notes for the 19th to the
+21st visible in the Granola app.
 
-**None of them is dated later than 18 August** — although Nick has notes for
-the 19th, 20th and 21st visible in the Granola app.
+The conclusion drawn from that on the spot — that Granola's API does not serve
+recent notes and nothing on our side could reach them — **was too strong, and
+half an hour later the app disproved it.**
 
-This is no longer an inference from a stopping rule or a window; it is a
-complete enumeration. Granola's public API does not contain those notes, and no
-change on our side can reach them. Granola's own docs give the most likely
-reason: **the API only returns notes that have a generated AI summary _and_ a
-transcript.** Notes still processing, never summarised, or never synced from
-the desktop client are absent from `/v1/notes` and 404 on fetch.
+At about 17:28 Nick met Seth. By 18:05 "Nick & Seth Connect" was at the top of
+`/meetings` and the total had gone 1,329 → 1,330. Nothing imported it: the last
+backfill was the scheduled run at 17:48, whose log reads `+0 new, 2 unchanged`,
+and no run followed. `granola-slack-sync` is gated off and logged `skipped`.
 
-So the next person should not debug the poller. Check, in order:
+**That leaves the native webhook, which means webhook delivery works** — the
+first success on record, against §3's flat "No webhook delivery has ever
+succeeded." The app had been under constant traffic all afternoon and was warm,
+which is evidence *for* the cold-start theory §3 could only guess at, and an
+argument for the always-on instance in §5.
 
-1. Whether a recent note in Granola has a **transcript**, not just a summary.
-2. Which workspace or folder the recent notes live in, against the API key's
-   scope. (Out-of-scope notes would show as `skipped` in the log; none did.)
-3. Whether Nick's Granola client has actually synced to the cloud.
+So the shape of the problem is narrower than 7.3 first claimed:
+
+- **Recent notes do flow**, end to end, within about half an hour of a meeting.
+- **The 19th to the 21st genuinely were absent** from a complete enumeration at
+  17:45. That observation stands; the generalisation drawn from it does not.
+- **The Friday Wrap-Up is its own case.** It is a long-running recurring
+  meeting — 35 notes match "wrap" — and instances exist at 21 days, 28 days and
+  a month ago. The last three Fridays are all missing, while ordinary meetings
+  are present at 3, 8, 9, 15, 16 and 17 days. Something specific to that
+  meeting stopped being captured around the start of August.
+
+Granola's docs still give the most likely mechanism for a missing note: **the
+API only returns notes that have a generated AI summary _and_ a transcript.**
+Notes still processing, never summarised, or never synced from the desktop
+client are absent from `/v1/notes` and 404 on fetch.
+
+So the next person should still not start with the poller — but should check a
+named meeting, not the integration:
+
+1. Whether the specific missing note has a **transcript**, not just a summary.
+2. Whether Granola is still joining that calendar invite at all, and whether
+   the meeting moved to a different link or calendar.
+3. Whose account it records under. The API key is Nick's, so a meeting captured
+   on someone else's Granola is invisible to every call this app makes — the
+   older Friday Wrap-Ups list Nick as an attendee, so they were his once.
+4. Whether Nick's Granola client has actually synced to the cloud.
 
 ### 7.4 Smaller things
 
@@ -377,7 +413,30 @@ So the next person should not debug the poller. Check, in order:
   skip decision failing safe toward fetching whenever either timestamp is
   missing or unparseable.
 
-### 7.5 Still open from this session
+### 7.5 CI had never once run the e2e suite
+
+Found while checking something else: the `verify` workflow has failed on every
+push for as long as its history goes, including `0729130`, the commit that
+closed the previous session claiming "54 passed".
+
+The `verify` job passes. The **`e2e` job** never got as far as a test:
+
+```
+[WebServer] Error: Could not find a production build in the '.next' directory.
+Error: Process from config.webServer was not able to start. Exit code: 1
+```
+
+Playwright's `webServer` runs `next start`, which serves a build rather than
+making one, and the job never ran `npm run build`. It passed for every human
+who tried it because they had just run `npm run verify`, which ends in
+`next build` and leaves `.next` populated. A clean checkout has no leftovers.
+
+Fixed by adding the build step. The lesson is the same one as §7.1 in a
+different costume: **a check that passes because of state left behind by
+something else is not a check.** One agreed with itself, the other agreed with
+a stale build directory, and both reported green for days.
+
+### 7.6 Still open from this session
 
 - **The two junk rows are still in production.** The SQL is in §5.
 - **The secrets are still unrotated.** Also §5.
