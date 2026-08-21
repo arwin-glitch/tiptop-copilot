@@ -38,19 +38,58 @@ async function callOnce(url, cursor, pages) {
   target.searchParams.set('pages', String(pages));
   if (cursor) target.searchParams.set('cursor', cursor);
 
-  // The free-tier host sleeps and takes ~50s to wake; each call also fetches
-  // every note in its pages, so the ceiling is generous on purpose.
-  const response = await fetch(target, {
-    method: 'POST',
-    signal: AbortSignal.timeout(280_000),
-  });
+  const started = Date.now();
+  let response;
+  try {
+    response = await fetch(target, { method: 'POST', signal: AbortSignal.timeout(110_000) });
+  } catch (error) {
+    // A timeout here is the most likely failure on a free instance, and the
+    // least self-explanatory. Name it, and say what to do about it.
+    const seconds = Math.round((Date.now() - started) / 1000);
+    if (error?.name === 'TimeoutError' || /abort/i.test(String(error?.message))) {
+      throw new Error(
+        `no answer after ${seconds}s. The server is doing too much per call — ` +
+          `re-run with a smaller "pages" value (1 is the safest).`,
+      );
+    }
+    throw new Error(`could not reach the app after ${seconds}s: ${error?.message ?? 'unknown'}`);
+  }
 
-  const body = await response.json().catch(() => ({}));
+  const text = await response.text();
+  let body = {};
+  try {
+    body = JSON.parse(text);
+  } catch {
+    // An HTML error page rather than JSON means the request never reached the
+    // route — a wrong path, or the host's own error page.
+    throw new Error(
+      `HTTP ${response.status} and the reply was not JSON. First 200 characters:\n${text.slice(0, 200)}`,
+    );
+  }
+
   if (!response.ok || body.ok === false) {
-    const detail = body?.error?.message ?? `HTTP ${response.status}`;
-    throw new Error(detail);
+    throw new Error(body?.error?.message ?? `HTTP ${response.status}: ${text.slice(0, 200)}`);
   }
   return body;
+}
+
+/**
+ * Wake the host before timing anything.
+ *
+ * The free instance sleeps after fifteen minutes and takes the better part of
+ * a minute to come back. Spending that inside the first real call makes a
+ * slow start look like a hung import.
+ */
+async function wake(url) {
+  const origin = new URL(url).origin;
+  process.stdout.write('Waking the app (up to 60s if it was asleep)… ');
+  const started = Date.now();
+  try {
+    await fetch(`${origin}/login`, { signal: AbortSignal.timeout(90_000) });
+    console.log(`awake after ${Math.round((Date.now() - started) / 1000)}s.\n`);
+  } catch {
+    console.log('no answer — continuing anyway.\n');
+  }
 }
 
 async function main() {
@@ -70,7 +109,9 @@ async function main() {
     return;
   }
 
-  const pages = Number.parseInt(process.env.PAGES ?? '3', 10);
+  // One page — about ten notes — per call. Small enough that a free instance
+  // finishes comfortably inside the timeout; the loop below does the volume.
+  const pages = Number.parseInt(process.env.PAGES ?? '1', 10);
   // A ceiling rather than a target: it stops as soon as Granola says there is
   // no more, and only exists so a paging bug cannot loop for ever.
   const maxCalls = Number.parseInt(process.env.MAX_CALLS ?? '400', 10);
@@ -80,6 +121,7 @@ async function main() {
   let updated = 0;
   let skipped = 0;
 
+  await wake(url);
   console.log('Importing the Granola backlog. Already-imported notes update in place.\n');
 
   for (let call = 1; call <= maxCalls; call++) {

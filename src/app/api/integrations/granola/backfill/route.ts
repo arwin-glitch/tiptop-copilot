@@ -107,10 +107,34 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const result = await ingestGranolaNote(getStore(), organizationId, payload);
-      if (!result.ok) skipped++;
-      else if (result.value.created) created++;
-      else updated++;
+      try {
+        const result = await ingestGranolaNote(getStore(), organizationId, payload);
+        if (!result.ok) skipped++;
+        else if (result.value.created) created++;
+        else updated++;
+      } catch (error) {
+        // A throw here is almost always the one setup step that has no other
+        // symptom: the migration has not been applied, so `meeting_notes` does
+        // not exist. Say that plainly instead of failing as an anonymous 500 —
+        // the whole import is blocked until it is fixed, so stop rather than
+        // grinding through hundreds of notes that cannot be stored.
+        const message = error instanceof Error ? error.message : String(error);
+        const missingTable = /meeting_notes|relation .* does not exist|42P01/i.test(message);
+        log.error('Granola backfill could not store a note', { missingTable });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: {
+              code: missingTable ? 'not_configured' : 'internal',
+              message: missingTable
+                ? 'The meeting_notes table does not exist yet. Run the migration in supabase/migrations/20260818000000_meeting_notes.sql, then run this again.'
+                : `Storing a note failed: ${message}`,
+            },
+            progress: { created, updated, skipped, cursor },
+          },
+          { status: missingTable ? 503 : 500 },
+        );
+      }
     }
 
     cursor = listed.value.cursor;

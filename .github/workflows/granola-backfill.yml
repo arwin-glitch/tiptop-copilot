@@ -17,7 +17,7 @@ on:
       pages:
         description: 'Note pages per request (each page is ~10 notes)'
         required: false
-        default: '3'
+        default: '1'
 
 jobs:
   backfill:
