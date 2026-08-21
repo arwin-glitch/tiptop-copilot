@@ -4,8 +4,18 @@
 `DESIGN_HANDOVER.md`. Read that file first for the product's history; this one
 covers what changed since and what is still open.**
 
+**Extended later the same day, after the poller was found to be silently
+fetching nothing. §7 is that session and it corrects several claims below.**
+
 Everything described here is committed and pushed to `master`
-(`b917fff` … `cf3d289`, 17 commits). The tree is clean and in sync.
+(`b917fff` … `bd207a5`, 19 commits). The tree is clean and in sync.
+
+> **Three things in this document were wrong when written.** They are corrected
+> where they appear and explained in §7. In short: the poller's catch-up rested
+> on Granola returning notes newest first, which Granola does not promise and
+> does not do; the "922 notes in production" figure was an import truncated by
+> a 502, not a complete history; and the untested guess that Render's sleeping
+> broke webhook delivery is still just as untested.
 
 ---
 
@@ -38,13 +48,13 @@ Two shell traps that cost time this session:
 
 | | |
 | --- | --- |
-| `npm run verify` | **exit 0** — format, lint, typecheck, **538 unit/integration tests**, production build |
+| `npm run verify` | **exit 0** — format, lint, typecheck, **551 unit/integration tests**, production build |
 | `npx playwright test` | **54 passed** (was 38 at session start) |
-| Deployed | both Render services on `cf3d289` |
+| Deployed | both Render services on `bd207a5` |
 | Repo | still **public**, deliberately — see §5 |
 
-Test count went 473 → 538; e2e 38 → 54. Every number below was measured, not
-estimated.
+Test count went 473 → 538 in the design session, and 538 → 551 in the one
+described in §7. E2e 38 → 54. Every number below was measured, not estimated.
 
 ---
 
@@ -147,7 +157,9 @@ fetched and stored it; the same delivery repeated changed nothing; two backfill
 pages imported 20 real meetings with true titles, attendees and ~3,700
 characters each.
 
-**922 notes are now in production**, imported by the backfill.
+**922 notes are now in production**, imported by the backfill. — *Wrong, and
+wrong in an invisible way: that was the point at which every import died of a
+502, not the end of the history. The real figure is 1,327. See §7.*
 
 ### The three dead ends
 
@@ -180,9 +192,17 @@ sleeping, and is fixable for free. **This is the first thing to check.**
 
 So `.github/workflows/granola-backfill.yml` polls every 30 minutes (`:17` and
 `:47` — the top and half of the hour are the most contended scheduler slots).
-It stops after two consecutive pages with nothing new, so a routine run is a
-handful of requests. `GRANOLA_BACKFILL=enabled` gates the schedule; the manual
-button always works and has a "full import" checkbox.
+~~It stops after two consecutive pages with nothing new, so a routine run is a
+handful of requests.~~ *That stopping rule was the bug in §7 — it assumed an
+order Granola does not guarantee, and made every catch-up fetch nothing. A
+catch-up now asks `updated_after` for a window of time and reads the answer to
+the end.* `GRANOLA_BACKFILL=enabled` gates the schedule; the manual button
+always works and has a "full import" checkbox.
+
+The schedule is confirmed working: the first scheduled run fired at 16:53 UTC
+on 21 August, six minutes past its `:47` slot. GitHub's scheduler is
+best-effort — expect minutes of drift, and expect a newly added cron to skip a
+slot or two before it settles.
 
 ---
 
@@ -218,6 +238,9 @@ Migration `20260818000000_meeting_notes.sql` **has been applied** to Supabase.
   They are not in the repo — verified — but should be rotated in Granola and
   updated in Render.
 - **"Last delivery"** on the Granola webhook page has never been read. See §3.
+  This matters more after §7 than it did when first written: if Granola's cloud
+  has no note for a meeting, it has nothing to deliver either, and a webhook
+  page reading "Never" would be a symptom rather than a misconfiguration.
 
 **Decisions for Arwin, not tasks:**
 
@@ -258,3 +281,104 @@ inherit the token and `Card` changes.
   this session did was run things rather than trust that they compiled — every
   significant bug was found that way, and none of them by a test that already
   existed.
+
+---
+
+## 7. The poller that fetched nothing — 21 August, later the same day
+
+Reported symptom: "the meetings tab hasn't updated even though Nick had
+meetings two hours ago." The gap was actually three days, and there were three
+separate causes stacked on top of each other. Only two were ours.
+
+### 7.1 The catch-up rested on an order Granola does not promise
+
+`listGranolaNotes` carried a comment saying "One page of the note backlog,
+newest first," and the entire catch-up was built on it: read pages, stop once
+two consecutive pages hold nothing new. **Granola's API reference documents no
+sort order at all.** In production the first page was history we already had,
+so the rule fired on page two and every run reported "caught up" having fetched
+nothing. It did that for three days.
+
+Nothing caught it. `npm run verify` was green, 54 e2e were green, and the
+stopping rule's only test **re-implemented the rule inside the test file**
+rather than importing it — so it proved the test agreed with itself. That is
+the failure mode to watch for in this repo: a test that restates the logic
+under test can never contradict it.
+
+**The fix is to stop inferring recency from position.** `updated_after` is a
+documented filter and was never used. A catch-up now asks for everything
+changed since three days before the newest meeting stored and reads that answer
+to the end. Ordering became something the code neither knows nor needs.
+
+Three days of overlap because Granola publishes a note only once its AI summary
+and transcript exist, so arrival always lags the meeting. The window anchors to
+the newest `occurred_at` actually stored rather than to a saved watermark — a
+watermark can advance past a note that failed to ingest and strand it for ever;
+an anchor derived from data that landed cannot. It is clamped to the present,
+because `occurred_at` comes from the calendar event and a scheduled future
+meeting would otherwise push the window past now and hide everything behind it.
+
+### 7.2 Every full import died of a 502 partway through
+
+The route fetched full content for every note the list returned, including the
+hundreds it already had. That volume is what made Render answer 502 around note
+780 — five minutes of work to discover nothing.
+
+The list response carries each note's `created_at` and `updated_at`, and the
+old schema discarded both. Keeping them lets a note we hold unchanged skip its
+content fetch entirely: compare our row's `updated_at` (when we last wrote it)
+against Granola's, and if ours is newer there is nothing to fetch. Page size
+also went from the default 10 to Granola's maximum of 30.
+
+The effect is not marginal. A catch-up went from five minutes and a 502 to
+**nine seconds**; a full import from impossible to **2m36s across 45 pages**.
+
+**That is what exposed the real state of the data.** The first full import that
+could actually finish walked past note 780 and imported **407 notes that had
+never been seen** — every previous run had died before reaching them. The "922
+notes in production" in §3 was never the history; it was the point where the
+502 landed. The true total is 1,327.
+
+### 7.3 What is left is not ours
+
+That full import enumerated every page Granola will serve, to a final partial
+page of 7, with zero skipped. We now hold all 1,327 notes.
+
+**None of them is dated later than 18 August** — although Nick has notes for
+the 19th, 20th and 21st visible in the Granola app.
+
+This is no longer an inference from a stopping rule or a window; it is a
+complete enumeration. Granola's public API does not contain those notes, and no
+change on our side can reach them. Granola's own docs give the most likely
+reason: **the API only returns notes that have a generated AI summary _and_ a
+transcript.** Notes still processing, never summarised, or never synced from
+the desktop client are absent from `/v1/notes` and 404 on fetch.
+
+So the next person should not debug the poller. Check, in order:
+
+1. Whether a recent note in Granola has a **transcript**, not just a summary.
+2. Which workspace or folder the recent notes live in, against the API key's
+   scope. (Out-of-scope notes would show as `skipped` in the log; none did.)
+3. Whether Nick's Granola client has actually synced to the cloud.
+
+### 7.4 Smaller things
+
+- The Meetings stat displayed `notes.length` from a query with `limit: 500` —
+  a flat "500" presented as a count while the real figure was 922. It counts
+  now. **Any stat reading the length of a limited query is reporting the
+  limit.**
+- `STOP_AFTER_KNOWN` is gone from the script and the workflow; `FULL=1`
+  replaces it. The route takes `?full=1`, and `?since=` to force a window.
+- The backfill response now reports `unchanged` and echoes `since`, and the
+  driver prints the window on the opening call. A wrong window was previously
+  invisible; now it is the second line of every log.
+- 13 tests added, all against shipped code rather than restatements of it: the
+  query string a catch-up sends, the window's arithmetic and its clamp, and the
+  skip decision failing safe toward fetching whenever either timestamp is
+  missing or unparseable.
+
+### 7.5 Still open from this session
+
+- **The two junk rows are still in production.** The SQL is in §5.
+- **The secrets are still unrotated.** Also §5.
+- Both were agreed and neither was done; they are not blocked on anything.
