@@ -47,9 +47,17 @@ export const maxDuration = 300;
  * and reported success while nothing was fetched. Position tells us nothing
  * here; `updated_after` tells us exactly what we asked.
  *
- * Authenticated by the same shared token as the token-based webhook path. It
- * spends API quota and writes records, so it is deliberately not something an
+ * Authenticated by `GRANOLA_WEBHOOK_SECRET` alone. It spends API quota and can
+ * walk years of history, so it is deliberately not something an
  * unauthenticated caller can start.
+ *
+ * **`GRANOLA_BRIDGE_TOKEN` must never be accepted here.** That token exists
+ * for senders whose credential lives somewhere quotable — a cloud routine
+ * keeps its token in a prompt the API returns in full on `get`, on `run` and
+ * in run logs — so it is assumed to leak eventually. Its whole value is that
+ * holding it lets you file a note and nothing more. Accepting it here would
+ * quietly delete that guarantee and hand quota-spend to anyone who read a
+ * transcript.
  */
 export async function POST(request: NextRequest) {
   const secret = env().granolaWebhookSecret;

@@ -76,6 +76,22 @@ export interface AppEnv {
 
   cronSecret: string | undefined;
   granolaWebhookSecret: string | undefined;
+  /**
+   * An ingest-only credential for senders that can post notes but must never
+   * be able to start a backfill.
+   *
+   * It exists because of where these credentials live. A cloud routine keeps
+   * its token inside its own prompt, and the routines API returns that prompt
+   * in full on `get`, on `run`, and in a run log — so the value surfaces in a
+   * transcript every time anyone touches the routine. Treating that as
+   * eventually-public is the only honest assumption.
+   *
+   * `GRANOLA_WEBHOOK_SECRET` also opens `/backfill`, which spends Granola API
+   * quota and can walk the whole history. A leaked ingest token should be able
+   * to file a junk meeting note and nothing else, so a sender that only needs
+   * to post gets this instead.
+   */
+  granolaBridgeToken: string | undefined;
   granolaSigningSecret: string | undefined;
   granolaApiKey: string | undefined;
   /**
@@ -134,6 +150,7 @@ export function env(): AppEnv {
 
     cronSecret: str('CRON_SECRET'),
     granolaWebhookSecret: str('GRANOLA_WEBHOOK_SECRET'),
+    granolaBridgeToken: str('GRANOLA_BRIDGE_TOKEN'),
     granolaSigningSecret: str('GRANOLA_SIGNING_SECRET'),
     granolaApiKey: str('GRANOLA_API_KEY'),
     gmailPushTopic: str('GMAIL_PUSH_TOPIC'),
@@ -397,7 +414,30 @@ export function capabilityReport(): CapabilityCheck[] {
         : has(e.granolaApiKey)
           ? 'Notes could be fetched, but GRANOLA_SIGNING_SECRET is missing, so no delivery can be trusted.'
           : 'Not set. Meeting notes do not arrive; nothing else is affected.',
-    variables: ['GRANOLA_SIGNING_SECRET', 'GRANOLA_API_KEY', 'GRANOLA_WEBHOOK_SECRET'],
+    variables: [
+      'GRANOLA_SIGNING_SECRET',
+      'GRANOLA_API_KEY',
+      'GRANOLA_WEBHOOK_SECRET',
+      'GRANOLA_BRIDGE_TOKEN',
+    ],
+    required: false,
+  });
+
+  // Reported separately because it answers a different question. The check
+  // above asks whether Granola's own notes can arrive; this one asks whether
+  // the bridge that carries the notes Granola's API will not serve — the
+  // private ones — has a credential of its own, or is borrowing the stronger
+  // secret it should not be holding.
+  checks.push({
+    key: 'granola-bridge',
+    label: 'Granola bridge (private notes)',
+    status: has(e.granolaBridgeToken) ? 'ready' : 'optional-missing',
+    detail: has(e.granolaBridgeToken)
+      ? 'An ingest-only token is set. A sender holding it can file notes but cannot start a backfill.'
+      : has(e.granolaWebhookSecret)
+        ? 'Not set. An external sender would have to hold GRANOLA_WEBHOOK_SECRET, which also opens /backfill — more than posting a note requires.'
+        : 'Not set. Nothing can post notes to this app; Granola-native delivery is unaffected.',
+    variables: ['GRANOLA_BRIDGE_TOKEN'],
     required: false,
   });
 

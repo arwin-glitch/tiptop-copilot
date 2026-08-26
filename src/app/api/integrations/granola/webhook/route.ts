@@ -59,15 +59,23 @@ export async function POST(request: NextRequest) {
 
   /* ------------------------------------------------ our own senders */
 
-  const secret = e.granolaWebhookSecret;
-  if (!secret) {
+  // Two credentials open this door, and the difference is what each one opens
+  // *elsewhere*. GRANOLA_WEBHOOK_SECRET also starts a backfill, which spends
+  // Granola API quota and can walk years of history. GRANOLA_BRIDGE_TOKEN
+  // opens only this endpoint, so a sender that just posts notes can hold the
+  // weaker one — and a sender whose credential lives somewhere quotable, like
+  // a cloud routine's prompt, should hold nothing stronger.
+  const accepted = [e.granolaWebhookSecret, e.granolaBridgeToken].filter((value): value is string =>
+    Boolean(value),
+  );
+  if (accepted.length === 0) {
     return NextResponse.json(
       {
         ok: false,
         error: {
           code: 'not_configured',
           message:
-            'This endpoint accepts signed Granola deliveries, or token-authenticated posts once GRANOLA_WEBHOOK_SECRET is set.',
+            'This endpoint accepts signed Granola deliveries, or token-authenticated posts once GRANOLA_WEBHOOK_SECRET or GRANOLA_BRIDGE_TOKEN is set.',
         },
       },
       { status: 503 },
@@ -75,7 +83,13 @@ export async function POST(request: NextRequest) {
   }
 
   const provided = new URL(request.url).searchParams.get('token') ?? '';
-  if (!constantTimeEquals(provided, secret)) {
+  // Every candidate is compared, and the comparison itself is constant-time,
+  // so neither which secret matched nor how many are configured is timeable.
+  const authenticated = accepted.reduce(
+    (matched, candidate) => constantTimeEquals(provided, candidate) || matched,
+    false,
+  );
+  if (!authenticated) {
     return NextResponse.json(
       { ok: false, error: { code: 'unauthenticated', message: 'Invalid webhook token.' } },
       { status: 401 },

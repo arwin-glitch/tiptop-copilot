@@ -323,7 +323,18 @@ describe('calendar attendee recovery', () => {
 describe('the catch-up window', () => {
   const NOW = new Date('2026-08-21T17:00:00.000Z');
 
-  async function storeNote(occurredAt: string, externalId: string) {
+  /**
+   * Store one note and make it unambiguously the newest.
+   *
+   * The demo fixtures are generated relative to the current date, so whichever
+   * note is newest changes as the calendar moves. An earlier version of this
+   * suite stored a note and assumed it won the comparison; months later the
+   * fixtures overtook it and the assertion started reading a fixture's date
+   * instead. Clearing first makes the anchor a fact of the test rather than an
+   * accident of when it runs.
+   */
+  async function storeOnlyNote(occurredAt: string, externalId: string) {
+    await harness.store.removeWhere('meeting_notes', harness.auth.organizationId, {});
     return ingestGranolaNote(harness.store, harness.auth.organizationId, {
       ...PAYLOAD,
       external_id: externalId,
@@ -332,7 +343,7 @@ describe('the catch-up window', () => {
   }
 
   it('reaches back beyond the newest meeting held, to cover Granola’s lag', async () => {
-    await storeNote('2026-08-18T10:00:00.000Z', 'granola-newest');
+    await storeOnlyNote('2026-08-18T10:00:00.000Z', 'granola-newest');
     const since = await catchUpSince(harness.store, harness.auth.organizationId, NOW);
     // Three days before the newest meeting stored, not the meeting itself: a
     // note published late must still fall inside the window.
@@ -348,13 +359,13 @@ describe('the catch-up window', () => {
   it('never lets a future-dated meeting push the window past now', async () => {
     // occurred_at comes from the calendar, so a scheduled meeting next month
     // would otherwise move the window forward and hide everything behind it.
-    await storeNote('2026-09-30T10:00:00.000Z', 'granola-scheduled');
+    await storeOnlyNote('2026-09-30T10:00:00.000Z', 'granola-scheduled');
     const since = await catchUpSince(harness.store, harness.auth.organizationId, NOW);
     expect(since).toBe('2026-08-18T17:00:00.000Z');
   });
 
   it('reports what it already holds, so unchanged notes need no fetch', async () => {
-    await storeNote('2026-08-18T10:00:00.000Z', 'granola-held');
+    await storeOnlyNote('2026-08-18T10:00:00.000Z', 'granola-held');
     const held = await existingNoteVersions(harness.store, harness.auth.organizationId, [
       'granola-held',
       'granola-never-seen',

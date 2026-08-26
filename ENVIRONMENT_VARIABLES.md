@@ -205,10 +205,37 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 ### `GRANOLA_WEBHOOK_SECRET`
 
-Token required by `/api/integrations/granola/webhook`, the endpoint Zapier
-POSTs Granola meeting notes to (`?token=` in the Zap's URL). Unset, the
-endpoint rejects every caller and nothing else in the product is affected —
-meeting notes simply do not arrive. Generate it the same way as `CRON_SECRET`.
+Token required by `/api/integrations/granola/webhook`, the endpoint external
+senders POST Granola meeting notes to (`?token=` in the sender's URL). It also
+authenticates `/api/integrations/granola/backfill`, which spends Granola API
+quota and can walk years of history — so this is the **stronger** of the two
+ingest credentials. Unset, neither endpoint accepts a token and nothing else in
+the product is affected. Generate it the same way as `CRON_SECRET`.
+
+### `GRANOLA_BRIDGE_TOKEN`
+
+A second token accepted by the webhook endpoint **and by nothing else**. Give
+this to any sender that only needs to file notes, and keep
+`GRANOLA_WEBHOOK_SECRET` for callers that legitimately start backfills.
+
+It exists because of where such a credential ends up living. The cloud routine
+that carries Nick's private notes into the app keeps its token inside its own
+prompt, and the routines API returns that prompt in full on `get`, on `run`,
+and in run logs — so the value appears in a transcript every time anyone
+touches the routine. Assume it is public. Holding it should let someone file a
+junk meeting note, and nothing more.
+
+Generate it the same way as `CRON_SECRET`, and give it a **different** value
+from `GRANOLA_WEBHOOK_SECRET` — sharing one string between them rebuilds the
+exact problem the split removes.
+
+> **Paste the output, not the command.** In August 2026
+> `GRANOLA_WEBHOOK_SECRET` was found in production holding the literal text
+> `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`
+> — the generator line from this document, pasted verbatim instead of run. A
+> secret that is published three times in a public repository is not a secret.
+> Any value here beginning with `node -e` is a placeholder that never became
+> one.
 
 ---
 
