@@ -7,19 +7,30 @@ covers what changed since and what is still open.**
 **Extended later the same day, after the poller was found to be silently
 fetching nothing. §7 is that session and it corrects several claims below.**
 
-Everything described here is committed and pushed to `master`
-(`b917fff` … `bd207a5`, 19 commits). The tree is clean and in sync.
+**Extended again on 26–27 August. §8 is that session, and it overturns §7's
+conclusion.** If you read only one part, read §8.
 
-> **Three things in this document were wrong when written.** They are corrected
-> where they appear and explained in §7. In short: the poller's catch-up rested
-> on Granola returning notes newest first, which Granola does not promise and
-> does not do; the "922 notes in production" figure was an import truncated by
-> a 502, not a complete history; and "no webhook delivery has ever succeeded"
-> stopped being true at about 18:00 on 21 August, while a warm instance made
-> the cold-start theory look right.
+Everything described here is committed and pushed to `master`
+(`b917fff` … `a1358fe`, 26 commits). The tree is clean and in sync.
+
+> **This document has been wrong more than once, and says so where it was.**
+> Corrections live next to the claims they correct rather than replacing them,
+> because the reasoning that produced a wrong belief is the part worth seeing.
 >
-> **§7.3 also corrects a conclusion drawn earlier in §7 itself**, within the
-> same session. Read to the end of it before acting on any of it.
+> Read in order, each section can overturn the last:
+>
+> - **§3** claimed 922 notes were the history (it was an import truncated by a
+>   502) and that no webhook delivery had ever succeeded (one did, at ~18:00 on
+>   21 August).
+> - **§7** found the poller's catch-up rested on an ordering Granola does not
+>   promise, then concluded Granola's API simply does not hold Nick's private
+>   notes.
+> - **§8** shows that conclusion was wrong. The API holds them; the API **key**
+>   was created without the Personal Notes scope. One checkbox. ~800 notes
+>   arrived the moment it was ticked.
+>
+> **Nothing in §3 or §7 about Granola's access model should be trusted over
+> §8.1.**
 
 ---
 
@@ -50,6 +61,8 @@ Two shell traps that cost time this session:
 
 ## 1. Verified state
 
+**Superseded by §8.7 — the current numbers are there.** Kept for the trend.
+
 | | |
 | --- | --- |
 | `npm run verify` | **exit 0** — format, lint, typecheck, **551 unit/integration tests**, production build |
@@ -57,8 +70,13 @@ Two shell traps that cost time this session:
 | Deployed | both Render services on `bd207a5` |
 | Repo | still **public**, deliberately — see §5 |
 
-Test count went 473 → 538 in the design session, and 538 → 551 in the one
-described in §7. E2e 38 → 54. Every number below was measured, not estimated.
+Test count went 473 → 538 in the design session, 538 → 551 in the one described
+in §7, and 551 → 568 in §8. E2e 38 → 54 → 58. Every number was measured, not
+estimated.
+
+One caveat on all of the above: until §8.3, **CI had never once run the e2e
+suite**. "54 passed" was true on a developer's machine and had never been true
+in CI.
 
 ---
 
@@ -350,6 +368,11 @@ notes in production" in §3 was never the history; it was the point where the
 
 ### 7.3 The pipeline works. Two specific meetings are missing.
 
+> **Overturned by §8.1.** "Every page Granola will serve" was every page it
+> would serve *to a key without the Personal Notes scope*. The enumeration was
+> exhaustive within a boundary nobody had noticed was there. Read §8.1 before
+> acting on anything in this subsection.
+
 That full import enumerated every page Granola will serve, to a final partial
 page of 7, with zero skipped. At 17:45 UTC we held all 1,327 notes and **none
 was dated later than 18 August**, although Nick had notes for the 19th to the
@@ -441,3 +464,183 @@ a stale build directory, and both reported green for days.
 - **The two junk rows are still in production.** The SQL is in §5.
 - **The secrets are still unrotated.** Also §5.
 - Both were agreed and neither was done; they are not blocked on anything.
+
+---
+
+## 8. The day the notes actually arrived — 26–27 August
+
+**§7 ends with the wrong conclusion. Read this section before acting on it.**
+
+§7.3 said Granola's API does not contain Nick's private notes and that no
+change on our side could reach them. That was measured correctly and reasoned
+about wrongly. The API can serve them; the key we were authenticating with
+could not. Everything below follows from that.
+
+### 8.1 The root cause was a checkbox
+
+Granola issues **Personal API keys** and **Workspace API keys**, and a personal
+key is created with scopes ticked at generation time:
+
+| Scope | Covers |
+| --- | --- |
+| Personal Notes | Notes you own, notes shared directly with you, notes in private folders shared with you |
+| Public Notes | Notes visible to everyone in the workspace, notes in the Team space |
+
+`GRANOLA_API_KEY` had only one of the two. Ticking both took thirty seconds,
+and the next catch-up imported **~800 notes** across 37 pages — meetings that
+had been sitting in Granola for months, invisible to the app the entire time.
+
+The meetings table went 1,453 → **2,232**.
+
+**This is the first thing to check if notes stop arriving again.** Not the
+poller, not the webhook: the key's scopes, in the Granola desktop app under
+Settings → Connectors → API keys.
+
+Not checking it cost most of two days. The signal was there the whole time —
+the MCP connector reports `mcp_note_access.scopes` and it read
+`["personal", "public"]` while the app was plainly seeing only one of them.
+
+### 8.2 What was built to work around it, and then deleted
+
+Before the scopes were found, a bridge carried notes in through the Granola MCP
+connector, which had the access the API key lacked. It worked, and it is gone.
+It is recorded because the two dead ends inside it are not obvious:
+
+- **A cloud routine cannot reach this app.** Cloud routines run behind a
+  network allowlist permitting `api.anthropic.com`, package registries and
+  connectors, and refusing everything else. Every POST came back
+  `CONNECT tunnel failed, response 403` before leaving the sandbox. There is no
+  setting for this in the routine, the account, or Render.
+- **A local scheduled task can**, and the Granola connector does load in one.
+  But it runs only while the desktop app is open, and it needed
+  `defaultMode: bypassPermissions` — because a command containing a shell
+  substitution can never be auto-approved. The permission system cannot know
+  what the substitution expands to, so no allow rule will ever match it. That
+  cost four rounds of the wrong fix before anyone read the raw transcript.
+
+The bridge also produced the duplicates: it keyed notes on the *connector's*
+meeting id (a uuid) while the app keys on Granola's note id (`not_…`), so every
+note arriving by both paths became two rows — and the bridge's copy had no
+`source_url`, hence no "Open in Granola" link. 32 rows, all identifiable by
+`left(external_id, 4) <> 'not_'`, deleted.
+
+`GRANOLA_BRIDGE_TOKEN` (§8.5) is the one part worth keeping.
+
+### 8.3 Three bugs that were green in every check
+
+Each passed CI while failing in production, and each for a different reason.
+The pattern is the lesson.
+
+1. **The poller's catch-up assumed an ordering Granola does not promise**
+   (§7.1). Its only test re-implemented the rule instead of importing it, so
+   the test agreed with the bug.
+2. **CI never ran the e2e suite.** The job called `playwright test` without
+   ever running `npm run build`, and Playwright's `webServer` uses
+   `next start`, which serves a build rather than making one. It passed for
+   every human because they had just run `npm run verify`, which ends in a
+   build; a clean checkout has no such leftovers. Fixed in `ci.yml`. The suite
+   had never been green in CI before this session.
+3. **Every Gmail push notification was failing.** The handler listed
+   `integrations` with an empty organization id — "across every tenant", which
+   this interface cannot express. The demo store read that as *matches
+   nothing* and returned an empty array; Postgres read it as
+   `organization_id = ''` and rejected it as an invalid uuid. Tests run on the
+   demo store, so they saw an empty list and passed, while production threw on
+   every delivery, caught it, logged `handler_error`, and answered 2xx.
+
+   `assertScoped` now refuses that query in **both** stores, on every read
+   taking an organization. `scopeless()` moved to `store.ts` for the same
+   reason: both stores kept their own copy, so a table added to one and not the
+   other would have been scoped in one and unscoped in the other.
+
+**The common thread: a check that passes because of state something else left
+behind is not a check.** A test that restates its subject; a job that inherits
+a build directory; a suite that runs against the more forgiving of two stores.
+When a bug is invisible here and obvious in production, suspect the harness.
+
+### 8.4 Search
+
+Every search box required Enter, which reads as broken. All five — meetings,
+deals, network, inbox, knowledge — now filter as you type and restore the full
+list when emptied, through one shared `LiveSearch` component rather than five
+near-copies.
+
+Filtering stays on the server, because these pages are `force-dynamic` and a
+client-side filter could only ever search the rows already loaded. Which
+surfaced the real bug: notes search fetched one page and filtered it in memory,
+so it searched **the newest 500 of 2,232** and answered with a confident
+"no matches" for everything else.
+
+The predicate is pushed to the database now, which narrows the fields:
+attendees are `jsonb` and cannot join an ILIKE over text columns, so searching
+a person whose name appears nowhere in the note no longer matches. **The
+outstanding fix is a `search_vector` column on `meeting_notes`**, generated
+from title, content and attendee text, as every other searchable table already
+has. That restores people search and makes it index-assisted.
+
+Four e2e tests type into the boxes. Nothing else proves the behaviour — a unit
+test cannot see a debounce, and the suite passed happily through the months
+when every search needed Enter.
+
+### 8.5 Credentials — read this before touching any of them
+
+- **`GRANOLA_WEBHOOK_SECRET` was never generated.** It held the literal text of
+  the generator command from `ENVIRONMENT_VARIABLES.md`, pasted instead of run.
+  That string appears three times in this **public** repository, so the token
+  guarding the ingest endpoint was effectively published. Rotated.
+  `ENVIRONMENT_VARIABLES.md` now records it, and warns that any value beginning
+  with `node -e` is a placeholder that never became a secret. **Check the other
+  variables for the same mistake** — `CRON_SECRET` is documented with the
+  identical line.
+- **`GRANOLA_BRIDGE_TOKEN`** exists so an ingest-only sender cannot also start a
+  backfill, which spends Granola API quota and walks years of history. The
+  bridge is gone and the variable was removed from Render, but the code and its
+  seven tests remain — the load-bearing one is negative: the bridge token is
+  refused by `/backfill`. Do not merge the two credentials back into one.
+- **`GRANOLA_API_KEY` is compromised.** It was pasted into a chat transcript on
+  27 August. It reads all of Nick's meeting notes, private ones included.
+  Rotating it is a two-minute job in the Granola desktop app, and it is the
+  only genuinely urgent item on this list.
+
+### 8.6 The service worker was hiding deploys
+
+`public/sw.js` cache-first'd every `.js` and `/_next/static/` request into a
+cache whose name changed only when a person edited a constant. Nothing evicted
+the app's own code, so a deployed fix could keep not appearing and the only
+remedy was a hard refresh. It now caches the five shell entries and nothing
+else — Next.js content-hashes those files and serves them `immutable`, so the
+browser's own cache already does that job and, unlike the worker, invalidates
+correctly.
+
+The cache name went to `v4` so `activate` deletes the stale one. Without that,
+the fix could not reach the browsers that needed it.
+
+**If a change appears not to work, check what the browser is actually running
+before debugging the change.** "54 matching" against "175 matching" for the
+same query on the same data was the tell.
+
+### 8.7 State at the end of the session
+
+| | |
+| --- | --- |
+| `npm run verify` | **exit 0** — 568 unit/integration tests, production build |
+| `npx playwright test` | **58 passed** (was 54) |
+| CI | **green, both jobs**, for the first time |
+| Deployed | `a1358fe` |
+| Meetings | **2,232**, no duplicates, every one with a Granola link |
+| Poller | 160+ consecutive successful runs |
+
+Removed deliberately: the `granola-bridge` local task, the cloud routine, the
+`defaultMode: bypassPermissions` in `E:\.claude\settings.local.json` (the deny
+rules added alongside it were kept), and every bridge-created row.
+
+### 8.8 Still open
+
+- **Rotate `GRANOLA_API_KEY`.** §8.5. The only urgent one.
+- **`search_vector` on `meeting_notes`.** §8.4. Restores people search.
+- **`ANTHROPIC_API_KEY` is still unset** — unchanged from §5, ~$5–15/month.
+  Today, Ask and every scorecard still show their not-configured state.
+- **Render free tier**, ~$7/month for always-on. The webhook delivered
+  successfully on a warm instance and not otherwise; paying is what would make
+  that reliable rather than lucky.
+- **The `granola-connector-probe` task** is disabled and spent. Safe to delete.
