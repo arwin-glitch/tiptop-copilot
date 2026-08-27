@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 import { env } from '@/lib/config/env';
+import { soleOrganizationId } from '@/lib/db/tenancy';
 import { getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
 import {
@@ -11,7 +12,6 @@ import {
   verifyGranolaSignature,
 } from '@/lib/services/granola-api';
 import { GRANOLA_NOTE_SCHEMA, ingestGranolaNote } from '@/lib/services/meetings';
-import type { Organization } from '@/lib/types/domain';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const organizationId = await soleOrganizationId();
+  const organizationId = await soleOrganizationId('granola-webhook');
   if (!organizationId)
     return NextResponse.json({ ok: true, skipped: 'no unambiguous organization' });
 
@@ -213,7 +213,7 @@ async function handleGranolaDelivery(
     return NextResponse.json({ ok: true, skipped: 'note has no summary yet' });
   }
 
-  const organizationId = await soleOrganizationId();
+  const organizationId = await soleOrganizationId('granola-webhook');
   if (!organizationId)
     return NextResponse.json({ ok: true, skipped: 'no unambiguous organization' });
 
@@ -229,28 +229,6 @@ async function handleGranolaDelivery(
     created: result.value.created,
     flagged: result.value.flagged,
   });
-}
-
-/**
- * The organization this deployment serves.
- *
- * Single-tenant by deployment. If that is ever ambiguous, refuse rather than
- * guess which fund a meeting note belongs to.
- */
-async function soleOrganizationId(): Promise<string | null> {
-  try {
-    const organizations = (await getStore().list('organizations', '', {})) as Organization[];
-    if (organizations.length !== 1) {
-      log.warn('Granola delivery with ambiguous organization', { count: organizations.length });
-      return null;
-    }
-    return organizations[0]?.id ?? null;
-  } catch (error) {
-    log.error('Granola webhook could not read organizations', {
-      message: error instanceof Error ? error.message : 'unknown',
-    });
-    return null;
-  }
 }
 
 function constantTimeEquals(a: string, b: string): boolean {

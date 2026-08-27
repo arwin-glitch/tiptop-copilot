@@ -13,6 +13,7 @@ import type {
   TableName,
   UpsertResult,
 } from './store';
+import { assertScoped, scopeless } from './store';
 
 type Db = { [K in TableName]?: Record<string, unknown>[] };
 
@@ -89,6 +90,7 @@ export class DemoStore implements DataStore {
     filter?: Filter,
     options?: QueryOptions,
   ): Promise<Row<T>[]> {
+    assertScoped(table, organizationId);
     const rows = await this.table(table);
     const scoped = rows.filter((r) => scopeless(table) || r.organization_id === organizationId);
     const matched = scoped.filter((r) => matchesFilter(r, filter));
@@ -100,6 +102,7 @@ export class DemoStore implements DataStore {
     organizationId: string,
     id: string,
   ): Promise<Row<T> | null> {
+    assertScoped(table, organizationId);
     const rows = await this.table(table);
     const found = rows.find(
       (r) => r.id === id && (scopeless(table) || r.organization_id === organizationId),
@@ -146,6 +149,7 @@ export class DemoStore implements DataStore {
     id: string,
     patch: Partial<Row<T>>,
   ): Promise<Row<T>> {
+    assertScoped(table, organizationId);
     const rows = await this.table(table);
     const index = rows.findIndex(
       (r) => r.id === id && (scopeless(table) || r.organization_id === organizationId),
@@ -189,6 +193,7 @@ export class DemoStore implements DataStore {
   }
 
   async remove<T extends TableName>(table: T, organizationId: string, id: string): Promise<void> {
+    assertScoped(table, organizationId);
     const rows = await this.table(table);
     const index = rows.findIndex(
       (r) => r.id === id && (scopeless(table) || r.organization_id === organizationId),
@@ -204,6 +209,7 @@ export class DemoStore implements DataStore {
     organizationId: string,
     filter: Filter,
   ): Promise<number> {
+    assertScoped(table, organizationId);
     const rows = await this.table(table);
     const before = rows.length;
     const kept = rows.filter((r) => {
@@ -274,8 +280,3 @@ export class DemoStore implements DataStore {
 }
 
 export const DEMO_STORE_VERSION = 4;
-
-/** Tables that are not organization-scoped. */
-function scopeless(table: TableName): boolean {
-  return table === 'organizations' || table === 'organization_members' || table === 'user_profiles';
-}

@@ -86,6 +86,40 @@ export interface TableMap {
 export type TableName = keyof TableMap;
 export type Row<T extends TableName> = TableMap[T];
 
+/**
+ * Tables that carry no `organization_id`, so every query on them is global.
+ *
+ * Defined once here rather than in each store: the two implementations had
+ * their own identical copies, and a table added to one and not the other would
+ * be silently scoped in Supabase and unscoped in demo, or the reverse.
+ */
+export function scopeless(table: TableName): boolean {
+  return table === 'organizations' || table === 'organization_members' || table === 'user_profiles';
+}
+
+/**
+ * Refuse a scoped query with no organization.
+ *
+ * An empty organization id is always a programming error — a caller wanting
+ * every row across every tenant, which this interface deliberately cannot
+ * express. It stayed invisible for months because the two stores disagreed
+ * about what it meant: the demo store compared `organization_id === ''`,
+ * matched nothing, and returned an empty array; Supabase sent
+ * `organization_id = ''` to Postgres, which rejects an empty string as a uuid
+ * and throws. So the Gmail push handler failed on every single notification in
+ * production while every test passed, because the tests run on the demo store.
+ *
+ * Throwing in both makes that class of mistake fail the same way everywhere,
+ * and fail where someone will see it.
+ */
+export function assertScoped(table: TableName, organizationId: string): void {
+  if (scopeless(table) || organizationId) return;
+  throw new Error(
+    `[${table}] query has no organization id. Scoped tables cannot be queried across tenants; ` +
+      `resolve the organization first (see soleOrganizationId for single-tenant deployments).`,
+  );
+}
+
 export type Scalar = string | number | boolean | null;
 
 export interface Filter {

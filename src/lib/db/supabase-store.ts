@@ -11,6 +11,7 @@ import type {
   TableName,
   UpsertResult,
 } from './store';
+import { assertScoped, scopeless } from './store';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- The Supabase client is
    generically typed against a generated schema we do not ship; this adapter is
@@ -71,6 +72,7 @@ export class SupabaseStore implements DataStore {
   }
 
   private scoped(table: TableName, organizationId: string): Builder {
+    assertScoped(table, organizationId);
     const base = this.client.from(table).select('*') as unknown as Builder;
     return scopeless(table) ? base : base.eq('organization_id', organizationId);
   }
@@ -117,6 +119,7 @@ export class SupabaseStore implements DataStore {
     let b = this.client
       .from(table)
       .select('id', { count: 'exact', head: true }) as unknown as Builder;
+    assertScoped(table, organizationId);
     if (!scopeless(table)) b = b.eq('organization_id', organizationId);
     b = this.applyFilter(b, filter);
     const { count, error } = (await b) as unknown as {
@@ -157,6 +160,7 @@ export class SupabaseStore implements DataStore {
       .from(table)
       .update(patch as never)
       .eq('id', id) as unknown as Builder;
+    assertScoped(table, organizationId);
     if (!scopeless(table)) b = b.eq('organization_id', organizationId);
     const { data, error } = await (
       b as unknown as {
@@ -198,6 +202,7 @@ export class SupabaseStore implements DataStore {
 
   async remove<T extends TableName>(table: T, organizationId: string, id: string): Promise<void> {
     let b = this.client.from(table).delete().eq('id', id) as unknown as Builder;
+    assertScoped(table, organizationId);
     if (!scopeless(table)) b = b.eq('organization_id', organizationId);
     const { error } = await b;
     if (error) throw new Error(`[${table}] delete failed: ${error.message}`);
@@ -212,6 +217,7 @@ export class SupabaseStore implements DataStore {
     if (doomed.length === 0) return 0;
     const ids = doomed.map((r) => (r as { id: string }).id);
     let b = this.client.from(table).delete().in('id', ids) as unknown as Builder;
+    assertScoped(table, organizationId);
     if (!scopeless(table)) b = b.eq('organization_id', organizationId);
     const { error } = await b;
     if (error) throw new Error(`[${table}] removeWhere failed: ${error.message}`);
@@ -290,8 +296,4 @@ export class SupabaseStore implements DataStore {
     if (error) throw new Error(`upsertUserProfile failed: ${error.message}`);
     return ((data ?? [])[0] as UserProfile) ?? profile;
   }
-}
-
-function scopeless(table: TableName): boolean {
-  return table === 'organizations' || table === 'organization_members' || table === 'user_profiles';
 }

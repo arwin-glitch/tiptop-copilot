@@ -4,6 +4,7 @@ import type { AuthContext } from '@/lib/auth/session';
 import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
+import { soleOrganizationId } from '@/lib/db/tenancy';
 import { syncMailbox } from '@/lib/services/inbox';
 import type {
   Integration,
@@ -68,10 +69,26 @@ export async function POST(request: NextRequest) {
   const store = getStore();
 
   try {
-    const integrations = (await store.list('integrations', '', {})) as Integration[];
+    // A push notification names a mailbox, never an organization, so the
+    // organization has to be resolved before anything scoped can be read.
+    //
+    // This used to list integrations with an empty organization id, meaning
+    // "across every tenant". The demo store read that as "matches nothing" and
+    // returned an empty array; Postgres read it as `organization_id = ''` and
+    // rejected it as an invalid uuid. So every push in production died in the
+    // catch below — logged as `handler_error`, answered 2xx, invisible — while
+    // the suites, which run on the demo store, stayed green. `assertScoped`
+    // now makes both stores refuse it identically.
+    const organizationId = await soleOrganizationId('gmail-push');
+    if (!organizationId) {
+      return NextResponse.json({ ok: true, skipped: 'no unambiguous organization' });
+    }
+
+    const integrations = (await store.list('integrations', organizationId, {
+      eq: { provider: 'google' },
+    })) as Integration[];
     const integration = integrations.find(
-      (i) =>
-        i.account_email?.toLowerCase() === emailAddress.toLowerCase() && i.provider === 'google',
+      (i) => i.account_email?.toLowerCase() === emailAddress.toLowerCase(),
     );
 
     if (!integration) {
