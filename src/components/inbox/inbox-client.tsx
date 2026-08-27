@@ -10,7 +10,6 @@ import {
   FileText,
   Paperclip,
   RefreshCw,
-  Search,
   ShieldAlert,
   Sparkles,
 } from 'lucide-react';
@@ -30,7 +29,8 @@ import { Card, CardContent, FieldLabel } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { EmptyState, Notice, PlainText } from '@/components/ui/feedback';
 import { NotConfigured } from '@/components/ui/not-configured';
-import { Input, Select } from '@/components/ui/form';
+import { Select } from '@/components/ui/form';
+import { LiveSearch } from '@/components/ui/live-search';
 import {
   EMAIL_CATEGORIES,
   EMAIL_CATEGORY_LABELS,
@@ -64,7 +64,6 @@ export function InboxClient({
 }) {
   const router = useRouter();
   const params = useSearchParams();
-  const [query, setQuery] = React.useState(filters.q);
   const [pending, startTransition] = React.useTransition();
 
   const selected = messages.find((m) => m.id === selectedId) ?? null;
@@ -83,25 +82,13 @@ export function InboxClient({
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
       <div className="min-w-0">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <form
-            className="relative min-w-[180px] flex-1"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setParam('q', query);
-            }}
-          >
-            <Search
-              className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-[var(--fg-subtle)]"
-              aria-hidden="true"
-            />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search email"
-              aria-label="Search email"
-              className="pl-8"
-            />
-          </form>
+          <LiveSearch
+            path="/inbox"
+            value={filters.q}
+            placeholder="Search email"
+            label="Search email"
+            className="min-w-[180px] flex-1"
+          />
           <Select
             aria-label="Category"
             value={filters.category}

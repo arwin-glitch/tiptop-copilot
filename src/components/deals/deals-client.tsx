@@ -3,12 +3,12 @@
 import * as React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
-import { GitCompare, Search } from 'lucide-react';
+import { GitCompare } from 'lucide-react';
 import { compareDealsAction } from '@/app/actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, FieldLabel } from '@/components/ui/card';
-import { Input } from '@/components/ui/form';
+import { LiveSearch } from '@/components/ui/live-search';
 import { PlainText } from '@/components/ui/feedback';
 import { FilterChip, FilterChipRow } from '@/components/ui/toolbar';
 import type { DealStage } from '@/lib/types/domain';
@@ -26,7 +26,6 @@ export function DealsFilterBar({
 }) {
   const router = useRouter();
   const params = useSearchParams();
-  const [query, setQuery] = React.useState(q);
 
   const setParam = (key: string, value: string | null) => {
     const next = new URLSearchParams(params.toString());
@@ -37,25 +36,13 @@ export function DealsFilterBar({
 
   return (
     <div className="space-y-3">
-      <form
-        className="relative max-w-sm"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setParam('q', query);
-        }}
-      >
-        <Search
-          className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-[var(--fg-subtle)]"
-          aria-hidden="true"
-        />
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search company, product, team"
-          aria-label="Search deals"
-          className="pl-8"
-        />
-      </form>
+      <LiveSearch
+        path="/deals"
+        value={q}
+        placeholder="Search company, product, team"
+        label="Search deals"
+        className="max-w-sm"
+      />
 
       <FilterChipRow aria-label="Filter by stage">
         <FilterChip

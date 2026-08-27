@@ -6,6 +6,7 @@ import {
   GRANOLA_NOTE_SCHEMA,
   ingestGranolaNote,
   isNoteUnchanged,
+  listMeetingNotes,
   normaliseAttendees,
   notesForCompany,
   notesForDeal,
@@ -395,5 +396,74 @@ describe('recognising a note we already have', () => {
     expect(isNoteUnchanged(undefined, '2026-08-20T09:00:00Z')).toBe(false);
     expect(isNoteUnchanged('2026-08-20T09:00:00Z', null)).toBe(false);
     expect(isNoteUnchanged('not a date', '2026-08-20T09:00:00Z')).toBe(false);
+  });
+});
+
+/**
+ * Searching notes.
+ *
+ * The bug this pins: the search used to fetch one page of notes and filter it
+ * in memory, so it only ever searched the newest 500 of 2,232. A note older
+ * than the page boundary was unfindable no matter what you typed, and the
+ * result looked like a confident "no matches" rather than a truncated one.
+ */
+describe('searching meeting notes', () => {
+  it('finds a note that falls outside the page the list would return', async () => {
+    await harness.store.removeWhere('meeting_notes', harness.auth.organizationId, {});
+
+    // Newer filler, then the needle behind it. With a page size of 3 the
+    // needle is off the end, exactly as the real note was off the end of 500.
+    for (let i = 0; i < 5; i++) {
+      await ingestGranolaNote(harness.store, harness.auth.organizationId, {
+        ...PAYLOAD,
+        external_id: `filler-${i}`,
+        title: `Routine sync ${i}`,
+        occurred_at: `2026-08-2${i}T10:00:00.000Z`,
+        content: 'Nothing notable.',
+      });
+    }
+    await ingestGranolaNote(harness.store, harness.auth.organizationId, {
+      ...PAYLOAD,
+      external_id: 'needle',
+      title: 'Quarterly review with Ridgeline',
+      occurred_at: '2026-01-04T10:00:00.000Z',
+      content: 'The corpus licensing cap was renegotiated.',
+    });
+
+    const unsearched = await listMeetingNotes(harness.store, harness.auth.organizationId, {
+      limit: 3,
+    });
+    expect(unsearched.map((n) => n.external_id)).not.toContain('needle');
+
+    const found = await listMeetingNotes(harness.store, harness.auth.organizationId, {
+      search: 'Ridgeline',
+      limit: 3,
+    });
+    expect(found.map((n) => n.external_id)).toContain('needle');
+  });
+
+  it('matches the note body, not only the title', async () => {
+    await harness.store.removeWhere('meeting_notes', harness.auth.organizationId, {});
+    await ingestGranolaNote(harness.store, harness.auth.organizationId, {
+      ...PAYLOAD,
+      external_id: 'body-match',
+      title: 'Untitled meeting',
+      content: 'We agreed the Ridgeline terms.',
+    });
+
+    const found = await listMeetingNotes(harness.store, harness.auth.organizationId, {
+      search: 'ridgeline',
+    });
+    expect(found.map((n) => n.external_id)).toContain('body-match');
+  });
+
+  it('returns everything again once the query is cleared', async () => {
+    // The other half of what a search box has to do: an empty query is not a
+    // search for the empty string, it is the absence of a filter.
+    const all = await listMeetingNotes(harness.store, harness.auth.organizationId, {});
+    const blank = await listMeetingNotes(harness.store, harness.auth.organizationId, {
+      search: '   ',
+    });
+    expect(blank.length).toBe(all.length);
   });
 });

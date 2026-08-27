@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { FileText, Search } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import {
   hitExcerpt,
@@ -11,7 +11,7 @@ import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-h
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState, Notice } from '@/components/ui/feedback';
-import { Input } from '@/components/ui/form';
+import { LiveSearch } from '@/components/ui/live-search';
 import {
   DeleteDocumentButton,
   ImportNetworkButton,
@@ -50,19 +50,13 @@ export default async function KnowledgePage({
         }
       />
 
-      <form className="relative mb-6 max-w-lg" action="/knowledge">
-        <Search
-          className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-[var(--fg-subtle)]"
-          aria-hidden="true"
-        />
-        <Input
-          name="q"
-          defaultValue={q}
-          placeholder="Search across every uploaded document"
-          aria-label="Search knowledge base"
-          className="pl-8"
-        />
-      </form>
+      <LiveSearch
+        path="/knowledge"
+        value={q}
+        placeholder="Search across every uploaded document"
+        label="Search knowledge base"
+        className="mb-6 max-w-lg"
+      />
 
       {q ? (
         <section className="mb-8">

@@ -445,27 +445,36 @@ export async function listMeetingNotes(
   organizationId: string,
   options: MeetingListOptions = {},
 ): Promise<MeetingNote[]> {
-  const notes = (await store.list(
-    'meeting_notes',
-    organizationId,
-    {},
-    {
-      orderBy: [{ field: 'occurred_at', direction: 'desc' }],
-      limit: options.limit ?? 500,
-    },
-  )) as MeetingNote[];
+  const search = options.search?.trim();
 
-  const search = options.search?.trim().toLowerCase();
-  if (!search) return notes;
+  // The match happens in the database, not here.
+  //
+  // This used to fetch a page of notes and filter it in memory, which quietly
+  // searched only that page: with 2,232 notes and a limit of 500, three out of
+  // four were unreachable no matter what you typed, and the result looked like
+  // a confident "no matches". Pushing the predicate down means a search sees
+  // every note and still returns one page of them.
+  //
+  // Substring rather than full-text because `meeting_notes` has no
+  // `search_vector` column — every other searchable table has one, and adding
+  // it here is the better long-term fix. ILIKE over title and content is
+  // correct, just not index-assisted.
+  //
+  // Title and content only. Attendees are `jsonb` and cannot join an ILIKE
+  // over text columns, so searching a person whose name appears nowhere in the
+  // note itself no longer matches. That is a deliberate trade: it used to work
+  // across a page of 500 notes and now does not work at all, in exchange for
+  // title and body search working across all of them. Restoring it properly
+  // means the `search_vector` column above, generated from title, content and
+  // the attendee text together.
+  const filter = search
+    ? { textSearch: { columns: ['title', 'content'], query: search } }
+    : undefined;
 
-  return notes.filter(
-    (note) =>
-      note.title.toLowerCase().includes(search) ||
-      note.content.toLowerCase().includes(search) ||
-      note.attendees.some(
-        (a) =>
-          a.email.toLowerCase().includes(search) ||
-          (a.name?.toLowerCase().includes(search) ?? false),
-      ),
-  );
+  const notes = (await store.list('meeting_notes', organizationId, filter, {
+    orderBy: [{ field: 'occurred_at', direction: 'desc' }],
+    limit: options.limit ?? 500,
+  })) as MeetingNote[];
+
+  return notes;
 }
