@@ -167,6 +167,7 @@ Inventing a plausible check size would be worse than leaving it empty.
 | Table | Purpose |
 | --- | --- |
 | `daily_briefs` | One per user per local day. `date_key` is `check`ed to `^\d{4}-\d{2}-\d{2}$`. |
+| `routine_briefings` | One per organization, ever. `unique (organization_id)` — a post from Daily Overview or Daily Recap upserts on that key, replacing the Today-page briefing card rather than accumulating a history. |
 | `chat_threads` / `chat_messages` | Ask history, with citations and the tool trail. |
 | `generated_drafts` | `check (sent = false)`. |
 | `ai_usage` | Every model call: operation, model, prompt version, tokens, cost, ok, error code, duration. |

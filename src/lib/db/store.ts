@@ -27,6 +27,7 @@ import type {
   PortfolioCompany,
   PortfolioContact,
   PortfolioUpdate,
+  RoutineBriefing,
   SyncRun,
   Task,
   ThesisVersion,
@@ -74,6 +75,7 @@ export interface TableMap {
   meeting_notes: MeetingNote;
   thesis_versions: ThesisVersion;
   daily_briefs: DailyBrief;
+  routine_briefings: RoutineBriefing;
   chat_threads: ChatThread;
   chat_messages: ChatMessage;
   generated_drafts: GeneratedDraft;

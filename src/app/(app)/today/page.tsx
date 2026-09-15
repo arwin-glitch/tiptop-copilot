@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { AlertTriangle, ArrowRight, Calendar, Mail } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
-import { getAI } from '@/lib/runtime';
+import { getAI, getStore } from '@/lib/runtime';
+import { getCurrentBriefing } from '@/lib/services/briefing';
 import { gatherTodayData, generateDailyBrief, getTodaysBrief } from '@/lib/services/brief';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
@@ -52,6 +53,7 @@ async function TodayContent() {
   const auth = await requireAuth();
   const now = new Date();
   const data = await gatherTodayData(auth, now);
+  const briefing = await getCurrentBriefing(getStore(), auth.organizationId);
 
   // Generate on first view of the day so the page is never empty on arrival;
   // an explicit refresh regenerates it.
@@ -106,6 +108,34 @@ async function TodayContent() {
           </>
         }
       />
+
+      {briefing ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle as="h2">{briefing.title}</CardTitle>
+                <Badge tone={briefing.kind === 'morning' ? 'info' : 'neutral'}>
+                  {briefing.kind === 'morning' ? 'Morning' : 'Afternoon'}
+                </Badge>
+              </div>
+              <p className="mt-1.5 text-xs text-[var(--fg-subtle)]">
+                Posted {relativeTime(briefing.posted_at, now)} by the triage fleet
+              </p>
+            </div>
+            {briefing.source_url ? (
+              <Button asChild variant="secondary" size="sm">
+                <a href={briefing.source_url} target="_blank" rel="noreferrer">
+                  Open full briefing
+                </a>
+              </Button>
+            ) : null}
+          </CardHeader>
+          <CardContent>
+            <p className="text-[15px] leading-relaxed whitespace-pre-line">{briefing.summary}</p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {nothingToday ? (
         <EmptyState

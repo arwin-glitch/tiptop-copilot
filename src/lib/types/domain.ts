@@ -831,6 +831,32 @@ export interface DailyBrief {
   created_at: IsoDateTime;
 }
 
+export type RoutineBriefingKind = 'morning' | 'afternoon';
+
+/**
+ * The daily briefing card shown on Today, sourced from the cloud triage
+ * fleet's own dashboards — Daily Overview each morning, Daily Recap each
+ * afternoon — rather than generated in-app. One row per organization: each
+ * post from a routine replaces the previous row entirely, so the card always
+ * shows whichever briefing landed most recently. There is no reset at
+ * midnight; a quiet morning simply leaves yesterday afternoon's card in place
+ * until the next Overview replaces it.
+ */
+export interface RoutineBriefing {
+  id: Uuid;
+  organization_id: Uuid;
+  kind: RoutineBriefingKind;
+  /** Local calendar date the routine ran for, in the user's timezone. */
+  date_key: string;
+  title: string;
+  /** Plain text — never rendered as HTML. See the webhook route for why. */
+  summary: string;
+  /** Link to the routine's own dashboard artifact or Slack post, if any. */
+  source_url: string | null;
+  posted_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
 export interface ChatThread {
   id: Uuid;
   organization_id: Uuid;

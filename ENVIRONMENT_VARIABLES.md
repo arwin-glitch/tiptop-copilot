@@ -237,6 +237,22 @@ exact problem the split removes.
 > Any value here beginning with `node -e` is a placeholder that never became
 > one.
 
+### `BRIEFING_BRIDGE_TOKEN`
+
+Token required by `/api/integrations/briefing/webhook`, the endpoint the
+Daily Overview (morning) and Daily Recap (afternoon) cloud routines POST to
+once each finishes a run. The post replaces the Today page's briefing card —
+there is one card per organization, and the newest post always wins, with no
+reset at midnight.
+
+Same reasoning as `GRANOLA_BRIDGE_TOKEN`: the sender is a cloud routine, and
+the routines API returns a routine's prompt in full on `get`, on `run`, and
+in run logs, so this value is assumed public the moment it is set. Holding it
+should let someone overwrite the briefing card with junk text, and nothing
+more — no other endpoint accepts it. Generate it the same way as
+`CRON_SECRET`. Unset, the endpoint refuses every post and the rest of Today
+is unaffected.
+
 ---
 
 ## Ceilings

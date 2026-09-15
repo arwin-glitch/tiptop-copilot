@@ -102,6 +102,16 @@ export interface AppEnv {
    */
   gmailPushTopic: string | undefined;
   demoDataDir: string;
+
+  /**
+   * Ingest-only credential for the two routines that post the Today-page
+   * briefing card (Daily Overview, Daily Recap). Same reasoning as
+   * `granolaBridgeToken`: a cloud routine's prompt is returned in full by the
+   * routines API on every `get`, `run`, and run log, so this value is
+   * assumed public. Holding it should let someone overwrite the briefing
+   * card with junk text and nothing more — no other endpoint accepts it.
+   */
+  briefingBridgeToken: string | undefined;
 }
 
 let cached: AppEnv | null = null;
@@ -155,6 +165,7 @@ export function env(): AppEnv {
     granolaApiKey: str('GRANOLA_API_KEY'),
     gmailPushTopic: str('GMAIL_PUSH_TOPIC'),
     demoDataDir: str('DEMO_DATA_DIR') ?? '.demo-data',
+    briefingBridgeToken: str('BRIEFING_BRIDGE_TOKEN'),
   };
   return cached;
 }
@@ -438,6 +449,17 @@ export function capabilityReport(): CapabilityCheck[] {
         ? 'Not set. An external sender would have to hold GRANOLA_WEBHOOK_SECRET, which also opens /backfill — more than posting a note requires.'
         : 'Not set. Nothing can post notes to this app; Granola-native delivery is unaffected.',
     variables: ['GRANOLA_BRIDGE_TOKEN'],
+    required: false,
+  });
+
+  checks.push({
+    key: 'briefing-bridge',
+    label: 'Routine briefing card (Today page)',
+    status: has(e.briefingBridgeToken) ? 'ready' : 'optional-missing',
+    detail: has(e.briefingBridgeToken)
+      ? 'An ingest-only token is set. Daily Overview and Daily Recap can post to the Today-page briefing card.'
+      : 'Not set. The briefing card stays empty; the rest of Today is unaffected.',
+    variables: ['BRIEFING_BRIDGE_TOKEN'],
     required: false,
   });
 
