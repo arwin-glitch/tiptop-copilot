@@ -138,3 +138,9 @@ services:
       # without it the webhook rejects every caller and notes do not arrive.
       - key: GRANOLA_WEBHOOK_SECRET
         sync: false
+
+      # Authenticates the Daily Overview and Daily Recap cloud routines'
+      # posts to the Today-page briefing card. Optional: without it the
+      # webhook rejects every caller and the briefing card stays empty.
+      - key: BRIEFING_BRIDGE_TOKEN
+        sync: false
