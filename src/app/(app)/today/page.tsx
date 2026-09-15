@@ -53,7 +53,9 @@ async function TodayContent() {
   const auth = await requireAuth();
   const now = new Date();
   const data = await gatherTodayData(auth, now);
-  const briefing = await getCurrentBriefing(getStore(), auth.organizationId);
+  // Best-effort: a briefing-store fault (e.g. a pending migration) must never
+  // take down the rest of the page, which is otherwise fully self-contained.
+  const briefing = await getCurrentBriefing(getStore(), auth.organizationId).catch(() => null);
 
   // Generate on first view of the day so the page is never empty on arrival;
   // an explicit refresh regenerates it.
