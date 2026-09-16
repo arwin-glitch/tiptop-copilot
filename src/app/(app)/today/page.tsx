@@ -4,7 +4,7 @@ import { Suspense } from 'react';
 import { AlertTriangle, ArrowRight, Calendar, Mail } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { getAI, getStore } from '@/lib/runtime';
-import { getCurrentBriefing } from '@/lib/services/briefing';
+import { getCurrentBrief, getCurrentDossier } from '@/lib/services/briefing';
 import { gatherTodayData, generateDailyBrief, getTodaysBrief } from '@/lib/services/brief';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
@@ -14,13 +14,14 @@ import { AiNotConfigured } from '@/components/ui/not-configured';
 import { Button } from '@/components/ui/button';
 import { GeneratedMeta } from '@/components/evidence/source-drawer';
 import { BriefItemRow, ExpandableSection, OpenSourcesButton } from '@/components/today/sections';
-import { BriefingSummary } from '@/components/today/briefing-summary';
+import { RoutineBriefingCard } from '@/components/today/briefing-summary';
 import {
   CreateFollowUpButton,
   RefreshOutlookButton,
   TaskControls,
 } from '@/components/today/today-actions';
 import { formatTime, formatWeekdayLong, isOverdue, relativeTime } from '@/lib/util/time';
+import { cn } from '@/lib/util/cn';
 import type { Citation } from '@/lib/types/domain';
 
 export const metadata: Metadata = { title: 'Today' };
@@ -56,7 +57,10 @@ async function TodayContent() {
   const data = await gatherTodayData(auth, now);
   // Best-effort: a briefing-store fault (e.g. a pending migration) must never
   // take down the rest of the page, which is otherwise fully self-contained.
-  const briefing = await getCurrentBriefing(getStore(), auth.organizationId).catch(() => null);
+  const [routineBrief, routineDossier] = await Promise.all([
+    getCurrentBrief(getStore(), auth.organizationId).catch(() => null),
+    getCurrentDossier(getStore(), auth.organizationId).catch(() => null),
+  ]);
 
   // Generate on first view of the day so the page is never empty on arrival;
   // an explicit refresh regenerates it.
@@ -112,32 +116,16 @@ async function TodayContent() {
         }
       />
 
-      {briefing ? (
-        <Card className="mb-6">
-          <CardHeader>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <CardTitle as="h2">{briefing.title}</CardTitle>
-                <Badge tone={briefing.kind === 'morning' ? 'info' : 'neutral'}>
-                  {briefing.kind === 'morning' ? 'Morning' : 'Afternoon'}
-                </Badge>
-              </div>
-              <p className="mt-1.5 text-xs text-[var(--fg-subtle)]">
-                Posted {relativeTime(briefing.posted_at, now)} by the triage fleet
-              </p>
-            </div>
-            {briefing.source_url ? (
-              <Button asChild variant="secondary" size="sm">
-                <a href={briefing.source_url} target="_blank" rel="noreferrer">
-                  Open full briefing
-                </a>
-              </Button>
-            ) : null}
-          </CardHeader>
-          <CardContent>
-            <BriefingSummary summary={briefing.summary} />
-          </CardContent>
-        </Card>
+      {routineBrief || routineDossier ? (
+        <div
+          className={cn(
+            'mb-6 grid gap-4',
+            routineBrief && routineDossier ? 'sm:grid-cols-2' : 'grid-cols-1',
+          )}
+        >
+          {routineBrief ? <RoutineBriefingCard briefing={routineBrief} now={now} /> : null}
+          {routineDossier ? <RoutineBriefingCard briefing={routineDossier} now={now} /> : null}
+        </div>
       ) : null}
 
       {nothingToday ? (
@@ -152,7 +140,7 @@ async function TodayContent() {
           both would tell the reader the same thing twice, once as an amber
           warning and once as a working card. A genuine provider fault still
           surfaces regardless, since that's news the briefing doesn't carry. */}
-      {briefError && briefError.code === 'not_configured' && !briefing ? (
+      {briefError && briefError.code === 'not_configured' && !routineBrief ? (
         <AiNotConfigured
           className="mb-6"
           what="The daily outlook"

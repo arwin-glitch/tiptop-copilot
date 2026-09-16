@@ -3,14 +3,17 @@ import { NextRequest } from 'next/server';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
 import { resetEnvCache } from '@/lib/config/env';
 import { POST as webhook } from '@/app/api/integrations/briefing/webhook/route';
-import { getCurrentBriefing } from '@/lib/services/briefing';
+import { getCurrentBrief, getCurrentDossier } from '@/lib/services/briefing';
 
 /**
- * The briefing card is a singleton per organization: whichever of Daily
- * Overview (morning) or Daily Recap (afternoon) posted most recently is what
- * Today shows. The properties worth pinning are the replacement behaviour —
- * a second post overwrites the first rather than accumulating — and the same
- * token discipline the Granola bridge already established.
+ * Two independent slots per organization: a *brief* (whichever of Daily
+ * Overview's morning post or Daily Recap's afternoon post is current for
+ * today) and a *dossier* (the Overview's meeting prep, which the afternoon
+ * post never touches). Each (organization, kind) is its own row now — the
+ * properties worth pinning are that a slot upserts onto itself rather than
+ * accumulating, that the brief slot picks the right one of morning/afternoon,
+ * that the dossier survives an afternoon post untouched, and the same token
+ * discipline the Granola bridge already established.
  */
 
 const TOKEN = 'briefing-token-for-tests-0000000000';
@@ -60,6 +63,14 @@ const AFTERNOON = {
   source_url: 'https://claude.ai/code/artifact/afternoon-checkpoint-0915',
 };
 
+const DOSSIER = {
+  kind: 'dossier' as const,
+  date_key: '2026-09-15',
+  title: "Nick's Tuesday Dossier",
+  summary: 'One meeting: Tom Deane, ProjectMark. No open promises.',
+  source_url: 'https://claude.ai/code/artifact/dossier-0915',
+};
+
 describe('authentication', () => {
   it('accepts the configured bridge token', async () => {
     const response = await webhook(post(TOKEN, MORNING));
@@ -87,7 +98,7 @@ describe('authentication', () => {
 });
 
 describe('validation', () => {
-  it('rejects an unknown kind rather than guessing which card it replaces', async () => {
+  it('rejects an unknown kind rather than guessing which slot it replaces', async () => {
     const response = await webhook(post(TOKEN, { ...MORNING, kind: 'midday' }));
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -105,29 +116,41 @@ describe('validation', () => {
   });
 });
 
-describe('replacement', () => {
-  it('creates the card on the first post', async () => {
+describe('the brief slot', () => {
+  it('creates the brief on the first post', async () => {
     await webhook(post(TOKEN, MORNING));
-    const briefing = await getCurrentBriefing(harness.store, harness.auth.organizationId);
-    expect(briefing).toMatchObject({ kind: 'morning', title: MORNING.title });
+    const brief = await getCurrentBrief(harness.store, harness.auth.organizationId);
+    expect(brief).toMatchObject({ kind: 'morning', title: MORNING.title });
   });
 
-  it('an afternoon post the same day replaces the morning card, not adds to it', async () => {
+  it('posting the same kind twice overwrites that row rather than adding a second one', async () => {
     await webhook(post(TOKEN, MORNING));
-    const first = await getCurrentBriefing(harness.store, harness.auth.organizationId);
+    const first = await getCurrentBrief(harness.store, harness.auth.organizationId);
 
-    await webhook(post(TOKEN, AFTERNOON));
-    const second = await getCurrentBriefing(harness.store, harness.auth.organizationId);
+    await webhook(post(TOKEN, { ...MORNING, title: 'Morning Brief — corrected' }));
+    const second = await getCurrentBrief(harness.store, harness.auth.organizationId);
 
-    expect(second).toMatchObject({ kind: 'afternoon', title: AFTERNOON.title });
-    // Same row, not a second one: the id is preserved across the replacement.
+    expect(second).toMatchObject({ kind: 'morning', title: 'Morning Brief — corrected' });
     expect(second?.id).toBe(first?.id);
 
     const all = await harness.store.list('routine_briefings', harness.auth.organizationId, {});
     expect(all).toHaveLength(1);
   });
 
-  it('a morning post the next day replaces the previous afternoon card too', async () => {
+  it('an afternoon post the same day becomes current over the morning brief', async () => {
+    await webhook(post(TOKEN, MORNING));
+    await webhook(post(TOKEN, AFTERNOON));
+
+    const brief = await getCurrentBrief(harness.store, harness.auth.organizationId);
+    expect(brief).toMatchObject({ kind: 'afternoon', title: AFTERNOON.title });
+
+    // Two independent rows now — morning and afternoon are different kinds,
+    // not one row being overwritten.
+    const all = await harness.store.list('routine_briefings', harness.auth.organizationId, {});
+    expect(all).toHaveLength(2);
+  });
+
+  it('a morning post the next day supersedes the previous afternoon brief', async () => {
     await webhook(post(TOKEN, AFTERNOON));
     const nextMorning = {
       ...MORNING,
@@ -136,8 +159,32 @@ describe('replacement', () => {
     };
     await webhook(post(TOKEN, nextMorning));
 
-    const briefing = await getCurrentBriefing(harness.store, harness.auth.organizationId);
-    expect(briefing).toMatchObject({ kind: 'morning', date_key: '2026-09-16' });
+    const brief = await getCurrentBrief(harness.store, harness.auth.organizationId);
+    expect(brief).toMatchObject({ kind: 'morning', date_key: '2026-09-16' });
+  });
+});
+
+describe('the dossier slot', () => {
+  it('is independent of the brief — posting it alone leaves no brief current', async () => {
+    await webhook(post(TOKEN, DOSSIER));
+
+    const dossier = await getCurrentDossier(harness.store, harness.auth.organizationId);
+    expect(dossier).toMatchObject({ kind: 'dossier', title: DOSSIER.title });
+
+    const brief = await getCurrentBrief(harness.store, harness.auth.organizationId);
+    expect(brief).toBeNull();
+  });
+
+  it('survives an afternoon post untouched', async () => {
+    await webhook(post(TOKEN, MORNING));
+    await webhook(post(TOKEN, DOSSIER));
+    await webhook(post(TOKEN, AFTERNOON));
+
+    const dossier = await getCurrentDossier(harness.store, harness.auth.organizationId);
+    expect(dossier).toMatchObject({ kind: 'dossier', title: DOSSIER.title });
+
+    const brief = await getCurrentBrief(harness.store, harness.auth.organizationId);
+    expect(brief).toMatchObject({ kind: 'afternoon' });
   });
 });
 

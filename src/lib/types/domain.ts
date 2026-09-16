@@ -831,16 +831,22 @@ export interface DailyBrief {
   created_at: IsoDateTime;
 }
 
-export type RoutineBriefingKind = 'morning' | 'afternoon';
+export type RoutineBriefingKind = 'morning' | 'afternoon' | 'dossier';
 
 /**
- * The daily briefing card shown on Today, sourced from the cloud triage
- * fleet's own dashboards — Daily Overview each morning, Daily Recap each
- * afternoon — rather than generated in-app. One row per organization: each
- * post from a routine replaces the previous row entirely, so the card always
- * shows whichever briefing landed most recently. There is no reset at
- * midnight; a quiet morning simply leaves yesterday afternoon's card in place
- * until the next Overview replaces it.
+ * Two independent slots shown on Today, sourced from the cloud triage
+ * fleet's own dashboards rather than generated in-app: a *brief* — the
+ * Daily Overview's morning post, replaced by the Daily Recap's afternoon
+ * post the same day — and a *dossier*, the Daily Overview's meeting prep,
+ * which is untouched by the afternoon swap and only replaced by tomorrow's
+ * Overview. Splitting them was deliberate: the Recap has no meeting prep of
+ * its own to offer, so a design that let it wipe the dossier too would erase
+ * real content for no reason.
+ *
+ * One row per (organization, kind) — see the migration that split the old
+ * one-row-per-organization shape. `getCurrentBrief` picks whichever of
+ * 'morning'/'afternoon' is current for *today*; `getCurrentDossier` reads
+ * the 'dossier' row directly, since it has no sibling to compare against.
  */
 export interface RoutineBriefing {
   id: Uuid;
