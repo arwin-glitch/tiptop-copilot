@@ -147,13 +147,17 @@ async function TodayContent() {
         />
       ) : null}
 
-      {briefError && briefError.code === 'not_configured' ? (
+      {/* A routine briefing already covers "no AI outlook configured" — showing
+          both would tell the reader the same thing twice, once as an amber
+          warning and once as a working card. A genuine provider fault still
+          surfaces regardless, since that's news the briefing doesn't carry. */}
+      {briefError && briefError.code === 'not_configured' && !briefing ? (
         <AiNotConfigured
           className="mb-6"
           what="The daily outlook"
           stillWorks="Everything below — your calendar, follow-ups, important email, new deals and portfolio requests — is read straight from your records and is complete."
         />
-      ) : briefError ? (
+      ) : briefError && briefError.code !== 'not_configured' ? (
         <Notice tone="warn" className="mb-5">
           <p className="font-medium">The outlook could not be generated.</p>
           <p className="mt-1 text-[var(--fg-muted)]">{briefError.message}</p>
