@@ -14,6 +14,7 @@ import { AiNotConfigured } from '@/components/ui/not-configured';
 import { Button } from '@/components/ui/button';
 import { GeneratedMeta } from '@/components/evidence/source-drawer';
 import { BriefItemRow, ExpandableSection, OpenSourcesButton } from '@/components/today/sections';
+import { BriefingSummary } from '@/components/today/briefing-summary';
 import {
   CreateFollowUpButton,
   RefreshOutlookButton,
@@ -134,7 +135,7 @@ async function TodayContent() {
             ) : null}
           </CardHeader>
           <CardContent>
-            <p className="text-[15px] leading-relaxed whitespace-pre-line">{briefing.summary}</p>
+            <BriefingSummary summary={briefing.summary} />
           </CardContent>
         </Card>
       ) : null}
