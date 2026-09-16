@@ -41,6 +41,9 @@ const PUBLIC_PATHS = [
   '/api/integrations/granola/webhook',
   // Same shared-secret contract; imports the Granola backlog on demand.
   '/api/integrations/granola/backfill',
+  // Same shared-secret contract; the Daily Overview/Recap cloud routines post
+  // here and carry no session cookie either.
+  '/api/integrations/briefing/webhook',
 ];
 
 /**
