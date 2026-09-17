@@ -153,6 +153,19 @@ async function main() {
     return;
   }
 
+  // TEMPORARY DIAGNOSTIC — remove once channel_not_found is root-caused.
+  const authRes = await fetch('https://slack.com/api/auth.test', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  console.log('DIAGNOSTIC auth.test:', JSON.stringify(await authRes.json()));
+  const infoRes = await fetch(
+    `https://slack.com/api/conversations.info?channel=${encodeURIComponent(channel)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  console.log('DIAGNOSTIC conversations.info:', JSON.stringify(await infoRes.json()));
+  console.log('DIAGNOSTIC channel env value:', JSON.stringify(channel));
+
   const messages = await slackHistory(token, channel);
   const alreadyPostedQuestionIds = new Set(
     messages
