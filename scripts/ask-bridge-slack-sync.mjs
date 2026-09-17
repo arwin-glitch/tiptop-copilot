@@ -143,6 +143,29 @@ async function main() {
     return;
   }
 
+  // TEMP DIAGNOSTIC — the bot's own view of the channel and its membership.
+  const info = await fetch(
+    `https://slack.com/api/conversations.info?channel=${encodeURIComponent(channel)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  ).then((r) => r.json());
+  console.log('conversations.info:', JSON.stringify(info));
+  const list = await fetch(
+    'https://slack.com/api/conversations.list?types=public_channel&limit=200',
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  ).then((r) => r.json());
+  const found = (list.channels ?? []).find((c) => c.id === channel);
+  console.log(
+    'conversations.list sees this channel:',
+    found ? JSON.stringify(found) : 'NOT FOUND',
+    '| total channels visible:',
+    (list.channels ?? []).length,
+    '| list ok:',
+    list.ok,
+    list.error ?? '',
+  );
+
   const messages = await slackHistory(token, channel);
   const alreadyPostedQuestionIds = new Set(
     messages
