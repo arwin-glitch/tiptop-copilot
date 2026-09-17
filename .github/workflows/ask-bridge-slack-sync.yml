@@ -1,0 +1,44 @@
+# Bridges the Ask page's questions to the ask-bridge-answerer cloud routine
+# and its answers back to the app, every three minutes — replacing the local
+# Windows scheduled task that used to do this, which only ran while Arwin's
+# laptop was on. The routine itself only runs hourly (Anthropic routines have
+# a 1-hour minimum interval), so a question can take up to about an hour to
+# be answered — a real tradeoff against the old local task's few-minute
+# turnaround, in exchange for working with nobody's laptop involved at all.
+#
+# Gated on the repository variable ASK_BRIDGE_SLACK_SYNC being 'enabled', so
+# the schedule exists in the repo without producing a red run every three
+# minutes before the secrets are configured. To turn it on:
+#
+#   Settings → Secrets and variables → Actions
+#     Variables:  ASK_BRIDGE_SLACK_SYNC = enabled
+#     Secrets:    SLACK_BOT_TOKEN (can reuse the one already configured for
+#                 the briefing/Granola relays if it has im:history for
+#                 D0AJY5ZHUA1), ASK_BRIDGE_SLACK_CHANNEL, ASK_BRIDGE_WEBHOOK_URL
+#
+# GitHub schedules are best-effort: "every 3 minutes" in practice means every
+# 3–15. Both directions are idempotent — re-posting a question already
+# relayed, or re-relaying an answer already delivered, are both harmless
+# no-ops by construction.
+
+name: ask-bridge-slack-sync
+
+on:
+  schedule:
+    - cron: '*/3 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: ${{ vars.ASK_BRIDGE_SLACK_SYNC == 'enabled' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: node scripts/ask-bridge-slack-sync.mjs
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          ASK_BRIDGE_SLACK_CHANNEL: ${{ secrets.ASK_BRIDGE_SLACK_CHANNEL }}
+          ASK_BRIDGE_WEBHOOK_URL: ${{ secrets.ASK_BRIDGE_WEBHOOK_URL }}
