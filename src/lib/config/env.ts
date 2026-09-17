@@ -112,6 +112,17 @@ export interface AppEnv {
    * card with junk text and nothing more — no other endpoint accepts it.
    */
   briefingBridgeToken: string | undefined;
+
+  /**
+   * Ingest-and-answer credential for the Ask bridge: an external Claude
+   * session with live Gmail/Calendar/Slack access that answers questions
+   * asked on the Ask page instead of the in-app Anthropic call, which has no
+   * access to anything not already synced. When set, `ask()` always routes
+   * new questions to the bridge rather than calling Anthropic directly — see
+   * `src/lib/services/chat.ts`. Same "assume eventually public" reasoning as
+   * `briefingBridgeToken`: this value lives inside a routine's own prompt.
+   */
+  askBridgeToken: string | undefined;
 }
 
 let cached: AppEnv | null = null;
@@ -166,6 +177,7 @@ export function env(): AppEnv {
     gmailPushTopic: str('GMAIL_PUSH_TOPIC'),
     demoDataDir: str('DEMO_DATA_DIR') ?? '.demo-data',
     briefingBridgeToken: str('BRIEFING_BRIDGE_TOKEN'),
+    askBridgeToken: str('ASK_BRIDGE_TOKEN'),
   };
   return cached;
 }
@@ -460,6 +472,19 @@ export function capabilityReport(): CapabilityCheck[] {
       ? 'An ingest-only token is set. Daily Overview and Daily Recap can post to the Today-page briefing card.'
       : 'Not set. The briefing card stays empty; the rest of Today is unaffected.',
     variables: ['BRIEFING_BRIDGE_TOKEN'],
+    required: false,
+  });
+
+  checks.push({
+    key: 'ask-bridge',
+    label: 'Ask bridge (external Claude answers)',
+    status: has(e.askBridgeToken) ? 'ready' : e.demoMode ? 'demo' : 'optional-missing',
+    detail: has(e.askBridgeToken)
+      ? 'Set. Every new question on the Ask page waits for an external Claude session to answer it, rather than the in-app Anthropic call.'
+      : has(e.anthropicApiKey)
+        ? 'Not set. Ask answers in-process using the configured Anthropic key instead.'
+        : 'Not set, and no Anthropic key either — Ask has no way to answer a question and stays hidden.',
+    variables: ['ASK_BRIDGE_TOKEN'],
     required: false,
   });
 

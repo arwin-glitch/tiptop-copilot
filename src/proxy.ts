@@ -44,6 +44,10 @@ const PUBLIC_PATHS = [
   // Same shared-secret contract; the Daily Overview/Recap cloud routines post
   // here and carry no session cookie either.
   '/api/integrations/briefing/webhook',
+  // Same shared-secret contract; an external Claude session with live
+  // Gmail/Calendar/Slack access reads and answers pending Ask questions here,
+  // and carries no session cookie either.
+  '/api/integrations/ask-bridge/webhook',
 ];
 
 /**

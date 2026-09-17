@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { requireAuth } from '@/lib/auth/session';
+import { env } from '@/lib/config/env';
 import { getAI, getStore } from '@/lib/runtime';
 import { getThread, listThreads, SUGGESTED_QUESTIONS } from '@/lib/services/chat';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
@@ -28,7 +29,11 @@ export default async function AskPage({
   // Asked on the server, before anything is drawn. Previously this screen
   // offered a composer and eight suggested questions with no key configured,
   // and only said so as a toast *after* the user had typed and pressed Ask.
-  const aiAvailable = getAI().available();
+  //
+  // The Ask bridge counts as "available" too: `ask()` routes every question
+  // to it instead of the in-app Anthropic call whenever it is configured, so
+  // the composer should show up even with no ANTHROPIC_API_KEY set.
+  const aiAvailable = getAI().available() || Boolean(env().askBridgeToken);
 
   const [threads, deal] = await Promise.all([
     listThreads(auth.organizationId, auth.userId, 15),

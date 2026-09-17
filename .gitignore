@@ -57,3 +57,7 @@ next-env.d.ts
 # Exported Granola meeting notes. Real, private, and never committable —
 # the repository is public. Copy them elsewhere for safekeeping.
 .granola-export/
+
+# Scratch payload files written by the local Ask/briefing bridge relay tasks
+# (see C:\Users\TFIVE\.claude\scheduled-tasks\) — not source, never committed.
+/.scratch/

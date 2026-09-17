@@ -891,6 +891,13 @@ export interface ChatMessage {
   tool_calls: ChatToolCall[];
   model: string | null;
   prompt_version: string | null;
+  /**
+   * 'pending' only ever applies to an assistant row awaiting an answer from
+   * the Ask bridge (see `askBridgeToken`) — content is empty until then.
+   * Every user row, and every assistant row answered in-process, is
+   * 'answered' from the moment it is inserted.
+   */
+  status: 'pending' | 'answered';
   created_at: IsoDateTime;
 }
 

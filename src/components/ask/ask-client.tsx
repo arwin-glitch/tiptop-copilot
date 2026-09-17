@@ -68,6 +68,7 @@ export function AskClient({
         tool_calls: [],
         model: null,
         prompt_version: null,
+        status: 'answered',
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, optimistic]);
@@ -115,6 +116,19 @@ export function AskClient({
   React.useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages.length, pending]);
+
+  // A bridge answer arrives asynchronously — some other Claude session picks
+  // the question up and posts an answer back, typically within a couple of
+  // minutes. Poll for it rather than leaving the page looking finished with a
+  // blank answer sitting in it.
+  const hasOutstandingBridgeAnswer = messages.some(
+    (m) => m.role === 'assistant' && m.status === 'pending',
+  );
+  React.useEffect(() => {
+    if (!hasOutstandingBridgeAnswer) return;
+    const interval = setInterval(() => router.refresh(), 4000);
+    return () => clearInterval(interval);
+  }, [hasOutstandingBridgeAnswer, router]);
 
   return (
     <div className="flex flex-col">
@@ -165,6 +179,15 @@ export function AskClient({
                   <PlainText text={message.content} />
                 </div>
               </div>
+            ) : message.status === 'pending' ? (
+              <Card>
+                <CardContent className="pt-4">
+                  <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
+                    <span className="skeleton size-3 rounded-full" />
+                    Checking your inbox, calendar and Slack…
+                  </div>
+                </CardContent>
+              </Card>
             ) : (
               <AssistantMessage message={message} />
             )}

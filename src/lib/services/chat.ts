@@ -1,4 +1,5 @@
 import 'server-only';
+import { env } from '@/lib/config/env';
 import { CitationRegistry } from '@/lib/ai/citations';
 import { PROMPTS } from '@/lib/ai/prompts';
 import { chatAnswerSchema } from '@/lib/ai/schemas';
@@ -78,8 +79,11 @@ export async function ask(
   }
 
   const store = getStore();
-  const budget = await checkAiBudget(store, auth.organizationId, auth.userId);
-  if (!budget.ok) return budget;
+  const bridgeToken = env().askBridgeToken;
+  if (!bridgeToken) {
+    const budget = await checkAiBudget(store, auth.organizationId, auth.userId);
+    if (!budget.ok) return budget;
+  }
 
   let thread: ChatThread | null = options.threadId
     ? ((await store.get(
@@ -130,9 +134,39 @@ export async function ask(
     tool_calls: [],
     model: null,
     prompt_version: null,
+    status: 'answered',
     created_at: new Date().toISOString(),
   };
   await store.insert('chat_messages', userMessage);
+
+  if (bridgeToken) {
+    const assistantMessage: ChatMessage = {
+      id: newId(),
+      organization_id: auth.organizationId,
+      thread_id: thread.id,
+      role: 'assistant',
+      content: '',
+      citations: [],
+      tool_calls: [],
+      model: null,
+      prompt_version: null,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    };
+    await store.insert('chat_messages', assistantMessage);
+    await store.update('chat_threads', auth.organizationId, thread.id, {
+      updated_at: new Date().toISOString(),
+    });
+    await recordAudit(store, {
+      organizationId: auth.organizationId,
+      userId: auth.userId,
+      action: 'chat.question_asked',
+      entityType: 'chat_thread',
+      entityId: thread.id,
+      metadata: { routed_to: 'ask_bridge', scoped_to_deal: Boolean(scopeDealId) },
+    });
+    return ok({ thread, userMessage, assistantMessage });
+  }
 
   const registry = new CitationRegistry();
   const ctx: ToolContext = { auth, registry, scopeDealId };
@@ -216,6 +250,7 @@ export async function ask(
     })),
     model: response.value.usage.model,
     prompt_version: PROMPTS.conversationalToolUse.version,
+    status: 'answered',
     created_at: new Date().toISOString(),
   };
   await store.insert('chat_messages', assistantMessage);
