@@ -80,8 +80,23 @@ export function AskClient({
           dealId: dealId ?? undefined,
         });
         if (result.ok && result.data) {
-          setActiveThread(result.data.threadId);
-          router.refresh();
+          const newThreadId = result.data.threadId;
+          setActiveThread(newThreadId);
+          if (newThreadId !== threadId) {
+            // The URL is the only thing the server component reads to decide
+            // which thread's messages to load. Without this, the next
+            // refresh (including the poll for a pending bridge answer) would
+            // fetch this same, still-thread-less URL and wipe the
+            // conversation back to empty — it would only reappear once the
+            // user navigated in via the "Recent" list, which does carry
+            // `?thread=`.
+            const qs = new URLSearchParams();
+            qs.set('thread', newThreadId);
+            if (dealId) qs.set('deal', dealId);
+            router.replace(`/ask?${qs.toString()}`, { scroll: false });
+          } else {
+            router.refresh();
+          }
         } else {
           setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
           setQuestion(trimmed);
@@ -91,7 +106,7 @@ export function AskClient({
         }
       });
     },
-    [activeThread, dealId, pending, router],
+    [activeThread, dealId, pending, router, threadId],
   );
 
   // The server is authoritative once a turn has been persisted: a
@@ -221,7 +236,8 @@ export function AskClient({
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                // Plain Enter sends; Shift+Enter still inserts a newline.
+                if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   submit(question);
                 }
