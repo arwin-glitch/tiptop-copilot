@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * TipTop Copilot Ask page → Slack DM → ask-bridge-answerer routine → back,
- * polled from GitHub Actions.
+ * TipTop Copilot Ask page → Slack channel → ask-bridge-answerer routine →
+ * back, polled from GitHub Actions.
  *
  * Answering an Ask-page question needs a real Claude agent with live
  * Gmail/Calendar/Slack access — not something a plain script can do — so the
@@ -11,11 +11,19 @@
  * this script does the two things its sandbox can't:
  *
  *   PHASE A (webhook → Slack): poll the ask-bridge webhook for pending
- *   questions and post each one to Arwin's DM as a machine-readable message,
- *   so the routine can pick it up on its own (hourly) schedule.
+ *   questions and post each one to the relay channel as a machine-readable
+ *   message, so the routine can pick it up on its own (hourly) schedule.
  *
- *   PHASE B (Slack → webhook): read that same DM for the routine's answers
- *   and POST each one back to the webhook to complete delivery.
+ *   PHASE B (Slack → webhook): read that same channel for the routine's
+ *   answers and POST each one back to the webhook to complete delivery.
+ *
+ * The relay channel is #granola-notes (C0BRG7JMYJG), reused rather than a
+ * dedicated channel — a freshly created channel with SLACK_BOT_TOKEN
+ * invited via the API at creation time consistently got channel_not_found
+ * on conversations.history even after also re-inviting the bot from the
+ * Slack UI, while this already-existing channel (which the bot has read via
+ * granola-slack-sync.mjs since it was set up) works immediately. Traffic
+ * here is machine-only marker+backtick-JSON lines, easy to skim past.
  *
  * Message convention (see the routine's prompt): a question relay is
  *   ASK_QUESTION_V1
@@ -35,8 +43,10 @@
  * the webhook already delivered just gets back {"skipped":"not_pending"}.
  *
  * Env:
- *   SLACK_BOT_TOKEN       xoxb- token with im:history for Arwin's DM channel
- *   ASK_BRIDGE_SLACK_CHANNEL   the DM channel id (D0AJY5ZHUA1)
+ *   SLACK_BOT_TOKEN            xoxb- token with channels:history for the
+ *                              relay channel (already granted — same token
+ *                              the Granola relay uses)
+ *   ASK_BRIDGE_SLACK_CHANNEL   the relay channel id (C0BRG7JMYJG)
  *   ASK_BRIDGE_WEBHOOK_URL     the Copilot ask-bridge webhook, including
  *                              ?token=…
  */
@@ -142,29 +152,6 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-
-  // TEMP DIAGNOSTIC — the bot's own view of the channel and its membership.
-  const info = await fetch(
-    `https://slack.com/api/conversations.info?channel=${encodeURIComponent(channel)}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  ).then((r) => r.json());
-  console.log('conversations.info:', JSON.stringify(info));
-  const list = await fetch(
-    'https://slack.com/api/conversations.list?types=public_channel&limit=200',
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  ).then((r) => r.json());
-  const found = (list.channels ?? []).find((c) => c.id === channel);
-  console.log(
-    'conversations.list sees this channel:',
-    found ? JSON.stringify(found) : 'NOT FOUND',
-    '| total channels visible:',
-    (list.channels ?? []).length,
-    '| list ok:',
-    list.ok,
-    list.error ?? '',
-  );
 
   const messages = await slackHistory(token, channel);
   const alreadyPostedQuestionIds = new Set(

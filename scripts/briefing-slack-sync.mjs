@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 /**
- * Daily Overview / Daily Recap → Slack DM → TipTop Copilot, polled from
+ * Daily Overview / Daily Recap → Slack channel → TipTop Copilot, polled from
  * GitHub Actions.
  *
  * Both routines' own direct POST to the briefing webhook fails on every run
  * with a network-level 403 — their cloud sandbox's egress proxy blocks
  * tiptop-copilot.onrender.com (an organization-policy restriction with no
  * self-service fix). So each routine also posts its payload as a plain Slack
- * message to Arwin's DM (the same channel it already posts its teaser to),
- * and this script relays those payloads to the webhook. It runs on GitHub
- * Actions' schedule — no machine of ours involved, unlike the local
+ * message to the relay channel (in addition to its usual teaser to Arwin's
+ * DM), and this script relays those payloads to the webhook. It runs on
+ * GitHub Actions' schedule — no machine of ours involved, unlike the local
  * scheduled-task workaround this replaces.
+ *
+ * The relay channel is #granola-notes (C0BRG7JMYJG), reused rather than a
+ * dedicated one — see ask-bridge-slack-sync.mjs for why a freshly created
+ * channel didn't work even with SLACK_BOT_TOKEN's bot invited to it.
  *
  * Message convention (see the routine prompts' "BRIEFING CARD RELAY"
  * section): a relay message is exactly two lines —
@@ -28,9 +32,10 @@
  * a stale day whose kind has since been superseded).
  *
  * Env:
- *   SLACK_BOT_TOKEN     xoxb- token with channels:history/im:history for
- *                       Arwin's DM channel
- *   BRIEFING_SLACK_CHANNEL   the DM channel id (D0AJY5ZHUA1)
+ *   SLACK_BOT_TOKEN          xoxb- token with channels:history for the
+ *                            relay channel (already granted — same token
+ *                            the Granola relay uses)
+ *   BRIEFING_SLACK_CHANNEL   the relay channel id (C0BRG7JMYJG)
  *   BRIEFING_WEBHOOK_URL     the Copilot webhook including ?token=…
  */
 
