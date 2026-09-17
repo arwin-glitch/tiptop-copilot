@@ -143,12 +143,6 @@ async function main() {
     return;
   }
 
-  // TEMP DIAGNOSTIC — remove once the channel_not_found mismatch is resolved.
-  const who = await fetch('https://slack.com/api/auth.test', {
-    headers: { Authorization: `Bearer ${token}` },
-  }).then((r) => r.json());
-  console.log('SLACK_BOT_TOKEN identity:', JSON.stringify(who));
-
   const messages = await slackHistory(token, channel);
   const alreadyPostedQuestionIds = new Set(
     messages
