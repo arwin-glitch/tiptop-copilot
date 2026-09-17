@@ -1,0 +1,40 @@
+# Forwards the Daily Overview / Daily Recap routines' briefing-card payloads
+# (posted to Slack because their own direct webhook POST is egress-blocked)
+# to the Copilot every three minutes, replacing the local Windows scheduled
+# tasks that used to do this — this runs whether or not anyone's laptop is on.
+#
+# Gated on the repository variable BRIEFING_SLACK_SYNC being 'enabled', so the
+# schedule exists in the repo without producing a red run every three minutes
+# before the secrets are configured. To turn it on:
+#
+#   Settings → Secrets and variables → Actions
+#     Variables:  BRIEFING_SLACK_SYNC = enabled
+#     Secrets:    SLACK_BOT_TOKEN (can reuse the Granola one if it has
+#                 im:history / channels:history for D0AJY5ZHUA1),
+#                 BRIEFING_SLACK_CHANNEL, BRIEFING_WEBHOOK_URL
+#
+# GitHub schedules are best-effort: "every 3 minutes" in practice means every
+# 3–15. The webhook upserts on (organization_id, kind), so overlapping or
+# delayed runs, or re-relaying a payload already delivered, are harmless.
+
+name: briefing-slack-sync
+
+on:
+  schedule:
+    - cron: '*/3 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: ${{ vars.BRIEFING_SLACK_SYNC == 'enabled' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: node scripts/briefing-slack-sync.mjs
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          BRIEFING_SLACK_CHANNEL: ${{ secrets.BRIEFING_SLACK_CHANNEL }}
+          BRIEFING_WEBHOOK_URL: ${{ secrets.BRIEFING_WEBHOOK_URL }}
