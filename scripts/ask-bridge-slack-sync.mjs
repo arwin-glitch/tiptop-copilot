@@ -165,6 +165,7 @@ async function main() {
   );
   console.log('DIAGNOSTIC conversations.info:', JSON.stringify(await infoRes.json()));
   console.log('DIAGNOSTIC channel env value:', JSON.stringify(channel));
+  console.log('DIAGNOSTIC channel length/charcodes:', channel.length, [...channel].map((c) => c.charCodeAt(0)));
 
   const messages = await slackHistory(token, channel);
   const alreadyPostedQuestionIds = new Set(
