@@ -9,9 +9,10 @@
 #
 #   Settings → Secrets and variables → Actions
 #     Variables:  BRIEFING_SLACK_SYNC = enabled
-#     Secrets:    SLACK_BOT_TOKEN (can reuse the Granola one if it has
-#                 im:history / channels:history for D0AJY5ZHUA1),
-#                 BRIEFING_SLACK_CHANNEL, BRIEFING_WEBHOOK_URL
+#     Secrets:    SLACK_BOT_TOKEN (can reuse the Granola one), BRIEFING_WEBHOOK_URL
+#
+# The relay channel id is hardcoded in briefing-slack-sync.mjs, not a
+# secret here — see that file's header for why.
 #
 # GitHub schedules are best-effort: "every 3 minutes" in practice means every
 # 3–15. The webhook upserts on (organization_id, kind), so overlapping or
@@ -36,5 +37,4 @@ jobs:
       - run: node scripts/briefing-slack-sync.mjs
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          BRIEFING_SLACK_CHANNEL: ${{ secrets.BRIEFING_SLACK_CHANNEL }}
           BRIEFING_WEBHOOK_URL: ${{ secrets.BRIEFING_WEBHOOK_URL }}

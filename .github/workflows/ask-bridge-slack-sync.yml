@@ -13,8 +13,10 @@
 #   Settings → Secrets and variables → Actions
 #     Variables:  ASK_BRIDGE_SLACK_SYNC = enabled
 #     Secrets:    SLACK_BOT_TOKEN (can reuse the one already configured for
-#                 the briefing/Granola relays if it has im:history for
-#                 D0AJY5ZHUA1), ASK_BRIDGE_SLACK_CHANNEL, ASK_BRIDGE_WEBHOOK_URL
+#                 the briefing/Granola relays), ASK_BRIDGE_WEBHOOK_URL
+#
+# The relay channel id is hardcoded in ask-bridge-slack-sync.mjs, not a
+# secret here — see that file's header for why.
 #
 # GitHub schedules are best-effort: "every 3 minutes" in practice means every
 # 3–15. Both directions are idempotent — re-posting a question already
@@ -40,5 +42,4 @@ jobs:
       - run: node scripts/ask-bridge-slack-sync.mjs
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          ASK_BRIDGE_SLACK_CHANNEL: ${{ secrets.ASK_BRIDGE_SLACK_CHANNEL }}
           ASK_BRIDGE_WEBHOOK_URL: ${{ secrets.ASK_BRIDGE_WEBHOOK_URL }}

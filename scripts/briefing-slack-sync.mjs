@@ -12,9 +12,11 @@
  * GitHub Actions' schedule — no machine of ours involved, unlike the local
  * scheduled-task workaround this replaces.
  *
- * The relay channel is #granola-notes (C0BRG7JMYJG), reused rather than a
- * dedicated one — see ask-bridge-slack-sync.mjs for why a freshly created
- * channel didn't work even with SLACK_BOT_TOKEN's bot invited to it.
+ * The relay channel is #granola-notes (C0BRG7JMYJG). It's hardcoded below
+ * rather than read from a secret — see ask-bridge-slack-sync.mjs for why
+ * (it isn't sensitive, and the secret it used to come from was stuck on a
+ * stale value because GitHub's secret-edit page silently needs a browser
+ * sudo-mode/email re-verification that kept failing without visible error).
  *
  * Message convention (see the routine prompts' "BRIEFING CARD RELAY"
  * section): a relay message is exactly two lines —
@@ -35,11 +37,12 @@
  *   SLACK_BOT_TOKEN          xoxb- token with channels:history for the
  *                            relay channel (already granted — same token
  *                            the Granola relay uses)
- *   BRIEFING_SLACK_CHANNEL   the relay channel id (C0BRG7JMYJG)
  *   BRIEFING_WEBHOOK_URL     the Copilot webhook including ?token=…
  */
 
 import process from 'node:process';
+
+const RELAY_CHANNEL = 'C0BRG7JMYJG'; // #granola-notes — not a secret, see header.
 
 /* ------------------------------------------------------------- transforms */
 
@@ -122,11 +125,11 @@ async function post(url, payload) {
 
 async function main() {
   const token = process.env.SLACK_BOT_TOKEN;
-  const channel = process.env.BRIEFING_SLACK_CHANNEL;
+  const channel = RELAY_CHANNEL;
   const url = process.env.BRIEFING_WEBHOOK_URL;
 
-  if (!token || !channel || !url) {
-    console.error('Set SLACK_BOT_TOKEN, BRIEFING_SLACK_CHANNEL and BRIEFING_WEBHOOK_URL.');
+  if (!token || !url) {
+    console.error('Set SLACK_BOT_TOKEN and BRIEFING_WEBHOOK_URL.');
     process.exitCode = 1;
     return;
   }

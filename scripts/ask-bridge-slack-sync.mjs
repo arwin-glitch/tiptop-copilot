@@ -17,13 +17,15 @@
  *   PHASE B (Slack → webhook): read that same channel for the routine's
  *   answers and POST each one back to the webhook to complete delivery.
  *
- * The relay channel is #granola-notes (C0BRG7JMYJG), reused rather than a
- * dedicated channel — a freshly created channel with SLACK_BOT_TOKEN
- * invited via the API at creation time consistently got channel_not_found
- * on conversations.history even after also re-inviting the bot from the
- * Slack UI, while this already-existing channel (which the bot has read via
- * granola-slack-sync.mjs since it was set up) works immediately. Traffic
- * here is machine-only marker+backtick-JSON lines, easy to skim past.
+ * The relay channel is #granola-notes (C0BRG7JMYJG). It's hardcoded below
+ * rather than read from a secret: it isn't sensitive (just a channel id),
+ * and the ASK_BRIDGE_SLACK_CHANNEL secret it used to come from turned out to
+ * still hold a stale value (Arwin's old DM, D0AJY5ZHUA1) because GitHub's
+ * secret-edit page silently requires a browser sudo-mode/email
+ * re-verification that kept failing without visible error — not worth
+ * fighting a UI gate for a value that was never secret in the first place.
+ * Traffic here is machine-only marker+backtick-JSON lines, easy to skim
+ * past.
  *
  * Message convention (see the routine's prompt): a question relay is
  *   ASK_QUESTION_V1
@@ -46,12 +48,13 @@
  *   SLACK_BOT_TOKEN            xoxb- token with channels:history for the
  *                              relay channel (already granted — same token
  *                              the Granola relay uses)
- *   ASK_BRIDGE_SLACK_CHANNEL   the relay channel id (C0BRG7JMYJG)
  *   ASK_BRIDGE_WEBHOOK_URL     the Copilot ask-bridge webhook, including
  *                              ?token=…
  */
 
 import process from 'node:process';
+
+const RELAY_CHANNEL = 'C0BRG7JMYJG'; // #granola-notes — not a secret, see header.
 
 /* ------------------------------------------------------------- transforms */
 
@@ -144,28 +147,14 @@ async function fetchJson(url, options) {
 
 async function main() {
   const token = process.env.SLACK_BOT_TOKEN;
-  const channel = process.env.ASK_BRIDGE_SLACK_CHANNEL;
+  const channel = RELAY_CHANNEL;
   const webhookUrl = process.env.ASK_BRIDGE_WEBHOOK_URL;
 
-  if (!token || !channel || !webhookUrl) {
-    console.error('Set SLACK_BOT_TOKEN, ASK_BRIDGE_SLACK_CHANNEL and ASK_BRIDGE_WEBHOOK_URL.');
+  if (!token || !webhookUrl) {
+    console.error('Set SLACK_BOT_TOKEN and ASK_BRIDGE_WEBHOOK_URL.');
     process.exitCode = 1;
     return;
   }
-
-  // TEMPORARY DIAGNOSTIC — remove once channel_not_found is root-caused.
-  const authRes = await fetch('https://slack.com/api/auth.test', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  console.log('DIAGNOSTIC auth.test:', JSON.stringify(await authRes.json()));
-  const infoRes = await fetch(
-    `https://slack.com/api/conversations.info?channel=${encodeURIComponent(channel)}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  console.log('DIAGNOSTIC conversations.info:', JSON.stringify(await infoRes.json()));
-  console.log('DIAGNOSTIC channel env value:', JSON.stringify(channel));
-  console.log('DIAGNOSTIC channel length/charcodes:', channel.length, [...channel].map((c) => c.charCodeAt(0)));
 
   const messages = await slackHistory(token, channel);
   const alreadyPostedQuestionIds = new Set(
