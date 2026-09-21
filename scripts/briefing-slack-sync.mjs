@@ -12,7 +12,7 @@
  * GitHub Actions' schedule — no machine of ours involved, unlike the local
  * scheduled-task workaround this replaces.
  *
- * The relay channel is #granola-notes (C0BRG7JMYJG). It's hardcoded below
+ * The relay channel is #briefing-ask-relay (C0C3JPW6PTJ). (#granola-notes was archived Aug 28, so Slack rejects every post to it.) It's hardcoded below
  * rather than read from a secret — see ask-bridge-slack-sync.mjs for why
  * (it isn't sensitive, and the secret it used to come from was stuck on a
  * stale value because GitHub's secret-edit page silently needs a browser
@@ -42,7 +42,7 @@
 
 import process from 'node:process';
 
-const RELAY_CHANNEL = 'C0BRG7JMYJG'; // #granola-notes — not a secret, see header.
+const RELAY_CHANNEL = 'C0C3JPW6PTJ'; // #briefing-ask-relay — not a secret, see header.
 
 /* ------------------------------------------------------------- transforms */
 

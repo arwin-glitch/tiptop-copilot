@@ -17,7 +17,7 @@
  *   PHASE B (Slack → webhook): read that same channel for the routine's
  *   answers and POST each one back to the webhook to complete delivery.
  *
- * The relay channel is #granola-notes (C0BRG7JMYJG). It's hardcoded below
+ * The relay channel is #briefing-ask-relay (C0C3JPW6PTJ). (#granola-notes was archived Aug 28, so Slack rejects every post to it.) It's hardcoded below
  * rather than read from a secret: it isn't sensitive (just a channel id),
  * and the ASK_BRIDGE_SLACK_CHANNEL secret it used to come from turned out to
  * still hold a stale value (Arwin's old DM, D0AJY5ZHUA1) because GitHub's
@@ -54,7 +54,7 @@
 
 import process from 'node:process';
 
-const RELAY_CHANNEL = 'C0BRG7JMYJG'; // #granola-notes — not a secret, see header.
+const RELAY_CHANNEL = 'C0C3JPW6PTJ'; // #briefing-ask-relay — not a secret, see header.
 
 /* ------------------------------------------------------------- transforms */
 
