@@ -158,6 +158,7 @@ export async function pullBriefingsFromSlack(
       )}&limit=50`;
       const response = await fetchImpl(url, {
         headers: { Authorization: `Bearer ${e.askRelaySlackToken}` },
+        cache: 'no-store',
         signal: AbortSignal.timeout(5_000),
       });
       const body = (await response.json()) as {
@@ -172,9 +173,12 @@ export async function pullBriefingsFromSlack(
         return 0;
       }
       let changed = 0;
+      let parsedCount = 0;
+      const scanned = body.messages?.length ?? 0;
       for (const message of [...(body.messages ?? [])].reverse()) {
         const payload = parseBriefingRelayMessage(message.text);
         if (!payload) continue;
+        parsedCount++;
         const existing = await store.findOne('routine_briefings', organizationId, {
           eq: { kind: payload.kind },
         });
@@ -189,6 +193,7 @@ export async function pullBriefingsFromSlack(
         await ingestRoutineBriefing(store, organizationId, payload);
         changed++;
       }
+      log.info('Briefing pull finished', { scanned, parsed: parsedCount, changed });
       return changed;
     } catch (error) {
       log.warn('Pulling briefings from Slack failed', {
