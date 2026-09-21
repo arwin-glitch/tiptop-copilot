@@ -128,6 +128,24 @@ export function parseBriefingRelayMessage(text: unknown): RoutineBriefingPayload
   return parsed.success ? parsed.data : null;
 }
 
+/** Why a marked relay message failed to parse, for the log. No content. */
+function explainRelayFailure(text: unknown): string {
+  if (typeof text !== 'string') return 'text is not a string';
+  const clean = text.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').trim();
+  const match = /`([^`]+)`/.exec(clean);
+  if (!match?.[1]) return 'no backticked body';
+  let json: unknown;
+  try {
+    json = JSON.parse(match[1]);
+  } catch (error) {
+    return `json: ${error instanceof Error ? error.message.slice(0, 80) : 'error'}`;
+  }
+  const parsed = ROUTINE_BRIEFING_SCHEMA.safeParse(json);
+  return parsed.success
+    ? 'ok'
+    : `schema: ${parsed.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ').slice(0, 160)}`;
+}
+
 /**
  * Pull the routines' briefing payloads straight from the Slack relay channel,
  * so the Today page reflects a routine's post the moment someone looks at it
@@ -177,7 +195,15 @@ export async function pullBriefingsFromSlack(
       const scanned = body.messages?.length ?? 0;
       for (const message of [...(body.messages ?? [])].reverse()) {
         const payload = parseBriefingRelayMessage(message.text);
-        if (!payload) continue;
+        if (!payload) {
+          if (typeof message.text === 'string' && message.text.startsWith(BRIEFING_MARKER)) {
+            log.warn('Relay message carries the briefing marker but did not parse', {
+              reason: explainRelayFailure(message.text),
+              length: message.text.length,
+            });
+          }
+          continue;
+        }
         parsedCount++;
         const existing = await store.findOne('routine_briefings', organizationId, {
           eq: { kind: payload.kind },
