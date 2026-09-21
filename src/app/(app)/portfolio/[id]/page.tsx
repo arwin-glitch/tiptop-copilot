@@ -54,7 +54,7 @@ export default async function PortfolioCompanyPage({
       <PageHeader
         eyebrow="Portfolio"
         title={company.name}
-        subtitle={company.key_metrics ?? undefined}
+        subtitle={company.description ?? company.key_metrics ?? undefined}
         actions={<CreateFollowUpButton portfolioCompanyId={company.id} />}
       />
 
@@ -161,6 +161,7 @@ export default async function PortfolioCompanyPage({
             <CardContent className="pt-4">
               <FieldLabel as="h2">Company</FieldLabel>
               <dl className="mt-2 divide-y divide-[var(--border)]">
+                <DataRow label="Sector">{company.sector ?? unknown()}</DataRow>
                 <DataRow label="Stage">{company.current_stage ?? unknown()}</DataRow>
                 <DataRow label="Latest round">{company.latest_round ?? unknown()}</DataRow>
                 <DataRow label="Ownership">{company.ownership ?? unknown()}</DataRow>

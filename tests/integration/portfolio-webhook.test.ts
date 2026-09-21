@@ -207,6 +207,29 @@ describe('add-only ingest', () => {
     expect(after.current_stage).toBeNull();
   });
 
+  it('stores a description and sector, and fills them on an existing company only when blank', async () => {
+    await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Desc Co' }] }));
+    await webhook(
+      post(TOKEN, {
+        source: 'test',
+        companies: [
+          { name: 'ZZ Desc Co', description: 'Does a thing for a niche', sector: 'Vertical AI' },
+        ],
+      }),
+    );
+    let row = (await companies()).find((c) => c.name === 'ZZ Desc Co')!;
+    expect(row).toMatchObject({ description: 'Does a thing for a niche', sector: 'Vertical AI' });
+
+    await webhook(
+      post(TOKEN, {
+        source: 'test',
+        companies: [{ name: 'ZZ Desc Co', description: 'Something else', sector: 'Other' }],
+      }),
+    );
+    row = (await companies()).find((c) => c.name === 'ZZ Desc Co')!;
+    expect(row).toMatchObject({ description: 'Does a thing for a niche', sector: 'Vertical AI' });
+  });
+
   it('a duplicate inside one payload is added once', async () => {
     await webhook(
       post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Twin' }, { name: 'zz twin' }] }),

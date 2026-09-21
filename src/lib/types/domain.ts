@@ -495,6 +495,9 @@ export interface PortfolioCompany {
   domain: string | null;
   website: string | null;
   current_stage: string | null;
+  /** One line on what the company does; optional because older rows predate it. */
+  description?: string | null;
+  sector?: string | null;
   latest_round: string | null;
   ownership: string | null;
   key_metrics: string | null;

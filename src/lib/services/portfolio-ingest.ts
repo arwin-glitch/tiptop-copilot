@@ -24,6 +24,8 @@ export const PORTFOLIO_INGEST_SCHEMA = z.object({
       z.object({
         name: z.string().trim().min(1).max(200),
         stage: z.string().trim().max(100).nullish(),
+        description: z.string().trim().max(500).nullish(),
+        sector: z.string().trim().max(200).nullish(),
         website: z.string().trim().max(500).nullish(),
         founder: z.string().trim().max(200).nullish(),
         founder_email: z.string().trim().email().max(320).nullish(),
@@ -80,6 +82,10 @@ export async function ingestPortfolioCompanies(
       domain: normalizeDomain(input.website ?? null),
       website: input.website ?? null,
       current_stage: input.stage ?? null,
+      // Only set when given, so an insert without them never names a column
+      // the database might not have yet.
+      ...(input.description ? { description: input.description } : {}),
+      ...(input.sector ? { sector: input.sector } : {}),
       latest_round: null,
       ownership: null,
       key_metrics: null,
@@ -134,6 +140,8 @@ async function fillBlanks(
 ): Promise<boolean> {
   const patch: Partial<PortfolioCompany> = {};
   if (!company.current_stage && input.stage) patch.current_stage = input.stage;
+  if (!company.description && input.description) patch.description = input.description;
+  if (!company.sector && input.sector) patch.sector = input.sector;
   if (!company.website && input.website) {
     patch.website = input.website;
     patch.domain = normalizeDomain(input.website);

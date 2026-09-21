@@ -163,10 +163,16 @@ export default async function PortfolioPage() {
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <span className="font-serif text-base font-semibold">{company.name}</span>
-                    {company.current_stage ? (
-                      <Badge tone="outline">{company.current_stage}</Badge>
-                    ) : null}
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      {company.sector ? <Badge tone="neutral">{company.sector}</Badge> : null}
+                      {company.current_stage ? (
+                        <Badge tone="outline">{company.current_stage}</Badge>
+                      ) : null}
+                    </span>
                   </div>
+                  {company.description ? (
+                    <p className="mt-1 text-sm text-[var(--fg-muted)]">{company.description}</p>
+                  ) : null}
                   {company.key_metrics ? (
                     <p className="mt-1 text-sm text-[var(--fg-muted)]">{company.key_metrics}</p>
                   ) : null}
