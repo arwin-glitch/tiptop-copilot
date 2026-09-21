@@ -172,3 +172,51 @@ describe('ambiguous tenancy', () => {
     });
   });
 });
+
+describe('the Slack relay path (for cloud routines that cannot reach the app)', () => {
+  const relay = (text: string) => ({ text });
+  const fakeSlack = (messages: Array<{ text: string }>, ok = true) =>
+    (async () =>
+      new Response(JSON.stringify(ok ? { ok: true, messages } : { ok: false, error: 'not_in_channel' }))) as
+      unknown as typeof fetch;
+
+  beforeEach(() => {
+    process.env.ASK_RELAY_SLACK_TOKEN = 'xoxb-test';
+    resetEnvCache();
+  });
+
+  it('parses only the exact marker plus backticked JSON, and ignores everything else', async () => {
+    const { parsePortfolioRelayMessage } = await import('@/lib/services/portfolio-ingest');
+    const good = 'PORTFOLIO_ADD_V1\n`{"source":"closed-deal-mailbox","companies":[{"name":"ZZ Relay Co"}]}`';
+    expect(parsePortfolioRelayMessage(good)?.companies[0]?.name).toBe('ZZ Relay Co');
+    expect(parsePortfolioRelayMessage('ASK_ANSWER_V1\n`{"message_id":"x","answer":"y"}`')).toBeNull();
+    expect(parsePortfolioRelayMessage('PORTFOLIO_ADD_V1 no json here')).toBeNull();
+    expect(parsePortfolioRelayMessage('PORTFOLIO_ADD_V1\n`{not json}`')).toBeNull();
+    expect(parsePortfolioRelayMessage('PORTFOLIO_ADD_V1\n`{"source":"x","companies":[]}`')).toBeNull();
+  });
+
+  it('adds a company from a relay message, once, however often the channel is re-read', async () => {
+    const { ingestPortfolioFromSlack } = await import('@/lib/services/portfolio-ingest');
+    const msg = relay(
+      'PORTFOLIO_ADD_V1\n`{"source":"closed-deal-mailbox","companies":[{"name":"ZZ Relay Co"}]}`',
+    );
+    const slack = fakeSlack([msg, relay('ordinary chatter')]);
+    const first = await ingestPortfolioFromSlack(harness.store, harness.auth.organizationId, slack);
+    expect(first?.created).toEqual(['ZZ Relay Co']);
+    const second = await ingestPortfolioFromSlack(harness.store, harness.auth.organizationId, slack);
+    expect(second?.created).toEqual([]);
+    expect((await companies()).filter((c) => c.name === 'ZZ Relay Co')).toHaveLength(1);
+  });
+
+  it('does nothing, and does not throw, when Slack refuses the read', async () => {
+    const { ingestPortfolioFromSlack } = await import('@/lib/services/portfolio-ingest');
+    const before = (await companies()).length;
+    const result = await ingestPortfolioFromSlack(
+      harness.store,
+      harness.auth.organizationId,
+      fakeSlack([], false),
+    );
+    expect(result).toBeNull();
+    expect(await companies()).toHaveLength(before);
+  });
+});

@@ -6,6 +6,7 @@ import { log } from '@/lib/security/redact';
 import { generateDailyBrief } from '@/lib/services/brief';
 import { ensureGmailWatch } from '@/lib/services/gmail-watch';
 import { syncMailbox } from '@/lib/services/inbox';
+import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
 import type { AuthContext } from '@/lib/auth/session';
 import type { Organization, OrganizationMember, UserProfile } from '@/lib/types/domain';
 
@@ -60,6 +61,7 @@ export async function POST(request: NextRequest) {
     sync: string;
     watch: string;
     brief: string;
+    portfolio: string;
   }[] = [];
 
   let organizations: Organization[] = [];
@@ -85,6 +87,7 @@ export async function POST(request: NextRequest) {
         sync: 'skipped: no members',
         watch: 'skipped',
         brief: 'skipped',
+        portfolio: 'skipped',
       });
       continue;
     }
@@ -96,6 +99,7 @@ export async function POST(request: NextRequest) {
         sync: 'skipped: no profile',
         watch: 'skipped',
         brief: 'skipped',
+        portfolio: 'skipped',
       });
       continue;
     }
@@ -145,11 +149,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // New portfolio companies noticed by a cloud routine arrive through the
+    // Slack relay channel, because the routines cannot reach this app directly.
+    let portfolioStatus: string;
+    try {
+      const added = await ingestPortfolioFromSlack(store, organization.id);
+      portfolioStatus = added ? `ok: ${added.created.length} added` : 'skipped: relay not readable';
+    } catch (error) {
+      portfolioStatus = `failed: ${(error as Error)?.message?.slice(0, 120)}`;
+      log.error('Cron portfolio relay failed', { organizationId: organization.id });
+    }
+
     results.push({
       organization: organization.name,
       sync: syncStatus,
       watch: watchStatus,
       brief: briefStatus,
+      portfolio: portfolioStatus,
     });
   }
 

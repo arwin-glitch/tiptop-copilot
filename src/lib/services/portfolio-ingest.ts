@@ -1,6 +1,8 @@
 import { z } from 'zod';
+import { env } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import { recordAudit } from '@/lib/security/audit';
+import { log } from '@/lib/security/redact';
 import type { PortfolioCompany } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { normalizeCompanyName, normalizeDomain } from '@/lib/util/text';
@@ -112,4 +114,86 @@ export async function ingestPortfolioCompanies(
   }
 
   return result;
+}
+
+/* ---------------------------------------------------------- Slack relay */
+
+const RELAY_MARKER = 'PORTFOLIO_ADD_V1';
+
+/**
+ * One relay-channel message -> a validated payload, or null.
+ *
+ * The convention matches the other relay messages: a marker line, then the
+ * JSON body wrapped in backticks so Slack never auto-links anything inside it.
+ * Anything else in the channel (Ask questions and answers, briefing payloads,
+ * chatter) is skipped rather than guessed at.
+ */
+export function parsePortfolioRelayMessage(text: unknown): PortfolioIngestPayload | null {
+  if (typeof text !== 'string') return null;
+  const clean = text.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').trim();
+  if (!clean.startsWith(RELAY_MARKER)) return null;
+  const match = /`([^`]+)`/.exec(clean);
+  if (!match?.[1]) return null;
+  let json: unknown;
+  try {
+    json = JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+  const parsed = PORTFOLIO_INGEST_SCHEMA.safeParse(json);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The cloud routines' sandboxes cannot reach this app, so a routine that
+ * spots a new portfolio company posts a PORTFOLIO_ADD_V1 message to the relay
+ * channel instead, and the daily job reads it here. Stateless: ingest is
+ * add-only, so the last 100 messages are simply re-read each pass and anything
+ * already listed is a no-op.
+ */
+export async function ingestPortfolioFromSlack(
+  store: DataStore,
+  organizationId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PortfolioIngestResult | null> {
+  const e = env();
+  if (!e.askRelaySlackToken) return null;
+  try {
+    const url = `https://slack.com/api/conversations.history?channel=${encodeURIComponent(
+      e.askRelayChannelId,
+    )}&limit=100`;
+    const response = await fetchImpl(url, {
+      headers: { Authorization: `Bearer ${e.askRelaySlackToken}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const body = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      messages?: Array<{ text?: unknown }>;
+    };
+    if (!body.ok) {
+      log.warn('Slack relay channel could not be read for portfolio additions', {
+        error: body.error ?? 'unknown',
+      });
+      return null;
+    }
+    const total: PortfolioIngestResult = { created: [], existing: [] };
+    // Oldest first, so a company posted twice keeps its first source.
+    for (const message of [...(body.messages ?? [])].reverse()) {
+      const payload = parsePortfolioRelayMessage(message.text);
+      if (!payload) continue;
+      const result = await ingestPortfolioCompanies(store, organizationId, {
+        ...payload,
+        source: `slack-relay:${payload.source}`,
+      });
+      total.created.push(...result.created);
+      total.existing.push(...result.existing);
+    }
+    return total;
+  } catch (error) {
+    log.warn('Portfolio relay ingest failed', {
+      reason: error instanceof Error ? error.message : 'unknown',
+    });
+    return null;
+  }
 }
