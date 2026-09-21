@@ -193,7 +193,21 @@ export async function pullBriefingsFromSlack(
         await ingestRoutineBriefing(store, organizationId, payload);
         changed++;
       }
-      log.info('Briefing pull finished', { scanned, parsed: parsedCount, changed });
+      log.info('Briefing pull finished', {
+        scanned,
+        parsed: parsedCount,
+        changed,
+        channel: e.askRelayChannelId,
+        // Diagnostic: shape of what Slack returned, no message content.
+        sample: (body.messages ?? []).slice(0, 6).map((m) => {
+          const raw = m as { text?: unknown; ts?: unknown; subtype?: unknown };
+          return {
+            ts: raw.ts,
+            subtype: raw.subtype ?? null,
+            head: typeof raw.text === 'string' ? raw.text.slice(0, 22) : typeof raw.text,
+          };
+        }),
+      });
       return changed;
     } catch (error) {
       log.warn('Pulling briefings from Slack failed', {
