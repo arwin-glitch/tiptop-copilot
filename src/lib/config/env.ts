@@ -114,6 +114,14 @@ export interface AppEnv {
   briefingBridgeToken: string | undefined;
 
   /**
+   * Ingest-only credential for `/api/integrations/portfolio/webhook`, used by
+   * the watchers that notice a new investment. Same "assume eventually
+   * public" reasoning as `briefingBridgeToken`: holding it lets someone add a
+   * company that is not yet listed, and nothing more.
+   */
+  portfolioBridgeToken: string | undefined;
+
+  /**
    * Ingest-and-answer credential for the Ask bridge: an external Claude
    * session with live Gmail/Calendar/Slack access that answers questions
    * asked on the Ask page instead of the in-app Anthropic call, which has no
@@ -196,6 +204,7 @@ export function env(): AppEnv {
     gmailPushTopic: str('GMAIL_PUSH_TOPIC'),
     demoDataDir: str('DEMO_DATA_DIR') ?? '.demo-data',
     briefingBridgeToken: str('BRIEFING_BRIDGE_TOKEN'),
+    portfolioBridgeToken: str('PORTFOLIO_BRIDGE_TOKEN'),
     askBridgeToken: str('ASK_BRIDGE_TOKEN'),
     askRoutineFireUrl: str('ASK_ROUTINE_FIRE_URL'),
     askRoutineToken: str('ASK_ROUTINE_TOKEN'),
@@ -495,6 +504,17 @@ export function capabilityReport(): CapabilityCheck[] {
       ? 'An ingest-only token is set. Daily Overview and Daily Recap can post to the Today-page briefing card.'
       : 'Not set. The briefing card stays empty; the rest of Today is unaffected.',
     variables: ['BRIEFING_BRIDGE_TOKEN'],
+    required: false,
+  });
+
+  checks.push({
+    key: 'portfolio-bridge',
+    label: 'Automatic portfolio additions',
+    status: has(e.portfolioBridgeToken) ? 'ready' : 'optional-missing',
+    detail: has(e.portfolioBridgeToken)
+      ? 'An add-only token is set. The sheet and closed-deal watchers can add new portfolio companies.'
+      : 'Not set. New portfolio companies must be added by hand; the Portfolio page is unaffected.',
+    variables: ['PORTFOLIO_BRIDGE_TOKEN'],
     required: false,
   });
 

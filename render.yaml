@@ -144,3 +144,9 @@ services:
       # webhook rejects every caller and the briefing card stays empty.
       - key: BRIEFING_BRIDGE_TOKEN
         sync: false
+
+      # Authenticates the watchers that add new portfolio companies. Add-only:
+      # it cannot edit or remove anything. Optional: without it the webhook
+      # rejects every caller and companies are added by hand.
+      - key: PORTFOLIO_BRIDGE_TOKEN
+        sync: false

@@ -253,6 +253,20 @@ more — no other endpoint accepts it. Generate it the same way as
 `CRON_SECRET`. Unset, the endpoint refuses every post and the rest of Today
 is unaffected.
 
+### `PORTFOLIO_BRIDGE_TOKEN`
+
+Token required by `/api/integrations/portfolio/webhook`, the endpoint the
+watchers that notice a new investment POST to (the Schedule of Investments
+sheet check and the closed-deal mailbox routine). It is add-only: a company
+whose name is already listed, archived or not, is left untouched, and there is
+no way to edit, archive or read anything with it. The payload has no slot for
+valuations, cost, ownership or MOIC, by design.
+
+Same reasoning as `BRIEFING_BRIDGE_TOKEN`: the sender lives in a routine's
+prompt, so the value is assumed public. Generate it the same way as
+`CRON_SECRET`. Unset, the endpoint refuses every post and the Portfolio page is
+unaffected.
+
 ### `ASK_BRIDGE_TOKEN`
 
 Token required by `/api/integrations/ask-bridge/webhook`. When set, every
