@@ -28,6 +28,10 @@ name: ask-bridge-slack-sync
 on:
   schedule:
     - cron: '*/3 * * * *'
+  # A cloud routine pushes to this branch right after it posts, so the relay runs
+  # within seconds instead of waiting on GitHub's throttled schedule.
+  push:
+    branches: [relay-kick]
   workflow_dispatch:
 
 jobs:
@@ -36,6 +40,8 @@ jobs:
     if: ${{ vars.ASK_BRIDGE_SLACK_SYNC == 'enabled' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: master
       - uses: actions/setup-node@v4
         with:
           node-version: 24.19.0
