@@ -270,6 +270,24 @@ describe('add-only ingest', () => {
     expect(ann).toMatchObject({ role: 'CEO', email: 'ann@zzf.example' });
   });
 
+  it('stores geography and co-investors, filling them later only when blank', async () => {
+    await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Geo Co' }] }));
+    await webhook(
+      post(TOKEN, {
+        source: 'test',
+        companies: [{ name: 'ZZ Geo Co', geography: 'Austin, TX', co_investors: 'Alpha VC, Beta Fund' }],
+      }),
+    );
+    await webhook(
+      post(TOKEN, {
+        source: 'test',
+        companies: [{ name: 'ZZ Geo Co', geography: 'Elsewhere', co_investors: 'Someone Else' }],
+      }),
+    );
+    const row = (await companies()).find((c) => c.name === 'ZZ Geo Co')!;
+    expect(row).toMatchObject({ geography: 'Austin, TX', co_investors: 'Alpha VC, Beta Fund' });
+  });
+
   it('a duplicate inside one payload is added once', async () => {
     await webhook(
       post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Twin' }, { name: 'zz twin' }] }),

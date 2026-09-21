@@ -498,6 +498,9 @@ export interface PortfolioCompany {
   /** One line on what the company does; optional because older rows predate it. */
   description?: string | null;
   sector?: string | null;
+  geography?: string | null;
+  /** Other investors in the round, comma separated. */
+  co_investors?: string | null;
   latest_round: string | null;
   ownership: string | null;
   key_metrics: string | null;

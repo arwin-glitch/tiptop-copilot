@@ -26,6 +26,8 @@ export const PORTFOLIO_INGEST_SCHEMA = z.object({
         stage: z.string().trim().max(100).nullish(),
         description: z.string().trim().max(500).nullish(),
         sector: z.string().trim().max(200).nullish(),
+        geography: z.string().trim().max(200).nullish(),
+        co_investors: z.string().trim().max(500).nullish(),
         website: z.string().trim().max(500).nullish(),
         latest_round: z.string().trim().max(200).nullish(),
         founder: z.string().trim().max(200).nullish(),
@@ -99,6 +101,8 @@ export async function ingestPortfolioCompanies(
       // the database might not have yet.
       ...(input.description ? { description: input.description } : {}),
       ...(input.sector ? { sector: input.sector } : {}),
+      ...(input.geography ? { geography: input.geography } : {}),
+      ...(input.co_investors ? { co_investors: input.co_investors } : {}),
       ownership: null,
       key_metrics: null,
       current_priorities: null,
@@ -179,6 +183,8 @@ async function fillBlanks(
   if (!company.latest_round && input.latest_round) patch.latest_round = input.latest_round;
   if (!company.description && input.description) patch.description = input.description;
   if (!company.sector && input.sector) patch.sector = input.sector;
+  if (!company.geography && input.geography) patch.geography = input.geography;
+  if (!company.co_investors && input.co_investors) patch.co_investors = input.co_investors;
   if (!company.website && input.website) {
     patch.website = input.website;
     patch.domain = normalizeDomain(input.website);

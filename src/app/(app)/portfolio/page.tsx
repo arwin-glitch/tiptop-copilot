@@ -170,6 +170,9 @@ export default async function PortfolioPage() {
                       ) : null}
                     </span>
                   </div>
+                  {company.geography ? (
+                    <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">{company.geography}</p>
+                  ) : null}
                   {company.description ? (
                     <p className="mt-1 text-sm text-[var(--fg-muted)]">{company.description}</p>
                   ) : null}
