@@ -5,6 +5,7 @@ import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
 import type { PortfolioCompany, PortfolioContact } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
+import { unwrapSlackText } from '@/lib/util/slack-text';
 import { normalizeCompanyName, normalizeDomain } from '@/lib/util/text';
 
 /**
@@ -252,7 +253,7 @@ const RELAY_MARKER = 'PORTFOLIO_ADD_V1';
  */
 export function parsePortfolioRelayMessage(text: unknown): PortfolioIngestPayload | null {
   if (typeof text !== 'string') return null;
-  const clean = text.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').trim();
+  const clean = unwrapSlackText(text).trim();
   if (!clean.startsWith(RELAY_MARKER)) return null;
   const match = /`([^`]+)`/.exec(clean);
   if (!match?.[1]) return null;

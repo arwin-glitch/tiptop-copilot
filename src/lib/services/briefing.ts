@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { env } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import { log } from '@/lib/security/redact';
+import { unwrapSlackText } from '@/lib/util/slack-text';
 import type { RoutineBriefing } from '@/lib/types/domain';
 
 /**
@@ -114,7 +115,7 @@ let briefingPullInFlight: Promise<number> | null = null;
 /** One relay-channel message -> a validated briefing payload, or null. */
 export function parseBriefingRelayMessage(text: unknown): RoutineBriefingPayload | null {
   if (typeof text !== 'string') return null;
-  const clean = text.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').trim();
+  const clean = unwrapSlackText(text).trim();
   if (!clean.startsWith(BRIEFING_MARKER)) return null;
   const match = /`([^`]+)`/.exec(clean);
   if (!match?.[1]) return null;
@@ -131,7 +132,7 @@ export function parseBriefingRelayMessage(text: unknown): RoutineBriefingPayload
 /** Why a marked relay message failed to parse, for the log. No content. */
 function explainRelayFailure(text: unknown): string {
   if (typeof text !== 'string') return 'text is not a string';
-  const clean = text.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').trim();
+  const clean = unwrapSlackText(text).trim();
   const match = /`([^`]+)`/.exec(clean);
   if (!match?.[1]) return 'no backticked body';
   let json: unknown;
@@ -224,15 +225,6 @@ export async function pullBriefingsFromSlack(
         parsed: parsedCount,
         changed,
         channel: e.askRelayChannelId,
-        // Diagnostic: shape of what Slack returned, no message content.
-        sample: (body.messages ?? []).slice(0, 6).map((m) => {
-          const raw = m as { text?: unknown; ts?: unknown; subtype?: unknown };
-          return {
-            ts: raw.ts,
-            subtype: raw.subtype ?? null,
-            head: typeof raw.text === 'string' ? raw.text.slice(0, 22) : typeof raw.text,
-          };
-        }),
       });
       return changed;
     } catch (error) {

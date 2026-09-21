@@ -51,7 +51,14 @@ const VALID_KINDS = new Set(['morning', 'afternoon', 'dossier']);
 
 /** Slack escapes these regardless of code-span; undo just the entities. */
 function unescapeSlackEntities(text) {
-  return text.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>');
+  // Slack also rewrites bare URLs as <url> or <url|label>, even inside a code
+  // span. Unwrap those first (a raw "<" here is link markup; a literal one
+  // arrives as &lt;), or a source_url reaches the webhook as "<https://…>".
+  return text
+    .replace(/<((?:https?|mailto):[^|>\s]+)(?:\|[^>]*)?>/g, '$1')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&');
 }
 
 /**
