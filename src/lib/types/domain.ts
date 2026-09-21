@@ -499,6 +499,8 @@ export interface PortfolioCompany {
   description?: string | null;
   sector?: string | null;
   geography?: string | null;
+  /** How the fund came to the deal, e.g. "VC Network" or "Founder Network". */
+  deal_source?: string | null;
   /** Other investors in the round, comma separated. */
   co_investors?: string | null;
   latest_round: string | null;

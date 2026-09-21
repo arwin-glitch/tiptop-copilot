@@ -164,6 +164,7 @@ export default async function PortfolioCompanyPage({
                 <DataRow label="Sector">{company.sector ?? unknown()}</DataRow>
                 <DataRow label="Based in">{company.geography ?? unknown()}</DataRow>
                 <DataRow label="Co-investors">{company.co_investors ?? unknown()}</DataRow>
+                <DataRow label="Deal source">{company.deal_source ?? unknown()}</DataRow>
                 <DataRow label="Stage">{company.current_stage ?? unknown()}</DataRow>
                 <DataRow label="Latest round">{company.latest_round ?? unknown()}</DataRow>
                 <DataRow label="Ownership">{company.ownership ?? unknown()}</DataRow>

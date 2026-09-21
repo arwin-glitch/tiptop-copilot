@@ -288,6 +288,14 @@ describe('add-only ingest', () => {
     expect(row).toMatchObject({ geography: 'Austin, TX', co_investors: 'Alpha VC, Beta Fund' });
   });
 
+  it('stores a deal source, filling it later only when blank', async () => {
+    await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Source Co' }] }));
+    await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Source Co', deal_source: 'VC Network' }] }));
+    await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Source Co', deal_source: 'Outbound' }] }));
+    const row = (await companies()).find((c) => c.name === 'ZZ Source Co')!;
+    expect(row.deal_source).toBe('VC Network');
+  });
+
   it('a duplicate inside one payload is added once', async () => {
     await webhook(
       post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Twin' }, { name: 'zz twin' }] }),

@@ -27,6 +27,7 @@ export const PORTFOLIO_INGEST_SCHEMA = z.object({
         description: z.string().trim().max(500).nullish(),
         sector: z.string().trim().max(200).nullish(),
         geography: z.string().trim().max(200).nullish(),
+        deal_source: z.string().trim().max(100).nullish(),
         co_investors: z.string().trim().max(500).nullish(),
         website: z.string().trim().max(500).nullish(),
         latest_round: z.string().trim().max(200).nullish(),
@@ -102,6 +103,7 @@ export async function ingestPortfolioCompanies(
       ...(input.description ? { description: input.description } : {}),
       ...(input.sector ? { sector: input.sector } : {}),
       ...(input.geography ? { geography: input.geography } : {}),
+      ...(input.deal_source ? { deal_source: input.deal_source } : {}),
       ...(input.co_investors ? { co_investors: input.co_investors } : {}),
       ownership: null,
       key_metrics: null,
@@ -184,6 +186,7 @@ async function fillBlanks(
   if (!company.description && input.description) patch.description = input.description;
   if (!company.sector && input.sector) patch.sector = input.sector;
   if (!company.geography && input.geography) patch.geography = input.geography;
+  if (!company.deal_source && input.deal_source) patch.deal_source = input.deal_source;
   if (!company.co_investors && input.co_investors) patch.co_investors = input.co_investors;
   if (!company.website && input.website) {
     patch.website = input.website;
