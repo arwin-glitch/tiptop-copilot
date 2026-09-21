@@ -3,7 +3,13 @@ import { NextRequest } from 'next/server';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
 import { resetEnvCache } from '@/lib/config/env';
 import { POST as webhook } from '@/app/api/integrations/briefing/webhook/route';
-import { getCurrentBrief, getCurrentDossier } from '@/lib/services/briefing';
+import {
+  getCurrentBrief,
+  getCurrentDossier,
+  parseBriefingRelayMessage,
+  pullBriefingsFromSlack,
+  resetBriefingPullThrottle,
+} from '@/lib/services/briefing';
 
 /**
  * Two independent slots per organization: a *brief* (whichever of Daily
@@ -196,5 +202,64 @@ describe('ambiguous tenancy', () => {
       ok: true,
       skipped: 'no unambiguous organization',
     });
+  });
+});
+
+describe('pulling briefings from the Slack relay on view', () => {
+  const fakeSlack = (messages: Array<{ text: string }>, ok = true) =>
+    (async () =>
+      new Response(JSON.stringify(ok ? { ok: true, messages } : { ok: false, error: 'not_in_channel' }))) as
+      unknown as typeof fetch;
+  const TICK = String.fromCharCode(96);
+  const relayText = (payload: unknown) =>
+    ['BRIEFING_PAYLOAD_V1', TICK + JSON.stringify(payload) + TICK].join('\n');
+  const relay = (payload: unknown) => ({ text: relayText(payload) });
+  const ASK_MESSAGE = ['ASK_ANSWER_V1', TICK + '{"message_id":"x"}' + TICK].join('\n');
+  const BAD_KIND_MESSAGE = relayText({ kind: 'midday' });
+
+  beforeEach(() => {
+    process.env.ASK_RELAY_SLACK_TOKEN = 'xoxb-test';
+    resetEnvCache();
+    resetBriefingPullThrottle();
+  });
+
+  it('parses only the exact marker plus backticked JSON', () => {
+    expect(parseBriefingRelayMessage(relay(AFTERNOON).text)?.kind).toBe('afternoon');
+    expect(parseBriefingRelayMessage(ASK_MESSAGE)).toBeNull();
+    expect(parseBriefingRelayMessage(BAD_KIND_MESSAGE)).toBeNull();
+  });
+
+  it('shows a relayed post immediately, newest of each kind winning', async () => {
+    const older = { ...AFTERNOON, title: 'Afternoon - earlier' };
+    // Slack returns newest first.
+    const slack = fakeSlack([relay(AFTERNOON), relay(older)]);
+    const changed = await pullBriefingsFromSlack(harness.store, harness.auth.organizationId, slack);
+    expect(changed).toBe(2);
+    const brief = await getCurrentBrief(harness.store, harness.auth.organizationId);
+    expect(brief).toMatchObject({ kind: 'afternoon', title: AFTERNOON.title });
+  });
+
+  it('leaves an unchanged payload alone on the next pull', async () => {
+    const slack = fakeSlack([relay(MORNING)]);
+    await pullBriefingsFromSlack(harness.store, harness.auth.organizationId, slack);
+    resetBriefingPullThrottle();
+    const again = await pullBriefingsFromSlack(harness.store, harness.auth.organizationId, slack);
+    expect(again).toBe(0);
+  });
+
+  it('is throttled, and never throws when Slack refuses', async () => {
+    const first = await pullBriefingsFromSlack(
+      harness.store,
+      harness.auth.organizationId,
+      fakeSlack([], false),
+    );
+    expect(first).toBe(0);
+    const second = await pullBriefingsFromSlack(
+      harness.store,
+      harness.auth.organizationId,
+      fakeSlack([relay(MORNING)]),
+    );
+    expect(second).toBe(0);
+    expect(await getCurrentBrief(harness.store, harness.auth.organizationId)).toBeNull();
   });
 });

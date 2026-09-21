@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
 import { listPortfolio, openRequests } from '@/lib/services/portfolio';
+import { pullPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, FieldLabel } from '@/components/ui/card';
@@ -22,6 +23,10 @@ export const dynamic = 'force-dynamic';
 export default async function PortfolioPage() {
   const auth = await requireAuth();
   const store = getStore();
+
+  // A company a cloud routine just spotted waits in the Slack relay; pull it in
+  // now so it shows as soon as the page is opened. Best effort, throttled.
+  await pullPortfolioFromSlack(store, auth.organizationId).catch(() => null);
 
   const [companies, requests, contacts] = await Promise.all([
     listPortfolio(auth.organizationId),

@@ -1,6 +1,8 @@
 import 'server-only';
 import { z } from 'zod';
+import { env } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
+import { log } from '@/lib/security/redact';
 import type { RoutineBriefing } from '@/lib/types/domain';
 
 /**
@@ -100,4 +102,109 @@ export async function getCurrentDossier(
   organizationId: string,
 ): Promise<RoutineBriefing | null> {
   return store.findOne('routine_briefings', organizationId, { eq: { kind: 'dossier' } });
+}
+
+/* ---------------------------------------------------------- Slack relay */
+
+const BRIEFING_MARKER = 'BRIEFING_PAYLOAD_V1';
+const PULL_INTERVAL_MS = 60_000;
+let lastBriefingPull = 0;
+let briefingPullInFlight: Promise<number> | null = null;
+
+/** One relay-channel message -> a validated briefing payload, or null. */
+export function parseBriefingRelayMessage(text: unknown): RoutineBriefingPayload | null {
+  if (typeof text !== 'string') return null;
+  const clean = text.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').trim();
+  if (!clean.startsWith(BRIEFING_MARKER)) return null;
+  const match = /`([^`]+)`/.exec(clean);
+  if (!match?.[1]) return null;
+  let json: unknown;
+  try {
+    json = JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+  const parsed = ROUTINE_BRIEFING_SCHEMA.safeParse(json);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Pull the routines' briefing payloads straight from the Slack relay channel,
+ * so the Today page reflects a routine's post the moment someone looks at it
+ * instead of whenever a scheduled GitHub job next runs. The cloud routines
+ * cannot reach this app directly, so the channel is the hand-off.
+ *
+ * Read on demand and throttled to once a minute per instance, because the
+ * Today page calls it on every render. Messages are applied oldest first so
+ * the newest post of each kind wins, and a payload that is already stored
+ * unchanged is skipped rather than rewritten. Returns how many briefing rows
+ * were created or changed. Never throws: a Slack fault must not take down the
+ * page that asked.
+ */
+export async function pullBriefingsFromSlack(
+  store: DataStore,
+  organizationId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<number> {
+  const e = env();
+  if (!e.askRelaySlackToken) return 0;
+  if (briefingPullInFlight) return briefingPullInFlight;
+  if (Date.now() - lastBriefingPull < PULL_INTERVAL_MS) return 0;
+
+  briefingPullInFlight = (async () => {
+    try {
+      const url = `https://slack.com/api/conversations.history?channel=${encodeURIComponent(
+        e.askRelayChannelId,
+      )}&limit=50`;
+      const response = await fetchImpl(url, {
+        headers: { Authorization: `Bearer ${e.askRelaySlackToken}` },
+        signal: AbortSignal.timeout(5_000),
+      });
+      const body = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        messages?: Array<{ text?: unknown }>;
+      };
+      if (!body.ok) {
+        log.warn('Slack relay channel could not be read for briefings', {
+          error: body.error ?? 'unknown',
+        });
+        return 0;
+      }
+      let changed = 0;
+      for (const message of [...(body.messages ?? [])].reverse()) {
+        const payload = parseBriefingRelayMessage(message.text);
+        if (!payload) continue;
+        const existing = await store.findOne('routine_briefings', organizationId, {
+          eq: { kind: payload.kind },
+        });
+        if (
+          existing &&
+          existing.date_key === payload.date_key &&
+          existing.title === payload.title &&
+          existing.summary === payload.summary
+        ) {
+          continue;
+        }
+        await ingestRoutineBriefing(store, organizationId, payload);
+        changed++;
+      }
+      return changed;
+    } catch (error) {
+      log.warn('Pulling briefings from Slack failed', {
+        reason: error instanceof Error ? error.message : 'unknown',
+      });
+      return 0;
+    } finally {
+      lastBriefingPull = Date.now();
+      briefingPullInFlight = null;
+    }
+  })();
+  return briefingPullInFlight;
+}
+
+/** Test seam: forget the throttle so a second pull in the same process runs. */
+export function resetBriefingPullThrottle(): void {
+  lastBriefingPull = 0;
+  briefingPullInFlight = null;
 }

@@ -4,7 +4,11 @@ import { Suspense } from 'react';
 import { AlertTriangle, ArrowRight, Calendar, Mail } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { getAI, getStore } from '@/lib/runtime';
-import { getCurrentBrief, getCurrentDossier } from '@/lib/services/briefing';
+import {
+  getCurrentBrief,
+  getCurrentDossier,
+  pullBriefingsFromSlack,
+} from '@/lib/services/briefing';
 import { gatherTodayData, generateDailyBrief, getTodaysBrief } from '@/lib/services/brief';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
@@ -57,6 +61,9 @@ async function TodayContent() {
   const data = await gatherTodayData(auth, now);
   // Best-effort: a briefing-store fault (e.g. a pending migration) must never
   // take down the rest of the page, which is otherwise fully self-contained.
+  // Pull any routine post that is waiting in the Slack relay first, so a card
+  // posted a minute ago shows now rather than after the next scheduled sync.
+  await pullBriefingsFromSlack(getStore(), auth.organizationId).catch(() => 0);
   const [routineBrief, routineDossier] = await Promise.all([
     getCurrentBrief(getStore(), auth.organizationId).catch(() => null),
     getCurrentDossier(getStore(), auth.organizationId).catch(() => null),

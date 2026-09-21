@@ -320,3 +320,21 @@ export async function ingestPortfolioFromSlack(
     return null;
   }
 }
+
+const PORTFOLIO_PULL_INTERVAL_MS = 60_000;
+let lastPortfolioPull = 0;
+
+/**
+ * The Portfolio page's on-view version of `ingestPortfolioFromSlack`:
+ * throttled to once a minute per instance so a newly spotted company shows up
+ * as soon as someone opens the page, without a Slack call on every render.
+ */
+export async function pullPortfolioFromSlack(
+  store: DataStore,
+  organizationId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PortfolioIngestResult | null> {
+  if (Date.now() - lastPortfolioPull < PORTFOLIO_PULL_INTERVAL_MS) return null;
+  lastPortfolioPull = Date.now();
+  return ingestPortfolioFromSlack(store, organizationId, fetchImpl);
+}
