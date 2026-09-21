@@ -12,6 +12,7 @@ import type { ChatMessage, ChatThread, Citation, Deal } from '@/lib/types/domain
 import { newId } from '@/lib/util/hash';
 import { truncate } from '@/lib/util/text';
 import { err, ok, type Result } from '@/lib/util/result';
+import { fireAskRoutine } from './ask-routine';
 import { getActiveThesis } from './thesis';
 
 /**
@@ -164,6 +165,16 @@ export async function ask(
       entityType: 'chat_thread',
       entityId: thread.id,
       metadata: { routed_to: 'ask_bridge', scoped_to_deal: Boolean(scopeDealId) },
+    });
+    // Start the answering routine now rather than waiting for its timer. A
+    // failure is already logged and never fails the question: the pending row
+    // is still picked up by the routine's next scheduled run.
+    await fireAskRoutine({
+      message_id: assistantMessage.id,
+      thread_id: thread.id,
+      deal_id: scopeDealId,
+      question: trimmed,
+      created_at: assistantMessage.created_at,
     });
     return ok({ thread, userMessage, assistantMessage });
   }

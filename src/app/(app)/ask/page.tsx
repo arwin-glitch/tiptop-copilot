@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { requireAuth } from '@/lib/auth/session';
 import { env } from '@/lib/config/env';
 import { getAI, getStore } from '@/lib/runtime';
+import { settleAnswersFromSlack } from '@/lib/services/ask-routine';
 import { getThread, listThreads, SUGGESTED_QUESTIONS } from '@/lib/services/chat';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { AskClient } from '@/components/ask/ask-client';
@@ -39,6 +40,10 @@ export default async function AskPage({
     listThreads(auth.organizationId, auth.userId, 15),
     dealId ? (store.get('deals', auth.organizationId, dealId) as Promise<Deal | null>) : null,
   ]);
+
+  // The Ask page re-renders every few seconds while an answer is pending. Each
+  // pass is the moment to check whether the routine has posted it to Slack.
+  if (threadId) await settleAnswersFromSlack(store, auth.organizationId);
 
   let messages: ChatMessage[] = [];
   if (threadId) {

@@ -123,6 +123,25 @@ export interface AppEnv {
    * `briefingBridgeToken`: this value lives inside a routine's own prompt.
    */
   askBridgeToken: string | undefined;
+
+  /**
+   * Makes the Ask bridge event-driven instead of polled. When both are set,
+   * `ask()` calls the routine's API-trigger URL the moment a question is
+   * asked, so the routine starts immediately rather than on its hourly timer.
+   * Copy the URL and token from the routine's "API trigger" settings on
+   * claude.ai (the URL ends in `/fire`). The token can only fire that one
+   * routine.
+   */
+  askRoutineFireUrl: string | undefined;
+  askRoutineToken: string | undefined;
+
+  /**
+   * Read-only Slack access so the app can pick up the routine's answer itself
+   * (the routine cannot reach this app; it posts `ASK_ANSWER_V1` messages to
+   * the relay channel instead). Needs only `channels:history`.
+   */
+  askRelaySlackToken: string | undefined;
+  askRelayChannelId: string;
 }
 
 let cached: AppEnv | null = null;
@@ -178,6 +197,10 @@ export function env(): AppEnv {
     demoDataDir: str('DEMO_DATA_DIR') ?? '.demo-data',
     briefingBridgeToken: str('BRIEFING_BRIDGE_TOKEN'),
     askBridgeToken: str('ASK_BRIDGE_TOKEN'),
+    askRoutineFireUrl: str('ASK_ROUTINE_FIRE_URL'),
+    askRoutineToken: str('ASK_ROUTINE_TOKEN'),
+    askRelaySlackToken: str('ASK_RELAY_SLACK_TOKEN'),
+    askRelayChannelId: str('ASK_RELAY_CHANNEL_ID') ?? 'C0C3JPW6PTJ',
   };
   return cached;
 }
@@ -485,6 +508,19 @@ export function capabilityReport(): CapabilityCheck[] {
         ? 'Not set. Ask answers in-process using the configured Anthropic key instead.'
         : 'Not set, and no Anthropic key either — Ask has no way to answer a question and stays hidden.',
     variables: ['ASK_BRIDGE_TOKEN'],
+    required: false,
+  });
+
+  const directCall =
+    has(e.askRoutineFireUrl) && has(e.askRoutineToken) && has(e.askRelaySlackToken);
+  checks.push({
+    key: 'ask-direct-call',
+    label: 'Ask direct call (instant answers)',
+    status: directCall ? 'ready' : 'optional-missing',
+    detail: directCall
+      ? 'Set. A new question fires the answering routine immediately, and the app reads the answer back from the Slack relay channel itself.'
+      : 'Not set. Questions wait for the answering routine on its hourly timer (via the GitHub relay) instead of starting instantly.',
+    variables: ['ASK_ROUTINE_FIRE_URL', 'ASK_ROUTINE_TOKEN', 'ASK_RELAY_SLACK_TOKEN'],
     required: false,
   });
 

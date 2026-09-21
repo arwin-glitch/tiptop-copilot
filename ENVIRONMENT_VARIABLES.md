@@ -253,6 +253,34 @@ more — no other endpoint accepts it. Generate it the same way as
 `CRON_SECRET`. Unset, the endpoint refuses every post and the rest of Today
 is unaffected.
 
+### `ASK_BRIDGE_TOKEN`
+
+Token required by `/api/integrations/ask-bridge/webhook`. When set, every
+question asked on the Ask page waits for an external Claude session (the
+`ask-bridge-answerer` cloud routine, which has live Gmail/Calendar/Slack
+access) instead of the in-app Anthropic call. Same "assumed public" reasoning
+as `BRIEFING_BRIDGE_TOKEN`.
+
+### `ASK_ROUTINE_FIRE_URL`, `ASK_ROUTINE_TOKEN`, `ASK_RELAY_SLACK_TOKEN`
+
+Optional. Together they make the Ask bridge instant instead of polled. The
+answering routine cannot reach this app (an organization egress policy blocks
+it), and nothing else can tell it a question was asked, so without these it
+runs on its own hourly timer and the GitHub relay carries data both ways.
+
+- `ASK_ROUTINE_FIRE_URL` and `ASK_ROUTINE_TOKEN` — the routine's **API trigger**
+  address and bearer token, copied from that routine's settings on claude.ai
+  (the URL ends in `/fire`). `ask()` calls it the moment a question is saved,
+  so the routine starts immediately. The token can only fire that one routine.
+- `ASK_RELAY_SLACK_TOKEN` — a Slack bot token with `channels:history` only. The
+  routine posts its `ASK_ANSWER_V1` message to the relay channel (default
+  `C0C3JPW6PTJ`, override with `ASK_RELAY_CHANNEL_ID`); the Ask page reads that
+  channel while an answer is pending and completes the message itself.
+  Read-only: the app never posts to Slack.
+
+All three are best-effort. If any is missing or a call fails, the question is
+still saved and the older path answers it later.
+
 ---
 
 ## Ceilings
