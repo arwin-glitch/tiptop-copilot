@@ -48,6 +48,9 @@ const PUBLIC_PATHS = [
   // Gmail/Calendar/Slack access reads and answers pending Ask questions here,
   // and carries no session cookie either.
   '/api/integrations/ask-bridge/webhook',
+  // Same shared-secret contract; the watchers that notice a new investment
+  // post it here (add-only) and carry no session cookie either.
+  '/api/integrations/portfolio/webhook',
 ];
 
 /**
