@@ -179,21 +179,27 @@ describe('add-only ingest', () => {
     expect(contacts).toMatchObject([{ name: 'Sam Founder', email: 'sam@zzblank.example' }]);
   });
 
-  it('never overwrites a value or adds a second founder, and reports nothing filled', async () => {
+  it('never overwrites an existing stage or founder detail', async () => {
     await webhook(post(TOKEN, HABU));
-    const response = await webhook(
+    await webhook(
       post(TOKEN, {
         source: 'test',
-        companies: [{ name: 'ZZ Test Co', stage: 'Series B', founder: 'Someone Else' }],
+        companies: [
+          {
+            name: 'ZZ Test Co',
+            stage: 'Series B',
+            founder: 'Jane Founder',
+            founder_email: 'other@zztest.example',
+          },
+        ],
       }),
     );
-    await expect(response.json()).resolves.toMatchObject({ filled: [] });
     const row = (await companies()).find((c) => c.name === 'ZZ Test Co')!;
     expect(row.current_stage).toBe('Seed');
     const contacts = (await harness.store.list('portfolio_contacts', harness.auth.organizationId, {
       eq: { portfolio_company_id: row.id },
     })) as PortfolioContact[];
-    expect(contacts).toHaveLength(1);
+    expect(contacts).toMatchObject([{ name: 'Jane Founder', email: 'jane@zztest.example' }]);
   });
 
   it('leaves the blanks of an archived company blank', async () => {
@@ -228,6 +234,40 @@ describe('add-only ingest', () => {
     );
     row = (await companies()).find((c) => c.name === 'ZZ Desc Co')!;
     expect(row).toMatchObject({ description: 'Does a thing for a niche', sector: 'Vertical AI' });
+  });
+
+  it('adds every founder, and later only fills the blanks of a known founder', async () => {
+    await webhook(
+      post(TOKEN, {
+        source: 'test',
+        companies: [
+          { name: 'ZZ Founders Co', founders: [{ name: 'Ann One', title: 'CEO' }, { name: 'Bo Two' }] },
+        ],
+      }),
+    );
+    await webhook(
+      post(TOKEN, {
+        source: 'test',
+        companies: [
+          {
+            name: 'ZZ Founders Co',
+            latest_round: 'Seed - $2M SAFE',
+            founders: [
+              { name: 'ann one', title: 'Chief Executive', email: 'ann@zzf.example' },
+              { name: 'Cy Three', title: 'CTO' },
+            ],
+          },
+        ],
+      }),
+    );
+    const row = (await companies()).find((c) => c.name === 'ZZ Founders Co')!;
+    expect(row.latest_round).toBe('Seed - $2M SAFE');
+    const contacts = (await harness.store.list('portfolio_contacts', harness.auth.organizationId, {
+      eq: { portfolio_company_id: row.id },
+    })) as PortfolioContact[];
+    expect(contacts).toHaveLength(3);
+    const ann = contacts.find((c) => c.name === 'Ann One')!;
+    expect(ann).toMatchObject({ role: 'CEO', email: 'ann@zzf.example' });
   });
 
   it('a duplicate inside one payload is added once', async () => {

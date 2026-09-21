@@ -259,8 +259,9 @@ Token required by `/api/integrations/portfolio/webhook`, the endpoint the
 watchers that notice a new investment POST to (the Schedule of Investments
 sheet check and the closed-deal mailbox routine). It only adds: a company whose
 name is already listed is never replaced, and the one thing a re-post can do to
-it is fill a stage, website or founder that is still blank (an existing value
-is never overwritten, an archived company is left completely alone). There is
+it is fill a blank field (stage, website, description, sector, latest round, a
+founder's role or email) or add a founder it does not have yet (an existing
+value is never overwritten, an archived company is left completely alone). There is
 no way to remove, archive or read anything with it. The payload has no slot for
 valuations, cost, ownership or MOIC, by design.
 

@@ -3,7 +3,7 @@ import { env } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
-import type { PortfolioCompany } from '@/lib/types/domain';
+import type { PortfolioCompany, PortfolioContact } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { normalizeCompanyName, normalizeDomain } from '@/lib/util/text';
 
@@ -27,8 +27,20 @@ export const PORTFOLIO_INGEST_SCHEMA = z.object({
         description: z.string().trim().max(500).nullish(),
         sector: z.string().trim().max(200).nullish(),
         website: z.string().trim().max(500).nullish(),
+        latest_round: z.string().trim().max(200).nullish(),
         founder: z.string().trim().max(200).nullish(),
         founder_email: z.string().trim().email().max(320).nullish(),
+        /** Every founder / co-founder; `founder` above is the single-person shorthand. */
+        founders: z
+          .array(
+            z.object({
+              name: z.string().trim().min(1).max(200),
+              title: z.string().trim().max(100).nullish(),
+              email: z.string().trim().email().max(320).nullish(),
+            }),
+          )
+          .max(10)
+          .nullish(),
       }),
     )
     .min(1)
@@ -82,11 +94,11 @@ export async function ingestPortfolioCompanies(
       domain: normalizeDomain(input.website ?? null),
       website: input.website ?? null,
       current_stage: input.stage ?? null,
+      latest_round: input.latest_round ?? null,
       // Only set when given, so an insert without them never names a column
       // the database might not have yet.
       ...(input.description ? { description: input.description } : {}),
       ...(input.sector ? { sector: input.sector } : {}),
-      latest_round: null,
       ownership: null,
       key_metrics: null,
       current_priorities: null,
@@ -103,14 +115,14 @@ export async function ingestPortfolioCompanies(
     await store.insert('portfolio_companies', company);
     byName.set(normalized, company);
 
-    if (input.founder) {
+    for (const founder of foundersOf(input)) {
       await store.insert('portfolio_contacts', {
         id: newId(),
         organization_id: organizationId,
         portfolio_company_id: company.id,
-        name: input.founder,
-        role: null,
-        email: input.founder_email ?? null,
+        name: founder.name,
+        role: founder.title,
+        email: founder.email,
         is_founder: true,
         created_at: now,
       });
@@ -132,6 +144,30 @@ export async function ingestPortfolioCompanies(
 
 type IngestCompany = PortfolioIngestPayload['companies'][number];
 
+interface FounderInput {
+  name: string;
+  title: string | null;
+  email: string | null;
+}
+
+/** `founder` shorthand and `founders` merged into one list, without repeats. */
+function foundersOf(input: IngestCompany): FounderInput[] {
+  const list: FounderInput[] = [];
+  if (input.founder) {
+    list.push({ name: input.founder, title: null, email: input.founder_email ?? null });
+  }
+  for (const f of input.founders ?? []) {
+    list.push({ name: f.name, title: f.title ?? null, email: f.email ?? null });
+  }
+  const seen = new Set<string>();
+  return list.filter((f) => {
+    const key = f.name.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function fillBlanks(
   store: DataStore,
   organizationId: string,
@@ -140,6 +176,7 @@ async function fillBlanks(
 ): Promise<boolean> {
   const patch: Partial<PortfolioCompany> = {};
   if (!company.current_stage && input.stage) patch.current_stage = input.stage;
+  if (!company.latest_round && input.latest_round) patch.latest_round = input.latest_round;
   if (!company.description && input.description) patch.description = input.description;
   if (!company.sector && input.sector) patch.sector = input.sector;
   if (!company.website && input.website) {
@@ -154,22 +191,39 @@ async function fillBlanks(
     });
     changed = true;
   }
-  if (input.founder) {
-    const contacts = await store.list('portfolio_contacts', organizationId, {
+  const founders = foundersOf(input);
+  if (founders.length > 0) {
+    const contacts = (await store.list('portfolio_contacts', organizationId, {
       eq: { portfolio_company_id: company.id },
-    });
-    if (contacts.length === 0) {
-      await store.insert('portfolio_contacts', {
-        id: newId(),
-        organization_id: organizationId,
-        portfolio_company_id: company.id,
-        name: input.founder,
-        role: null,
-        email: input.founder_email ?? null,
-        is_founder: true,
-        created_at: new Date().toISOString(),
-      });
-      changed = true;
+    })) as PortfolioContact[];
+    for (const founder of founders) {
+      const match = contacts.find(
+        (c) =>
+          c.name.toLowerCase() === founder.name.toLowerCase() ||
+          (founder.email && c.email?.toLowerCase() === founder.email.toLowerCase()),
+      );
+      if (!match) {
+        await store.insert('portfolio_contacts', {
+          id: newId(),
+          organization_id: organizationId,
+          portfolio_company_id: company.id,
+          name: founder.name,
+          role: founder.title,
+          email: founder.email,
+          is_founder: true,
+          created_at: new Date().toISOString(),
+        });
+        changed = true;
+        continue;
+      }
+      // A known person: only their blank role or email is filled.
+      const fill: Partial<PortfolioContact> = {};
+      if (!match.role && founder.title) fill.role = founder.title;
+      if (!match.email && founder.email) fill.email = founder.email;
+      if (Object.keys(fill).length > 0) {
+        await store.update('portfolio_contacts', organizationId, match.id, fill);
+        changed = true;
+      }
     }
   }
   return changed;
