@@ -19,7 +19,8 @@ export const maxDuration = 30;
  *
  * Token-authenticated like the briefing webhook, and for the same reason: a
  * sender that lives in a routine's prompt is assumed public. This token can
- * only add companies that are not already listed — it cannot edit, archive
+ * only add companies that are not already listed, or fill a blank stage,
+ * website or founder on one that is — it cannot overwrite a value, archive
  * or read anything.
  */
 export async function POST(request: NextRequest) {

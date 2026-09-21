@@ -38,14 +38,18 @@ export type PortfolioIngestPayload = z.infer<typeof PORTFOLIO_INGEST_SCHEMA>;
 export interface PortfolioIngestResult {
   created: string[];
   existing: string[];
+  /** Existing companies that had a blank stage, website or founder filled in. */
+  filled: string[];
 }
 
 /**
- * Add-only. A company whose normalized name is already in the portfolio —
- * archived or not — is left exactly as it is, so a watcher that re-posts the
- * whole list every day changes nothing after the first run, and a company
- * someone archived on purpose is not resurrected. Nothing here edits or
- * removes a row.
+ * Add-only, and fill-only-blanks. A company whose normalized name is already
+ * in the portfolio is never replaced: the only thing a re-post can do to it is
+ * fill a field that is still empty (stage, website, a founder contact when it
+ * has none). A value that is already there is never overwritten, a company
+ * someone archived on purpose is left completely alone, and nothing here ever
+ * removes a row. So a watcher that re-posts the whole list every day changes
+ * nothing after the first run.
  */
 export async function ingestPortfolioCompanies(
   store: DataStore,
@@ -53,16 +57,19 @@ export async function ingestPortfolioCompanies(
   payload: PortfolioIngestPayload,
 ): Promise<PortfolioIngestResult> {
   const known = (await store.list('portfolio_companies', organizationId, {})) as PortfolioCompany[];
-  const seen = new Set(known.map((c) => c.normalized_name));
-  const result: PortfolioIngestResult = { created: [], existing: [] };
+  const byName = new Map(known.map((c) => [c.normalized_name, c]));
+  const result: PortfolioIngestResult = { created: [], existing: [], filled: [] };
 
   for (const input of payload.companies) {
     const normalized = normalizeCompanyName(input.name);
-    if (seen.has(normalized)) {
+    const current = byName.get(normalized);
+    if (current) {
       result.existing.push(input.name);
+      if (!current.is_archived && (await fillBlanks(store, organizationId, current, input))) {
+        result.filled.push(input.name);
+      }
       continue;
     }
-    seen.add(normalized);
 
     const now = new Date().toISOString();
     const company: PortfolioCompany = {
@@ -88,6 +95,7 @@ export async function ingestPortfolioCompanies(
       updated_at: now,
     };
     await store.insert('portfolio_companies', company);
+    byName.set(normalized, company);
 
     if (input.founder) {
       await store.insert('portfolio_contacts', {
@@ -114,6 +122,49 @@ export async function ingestPortfolioCompanies(
   }
 
   return result;
+}
+
+type IngestCompany = PortfolioIngestPayload['companies'][number];
+
+async function fillBlanks(
+  store: DataStore,
+  organizationId: string,
+  company: PortfolioCompany,
+  input: IngestCompany,
+): Promise<boolean> {
+  const patch: Partial<PortfolioCompany> = {};
+  if (!company.current_stage && input.stage) patch.current_stage = input.stage;
+  if (!company.website && input.website) {
+    patch.website = input.website;
+    patch.domain = normalizeDomain(input.website);
+  }
+  let changed = false;
+  if (Object.keys(patch).length > 0) {
+    await store.update('portfolio_companies', organizationId, company.id, {
+      ...patch,
+      updated_at: new Date().toISOString(),
+    });
+    changed = true;
+  }
+  if (input.founder) {
+    const contacts = await store.list('portfolio_contacts', organizationId, {
+      eq: { portfolio_company_id: company.id },
+    });
+    if (contacts.length === 0) {
+      await store.insert('portfolio_contacts', {
+        id: newId(),
+        organization_id: organizationId,
+        portfolio_company_id: company.id,
+        name: input.founder,
+        role: null,
+        email: input.founder_email ?? null,
+        is_founder: true,
+        created_at: new Date().toISOString(),
+      });
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 /* ---------------------------------------------------------- Slack relay */
@@ -177,7 +228,7 @@ export async function ingestPortfolioFromSlack(
       });
       return null;
     }
-    const total: PortfolioIngestResult = { created: [], existing: [] };
+    const total: PortfolioIngestResult = { created: [], existing: [], filled: [] };
     // Oldest first, so a company posted twice keeps its first source.
     for (const message of [...(body.messages ?? [])].reverse()) {
       const payload = parsePortfolioRelayMessage(message.text);
@@ -188,6 +239,7 @@ export async function ingestPortfolioFromSlack(
       });
       total.created.push(...result.created);
       total.existing.push(...result.existing);
+      total.filled.push(...result.filled);
     }
     return total;
   } catch (error) {

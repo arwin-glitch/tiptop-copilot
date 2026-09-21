@@ -154,6 +154,59 @@ describe('add-only ingest', () => {
     expect((await companies()).filter((c) => c.name === 'ZZ Test Co')).toHaveLength(1);
   });
 
+  it('fills a blank stage, website and founder on an existing company', async () => {
+    await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Blank Co' }] }));
+    const response = await webhook(
+      post(TOKEN, {
+        source: 'test',
+        companies: [
+          {
+            name: 'ZZ Blank Co',
+            stage: 'Seed',
+            website: 'https://zzblank.example',
+            founder: 'Sam Founder',
+            founder_email: 'sam@zzblank.example',
+          },
+        ],
+      }),
+    );
+    await expect(response.json()).resolves.toMatchObject({ created: [], filled: ['ZZ Blank Co'] });
+    const row = (await companies()).find((c) => c.name === 'ZZ Blank Co')!;
+    expect(row).toMatchObject({ current_stage: 'Seed', domain: 'zzblank.example' });
+    const contacts = (await harness.store.list('portfolio_contacts', harness.auth.organizationId, {
+      eq: { portfolio_company_id: row.id },
+    })) as PortfolioContact[];
+    expect(contacts).toMatchObject([{ name: 'Sam Founder', email: 'sam@zzblank.example' }]);
+  });
+
+  it('never overwrites a value or adds a second founder, and reports nothing filled', async () => {
+    await webhook(post(TOKEN, HABU));
+    const response = await webhook(
+      post(TOKEN, {
+        source: 'test',
+        companies: [{ name: 'ZZ Test Co', stage: 'Series B', founder: 'Someone Else' }],
+      }),
+    );
+    await expect(response.json()).resolves.toMatchObject({ filled: [] });
+    const row = (await companies()).find((c) => c.name === 'ZZ Test Co')!;
+    expect(row.current_stage).toBe('Seed');
+    const contacts = (await harness.store.list('portfolio_contacts', harness.auth.organizationId, {
+      eq: { portfolio_company_id: row.id },
+    })) as PortfolioContact[];
+    expect(contacts).toHaveLength(1);
+  });
+
+  it('leaves the blanks of an archived company blank', async () => {
+    await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Old Co' }] }));
+    const row = (await companies()).find((c) => c.name === 'ZZ Old Co')!;
+    await harness.store.update('portfolio_companies', harness.auth.organizationId, row.id, {
+      is_archived: true,
+    });
+    await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Old Co', stage: 'Seed' }] }));
+    const after = (await companies()).find((c) => c.id === row.id)!;
+    expect(after.current_stage).toBeNull();
+  });
+
   it('a duplicate inside one payload is added once', async () => {
     await webhook(
       post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Twin' }, { name: 'zz twin' }] }),

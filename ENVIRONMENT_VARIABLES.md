@@ -257,9 +257,11 @@ is unaffected.
 
 Token required by `/api/integrations/portfolio/webhook`, the endpoint the
 watchers that notice a new investment POST to (the Schedule of Investments
-sheet check and the closed-deal mailbox routine). It is add-only: a company
-whose name is already listed, archived or not, is left untouched, and there is
-no way to edit, archive or read anything with it. The payload has no slot for
+sheet check and the closed-deal mailbox routine). It only adds: a company whose
+name is already listed is never replaced, and the one thing a re-post can do to
+it is fill a stage, website or founder that is still blank (an existing value
+is never overwritten, an archived company is left completely alone). There is
+no way to remove, archive or read anything with it. The payload has no slot for
 valuations, cost, ownership or MOIC, by design.
 
 Same reasoning as `BRIEFING_BRIDGE_TOKEN`: the sender lives in a routine's
