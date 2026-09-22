@@ -51,6 +51,9 @@ const PUBLIC_PATHS = [
   // Same shared-secret contract; the watchers that notice a new investment
   // post it here (add-only) and carry no session cookie either.
   '/api/integrations/portfolio/webhook',
+  // Same shared-secret contract; the watcher that notices new follow-ups
+  // posts them here (add-only) and carries no session cookie either.
+  '/api/integrations/tasks/webhook',
 ];
 
 /**

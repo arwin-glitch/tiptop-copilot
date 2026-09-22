@@ -7,6 +7,7 @@ import { generateDailyBrief } from '@/lib/services/brief';
 import { ensureGmailWatch } from '@/lib/services/gmail-watch';
 import { syncMailbox } from '@/lib/services/inbox';
 import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
+import { ingestTasksFromSlack } from '@/lib/services/task-ingest';
 import type { AuthContext } from '@/lib/auth/session';
 import type { Organization, OrganizationMember, UserProfile } from '@/lib/types/domain';
 
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
     watch: string;
     brief: string;
     portfolio: string;
+    tasks: string;
   }[] = [];
 
   let organizations: Organization[] = [];
@@ -88,6 +90,7 @@ export async function POST(request: NextRequest) {
         watch: 'skipped',
         brief: 'skipped',
         portfolio: 'skipped',
+        tasks: 'skipped',
       });
       continue;
     }
@@ -100,6 +103,7 @@ export async function POST(request: NextRequest) {
         watch: 'skipped',
         brief: 'skipped',
         portfolio: 'skipped',
+        tasks: 'skipped',
       });
       continue;
     }
@@ -160,12 +164,24 @@ export async function POST(request: NextRequest) {
       log.error('Cron portfolio relay failed', { organizationId: organization.id });
     }
 
+    // New follow-ups noticed by a cloud routine arrive through the same relay
+    // channel, for the same egress-block reason.
+    let tasksStatus: string;
+    try {
+      const added = await ingestTasksFromSlack(store, organization.id);
+      tasksStatus = added ? `ok: ${added.created.length} added` : 'skipped: relay not readable';
+    } catch (error) {
+      tasksStatus = `failed: ${(error as Error)?.message?.slice(0, 120)}`;
+      log.error('Cron task relay failed', { organizationId: organization.id });
+    }
+
     results.push({
       organization: organization.name,
       sync: syncStatus,
       watch: watchStatus,
       brief: briefStatus,
       portfolio: portfolioStatus,
+      tasks: tasksStatus,
     });
   }
 

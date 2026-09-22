@@ -4,6 +4,8 @@ import { AlertTriangle } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { dueAndOverdue, listTasks } from '@/lib/services/tasks';
 import { listDrafts } from '@/lib/services/drafts';
+import { getStore } from '@/lib/runtime';
+import { pullTasksFromSlack } from '@/lib/services/task-ingest';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,6 +20,10 @@ export const dynamic = 'force-dynamic';
 export default async function TasksPage() {
   const auth = await requireAuth();
   const now = new Date();
+
+  // A follow-up the watcher just spotted waits in the Slack relay; pull it in
+  // now so it shows as soon as the page is opened. Best effort, throttled.
+  await pullTasksFromSlack(getStore(), auth.organizationId).catch(() => null);
 
   const [{ overdue, dueToday, upcoming }, completed, drafts] = await Promise.all([
     dueAndOverdue(auth.organizationId, now),

@@ -150,3 +150,10 @@ services:
       # rejects every caller and companies are added by hand.
       - key: PORTFOLIO_BRIDGE_TOKEN
         sync: false
+
+      # Authenticates the watcher that adds suggested follow-up tasks.
+      # Add-only: it cannot complete, edit or remove anything. Optional:
+      # without it the webhook rejects every caller and tasks are added by
+      # hand.
+      - key: TASK_BRIDGE_TOKEN
+        sync: false

@@ -122,6 +122,14 @@ export interface AppEnv {
   portfolioBridgeToken: string | undefined;
 
   /**
+   * Ingest-only credential for `/api/integrations/tasks/webhook`, used by the
+   * watcher that notices a follow-up worth tracking. Same "assume eventually
+   * public" reasoning: holding it lets someone add a task that does not
+   * already exist by title, and nothing more.
+   */
+  taskBridgeToken: string | undefined;
+
+  /**
    * Ingest-and-answer credential for the Ask bridge: an external Claude
    * session with live Gmail/Calendar/Slack access that answers questions
    * asked on the Ask page instead of the in-app Anthropic call, which has no
@@ -205,6 +213,7 @@ export function env(): AppEnv {
     demoDataDir: str('DEMO_DATA_DIR') ?? '.demo-data',
     briefingBridgeToken: str('BRIEFING_BRIDGE_TOKEN'),
     portfolioBridgeToken: str('PORTFOLIO_BRIDGE_TOKEN'),
+    taskBridgeToken: str('TASK_BRIDGE_TOKEN'),
     askBridgeToken: str('ASK_BRIDGE_TOKEN'),
     askRoutineFireUrl: str('ASK_ROUTINE_FIRE_URL'),
     askRoutineToken: str('ASK_ROUTINE_TOKEN'),
@@ -515,6 +524,17 @@ export function capabilityReport(): CapabilityCheck[] {
       ? 'An add-only token is set. The sheet and closed-deal watchers can add new portfolio companies.'
       : 'Not set. New portfolio companies must be added by hand; the Portfolio page is unaffected.',
     variables: ['PORTFOLIO_BRIDGE_TOKEN'],
+    required: false,
+  });
+
+  checks.push({
+    key: 'task-bridge',
+    label: 'Automatic task suggestions',
+    status: has(e.taskBridgeToken) ? 'ready' : 'optional-missing',
+    detail: has(e.taskBridgeToken)
+      ? 'An add-only token is set. The watcher can add suggested follow-up tasks.'
+      : 'Not set. New tasks must be added by hand; the Tasks page is unaffected.',
+    variables: ['TASK_BRIDGE_TOKEN'],
     required: false,
   });
 

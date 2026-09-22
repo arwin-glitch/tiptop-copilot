@@ -270,6 +270,20 @@ prompt, so the value is assumed public. Generate it the same way as
 `CRON_SECRET`. Unset, the endpoint refuses every post and the Portfolio page is
 unaffected.
 
+### `TASK_BRIDGE_TOKEN`
+
+Token required by `/api/integrations/tasks/webhook`, the endpoint the watcher
+that notices a follow-up worth tracking POSTs to (an unanswered ask with a
+deadline, a promise made in a meeting or on Slack). It is add-only: a task
+whose title already matches an existing task (open, snoozed, or already
+completed) is skipped, and there is
+no way to complete, edit or delete anything with it.
+
+Same reasoning as `PORTFOLIO_BRIDGE_TOKEN`: the sender lives in a routine's
+prompt, so the value is assumed public. Generate it the same way as
+`CRON_SECRET`. Unset, the endpoint refuses every post and the Tasks page is
+unaffected.
+
 ### `ASK_BRIDGE_TOKEN`
 
 Token required by `/api/integrations/ask-bridge/webhook`. When set, every
