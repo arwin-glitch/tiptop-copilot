@@ -208,8 +208,9 @@ describe('ambiguous tenancy', () => {
 describe('pulling briefings from the Slack relay on view', () => {
   const fakeSlack = (messages: Array<{ text: string }>, ok = true) =>
     (async () =>
-      new Response(JSON.stringify(ok ? { ok: true, messages } : { ok: false, error: 'not_in_channel' }))) as
-      unknown as typeof fetch;
+      new Response(
+        JSON.stringify(ok ? { ok: true, messages } : { ok: false, error: 'not_in_channel' }),
+      )) as unknown as typeof fetch;
   const TICK = String.fromCharCode(96);
   const relayText = (payload: unknown) =>
     ['BRIEFING_PAYLOAD_V1', TICK + JSON.stringify(payload) + TICK].join('\n');

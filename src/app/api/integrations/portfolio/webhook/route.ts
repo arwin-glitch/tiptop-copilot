@@ -4,10 +4,7 @@ import { env } from '@/lib/config/env';
 import { soleOrganizationId } from '@/lib/db/tenancy';
 import { getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
-import {
-  ingestPortfolioCompanies,
-  PORTFOLIO_INGEST_SCHEMA,
-} from '@/lib/services/portfolio-ingest';
+import { ingestPortfolioCompanies, PORTFOLIO_INGEST_SCHEMA } from '@/lib/services/portfolio-ingest';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;

@@ -49,8 +49,7 @@ function normalizeTitle(title: string): string {
  */
 async function resolveOwnerId(store: DataStore, organizationId: string): Promise<string | null> {
   const members = (await store.list('organization_members', organizationId, {})) as
-    | OrganizationMember[]
-    | [];
+    OrganizationMember[] | [];
   const owner = members.find((m) => m.role === 'owner') ?? members[0];
   return owner?.user_id ?? null;
 }

@@ -182,8 +182,9 @@ describe('the Slack relay path (for cloud routines that cannot reach the app)', 
   const relay = (text: string) => ({ text });
   const fakeSlack = (messages: Array<{ text: string }>, ok = true) =>
     (async () =>
-      new Response(JSON.stringify(ok ? { ok: true, messages } : { ok: false, error: 'not_in_channel' }))) as
-      unknown as typeof fetch;
+      new Response(
+        JSON.stringify(ok ? { ok: true, messages } : { ok: false, error: 'not_in_channel' }),
+      )) as unknown as typeof fetch;
 
   beforeEach(() => {
     process.env.ASK_RELAY_SLACK_TOKEN = 'xoxb-test';

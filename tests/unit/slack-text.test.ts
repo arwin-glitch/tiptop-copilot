@@ -22,7 +22,9 @@ describe('a briefing relay message as Slack actually returns it', () => {
     `{"kind": "afternoon", "date_key": "2026-09-21", "title": "T", "summary": "S", "source_url": "${url}"}`;
 
   it('parses when Slack has wrapped the source_url in link markup', () => {
-    const p = parseBriefingRelayMessage(wrap(body('<https://claude.ai/artifact/88nPt3xPFmL2NvSFkjrZ6L>')));
+    const p = parseBriefingRelayMessage(
+      wrap(body('<https://claude.ai/artifact/88nPt3xPFmL2NvSFkjrZ6L>')),
+    );
     expect(p?.source_url).toBe('https://claude.ai/artifact/88nPt3xPFmL2NvSFkjrZ6L');
   });
 

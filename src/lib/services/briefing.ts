@@ -144,7 +144,10 @@ function explainRelayFailure(text: unknown): string {
   const parsed = ROUTINE_BRIEFING_SCHEMA.safeParse(json);
   return parsed.success
     ? 'ok'
-    : `schema: ${parsed.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ').slice(0, 160)}`;
+    : `schema: ${parsed.error.issues
+        .map((i) => `${i.path.join('.')} ${i.message}`)
+        .join('; ')
+        .slice(0, 160)}`;
 }
 
 /**

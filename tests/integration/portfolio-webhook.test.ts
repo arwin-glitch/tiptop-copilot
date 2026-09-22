@@ -103,7 +103,9 @@ describe('validation', () => {
     await webhook(
       post(TOKEN, {
         source: 'test',
-        companies: [{ name: 'ZZ Strip Co', ownership: '1.5%', invested_cost: '$300,000', moic: '1.0' }],
+        companies: [
+          { name: 'ZZ Strip Co', ownership: '1.5%', invested_cost: '$300,000', moic: '1.0' },
+        ],
       }),
     );
     const row = (await companies()).find((c) => c.name === 'ZZ Strip Co');
@@ -148,7 +150,9 @@ describe('add-only ingest', () => {
       is_archived: true,
       current_stage: 'Series A',
     });
-    await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Test Co', stage: 'Seed' }] }));
+    await webhook(
+      post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Test Co', stage: 'Seed' }] }),
+    );
     const after = (await companies()).find((c) => c.id === row.id)!;
     expect(after).toMatchObject({ is_archived: true, current_stage: 'Series A' });
     expect((await companies()).filter((c) => c.name === 'ZZ Test Co')).toHaveLength(1);
@@ -208,7 +212,9 @@ describe('add-only ingest', () => {
     await harness.store.update('portfolio_companies', harness.auth.organizationId, row.id, {
       is_archived: true,
     });
-    await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Old Co', stage: 'Seed' }] }));
+    await webhook(
+      post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Old Co', stage: 'Seed' }] }),
+    );
     const after = (await companies()).find((c) => c.id === row.id)!;
     expect(after.current_stage).toBeNull();
   });
@@ -241,7 +247,10 @@ describe('add-only ingest', () => {
       post(TOKEN, {
         source: 'test',
         companies: [
-          { name: 'ZZ Founders Co', founders: [{ name: 'Ann One', title: 'CEO' }, { name: 'Bo Two' }] },
+          {
+            name: 'ZZ Founders Co',
+            founders: [{ name: 'Ann One', title: 'CEO' }, { name: 'Bo Two' }],
+          },
         ],
       }),
     );
@@ -275,7 +284,9 @@ describe('add-only ingest', () => {
     await webhook(
       post(TOKEN, {
         source: 'test',
-        companies: [{ name: 'ZZ Geo Co', geography: 'Austin, TX', co_investors: 'Alpha VC, Beta Fund' }],
+        companies: [
+          { name: 'ZZ Geo Co', geography: 'Austin, TX', co_investors: 'Alpha VC, Beta Fund' },
+        ],
       }),
     );
     await webhook(
@@ -290,8 +301,18 @@ describe('add-only ingest', () => {
 
   it('stores a deal source, filling it later only when blank', async () => {
     await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Source Co' }] }));
-    await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Source Co', deal_source: 'VC Network' }] }));
-    await webhook(post(TOKEN, { source: 'test', companies: [{ name: 'ZZ Source Co', deal_source: 'Outbound' }] }));
+    await webhook(
+      post(TOKEN, {
+        source: 'test',
+        companies: [{ name: 'ZZ Source Co', deal_source: 'VC Network' }],
+      }),
+    );
+    await webhook(
+      post(TOKEN, {
+        source: 'test',
+        companies: [{ name: 'ZZ Source Co', deal_source: 'Outbound' }],
+      }),
+    );
     const row = (await companies()).find((c) => c.name === 'ZZ Source Co')!;
     expect(row.deal_source).toBe('VC Network');
   });
@@ -319,8 +340,9 @@ describe('the Slack relay path (for cloud routines that cannot reach the app)', 
   const relay = (text: string) => ({ text });
   const fakeSlack = (messages: Array<{ text: string }>, ok = true) =>
     (async () =>
-      new Response(JSON.stringify(ok ? { ok: true, messages } : { ok: false, error: 'not_in_channel' }))) as
-      unknown as typeof fetch;
+      new Response(
+        JSON.stringify(ok ? { ok: true, messages } : { ok: false, error: 'not_in_channel' }),
+      )) as unknown as typeof fetch;
 
   beforeEach(() => {
     process.env.ASK_RELAY_SLACK_TOKEN = 'xoxb-test';
@@ -329,12 +351,17 @@ describe('the Slack relay path (for cloud routines that cannot reach the app)', 
 
   it('parses only the exact marker plus backticked JSON, and ignores everything else', async () => {
     const { parsePortfolioRelayMessage } = await import('@/lib/services/portfolio-ingest');
-    const good = 'PORTFOLIO_ADD_V1\n`{"source":"closed-deal-mailbox","companies":[{"name":"ZZ Relay Co"}]}`';
+    const good =
+      'PORTFOLIO_ADD_V1\n`{"source":"closed-deal-mailbox","companies":[{"name":"ZZ Relay Co"}]}`';
     expect(parsePortfolioRelayMessage(good)?.companies[0]?.name).toBe('ZZ Relay Co');
-    expect(parsePortfolioRelayMessage('ASK_ANSWER_V1\n`{"message_id":"x","answer":"y"}`')).toBeNull();
+    expect(
+      parsePortfolioRelayMessage('ASK_ANSWER_V1\n`{"message_id":"x","answer":"y"}`'),
+    ).toBeNull();
     expect(parsePortfolioRelayMessage('PORTFOLIO_ADD_V1 no json here')).toBeNull();
     expect(parsePortfolioRelayMessage('PORTFOLIO_ADD_V1\n`{not json}`')).toBeNull();
-    expect(parsePortfolioRelayMessage('PORTFOLIO_ADD_V1\n`{"source":"x","companies":[]}`')).toBeNull();
+    expect(
+      parsePortfolioRelayMessage('PORTFOLIO_ADD_V1\n`{"source":"x","companies":[]}`'),
+    ).toBeNull();
   });
 
   it('adds a company from a relay message, once, however often the channel is re-read', async () => {
@@ -345,7 +372,11 @@ describe('the Slack relay path (for cloud routines that cannot reach the app)', 
     const slack = fakeSlack([msg, relay('ordinary chatter')]);
     const first = await ingestPortfolioFromSlack(harness.store, harness.auth.organizationId, slack);
     expect(first?.created).toEqual(['ZZ Relay Co']);
-    const second = await ingestPortfolioFromSlack(harness.store, harness.auth.organizationId, slack);
+    const second = await ingestPortfolioFromSlack(
+      harness.store,
+      harness.auth.organizationId,
+      slack,
+    );
     expect(second?.created).toEqual([]);
     expect((await companies()).filter((c) => c.name === 'ZZ Relay Co')).toHaveLength(1);
   });
