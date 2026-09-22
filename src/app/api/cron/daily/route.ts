@@ -4,6 +4,7 @@ import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
 import { generateDailyBrief } from '@/lib/services/brief';
+import { pullBriefingsFromSlack } from '@/lib/services/briefing';
 import { ensureGmailWatch } from '@/lib/services/gmail-watch';
 import { syncMailbox } from '@/lib/services/inbox';
 import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
     sync: string;
     watch: string;
     brief: string;
+    briefing: string;
     portfolio: string;
     tasks: string;
   }[] = [];
@@ -89,6 +91,7 @@ export async function POST(request: NextRequest) {
         sync: 'skipped: no members',
         watch: 'skipped',
         brief: 'skipped',
+        briefing: 'skipped',
         portfolio: 'skipped',
         tasks: 'skipped',
       });
@@ -102,6 +105,7 @@ export async function POST(request: NextRequest) {
         sync: 'skipped: no profile',
         watch: 'skipped',
         brief: 'skipped',
+        briefing: 'skipped',
         portfolio: 'skipped',
         tasks: 'skipped',
       });
@@ -153,6 +157,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // The Daily Overview and Daily Recap routines post their briefing cards to
+    // the same relay channel. Without this, a posted brief only reaches the
+    // Today page whenever someone next happens to load it (pull-on-view) —
+    // pulling here too means it lands within minutes regardless.
+    let briefingStatus: string;
+    try {
+      const changed = await pullBriefingsFromSlack(store, organization.id);
+      briefingStatus = `ok: ${changed} changed`;
+    } catch (error) {
+      briefingStatus = `failed: ${(error as Error)?.message?.slice(0, 120)}`;
+      log.error('Cron briefing relay pull failed', { organizationId: organization.id });
+    }
+
     // New portfolio companies noticed by a cloud routine arrive through the
     // Slack relay channel, because the routines cannot reach this app directly.
     let portfolioStatus: string;
@@ -180,6 +197,7 @@ export async function POST(request: NextRequest) {
       sync: syncStatus,
       watch: watchStatus,
       brief: briefStatus,
+      briefing: briefingStatus,
       portfolio: portfolioStatus,
       tasks: tasksStatus,
     });
