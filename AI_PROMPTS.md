@@ -43,7 +43,7 @@ export const PROMPT_VERSIONS = {
   dailyOutlook:          'daily-outlook@1.3.0',
   conversationalToolUse: 'chat-tools@1.3.0',
   portfolioUpdate:       'portfolio-update@1.2.0',
-  draftReply:            'draft-reply@2.0.0',
+  draftReply:            'draft-reply@2.1.0',
   schedulingReply:       'scheduling-reply@1.0.0',
   injectionDetection:    'injection-detection@1.1.0',
   dealComparison:        'deal-comparison@1.1.0',
@@ -118,7 +118,7 @@ prompt is guidance and a constraint is a guarantee.
 | `dailyOutlook` | deep | `dailyOutlookSchema` | Narrows and phrases a candidate set already assembled from records. |
 | `conversationalToolUse` | deep | `chatAnswerSchema` | Ask. Reaches data only through the allowlisted tools. |
 | `portfolioUpdate` | fast | `portfolioUpdateSchema` | Typed ask, urgency, and suggested contacts **from the supplied list only**. |
-| `draftReply` | deep | `draftReplySchema` | A draft in Nick's observed voice, plus the facts it asserts so they can be checked before sending. Never commits money or terms; LinkedIn links only in outbound intros, on formal full names, from supplied sources. |
+| `draftReply` | deep | `draftReplySchema` | A draft in Nick's observed voice, plus the facts it asserts so they can be checked before sending. Answers factual/administrative asks from the supplied sources rather than deferring (wire and banking details never). Never commits money or terms; LinkedIn links only in outbound intros, on formal full names, from supplied sources. |
 | `schedulingReply` | deep | `draftReplySchema` | Meeting logistics drafted in the EA's voice (introduction + signature), checked against a supplied snapshot of the synced calendar: no overlaps, 8am–6pm CT, hour + travel buffers for in-person, reschedules free the moving slot, cancellations get a warm rebook offer, never initiates moving Nick's commitments. |
 | `injectionDetection` | fast | `injectionDetectionSchema` | Second opinion on suspicious spans. Advisory: it can add to the deterministic flag, never clear it. |
 | `dealComparison` | deep | `dealComparisonSchema` | Compares 2â€“4 deals on the dimensions that would change a decision. |

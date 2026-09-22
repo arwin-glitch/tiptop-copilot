@@ -1,5 +1,14 @@
 # NEXT SESSION — publish TipTop Copilot
 
+> **SUPERSEDED — banner added 2026-09-01.** This file describes the state
+> BEFORE the app was published and several claims below are no longer true:
+> the repo has a public GitHub remote with green CI (verify + e2e), both
+> Render services are deployed, Supabase and Google OAuth exist, and the
+> suite is 568 unit/integration + 58 e2e. Current truth lives in
+> `SESSION_HANDOVER.md` (§8 is the latest word) and `CHANGELOG.md`. Still
+> accurate and binding: the environment rules in §0, the invariants in §4,
+> the Next.js 16 notes in §5, and the boundaries in §7. Kept for history.
+
 **Paste `PROMPT.md` into the new chat. This file is the detail behind it.**
 
 The build is finished and verified. What remains is deployment, and deployment

@@ -20,8 +20,8 @@ export const PROMPT_VERSIONS = {
   dailyOutlook: 'daily-outlook@1.3.0',
   conversationalToolUse: 'chat-tools@1.3.0',
   portfolioUpdate: 'portfolio-update@1.2.0',
-  draftReply: 'draft-reply@2.0.0',
-  schedulingReply: 'scheduling-reply@1.0.0',
+  draftReply: 'draft-reply@2.1.0',
+  schedulingReply: 'scheduling-reply@1.1.0',
   injectionDetection: 'injection-detection@1.1.0',
   dealComparison: 'deal-comparison@1.1.0',
 } as const;
@@ -195,6 +195,7 @@ Reference phrasings from his sent mail: "Thanks for sending this over!" · "Grea
 Rules:
 - Only assert facts that appear in the supplied sources. List each asserted fact in asserted_facts so Nick can check them.
 - Never state or imply an investment commitment, an allocation, a dollar amount, wire details or legal terms. Where the reply hinges on a verdict only Nick can give, advance the conversation warmly without committing to it.
+- Answer with facts. When the inbound asks for factual or administrative information — an entity name, a signature block, notice details, a date, an address, something already shared on the thread — and the answer appears in the supplied sources, put the actual answer in the draft: thanks, then "please find the requested info below:", then the facts, then a brief offer to help with anything else. List each fact in asserted_facts. Never deflect with "I'll get that to you shortly" when the sources already hold the answer. This does not relax the rule above: no new commitments, amounts, allocations or legal positions, and wire or banking details never appear in a draft even when the sources contain them. If the fact is genuinely absent from the sources, defer warmly and record exactly what is missing in asserted_facts.
 - For a pass, be courteous and unambiguous. Give the real reason at a level of detail that is useful without being a debate invitation. Do not offer to reconsider unless the sources say something specific would change the answer.
 - For a request for missing information, ask for the specific items, numbered, and say why each matters.
 - For a meeting request, propose the purpose and what you want to cover, not just a time.
@@ -206,8 +207,13 @@ Rules:
 export const SCHEDULING_REPLY_PROMPT = systemPrompt(
   `Write a scheduling reply for Nick's EA, Arwin, to review, edit and send himself. This prompt covers pure meeting logistics only: finding a time, confirming a slot, an inbound request to reschedule, or an inbound cancellation.
 
-VOICE — Arwin's, not Nick's. Introduce him when he is new to the thread, then propose concrete options:
-"Hi [First], Great to meet you! I'm Arwin, I support Nick and help coordinate his calendar. Would any of the following times work for a [quick call / lunch / coffee]? ... Happy to work around your schedule if none of these fit."
+VOICE — Arwin's, not Nick's. Write like Arwin's real sent mail: a warm, efficient human, never AI. Match these patterns:
+- Greeting "Hi [First]," or "Hi [First]!", first names always. Introduce him once when he is new to the thread: "I'm Arwin, Nick's EA, happy to help coordinate his calendar."
+- Open warm and direct: "Great to meet you!" / "Happy to help coordinate." / "Thanks for confirming." Never throat-clear ("I hope this email finds you well", "I wanted to reach out").
+- Short, plain sentences, one idea each. Contractions always (it'd, isn't, I'll, he's, we'll). Concrete times with an explicit CT/CDT timezone; specifics over adjectives.
+- Punctuation the way he types: a spaced hyphen " - " for a quick aside ("Perfect - I'll send over the invite"). Do NOT use em dashes; he rarely uses them and they read as AI. At most one exclamation point per email.
+- Banned AI tells: "I hope this email finds you well", "I wanted to reach out", "Please don't hesitate to", "Kindly", "As per", "Furthermore / Moreover / Additionally", long hedged run-on sentences. If a line sounds templated, rewrite it the way Arwin would actually type it.
+Template: "Hi [First], Great to meet you! I'm Arwin, Nick's EA, happy to help coordinate his calendar. Would any of the following times work for a [quick call / lunch / coffee]? ... Happy to work around your schedule if none of these fit."
 End with exactly this signature block:
 Best,
 Arwin

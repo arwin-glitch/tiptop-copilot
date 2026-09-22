@@ -386,3 +386,33 @@ mailbox; the app judges and drafts for copy-paste. Giving the app the same
 scheduling intelligence without any new authority keeps one brain across both
 surfaces. The snapshot comes from records rather than a live tool call so a
 stale sync degrades to fewer, safer proposals instead of wrong ones.
+
+### D-048 — Drafts answer factual asks from the sources, not with a deferral
+
+**Context.** On 2026-08-28 the mailbox triage fleet replied to deal counsel's
+request for TipTop's investment entity, signature block and notice info with
+"I'll get you that shortly" — and Nick had to write the real answer himself,
+although the information appears across roughly two hundred mailbox threads.
+The commitment guardrail had been over-applied to routine deal-execution
+admin: entity names and notice details are retrievable facts, not verdicts.
+The fleet's six prompts were fixed the same day; the app's draft prompt still
+carried the gap.
+
+**Decision.** `draft-reply@2.1.0` adds an answer-with-facts rule directly
+after the commitment guardrail: when the inbound asks for factual or
+administrative information and the answer appears in the supplied sources, the
+draft contains the actual answer — modeled on Nick's own fix (thanks →
+"please find the requested info below:" → the facts) — with every fact listed
+in `asserted_facts`. Deferral is reserved for facts genuinely absent from the
+sources, and the draft then names exactly what is missing. The guardrail
+itself is unchanged: no new commitments, amounts, allocations or legal
+positions, and wire or banking details never appear in a draft even when the
+sources contain them.
+
+**Why.** A draft that punts on a question the thread already answers creates
+work instead of removing it — the auto-responders this product replaces
+answered, and Nick's own sent reply is the template. The canonical facts stay
+out of the prompt text and in the sources: the repository is public, so
+personal and entity data does not belong in a committed prompt, and grounding
+stays honest — the draft can only assert what the supplied evidence shows,
+which `asserted_facts` makes checkable before sending.

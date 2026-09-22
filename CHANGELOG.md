@@ -8,6 +8,33 @@ throughout.
 
 ---
 
+## [0.3.2] — 2026-09-04
+
+### AI prompts
+
+- `scheduling-reply@1.1.0`: the Arwin voice section now matches Arwin's real
+  sent mail instead of a generic professional register — warm and efficient,
+  short plain sentences, contractions, concrete times with an explicit CT/CDT
+  timezone, and a fixed set of banned AI tells ("I hope this email finds you
+  well", "I wanted to reach out", "Please don't hesitate to", "Kindly", "As
+  per", "Furthermore/Moreover/Additionally"). Punctuation rule added at Arwin's
+  request: a spaced hyphen `' - '` for asides, never em dashes. Calendar rules,
+  the signature block, and the read-only/never-sent guarantees are unchanged.
+  Voice profile of record lives in the assistant's memory (`arwin-voice-profile`).
+
+## [0.3.1] — 2026-09-01
+
+### AI prompts
+
+- `draft-reply@2.1.0`: factual or administrative asks — an entity name, a
+  signature block, notice details, something already shared on the thread — are
+  now answered from the supplied sources instead of deferred with "I'll get
+  that to you shortly", modeled on Nick's own 2026-08-28 reply to deal counsel
+  and mirroring the same-day fix to the external mailbox triage routines. Each
+  asserted fact is listed in `asserted_facts`; the commitment guardrail is
+  unchanged, and wire or banking details never appear in a draft even when the
+  sources contain them. Reasoning in [DECISIONS.md](DECISIONS.md) D-048.
+
 ## [0.3.0] — 2026-08-17
 
 Design pass. No schema change, no new environment variable, no new dependency.
