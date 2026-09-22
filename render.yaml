@@ -139,9 +139,10 @@ services:
       - key: GRANOLA_WEBHOOK_SECRET
         sync: false
 
-      # Authenticates the Daily Overview and Daily Recap cloud routines'
-      # posts to the Today-page briefing card. Optional: without it the
-      # webhook rejects every caller and the briefing card stays empty.
+      # Authenticates direct posts to the Today-page briefing card webhook.
+      # Optional: the Daily Overview and Daily Recap routines cannot reach
+      # this app, so their cards arrive through the Slack relay channel, which
+      # needs ASK_RELAY_SLACK_TOKEN (set in the dashboard) instead.
       - key: BRIEFING_BRIDGE_TOKEN
         sync: false
 

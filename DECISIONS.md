@@ -416,3 +416,71 @@ out of the prompt text and in the sources: the repository is public, so
 personal and entity data does not belong in a committed prompt, and grounding
 stays honest — the draft can only assert what the supplied evidence shows,
 which `asserted_facts` makes checkable before sending.
+
+### D-049 — Briefing cards only move forward, and the Today page is their only reader
+
+**Context.** On 2026-09-22 the Today page's afternoon card showed a Sep 21
+recap hours after the Sep 22 one had posted. Four faults compounded. Next
+memoizes identical GET fetches within one server render, and supabase-js goes
+through that patched `fetch`, so the render that pulled a new card from Slack
+then read back the rows from before the pull — and the pull's own
+skip-unchanged check compared against those stale rows, so a kind with two
+payloads in the window flipped between them on alternate pulls. The GitHub
+`briefing-slack-sync` relay replayed every payload in the window newest-first
+and the webhook wrote each one, so every run ended with each slot on its
+oldest post. An open tab never refreshed itself. And a failed Slack read
+locked the pull out for a full minute, while `posted_at` recorded ingest time
+rather than when the routine posted.
+
+**Decision.**
+
+- `getStore()` gives the Supabase client a `fetch` wrapper that adds a fresh
+  `AbortController` signal when the caller has none — the documented opt-out
+  from memoization (`force-dynamic` and `cache: 'no-store'` do not disable it).
+  `fetch` is looked up per call so Next's instrumentation still sees it.
+- The Slack pull ingests one payload per kind: the latest `date_key` in the
+  window, and within that day the newest in Slack's order, with the message
+  `ts` as `posted_at`. A network fault or Slack 5xx retries after ten seconds;
+  anything Slack answers (a good read, a refusal such as `not_in_channel`)
+  waits the full minute, and a rate limit waits as long as `Retry-After` says.
+- `ingestRoutineBriefing` never moves a slot to an earlier `date_key`, and a
+  payload identical to the stored card is a no-op that leaves `posted_at`
+  untouched. It does not order same-day posts by `posted_at`: a webhook post
+  and every row written before this change carry an ingest time there, which
+  is later than the Slack `ts` of the post that should replace them, so that
+  comparison would keep a superseded card for the rest of the day. Same-day
+  order is the pull's choice.
+- The schema refuses a `date_key` that is not a real date or is later than
+  today in UTC+14. With the forward-only rule, one far-future date — a
+  mistyped year from a routine, a forged webhook post, any poster in the relay
+  channel — would otherwise pin its slot until the row was fixed by hand.
+- The GitHub relay is retired. The Today page is the only reader of
+  `routine_briefings` and pulls on view, so a writer that runs with no viewer
+  adds nothing, and it replayed every payload in the window. The webhook route
+  stays for direct posts.
+- An open Today tab polls `GET /api/briefings/current` (pull, then a
+  fingerprint of kind, `date_key` and `posted_at` — never `updated_at`) every
+  15 seconds while visible and on returning to the tab, and calls
+  `router.refresh()` only when the fingerprint differs from the rendered one
+  and no refresh for that fingerprint has been asked for yet — a pending
+  refresh keeps the old fingerprint on the page, and each extra
+  `router.refresh()` starts another full server render. Failed checks back off
+  to at most five minutes, and a 401 stops the polling.
+
+**Why.** Each fix closes one cause, and they are cheap together: the store
+change is one wrapper, the guard is two comparisons, and the watcher sends a
+fingerprint rather than the cards. With a tab open, a routine's card now
+appears within about 75 seconds of posting (up to 60s of pull throttle plus
+one 15s poll). The watcher never refreshes on a timer alone, because a Today
+render also syncs the calendar and may generate an outlook. Known limit: the
+briefing token is assumed public (see `BRIEFING_BRIDGE_TOKEN`), and a junk
+post through it, or in the relay channel, shows until that kind's next
+routine post — about a day at most for one dated tomorrow, longer over a
+weekend with no posts.
+
+**Deploy.** Delete the `BRIEFING_SLACK_SYNC` repository variable (and the
+`BRIEFING_WEBHOOK_URL` secret). The workflow file is gone from `master`, but a
+push to `relay-kick` runs whatever workflow files the pushed commit carries,
+and a routine pushing a commit from before this change would start the old
+job, which fails on the deleted script. Removing the variable is what keeps
+it from running.

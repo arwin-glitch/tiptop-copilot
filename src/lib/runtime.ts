@@ -61,6 +61,15 @@ export function getStore(): DataStore {
     storeSingleton = new SupabaseStore(
       createClient(e.supabaseUrl, e.supabaseServiceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
+        global: {
+          // Next memoizes identical GET fetches for the whole of one server
+          // render, and neither force-dynamic nor cache: 'no-store' turns
+          // that off — so a read after a write in the same render returned
+          // the pre-write rows. A signal is the documented opt-out. `fetch`
+          // is looked up per call so Next's patched fetch still sees it.
+          fetch: (input, init) =>
+            fetch(input, { ...init, signal: init?.signal ?? new AbortController().signal }),
+        },
       }),
     );
   }

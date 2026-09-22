@@ -132,6 +132,13 @@ file-backed and the server holds it in memory, so without them the suite
 inherits the previous run's state and any test asserting a starting condition
 passes once and then fails for ever.
 
+Demo entry is rate-limited to 60 sign-ins a minute (`enterDemoAction`), and a
+full run, one sign-in per test, fits inside one window with little to spare.
+A few retried tests in the same minute, as CI's `retries: 1` allows, tip the
+next sign-in onto `/login?busy=1` and cascade. A new spec should sign in once
+and share the session through `storageState`, as
+`today-briefing-watch.spec.ts` does, rather than add a sign-in per test.
+
 ---
 
 ## 5. Writing a new test

@@ -242,14 +242,19 @@ exact problem the split removes.
 Token required by `/api/integrations/briefing/webhook`, the endpoint the
 Daily Overview (morning) and Daily Recap (afternoon) cloud routines POST to
 once each finishes a run. The post replaces the Today page's briefing card —
-there is one card per organization, and the newest post always wins, with no
-reset at midnight.
+there is one card per organization per kind, with no reset at midnight, and a
+post for an earlier day is ignored. The routines' sandbox cannot reach this app
+today, so in practice cards arrive via the Slack relay (`ASK_RELAY_SLACK_TOKEN`
+below), not this endpoint, and the Settings readiness check for the briefing
+card follows that token rather than this one.
 
 Same reasoning as `GRANOLA_BRIDGE_TOKEN`: the sender is a cloud routine, and
 the routines API returns a routine's prompt in full on `get`, on `run`, and
 in run logs, so this value is assumed public the moment it is set. Holding it
-should let someone overwrite the briefing card with junk text, and nothing
-more — no other endpoint accepts it. Generate it the same way as
+lets someone put junk text on a briefing card until that kind's next routine
+post, and nothing more — no other endpoint accepts it. A `date_key` later than
+today is refused, so a junk post cannot pin a card for good. Anyone who can
+post in the relay channel has the same reach. Generate it the same way as
 `CRON_SECRET`. Unset, the endpoint refuses every post and the rest of Today
 is unaffected.
 
@@ -307,7 +312,9 @@ runs on its own hourly timer and the GitHub relay carries data both ways.
   routine posts its `ASK_ANSWER_V1` message to the relay channel (default
   `C0C3JPW6PTJ`, override with `ASK_RELAY_CHANNEL_ID`); the Ask page reads that
   channel while an answer is pending and completes the message itself.
-  Read-only: the app never posts to Slack.
+  Read-only: the app never posts to Slack. The Today page reads the same
+  channel for the Daily Overview/Recap `BRIEFING_PAYLOAD_V1` messages, so
+  without this token routine briefing cards never reach Today.
 
 All three are best-effort. If any is missing or a call fails, the question is
 still saved and the older path answers it later.

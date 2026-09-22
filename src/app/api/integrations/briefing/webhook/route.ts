@@ -64,8 +64,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, skipped: 'no unambiguous organization' });
   }
 
-  const briefing = await ingestRoutineBriefing(getStore(), organizationId, parsed.data);
-  return NextResponse.json({ ok: true, kind: briefing.kind, date_key: briefing.date_key });
+  // `written: false` means the stored card is newer or identical and was kept;
+  // date_key is then the stored card's, not the payload's.
+  const { row, written } = await ingestRoutineBriefing(getStore(), organizationId, parsed.data);
+  return NextResponse.json({ ok: true, kind: row.kind, date_key: row.date_key, written });
 }
 
 function constantTimeEquals(a: string, b: string): boolean {

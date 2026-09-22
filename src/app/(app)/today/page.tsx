@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowRight, Calendar, Mail } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { getAI, getStore } from '@/lib/runtime';
 import {
+  briefingVersion,
   getCurrentBrief,
   getCurrentDossier,
   pullBriefingsFromSlack,
@@ -19,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { GeneratedMeta } from '@/components/evidence/source-drawer';
 import { BriefItemRow, ExpandableSection, OpenSourcesButton } from '@/components/today/sections';
 import { RoutineBriefingCard } from '@/components/today/briefing-summary';
+import { BriefingWatcher } from '@/components/today/briefing-watcher';
 import {
   CreateFollowUpButton,
   RefreshOutlookButton,
@@ -134,6 +136,7 @@ async function TodayContent() {
           {routineDossier ? <RoutineBriefingCard briefing={routineDossier} now={now} /> : null}
         </div>
       ) : null}
+      <BriefingWatcher version={briefingVersion(routineBrief, routineDossier)} />
 
       {nothingToday ? (
         <EmptyState

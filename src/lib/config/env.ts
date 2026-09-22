@@ -108,8 +108,11 @@ export interface AppEnv {
    * briefing card (Daily Overview, Daily Recap). Same reasoning as
    * `granolaBridgeToken`: a cloud routine's prompt is returned in full by the
    * routines API on every `get`, `run`, and run log, so this value is
-   * assumed public. Holding it should let someone overwrite the briefing
-   * card with junk text and nothing more — no other endpoint accepts it.
+   * assumed public. Holding it lets someone put junk text on a briefing card
+   * until that kind's next routine post (a date_key later than today is
+   * refused, so it cannot pin a card for good), and nothing more — no other
+   * endpoint accepts it. The routines cannot reach the webhook today; cards
+   * arrive through `askRelaySlackToken`'s channel instead.
    */
   briefingBridgeToken: string | undefined;
 
@@ -154,7 +157,8 @@ export interface AppEnv {
   /**
    * Read-only Slack access so the app can pick up the routine's answer itself
    * (the routine cannot reach this app; it posts `ASK_ANSWER_V1` messages to
-   * the relay channel instead). Needs only `channels:history`.
+   * the relay channel instead). Needs only `channels:history`. The Today
+   * page reads the routine briefing cards from the same channel.
    */
   askRelaySlackToken: string | undefined;
   askRelayChannelId: string;
@@ -505,14 +509,16 @@ export function capabilityReport(): CapabilityCheck[] {
     required: false,
   });
 
+  // Keyed on the Slack token, not BRIEFING_BRIDGE_TOKEN: the routines cannot
+  // reach the webhook, so the relay channel is the only way a card arrives.
   checks.push({
     key: 'briefing-bridge',
     label: 'Routine briefing card (Today page)',
-    status: has(e.briefingBridgeToken) ? 'ready' : 'optional-missing',
-    detail: has(e.briefingBridgeToken)
-      ? 'An ingest-only token is set. Daily Overview and Daily Recap can post to the Today-page briefing card.'
-      : 'Not set. The briefing card stays empty; the rest of Today is unaffected.',
-    variables: ['BRIEFING_BRIDGE_TOKEN'],
+    status: has(e.askRelaySlackToken) ? 'ready' : 'optional-missing',
+    detail: has(e.askRelaySlackToken)
+      ? 'Set. The Today page reads Daily Overview and Daily Recap cards from the Slack relay channel.'
+      : 'Not set. Routine briefing cards never reach the Today page; the rest of Today is unaffected.',
+    variables: ['ASK_RELAY_SLACK_TOKEN'],
     required: false,
   });
 

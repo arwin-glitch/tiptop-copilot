@@ -13,7 +13,7 @@
 #   Settings → Secrets and variables → Actions
 #     Variables:  ASK_BRIDGE_SLACK_SYNC = enabled
 #     Secrets:    SLACK_BOT_TOKEN (can reuse the one already configured for
-#                 the briefing/Granola relays), ASK_BRIDGE_WEBHOOK_URL
+#                 the Granola relay), ASK_BRIDGE_WEBHOOK_URL
 #
 # The relay channel id is hardcoded in ask-bridge-slack-sync.mjs, not a
 # secret here — see that file's header for why.

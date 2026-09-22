@@ -157,10 +157,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // The Daily Overview and Daily Recap routines post their briefing cards to
-    // the same relay channel. Without this, a posted brief only reaches the
-    // Today page whenever someone next happens to load it (pull-on-view) —
-    // pulling here too means it lands within minutes regardless.
+    // Routine briefing cards waiting in the relay channel, as a best-effort
+    // backstop only: this job runs twice a day and GitHub has started it hours
+    // late, so delivery latency is owned by pull-on-view and the open Today
+    // tab's watcher, not by this.
     let briefingStatus: string;
     try {
       const changed = await pullBriefingsFromSlack(store, organization.id);

@@ -36,7 +36,7 @@
  * The backticks stop Slack from auto-linking a URL inside the JSON, which
  * would otherwise corrupt it.
  *
- * Why re-post-dedup matters here (unlike the briefing relay): this script
+ * Why re-post-dedup matters here: this script
  * polls every few minutes but the routine only runs hourly (routines have a
  * 1-hour minimum interval), so without checking Slack history first, the
  * same question would get posted a dozen times before the routine ever saw

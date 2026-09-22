@@ -8,6 +8,46 @@ throughout.
 
 ---
 
+## [0.3.3] — 2026-09-22
+
+No schema change, no new environment variable, no new dependency.
+
+### Today briefing cards
+
+After the Daily Recap posted on 2026-09-22, the Today page kept showing the
+Morning Brief — the afternoon slot flipped between the new recap and a Sep 21
+one. Four causes, all fixed. Reasoning in [DECISIONS.md](DECISIONS.md) D-049.
+
+- The Supabase store now sends every request with its own abort signal, the
+  documented opt-out from Next's per-render memoization of identical GETs.
+  Without it, the Today render that pulled a new card read back the rows from
+  before the pull, and the pull's own unchanged-check compared against them.
+- The Slack pull ingests one payload per kind — the latest `date_key`, and
+  the newest post of that day — and stamps `posted_at` with the Slack message
+  time instead of the ingest time. A network fault or Slack 5xx is retried
+  after 10 seconds; a Slack refusal waits the full minute, and a rate limit
+  waits for its `Retry-After`.
+- `ingestRoutineBriefing` never moves a slot to an earlier `date_key`, and
+  ignores a payload identical to the stored card. A `date_key` that is not a
+  real date, or is later than today in UTC+14, now fails validation, so one
+  mistyped year cannot pin a slot for good. The briefing webhook's response
+  now says whether it wrote (`written`).
+- The GitHub `briefing-slack-sync` relay (workflow, script and its test) is
+  retired. It replayed every payload in the window, so each run left each slot
+  on its oldest post, and the Today page already reads the channel itself.
+- An open Today tab now watches for new cards: it polls
+  `GET /api/briefings/current` for a fingerprint every 15 seconds while
+  visible, and on returning to the tab, and refreshes once per new
+  fingerprint. Failed checks back off to five minutes; a 401 stops them.
+- Settings' "Routine briefing card" check now follows `ASK_RELAY_SLACK_TOKEN`,
+  the path cards actually arrive by, instead of `BRIEFING_BRIDGE_TOKEN`.
+- The daily cron's briefing pull is documented as a best-effort backstop, which
+  is all a twice-daily job can be.
+
+**Deploy:** delete the `BRIEFING_SLACK_SYNC` repository variable. A push to
+`relay-kick` from a commit that still has the old workflow would otherwise
+start it, and it fails on the deleted script.
+
 ## [0.3.2] — 2026-09-04
 
 ### AI prompts
