@@ -39,6 +39,12 @@ action.
 - Anything from mailboxes or calendars you have not connected.
 - Provider tokens in plaintext.
 - Raw client IP addresses. Audit records store a one-way hash.
+- Updates tab content (dealflow reports, update digests). It is read live from
+  Slack, held only in the server process's memory (five minutes; the last good
+  copy up to a day, shown only while Slack is unreachable or rate-limiting, and
+  dropped at once if the app loses access to the channel), and never written
+  to the database, disk, logs or the browser. The tab reads nothing while
+  sign-in is open to every Google account.
 
 ---
 
@@ -52,6 +58,9 @@ server. Your API key never reaches the browser.
 Public web research is off unless configured. When it is on, only the search
 query is sent to the research provider, never your private content, and results
 are labelled as public-web with their publication and retrieval dates.
+
+Updates content is read from Slack and shown to signed-in users; it is never
+sent to the AI provider or anywhere else.
 
 There are no analytics, no third-party trackers and no telemetry.
 

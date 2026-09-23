@@ -11,6 +11,7 @@ import {
   CheckSquare,
   Inbox,
   MessageSquare,
+  Newspaper,
   Settings,
   Sun,
   Target,
@@ -38,6 +39,7 @@ export const NAV_ITEMS = [
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/deals', label: 'Deals', icon: Target },
   { href: '/ask', label: 'Ask', icon: MessageSquare },
+  { href: '/updates', label: 'Updates', icon: Newspaper },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { href: '/meetings', label: 'Meetings', icon: CalendarDays },
   { href: '/network', label: 'Network', icon: Users },
@@ -48,13 +50,13 @@ export const NAV_ITEMS = [
 ] as const;
 
 const GROUPS: { label: string; hrefs: string[] }[] = [
-  { label: 'Working', hrefs: ['/today', '/inbox', '/deals', '/ask'] },
+  { label: 'Working', hrefs: ['/today', '/inbox', '/deals', '/ask', '/updates'] },
   { label: 'Records', hrefs: ['/portfolio', '/meetings', '/network', '/knowledge', '/tasks'] },
   { label: 'System', hrefs: ['/settings', '/diagnostics'] },
 ];
 
-/** Mobile: five primary destinations in a bottom bar, thumb-reachable. */
-const MOBILE_HREFS = ['/today', '/inbox', '/deals', '/ask', '/portfolio'];
+/** Mobile: six primary destinations in a bottom bar, thumb-reachable. */
+const MOBILE_HREFS = ['/today', '/inbox', '/deals', '/ask', '/updates', '/portfolio'];
 const MOBILE_ITEMS = NAV_ITEMS.filter((i) => MOBILE_HREFS.includes(i.href));
 
 function isActive(pathname: string, href: string): boolean {
@@ -129,7 +131,7 @@ export function MobileNav() {
       aria-label="Main"
       className="fixed inset-x-0 bottom-0 z-[var(--z-nav)] border-t border-[var(--border)] bg-[var(--bg-raised)] pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
-      <ul className="grid grid-cols-5">
+      <ul className="grid grid-cols-6">
         {MOBILE_ITEMS.map((item) => {
           const active = isActive(pathname, item.href);
           const Icon = item.icon;

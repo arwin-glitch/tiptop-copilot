@@ -44,6 +44,7 @@ const SERVER_ONLY_IMPORTS = [
   '@/lib/google/oauth',
   '@/lib/db/supabase-store',
   '@/lib/email/gmail',
+  '@/lib/services/updates',
 ];
 
 describe('no secret is reachable from a client component', () => {

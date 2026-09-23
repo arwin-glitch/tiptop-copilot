@@ -33,7 +33,8 @@ import {
 import { deleteDocument, importNetworkCsv, uploadDocument } from '@/lib/services/knowledge';
 import { createTask, snoozeTask, updateTaskStatus } from '@/lib/services/tasks';
 import { updateThesis, type ThesisPatch } from '@/lib/services/thesis';
-import { getStore } from '@/lib/runtime';
+import { getStore, getUpdatesFeed } from '@/lib/runtime';
+import { readUpdates } from '@/lib/services/updates';
 import { isSupportedMimeType } from '@/lib/documents/extract';
 import { rateLimit } from '@/lib/security/limits';
 import type {
@@ -85,6 +86,35 @@ export async function refreshOutlookAction(): Promise<ActionResult<{ outlook: st
   if (!result.ok) return fail(result.error);
   revalidatePath('/today');
   return succeed({ outlook: result.value.outlook });
+}
+
+/* ---------------------------------------------------------------- updates */
+
+/**
+ * Re-read the Updates tab's Slack channels. Rate-limited per user on top of
+ * the reader's own per-channel floor and Slack's Retry-After, so a held-down
+ * button cannot turn into a burst against Slack.
+ */
+export async function refreshUpdatesAction(): Promise<
+  ActionResult<{ throttled: boolean; problems: number }>
+> {
+  const auth = await requireAuth();
+  const limited = rateLimit(`updates-refresh:${auth.userId}`, 6, 60_000);
+  if (!limited.ok) return fail(limited.error);
+
+  const feed = getUpdatesFeed();
+  if (!feed) {
+    return fail({
+      code: 'not_configured',
+      message: 'The Updates tab stays closed until sign-in is limited to TipTop accounts.',
+    });
+  }
+  const snapshot = await readUpdates(feed, { force: true });
+  revalidatePath('/updates');
+  return succeed({
+    throttled: snapshot.throttled,
+    problems: snapshot.sources.filter((s) => s.access.state !== 'ok').length,
+  });
 }
 
 /* ------------------------------------------------------------------ tasks */

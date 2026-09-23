@@ -21,6 +21,7 @@ const PAGES = [
   '/inbox',
   '/deals',
   '/ask',
+  '/updates',
   '/portfolio',
   '/network',
   '/meetings',
@@ -55,7 +56,7 @@ test.describe('mobile layout', () => {
     const nav = page.getByRole('navigation', { name: 'Main' }).last();
     await expect(nav).toBeVisible();
 
-    for (const label of ['Today', 'Inbox', 'Deals', 'Ask', 'Portfolio']) {
+    for (const label of ['Today', 'Inbox', 'Deals', 'Ask', 'Updates', 'Portfolio']) {
       const link = nav.getByRole('link', { name: label });
       await expect(link).toBeVisible();
       const box = await link.boundingBox();

@@ -14,6 +14,7 @@ import { DemoStore } from '@/lib/db/demo-store';
 import type { DataStore } from '@/lib/db/store';
 import { SupabaseStore } from '@/lib/db/supabase-store';
 import { buildDemoDb } from '@/lib/demo/fixtures';
+import { createDemoSlackFetch, DEMO_UPDATE_SOURCES } from '@/lib/demo/updates-fixtures';
 import { GmailProvider } from '@/lib/email/gmail';
 import { MockEmailProvider } from '@/lib/email/mock';
 import type { EmailProvider } from '@/lib/email/provider';
@@ -28,7 +29,9 @@ import {
   SupabaseStorageProvider,
   type StorageProvider,
 } from '@/lib/storage/provider';
+import type { UpdatesFeed } from '@/lib/services/updates';
 import type { Integration } from '@/lib/types/domain';
+import { UPDATE_SOURCES } from '@/lib/updates/sources';
 
 /**
  * The single place where "which implementation" is decided.
@@ -139,6 +142,31 @@ export function getCalendarProvider(integration: Integration | null): CalendarPr
   if (!integration || integration.status === 'disconnected') return null;
   if (!integration.kinds.includes('calendar')) return null;
   return new GoogleCalendarProvider(getStore(), integration);
+}
+
+/**
+ * Where the Updates tab reads from: the live Slack channels with the relay
+ * bot token, or the invented demo workspace — which never touches the network.
+ *
+ * Null while sign-in is unrestricted: every new account gets its own
+ * organisation, so the sign-in allowlist is the only thing between those
+ * private channels and any Google account.
+ */
+export function getUpdatesFeed(now: Date = new Date()): UpdatesFeed | null {
+  const e = env();
+  if (e.demoMode) {
+    return {
+      sources: DEMO_UPDATE_SOURCES,
+      token: 'demo-token',
+      fetchImpl: createDemoSlackFetch(now),
+    };
+  }
+  if (e.authAllowedDomains.length === 0) return null;
+  return {
+    sources: UPDATE_SOURCES,
+    token: e.askRelaySlackToken,
+    fetchImpl: (input, init) => fetch(input, init),
+  };
 }
 
 /** Test hook: rebuild every singleton after changing process.env. */

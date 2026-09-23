@@ -1,5 +1,3 @@
-'use client';
-
 import * as React from 'react';
 import { cn } from '@/lib/util/cn';
 
@@ -71,6 +69,20 @@ export function FilterChipRow({
 }
 
 /**
+ * The chip look, for filters that are links rather than toggles (a server
+ * page filtering by URL). A plain function in a module without 'use client',
+ * so a server component can call it.
+ */
+export function filterChipClassName(pressed: boolean): string {
+  return cn(
+    'text-note shrink-0 rounded-full border px-3 py-1 whitespace-nowrap transition-colors duration-[var(--motion-instant)]',
+    pressed
+      ? 'border-[var(--accent)] bg-[var(--accent-soft)] font-medium text-[var(--fg)]'
+      : 'border-[var(--border)] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]',
+  );
+}
+
+/**
  * A toggleable filter.
  *
  * `aria-pressed` rather than a checkbox: these are toggle buttons that re-run a
@@ -96,13 +108,7 @@ export function FilterChip({
       type="button"
       onClick={onToggle}
       aria-pressed={pressed}
-      className={cn(
-        'text-note shrink-0 rounded-full border px-3 py-1 whitespace-nowrap transition-colors duration-[var(--motion-instant)]',
-        pressed
-          ? 'border-[var(--accent)] bg-[var(--accent-soft)] font-medium text-[var(--fg)]'
-          : 'border-[var(--border)] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]',
-        className,
-      )}
+      className={cn(filterChipClassName(pressed), className)}
     >
       {label}
       {count !== undefined ? (

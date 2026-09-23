@@ -156,6 +156,9 @@ organization" is only true once this is set.
 
 `/diagnostics` reports the unrestricted state as missing rather than ready.
 
+The Updates tab does not rely on organization scoping — its Slack channels
+belong to no organization — so it stays closed while this is empty.
+
 ### `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET`
 Optional. Without them, Inbox and Calendar run on fixtures and Settings says the
 integration is not configured.
@@ -308,11 +311,16 @@ runs on its own hourly timer and the GitHub relay carries data both ways.
   address and bearer token, copied from that routine's settings on claude.ai
   (the URL ends in `/fire`). `ask()` calls it the moment a question is saved,
   so the routine starts immediately. The token can only fire that one routine.
-- `ASK_RELAY_SLACK_TOKEN` — a Slack bot token with `channels:history` only. The
-  routine posts its `ASK_ANSWER_V1` message to the relay channel (default
-  `C0C3JPW6PTJ`, override with `ASK_RELAY_CHANNEL_ID`); the Ask page reads that
-  channel while an answer is pending and completes the message itself.
-  Read-only: the app never posts to Slack. The Today page reads the same
+- `ASK_RELAY_SLACK_TOKEN` — a Slack bot token. Read-only. Needs
+  `channels:history` for the relay channel and, for the Updates tab,
+  `groups:history` plus the bot invited to #pef-dealflow, #openvc-dealflow, the
+  referral dealflow channel (`C0BV1HS0CEL`) and #nick-update-digest. The Updates
+  tab reads those four private channels live and shows per-channel setup steps
+  until access works. It stays closed, with no Slack call, while
+  `AUTH_ALLOWED_EMAIL_DOMAINS` is empty. The routine posts its `ASK_ANSWER_V1`
+  message to the relay channel (default `C0C3JPW6PTJ`, override with
+  `ASK_RELAY_CHANNEL_ID`); the Ask page reads that channel while an answer is
+  pending and completes the message itself. The app never posts to Slack. The Today page reads the same
   channel for the Daily Overview/Recap `BRIEFING_PAYLOAD_V1` messages, so
   without this token routine briefing cards never reach Today.
 

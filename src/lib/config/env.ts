@@ -155,10 +155,9 @@ export interface AppEnv {
   askRoutineToken: string | undefined;
 
   /**
-   * Read-only Slack access so the app can pick up the routine's answer itself
-   * (the routine cannot reach this app; it posts `ASK_ANSWER_V1` messages to
-   * the relay channel instead). Needs only `channels:history`. The Today
-   * page reads the routine briefing cards from the same channel.
+   * Read-only Slack bot token. Needs `channels:history` for the relay channel
+   * (Ask answers, Today briefing cards) and `groups:history` plus membership
+   * for the Updates tab's private channels. The app never posts.
    */
   askRelaySlackToken: string | undefined;
   askRelayChannelId: string;
@@ -594,6 +593,26 @@ export function capabilityReport(): CapabilityCheck[] {
       ? 'Set. A new question fires the answering routine immediately, and the app reads the answer back from the Slack relay channel itself.'
       : 'Not set. Questions wait for the answering routine on its hourly timer (via the GitHub relay) instead of starting instantly.',
     variables: ['ASK_ROUTINE_FIRE_URL', 'ASK_ROUTINE_TOKEN', 'ASK_RELAY_SLACK_TOKEN'],
+    required: false,
+  });
+
+  const updatesOpen = e.authAllowedDomains.length > 0;
+  checks.push({
+    key: 'updates-tab',
+    label: 'Updates tab (dealflow & digests)',
+    status: e.demoMode
+      ? 'demo'
+      : has(e.askRelaySlackToken) && updatesOpen
+        ? 'ready'
+        : 'optional-missing',
+    detail: e.demoMode
+      ? 'Demo mode: the Updates tab shows invented reports from a fake Slack.'
+      : !updatesOpen
+        ? 'Closed. The Updates tab reads confidential channels, so it shows nothing until AUTH_ALLOWED_EMAIL_DOMAINS limits who can sign in.'
+        : has(e.askRelaySlackToken)
+          ? 'Set. The Updates tab reads the dealflow and digest channels live. Each private channel also needs the groups:history scope and the bot invited; /updates shows the status per channel.'
+          : 'Not set. The Updates tab shows setup steps instead of reports; nothing else is affected.',
+    variables: ['ASK_RELAY_SLACK_TOKEN', 'AUTH_ALLOWED_EMAIL_DOMAINS'],
     required: false,
   });
 

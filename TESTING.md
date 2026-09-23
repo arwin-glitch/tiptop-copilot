@@ -59,6 +59,11 @@ Pure logic, no store, no harness.
 | `env-boundary.test.ts` | No secret reachable from a client component; diagnostics never echo a value |
 | `time.test.ts` | Timezone correctness including both DST changeover days |
 | `text.test.ts` | Normalisation, HTML to text, domain handling |
+| `updates-mrkdwn.test.ts` | Slack mrkdwn: the link whitelist, entities, emphasis, emoji, blocks, footers |
+| `updates-parse.test.ts` | The classifier and the three dealflow report formats, deal counts and people's replies; digest items, run notes, flags, open asks, housekeeping and notes; the roster |
+| `updates-render.test.ts` | Rendered Updates markup: no script, no handler, no `javascript:`, `rel`/`target` on every link; what each card keeps in view |
+| `updates-service.test.ts` | The Slack reader: access mapping, pagination, replies, cache, throttle, Retry-After, dropping a channel whose access was withdrawn, a post the parsers cannot read, and that demo mode makes no network calls |
+| `updates-refresh-action.test.ts` | The Refresh action: sign-in first, six a minute per user, nothing read while sign-in is unrestricted |
 
 `env-boundary.test.ts` is worth singling out: it walks every file in `src/`,
 finds the ones marked `'use client'`, and asserts none imports a server-only
@@ -123,6 +128,14 @@ fixed and every target is at least 44px, one `h1` and one `main` per page, the
 skip link is first in tab order, `aria-current` marks the current page, every
 control has an accessible name, every form control is labelled, and the theme
 toggle is an operable radio group.
+
+**`updates.spec.ts`** covers the Updates tab over the invented demo workspace,
+with one shared sign-in: no Ledger line, footer or old roster anywhere in the
+page, collapsed content included; report sections, digest items and notes stay
+collapsed until opened, while a digest's open question stays in view; a channel
+the bot cannot read shows the exact invite instruction and a link to the
+channel; a link with a `javascript:` scheme is inert text; and Refresh keeps the
+page.
 
 ### Determinism
 
