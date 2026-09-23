@@ -162,6 +162,17 @@ export interface AppEnv {
    */
   askRelaySlackToken: string | undefined;
   askRelayChannelId: string;
+
+  /**
+   * The private Slack channel the deal-sorter routine posts deal updates to
+   * (`DEAL_UPSERT_V1` / `DEAL_SORTER_RUN_V1`), read with
+   * `askRelaySlackToken` — which then also needs `groups:history`. Not a
+   * secret, so the channel ID is the code default. There is deliberately no
+   * fallback to the public relay channel.
+   */
+  dealRelayChannelId: string;
+  /** When non-empty, deal relay messages from any other Slack user ID are ignored. */
+  dealRelayPosterIds: readonly string[];
 }
 
 let cached: AppEnv | null = null;
@@ -223,6 +234,11 @@ export function env(): AppEnv {
     askRoutineToken: str('ASK_ROUTINE_TOKEN'),
     askRelaySlackToken: str('ASK_RELAY_SLACK_TOKEN'),
     askRelayChannelId: str('ASK_RELAY_CHANNEL_ID') ?? 'C0C3JPW6PTJ',
+    dealRelayChannelId: str('DEAL_RELAY_CHANNEL_ID') ?? 'C0C40TVD4DP',
+    dealRelayPosterIds: (str('DEAL_RELAY_POSTER_IDS') ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean),
   };
   return cached;
 }
@@ -541,6 +557,17 @@ export function capabilityReport(): CapabilityCheck[] {
       ? 'An add-only token is set. The watcher can add suggested follow-up tasks.'
       : 'Not set. New tasks must be added by hand; the Tasks page is unaffected.',
     variables: ['TASK_BRIDGE_TOKEN'],
+    required: false,
+  });
+
+  checks.push({
+    key: 'deal-relay',
+    label: 'Automatic deal pipeline',
+    status: has(e.askRelaySlackToken) ? 'ready' : 'optional-missing',
+    detail: has(e.askRelaySlackToken)
+      ? `Set. The Deals page reads the deal-sorter's posts from the private #deal-relay channel (${e.dealRelayChannelId})${e.dealRelayPosterIds.length > 0 ? ', from the listed posters only' : ''}. The Slack app must be a member and have groups:history.`
+      : 'Not set. Deals from the deal-sorter routine never arrive; Portfolio companies still show under Invested.',
+    variables: ['ASK_RELAY_SLACK_TOKEN', 'DEAL_RELAY_CHANNEL_ID', 'DEAL_RELAY_POSTER_IDS'],
     required: false,
   });
 

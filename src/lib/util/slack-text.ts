@@ -6,10 +6,14 @@
  *
  * Links are unwrapped first: a `<` that is still raw at that point is Slack's
  * own link markup, whereas a literal `<` in the sender's text arrives as `&lt;`.
+ * An auto-linked email address (`<mailto:a@b.co|a@b.co>`) unwraps to the bare
+ * address: kept with its scheme it fails every email validator downstream, and
+ * one failing field drops the whole payload.
  */
 export function unwrapSlackText(text: string): string {
   return text
-    .replace(/<((?:https?|mailto):[^|>\s]+)(?:\|[^>]*)?>/g, '$1')
+    .replace(/<mailto:([^|>\s]+)(?:\|[^>]*)?>/g, '$1')
+    .replace(/<(https?:[^|>\s]+)(?:\|[^>]*)?>/g, '$1')
     .replaceAll('&lt;', '<')
     .replaceAll('&gt;', '>')
     .replaceAll('&amp;', '&');

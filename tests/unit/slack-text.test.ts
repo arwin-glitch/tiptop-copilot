@@ -15,6 +15,28 @@ describe('unwrapSlackText', () => {
   it('does not treat an escaped less-than as a link', () => {
     expect(unwrapSlackText('&lt;https://x.dev&gt;')).toBe('<https://x.dev>');
   });
+
+  it('unwraps an auto-linked email address to the bare address, without the scheme', () => {
+    expect(unwrapSlackText('<mailto:jane@zz-example.dev|jane@zz-example.dev>')).toBe(
+      'jane@zz-example.dev',
+    );
+    expect(unwrapSlackText('write to <mailto:jane@zz-example.dev> today')).toBe(
+      'write to jane@zz-example.dev today',
+    );
+  });
+
+  it('keeps a relay payload with an auto-linked founder email valid', async () => {
+    const { parsePortfolioRelayMessage } = await import('@/lib/services/portfolio-ingest');
+    const text = [
+      'PORTFOLIO_ADD_V1',
+      TICK +
+        '{"source":"t","companies":[{"name":"ZZ Mailto Co","founder":"Jane","founder_email":"<mailto:jane@zz-example.dev|jane@zz-example.dev>"}]}' +
+        TICK,
+    ].join('\n');
+    expect(parsePortfolioRelayMessage(text)?.companies[0]?.founder_email).toBe(
+      'jane@zz-example.dev',
+    );
+  });
 });
 
 describe('a briefing relay message as Slack actually returns it', () => {
