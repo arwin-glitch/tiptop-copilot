@@ -118,9 +118,18 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
     readSidecar(store, auth.organizationId, deal.id),
     getPrimaryIntegration(store, auth.organizationId),
   ]);
-  const routineOwned = routine
-    ? await routineOwnsDealStage(store, auth.organizationId, deal, routine.state)
-    : false;
+  const [routineOwned, humanRestores] = await Promise.all([
+    routine
+      ? routineOwnsDealStage(store, auth.organizationId, deal, routine.state)
+      : Promise.resolve(false),
+    // A person who restored the deal has already answered the retraction.
+    routine?.state.retract
+      ? store.count('audit_events', auth.organizationId, {
+          eq: { entity_id: deal.id, action: 'deal.restored' },
+          notNull: ['user_id'],
+        })
+      : Promise.resolve(0),
+  ]);
   const siteHref = websiteHref(deal.website ?? deal.domain);
 
   // Sources that live outside the app: Gmail threads the deal-sorter found,
@@ -204,6 +213,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
           owned={routineOwned}
           timezone={auth.profile.timezone}
           archived={deal.is_archived}
+          retractAnswered={humanRestores > 0}
         />
       ) : null}
 

@@ -24,9 +24,23 @@ export function gmailThreadUrl(
     : `https://mail.google.com/mail/u/0/#all/${threadId}`;
 }
 
-/** A company website as `https://<domain>`, or null if it is not a domain. */
-export function websiteHref(website: string | null | undefined): string | null {
+/** A DNS hostname: dot-separated LDH labels and an alphabetic top-level label. */
+const HOSTNAME = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])$/;
+
+/**
+ * The normalized domain of a website, only if it is a plain hostname.
+ * `normalizeDomain` keeps whatever precedes the host, so `jane@zz.example` or
+ * `good.example@evil.example` would otherwise pass as a "domain" — and the
+ * second, used as an href, sends the reader to `evil.example`.
+ */
+export function strictDomain(website: string | null | undefined): string | null {
   const domain = normalizeDomain(website);
+  return domain && domain.length <= 253 && HOSTNAME.test(domain) ? domain : null;
+}
+
+/** A company website as `https://<domain>`, or null if it is not a plain hostname. */
+export function websiteHref(website: string | null | undefined): string | null {
+  const domain = strictDomain(website);
   return domain ? `https://${domain}` : null;
 }
 

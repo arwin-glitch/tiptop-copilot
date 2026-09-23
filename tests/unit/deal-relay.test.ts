@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clampDates,
   collectRelayMessages,
+  MAX_MESSAGE_CHARS,
   parseDealRelayMessage,
   RELAY_DEAL_SCHEMA,
+  type RelayDeal,
 } from '@/lib/services/deal-relay';
 
 /**
@@ -70,12 +73,74 @@ describe('parseDealRelayMessage', () => {
     ).toBe('invalid');
   });
 
+  it('reads auto-linked names and websites back as the text the routine wrote', () => {
+    const parsed = parseDealRelayMessage(
+      upsert([
+        deal('zz-zeta', {
+          name: '<http://Zeta.example|Zeta.example>',
+          summary: 'An invented tool, see <http://zeta.example|zeta.example>',
+        }),
+      ]),
+    );
+    if (parsed?.kind !== 'upsert') throw new Error('expected an upsert');
+    expect(parsed.deals[0]?.name).toBe('Zeta.example');
+    expect(parsed.deals[0]?.summary).toBe('An invented tool, see zeta.example');
+  });
+
+  it('keeps a deal and drops only the field that is wrong', () => {
+    const parsed = parseDealRelayMessage(
+      upsert([
+        deal('zz-kept', {
+          stage: 'diligence',
+          evidence_date: '2026-09-05',
+          threads: [{ id: 'thread-f:17' }, { id: '19a8f3c2b7e4d1a0', subject: 'Intro' }],
+          founders: [{ name: 'Ana Zed', title: 'x'.repeat(101) }, { name: 'Bo Yin' }],
+        }),
+        deal('zz-no-date', { stage: 'diligence', evidence_date: '2026-02-30' }),
+        { ...deal('zz-bad'), name: 'x'.repeat(201) },
+      ]),
+    );
+    if (parsed?.kind !== 'upsert') throw new Error('expected an upsert');
+    expect(parsed.deals.map((d) => d.key)).toEqual(['zz-kept', 'zz-no-date']);
+    const kept = parsed.deals[0]!;
+    expect(kept.stage).toBe('diligence');
+    expect(kept.threads).toEqual([{ id: '19a8f3c2b7e4d1a0', subject: 'Intro' }]);
+    expect(kept.founders).toEqual([{ name: 'Bo Yin' }]);
+    // A stage never stands without a valid evidence date: both go.
+    expect(parsed.deals[1]).not.toHaveProperty('stage');
+    expect(parsed.deals[1]).not.toHaveProperty('evidence_date');
+    expect(parsed.rejects).toEqual([{ path: 'name', message: expect.any(String) }]);
+    expect(parsed.dropped.map((d) => d.path)).toEqual(
+      expect.arrayContaining(['threads.0.id', 'founders.0.title', 'evidence_date']),
+    );
+  });
+
+  it('refuses an oversize message, and never recurses into deep nesting', () => {
+    const long = upsert([deal('zz-long', { summary: 'x'.repeat(200) })]).padEnd(
+      MAX_MESSAGE_CHARS + 10,
+      ' ',
+    );
+    expect(parseDealRelayMessage(`${long}x`)).toEqual({
+      kind: 'invalid',
+      reason: 'message too long',
+    });
+    const deep = '['.repeat(3000) + ']'.repeat(3000);
+    const text = upsert([deal('zz-deep')]).replace(
+      '"source":"ZZ Angel Feed"',
+      `"founders":${deep}`,
+    );
+    const parsed = parseDealRelayMessage(text);
+    if (parsed?.kind !== 'upsert') throw new Error('expected an upsert');
+    expect(parsed.deals.map((d) => d.key)).toEqual(['zz-deep']);
+    expect(parsed.deals[0]?.founders ?? []).toEqual([]);
+  });
+
   it('accepts a website Slack has wrapped in link markup', () => {
     const parsed = parseDealRelayMessage(
       upsert([deal('zz-quill', { website: '<http://zzquill.example|zzquill.example>' })]),
     );
     if (parsed?.kind !== 'upsert') throw new Error('expected an upsert');
-    expect(parsed.deals[0]?.website).toBe('http://zzquill.example');
+    expect(parsed.deals[0]?.website).toBe('zzquill.example');
   });
 
   it('keeps the five good deals when the sixth is invalid, and records only path and message', () => {
@@ -181,6 +246,53 @@ describe('the per-deal schema', () => {
     expect(ok({ threads: [{ id: 'not-a-thread' }] })).toBe(false);
     expect(ok({ website: 'zzquill.example' })).toBe(true);
     expect(ok({ website: 'not a website' })).toBe(false);
+    // An address, or a real host hidden after an @, is not a website.
+    expect(ok({ website: 'jane@zz-a.example' })).toBe(false);
+    expect(ok({ website: 'good.example@evil.example' })).toBe(false);
+  });
+
+  it('replaces email addresses in free text, and amounts where TipTop acts', () => {
+    const parsed = RELAY_DEAL_SCHEMA.parse({
+      key: 'zz-quill',
+      name: 'ZZ Quill',
+      stage: 'ic_review',
+      evidence_date: '2026-09-03',
+      evidence: 'Sep 3: partner approved the $150K wire; cc ops@zz-fund.example',
+      next_step: 'Confirm USD 25,000 allocation',
+      pass_reason: 'valuation of 40M USD too high',
+      summary: 'Invented CPQ tool; reach jane@zzquill.example',
+      raise: '$2M seed',
+    });
+    expect(parsed.evidence).toBe('Sep 3: partner approved the [amount] wire; cc [email removed]');
+    expect(parsed.next_step).toBe('Confirm [amount] allocation');
+    expect(parsed.pass_reason).toBe('valuation of [amount] too high');
+    expect(parsed.summary).toBe('Invented CPQ tool; reach [email removed]');
+    // The round size the founder states is the one amount a deal carries.
+    expect(parsed.raise).toBe('$2M seed');
+  });
+});
+
+describe('dates', () => {
+  it('clamps every posted date to the day of the post', () => {
+    const clamped = clampDates(
+      {
+        key: 'zz-quill',
+        name: 'ZZ Quill',
+        stage: 'founder_meeting',
+        evidence_date: '2026-10-02',
+        first_seen: '2026-09-01',
+        last_activity: '2026-10-02',
+        threads: [{ id: '19a8f3c2b7e4d1a0', date: '2026-10-01' }, { id: '19a8f3c2b7e4d1a1' }],
+      } as RelayDeal,
+      '2026-09-23',
+    );
+    expect(clamped.evidence_date).toBe('2026-09-23');
+    expect(clamped.first_seen).toBe('2026-09-01');
+    expect(clamped.last_activity).toBe('2026-09-23');
+    expect(clamped.threads).toEqual([
+      { id: '19a8f3c2b7e4d1a0', date: '2026-09-23' },
+      { id: '19a8f3c2b7e4d1a1' },
+    ]);
   });
 });
 
@@ -223,5 +335,27 @@ describe('collectRelayMessages', () => {
     expect(collected.lastRun?.ts).toBe(new Date(1790000040 * 1000).toISOString());
     expect(collected.rejected.total).toBe(1);
     expect(collected.rejected.byIssue).toEqual({ 'message: no backticked body': 1 });
+  });
+
+  it('clamps future dates to the post day, and counts dropped fields apart from rejects', () => {
+    const ts = String(Date.parse('2026-09-23T09:55:00Z') / 1000);
+    const collected = collectRelayMessages([
+      msg(
+        ts,
+        upsert([
+          deal('zz-soon', {
+            stage: 'founder_meeting',
+            evidence_date: '2026-10-02',
+            threads: [{ id: 'nope' }],
+          }),
+        ]),
+      ),
+    ]);
+    expect(collected.observations[0]?.deal.evidence_date).toBe('2026-09-23');
+    expect(collected.rejected.total).toBe(0);
+    expect(collected.rejected.dropped).toBe(1);
+    expect(Object.keys(collected.rejected.byIssue)).toEqual([
+      'dropped threads.0.id: must be a Gmail thread id',
+    ]);
   });
 });

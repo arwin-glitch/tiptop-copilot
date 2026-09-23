@@ -14,7 +14,9 @@ export type SorterState =
   | 'missing_scope'
   | 'bad_token'
   | 'rate_limited'
-  | 'error';
+  | 'error'
+  | 'save_failed'
+  | 'other_workspace';
 
 export interface SorterStatusInput {
   isDemo: boolean;
@@ -26,13 +28,24 @@ export interface SorterStatusInput {
   dealCount: number;
   /** Deals the deal-sorter has touched. */
   routineDealCount: number;
-  counts: {
-    created: number;
-    updated: number;
-    moved: number;
-    skipped_portfolio: number;
-    mirrored: number;
+  /**
+   * The newest pull that changed anything, and when. Every pull re-reads the
+   * whole window, so the latest pull alone is usually all "unchanged".
+   */
+  lastChange: {
+    at: string;
+    counts: {
+      created: number;
+      updated: number;
+      moved: number;
+      skipped_portfolio: number;
+      skipped_archived: number;
+      retract_flagged: number;
+      failed: number;
+      mirrored: number;
+    };
   } | null;
+  /** Deals in the current window dropped whole as unreadable. */
   rejected: number;
   now: Date;
   timezone: string;
@@ -42,7 +55,7 @@ export interface SorterStatusView {
   tone: 'ok' | 'info' | 'warn';
   /** The one-line message. */
   message: string;
-  /** A secondary line: the last pull's counts, when there was one. */
+  /** A secondary line: what the newest change did, when there was one. */
   detail: string | null;
   /** Whether the reader should be pointed at the configuration report. */
   configLink: boolean;
@@ -73,16 +86,22 @@ function slotsInZone(now: Date, timezone: string): string {
 
 export function describeDealSorterStatus(input: SorterStatusInput): SorterStatusView {
   const { state, lastRun, now } = input;
+  const change = input.lastChange;
+  const optional = (count: number, label: string) => (count > 0 ? [`${count} ${label}`] : []);
   const detail =
-    state === 'ok' && input.counts
-      ? [
-          `${input.counts.created} created`,
-          `${input.counts.updated} updated`,
-          `${input.counts.moved} moved`,
-          `${input.counts.skipped_portfolio} skipped (portfolio)`,
-          ...(input.counts.mirrored > 0 ? [`${input.counts.mirrored} added from Portfolio`] : []),
-          `${input.rejected} rejected`,
-        ].join(' · ')
+    state === 'ok' && change
+      ? `Last change ${relativeTime(change.at, now)}: ` +
+        [
+          `${change.counts.created} created`,
+          `${change.counts.updated} updated`,
+          `${change.counts.moved} moved`,
+          `${change.counts.skipped_portfolio} skipped (portfolio)`,
+          ...optional(change.counts.skipped_archived, 'skipped (archived)'),
+          ...optional(change.counts.retract_flagged, 'flagged as not a deal'),
+          ...optional(change.counts.mirrored, 'added from Portfolio'),
+          ...optional(change.counts.failed, 'failed'),
+        ].join(' · ') +
+        ` · ${input.rejected} rejected`
       : null;
 
   if (input.isDemo) {
@@ -141,6 +160,22 @@ export function describeDealSorterStatus(input: SorterStatusInput): SorterStatus
           "Couldn't read #deal-relay just now, so this is what was stored. It retries in a few seconds.",
         detail: null,
         configLink: false,
+      };
+    case 'save_failed':
+      return {
+        tone: 'warn',
+        message:
+          "Read #deal-relay but couldn't save what it said, so this is what was stored. It retries in a few seconds.",
+        detail: null,
+        configLink: false,
+      };
+    case 'other_workspace':
+      return {
+        tone: 'info',
+        message:
+          "#deal-relay feeds this deployment's only workspace, and there is more than one, so it isn't read here. Portfolio companies still show under Invested.",
+        detail: null,
+        configLink: true,
       };
     case 'ok':
       break;

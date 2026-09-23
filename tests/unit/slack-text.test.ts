@@ -12,6 +12,14 @@ describe('unwrapSlackText', () => {
     expect(unwrapSlackText('Q&amp;A &lt;3 &gt;')).toBe('Q&A <3 >');
   });
 
+  it('can unwrap a labelled link to its label, the text the poster typed', () => {
+    expect(unwrapSlackText('<http://zeta.example|zeta.example>', { preferLabel: true })).toBe(
+      'zeta.example',
+    );
+    expect(unwrapSlackText('<https://x.dev/p>', { preferLabel: true })).toBe('https://x.dev/p');
+    expect(unwrapSlackText('<http://zeta.example|zeta.example>')).toBe('http://zeta.example');
+  });
+
   it('does not treat an escaped less-than as a link', () => {
     expect(unwrapSlackText('&lt;https://x.dev&gt;')).toBe('<https://x.dev>');
   });

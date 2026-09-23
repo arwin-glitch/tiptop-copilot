@@ -107,6 +107,19 @@ const minDate = (a?: string, b?: string) => (!a ? b : !b ? a : a <= b ? a : b);
 const maxDate = (a?: string, b?: string) => (!a ? b : !b ? a : a >= b ? a : b);
 
 /**
+ * How two stage views rank. `new` is the routine saying it saw no stage
+ * signal, so it is not evidence: any real stage outranks it whatever its
+ * date, and it only stands when nothing else was ever said. Between two real
+ * stages (or two `new`s) the later evidence date ranks higher; 0 is a tie.
+ */
+export function compareViews(a: RoutineView, b: RoutineView): number {
+  const aNew = a.stage === 'new';
+  const bNew = b.stage === 'new';
+  if (aNew !== bNew) return aNew ? -1 : 1;
+  return a.evidence_date < b.evidence_date ? -1 : a.evidence_date > b.evidence_date ? 1 : 0;
+}
+
+/**
  * Fold every observation of one company into a single entry.
  *
  * - Scalars: the later non-empty value wins.
@@ -114,8 +127,10 @@ const maxDate = (a?: string, b?: string) => (!a ? b : !b ? a : a >= b ? a : b);
  * - `aka`, `founders` (by lowercase name) and `threads` (by id) are unioned.
  * - The stage view is the candidate with the latest `evidence_date`; a tie
  *   goes to the later message. Message order alone never decides, so a phase
- *   that saw only older evidence cannot regress a deal.
- * - `next_step` comes from the newest message carrying a stage or a next step.
+ *   that saw only older evidence cannot regress a deal. A `new` candidate is
+ *   "no signal" and never displaces a real stage (see `compareViews`).
+ * - `next_step` comes from the newest message carrying a real stage or a
+ *   next step.
  * - `retract` counts only when it is the newest message about the company.
  */
 export function foldObservations(observations: readonly RelayObservation[]): FoldedDeal {
@@ -158,17 +173,18 @@ export function foldObservations(observations: readonly RelayObservation[]): Fol
     unionBy(out.threads, deal.threads ?? [], (t) => t.id.toLowerCase(), THREAD_CAP);
 
     if (deal.stage !== undefined && deal.evidence_date !== undefined) {
-      if (!out.view || deal.evidence_date >= out.view.evidence_date) {
-        out.view = compactView({
-          stage: deal.stage,
-          evidence: deal.evidence,
-          evidence_date: deal.evidence_date,
-          evidence_kind: deal.evidence_kind,
-          pass_reason: deal.pass_reason,
-        });
-      }
+      const candidate = compactView({
+        stage: deal.stage,
+        evidence: deal.evidence,
+        evidence_date: deal.evidence_date,
+        evidence_kind: deal.evidence_kind,
+        pass_reason: deal.pass_reason,
+      });
+      if (!out.view || compareViews(candidate, out.view) >= 0) out.view = candidate;
     }
-    if (deal.stage !== undefined || deal.next_step !== undefined) {
+    // A `new` post is "no signal": it neither sets nor clears the next step
+    // unless it names one.
+    if ((deal.stage !== undefined && deal.stage !== 'new') || deal.next_step !== undefined) {
       out.next_step = deal.next_step;
       out.next_step_decided = true;
     }
@@ -186,17 +202,41 @@ function compactView(view: RoutineView): RoutineView {
   return out;
 }
 
-/** Observations grouped by the routine's key, oldest first within each. */
+/**
+ * Observations grouped by the routine's key, oldest first within each.
+ *
+ * The key is a slug of the name, so two different companies that share a
+ * name share a key. Within a key, observations carrying different website
+ * domains are split into separate groups (map key `<key>#<domain>`), exactly
+ * as the matcher refuses a match whose domains differ; an observation with no
+ * domain joins the key's first group.
+ */
 export function groupByKey(
   observations: readonly RelayObservation[],
 ): Map<string, RelayObservation[]> {
-  const groups = new Map<string, RelayObservation[]>();
+  const groups = new Map<string, { domain: string | null; list: RelayObservation[] }[]>();
   for (const o of [...observations].sort((a, b) => a.seq - b.seq)) {
-    const list = groups.get(o.deal.key);
-    if (list) list.push(o);
-    else groups.set(o.deal.key, [o]);
+    const domain = matchDomain(o.deal.website);
+    const subgroups = groups.get(o.deal.key);
+    if (!subgroups) {
+      groups.set(o.deal.key, [{ domain, list: [o] }]);
+      continue;
+    }
+    const home = domain
+      ? (subgroups.find((g) => g.domain === domain) ?? subgroups.find((g) => g.domain === null))
+      : subgroups[0];
+    if (home) {
+      if (domain && home.domain === null) home.domain = domain;
+      home.list.push(o);
+    } else {
+      subgroups.push({ domain, list: [o] });
+    }
   }
-  return groups;
+  const out = new Map<string, RelayObservation[]>();
+  for (const [key, subgroups] of groups) {
+    subgroups.forEach((g, i) => out.set(i === 0 ? key : `${key}#${g.domain}`, g.list));
+  }
+  return out;
 }
 
 /* --------------------------------------------------------------- sidecar */
@@ -315,7 +355,7 @@ export function mergeWithSidecar(entry: FoldedDeal, sidecar: RoutineSidecar | nu
   unionBy(merged.threads, sidecar.threads, (t) => t.id.toLowerCase(), THREAD_CAP);
   merged.first_seen = minDate(entry.first_seen, sidecar.first_seen ?? undefined);
   merged.last_activity = maxDate(entry.last_activity, sidecar.last_activity ?? undefined);
-  if (sidecar.view && (!entry.view || sidecar.view.evidence_date > entry.view.evidence_date)) {
+  if (sidecar.view && (!entry.view || compareViews(sidecar.view, entry.view) > 0)) {
     merged.view = sidecar.view;
   }
   merged.fit = entry.fit ?? sidecar.fit ?? undefined;
@@ -396,10 +436,10 @@ export function matchDomain(website: string | null | undefined): string | null {
 /**
  * Matches incoming relay entries against known deals, in a fixed order: the
  * routine's own key, then website domain, then normalized name, then aka
- * (either direction). A name or aka match whose non-null domain differs from
+ * (either direction). A match of any kind whose non-null domain differs from
  * the incoming one is not a match — two different companies can share a
- * short name. Archived rows are candidates too, so the caller can see the
- * match and leave it alone instead of creating a duplicate.
+ * short name, and so its key. Archived rows are candidates too, so the caller
+ * can see the match and leave it alone instead of creating a duplicate.
  */
 export class DealIndex {
   private readonly byKey = new Map<string, MatchCandidate[]>();
@@ -425,30 +465,38 @@ export class DealIndex {
 
   match(query: MatchQuery): { candidate: MatchCandidate; via: MatchVia } | null {
     const domain = matchDomain(query.website);
+    // Applies to key hits too: the key is a slug of the name, so it is no
+    // better evidence of identity than the name when the domains disagree.
     const compatible = (c: MatchCandidate) => !(domain && c.domain && c.domain !== domain);
-    const pick = (list: readonly MatchCandidate[] | undefined, check = false) => {
-      const usable = (list ?? []).filter((c) => !check || compatible(c));
-      return usable.find((c) => !c.archived) ?? usable[0] ?? null;
+    // A live match anywhere in the order beats an archived one earlier in it,
+    // so archiving a duplicate does not cut the original off from updates.
+    // With no live match, the first archived one is still reported, so the
+    // caller leaves it alone rather than creating a duplicate.
+    let archived: { candidate: MatchCandidate; via: MatchVia } | null = null;
+    const pick = (list: readonly MatchCandidate[] | undefined, via: MatchVia) => {
+      const usable = (list ?? []).filter(compatible);
+      const live = usable.find((c) => !c.archived);
+      if (live) return { candidate: live, via };
+      if (!archived && usable[0]) archived = { candidate: usable[0], via };
+      return null;
     };
 
     for (const key of query.keys) {
-      const hit = pick(this.byKey.get(key));
-      if (hit) return { candidate: hit, via: 'key' };
+      const hit = pick(this.byKey.get(key), 'key');
+      if (hit) return hit;
     }
     if (domain) {
-      const hit = pick(this.byDomain.get(domain));
-      if (hit) return { candidate: hit, via: 'domain' };
+      const hit = pick(this.byDomain.get(domain), 'domain');
+      if (hit) return hit;
     }
     const name = matchName(query.name);
-    const byName = pick(this.byName.get(name), true);
-    if (byName) return { candidate: byName, via: 'name' };
+    const byName = pick(this.byName.get(name), 'name');
+    if (byName) return byName;
     for (const aka of query.aka) {
-      const hit = pick(this.byName.get(matchName(aka)), true);
-      if (hit) return { candidate: hit, via: 'aka' };
+      const hit = pick(this.byName.get(matchName(aka)), 'aka');
+      if (hit) return hit;
     }
-    const reverse = pick(this.byAka.get(name), true);
-    if (reverse) return { candidate: reverse, via: 'aka' };
-    return null;
+    return pick(this.byAka.get(name), 'aka') ?? archived;
   }
 }
 

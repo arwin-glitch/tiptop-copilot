@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   canArchiveOnRetract,
+  compareViews,
   contentHash,
   DealIndex,
   foldObservations,
+  groupByKey,
   matchName,
   mergeWithSidecar,
   parseSidecar,
@@ -431,5 +433,133 @@ describe('retraction', () => {
     expect(canArchiveOnRetract({ ...base, decisions: 1 })).toBe(false);
     expect(canArchiveOnRetract({ ...base, tasks: 1 })).toBe(false);
     expect(canArchiveOnRetract({ ...base, humanRestores: 1 })).toBe(false);
+  });
+});
+
+describe('"new" is no signal', () => {
+  it('ranks any real stage above new, whatever the dates', () => {
+    const newer = { stage: 'new', evidence_date: '2026-09-07' };
+    const older = { stage: 'passed', evidence_date: '2026-09-04' };
+    expect(compareViews(older, newer)).toBeGreaterThan(0);
+    expect(compareViews(newer, older)).toBeLessThan(0);
+    expect(
+      compareViews(
+        { stage: 'diligence', evidence_date: '2026-09-05' },
+        { stage: 'reviewing', evidence_date: '2026-09-01' },
+      ),
+    ).toBeGreaterThan(0);
+  });
+
+  it('never lets a later-dated new post displace a real stage in the fold', () => {
+    const folded = foldObservations([
+      obs({ stage: 'passed', evidence_date: '2026-09-04', pass_reason: 'too early' }),
+      obs({ stage: 'new', evidence_date: '2026-09-07' }),
+    ]);
+    expect(folded.view).toMatchObject({ stage: 'passed', pass_reason: 'too early' });
+    // And a real stage posted later, even with older evidence, replaces a new view.
+    const later = foldObservations([
+      obs({ stage: 'new', evidence_date: '2026-09-07' }),
+      obs({ stage: 'founder_meeting', evidence_date: '2026-09-05' }),
+    ]);
+    expect(later.view?.stage).toBe('founder_meeting');
+  });
+
+  it('does not clear the next step with a new post that names none', () => {
+    const folded = foldObservations([
+      obs({ stage: 'waiting_for_info', evidence_date: '2026-09-03', next_step: 'send the deck' }),
+      obs({ stage: 'new', evidence_date: '2026-09-06' }),
+    ]);
+    expect(folded.next_step).toBe('send the deck');
+    expect(
+      foldObservations([obs({ stage: 'new', evidence_date: '2026-09-06' })]).next_step_decided,
+    ).toBe(false);
+  });
+
+  it('keeps a stored real view over a newer new one from the window', () => {
+    const entry = foldObservations([obs({ stage: 'new', evidence_date: '2026-09-06' })]);
+    const merged = mergeWithSidecar(
+      entry,
+      sidecar({
+        view: { stage: 'waiting_for_info', evidence_date: '2026-09-02' },
+        next_step: 'send the deck',
+      }),
+    );
+    expect(merged.view?.stage).toBe('waiting_for_info');
+    expect(merged.next_step).toBe('send the deck');
+  });
+});
+
+describe('one key, two companies', () => {
+  it('splits a key group whose observations name different domains', () => {
+    const groups = groupByKey([
+      obs({ key: 'zz-nova', name: 'ZZ Nova', website: 'nova-one.example' }),
+      obs({ key: 'zz-nova', name: 'ZZ Nova', website: 'nova-two.example' }),
+      obs({ key: 'zz-nova', name: 'ZZ Nova' }),
+      obs({ key: 'zz-nova', name: 'ZZ Nova', website: 'https://nova-one.example/about' }),
+      obs({ key: 'zz-other', name: 'ZZ Other' }),
+    ]);
+    expect([...groups.keys()]).toEqual(['zz-nova', 'zz-nova#nova-two.example', 'zz-other']);
+    expect(groups.get('zz-nova')).toHaveLength(3);
+    expect(groups.get('zz-nova#nova-two.example')).toHaveLength(1);
+  });
+
+  it('refuses a key match whose domains differ', () => {
+    const index = new DealIndex();
+    index.add({
+      id: 'orbit-a',
+      name: 'ZZ Orbit',
+      normalizedName: matchName('ZZ Orbit'),
+      domain: 'orbit-a.example',
+      archived: false,
+      keys: ['zz-orbit'],
+      aka: [],
+    });
+    const query = { keys: ['zz-orbit'], name: 'ZZ Orbit', aka: [] };
+    expect(index.match({ ...query, website: 'orbit-b.example' })).toBeNull();
+    expect(index.match({ ...query, website: 'orbit-a.example' })?.via).toBe('key');
+    expect(index.match(query)?.candidate.id).toBe('orbit-a');
+  });
+
+  it('keeps looking for a live deal past an archived key match', () => {
+    const index = new DealIndex();
+    const base = { aka: [], archived: false, keys: [] as string[] };
+    index.add({
+      ...base,
+      id: 'dup',
+      name: 'ZZ Quill Inc',
+      normalizedName: 'zz quill inc',
+      domain: 'zzquill.example',
+      archived: true,
+      keys: ['zz-quill'],
+    });
+    index.add({
+      ...base,
+      id: 'original',
+      name: 'ZZ Quill',
+      normalizedName: matchName('ZZ Quill'),
+      domain: null,
+    });
+    const hit = index.match({ keys: ['zz-quill'], name: 'ZZ Quill', aka: [] });
+    expect(hit).toMatchObject({ candidate: { id: 'original' }, via: 'name' });
+    // With no live match anywhere, the archived one is still reported.
+    expect(
+      index.match({ keys: ['zz-quill'], name: 'ZZ Nothing Else', aka: [] })?.candidate.id,
+    ).toBe('dup');
+  });
+
+  it('ignores a free-mail website on the query side too', () => {
+    const index = new DealIndex();
+    index.add({
+      id: 'quill',
+      name: 'ZZ Quill',
+      normalizedName: matchName('ZZ Quill'),
+      domain: 'zzquill.example',
+      archived: false,
+      keys: [],
+      aka: [],
+    });
+    expect(
+      index.match({ keys: [], name: 'ZZ Quill', aka: [], website: 'gmail.com' })?.candidate.id,
+    ).toBe('quill');
   });
 });

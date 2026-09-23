@@ -17,7 +17,19 @@ function input(extra: Partial<SorterStatusInput> = {}): SorterStatusInput {
     },
     dealCount: 40,
     routineDealCount: 38,
-    counts: { created: 1, updated: 2, moved: 1, skipped_portfolio: 3, mirrored: 0 },
+    lastChange: {
+      at: '2026-09-23T14:30:00.000Z',
+      counts: {
+        created: 1,
+        updated: 2,
+        moved: 1,
+        skipped_portfolio: 3,
+        skipped_archived: 0,
+        retract_flagged: 0,
+        failed: 0,
+        mirrored: 0,
+      },
+    },
     rejected: 0,
     now: NOW,
     timezone: 'America/Chicago',
@@ -31,8 +43,41 @@ describe('describeDealSorterStatus', () => {
     expect(view.tone).toBe('ok');
     expect(view.message).toBe('Kept current by the deal-sorter · last run 2h ago · 14 updated');
     expect(view.detail).toBe(
-      '1 created · 2 updated · 1 moved · 3 skipped (portfolio) · 0 rejected',
+      'Last change 30m ago: 1 created · 2 updated · 1 moved · 3 skipped (portfolio) · 0 rejected',
     );
+  });
+
+  it('keeps reporting the newest change, and names archived skips, flags and failures', () => {
+    const view = describeDealSorterStatus(
+      input({
+        lastChange: {
+          at: '2026-09-23T14:55:00.000Z',
+          counts: {
+            created: 0,
+            updated: 1,
+            moved: 0,
+            skipped_portfolio: 0,
+            skipped_archived: 2,
+            retract_flagged: 1,
+            failed: 1,
+            mirrored: 0,
+          },
+        },
+        rejected: 3,
+      }),
+    );
+    expect(view.detail).toBe(
+      'Last change 5m ago: 0 created · 1 updated · 0 moved · 0 skipped (portfolio) · 2 skipped (archived) · 1 flagged as not a deal · 1 failed · 3 rejected',
+    );
+  });
+
+  it('says when saving failed, and when the feed belongs to another workspace', () => {
+    expect(describeDealSorterStatus(input({ state: 'save_failed' })).message).toMatch(
+      /couldn't save/,
+    );
+    const other = describeDealSorterStatus(input({ state: 'other_workspace' }));
+    expect(other.message).toMatch(/only workspace/);
+    expect(other.detail).toBeNull();
   });
 
   it('shows backfill progress until all six phases are done', () => {
@@ -101,6 +146,12 @@ describe('links built from stored identifiers', () => {
   it('only links websites that are domains, and only http(s) URLs', () => {
     expect(websiteHref('zzquill.example/about')).toBe('https://zzquill.example');
     expect(websiteHref('not a site')).toBeNull();
+    // Only a plain hostname: never an address, or a host smuggled after an @.
+    expect(websiteHref('jane@zz-a.example')).toBeNull();
+    expect(websiteHref('good.example@evil.example')).toBeNull();
+    expect(websiteHref('https://good.example@evil.example/')).toBeNull();
+    expect(websiteHref('zz quill.example')).toBeNull();
+    expect(websiteHref('HTTPS://WWW.ZZ-Quill.example')).toBe('https://zz-quill.example');
     expect(httpUrl('https://zz.example/deck')).toBe('https://zz.example/deck');
     expect(httpUrl('javascript:alert(1)')).toBeNull();
   });

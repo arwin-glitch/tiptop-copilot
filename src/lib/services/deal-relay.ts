@@ -3,8 +3,8 @@ import { env, type AppEnv } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import type { RelayObservation } from '@/lib/deals/routine-state';
 import { log } from '@/lib/security/redact';
+import { strictDomain } from '@/lib/deals/links';
 import { unwrapSlackText } from '@/lib/util/slack-text';
-import { normalizeDomain } from '@/lib/util/text';
 import { ingestDealRelay, scrubErrorMessage, type DealIngestCounts } from './deal-ingest';
 
 /**
@@ -58,7 +58,28 @@ const isoDate = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'must be YYYY-MM-DD')
   .refine(isRealDate, 'must be a real date');
 
-const text = (max: number) => z.string().trim().min(1).max(max);
+/** An email address anywhere in a free-text field. */
+const EMAIL_IN_TEXT = /[^\s@<>()[\]"',;:]+@[^\s@<>()[\]"',;:]+\.[a-z]{2,}/gi;
+/**
+ * A money amount: `$150K`, `€2.5M`, `USD 100,000`, `250k USD`. Scrubbed from
+ * the fields that describe TipTop's own actions (evidence, next step, pass
+ * reason), where an amount is TipTop's check or a term. `raise`, the round
+ * size the founder states, is the one field meant to carry an amount.
+ */
+const AMOUNT_IN_TEXT =
+  /[$€£]\s?\d[\d,.]*(?:\s?(?:k|m|mm|bn|b|million|thousand|billion)\b)?|\b(?:usd|eur|gbp)\s?\d[\d,.]*(?:\s?(?:k|m|mm|million|thousand)\b)?|\b\d[\d,.]*\s?(?:k|m|mm|million|thousand)?\s?(?:usd|eur|gbp|dollars)\b/gi;
+
+const scrubEmails = (value: string) => value.replace(EMAIL_IN_TEXT, '[email removed]');
+const scrubAmounts = (value: string) => value.replace(AMOUNT_IN_TEXT, '[amount]');
+
+/**
+ * Free text, with any email address replaced: the prompt forbids them, and
+ * this is the backstop that makes "no slot for an email" true of every field
+ * rather than only the ones named after one.
+ */
+const text = (max: number) => z.string().trim().min(1).max(max).transform(scrubEmails);
+/** Free text about TipTop's own actions: no email, and no amount either. */
+const actionText = (max: number) => text(max).transform(scrubAmounts);
 
 /**
  * One deal as the routine posts it. Unknown fields are stripped, and there is
@@ -71,7 +92,7 @@ export const RELAY_DEAL_SCHEMA = z
     name: text(200),
     aka: z.array(text(200)).max(5).optional(),
     stage: z.enum(RELAY_STAGE_KEYS).optional(),
-    evidence: text(300).optional(),
+    evidence: actionText(300).optional(),
     evidence_date: isoDate.optional(),
     evidence_kind: z.literal('wire').optional(),
     fit: z.enum(FIT_VALUES).optional(),
@@ -80,15 +101,21 @@ export const RELAY_DEAL_SCHEMA = z
     sector: text(100).optional(),
     round: text(60).optional(),
     raise: text(60).optional(),
-    website: text(200)
-      .refine((value) => normalizeDomain(value) !== null, 'must be a website domain')
+    // A plain hostname only: an address or `good.example@evil.example` is
+    // not a website, and would otherwise become a link to the wrong host.
+    website: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .refine((value) => strictDomain(value) !== null, 'must be a website domain')
       .optional(),
     founders: z
       .array(z.object({ name: text(200), title: text(100).optional() }))
       .max(6)
       .optional(),
-    next_step: text(200).optional(),
-    pass_reason: text(200).optional(),
+    next_step: actionText(200).optional(),
+    pass_reason: actionText(200).optional(),
     first_seen: isoDate.optional(),
     last_activity: isoDate.optional(),
     threads: z
@@ -155,31 +182,110 @@ export type ParsedDealRelayMessage =
       part: number;
       parts: number;
       deals: RelayDeal[];
+      /** Deals dropped whole: their key or name was unusable. */
       rejects: RelayReject[];
+      /** Optional fields (or list items) dropped from deals that were kept. */
+      dropped: RelayReject[];
     }
   | { kind: 'heartbeat'; heartbeat: DealHeartbeat }
   | { kind: 'invalid'; reason: string };
 
-/** Drop null and empty-string properties, so "unknown" is always "absent". */
-function compact(value: unknown): unknown {
-  if (Array.isArray(value)) return value.filter((v) => v !== null).map(compact);
+/**
+ * Slack's own ceiling on a message. Anything longer was not posted by the
+ * routine (which caps a part at 8 deals), so it is not worth parsing.
+ */
+export const MAX_MESSAGE_CHARS = 40_000;
+/** Deeper than any deal's shape (deal -> founders -> founder -> name). */
+const MAX_DEPTH = 6;
+
+/**
+ * Drop null and empty-string properties, so "unknown" is always "absent".
+ * Bounded in depth: anything nested deeper than a deal can be is dropped
+ * rather than recursed into, so a hostile message cannot blow the stack.
+ */
+function compact(value: unknown, depth = 0): unknown {
+  if (depth > MAX_DEPTH) return undefined;
+  if (Array.isArray(value)) {
+    return value.filter((v) => v !== null).map((v) => compact(v, depth + 1));
+  }
   if (value === null || typeof value !== 'object') return value;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     if (v === null || v === undefined) continue;
     if (typeof v === 'string' && v.trim() === '') continue;
-    out[k] = compact(v);
+    const inner = compact(v, depth + 1);
+    if (inner !== undefined) out[k] = inner;
   }
   return out;
 }
 
-function firstIssue(error: z.ZodError): RelayReject {
-  const issue = error.issues[0];
+function issueOf(issue: z.ZodError['issues'][number] | undefined): RelayReject {
   const path = issue?.path.filter((p) => typeof p === 'string' || typeof p === 'number') ?? [];
   return {
     path: path.length > 0 ? path.join('.') : '(deal)',
     message: (issue?.message ?? 'invalid').slice(0, 80),
   };
+}
+
+function firstIssue(error: z.ZodError): RelayReject {
+  return issueOf(error.issues[0]);
+}
+
+/** The only fields a deal cannot do without. */
+const REQUIRED_FIELDS = new Set(['key', 'name']);
+
+/**
+ * One raw deal -> the deal, or the reason it was dropped whole.
+ *
+ * A problem in an optional field drops that field (or that list item) and
+ * keeps the deal: one malformed thread id must not cost the company its key,
+ * name and stage. A stage whose evidence date is missing or invalid goes with
+ * it, since a stage never stands without its date. Only a bad key or name, or
+ * something that is not an object at all, drops the whole deal.
+ */
+function parseRelayDeal(
+  raw: unknown,
+): { deal: RelayDeal; dropped: RelayReject[] } | { reject: RelayReject } {
+  let value = compact(raw);
+  const dropped: RelayReject[] = [];
+  // Each round removes at least one field or item, and a deal has fewer than
+  // twenty fields, so this always ends; the bound is only a backstop.
+  for (let round = 0; round < 20; round++) {
+    const parsed = RELAY_DEAL_SCHEMA.safeParse(value);
+    if (parsed.success) return { deal: parsed.data, dropped };
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      return { reject: firstIssue(parsed.error) };
+    }
+    const fatal = parsed.error.issues.find((issue) => {
+      const field = issue.path[0];
+      return typeof field !== 'string' || REQUIRED_FIELDS.has(field);
+    });
+    if (fatal) return { reject: issueOf(fatal) };
+
+    const next: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+    const removeItems = new Map<string, Set<number>>();
+    for (const issue of parsed.error.issues) {
+      dropped.push(issueOf(issue));
+      const field = issue.path[0] as string;
+      const index = issue.path[1];
+      if (field === 'evidence_date' && next.evidence_date === undefined) {
+        // "is required with a stage": the stage cannot stand without it.
+        delete next.stage;
+      } else if (typeof index === 'number' && Array.isArray(next[field])) {
+        const set = removeItems.get(field) ?? new Set<number>();
+        set.add(index);
+        removeItems.set(field, set);
+      } else {
+        delete next[field];
+      }
+    }
+    for (const [field, indexes] of removeItems) {
+      const list = next[field] as unknown[];
+      next[field] = list.filter((_, i) => !indexes.has(i));
+    }
+    value = next;
+  }
+  return { reject: { path: '(deal)', message: 'could not be repaired' } };
 }
 
 /**
@@ -190,10 +296,13 @@ function firstIssue(error: z.ZodError): RelayReject {
  */
 export function parseDealRelayMessage(text: unknown): ParsedDealRelayMessage | null {
   if (typeof text !== 'string') return null;
-  const clean = unwrapSlackText(text).trim();
+  // Labels, not URLs: `zeta.ai` in a name or website comes back from Slack as
+  // `<http://zeta.ai|zeta.ai>`, and the label is what the routine wrote.
+  const clean = unwrapSlackText(text, { preferLabel: true }).trim();
   const isUpsert = clean.startsWith(DEAL_UPSERT_MARKER);
   const isHeartbeat = !isUpsert && clean.startsWith(DEAL_HEARTBEAT_MARKER);
   if (!isUpsert && !isHeartbeat) return null;
+  if (clean.length > MAX_MESSAGE_CHARS) return { kind: 'invalid', reason: 'message too long' };
 
   const match = /`([^`]+)`/.exec(clean);
   if (!match?.[1]) return { kind: 'invalid', reason: 'no backticked body' };
@@ -218,10 +327,15 @@ export function parseDealRelayMessage(text: unknown): ParsedDealRelayMessage | n
   }
   const deals: RelayDeal[] = [];
   const rejects: RelayReject[] = [];
+  const dropped: RelayReject[] = [];
   for (const raw of envelope.data.deals) {
-    const parsed = RELAY_DEAL_SCHEMA.safeParse(compact(raw));
-    if (parsed.success) deals.push(parsed.data);
-    else rejects.push(firstIssue(parsed.error));
+    const parsed = parseRelayDeal(raw);
+    if ('reject' in parsed) {
+      rejects.push(parsed.reject);
+    } else {
+      deals.push(parsed.deal);
+      dropped.push(...parsed.dropped);
+    }
   }
   return {
     kind: 'upsert',
@@ -231,6 +345,7 @@ export function parseDealRelayMessage(text: unknown): ParsedDealRelayMessage | n
     parts: envelope.data.parts,
     deals,
     rejects,
+    dropped,
   };
 }
 
@@ -244,7 +359,15 @@ export type DealRelayState =
   | 'missing_scope'
   | 'bad_token'
   | 'rate_limited'
-  | 'error';
+  | 'error'
+  /** Read, but saving what was read failed; retried in seconds. */
+  | 'save_failed'
+  /**
+   * Not this organization's feed: #deal-relay is one fund's mailbox, so it is
+   * folded into the deployment's only organization and nowhere else (see
+   * `lib/db/tenancy.ts`). The Portfolio mirror still runs.
+   */
+  | 'other_workspace';
 
 export interface DealRelayStatus {
   state: DealRelayState;
@@ -254,10 +377,18 @@ export interface DealRelayStatus {
   missing: string[];
   /** The scope Slack says is missing, for `missing_scope`. */
   needed: string | null;
+  /** This pull's counts. Each pull re-reads the window, so these are often all "unchanged". */
   counts: DealIngestCounts | null;
+  /** The newest pull that changed anything, carried across quiet pulls. */
+  lastChange: { counts: DealIngestCounts; at: string } | null;
   /** The newest valid heartbeat in the window, with its Slack time. */
   lastRun: { heartbeat: DealHeartbeat; ts: string } | null;
-  rejected: { total: number; byIssue: Record<string, number> };
+  /**
+   * Deals dropped whole (`total`), and optional fields dropped from deals that
+   * were kept (`dropped`). `byIssue` counts both by path and message; the
+   * dropped-field entries are prefixed "dropped ".
+   */
+  rejected: { total: number; dropped: number; byIssue: Record<string, number> };
   /** Messages read from Slack this pull. */
   scanned: number;
 }
@@ -296,10 +427,26 @@ function emptyStatus(state: DealRelayState): DealRelayStatus {
     missing: [],
     needed: null,
     counts: null,
+    lastChange: null,
     lastRun: null,
-    rejected: { total: 0, byIssue: {} },
+    rejected: { total: 0, dropped: 0, byIssue: {} },
     scanned: 0,
   };
+}
+
+/** Whether a pull's counts show any change worth reporting. */
+export function countsChangedAnything(c: DealIngestCounts): boolean {
+  return (
+    c.created +
+      c.updated +
+      c.moved +
+      c.retracted +
+      c.retract_flagged +
+      c.failed +
+      c.mirrored +
+      c.mirror_moved >
+    0
+  );
 }
 
 /** The last pull's outcome for this organization, or `pending` before the first. */
@@ -414,7 +561,7 @@ export function collectRelayMessages(
     .sort((a, b) => a.at - b.at);
 
   const observations: RelayObservation[] = [];
-  const rejected: DealRelayStatus['rejected'] = { total: 0, byIssue: {} };
+  const rejected: DealRelayStatus['rejected'] = { total: 0, dropped: 0, byIssue: {} };
   let lastRun: DealRelayStatus['lastRun'] = null;
   let parsedMessages = 0;
   let seq = 0;
@@ -422,11 +569,25 @@ export function collectRelayMessages(
     rejected.total++;
     rejected.byIssue[issue] = (rejected.byIssue[issue] ?? 0) + 1;
   };
+  const drop = (issue: string) => {
+    rejected.dropped++;
+    const key = `dropped ${issue}`;
+    rejected.byIssue[key] = (rejected.byIssue[key] ?? 0) + 1;
+  };
 
   for (const { m } of usable) {
-    const parsed = parseDealRelayMessage(m.text);
+    // One unreadable message is counted and skipped; it never stops the rest
+    // of the window (or the Portfolio mirror after it) from being read.
+    let parsed: ParsedDealRelayMessage | null;
+    try {
+      parsed = parseDealRelayMessage(m.text);
+    } catch {
+      reject('message: unreadable');
+      continue;
+    }
     if (!parsed) continue;
-    const ts = slackTsToIso(m.ts) ?? new Date(0).toISOString();
+    const iso = slackTsToIso(m.ts);
+    const ts = iso ?? new Date(0).toISOString();
     if (parsed.kind === 'invalid') {
       reject(`message: ${parsed.reason}`);
       continue;
@@ -438,11 +599,51 @@ export function collectRelayMessages(
       continue;
     }
     for (const r of parsed.rejects) reject(`${r.path}: ${r.message}`);
+    for (const r of parsed.dropped) drop(`${r.path}: ${r.message}`);
+    const postDay = iso ? iso.slice(0, 10) : null;
     for (const deal of parsed.deals) {
-      observations.push({ seq: seq++, ts, batch: parsed.batch, part: parsed.part, deal });
+      observations.push({
+        seq: seq++,
+        ts,
+        batch: parsed.batch,
+        part: parsed.part,
+        deal: postDay ? clampDates(deal, postDay) : deal,
+      });
     }
   }
   return { observations, lastRun, rejected, parsedMessages };
+}
+
+/**
+ * No date the routine posts can be later than the day it posted it. An
+ * upcoming meeting is evidence as of the day it was seen, not the day it is
+ * scheduled for: left in the future, its date would outrank every real later
+ * signal (a pass the next day, say) until that future day, and pin the
+ * stage's evidence date there for good.
+ */
+export function clampDates(deal: RelayDeal, postDay: string): RelayDeal {
+  const clamp = (value: string | undefined) =>
+    value !== undefined && value > postDay ? postDay : value;
+  const out: RelayDeal = { ...deal };
+  for (const field of ['evidence_date', 'first_seen', 'last_activity'] as const) {
+    if (out[field] !== undefined) out[field] = clamp(out[field]);
+  }
+  if (out.threads) {
+    out.threads = out.threads.map((t) => (t.date ? { ...t, date: clamp(t.date) } : t));
+  }
+  return out;
+}
+
+/**
+ * Whether #deal-relay belongs to this organization: the deployment's only
+ * one. The channel carries one fund's mailbox-derived pipeline, and a
+ * machine source never guesses between tenants (`lib/db/tenancy.ts`) — with
+ * a second organization (the sign-up trigger makes one for any new user who
+ * belongs to none) the relay is folded nowhere rather than copied into both.
+ */
+async function isRelayOrganization(store: DataStore, organizationId: string): Promise<boolean> {
+  const organizations = (await store.list('organizations', '', {})) as { id: string }[];
+  return organizations.length === 1 && organizations[0]?.id === organizationId;
 }
 
 /**
@@ -479,6 +680,9 @@ export async function pullDealsFromSlack(
       if (!dealRelayConfigured(e)) {
         status = { ...emptyStatus('not_configured'), missing: ['ASK_RELAY_SLACK_TOKEN'] };
         retryIn = PULL_INTERVAL_MS;
+      } else if (!(await isRelayOrganization(store, organizationId))) {
+        status = emptyStatus('other_workspace');
+        retryIn = PULL_INTERVAL_MS;
       } else {
         const outcome = await fetchRelayHistory(fetchImpl, e, now);
         retryIn = outcome.retryIn;
@@ -494,26 +698,39 @@ export async function pullDealsFromSlack(
           status.lastRun = previous?.lastRun ?? null;
         }
       }
-      status.counts = await ingestDealRelay(store, organizationId, observations, {
-        now,
-        rejected: status.rejected.total,
-      });
+      try {
+        status.counts = await ingestDealRelay(store, organizationId, observations, {
+          now,
+          rejected: status.rejected.total,
+        });
+      } catch (error) {
+        // Read fine, could not save: say so, rather than "couldn't read".
+        if (status.state === 'ok') status.state = 'save_failed';
+        retryIn = RETRY_AFTER_FAILURE_MS;
+        log.warn('Deal relay ingest failed', { reason: scrubErrorMessage(error) });
+      }
       status.pulledAt = new Date().toISOString();
+      status.lastChange =
+        status.counts && countsChangedAnything(status.counts)
+          ? { counts: status.counts, at: status.pulledAt }
+          : (previous?.lastChange ?? null);
       log.info('Deal relay pull finished', {
         state: status.state,
         scanned: status.scanned,
         observations: observations.length,
         rejected: status.rejected.total,
+        dropped: status.rejected.dropped,
         ...status.counts,
       });
     } catch (error) {
       status = {
         ...emptyStatus('error'),
         lastRun: status.lastRun ?? previous?.lastRun ?? null,
+        lastChange: previous?.lastChange ?? null,
         pulledAt: new Date().toISOString(),
       };
       retryIn = RETRY_AFTER_FAILURE_MS;
-      log.warn('Deal relay ingest failed', { reason: scrubErrorMessage(error) });
+      log.warn('Deal relay pull failed', { reason: scrubErrorMessage(error) });
     } finally {
       statuses.set(organizationId, status);
       nextPullAt.set(organizationId, Date.now() + retryIn);

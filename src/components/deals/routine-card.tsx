@@ -29,6 +29,7 @@ export function RoutineCard({
   owned,
   timezone,
   archived,
+  retractAnswered = false,
 }: {
   dealId: string;
   dealStage: string;
@@ -37,12 +38,17 @@ export function RoutineCard({
   owned: boolean;
   timezone: string;
   archived: boolean;
+  /** A person restored the deal after a retraction: the banner is answered. */
+  retractAnswered?: boolean;
 }) {
   const view = sidecar.view;
   const label = (key: string) => stages.find((s) => s.key === key)?.label ?? key;
   const inThesis = view ? stages.some((s) => s.key === view.stage) : false;
-  // An invested deal's stage is settled; an older routine view is not a suggestion.
-  const differs = Boolean(view && view.stage !== dealStage && dealStage !== 'invested');
+  // An invested deal's stage is settled; an older routine view is not a
+  // suggestion. Nor is `new`, which is the routine saying it saw no signal.
+  const differs = Boolean(
+    view && view.stage !== 'new' && view.stage !== dealStage && dealStage !== 'invested',
+  );
   const day = (value: string | null | undefined) =>
     value ? formatDate(`${value.slice(0, 10)}T12:00:00.000Z`, timezone) : null;
 
@@ -66,7 +72,7 @@ export function RoutineCard({
         </Badge>
       </CardHeader>
       <CardContent>
-        {sidecar.retract && !archived ? (
+        {sidecar.retract && !archived && !retractAnswered ? (
           <Notice tone="warn" className="mb-4">
             <p>
               <span className="font-medium">The deal-sorter says this is not a deal:</span>{' '}

@@ -155,8 +155,9 @@ async function DealsContent({
     const analysis = analyses.get(deal.id);
     const side = sidecars.get(deal.id)?.state ?? null;
     const view = side?.view ?? null;
+    // `new` is the routine saying it saw no stage signal: never a suggestion.
     const suggested =
-      view && view.stage !== deal.stage && deal.stage !== 'invested'
+      view && view.stage !== 'new' && view.stage !== deal.stage && deal.stage !== 'invested'
         ? (stageByKey.get(view.stage)?.label ?? null)
         : null;
     return {
@@ -202,7 +203,7 @@ async function DealsContent({
       : null,
     dealCount: live.length,
     routineDealCount: live.filter((d) => sidecars.has(d.id)).length,
-    counts: status.counts,
+    lastChange: status.lastChange,
     rejected: status.rejected.total,
     now: new Date(),
     timezone: auth.profile.timezone,
