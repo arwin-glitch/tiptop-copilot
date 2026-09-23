@@ -17,6 +17,7 @@ import { checkAiBudget, recordAiUsage } from '@/lib/security/limits';
 import { CitationRegistry } from '@/lib/ai/citations';
 import { splitPages } from '@/lib/documents/pages';
 import { findDuplicateCandidates, type DuplicateMatch } from '@/lib/deals/dedupe';
+import { listAllPages } from '@/lib/db/paging';
 import type {
   Citation,
   Deal,
@@ -57,6 +58,8 @@ export interface DealListFilters {
   search?: string;
   industry?: string;
   includeArchived?: boolean;
+  /** Only the archived ("Not a deal") ones. */
+  archivedOnly?: boolean;
 }
 
 export async function listDeals(
@@ -67,16 +70,18 @@ export async function listDeals(
   const filter: Parameters<typeof store.list>[2] = {};
   if (filters.stage) filter.eq = { ...(filter.eq ?? {}), stage: filters.stage };
   if (filters.industry) filter.eq = { ...(filter.eq ?? {}), industry: filters.industry };
-  if (!filters.includeArchived) filter.eq = { ...(filter.eq ?? {}), is_archived: false };
+  if (filters.archivedOnly) filter.eq = { ...(filter.eq ?? {}), is_archived: true };
+  else if (!filters.includeArchived) filter.eq = { ...(filter.eq ?? {}), is_archived: false };
   if (filters.search) {
     filter.textSearch = {
       columns: ['company_name', 'product_summary', 'industry', 'vertical', 'team'],
       query: filters.search,
     };
   }
-  return (await store.list('deals', organizationId, filter, {
-    orderBy: [{ field: 'received_at', direction: 'desc' }],
-  })) as Deal[];
+  // Paged: a routine-fed pipeline outgrows the API's 1,000-row response cap.
+  return (await listAllPages(store, 'deals', organizationId, filter, [
+    { field: 'received_at', direction: 'desc' },
+  ])) as Deal[];
 }
 
 export interface DealDetail {
@@ -827,6 +832,52 @@ export async function recordDecision(
   });
 
   return ok(row);
+}
+
+/**
+ * "Not a deal": archive it. A human action, audited with the user, and the
+ * deal-sorter never resurrects an archived deal — a re-post of it is skipped.
+ */
+export async function archiveDeal(
+  auth: AuthContext,
+  dealId: string,
+  reason: string,
+): Promise<Result<Deal>> {
+  const store = getStore();
+  const deal = (await store.get('deals', auth.organizationId, dealId)) as Deal | null;
+  if (!deal) return err('not_found', 'That deal does not exist.');
+  if (deal.is_archived) return ok(deal);
+  const updated = (await store.update('deals', auth.organizationId, dealId, {
+    is_archived: true,
+  })) as Deal;
+  await recordAudit(store, {
+    organizationId: auth.organizationId,
+    userId: auth.userId,
+    action: 'deal.archived',
+    entityType: 'deal',
+    entityId: dealId,
+    metadata: { reason: truncate(reason.trim() || 'Not a deal', 200) },
+  });
+  return ok(updated);
+}
+
+/** Undo "Not a deal". The deal-sorter will not archive it again on its own. */
+export async function restoreDeal(auth: AuthContext, dealId: string): Promise<Result<Deal>> {
+  const store = getStore();
+  const deal = (await store.get('deals', auth.organizationId, dealId)) as Deal | null;
+  if (!deal) return err('not_found', 'That deal does not exist.');
+  if (!deal.is_archived) return ok(deal);
+  const updated = (await store.update('deals', auth.organizationId, dealId, {
+    is_archived: false,
+  })) as Deal;
+  await recordAudit(store, {
+    organizationId: auth.organizationId,
+    userId: auth.userId,
+    action: 'deal.restored',
+    entityType: 'deal',
+    entityId: dealId,
+  });
+  return ok(updated);
 }
 
 export async function addNote(

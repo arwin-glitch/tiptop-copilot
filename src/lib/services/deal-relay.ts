@@ -1,0 +1,574 @@
+import { z } from 'zod';
+import { env, type AppEnv } from '@/lib/config/env';
+import type { DataStore } from '@/lib/db/store';
+import type { RelayObservation } from '@/lib/deals/routine-state';
+import { log } from '@/lib/security/redact';
+import { unwrapSlackText } from '@/lib/util/slack-text';
+import { normalizeDomain } from '@/lib/util/text';
+import { ingestDealRelay, scrubErrorMessage, type DealIngestCounts } from './deal-ingest';
+
+/**
+ * The deal-sorter relay.
+ *
+ * A cloud routine reads Nick's mailbox, calendar and the weekly feed reports,
+ * sorts every real startup deal into a pipeline stage, and posts the result to
+ * a private Slack channel (#deal-relay) because its sandbox cannot reach this
+ * app. This module is the reading half: the message format, the per-deal
+ * schema, and the throttled pull that hands validated deals to the ingest.
+ *
+ * Each message is two lines — a marker, then JSON between single backticks —
+ * like every other relay message. Deals are validated one at a time, so one
+ * malformed deal never drops the rest of its message; a rejected deal is
+ * counted by the path and message of its first problem, and nothing of its
+ * content is kept.
+ */
+
+export const DEAL_UPSERT_MARKER = 'DEAL_UPSERT_V1';
+export const DEAL_HEARTBEAT_MARKER = 'DEAL_SORTER_RUN_V1';
+
+export const RELAY_PHASES = ['a1', 'a2', 'a3', 'b1', 'b2', 'c', 'inc'] as const;
+/** The six backfill phases, in the order the routine runs them. */
+export const BACKFILL_PHASES = ['a1', 'a2', 'a3', 'b1', 'b2', 'c'] as const;
+
+/** The default thesis stage keys, which are the only stages the routine may name. */
+export const RELAY_STAGE_KEYS = [
+  'new',
+  'reviewing',
+  'waiting_for_info',
+  'founder_meeting',
+  'diligence',
+  'ic_review',
+  'passed',
+  'monitoring',
+  'invested',
+] as const;
+
+export const FIT_VALUES = ['likely', 'possible', 'unlikely'] as const;
+
+const KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const THREAD_ID_RE = /^[0-9a-f]{10,24}$/i;
+
+function isRealDate(value: string): boolean {
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === value;
+}
+
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'must be YYYY-MM-DD')
+  .refine(isRealDate, 'must be a real date');
+
+const text = (max: number) => z.string().trim().min(1).max(max);
+
+/**
+ * One deal as the routine posts it. Unknown fields are stripped, and there is
+ * deliberately no field for an email address, a phone number, TipTop's own
+ * check or any deal term: the schema cannot carry what the app must not store.
+ */
+export const RELAY_DEAL_SCHEMA = z
+  .object({
+    key: z.string().max(80).regex(KEY_RE, 'must be a lowercase slug'),
+    name: text(200),
+    aka: z.array(text(200)).max(5).optional(),
+    stage: z.enum(RELAY_STAGE_KEYS).optional(),
+    evidence: text(300).optional(),
+    evidence_date: isoDate.optional(),
+    evidence_kind: z.literal('wire').optional(),
+    fit: z.enum(FIT_VALUES).optional(),
+    source: text(100).optional(),
+    summary: text(300).optional(),
+    sector: text(100).optional(),
+    round: text(60).optional(),
+    raise: text(60).optional(),
+    website: text(200)
+      .refine((value) => normalizeDomain(value) !== null, 'must be a website domain')
+      .optional(),
+    founders: z
+      .array(z.object({ name: text(200), title: text(100).optional() }))
+      .max(6)
+      .optional(),
+    next_step: text(200).optional(),
+    pass_reason: text(200).optional(),
+    first_seen: isoDate.optional(),
+    last_activity: isoDate.optional(),
+    threads: z
+      .array(
+        z.object({
+          id: z.string().regex(THREAD_ID_RE, 'must be a Gmail thread id'),
+          subject: text(200).optional(),
+          date: isoDate.optional(),
+        }),
+      )
+      .max(5)
+      .optional(),
+    retract: text(200).optional(),
+  })
+  .refine((deal) => deal.stage === undefined || deal.evidence_date !== undefined, {
+    message: 'is required with a stage',
+    path: ['evidence_date'],
+  });
+
+export type RelayDeal = z.infer<typeof RELAY_DEAL_SCHEMA>;
+
+export const DEAL_UPSERT_ENVELOPE = z.object({
+  v: z.literal(1),
+  source: text(100),
+  batch: text(40),
+  phase: z.enum(RELAY_PHASES),
+  part: z.number().int().min(1).max(500),
+  parts: z.number().int().min(1).max(500),
+  deals: z.array(z.unknown()).max(12),
+});
+
+/**
+ * The routine's end-of-run heartbeat. Parsed leniently: it only feeds the
+ * status strip, so a missing or odd field falls back to a neutral value
+ * rather than hiding the whole run.
+ */
+export const DEAL_HEARTBEAT_SCHEMA = z.object({
+  v: z.number().optional().catch(undefined),
+  source: z.string().max(100).optional().catch(undefined),
+  run_at: z.string().max(40).optional().catch(undefined),
+  phase: z.string().max(10).optional().catch(undefined),
+  as_of: z.string().max(20).optional().catch(undefined),
+  backfill_done: z.array(z.string().max(10)).max(20).catch([]),
+  attempts: z.record(z.string().max(10), z.number()).catch({}),
+  posted: z.number().int().min(0).catch(0),
+  parts: z.number().int().min(0).catch(0),
+  stages: z.record(z.string().max(40), z.number()).catch({}),
+  near_misses: z.number().int().min(0).catch(0),
+});
+
+export type DealHeartbeat = z.infer<typeof DEAL_HEARTBEAT_SCHEMA>;
+
+export interface RelayReject {
+  /** Dotted path of the first problem, e.g. `website`. Never a value. */
+  path: string;
+  message: string;
+}
+
+export type ParsedDealRelayMessage =
+  | {
+      kind: 'upsert';
+      batch: string;
+      phase: (typeof RELAY_PHASES)[number];
+      part: number;
+      parts: number;
+      deals: RelayDeal[];
+      rejects: RelayReject[];
+    }
+  | { kind: 'heartbeat'; heartbeat: DealHeartbeat }
+  | { kind: 'invalid'; reason: string };
+
+/** Drop null and empty-string properties, so "unknown" is always "absent". */
+function compact(value: unknown): unknown {
+  if (Array.isArray(value)) return value.filter((v) => v !== null).map(compact);
+  if (value === null || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'string' && v.trim() === '') continue;
+    out[k] = compact(v);
+  }
+  return out;
+}
+
+function firstIssue(error: z.ZodError): RelayReject {
+  const issue = error.issues[0];
+  const path = issue?.path.filter((p) => typeof p === 'string' || typeof p === 'number') ?? [];
+  return {
+    path: path.length > 0 ? path.join('.') : '(deal)',
+    message: (issue?.message ?? 'invalid').slice(0, 80),
+  };
+}
+
+/**
+ * One #deal-relay message -> its parsed content, or null when it carries
+ * neither deal marker (chatter, other relays' markers). `invalid` means the
+ * marker was there but the body could not be read, so it is counted rather
+ * than silently ignored.
+ */
+export function parseDealRelayMessage(text: unknown): ParsedDealRelayMessage | null {
+  if (typeof text !== 'string') return null;
+  const clean = unwrapSlackText(text).trim();
+  const isUpsert = clean.startsWith(DEAL_UPSERT_MARKER);
+  const isHeartbeat = !isUpsert && clean.startsWith(DEAL_HEARTBEAT_MARKER);
+  if (!isUpsert && !isHeartbeat) return null;
+
+  const match = /`([^`]+)`/.exec(clean);
+  if (!match?.[1]) return { kind: 'invalid', reason: 'no backticked body' };
+  let json: unknown;
+  try {
+    json = JSON.parse(match[1]);
+  } catch {
+    return { kind: 'invalid', reason: 'body is not JSON' };
+  }
+  if (json === null || typeof json !== 'object' || Array.isArray(json)) {
+    return { kind: 'invalid', reason: 'body is not an object' };
+  }
+
+  if (isHeartbeat) {
+    return { kind: 'heartbeat', heartbeat: DEAL_HEARTBEAT_SCHEMA.parse(json) };
+  }
+
+  const envelope = DEAL_UPSERT_ENVELOPE.safeParse(json);
+  if (!envelope.success) {
+    const issue = firstIssue(envelope.error);
+    return { kind: 'invalid', reason: `envelope ${issue.path}: ${issue.message}` };
+  }
+  const deals: RelayDeal[] = [];
+  const rejects: RelayReject[] = [];
+  for (const raw of envelope.data.deals) {
+    const parsed = RELAY_DEAL_SCHEMA.safeParse(compact(raw));
+    if (parsed.success) deals.push(parsed.data);
+    else rejects.push(firstIssue(parsed.error));
+  }
+  return {
+    kind: 'upsert',
+    batch: envelope.data.batch,
+    phase: envelope.data.phase,
+    part: envelope.data.part,
+    parts: envelope.data.parts,
+    deals,
+    rejects,
+  };
+}
+
+/* ------------------------------------------------------------ Slack pull */
+
+export type DealRelayState =
+  | 'pending'
+  | 'not_configured'
+  | 'ok'
+  | 'bot_not_in_channel'
+  | 'missing_scope'
+  | 'bad_token'
+  | 'rate_limited'
+  | 'error';
+
+export interface DealRelayStatus {
+  state: DealRelayState;
+  /** When this status was produced; null until the first pull finishes. */
+  pulledAt: string | null;
+  /** Variables still to set, for `not_configured`. Names only. */
+  missing: string[];
+  /** The scope Slack says is missing, for `missing_scope`. */
+  needed: string | null;
+  counts: DealIngestCounts | null;
+  /** The newest valid heartbeat in the window, with its Slack time. */
+  lastRun: { heartbeat: DealHeartbeat; ts: string } | null;
+  rejected: { total: number; byIssue: Record<string, number> };
+  /** Messages read from Slack this pull. */
+  scanned: number;
+}
+
+interface SlackMessage {
+  text?: unknown;
+  ts?: unknown;
+  user?: unknown;
+  subtype?: unknown;
+}
+
+interface SlackHistoryBody {
+  ok?: boolean;
+  error?: string;
+  needed?: string;
+  messages?: SlackMessage[];
+  has_more?: boolean;
+  response_metadata?: { next_cursor?: string };
+}
+
+const PULL_INTERVAL_MS = 60_000;
+const RETRY_AFTER_FAILURE_MS = 10_000;
+const WINDOW_DAYS = 30;
+const MAX_PAGES = 5;
+const PAGE_SIZE = 200;
+const CALL_TIMEOUT_MS = 8_000;
+
+const statuses = new Map<string, DealRelayStatus>();
+const nextPullAt = new Map<string, number>();
+const inFlight = new Map<string, Promise<DealRelayStatus>>();
+
+function emptyStatus(state: DealRelayState): DealRelayStatus {
+  return {
+    state,
+    pulledAt: null,
+    missing: [],
+    needed: null,
+    counts: null,
+    lastRun: null,
+    rejected: { total: 0, byIssue: {} },
+    scanned: 0,
+  };
+}
+
+/** The last pull's outcome for this organization, or `pending` before the first. */
+export function getDealRelayStatus(organizationId: string): DealRelayStatus {
+  return statuses.get(organizationId) ?? emptyStatus('pending');
+}
+
+/** Whether the app can read #deal-relay at all (a token is set). */
+export function dealRelayConfigured(e: AppEnv = env()): boolean {
+  return Boolean(e.askRelaySlackToken);
+}
+
+const SLACK_ERROR_STATES: Record<string, DealRelayState> = {
+  not_in_channel: 'bot_not_in_channel',
+  channel_not_found: 'bot_not_in_channel',
+  missing_scope: 'missing_scope',
+  invalid_auth: 'bad_token',
+  not_authed: 'bad_token',
+  token_revoked: 'bad_token',
+  account_inactive: 'bad_token',
+  ratelimited: 'rate_limited',
+};
+
+interface FetchOutcome {
+  state: DealRelayState;
+  needed: string | null;
+  messages: SlackMessage[];
+  retryIn: number;
+}
+
+async function fetchRelayHistory(
+  fetchImpl: typeof fetch,
+  e: AppEnv,
+  now: Date,
+): Promise<FetchOutcome> {
+  const oldest = Math.floor((now.getTime() - WINDOW_DAYS * 86_400_000) / 1000);
+  const messages: SlackMessage[] = [];
+  let cursor: string | undefined;
+  try {
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const url =
+        `https://slack.com/api/conversations.history?channel=${encodeURIComponent(
+          e.dealRelayChannelId,
+        )}&limit=${PAGE_SIZE}&oldest=${oldest}` +
+        (cursor ? `&cursor=${encodeURIComponent(cursor)}` : '');
+      const response = await fetchImpl(url, {
+        headers: { Authorization: `Bearer ${e.askRelaySlackToken}` },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+      });
+      if (response.status === 429) {
+        const seconds = Number(response.headers.get('retry-after'));
+        return {
+          state: 'rate_limited',
+          needed: null,
+          messages: [],
+          retryIn: Math.max(PULL_INTERVAL_MS, seconds > 0 ? seconds * 1000 : 0),
+        };
+      }
+      if (response.status >= 500) throw new Error(`Slack answered ${response.status}`);
+      const body = (await response.json()) as SlackHistoryBody;
+      if (!body.ok) {
+        const state = SLACK_ERROR_STATES[body.error ?? ''] ?? 'error';
+        const seconds = Number(response.headers.get('retry-after'));
+        return {
+          state,
+          needed: state === 'missing_scope' ? (body.needed ?? 'groups:history') : null,
+          messages: [],
+          // A refusal will not clear in ten seconds; a rate limit says when.
+          retryIn: Math.max(PULL_INTERVAL_MS, seconds > 0 ? seconds * 1000 : 0),
+        };
+      }
+      messages.push(...(body.messages ?? []));
+      cursor = body.response_metadata?.next_cursor || undefined;
+      if (!cursor || body.has_more === false) break;
+    }
+    return { state: 'ok', needed: null, messages, retryIn: PULL_INTERVAL_MS };
+  } catch (error) {
+    log.warn('Reading #deal-relay failed', { reason: scrubErrorMessage(error) });
+    return { state: 'error', needed: null, messages: [], retryIn: RETRY_AFTER_FAILURE_MS };
+  }
+}
+
+function slackTsToIso(ts: unknown): string | null {
+  if (typeof ts !== 'string' || !/^\d+(\.\d+)?$/.test(ts)) return null;
+  return new Date(Number(ts) * 1000).toISOString();
+}
+
+export interface CollectedRelay {
+  observations: RelayObservation[];
+  lastRun: DealRelayStatus['lastRun'];
+  rejected: DealRelayStatus['rejected'];
+  parsedMessages: number;
+}
+
+/**
+ * Slack's pages (newest first) -> deal observations, oldest first. A message
+ * with a subtype (joins, edits, bot notices) is never a routine post, and when
+ * a poster allow-list is configured anything from another user is skipped.
+ */
+export function collectRelayMessages(
+  messages: readonly SlackMessage[],
+  posterIds: readonly string[] = [],
+): CollectedRelay {
+  const usable = messages
+    .filter((m) => m.subtype === undefined || m.subtype === null)
+    .filter(
+      (m) => posterIds.length === 0 || (typeof m.user === 'string' && posterIds.includes(m.user)),
+    )
+    .map((m) => ({ m, at: typeof m.ts === 'string' ? Number(m.ts) : Number.NaN }))
+    .filter(({ at }) => Number.isFinite(at))
+    .sort((a, b) => a.at - b.at);
+
+  const observations: RelayObservation[] = [];
+  const rejected: DealRelayStatus['rejected'] = { total: 0, byIssue: {} };
+  let lastRun: DealRelayStatus['lastRun'] = null;
+  let parsedMessages = 0;
+  let seq = 0;
+  const reject = (issue: string) => {
+    rejected.total++;
+    rejected.byIssue[issue] = (rejected.byIssue[issue] ?? 0) + 1;
+  };
+
+  for (const { m } of usable) {
+    const parsed = parseDealRelayMessage(m.text);
+    if (!parsed) continue;
+    const ts = slackTsToIso(m.ts) ?? new Date(0).toISOString();
+    if (parsed.kind === 'invalid') {
+      reject(`message: ${parsed.reason}`);
+      continue;
+    }
+    parsedMessages++;
+    if (parsed.kind === 'heartbeat') {
+      // Oldest first, so the last one seen is the newest.
+      lastRun = { heartbeat: parsed.heartbeat, ts };
+      continue;
+    }
+    for (const r of parsed.rejects) reject(`${r.path}: ${r.message}`);
+    for (const deal of parsed.deals) {
+      observations.push({ seq: seq++, ts, batch: parsed.batch, part: parsed.part, deal });
+    }
+  }
+  return { observations, lastRun, rejected, parsedMessages };
+}
+
+/**
+ * Pull #deal-relay and fold it into the pipeline. Also runs the Portfolio ->
+ * Invested mirror, which needs no Slack at all, so it happens even when the
+ * relay is unreadable.
+ *
+ * Re-reads the last 30 days every time (up to 5 pages of 200): ingest is
+ * idempotent and content-hashed, so an unchanged window costs zero writes.
+ * Throttled to once a minute per organization; a network fault or Slack 5xx
+ * retries after 10 seconds, a refusal waits the full minute and a rate limit
+ * waits for its Retry-After. Concurrent callers share one pull. Never throws.
+ */
+export async function pullDealsFromSlack(
+  store: DataStore,
+  organizationId: string,
+  fetchImpl: typeof fetch = fetch,
+  opts: { force?: boolean; now?: Date } = {},
+): Promise<DealRelayStatus> {
+  const running = inFlight.get(organizationId);
+  if (running) return running;
+  if (!opts.force && Date.now() < (nextPullAt.get(organizationId) ?? 0)) {
+    return getDealRelayStatus(organizationId);
+  }
+
+  const pull = (async (): Promise<DealRelayStatus> => {
+    const e = env();
+    const now = opts.now ?? new Date();
+    const previous = statuses.get(organizationId);
+    let retryIn = RETRY_AFTER_FAILURE_MS;
+    let status = emptyStatus('error');
+    try {
+      let observations: RelayObservation[] = [];
+      if (!dealRelayConfigured(e)) {
+        status = { ...emptyStatus('not_configured'), missing: ['ASK_RELAY_SLACK_TOKEN'] };
+        retryIn = PULL_INTERVAL_MS;
+      } else {
+        const outcome = await fetchRelayHistory(fetchImpl, e, now);
+        retryIn = outcome.retryIn;
+        status = { ...emptyStatus(outcome.state), needed: outcome.needed };
+        if (outcome.state === 'ok') {
+          const collected = collectRelayMessages(outcome.messages, e.dealRelayPosterIds);
+          observations = collected.observations;
+          status.lastRun = collected.lastRun;
+          status.rejected = collected.rejected;
+          status.scanned = outcome.messages.length;
+        } else {
+          // Could not read this time; what the last good read saw still stands.
+          status.lastRun = previous?.lastRun ?? null;
+        }
+      }
+      status.counts = await ingestDealRelay(store, organizationId, observations, {
+        now,
+        rejected: status.rejected.total,
+      });
+      status.pulledAt = new Date().toISOString();
+      log.info('Deal relay pull finished', {
+        state: status.state,
+        scanned: status.scanned,
+        observations: observations.length,
+        rejected: status.rejected.total,
+        ...status.counts,
+      });
+    } catch (error) {
+      status = {
+        ...emptyStatus('error'),
+        lastRun: status.lastRun ?? previous?.lastRun ?? null,
+        pulledAt: new Date().toISOString(),
+      };
+      retryIn = RETRY_AFTER_FAILURE_MS;
+      log.warn('Deal relay ingest failed', { reason: scrubErrorMessage(error) });
+    } finally {
+      statuses.set(organizationId, status);
+      nextPullAt.set(organizationId, Date.now() + retryIn);
+      inFlight.delete(organizationId);
+    }
+    return status;
+  })();
+  inFlight.set(organizationId, pull);
+  return pull;
+}
+
+/**
+ * Counts only, never a company name: the daily job's response is printed into
+ * the public repository's Actions log.
+ */
+export function formatDealCronStatus(status: DealRelayStatus): string {
+  const c = status.counts;
+  const mirror =
+    c && c.mirrored + c.mirror_moved > 0
+      ? `; ${c.mirrored + c.mirror_moved} put under Invested from Portfolio`
+      : '';
+  if (status.state !== 'ok' || !c) return `skipped: ${status.state}${mirror}`;
+  return `ok: ${c.created} created, ${c.moved} moved, ${c.suggested} suggested, ${status.rejected.total} rejected${mirror}`;
+}
+
+/**
+ * A fingerprint of what /deals shows, for the open-tab watcher: the live deal
+ * count, the newest change to any deal, and the newest heartbeat. Timestamps
+ * are normalized because Postgres and JS spell the same instant differently.
+ */
+export async function readDealsVersion(store: DataStore, organizationId: string): Promise<string> {
+  const [count, newest] = await Promise.all([
+    store.count('deals', organizationId, { eq: { is_archived: false } }),
+    store.list(
+      'deals',
+      organizationId,
+      {},
+      { orderBy: [{ field: 'updated_at', direction: 'desc' }], limit: 1 },
+    ),
+  ]);
+  const iso = (value: string | undefined) => {
+    if (!value) return '';
+    const ms = Date.parse(value);
+    return Number.isNaN(ms) ? value : new Date(ms).toISOString();
+  };
+  return [
+    count,
+    iso((newest[0] as { updated_at?: string } | undefined)?.updated_at),
+    getDealRelayStatus(organizationId).lastRun?.ts ?? '',
+  ].join('|');
+}
+
+/** Test seam: forget throttles, in-flight pulls and statuses. */
+export function resetDealPullState(): void {
+  statuses.clear();
+  nextPullAt.clear();
+  inFlight.clear();
+}
