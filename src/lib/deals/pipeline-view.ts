@@ -28,6 +28,8 @@ export type SortDirection = 'asc' | 'desc';
 export interface DealRow {
   id: string;
   companyName: string;
+  /** The deal's stage key, which the stage filter matches on. */
+  stageKey: string;
   stageLabel: string;
   /** Position in the thesis's stage list; unknown stages sort last. */
   stageOrder: number;
@@ -88,6 +90,54 @@ export const FIT_LABELS: Record<FitFilter, string> = {
 /** Falls back to newest-first for an absent or unrecognised `?sort=`. */
 export function asSortKey(value: string | undefined): SortKey {
   return SORT_KEYS.includes(value as SortKey) ? (value as SortKey) : 'received';
+}
+
+/** The part of the pipeline view that lives in the URL and is applied in the browser. */
+export interface PipelineView {
+  /** A stage key, or '' for all. An unknown key matches no deal. */
+  stage: string;
+  fit: FitFilter | null;
+  sort: SortKey;
+  direction: SortDirection;
+}
+
+export function readPipelineView(params: { get(key: string): string | null }): PipelineView {
+  return {
+    stage: params.get('stage') ?? '',
+    fit: asFitFilter(params.get('fit') ?? undefined),
+    sort: asSortKey(params.get('sort') ?? undefined),
+    direction: params.get('dir') === 'asc' ? 'asc' : 'desc',
+  };
+}
+
+export function filterRows(
+  rows: DealRow[],
+  { stage, fit }: { stage: string; fit: FitFilter | null },
+): DealRow[] {
+  return rows.filter((row) => (!stage || row.stageKey === stage) && (!fit || row.fit === fit));
+}
+
+/**
+ * Deals per stage key, within the active fit filter, so each stage chip counts
+ * what clicking it would show. The "All" chip is the sum.
+ */
+export function stageCounts(rows: DealRow[], fit: FitFilter | null): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    if (fit && row.fit !== fit) continue;
+    counts[row.stageKey] = (counts[row.stageKey] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/** Deals per fit flag, within the active stage filter. */
+export function fitCounts(rows: DealRow[], stage: string): Record<FitFilter, number> {
+  const counts: Record<FitFilter, number> = { likely: 0, possible: 0, unlikely: 0 };
+  for (const row of rows) {
+    if (stage && row.stageKey !== stage) continue;
+    if (row.fit) counts[row.fit] = (counts[row.fit] ?? 0) + 1;
+  }
+  return counts;
 }
 
 /**

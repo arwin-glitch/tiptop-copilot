@@ -23,6 +23,8 @@ export function DealsFilterBar({
   fits = [],
   archived = false,
   archivedCount = 0,
+  onStageChange,
+  onFitChange,
 }: {
   stages: DealStage[];
   counts: Record<string, number>;
@@ -34,17 +36,20 @@ export function DealsFilterBar({
   /** The archived ("Not a deal") view (`?archived=1`). */
   archived?: boolean;
   archivedCount?: number;
+  /** Stage and fit filter the loaded rows in place, without a server round trip. */
+  onStageChange: (stage: string | null) => void;
+  onFitChange: (fit: FitFilter | null) => void;
 }) {
   const router = useRouter();
   const params = useSearchParams();
-  // With hundreds of deals the filtered page takes a moment to come back from
-  // the server; without a pending state a click looks like it did nothing.
+  // The archived list is a different data set, so that chip still goes to the
+  // server; without a pending state the click would look like it did nothing.
   const [pending, startTransition] = React.useTransition();
 
-  const setParam = (key: string, value: string | null) => {
+  const toggleArchived = () => {
     const next = new URLSearchParams(params.toString());
-    if (!value) next.delete(key);
-    else next.set(key, value);
+    if (archived) next.delete('archived');
+    else next.set('archived', '1');
     startTransition(() => router.push(`/deals?${next.toString()}`));
   };
 
@@ -63,7 +68,7 @@ export function DealsFilterBar({
           pressed={!stage}
           label="All"
           count={Object.values(counts).reduce((a, b) => a + b, 0)}
-          onToggle={() => setParam('stage', null)}
+          onToggle={() => onStageChange(null)}
         />
         {stages.map((s) => (
           <FilterChip
@@ -71,7 +76,7 @@ export function DealsFilterBar({
             pressed={stage === s.key}
             label={s.label}
             count={counts[s.key] ?? 0}
-            onToggle={() => setParam('stage', s.key)}
+            onToggle={() => onStageChange(s.key)}
           />
         ))}
         {archived || archivedCount > 0 ? (
@@ -79,21 +84,21 @@ export function DealsFilterBar({
             pressed={archived}
             label="Archived"
             count={archivedCount}
-            onToggle={() => setParam('archived', archived ? null : '1')}
+            onToggle={toggleArchived}
           />
         ) : null}
       </FilterChipRow>
 
       {fits.some((f) => f.count > 0) || fit ? (
         <FilterChipRow aria-label="Filter by fit" className="sm:flex-wrap sm:overflow-x-visible">
-          <FilterChip pressed={!fit} label="Any fit" onToggle={() => setParam('fit', null)} />
+          <FilterChip pressed={!fit} label="Any fit" onToggle={() => onFitChange(null)} />
           {fits.map((f) => (
             <FilterChip
               key={f.key}
               pressed={fit === f.key}
               label={FIT_LABELS[f.key]}
               count={f.count}
-              onToggle={() => setParam('fit', fit === f.key ? null : f.key)}
+              onToggle={() => onFitChange(fit === f.key ? null : f.key)}
             />
           ))}
         </FilterChipRow>

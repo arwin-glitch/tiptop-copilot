@@ -76,6 +76,75 @@ test('stage chips count the pipeline, and routine deals carry fit, source and su
   await expect(table.locator('tbody tr').first()).toContainText('Fernhollow Robotics');
 });
 
+/** Any RSC fetch of /deals: a server render, a refresh or a prefetch. */
+function isDealsRsc(request: Request): boolean {
+  return new URL(request.url()).pathname === '/deals' && request.headers()['rsc'] === '1';
+}
+
+test('stage, fit and sort apply in the browser with no server render, and Back undoes them', async ({
+  page,
+}) => {
+  await gotoDeals(page);
+  const table = page.getByRole('table');
+  const rows = table.locator('tbody tr');
+  const names = () => table.locator('tbody th a').allInnerTexts();
+  await expect(rows.first()).toBeVisible();
+  const newestFirst = await names();
+  // Let the load's own link prefetches (the nav's /deals among them) finish.
+  await page.waitForLoadState('networkidle');
+
+  const rsc: string[] = [];
+  page.on('request', (request) => {
+    if (isDealsRsc(request)) rsc.push(request.url());
+  });
+
+  const company = table.getByRole('columnheader', { name: 'Company' });
+  await company.getByRole('button').click();
+  await expect(page).toHaveURL(/\?sort=company&dir=asc$/);
+  await expect(company).toHaveAttribute('aria-sort', 'ascending');
+  const byName = await names();
+  expect(byName).toEqual([...newestFirst].sort((a, b) => a.localeCompare(b)));
+  expect(byName).not.toEqual(newestFirst);
+
+  const stages = page.getByRole('group', { name: 'Filter by stage' });
+  const diligence = stages.getByRole('button', { name: /^Diligence\s*\d+$/ });
+  const diligenceCount = Number(/(\d+)\s*$/.exec(await diligence.innerText())?.[1]);
+  expect(diligenceCount).toBeGreaterThan(1);
+  await diligence.click();
+  await expect(page).toHaveURL(/&stage=diligence$/);
+  await expect(diligence).toHaveAttribute('aria-pressed', 'true');
+  await expect(rows).toHaveCount(diligenceCount);
+  for (const text of await rows.allInnerTexts()) expect(text).toContain('Diligence');
+  const diligenceNames = await names();
+  expect(diligenceNames).toEqual(byName.filter((name) => diligenceNames.includes(name)));
+
+  await page
+    .getByRole('group', { name: 'Filter by fit' })
+    .getByRole('button', { name: /^Likely fit/ })
+    .click();
+  await expect(page).toHaveURL(/&stage=diligence&fit=likely$/);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Brightkiln Freight');
+  // The stage chips now count within the fit filter.
+  await expect(stages.getByRole('button', { name: /^Diligence\s*1$/ })).toBeVisible();
+
+  await page.waitForTimeout(500);
+  expect(rsc).toEqual([]);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/&stage=diligence$/);
+  await expect(rows).toHaveCount(diligenceCount);
+  await page.goBack();
+  await expect(page).toHaveURL(/\?sort=company&dir=asc$/);
+  await expect(rows).toHaveCount(newestFirst.length);
+  expect(await names()).toEqual(byName);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/deals$/);
+  await expect(company).not.toHaveAttribute('aria-sort', 'ascending');
+  expect(await names()).toEqual(newestFirst);
+  expect(rsc).toEqual([]);
+});
+
 test('the deal page shows the Deal-sorter card and links the Gmail thread', async ({ page }) => {
   await page.goto(`/deals/${DEMO.tidewell}`);
   await expect(page.getByRole('heading', { name: 'Deal-sorter' })).toBeVisible();

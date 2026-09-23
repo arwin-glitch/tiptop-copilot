@@ -16,20 +16,9 @@ import { getActiveThesis } from '@/lib/services/thesis';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { VersionWatcher } from '@/components/shell/version-watcher';
 import { EmptyState, SkeletonText } from '@/components/ui/feedback';
-import { DealsFilterBar, ComparePanel } from '@/components/deals/deals-client';
+import { DealsBrowser } from '@/components/deals/deals-browser';
 import { DealSorterStatus } from '@/components/deals/deal-sorter-status';
-import { DealsTable } from '@/components/deals/deals-table';
-import {
-  asFitFilter,
-  asSortKey,
-  chooseColumnMode,
-  FIT_FILTERS,
-  sortRows,
-  type DealRow,
-  type FitFilter,
-  type SortDirection,
-  type SortKey,
-} from '@/lib/deals/pipeline-view';
+import { chooseColumnMode, type DealRow } from '@/lib/deals/pipeline-view';
 import { describeDealSorterStatus } from '@/lib/deals/sorter-status';
 
 export const metadata: Metadata = { title: 'Deals' };
@@ -44,12 +33,10 @@ export default async function DealsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const stage = single(params.stage) ?? '';
+  // Stage, fit and sort are applied in the browser (DealsBrowser); only the
+  // search and the archived list change which deals are sent.
   const q = single(params.q) ?? '';
-  const fit = asFitFilter(single(params.fit));
   const archived = single(params.archived) === '1';
-  const sort = asSortKey(single(params.sort));
-  const direction: SortDirection = single(params.dir) === 'asc' ? 'asc' : 'desc';
 
   return (
     <PageShell>
@@ -58,34 +45,13 @@ export default async function DealsPage({
         subtitle="Everything in the pipeline, with the current recommendation and how much of it rests on real evidence."
       />
       <Suspense fallback={<SkeletonText lines={10} />}>
-        <DealsContent
-          stage={stage}
-          q={q}
-          fit={fit}
-          archived={archived}
-          sort={sort}
-          direction={direction}
-        />
+        <DealsContent q={q} archived={archived} />
       </Suspense>
     </PageShell>
   );
 }
 
-async function DealsContent({
-  stage,
-  q,
-  fit,
-  archived,
-  sort,
-  direction,
-}: {
-  stage: string;
-  q: string;
-  fit: FitFilter | null;
-  archived: boolean;
-  sort: SortKey;
-  direction: SortDirection;
-}) {
+async function DealsContent({ q, archived }: { q: string; archived: boolean }) {
   const auth = await requireAuth();
   const store = getStore();
   const orgId = auth.organizationId;
@@ -114,33 +80,15 @@ async function DealsContent({
     : await store.count('deals', orgId, { eq: { is_archived: true } });
 
   const base = archivedDeals ?? live;
-  const fitOf = (id: string) => sidecars.get(id)?.state.fit ?? null;
-  let matching = base;
+  let deals = base;
   if (q) {
-    // Server-side search only when there is a query; everything else filters
-    // the one list in memory.
     const hits = await listDeals(orgId, {
       search: q,
       ...(archived ? { archivedOnly: true } : {}),
     });
     const ids = new Set(hits.map((d) => d.id));
-    matching = base.filter((d) => ids.has(d.id));
+    deals = base.filter((d) => ids.has(d.id));
   }
-
-  const counts = new Map<string, number>();
-  for (const d of matching) {
-    if (fit && fitOf(d.id) !== fit) continue;
-    counts.set(d.stage, (counts.get(d.stage) ?? 0) + 1);
-  }
-  const fitCounts: Record<string, number> = {};
-  for (const d of matching) {
-    if (stage && d.stage !== stage) continue;
-    const f = fitOf(d.id);
-    if (f) fitCounts[f] = (fitCounts[f] ?? 0) + 1;
-  }
-  const deals = matching.filter(
-    (d) => (!stage || d.stage === stage) && (!fit || fitOf(d.id) === fit),
-  );
 
   const analyses = await latestAnalysesByDeal(
     store,
@@ -163,6 +111,7 @@ async function DealsContent({
     return {
       id: deal.id,
       companyName: deal.company_name,
+      stageKey: deal.stage,
       stageLabel: stageByKey.get(deal.stage)?.label ?? deal.stage,
       stageOrder: stageByKey.get(deal.stage)?.order ?? Number.MAX_SAFE_INTEGER,
       vertical: deal.vertical,
@@ -209,9 +158,8 @@ async function DealsContent({
     timezone: auth.profile.timezone,
   });
   const watch = dealRelayConfigured() || auth.isDemo;
-  const filtered = Boolean(q || stage || fit);
   // With nothing listed, the empty state says the same thing; once is enough.
-  const showStrip = deals.length > 0 || filtered || archived;
+  const showStrip = deals.length > 0 || Boolean(q) || archived;
 
   return (
     <>
@@ -223,57 +171,41 @@ async function DealsContent({
       ) : null}
       {showStrip ? <DealSorterStatus view={statusView} /> : null}
 
-      <DealsFilterBar
+      <DealsBrowser
+        rows={rows}
         stages={thesis.deal_stages}
-        counts={Object.fromEntries(counts)}
-        stage={stage}
         q={q}
-        fit={fit}
-        fits={FIT_FILTERS.map((f) => ({ key: f, count: fitCounts[f] ?? 0 }))}
         archived={archived}
         archivedCount={archivedCount}
-      />
-
-      {deals.length === 0 ? (
-        <EmptyState
-          className="mt-5"
-          title={filtered ? 'No deals match' : archived ? 'Nothing archived' : 'No deals yet'}
-          description={
-            filtered
-              ? 'Clear the filters, or widen the search.'
-              : archived
-                ? 'Deals marked "Not a deal" land here, and can be restored.'
-                : `${statusView.message}${
-                    aiAvailable
-                      ? ' You can also open a pitch email in the Inbox and choose "Analyse as deal".'
-                      : ''
-                  }`
-          }
-          action={
-            filtered || archived
-              ? { label: filtered ? 'Clear filters' : 'Back to the pipeline', href: '/deals' }
-              : statusView.configLink
-                ? { label: 'See what is configured', href: '/diagnostics' }
-                : aiAvailable
-                  ? { label: 'Go to Inbox', href: '/inbox' }
-                  : undefined
-          }
-        />
-      ) : (
-        <>
-          {aiAvailable && !archived ? (
-            <ComparePanel deals={deals.map((d) => ({ id: d.id, company_name: d.company_name }))} />
-          ) : null}
-
-          <DealsTable
-            rows={sortRows(rows, sort, direction)}
-            sort={sort}
-            direction={direction}
-            mode={mode}
-            archived={archived}
+        aiAvailable={aiAvailable}
+        mode={mode}
+        empty={
+          <EmptyState
+            className="mt-5"
+            title={q ? 'No deals match' : archived ? 'Nothing archived' : 'No deals yet'}
+            description={
+              q
+                ? 'Clear the filters, or widen the search.'
+                : archived
+                  ? 'Deals marked "Not a deal" land here, and can be restored.'
+                  : `${statusView.message}${
+                      aiAvailable
+                        ? ' You can also open a pitch email in the Inbox and choose "Analyse as deal".'
+                        : ''
+                    }`
+            }
+            action={
+              q || archived
+                ? { label: q ? 'Clear filters' : 'Back to the pipeline', href: '/deals' }
+                : statusView.configLink
+                  ? { label: 'See what is configured', href: '/diagnostics' }
+                  : aiAvailable
+                    ? { label: 'Go to Inbox', href: '/inbox' }
+                    : undefined
+            }
           />
-        </>
-      )}
+        }
+      />
     </>
   );
 }

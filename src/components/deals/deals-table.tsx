@@ -48,6 +48,7 @@ export function DealsTable({
   direction,
   mode = 'scores',
   archived = false,
+  onSort,
 }: {
   rows: DealRow[];
   sort: SortKey;
@@ -56,18 +57,18 @@ export function DealsTable({
   mode?: ColumnMode;
   /** The archived ("Not a deal") list, where each row can be restored. */
   archived?: boolean;
+  /** Applies a header click in place; without it the click navigates. */
+  onSort?: (sort: SortKey, direction: SortDirection) => void;
 }) {
   const router = useRouter();
   const params = useSearchParams();
 
   /**
    * Sorting lives in the URL rather than in component state: it survives a
-   * reload, it is shareable, and it keeps this component from owning a second
-   * copy of an ordering the server already applied.
+   * reload, it is shareable, and Back undoes it.
    */
   const toggle = React.useCallback(
     (key: SortKey) => {
-      const next = new URLSearchParams(params.toString());
       // Clicking the active column reverses it; clicking a new one starts from
       // that column's natural direction — A–Z for names, pipeline order for
       // stages, highest-first for figures and newest-first for dates.
@@ -79,11 +80,16 @@ export function DealsTable({
           : key === 'company' || key === 'stage'
             ? 'asc'
             : 'desc';
+      if (onSort) {
+        onSort(key, nextDirection);
+        return;
+      }
+      const next = new URLSearchParams(params.toString());
       next.set('sort', key);
       next.set('dir', nextDirection);
       router.push(`/deals?${next.toString()}`);
     },
-    [direction, params, router, sort],
+    [direction, onSort, params, router, sort],
   );
 
   const sortFor = (key: SortKey) => ({

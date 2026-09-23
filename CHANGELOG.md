@@ -33,6 +33,9 @@ which also amends D-012.
   fit filter. With no AI key and no analyses, the table shows fit, source and
   last activity instead of empty score columns, and sorting by stage follows
   the pipeline order.
+- Deals filters and sorting are instant, in the browser: the stage and fit
+  chips and the column headers no longer wait for the server. They stay in the
+  URL, so Back, a reload and a shared link keep the view.
 - Each deal page has a Deal-sorter card (stage view, evidence, fit, source,
   next step, who owns the stage), Gmail thread links in Sources, "Not a deal"
   (archive) and, from the archived list, Restore. Compare and the reply drafts
