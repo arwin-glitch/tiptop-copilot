@@ -3,6 +3,8 @@ import { getAI, getStore } from '@/lib/runtime';
 import { PROMPTS } from '@/lib/ai/prompts';
 import { dealAnalysisSchema, type CitationRef } from '@/lib/ai/schemas';
 import type { AuthContext } from '@/lib/auth/session';
+import { chunk, listAllPages } from '@/lib/db/paging';
+import type { DataStore } from '@/lib/db/store';
 import { recordAudit } from '@/lib/security/audit';
 import { checkAiBudget, recordAiUsage } from '@/lib/security/limits';
 import { UNTRUSTED_CONTENT_RULE } from '@/lib/security/injection';
@@ -299,6 +301,33 @@ export async function latestAnalysis(
     { orderBy: [{ field: 'version', direction: 'desc' }], limit: 1 },
   )) as DealAnalysis[];
   return rows[0] ?? null;
+}
+
+/**
+ * The newest analysis of each deal, in one query per hundred deals rather
+ * than one per deal. The pipeline page and Today both list every deal, and a
+ * routine-fed pipeline holds hundreds.
+ */
+export async function latestAnalysesByDeal(
+  store: DataStore,
+  organizationId: string,
+  dealIds: readonly string[],
+): Promise<Map<string, DealAnalysis>> {
+  const latest = new Map<string, DealAnalysis>();
+  for (const ids of chunk([...new Set(dealIds)], 100)) {
+    const rows = (await listAllPages(
+      store,
+      'deal_analyses',
+      organizationId,
+      { in: { deal_id: ids } },
+      [{ field: 'version', direction: 'desc' }],
+    )) as DealAnalysis[];
+    for (const row of rows) {
+      const current = latest.get(row.deal_id);
+      if (!current || row.version > current.version) latest.set(row.deal_id, row);
+    }
+  }
+  return latest;
 }
 
 export async function analysisHistory(

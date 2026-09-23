@@ -4,6 +4,7 @@ import { PROMPTS } from '@/lib/ai/prompts';
 import { dailyOutlookSchema } from '@/lib/ai/schemas';
 import type { AuthContext } from '@/lib/auth/session';
 import { getAI, getCalendarProvider, getResearchProvider, getStore } from '@/lib/runtime';
+import { listAllPages } from '@/lib/db/paging';
 import { recordAudit } from '@/lib/security/audit';
 import { checkAiBudget, recordAiUsage } from '@/lib/security/limits';
 import type {
@@ -22,6 +23,8 @@ import { newId } from '@/lib/util/hash';
 import { relativeTime, todayWindow } from '@/lib/util/time';
 import { truncate } from '@/lib/util/text';
 import { err, ok, type Result } from '@/lib/util/result';
+import { latestAnalysesByDeal } from './deal-analysis';
+import { readSidecars } from './deal-ingest';
 import { getPrimaryIntegration } from './inbox';
 import { dueAndOverdue } from './tasks';
 import { getActiveThesis } from './thesis';
@@ -119,14 +122,9 @@ export async function gatherTodayData(
       },
       { orderBy: [{ field: 'starts_at', direction: 'asc' }] },
     ) as Promise<CalendarEvent[]>,
-    store.list(
-      'deals',
-      auth.organizationId,
-      { eq: { is_archived: false } },
-      {
-        orderBy: [{ field: 'received_at', direction: 'desc' }],
-      },
-    ) as Promise<Deal[]>,
+    listAllPages(store, 'deals', auth.organizationId, { eq: { is_archived: false } }, [
+      { field: 'received_at', direction: 'desc' },
+    ]) as Promise<Deal[]>,
     dueAndOverdue(auth.organizationId, now),
     store.list(
       'portfolio_updates',
@@ -157,27 +155,38 @@ export async function gatherTodayData(
     (m) => m.category === 'lp_or_advisor' || m.category === 'co_investor',
   );
 
+  // The deal-sorter lists every deal it finds, including every weekly feed deal,
+  // fit-flagged. Today is for what needs Nick, so a routine deal flagged
+  // fit-unlikely stays on /deals and off this page.
+  const sidecars = await readSidecars(store, auth.organizationId);
+  const worthToday = (d: Deal) => sidecars.get(d.id)?.state.fit !== 'unlikely';
+
   const newDeals = deals.filter(
-    (d) => Date.parse(d.received_at) >= now.getTime() - 3 * 86_400_000 && d.stage === 'new',
+    (d) =>
+      Date.parse(d.received_at) >= now.getTime() - 3 * 86_400_000 &&
+      d.stage === 'new' &&
+      worthToday(d),
   );
 
-  const awaitingStages = new Set([
-    'new',
-    'reviewing',
-    'waiting_for_info',
-    'diligence',
-    'ic_review',
-  ]);
-  const awaitingDecision: { deal: Deal; analysis: DealAnalysis | null }[] = [];
-  for (const deal of deals.filter((d) => awaitingStages.has(d.stage)).slice(0, 10)) {
-    const rows = (await store.list(
-      'deal_analyses',
-      auth.organizationId,
-      { eq: { deal_id: deal.id } },
-      { orderBy: [{ field: 'version', direction: 'desc' }], limit: 1 },
-    )) as DealAnalysis[];
-    awaitingDecision.push({ deal, analysis: rows[0] ?? null });
-  }
+  // Furthest along first: a deal at IC review is closer to a decision than a
+  // new one, whatever order they arrived in.
+  const awaitingOrder = ['ic_review', 'diligence', 'waiting_for_info', 'reviewing', 'new'];
+  const awaitingDeals = deals
+    .filter((d) => awaitingOrder.includes(d.stage) && worthToday(d))
+    .sort(
+      (a, b) =>
+        awaitingOrder.indexOf(a.stage) - awaitingOrder.indexOf(b.stage) ||
+        Date.parse(b.received_at) - Date.parse(a.received_at),
+    )
+    .slice(0, 10);
+  const analyses = await latestAnalysesByDeal(
+    store,
+    auth.organizationId,
+    awaitingDeals.map((d) => d.id),
+  );
+  const awaitingDecision: { deal: Deal; analysis: DealAnalysis | null }[] = awaitingDeals.map(
+    (deal) => ({ deal, analysis: analyses.get(deal.id) ?? null }),
+  );
 
   const meetingPrep = await Promise.all(
     meetings.map((event) => buildMeetingPrep(auth, event, deals, portfolioCompanies, recentEmails)),

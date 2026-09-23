@@ -208,3 +208,60 @@ describe('generateDailyBrief', () => {
     expect(result.value.date_key).toBe('2026-08-01');
   });
 });
+
+describe('deals on Today, with the deal-sorter feeding the pipeline', () => {
+  async function routineDeal(name: string, stage: string, fit: 'likely' | 'possible' | 'unlikely') {
+    const { blankDealRow } = await import('@/lib/services/deal-ingest');
+    const now = new Date().toISOString();
+    const deal = { ...blankDealRow(harness.auth.organizationId, name, now, now), stage };
+    await harness.store.insert('deals', deal);
+    await harness.store.insert('deal_facts', {
+      id: crypto.randomUUID(),
+      organization_id: harness.auth.organizationId,
+      deal_id: deal.id,
+      field: 'routine:state',
+      value: JSON.stringify({ v: 1, keys: [name.toLowerCase()], fit, created_by_routine: true }),
+      source_type: 'model_inference',
+      evidence_quote: null,
+      citation_id: null,
+      confidence: null,
+      version: 1,
+      superseded_by: null,
+      created_by: null,
+      created_at: now,
+    });
+    return deal;
+  }
+
+  it('keeps fit-unlikely routine deals off the new and awaiting lists', async () => {
+    await routineDeal('ZZ Unlikely Feed Co', 'new', 'unlikely');
+    await routineDeal('ZZ Possible Feed Co', 'new', 'possible');
+    const data = await gatherTodayData(harness.auth);
+    const newNames = data.newDeals.map((d) => d.company_name);
+    const awaitingNames = data.awaitingDecision.map((a) => a.deal.company_name);
+    expect(newNames).toContain('ZZ Possible Feed Co');
+    expect(newNames).not.toContain('ZZ Unlikely Feed Co');
+    expect(awaitingNames).not.toContain('ZZ Unlikely Feed Co');
+  });
+
+  it('orders awaiting-a-decision by how far along each deal is', async () => {
+    await routineDeal('ZZ IC Co', 'ic_review', 'likely');
+    const data = await gatherTodayData(harness.auth);
+    const order = ['ic_review', 'diligence', 'waiting_for_info', 'reviewing', 'new'];
+    const ranks = data.awaitingDecision.map((a) => order.indexOf(a.deal.stage));
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+    expect(data.awaitingDecision[0]?.deal.company_name).toBe('ZZ IC Co');
+  });
+
+  it('reads the analyses for the awaiting list in one batched query, not one per deal', async () => {
+    const list = harness.store.list.bind(harness.store);
+    let analysisQueries = 0;
+    harness.store.list = (async (...args: Parameters<typeof list>) => {
+      if (args[0] === 'deal_analyses') analysisQueries++;
+      return list(...args);
+    }) as typeof harness.store.list;
+    const data = await gatherTodayData(harness.auth);
+    expect(data.awaitingDecision.length).toBeGreaterThan(1);
+    expect(analysisQueries).toBe(1);
+  });
+});
