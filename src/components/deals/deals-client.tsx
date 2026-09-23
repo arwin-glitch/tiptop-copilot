@@ -37,16 +37,19 @@ export function DealsFilterBar({
 }) {
   const router = useRouter();
   const params = useSearchParams();
+  // With hundreds of deals the filtered page takes a moment to come back from
+  // the server; without a pending state a click looks like it did nothing.
+  const [pending, startTransition] = React.useTransition();
 
   const setParam = (key: string, value: string | null) => {
     const next = new URLSearchParams(params.toString());
     if (!value) next.delete(key);
     else next.set(key, value);
-    router.push(`/deals?${next.toString()}`);
+    startTransition(() => router.push(`/deals?${next.toString()}`));
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" aria-busy={pending}>
       <LiveSearch
         path="/deals"
         value={q}
@@ -55,7 +58,7 @@ export function DealsFilterBar({
         className="max-w-sm"
       />
 
-      <FilterChipRow aria-label="Filter by stage">
+      <FilterChipRow aria-label="Filter by stage" className="sm:flex-wrap sm:overflow-x-visible">
         <FilterChip
           pressed={!stage}
           label="All"
@@ -82,7 +85,7 @@ export function DealsFilterBar({
       </FilterChipRow>
 
       {fits.some((f) => f.count > 0) || fit ? (
-        <FilterChipRow aria-label="Filter by fit">
+        <FilterChipRow aria-label="Filter by fit" className="sm:flex-wrap sm:overflow-x-visible">
           <FilterChip pressed={!fit} label="Any fit" onToggle={() => setParam('fit', null)} />
           {fits.map((f) => (
             <FilterChip
@@ -94,6 +97,11 @@ export function DealsFilterBar({
             />
           ))}
         </FilterChipRow>
+      ) : null}
+      {pending ? (
+        <p role="status" className="text-note text-[var(--fg-subtle)]">
+          Updating the list…
+        </p>
       ) : null}
     </div>
   );
