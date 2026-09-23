@@ -333,14 +333,16 @@ it as a backstop.
   founders and pass reasons stay out of a channel every member can read.
 - `DEAL_RELAY_POSTER_IDS` — comma-separated Slack user IDs. When set, a
   message from anyone else is ignored. Unset, every poster is read; the
-  channel is private, so its members are the only ones who can post.
+  channel is private, so its members are the only ones who can post. Set it
+  in production to the one account the routine posts as.
 
 Reading uses `ASK_RELAY_SLACK_TOKEN`, which for a private channel also needs
 `groups:history`, and the Slack app must be a member of `#deal-relay`.
 Without the token the Deals page says so, and nothing else is affected;
-Portfolio companies are still listed under Invested either way. Only one live
-deployment should have the token, because deals are matched by name rather
-than by a unique key (see [DECISIONS.md](DECISIONS.md) D-051).
+Portfolio companies are still listed under Invested either way. Deals the
+pull creates get ids derived from their source, so two deployments reading
+the same window collide rather than duplicate; keeping the token on one live
+deployment is still the simpler setup (see [DECISIONS.md](DECISIONS.md) D-051).
 
 ---
 

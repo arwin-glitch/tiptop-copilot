@@ -49,11 +49,39 @@ which also amends D-012.
 - An auto-linked email address in a relay message (`<mailto:x|x>`) now unwraps
   to the bare address instead of keeping the `mailto:` scheme, which failed
   validation and dropped the whole message.
-- A deal's website link is always `https://<domain>`, never the stored value.
+- A deal's website link is always `https://<domain>`, never the stored value,
+  and only for a plain hostname: `jane@x.example` or `a.example@b.example`
+  is not linked.
+
+### Relay hardening
+
+- A relay deal's website must be a plain hostname; email addresses anywhere in
+  its free text are replaced, and amounts are replaced in the evidence, next
+  step and pass reason (the round size the founder states stays in `raise`).
+- A bad optional field (a malformed thread id, an over-long title) drops that
+  field, not the deal. A message too long or nested too deep to be the
+  routine's is counted and skipped; it never stops the rest of the pull.
+- Dates later than the day of the post are clamped to it, so an upcoming
+  meeting cannot outrank a later pass. A `new` post is "no signal": it never
+  displaces a real stage, clears a next step, or shows as a suggestion.
+- Two companies that share a name (and so a key) with different websites stay
+  two deals. Archiving a duplicate no longer cuts the original off from
+  updates. Slack's auto-linked `zeta.ai` reads back as `zeta.ai`.
+- The Portfolio mirror never moves a deal back into Invested after a person
+  moved it out, including a deal the mirror created. A pass outcome the
+  routine wrote is cleared when it moves the deal on.
+- Deals the pull creates get ids derived from their source, so two instances
+  racing on the same window collide instead of duplicating. A failed insert is
+  counted and no longer stops the Portfolio mirror; a stage move whose
+  bookkeeping failed stays the routine's.
+- The relay is folded into the deployment's only organization and nowhere
+  else once there are two. The status strip keeps the newest change's counts
+  across quiet pulls, and says when saving (not reading) failed.
 
 **Deploy:** add `groups:history` to the Slack app behind
-`ASK_RELAY_SLACK_TOKEN` and invite it to #deal-relay. Leave the token off any
-standby deployment.
+`ASK_RELAY_SLACK_TOKEN` and invite it to #deal-relay. Set
+`DEAL_RELAY_POSTER_IDS` to the Slack user ID the routine posts as. Prefer
+keeping the token off any standby deployment.
 
 ## [0.3.3] — 2026-09-22
 

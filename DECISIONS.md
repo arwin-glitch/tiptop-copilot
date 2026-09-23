@@ -513,8 +513,10 @@ default, and Portfolio companies under Invested automatically.
 - **Relay.** `DEAL_UPSERT_V1` and `DEAL_SORTER_RUN_V1` messages in
   `#deal-relay` (`C0C40TVD4DP`, overridable, never falling back to the public
   relay channel). Each deal is validated on its own with a schema that has no
-  slot for emails, check sizes or terms; a reject is counted by path and
-  message, never by content. The pull re-reads 30 days (5 pages of 200), is
+  slot for emails, check sizes or terms; a website must be a plain hostname,
+  emails in any free text are replaced, and amounts in the evidence, next step
+  and pass reason. A bad optional field drops only that field; a bad key or
+  name drops the deal, counted by path and message, never by content. The pull re-reads 30 days (5 pages of 200), is
   throttled per minute, retries a network fault or 5xx after 10 seconds,
   honours `Retry-After`, maps Slack refusals to setup states the page names,
   and never throws. It runs on viewing /deals (bounded at 8 seconds, then
@@ -528,12 +530,17 @@ default, and Portfolio companies under Invested automatically.
   nothing.
 - **Folding.** Per company, the stage view with the latest *evidence date*
   wins, never simply the latest message, so a backfill phase that saw only
-  older evidence cannot regress a deal. Aliases, founders and threads are
-  unioned; a retraction counts only as the newest word.
+  older evidence cannot regress a deal. No date may be later than the day it
+  was posted (an upcoming meeting is dated when it was seen). `new` is the
+  routine saying it saw no signal, so it never displaces a real stage or
+  clears a next step. Aliases, founders and threads are unioned; a retraction
+  counts only as the newest word.
 - **Matching** against every deal including archived: the routine's key, then
   website domain (free mail ignored), then normalized name, then aliases both
-  ways — and a name match whose domains differ is not a match. An archived
-  match is never resurrected. A company with no deal that matches the
+  ways — and a match of any kind whose domains differ is not a match, the key
+  included (it is a slug of the name), so two companies sharing a name stay
+  two deals. A live match anywhere in that order beats an archived one; an
+  archived match with no live one is never resurrected. A company with no deal that matches the
   Portfolio tab is not created by the relay; the mirror covers it.
 - **Ownership by equality.** A column is written only while it is blank or
   still equals what the routine last wrote; a correction or an extraction
@@ -554,8 +561,13 @@ default, and Portfolio companies under Invested automatically.
   Portfolio company without a matching deal gets an `invested` deal filled from
   its row, and a matching deal at another stage is moved to `invested` once —
   audited `deal.stage_synced` with no user and the reason "in Portfolio tab",
-  and no decision row. A deal it already moved once is not moved again, so a
-  person moving it back out is final.
+  and no decision row. A deal it created or already moved is not moved
+  again, nor is one a person has staged or decided since the company joined
+  the Portfolio tab, so a person moving it back out is final.
+- **One organization.** `#deal-relay` is one fund's mailbox, so it is folded
+  into the deployment's only organization, and nowhere once there are two
+  (the rule in `lib/db/tenancy.ts`). The mirror, which reads only that
+  organization's own Portfolio tab, runs regardless.
 - **Pages.** /deals lists everything with one query (paged past the API's
   1,000-row cap), filters stage and fit in memory, and fetches analyses in one
   query per hundred deals instead of one per deal; with no AI and no analyses
@@ -572,6 +584,10 @@ already the confirmed record of what TipTop invested in, and asking a person
 to re-confirm each one on /deals added nothing.
 
 **Known limits.** There is no unique constraint on a deal's name, and the
-in-process dedupe protects one instance only, so only one live deployment
-(Render, not the idle Vercel standby) should have the relay token. The status
-strip reflects the last pull on the instance that served the page.
+in-process dedupe protects one instance only. New deals therefore get ids
+derived from their source (the relay key and domain, or the Portfolio row),
+so two instances racing on the same window collide on the primary key instead
+of duplicating; one live deployment with the relay token (Render, not the
+idle Vercel standby) is still the simpler setup. Deals matched only by name
+can still be told apart wrongly when neither side has a website. The status
+strip reflects the pulls on the instance that served the page.
