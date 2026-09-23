@@ -319,6 +319,29 @@ runs on its own hourly timer and the GitHub relay carries data both ways.
 All three are best-effort. If any is missing or a call fails, the question is
 still saved and the older path answers it later.
 
+### `DEAL_RELAY_CHANNEL_ID`, `DEAL_RELAY_POSTER_IDS`
+
+Optional. The deal-sorter cloud routine posts every deal it finds in Nick's
+mailbox, calendar and the weekly feed reports to a **private** Slack channel,
+`#deal-relay`, as `DEAL_UPSERT_V1` messages plus one `DEAL_SORTER_RUN_V1`
+heartbeat per run. The Deals page reads it on view (throttled to once a
+minute), an open Deals tab re-checks every 15 seconds, and the daily job reads
+it as a backstop.
+
+- `DEAL_RELAY_CHANNEL_ID` — defaults to `C0C40TVD4DP`, the private channel.
+  There is deliberately no fallback to the public relay channel: deal names,
+  founders and pass reasons stay out of a channel every member can read.
+- `DEAL_RELAY_POSTER_IDS` — comma-separated Slack user IDs. When set, a
+  message from anyone else is ignored. Unset, every poster is read; the
+  channel is private, so its members are the only ones who can post.
+
+Reading uses `ASK_RELAY_SLACK_TOKEN`, which for a private channel also needs
+`groups:history`, and the Slack app must be a member of `#deal-relay`.
+Without the token the Deals page says so, and nothing else is affected;
+Portfolio companies are still listed under Invested either way. Only one live
+deployment should have the token, because deals are matched by name rather
+than by a unique key (see [DECISIONS.md](DECISIONS.md) D-051).
+
 ---
 
 ## Ceilings

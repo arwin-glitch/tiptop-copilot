@@ -158,3 +158,15 @@ services:
       # hand.
       - key: TASK_BRIDGE_TOKEN
         sync: false
+
+      # The private #deal-relay channel the deal-sorter routine posts to. Not a
+      # secret; the code default is the real channel, so this is only an
+      # override. Read with ASK_RELAY_SLACK_TOKEN, which then also needs
+      # groups:history. Only one live deployment should read it (see D-051).
+      - key: DEAL_RELAY_CHANNEL_ID
+        sync: false
+
+      # Optional comma-separated Slack user IDs whose posts in #deal-relay are
+      # read; anything from anyone else is ignored. Unset reads every poster.
+      - key: DEAL_RELAY_POSTER_IDS
+        sync: false

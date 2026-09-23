@@ -8,6 +8,53 @@ throughout.
 
 ---
 
+## [0.3.5] — 2026-09-23
+
+No schema change and no new dependency. New optional environment variables:
+`DEAL_RELAY_CHANNEL_ID` (defaults to the private #deal-relay channel) and
+`DEAL_RELAY_POSTER_IDS`. Reasoning in [DECISIONS.md](DECISIONS.md) D-051,
+which also amends D-012.
+
+### Deals arrive automatically
+
+- The deal-sorter cloud routine posts every real deal it finds to the private
+  #deal-relay Slack channel, and the Deals page folds those posts into the
+  pipeline: new deals with their source, founders and Gmail threads, fields
+  filled only while nobody has changed them, and stages moved only while no
+  person has set one. A stage a person set keeps it; the routine's view shows
+  beside it as "Suggests: X" with an Apply button.
+- Every company in the Portfolio tab is listed under Invested automatically,
+  as an audited system move with no decision row (Arwin's decision, amending
+  D-012). The routine itself never marks a deal invested.
+- A status strip under the header says whether the deal-sorter is keeping the
+  pipeline current, or names the one thing to fix (token, invite, scope).
+  An open Deals tab refreshes itself when the pipeline changes.
+- The pipeline lists everything, every weekly feed deal included, with a fit flag and a
+  fit filter. With no AI key and no analyses, the table shows fit, source and
+  last activity instead of empty score columns, and sorting by stage follows
+  the pipeline order.
+- Each deal page has a Deal-sorter card (stage view, evidence, fit, source,
+  next step, who owns the stage), Gmail thread links in Sources, "Not a deal"
+  (archive) and, from the archived list, Restore. Compare and the reply drafts
+  are hidden when no AI provider is connected.
+- Today leaves routine deals flagged fit-unlikely off its deal lists and ranks
+  "Awaiting a decision" by stage.
+- The daily job pulls the relay as a backstop and reports counts only.
+
+### Fixes
+
+- The Deals page and Today fetched each deal's analysis with its own query;
+  both now use one query per hundred deals, and the deal list is paged past
+  the API's 1,000-row limit.
+- An auto-linked email address in a relay message (`<mailto:x|x>`) now unwraps
+  to the bare address instead of keeping the `mailto:` scheme, which failed
+  validation and dropped the whole message.
+- A deal's website link is always `https://<domain>`, never the stored value.
+
+**Deploy:** add `groups:history` to the Slack app behind
+`ASK_RELAY_SLACK_TOKEN` and invite it to #deal-relay. Leave the token off any
+standby deployment.
+
 ## [0.3.3] — 2026-09-22
 
 No schema change, no new environment variable, no new dependency.

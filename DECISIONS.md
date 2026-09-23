@@ -58,6 +58,15 @@ The `invested` deal stage is reachable only through a human decision write
 (`recordDecision` with `actor: 'human'`). The schema does not contain the value,
 so it cannot be produced even by a jailbroken model.
 
+**Amended 2026-09-23 (D-051), on Arwin's explicit decision that day.** Being in
+the Portfolio tab also lists a company under Invested. The deal pull mirrors
+each Portfolio company into an `invested` deal — creating one from the
+Portfolio row, or moving a matching deal once — as a system move audited with
+no user and the reason "in Portfolio tab". No `deal_decisions` row is written:
+that table records people's decisions, and its actor is always human. The
+model still cannot emit `invested`, and the deal-sorter routine still never
+sets it.
+
 ### D-013 — Scores, completeness, evidence quality and confidence are four
 independent numbers
 
@@ -484,3 +493,85 @@ push to `relay-kick` runs whatever workflow files the pushed commit carries,
 and a routine pushing a commit from before this change would start the old
 job, which fails on the deleted script. Removing the variable is what keeps
 it from running.
+
+### D-051 — Routine-sourced deals: ownership by equality, evidence-dated moves, and Portfolio under Invested
+
+**Context.** /deals was empty in production: the only way a deal was created
+was "Analyse as deal", which needs an AI key the deployment deliberately does
+not have. A cloud routine (the deal-sorter) now reads Nick's mailbox, calendar
+and the weekly deal-feed reports and posts every real
+deal it finds, stage-sorted and fit-flagged, to a private Slack channel,
+because its sandbox cannot reach the app. A person also changes stages by
+hand, corrects facts, passes and invests, and the routine re-reads months of
+history. Arwin decided on 2026-09-23: a private `#deal-relay` channel, every
+deal listed (every feed deal included, fit-flagged), fit-unlikely routine
+deals kept off Today, no migration, the channel ID committed as a code
+default, and Portfolio companies under Invested automatically.
+
+**Decision.**
+
+- **Relay.** `DEAL_UPSERT_V1` and `DEAL_SORTER_RUN_V1` messages in
+  `#deal-relay` (`C0C40TVD4DP`, overridable, never falling back to the public
+  relay channel). Each deal is validated on its own with a schema that has no
+  slot for emails, check sizes or terms; a reject is counted by path and
+  message, never by content. The pull re-reads 30 days (5 pages of 200), is
+  throttled per minute, retries a network fault or 5xx after 10 seconds,
+  honours `Retry-After`, maps Slack refusals to setup states the page names,
+  and never throws. It runs on viewing /deals (bounded at 8 seconds, then
+  finished with `after()`), from an open tab's version watcher, and from the
+  daily job, whose status is counts only because it lands in a public log.
+- **No migration.** What the routine owns lives in one append-only
+  `deal_facts` row per deal, `field = 'routine:state'`: its keys and aliases,
+  its stage view with evidence and evidence date, the stage it last set and
+  when, what it last wrote to each column, and a content hash. Nothing else
+  reads that field. An unchanged window hashes the same, so a re-read writes
+  nothing.
+- **Folding.** Per company, the stage view with the latest *evidence date*
+  wins, never simply the latest message, so a backfill phase that saw only
+  older evidence cannot regress a deal. Aliases, founders and threads are
+  unioned; a retraction counts only as the newest word.
+- **Matching** against every deal including archived: the routine's key, then
+  website domain (free mail ignored), then normalized name, then aliases both
+  ways — and a name match whose domains differ is not a match. An archived
+  match is never resurrected. A company with no deal that matches the
+  Portfolio tab is not created by the relay; the mirror covers it.
+- **Ownership by equality.** A column is written only while it is blank or
+  still equals what the routine last wrote; a correction or an extraction
+  ends that for good. A stage is the routine's only while it equals the stage
+  the routine last set and no person has recorded a stage change or decision
+  since (or, for a deal it never staged, while it is `new` and untouched).
+  Then: never to `new`, `reviewing` only from `new`, never out of
+  `invested`, never *to* `invested` (wire evidence moves it no further than
+  `ic_review` and shows "Record invest decision"), and otherwise only on
+  evidence at least as new as the current stage's. A stage a person set only
+  gets a "Suggests: X" beside it, with an Apply button that is the ordinary
+  human stage change. The routine never writes `deal_decisions`.
+- **Retraction** archives a deal only if the routine created it, still owns
+  its stage, and nobody has decided, noted, tasked or restored it; otherwise it
+  is a banner with a human "Not a deal" button. "Not a deal" and "Restore" are
+  audited human actions.
+- **Portfolio under Invested** (amends D-012). After the relay, every
+  Portfolio company without a matching deal gets an `invested` deal filled from
+  its row, and a matching deal at another stage is moved to `invested` once —
+  audited `deal.stage_synced` with no user and the reason "in Portfolio tab",
+  and no decision row. A deal it already moved once is not moved again, so a
+  person moving it back out is final.
+- **Pages.** /deals lists everything with one query (paged past the API's
+  1,000-row cap), filters stage and fit in memory, and fetches analyses in one
+  query per hundred deals instead of one per deal; with no AI and no analyses
+  it shows fit, source and last activity instead of empty score columns.
+  Today hides routine deals flagged fit-unlikely and ranks "Awaiting a
+  decision" by how far along each deal is.
+
+**Why.** Equality is a lock that needs no schema: it cannot be forged by the
+routine and it survives a failed audit write, while the audit check catches a
+person moving A -> B -> A. Dating moves by evidence rather than by message
+order is what makes six overlapping backfill phases and daily incremental runs
+safe to replay in any order. The mirror is Arwin's call: the Portfolio tab is
+already the confirmed record of what TipTop invested in, and asking a person
+to re-confirm each one on /deals added nothing.
+
+**Known limits.** There is no unique constraint on a deal's name, and the
+in-process dedupe protects one instance only, so only one live deployment
+(Render, not the idle Vercel standby) should have the relay token. The status
+strip reflects the last pull on the instance that served the page.
