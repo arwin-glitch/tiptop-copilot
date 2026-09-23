@@ -3,7 +3,14 @@ import { createHarness, type Harness } from '../helpers/harness';
 import { resetEnvCache } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import { parseSidecar } from '@/lib/deals/routine-state';
-import { PORTFOLIO_MIRROR_REASON, SIDECAR_FIELD } from '@/lib/services/deal-ingest';
+import { latestAnalysesByDeal } from '@/lib/services/deal-analysis';
+import {
+  mirrorDealId,
+  PORTFOLIO_MIRROR_REASON,
+  relayDealId,
+  SIDECAR_FIELD,
+  stableUuid,
+} from '@/lib/services/deal-ingest';
 import {
   pullDealsFromSlack,
   resetDealPullState,
@@ -19,10 +26,12 @@ import {
 import type {
   AuditEvent,
   Deal,
+  DealAnalysis,
   DealDecision,
   DealFact,
   DealPerson,
   DealSource,
+  Organization,
   PortfolioCompany,
 } from '@/lib/types/domain';
 
@@ -397,8 +406,12 @@ describe('the Portfolio tab and Invested', () => {
     return found;
   }
 
-  async function addPortfolio(name: string, domain: string | null = null): Promise<void> {
-    const now = new Date().toISOString();
+  async function addPortfolio(
+    name: string,
+    domain: string | null = null,
+    at = new Date(),
+  ): Promise<void> {
+    const now = at.toISOString();
     await harness.store.insert('portfolio_companies', {
       ...(await portfolioNamed('Ledgerly')),
       id: crypto.randomUUID(),
@@ -496,6 +509,105 @@ describe('the Portfolio tab and Invested', () => {
     expect(all[0]!.is_archived).toBe(true);
     expect(all[0]!.stage).toBe('new');
   });
+
+  it('never re-invests a deal it created once a person moves it out', async () => {
+    const first = await pull(channel().impl);
+    expect(first.counts?.mirrored).toBe(2);
+    const deal = await dealByName('Ledgerly');
+    expect(deal.id).toBe(
+      mirrorDealId(harness.auth.organizationId, (await portfolioNamed('Ledgerly')).id),
+    );
+
+    expect((await updateDealStage(harness.auth, deal.id, 'monitoring')).ok).toBe(true);
+    const next = await pull(channel().impl);
+    expect(next.counts?.mirror_moved).toBe(0);
+    expect((await dealByName('Ledgerly')).stage).toBe('monitoring');
+
+    // A decision that moves the stage counts the same way.
+    await updateDealStage(harness.auth, deal.id, 'invested');
+    expect((await recordDecision(harness.auth, deal.id, 'pass', 'Wound down')).ok).toBe(true);
+    await pull(channel().impl);
+    expect((await dealByName('Ledgerly')).stage).toBe('passed');
+  });
+
+  it('leaves a person’s move out of Invested alone when they invested before the Portfolio row existed', async () => {
+    const base = company(12, {
+      name: 'ZZ Early Bet',
+      key: 'zz-early-bet',
+      website: 'zzearly.example',
+    });
+    await pull(
+      channel(upsert([{ ...base, stage: 'diligence', evidence_date: '2026-09-01' }])).impl,
+    );
+    const deal = await dealByName('ZZ Early Bet');
+    expect((await recordDecision(harness.auth, deal.id, 'invest', 'Wired')).ok).toBe(true);
+    await addPortfolio('ZZ Early Bet', 'zzearly.example', new Date(Date.now() + 1_000));
+    await pull(channel().impl);
+    expect((await dealByName('ZZ Early Bet')).stage).toBe('invested');
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 5_000);
+    await updateDealStage(harness.auth, deal.id, 'monitoring');
+    const after = await pull(channel().impl);
+    expect(after.counts?.mirror_moved).toBe(0);
+    expect((await dealByName('ZZ Early Bet')).stage).toBe('monitoring');
+  });
+
+  it('still moves a deal a person staged before the company joined the Portfolio tab', async () => {
+    const base = company(13, {
+      name: 'ZZ Staged Co',
+      key: 'zz-staged-co',
+      website: 'zzstaged.example',
+    });
+    await pull(channel(upsert([base])).impl);
+    const deal = await dealByName('ZZ Staged Co');
+    await updateDealStage(harness.auth, deal.id, 'diligence');
+    await addPortfolio('ZZ Staged Co', 'zzstaged.example', new Date(Date.now() + 60_000));
+    const moved = await pull(channel().impl);
+    expect(moved.counts?.mirror_moved).toBe(1);
+    expect((await dealByName('ZZ Staged Co')).stage).toBe('invested');
+  });
+
+  it('only annotates the deal of a company already in the Portfolio tab', async () => {
+    const base = company(14, {
+      name: 'ZZ Annotated Co',
+      key: 'zz-annotated-co',
+      website: 'zzannotated.example',
+      founders: [{ name: 'Founder Fourteen', title: 'CEO' }],
+    });
+    await pull(
+      channel(upsert([{ ...base, stage: 'reviewing', evidence_date: '2026-09-01' }])).impl,
+    );
+    const deal = await dealByName('ZZ Annotated Co');
+    await addPortfolio('ZZ Annotated Co', 'zzannotated.example');
+    await pull(channel().impl);
+    const before = await dealByName('ZZ Annotated Co');
+    expect(before.stage).toBe('invested');
+
+    const result = await pull(
+      channel(
+        upsert([
+          {
+            ...base,
+            fit: 'likely',
+            summary: 'A different routine summary',
+            stage: 'diligence',
+            evidence_date: '2026-09-10',
+            founders: [{ name: 'Someone New', title: 'CTO' }],
+          },
+        ]),
+      ).impl,
+    );
+    expect(result.counts?.updated).toBe(1);
+    const after = await dealByName('ZZ Annotated Co');
+    expect(after.stage).toBe('invested');
+    expect(after.product_summary).toBe(before.product_summary);
+    const people = (await harness.store.list('deal_people', harness.auth.organizationId, {
+      eq: { deal_id: deal.id },
+    })) as DealPerson[];
+    expect(people.map((p) => p.name)).toEqual(['Founder Fourteen']);
+    expect((await sidecarOf(deal.id))?.fit).toBe('likely');
+  });
 });
 
 describe('Slack failures', () => {
@@ -587,5 +699,278 @@ describe('Slack failures', () => {
     ]);
     expect(calls).toBe(1);
     expect(a).toBe(b);
+  });
+});
+
+describe('repairs from review', () => {
+  it('lands a new deal posted as invested at IC review, with no decision written', async () => {
+    const base = company(20, {
+      name: 'ZZ Wired Co',
+      key: 'zz-wired-co',
+      website: 'zzwired.example',
+    });
+    const result = await pull(
+      channel(
+        upsert([
+          {
+            ...base,
+            stage: 'invested',
+            evidence_kind: 'wire',
+            evidence: 'Sep 3: partner approved the fund-admin wire',
+            evidence_date: '2026-09-03',
+          },
+        ]),
+      ).impl,
+    );
+    expect(result.counts?.created).toBe(1);
+    expect(result.counts?.suggested).toBe(1);
+    const deal = await dealByName('ZZ Wired Co');
+    expect(deal.stage).toBe('ic_review');
+    expect(deal.id).toBe(
+      relayDealId(harness.auth.organizationId, 'zz-wired-co', 'zzwired.example'),
+    );
+    expect((await sidecarOf(deal.id))?.view).toMatchObject({
+      stage: 'invested',
+      evidence_kind: 'wire',
+    });
+    expect(
+      await harness.store.count('deal_decisions', harness.auth.organizationId, {
+        eq: { deal_id: deal.id },
+      }),
+    ).toBe(0);
+  });
+
+  it('derives stable, UUID-shaped ids', () => {
+    const id = stableUuid('seed');
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(stableUuid('seed')).toBe(id);
+    expect(relayDealId('org', 'zz-a', 'https://www.zz-a.example/x')).toBe(
+      relayDealId('org', 'zz-a', 'zz-a.example'),
+    );
+    expect(relayDealId('org', 'zz-a', 'zz-a.example')).not.toBe(relayDealId('org', 'zz-a', null));
+  });
+
+  it('adds founders to an existing deal without duplicating one', async () => {
+    const base = company(21);
+    await pull(channel(upsert([base])).impl);
+    const deal = await dealByName('ZZ Relay 21');
+    await pull(
+      channel(
+        upsert([base]),
+        upsert([
+          {
+            ...base,
+            founders: [{ name: 'founder 21', title: 'CEO' }, { name: 'Second Founder' }],
+          },
+        ]),
+      ).impl,
+    );
+    const people = (await harness.store.list('deal_people', harness.auth.organizationId, {
+      eq: { deal_id: deal.id },
+    })) as DealPerson[];
+    expect(people.map((p) => p.name).sort()).toEqual(['Founder 21', 'Second Founder']);
+  });
+
+  it('lets a pass through after an upcoming meeting was posted with its future date', async () => {
+    const base = company(22);
+    await pull(
+      channel(upsert([{ ...base, stage: 'founder_meeting', evidence_date: '2026-12-01' }])).impl,
+      new Date(Date.now() - 60_000),
+    );
+    const deal = await dealByName('ZZ Relay 22');
+    expect(deal.stage).toBe('founder_meeting');
+    const postDay = new Date(clock * 1000).toISOString().slice(0, 10);
+    expect((await sidecarOf(deal.id))?.stage_evidence_date).toBe(postDay);
+
+    await pull(
+      channel(
+        upsert([{ ...base, stage: 'founder_meeting', evidence_date: '2026-12-01' }]),
+        upsert([
+          { ...base, stage: 'passed', evidence_date: postDay, pass_reason: 'Outside the thesis' },
+        ]),
+      ).impl,
+    );
+    const after = await dealByName('ZZ Relay 22');
+    expect(after.stage).toBe('passed');
+    expect(after.outcome).toBe('Passed — Outside the thesis');
+  });
+
+  it('clears the pass outcome it wrote once it moves the deal on', async () => {
+    const base = company(23);
+    await pull(
+      channel(
+        upsert([
+          { ...base, stage: 'passed', evidence_date: '2026-09-01', pass_reason: 'Too early' },
+        ]),
+      ).impl,
+      new Date(Date.now() - 60_000),
+    );
+    expect((await dealByName('ZZ Relay 23')).outcome).toBe('Passed — Too early');
+    await pull(
+      channel(
+        upsert([
+          { ...base, stage: 'passed', evidence_date: '2026-09-01', pass_reason: 'Too early' },
+        ]),
+        upsert([{ ...base, stage: 'monitoring', evidence_date: '2026-09-15' }]),
+      ).impl,
+    );
+    const after = await dealByName('ZZ Relay 23');
+    expect(after.stage).toBe('monitoring');
+    expect(after.outcome).toBeNull();
+  });
+
+  it('keeps two companies that share a key apart, in one pull and across pulls', async () => {
+    const a = company(24, { key: 'zz-orbit', name: 'ZZ Orbit', website: 'orbit-a.example' });
+    const b = company(25, {
+      key: 'zz-orbit',
+      name: 'ZZ Orbit',
+      website: 'orbit-b.example',
+      summary: 'The other Orbit',
+    });
+    await pull(channel(upsert([a])).impl);
+    const result = await pull(channel(upsert([a]), upsert([b])).impl);
+    expect(result.counts?.created).toBe(1);
+    const both = await dealsNamed('ZZ Orbit');
+    expect(both.map((d) => d.domain).sort()).toEqual(['orbit-a.example', 'orbit-b.example']);
+    expect(both.find((d) => d.domain === 'orbit-a.example')?.product_summary).toBe(a.summary);
+
+    const c = company(26, { key: 'zz-kite', name: 'ZZ Kite', website: 'kite-a.example' });
+    const d = company(27, { key: 'zz-kite', name: 'ZZ Kite', website: 'kite-b.example' });
+    const same = await pull(channel(upsert([c, d])).impl);
+    expect(same.counts?.created).toBe(2);
+  });
+
+  it('keeps the routine the owner of a move whose sidecar write failed', async () => {
+    const base = company(28);
+    await pull(
+      channel(upsert([{ ...base, stage: 'founder_meeting', evidence_date: '2026-09-01' }])).impl,
+      new Date(Date.now() - 3 * 60_000),
+    );
+    const target = harness.store as unknown as Record<
+      string,
+      (...a: unknown[]) => Promise<unknown>
+    >;
+    const insert = target.insert!.bind(harness.store);
+    let failOnce = true;
+    target.insert = async (...args: unknown[]) => {
+      if (args[0] === 'deal_facts' && failOnce) {
+        failOnce = false;
+        throw new Error('transient');
+      }
+      return insert(...args);
+    };
+    const failed = await pull(
+      channel(
+        upsert([{ ...base, stage: 'founder_meeting', evidence_date: '2026-09-01' }]),
+        upsert([{ ...base, stage: 'diligence', evidence_date: '2026-09-05' }]),
+      ).impl,
+      new Date(Date.now() - 2 * 60_000),
+    );
+    expect(failed.counts?.failed).toBe(1);
+    expect((await dealByName('ZZ Relay 28')).stage).toBe('diligence');
+
+    const next = await pull(
+      channel(
+        upsert([{ ...base, stage: 'diligence', evidence_date: '2026-09-05' }]),
+        upsert([{ ...base, stage: 'ic_review', evidence_date: '2026-09-12' }]),
+      ).impl,
+    );
+    expect(next.counts?.moved).toBe(1);
+    expect((await dealByName('ZZ Relay 28')).stage).toBe('ic_review');
+  });
+
+  it('counts a failed insert of new deals and still mirrors the Portfolio tab', async () => {
+    const target = harness.store as unknown as Record<
+      string,
+      (...a: unknown[]) => Promise<unknown>
+    >;
+    const insertMany = target.insertMany!.bind(harness.store);
+    let failOnce = true;
+    target.insertMany = async (...args: unknown[]) => {
+      if (args[0] === 'deals' && failOnce) {
+        failOnce = false;
+        throw new Error('transient');
+      }
+      return insertMany(...args);
+    };
+    const result = await pull(channel(upsert([company(29), company(30)])).impl);
+    expect(result.state).toBe('ok');
+    expect(result.counts).toMatchObject({ created: 0, failed: 2, mirrored: 2 });
+    expect(await dealsNamed('ZZ Relay')).toHaveLength(0);
+
+    const retry = await pull(channel(upsert([company(29), company(30)])).impl);
+    expect(retry.counts?.created).toBe(2);
+  });
+
+  it('folds the relay into the only organization, and nowhere once there are two', async () => {
+    const now = new Date().toISOString();
+    await harness.store.insert('organizations', {
+      id: crypto.randomUUID(),
+      name: 'ZZ Second Workspace',
+      slug: 'zz-second',
+      created_at: now,
+      updated_at: now,
+    } as Organization);
+    const status = await pull(channel(upsert([company(31)])).impl);
+    expect(status.state).toBe('other_workspace');
+    expect(await dealsNamed('ZZ Relay')).toHaveLength(0);
+    // The Portfolio mirror is this organization's own data, so it still runs.
+    expect(status.counts?.mirrored).toBe(2);
+  });
+
+  it('keeps reporting the newest change across quiet pulls', async () => {
+    const slack = channel(upsert([company(32), company(33)]));
+    const first = await pull(slack.impl);
+    expect(first.lastChange?.counts.created).toBe(2);
+    const quiet = await pull(slack.impl);
+    expect(quiet.counts?.created).toBe(0);
+    expect(quiet.lastChange?.counts.created).toBe(2);
+    expect(quiet.lastChange?.at).toBe(first.lastChange?.at);
+  });
+
+  it('says it could not save, not that it could not read, when the ingest fails', async () => {
+    const target = harness.store as unknown as Record<
+      string,
+      (...a: unknown[]) => Promise<unknown>
+    >;
+    const list = target.list!.bind(harness.store);
+    target.list = async (...args: unknown[]) => {
+      if (args[0] === 'deals') throw new Error('database unavailable');
+      return list(...args);
+    };
+    const status = await pull(channel(upsert([company(34)])).impl);
+    expect(status.state).toBe('save_failed');
+  });
+
+  it('reads the newest analysis of each deal', async () => {
+    const [first, second] = (await harness.store.list(
+      'deals',
+      harness.auth.organizationId,
+      {},
+    )) as Deal[];
+    if (!first || !second) throw new Error('the demo has deals');
+    // Only the fields the lookup reads; the demo store does not check the rest.
+    const analysis = (dealId: string, version: number) =>
+      ({
+        id: crypto.randomUUID(),
+        organization_id: harness.auth.organizationId,
+        deal_id: dealId,
+        version,
+        headline: `ZZ v${version}`,
+      }) as unknown as DealAnalysis;
+    for (const row of [
+      analysis(first.id, 1),
+      analysis(first.id, 3),
+      analysis(first.id, 2),
+      analysis(second.id, 1),
+    ]) {
+      await harness.store.insert('deal_analyses', row);
+    }
+    const latest = await latestAnalysesByDeal(harness.store, harness.auth.organizationId, [
+      first.id,
+      second.id,
+    ]);
+    expect(latest.get(first.id)?.headline).toBe('ZZ v3');
+    expect(latest.get(second.id)?.headline).toBe('ZZ v1');
   });
 });

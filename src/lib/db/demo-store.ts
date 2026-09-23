@@ -94,7 +94,10 @@ export class DemoStore implements DataStore {
     const rows = await this.table(table);
     const scoped = rows.filter((r) => scopeless(table) || r.organization_id === organizationId);
     const matched = scoped.filter((r) => matchesFilter(r, filter));
-    return applyOptions(matched, options) as unknown as Row<T>[];
+    // Copies, like rows off the wire: a caller that edits what it read must
+    // not be editing the store, or a missing `update` would go unnoticed here
+    // and only show up against Supabase.
+    return applyOptions(matched, options).map((r) => structuredClone(r)) as unknown as Row<T>[];
   }
 
   async get<T extends TableName>(
@@ -107,7 +110,7 @@ export class DemoStore implements DataStore {
     const found = rows.find(
       (r) => r.id === id && (scopeless(table) || r.organization_id === organizationId),
     );
-    return (found as unknown as Row<T>) ?? null;
+    return found ? (structuredClone(found) as unknown as Row<T>) : null;
   }
 
   async findOne<T extends TableName>(
@@ -130,7 +133,7 @@ export class DemoStore implements DataStore {
 
   async insert<T extends TableName>(table: T, row: Row<T>): Promise<Row<T>> {
     const rows = await this.table(table);
-    rows.push(row as unknown as Record<string, unknown>);
+    rows.push(structuredClone(row) as unknown as Record<string, unknown>);
     await this.persist();
     return row;
   }
@@ -138,7 +141,7 @@ export class DemoStore implements DataStore {
   async insertMany<T extends TableName>(table: T, newRows: Row<T>[]): Promise<Row<T>[]> {
     if (newRows.length === 0) return [];
     const rows = await this.table(table);
-    for (const r of newRows) rows.push(r as unknown as Record<string, unknown>);
+    for (const r of newRows) rows.push(structuredClone(r) as unknown as Record<string, unknown>);
     await this.persist();
     return newRows;
   }
@@ -187,7 +190,7 @@ export class DemoStore implements DataStore {
       await this.persist();
       return { row: merged as unknown as Row<T>, created: false };
     }
-    rows.push(candidate);
+    rows.push(structuredClone(candidate));
     await this.persist();
     return { row, created: true };
   }

@@ -95,6 +95,29 @@ export function zeroCounts(): DealIngestCounts {
 }
 
 /**
+ * A UUID derived from a seed. Deals the ingest creates get one, so two app
+ * instances folding the same relay window (a deploy overlap, or the standby
+ * pointed at the same database) collide on the primary key instead of each
+ * inserting its own copy: the loser's insert fails, is counted, and its next
+ * pull finds the winner's row.
+ */
+export function stableUuid(seed: string): string {
+  const h = sha256(seed);
+  const variant = ((parseInt(h[16] ?? '0', 16) & 0x3) | 0x8).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/** The id a relay company's deal is created with. */
+export function relayDealId(organizationId: string, key: string, website?: string | null): string {
+  return stableUuid(`deal-relay:${organizationId}:${key}:${matchDomain(website) ?? ''}`);
+}
+
+/** The id a Portfolio company's mirrored Invested deal is created with. */
+export function mirrorDealId(organizationId: string, portfolioCompanyId: string): string {
+  return stableUuid(`portfolio-mirror:${organizationId}:${portfolioCompanyId}`);
+}
+
+/**
  * An error message fit for a log line that must never carry deal content: a
  * Postgres constraint message quotes the offending values ("Key (name)=(…)"),
  * so quoted and parenthesised parts are dropped.
@@ -268,6 +291,36 @@ export async function routineOwnsDealStage(
   if (!stageUntouched(deal.stage, sidecar)) return false;
   const latest = await latestHumanStageEvent(store, organizationId, deal.id);
   return routineOwnsStage({ dealStage: deal.stage, sidecar, latestHumanStageEventAt: latest });
+}
+
+/**
+ * A stage move of the routine's whose sidecar write was lost. The deal sits
+ * at the stage the newest system `deal.stage_synced` (not the Portfolio
+ * mirror's) moved it to, after the sidecar's `stage_set_at`, and no person
+ * has staged or decided it since: the move happened, only its bookkeeping
+ * failed, so the stage is still the routine's. Returns that move, or null.
+ */
+export async function lostRoutineMove(
+  store: DataStore,
+  organizationId: string,
+  deal: Pick<Deal, 'id' | 'stage'>,
+  sidecar: RoutineSidecar | null,
+): Promise<{ at: string; evidenceDate: string | null } | null> {
+  if (!sidecar?.stage_set || deal.stage === sidecar.stage_set) return null;
+  const [latest] = (await store.list(
+    'audit_events',
+    organizationId,
+    { eq: { entity_id: deal.id, action: 'deal.stage_synced' }, isNull: ['user_id'] },
+    { orderBy: [{ field: 'created_at', direction: 'desc' }], limit: 1 },
+  )) as AuditEvent[];
+  if (!latest || latest.metadata?.to !== deal.stage || latest.metadata?.reason) return null;
+  const at = Date.parse(latest.created_at);
+  if (Number.isNaN(at)) return null;
+  if (sidecar.stage_set_at && at <= Date.parse(sidecar.stage_set_at)) return null;
+  const human = await latestHumanStageEvent(store, organizationId, deal.id);
+  if (human && Date.parse(human) >= at) return null;
+  const evidence = latest.metadata?.evidence_date;
+  return { at: latest.created_at, evidenceDate: typeof evidence === 'string' ? evidence : null };
 }
 
 /* ------------------------------------------------------------------ rows */
@@ -449,6 +502,7 @@ export async function ingestDealRelay(
   // Resolve each routine key to a target: a deal that already exists, or a
   // new company. Keys that resolve to the same target are folded together.
   const targets = new Map<string, RelayObservation[]>();
+  const stableIds = new Map<string, string>();
   const pending = new DealIndex();
   let clusters = 0;
   for (const group of groupByKey(observations).values()) {
@@ -460,7 +514,17 @@ export async function ingestDealRelay(
       website: folded.website,
     };
     let id = ctx.index.match(query)?.candidate.id ?? pending.match(query)?.candidate.id;
-    if (!id) id = `new:${clusters++}`;
+    if (!id) {
+      // The deal this company was first created as, if a person has since
+      // renamed or re-domained it past recognition; otherwise a new one.
+      const stable = relayDealId(organizationId, folded.key, folded.website);
+      if (ctx.dealsById.has(stable)) {
+        id = stable;
+      } else {
+        id = `new:${clusters++}`;
+        stableIds.set(id, stable);
+      }
+    }
     if (id.startsWith('new:')) {
       pending.add({
         id,
@@ -482,7 +546,7 @@ export async function ingestDealRelay(
     const folded = foldObservations(group);
     try {
       if (id.startsWith('new:')) {
-        const planned = planNewDeal(ctx, folded);
+        const planned = planNewDeal(ctx, folded, stableIds.get(id) ?? newId());
         if (planned) creates.push(planned);
       } else {
         const deal = ctx.dealsById.get(id);
@@ -518,7 +582,7 @@ interface NewDeal {
   sidecar: DealFact;
 }
 
-function planNewDeal(ctx: IngestContext, folded: FoldedDeal): NewDeal | null {
+function planNewDeal(ctx: IngestContext, folded: FoldedDeal, stableId: string): NewDeal | null {
   const { counts, thesisKeys, nowIso, organizationId } = ctx;
   if (folded.retract) {
     counts.skipped_retracted++;
@@ -546,6 +610,8 @@ function planNewDeal(ctx: IngestContext, folded: FoldedDeal): NewDeal | null {
     receivedDay ? `${receivedDay}T00:00:00.000Z` : nowIso,
     nowIso,
   );
+  // Never reuse an id already taken, even by a deal created earlier this pull.
+  deal.id = ctx.dealsById.has(stableId) ? newId() : stableId;
   deal.stage = stage;
   const { patch, wrote } = planColumnWrites({}, routineColumnValues(folded, stage), {});
   Object.assign(deal, patch);
@@ -582,7 +648,7 @@ function planNewDeal(ctx: IngestContext, folded: FoldedDeal): NewDeal | null {
   };
 
   counts.created++;
-  if (view && thesisKeys.includes(view.stage) && view.stage !== stage) counts.suggested++;
+  if (isSuggestion(view, stage, thesisKeys)) counts.suggested++;
   ctx.dealsById.set(deal.id, deal);
   ctx.index.add(candidateOf(deal, state));
   return {
@@ -593,35 +659,69 @@ function planNewDeal(ctx: IngestContext, folded: FoldedDeal): NewDeal | null {
   };
 }
 
+/**
+ * Insert new deals a chunk at a time, each chunk's sidecars straight after its
+ * deals (the sidecar is what makes a deal the routine's), then its people and
+ * sources. A failed chunk is counted and the rest carry on: one bad insert
+ * never takes the Portfolio mirror, or the other chunks, down with it.
+ */
 async function writeNewDeals(
   store: DataStore,
   ctx: IngestContext,
   creates: NewDeal[],
 ): Promise<void> {
-  if (creates.length === 0) return;
-  for (const part of chunk(
-    creates.map((c) => c.deal),
-    100,
-  ))
-    await store.insertMany('deals', part);
-  for (const part of chunk(
-    creates.flatMap((c) => c.people),
-    100,
-  )) {
-    await store.insertMany('deal_people', part);
+  for (const part of chunk(creates, 100)) {
+    try {
+      await store.insertMany(
+        'deals',
+        part.map((c) => c.deal),
+      );
+    } catch (error) {
+      ctx.counts.created -= part.length;
+      ctx.counts.failed += part.length;
+      for (const c of part) ctx.dealsById.delete(c.deal.id);
+      log.warn('New deals from the relay could not be saved', {
+        count: part.length,
+        reason: scrubErrorMessage(error),
+      });
+      continue;
+    }
+    try {
+      await store.insertMany(
+        'deal_facts',
+        part.map((c) => c.sidecar),
+      );
+      for (const people of chunk(
+        part.flatMap((c) => c.people),
+        100,
+      )) {
+        await store.insertMany('deal_people', people);
+      }
+      for (const sources of chunk(
+        part.flatMap((c) => c.sources),
+        100,
+      )) {
+        await store.insertMany('deal_sources', sources);
+      }
+    } catch (error) {
+      ctx.counts.failed++;
+      log.warn('Details of new relay deals could not be saved', {
+        count: part.length,
+        reason: scrubErrorMessage(error),
+      });
+    }
   }
-  for (const part of chunk(
-    creates.flatMap((c) => c.sources),
-    100,
-  )) {
-    await store.insertMany('deal_sources', part);
-  }
-  for (const part of chunk(
-    creates.map((c) => c.sidecar),
-    100,
-  )) {
-    await store.insertMany('deal_facts', part);
-  }
+}
+
+/** Whether a routine view is a suggestion beside a deal's stage. `new` never is. */
+function isSuggestion(
+  view: RoutineSidecar['view'],
+  stage: string,
+  thesisKeys: readonly string[],
+): boolean {
+  return Boolean(
+    view && view.stage !== 'new' && thesisKeys.includes(view.stage) && view.stage !== stage,
+  );
 }
 
 async function applyToExisting(
@@ -637,12 +737,23 @@ async function applyToExisting(
     return;
   }
   const stored = ctx.sidecars.get(deal.id) ?? null;
-  const previous = stored?.state ?? null;
-  const merged = mergeWithSidecar(folded, previous);
+  const merged = mergeWithSidecar(folded, stored?.state ?? null);
   const hash = contentHash(merged);
-  if (previous && previous.content_hash === hash) {
+  if (stored && stored.state.content_hash === hash) {
     counts.unchanged++;
     return;
+  }
+  // A move of the routine's whose sidecar write failed is still its own: pick
+  // the bookkeeping back up instead of treating the stage as a person's.
+  let previous = stored?.state ?? null;
+  const lost = await lostRoutineMove(store, organizationId, deal, previous);
+  if (previous && lost) {
+    previous = {
+      ...previous,
+      stage_set: deal.stage,
+      stage_set_at: lost.at,
+      stage_evidence_date: lost.evidenceDate ?? previous.stage_evidence_date,
+    };
   }
 
   const base = previous ?? emptySidecar();
@@ -762,8 +873,14 @@ async function applyToExisting(
     routineColumnValues(merged, stage),
     previous?.wrote ?? {},
   );
-  next.wrote = wrote;
   const dealPatch: Partial<Deal> = { ...patch };
+  // The pass outcome the routine wrote goes once the deal is no longer passed
+  // (a person's own outcome text is never touched).
+  if (stage !== 'passed' && wrote.outcome !== undefined && deal.outcome === wrote.outcome) {
+    dealPatch.outcome = null;
+    delete wrote.outcome;
+  }
+  next.wrote = wrote;
   if (moved) dealPatch.stage = stage;
   if (Object.keys(dealPatch).length > 0) {
     await store.update('deals', organizationId, deal.id, dealPatch);
@@ -785,9 +902,7 @@ async function applyToExisting(
     });
     counts.moved++;
   }
-  if (merged.view && thesisKeys.includes(merged.view.stage) && merged.view.stage !== stage) {
-    counts.suggested++;
-  }
+  if (isSuggestion(merged.view, stage, thesisKeys)) counts.suggested++;
 
   // People: add-only, by lowercase name.
   if (merged.founders.length > 0) {
@@ -854,9 +969,11 @@ function portfolioDealRow(organizationId: string, pc: PortfolioCompany, nowIso: 
  * audited with no user and the reason "in Portfolio tab". No decision row is
  * written: `deal_decisions` records people's decisions only.
  *
- * Idempotent, and it does not fight a person: a deal it has already moved
- * once is never moved again, so if someone later moves it out of Invested
- * that stands. A match to an archived deal is left alone.
+ * Idempotent, and it does not fight a person: a deal it created or has
+ * already moved once is never moved again, and neither is a deal a person has
+ * staged or decided since the company joined the Portfolio tab, so someone
+ * moving it out of Invested always stands. A match to an archived deal is
+ * left alone.
  */
 async function mirrorPortfolio(store: DataStore, ctx: IngestContext): Promise<void> {
   const { organizationId, nowIso, counts } = ctx;
@@ -873,7 +990,11 @@ async function mirrorPortfolio(store: DataStore, ctx: IngestContext): Promise<vo
       });
       if (hit?.candidate.archived) continue;
       if (!hit) {
+        const id = mirrorDealId(organizationId, pc.id);
+        // Its deal exists but no longer matches: a person renamed it.
+        if (ctx.dealsById.has(id)) continue;
         const deal = portfolioDealRow(organizationId, pc, nowIso);
+        deal.id = id;
         creates.push({ deal, pc });
         ctx.dealsById.set(deal.id, deal);
         ctx.index.add(candidateOf(deal, null));
@@ -881,10 +1002,18 @@ async function mirrorPortfolio(store: DataStore, ctx: IngestContext): Promise<vo
       }
       const deal = ctx.dealsById.get(hit.candidate.id);
       if (!deal || deal.stage === 'invested') continue;
+      // Once per deal: the mirror created it, or has moved it before.
       const history = (await store.list('audit_events', organizationId, {
-        eq: { entity_id: deal.id, action: 'deal.stage_synced' },
+        eq: { entity_id: deal.id },
+        in: { action: ['deal.stage_synced', 'deal.created'] },
       })) as AuditEvent[];
       if (history.some((e) => e.metadata?.reason === PORTFOLIO_MIRROR_REASON)) continue;
+      // A person who has staged or decided it since the company joined the
+      // Portfolio tab has the last word (an invest decision recorded before
+      // the company was added, then a move out, included).
+      const human = await latestHumanStageEvent(store, organizationId, deal.id);
+      const joined = Date.parse(pc.created_at);
+      if (human && (Number.isNaN(joined) || Date.parse(human) >= joined)) continue;
       const from = deal.stage;
       await store.update('deals', organizationId, deal.id, { stage: 'invested' });
       deal.stage = 'invested';
@@ -911,10 +1040,19 @@ async function mirrorPortfolio(store: DataStore, ctx: IngestContext): Promise<vo
   }
 
   for (const part of chunk(creates, 100)) {
-    await store.insertMany(
-      'deals',
-      part.map((c) => c.deal),
-    );
+    try {
+      await store.insertMany(
+        'deals',
+        part.map((c) => c.deal),
+      );
+    } catch (error) {
+      counts.failed += part.length;
+      log.warn('Portfolio companies could not be mirrored into Invested', {
+        count: part.length,
+        reason: scrubErrorMessage(error),
+      });
+      continue;
+    }
     for (const { deal, pc } of part) {
       await recordAudit(store, {
         organizationId,
