@@ -5,6 +5,7 @@ import { getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
 import { generateDailyBrief } from '@/lib/services/brief';
 import { pullBriefingsFromSlack } from '@/lib/services/briefing';
+import { formatDealCronStatus, pullDealsFromSlack } from '@/lib/services/deal-relay';
 import { ensureGmailWatch } from '@/lib/services/gmail-watch';
 import { syncMailbox } from '@/lib/services/inbox';
 import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
@@ -66,6 +67,7 @@ export async function POST(request: NextRequest) {
     briefing: string;
     portfolio: string;
     tasks: string;
+    deals: string;
   }[] = [];
 
   let organizations: Organization[] = [];
@@ -94,6 +96,7 @@ export async function POST(request: NextRequest) {
         briefing: 'skipped',
         portfolio: 'skipped',
         tasks: 'skipped',
+        deals: 'skipped',
       });
       continue;
     }
@@ -108,6 +111,7 @@ export async function POST(request: NextRequest) {
         briefing: 'skipped',
         portfolio: 'skipped',
         tasks: 'skipped',
+        deals: 'skipped',
       });
       continue;
     }
@@ -192,6 +196,19 @@ export async function POST(request: NextRequest) {
       log.error('Cron task relay failed', { organizationId: organization.id });
     }
 
+    // The deal-sorter's posts in #deal-relay, plus the Portfolio -> Invested
+    // mirror; a backstop to the pull on viewing /deals. Counts only: this
+    // response is printed into the public repository's Actions log.
+    let dealsStatus: string;
+    try {
+      dealsStatus = formatDealCronStatus(
+        await pullDealsFromSlack(store, organization.id, fetch, { force: true }),
+      );
+    } catch {
+      dealsStatus = 'failed';
+      log.error('Cron deal relay pull failed', { organizationId: organization.id });
+    }
+
     results.push({
       organization: organization.name,
       sync: syncStatus,
@@ -200,6 +217,7 @@ export async function POST(request: NextRequest) {
       briefing: briefingStatus,
       portfolio: portfolioStatus,
       tasks: tasksStatus,
+      deals: dealsStatus,
     });
   }
 
