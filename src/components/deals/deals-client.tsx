@@ -11,6 +11,7 @@ import { Card, CardContent, FieldLabel } from '@/components/ui/card';
 import { LiveSearch } from '@/components/ui/live-search';
 import { PlainText } from '@/components/ui/feedback';
 import { FilterChip, FilterChipRow } from '@/components/ui/toolbar';
+import { FIT_LABELS, type FitFilter } from '@/lib/deals/pipeline-view';
 import type { DealStage } from '@/lib/types/domain';
 
 export function DealsFilterBar({
@@ -18,11 +19,21 @@ export function DealsFilterBar({
   counts,
   stage,
   q,
+  fit = null,
+  fits = [],
+  archived = false,
+  archivedCount = 0,
 }: {
   stages: DealStage[];
   counts: Record<string, number>;
   stage: string;
   q: string;
+  /** The deal-sorter's fit flag filter (`?fit=`). */
+  fit?: FitFilter | null;
+  fits?: { key: FitFilter; count: number }[];
+  /** The archived ("Not a deal") view (`?archived=1`). */
+  archived?: boolean;
+  archivedCount?: number;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -60,7 +71,30 @@ export function DealsFilterBar({
             onToggle={() => setParam('stage', s.key)}
           />
         ))}
+        {archived || archivedCount > 0 ? (
+          <FilterChip
+            pressed={archived}
+            label="Archived"
+            count={archivedCount}
+            onToggle={() => setParam('archived', archived ? null : '1')}
+          />
+        ) : null}
       </FilterChipRow>
+
+      {fits.some((f) => f.count > 0) || fit ? (
+        <FilterChipRow aria-label="Filter by fit">
+          <FilterChip pressed={!fit} label="Any fit" onToggle={() => setParam('fit', null)} />
+          {fits.map((f) => (
+            <FilterChip
+              key={f.key}
+              pressed={fit === f.key}
+              label={FIT_LABELS[f.key]}
+              count={f.count}
+              onToggle={() => setParam('fit', fit === f.key ? null : f.key)}
+            />
+          ))}
+        </FilterChipRow>
+      ) : null}
     </div>
   );
 }

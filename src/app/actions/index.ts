@@ -6,11 +6,13 @@ import { generateDailyBrief } from '@/lib/services/brief';
 import { ask } from '@/lib/services/chat';
 import {
   addNote,
+  archiveDeal,
   attachEmailToDeal,
   compareDeals,
   correctFact,
   createDealFromEmail,
   recordDecision,
+  restoreDeal,
   updateDealStage,
 } from '@/lib/services/deals';
 import { analyzeDeal, overrideRecommendation, resolveRedFlag } from '@/lib/services/deal-analysis';
@@ -249,6 +251,27 @@ export async function updateDealStageAction(dealId: string, stage: string): Prom
   if (!result.ok) return fail(result.error);
   revalidatePath(`/deals/${dealId}`);
   revalidatePath('/deals');
+  return succeed();
+}
+
+/** "Not a deal": archive it. A human action; the deal-sorter never resurrects it. */
+export async function archiveDealAction(dealId: string, reason: string): Promise<ActionResult> {
+  const auth = await requireAuth();
+  const result = await archiveDeal(auth, dealId, reason);
+  if (!result.ok) return fail(result.error);
+  revalidatePath(`/deals/${dealId}`);
+  revalidatePath('/deals');
+  revalidatePath('/today');
+  return succeed();
+}
+
+export async function restoreDealAction(dealId: string): Promise<ActionResult> {
+  const auth = await requireAuth();
+  const result = await restoreDeal(auth, dealId);
+  if (!result.ok) return fail(result.error);
+  revalidatePath(`/deals/${dealId}`);
+  revalidatePath('/deals');
+  revalidatePath('/today');
   return succeed();
 }
 

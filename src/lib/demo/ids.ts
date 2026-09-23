@@ -21,6 +21,12 @@ export const DEMO_IDS = {
   dealPlumbline: id(102),
   dealLoomstack: id(103),
   dealHalyard: id(104),
+  // Deals the deal-sorter routine posted (sample relay data)
+  dealQuarrystone: id(105),
+  dealTidewell: id(106),
+  dealFernhollow: id(107),
+  dealBrightkiln: id(108),
+  dealMossgate: id(109),
 
   // Portfolio
   pcLedgerly: id(200),

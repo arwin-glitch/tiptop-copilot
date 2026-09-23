@@ -19,6 +19,7 @@ export const SORT_KEYS = [
   'evidence',
   'confidence',
   'received',
+  'activity',
 ] as const;
 
 export type SortKey = (typeof SORT_KEYS)[number];
@@ -28,6 +29,8 @@ export interface DealRow {
   id: string;
   companyName: string;
   stageLabel: string;
+  /** Position in the thesis's stage list; unknown stages sort last. */
+  stageOrder: number;
   vertical: string | null;
   productSummary: string | null;
   receivedAt: string;
@@ -38,7 +41,49 @@ export interface DealRow {
   confidence: number | null;
   /** Pre-joined detail line: revenue, customers, funding stage. */
   facts: string;
+  /** The deal-sorter's fit flag, when the deal came from it. */
+  fit: 'likely' | 'possible' | 'unlikely' | null;
+  /** Where the deal came from (referral source or the routine's source). */
+  source: string | null;
+  /** Day of the latest activity the deal-sorter saw (YYYY-MM-DD), if any. */
+  lastActivity: string | null;
+  nextStep: string | null;
+  /** The evidence behind the deal-sorter's stage view. */
+  evidence: string | null;
+  /** Label of the stage the deal-sorter suggests, when it differs from the current one. */
+  suggestedStageLabel: string | null;
+  /** Whether the deal-sorter has touched this deal at all. */
+  isRoutine: boolean;
 }
+
+/**
+ * Which columns the table shows. The score columns are only worth their width
+ * when something can score: with no AI provider and not one analysis stored,
+ * every cell would be a dash, so the table shows what the deal-sorter knows
+ * instead — fit, source and last activity.
+ */
+export type ColumnMode = 'scores' | 'routine';
+
+export function chooseColumnMode(input: {
+  aiAvailable: boolean;
+  anyAnalysis: boolean;
+}): ColumnMode {
+  return !input.aiAvailable && !input.anyAnalysis ? 'routine' : 'scores';
+}
+
+export const FIT_FILTERS = ['likely', 'possible', 'unlikely'] as const;
+export type FitFilter = (typeof FIT_FILTERS)[number];
+
+/** A `?fit=` value, or null for none or an unrecognised one. */
+export function asFitFilter(value: string | undefined): FitFilter | null {
+  return FIT_FILTERS.includes(value as FitFilter) ? (value as FitFilter) : null;
+}
+
+export const FIT_LABELS: Record<FitFilter, string> = {
+  likely: 'Likely fit',
+  possible: 'Possible fit',
+  unlikely: 'Unlikely fit',
+};
 
 /** Falls back to newest-first for an absent or unrecognised `?sort=`. */
 export function asSortKey(value: string | undefined): SortKey {
@@ -66,7 +111,15 @@ export function sortRows(rows: DealRow[], sort: SortKey, direction: SortDirectio
 
   return [...rows].sort((a, b) => {
     if (sort === 'company') return factor * a.companyName.localeCompare(b.companyName);
-    if (sort === 'stage') return factor * a.stageLabel.localeCompare(b.stageLabel);
+    // Pipeline order, not alphabetical: "Diligence" before "Founder meeting"
+    // reads as nonsense to anyone who works the funnel.
+    if (sort === 'stage') {
+      return factor * (a.stageOrder - b.stageOrder) || a.companyName.localeCompare(b.companyName);
+    }
+    if (sort === 'activity') {
+      const at = (row: DealRow) => Date.parse(row.lastActivity ?? row.receivedAt) || 0;
+      return factor * (at(a) - at(b)) || a.companyName.localeCompare(b.companyName);
+    }
     if (sort === 'received') {
       return factor * (Date.parse(a.receivedAt) - Date.parse(b.receivedAt));
     }

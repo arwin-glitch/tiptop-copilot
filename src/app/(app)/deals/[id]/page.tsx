@@ -1,11 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { AlertTriangle, Mail, Paperclip } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Link2, Mail, Paperclip } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { getAI, getStore } from '@/lib/runtime';
 import { notesForDeal } from '@/lib/services/meetings';
 import { getDealDetail, factHistory } from '@/lib/services/deals';
+import { readSidecar, routineOwnsDealStage } from '@/lib/services/deal-ingest';
+import { getPrimaryIntegration } from '@/lib/services/inbox';
+import { gmailThreadUrl, httpUrl, websiteHref } from '@/lib/deals/links';
+import { RoutineCard } from '@/components/deals/routine-card';
 import { MeetingNoteList } from '@/components/meetings/meeting-note-list';
 import { effectiveRecommendation } from '@/lib/services/deal-analysis';
 import { PageHeader, PageShell, DataRow } from '@/components/shell/page-header';
@@ -23,10 +27,12 @@ import {
   DecisionButtons,
   DraftButtons,
   ExportMemoButton,
+  NotADealButton,
   OverrideRecommendationButton,
   ReanalyzeButton,
   RecommendationHeadline,
   ResolveFlagButton,
+  RestoreDealButton,
   StageSelect,
 } from '@/components/deals/deal-actions';
 import { CreateFollowUpButton, TaskControls } from '@/components/today/today-actions';
@@ -101,12 +107,42 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
   const openTasks = tasks.filter((t) => t.status === 'open');
   const aiAvailable = getAI().available();
 
-  const meetingNotes = await notesForDeal(
-    getStore(),
-    auth.organizationId,
-    deal,
-    people.map((p) => p.email).filter((e): e is string => Boolean(e)),
-  );
+  const store = getStore();
+  const [meetingNotes, routine, integration] = await Promise.all([
+    notesForDeal(
+      store,
+      auth.organizationId,
+      deal,
+      people.map((p) => p.email).filter((e): e is string => Boolean(e)),
+    ),
+    readSidecar(store, auth.organizationId, deal.id),
+    getPrimaryIntegration(store, auth.organizationId),
+  ]);
+  const routineOwned = routine
+    ? await routineOwnsDealStage(store, auth.organizationId, deal, routine.state)
+    : false;
+  const siteHref = websiteHref(deal.website ?? deal.domain);
+
+  // Sources that live outside the app: Gmail threads the deal-sorter found,
+  // and web or manual links. Hrefs are rebuilt from validated identifiers.
+  const threadLinks = detail.sources
+    .filter((s) => s.kind === 'email_thread' && s.ref_id)
+    .map((s) => ({
+      id: s.id,
+      label: s.label,
+      occurredAt: s.occurred_at,
+      href: gmailThreadUrl(s.ref_id ?? '', integration?.account_email),
+    }))
+    .filter((s): s is typeof s & { href: string } => Boolean(s.href));
+  const webLinks = detail.sources
+    .filter((s) => s.kind === 'web' || s.kind === 'manual')
+    .map((s) => ({ id: s.id, label: s.label, href: httpUrl(s.url) }))
+    .filter((s): s is typeof s & { href: string } => Boolean(s.href));
+  const noSources =
+    messages.length === 0 &&
+    attachments.length === 0 &&
+    threadLinks.length === 0 &&
+    webLinks.length === 0;
 
   return (
     <PageShell>
@@ -117,20 +153,23 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
           deal.product_summary ?? 'No product summary has been extracted from the sources yet.'
         }
         meta={
-          deal.website ? (
+          // Only a website that is a real domain becomes a link, and always as
+          // https://<domain>: a routine-posted value is never used as an href.
+          siteHref ? (
             <a
-              href={deal.website}
+              href={siteHref}
               target="_blank"
               rel="noopener noreferrer nofollow"
               className="text-sm text-[var(--accent)] underline-offset-2 hover:underline"
             >
-              {deal.domain ?? deal.website}
+              {siteHref.replace('https://', '')}
             </a>
           ) : null
         }
         actions={
           <>
             <StageSelect dealId={deal.id} stage={deal.stage} stages={stages} />
+            {deal.is_archived ? null : <NotADealButton dealId={deal.id} />}
             {/* Export stays: the memo is assembled from stored facts and works
                 with the model switched off. The other two are model calls. */}
             {aiAvailable ? (
@@ -143,6 +182,30 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
           </>
         }
       />
+
+      {deal.is_archived ? (
+        <Notice tone="warn" className="mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p>
+              Archived as not a deal. It is out of the pipeline and Today, and the deal-sorter will
+              not bring it back.
+            </p>
+            <RestoreDealButton dealId={deal.id} name={deal.company_name} />
+          </div>
+        </Notice>
+      ) : null}
+
+      {routine ? (
+        <RoutineCard
+          dealId={deal.id}
+          dealStage={deal.stage}
+          stages={stages}
+          sidecar={routine.state}
+          owned={routineOwned}
+          timezone={auth.profile.timezone}
+          archived={deal.is_archived}
+        />
+      ) : null}
 
       {analysis ? (
         <Card className="mb-6">
@@ -572,16 +635,18 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                 </p>
               )}
 
-              <div className="mt-6 border-t border-[var(--border)] pt-4">
-                <FieldLabel as="h3" className="mb-2">
-                  Draft a reply
-                </FieldLabel>
-                <DraftButtons dealId={deal.id} recommendation={recommendation} />
-                <p className="mt-2 text-xs text-[var(--fg-subtle)]">
-                  Drafts are created for you to review and send yourself. This product has no send
-                  capability and requests no send permission.
-                </p>
-              </div>
+              {aiAvailable ? (
+                <div className="mt-6 border-t border-[var(--border)] pt-4">
+                  <FieldLabel as="h3" className="mb-2">
+                    Draft a reply
+                  </FieldLabel>
+                  <DraftButtons dealId={deal.id} recommendation={recommendation} />
+                  <p className="mt-2 text-xs text-[var(--fg-subtle)]">
+                    Drafts are created for you to review and send yourself. This product has no send
+                    capability and requests no send permission.
+                  </p>
+                </div>
+              ) : null}
 
               {drafts.length > 0 ? (
                 <div className="mt-5">
@@ -620,7 +685,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
           ) : null}
           <Card>
             <CardContent className="pt-4">
-              {messages.length === 0 && attachments.length === 0 ? (
+              {noSources ? (
                 <EmptyState
                   title="No sources attached"
                   description="Attach an email from the Inbox to give this deal something to analyse."
@@ -628,7 +693,64 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                 />
               ) : (
                 <>
-                  <FieldLabel as="h3">Source emails</FieldLabel>
+                  {threadLinks.length > 0 ? (
+                    <div className="mb-5">
+                      <FieldLabel as="h3">Gmail threads</FieldLabel>
+                      <ul className="mt-2 space-y-2">
+                        {threadLinks.map((t) => (
+                          <li key={t.id} className="rounded-md border border-[var(--border)] p-3">
+                            <a
+                              href={t.href}
+                              target="_blank"
+                              rel="noopener noreferrer nofollow"
+                              className="flex items-center gap-2 text-sm font-medium break-words underline-offset-2 hover:underline"
+                            >
+                              <Mail
+                                className="size-3.5 shrink-0 text-[var(--fg-subtle)]"
+                                aria-hidden="true"
+                              />
+                              <span className="min-w-0">{t.label}</span>
+                              <ExternalLink
+                                className="size-3 shrink-0 text-[var(--fg-subtle)]"
+                                aria-hidden="true"
+                              />
+                            </a>
+                            {t.occurredAt ? (
+                              <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
+                                {formatDate(t.occurredAt, auth.profile.timezone)} · opens in Gmail
+                              </p>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {webLinks.length > 0 ? (
+                    <div className="mb-5">
+                      <FieldLabel as="h3">Links</FieldLabel>
+                      <ul className="mt-2 space-y-2">
+                        {webLinks.map((w) => (
+                          <li key={w.id} className="rounded-md border border-[var(--border)] p-3">
+                            <a
+                              href={w.href}
+                              target="_blank"
+                              rel="noopener noreferrer nofollow"
+                              className="flex items-center gap-2 text-sm font-medium break-words underline-offset-2 hover:underline"
+                            >
+                              <Link2
+                                className="size-3.5 shrink-0 text-[var(--fg-subtle)]"
+                                aria-hidden="true"
+                              />
+                              <span className="min-w-0">{w.label}</span>
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {messages.length > 0 ? <FieldLabel as="h3">Source emails</FieldLabel> : null}
                   <ul className="mt-2 space-y-2">
                     {messages.map((m) => (
                       <li key={m.id} className="rounded-md border border-[var(--border)] p-3">
@@ -707,7 +829,8 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
               <FieldLabel as="h3">Record a decision</FieldLabel>
               <p className="mt-1.5 mb-3 text-sm text-[var(--fg-muted)]">
                 Only you can record a decision. The assistant recommends; it never decides, and it
-                cannot mark a deal invested.
+                cannot mark a deal invested. Companies in the Portfolio tab are listed under
+                Invested automatically.
               </p>
               <DecisionButtons dealId={deal.id} />
 

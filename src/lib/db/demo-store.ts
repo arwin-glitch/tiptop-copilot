@@ -279,4 +279,4 @@ export class DemoStore implements DataStore {
   }
 }
 
-export const DEMO_STORE_VERSION = 4;
+export const DEMO_STORE_VERSION = 5;

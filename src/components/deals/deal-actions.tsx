@@ -3,15 +3,25 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Copy, Download, Pencil, RefreshCw, ShieldCheck } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  Copy,
+  Download,
+  Pencil,
+  RefreshCw,
+  ShieldCheck,
+} from 'lucide-react';
 import {
   addNoteAction,
   analyzeDealAction,
+  archiveDealAction,
   correctFactAction,
   createDraftAction,
   overrideRecommendationAction,
   recordDecisionAction,
   resolveRedFlagAction,
+  restoreDealAction,
   updateDealStageAction,
 } from '@/app/actions';
 import { Badge, RecommendationBadge } from '@/components/ui/badge';
@@ -141,12 +151,17 @@ export function DecisionButtons({ dealId }: { dealId: string }) {
 function DecisionDialog({
   dealId,
   decision,
+  defaultRationale = '',
+  triggerLabel,
 }: {
   dealId: string;
   decision: keyof typeof DECISION_COPY;
+  /** Prefilled rationale, e.g. the deal-sorter's evidence; still editable. */
+  defaultRationale?: string;
+  triggerLabel?: string;
 }) {
   const [open, setOpen] = React.useState(false);
-  const [rationale, setRationale] = React.useState('');
+  const [rationale, setRationale] = React.useState(defaultRationale);
   const [pending, startTransition] = React.useTransition();
   const router = useRouter();
   const copy = DECISION_COPY[decision];
@@ -156,7 +171,7 @@ function DecisionDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant={consequential ? 'secondary' : 'secondary'} size="sm">
-          {copy.label}
+          {triggerLabel ?? copy.label}
         </Button>
       </DialogTrigger>
       <DialogContent title={`Record: ${copy.label}`} description={copy.blurb}>
@@ -207,6 +222,139 @@ function DecisionDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The Invest decision, opened from the deal-sorter's wire evidence. It is the
+ * same human-only dialog as the Decisions tab, with the evidence as the
+ * starting rationale; nothing is recorded until a person confirms it.
+ */
+export function RecordInvestButton({ dealId, evidence }: { dealId: string; evidence: string }) {
+  return (
+    <DecisionDialog
+      dealId={dealId}
+      decision="invest"
+      defaultRationale={evidence}
+      triggerLabel="Record invest decision"
+    />
+  );
+}
+
+/** Apply the deal-sorter's suggested stage, as the person clicking it. */
+export function ApplyStageButton({
+  dealId,
+  stage,
+  label,
+}: {
+  dealId: string;
+  stage: string;
+  label: string;
+}) {
+  const [pending, startTransition] = React.useTransition();
+  const router = useRouter();
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      loading={pending}
+      aria-label={`Apply the suggested stage: ${label}`}
+      onClick={() =>
+        startTransition(async () => {
+          const result = await updateDealStageAction(dealId, stage);
+          if (result.ok) {
+            toast.success(`Stage set to ${label}`);
+            router.refresh();
+          } else {
+            toast.error(result.error?.message ?? 'Could not change the stage');
+          }
+        })
+      }
+    >
+      Apply
+    </Button>
+  );
+}
+
+/** "Not a deal": archive it, with a reason. Restorable from the archived list. */
+export function NotADealButton({
+  dealId,
+  defaultReason = '',
+}: {
+  dealId: string;
+  defaultReason?: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [reason, setReason] = React.useState(defaultReason);
+  const [pending, startTransition] = React.useTransition();
+  const router = useRouter();
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm">
+          <Archive aria-hidden="true" />
+          Not a deal
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        title="Not a deal"
+        description="Archives it: it leaves the pipeline and Today, and the deal-sorter will not bring it back. You can restore it from the archived list."
+      >
+        <Field label="Why" htmlFor="archive-reason" hint="Optional.">
+          <Input id="archive-reason" value={reason} onChange={(e) => setReason(e.target.value)} />
+        </Field>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            loading={pending}
+            onClick={() =>
+              startTransition(async () => {
+                const result = await archiveDealAction(dealId, reason);
+                if (result.ok) {
+                  toast.success('Archived as not a deal');
+                  setOpen(false);
+                  router.refresh();
+                } else {
+                  toast.error(result.error?.message ?? 'Could not archive it');
+                }
+              })
+            }
+          >
+            Archive
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function RestoreDealButton({ dealId, name }: { dealId: string; name?: string }) {
+  const [pending, startTransition] = React.useTransition();
+  const router = useRouter();
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      loading={pending}
+      aria-label={name ? `Restore ${name}` : 'Restore'}
+      onClick={() =>
+        startTransition(async () => {
+          const result = await restoreDealAction(dealId);
+          if (result.ok) {
+            toast.success('Restored to the pipeline');
+            router.refresh();
+          } else {
+            toast.error(result.error?.message ?? 'Could not restore it');
+          }
+        })
+      }
+    >
+      <ArchiveRestore aria-hidden="true" />
+      Restore
+    </Button>
   );
 }
 

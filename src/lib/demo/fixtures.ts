@@ -11,6 +11,7 @@ import type {
   Deal,
   DealAnalysis,
   DealDecision,
+  DealFact,
   DealPerson,
   DealSource,
   EmailAttachment,
@@ -257,6 +258,58 @@ Jean-Marc Baptiste,jm.baptiste@meridianops.demo,Meridian Ops,Head of Talent,Advi
 `;
 
 /* ---------------------------------------------------------------- builder */
+
+/**
+ * A demo deal with every optional column empty, for fixtures and tests to
+ * spread their own fields over.
+ */
+export function blankDeal(id: string, name: string, receivedAt: string, updatedAt: string): Deal {
+  return {
+    id,
+    organization_id: ORG,
+    company_name: name,
+    normalized_name: normalizeCompanyName(name),
+    website: null,
+    domain: null,
+    stage: 'new',
+    industry: null,
+    vertical: null,
+    geography: null,
+    funding_stage: null,
+    round_size: null,
+    amount_raised: null,
+    valuation_or_cap: null,
+    existing_investors: [],
+    requested_check: null,
+    referral_source: null,
+    received_at: receivedAt,
+    product_summary: null,
+    customer: null,
+    problem: null,
+    solution: null,
+    ai_usage: null,
+    traction: null,
+    revenue: null,
+    growth: null,
+    customer_count: null,
+    pipeline: null,
+    business_model: null,
+    pricing: null,
+    market: null,
+    competition: null,
+    team: null,
+    founder_market_fit: null,
+    gtm_motion: null,
+    defensibility: null,
+    data_advantage: null,
+    risks: [],
+    open_questions: [],
+    outcome: null,
+    is_archived: false,
+    created_at: receivedAt,
+    updated_at: updatedAt,
+  };
+}
 
 export function buildDemoDb(now: Date = new Date()): DemoDb {
   const nowIso = iso(now);
@@ -1023,55 +1076,184 @@ runway_months,19,16,14`,
       open_questions: [],
       outcome: 'Passed — founder-market fit.',
     },
+
+    // Posted by the deal-sorter routine through #deal-relay (sample data).
+    {
+      ...blankDeal(ID.dealQuarrystone, 'Quarrystone Ledger', hoursAgo(now, 30), hoursAgo(now, 30)),
+      website: 'quarrystone.demo',
+      domain: 'quarrystone.demo',
+      stage: 'new',
+      vertical: 'Construction materials',
+      funding_stage: 'Seed',
+      round_size: '$2M seed',
+      referral_source: 'Angel network feed',
+      product_summary:
+        'Month-end close and inventory reconciliation for quarry and aggregates operators.',
+    },
+    {
+      ...blankDeal(ID.dealTidewell, 'Tidewell Clinic OS', daysAgo(now, 12), daysAgo(now, 3)),
+      website: 'tidewell.demo',
+      domain: 'tidewell.demo',
+      stage: 'founder_meeting',
+      vertical: 'Physical therapy clinics',
+      funding_stage: 'Pre-seed',
+      referral_source: 'Intro: Bramblecrest Ventures',
+      product_summary:
+        'Scheduling, intake and payer follow-up for independent physical therapy clinics.',
+    },
+    {
+      ...blankDeal(ID.dealFernhollow, 'Fernhollow Robotics', daysAgo(now, 20), daysAgo(now, 8)),
+      website: 'fernhollow.demo',
+      domain: 'fernhollow.demo',
+      stage: 'passed',
+      vertical: 'Home robotics',
+      referral_source: 'Cold: deals@',
+      product_summary: 'A countertop robot that folds laundry for households.',
+      outcome: 'Passed — consumer hardware',
+    },
+    {
+      ...blankDeal(ID.dealBrightkiln, 'Brightkiln Freight', daysAgo(now, 18), daysAgo(now, 4)),
+      website: 'brightkiln.demo',
+      domain: 'brightkiln.demo',
+      // Moved to diligence by a person, so the deal-sorter only suggests.
+      stage: 'diligence',
+      vertical: 'Freight audit',
+      funding_stage: 'Seed',
+      referral_source: 'Intro: Ottervale Partners',
+      product_summary:
+        'Freight invoice audit and carrier dispute automation for mid-size shippers.',
+    },
+    {
+      ...blankDeal(ID.dealMossgate, 'Mossgate Legal AI', daysAgo(now, 6), daysAgo(now, 6)),
+      website: 'mossgate.demo',
+      domain: 'mossgate.demo',
+      stage: 'new',
+      vertical: 'Legal services',
+      referral_source: 'Cold: deals@',
+      product_summary: 'Contract review offered as a managed service to small law firms.',
+    },
   ];
 
-  function blankDeal(id: string, name: string, receivedAt: string, updatedAt: string): Deal {
+  /** The deal-sorter's sidecar for one of the sample routine deals above. */
+  function routineSidecar(dealId: string, state: Record<string, unknown>): DealFact {
     return {
-      id,
+      id: sha256(`${dealId}:routine:state`).slice(0, 32),
       organization_id: ORG,
-      company_name: name,
-      normalized_name: normalizeCompanyName(name),
-      website: null,
-      domain: null,
-      stage: 'new',
-      industry: null,
-      vertical: null,
-      geography: null,
-      funding_stage: null,
-      round_size: null,
-      amount_raised: null,
-      valuation_or_cap: null,
-      existing_investors: [],
-      requested_check: null,
-      referral_source: null,
-      received_at: receivedAt,
-      product_summary: null,
-      customer: null,
-      problem: null,
-      solution: null,
-      ai_usage: null,
-      traction: null,
-      revenue: null,
-      growth: null,
-      customer_count: null,
-      pipeline: null,
-      business_model: null,
-      pricing: null,
-      market: null,
-      competition: null,
-      team: null,
-      founder_market_fit: null,
-      gtm_motion: null,
-      defensibility: null,
-      data_advantage: null,
-      risks: [],
-      open_questions: [],
-      outcome: null,
-      is_archived: false,
-      created_at: receivedAt,
-      updated_at: updatedAt,
+      deal_id: dealId,
+      field: 'routine:state',
+      value: JSON.stringify({
+        v: 1,
+        aka: [],
+        created_by_routine: true,
+        stage_evidence_date: null,
+        next_step: null,
+        last_activity: null,
+        threads: [],
+        wrote: {},
+        retract: null,
+        batch: '2026-09-20T09:50Z',
+        content_hash: 'demo',
+        ...state,
+      }),
+      source_type: 'model_inference',
+      evidence_quote: null,
+      citation_id: '2026-09-20T09:50Z#1',
+      confidence: null,
+      version: 1,
+      superseded_by: null,
+      created_by: null,
+      created_at: daysAgo(now, 3),
     };
   }
+  const day = (d: number) => daysAgo(now, d).slice(0, 10);
+  const routineThread = (id: string, subject: string, d: number) => ({
+    id,
+    subject,
+    date: day(d),
+  });
+
+  const routine_sidecars: DealFact[] = [
+    routineSidecar(ID.dealQuarrystone, {
+      keys: ['quarrystone-ledger'],
+      view: {
+        stage: 'new',
+        evidence: 'Listed in the weekly angel-network report',
+        evidence_date: day(1),
+      },
+      stage_set: 'new',
+      stage_set_at: hoursAgo(now, 30),
+      stage_evidence_date: day(1),
+      fit: 'possible',
+      source: 'Angel network feed',
+      first_seen: day(1),
+      last_activity: day(1),
+      threads: [routineThread('18f3a2b4c5d6e7f0', 'Quarry close software, $2M seed', 1)],
+    }),
+    routineSidecar(ID.dealTidewell, {
+      keys: ['tidewell-clinic-os'],
+      view: {
+        stage: 'founder_meeting',
+        evidence: 'Nick accepted a 30-minute intro call with the founders',
+        evidence_date: day(3),
+      },
+      stage_set: 'founder_meeting',
+      stage_set_at: daysAgo(now, 3),
+      stage_evidence_date: day(3),
+      fit: 'likely',
+      source: 'Intro: Bramblecrest Ventures',
+      next_step: 'Ask for the data room after the intro call',
+      first_seen: day(12),
+      last_activity: day(3),
+      threads: [routineThread('18f3a2b4c5d6e7f1', 'Intro: Tidewell and TipTop', 12)],
+    }),
+    routineSidecar(ID.dealFernhollow, {
+      keys: ['fernhollow-robotics'],
+      view: {
+        stage: 'passed',
+        evidence: 'Nick replied that consumer hardware is outside the thesis',
+        evidence_date: day(8),
+        pass_reason: 'consumer hardware',
+      },
+      stage_set: 'passed',
+      stage_set_at: daysAgo(now, 8),
+      stage_evidence_date: day(8),
+      fit: 'unlikely',
+      source: 'Cold: deals@',
+      first_seen: day(20),
+      last_activity: day(8),
+      threads: [routineThread('18f3a2b4c5d6e7f2', 'Fernhollow pre-seed deck', 20)],
+    }),
+    routineSidecar(ID.dealBrightkiln, {
+      keys: ['brightkiln-freight'],
+      view: {
+        stage: 'waiting_for_info',
+        evidence: 'Nick asked the founder for the updated deck and the data room',
+        evidence_date: day(2),
+      },
+      stage_set: 'founder_meeting',
+      stage_set_at: daysAgo(now, 10),
+      stage_evidence_date: day(10),
+      fit: 'likely',
+      source: 'Intro: Ottervale Partners',
+      next_step: 'Waiting on the updated deck',
+      first_seen: day(18),
+      last_activity: day(2),
+      threads: [routineThread('18f3a2b4c5d6e7f3', 'Brightkiln Freight - seed round', 18)],
+    }),
+    routineSidecar(ID.dealMossgate, {
+      keys: ['mossgate-legal-ai'],
+      view: { stage: 'new', evidence: 'Cold pitch to deals@', evidence_date: day(6) },
+      stage_set: 'new',
+      stage_set_at: daysAgo(now, 6),
+      stage_evidence_date: day(6),
+      fit: 'possible',
+      source: 'Cold: deals@',
+      first_seen: day(6),
+      last_activity: day(6),
+      retract: 'A legal services agency, not a startup raising a round',
+      threads: [routineThread('18f3a2b4c5d6e7f4', 'Mossgate - AI for your firm', 6)],
+    }),
+  ];
 
   const deal_people: DealPerson[] = [
     person(
@@ -1091,6 +1273,8 @@ runway_months,19,16,14`,
     person(ID.dealGirder, 'Tom Whitfield', 'Co-founder', 'tom@girderai.demo', null),
     person(ID.dealPlumbline, 'Anna Kowalczyk', 'Co-founder', 'anna@plumbline.demo', null),
     person(ID.dealLoomstack, 'Ravi Anand', 'Co-founder', 'ravi@loomstack.demo', null),
+    person(ID.dealTidewell, 'Maya Oduya', 'CEO', null, null),
+    person(ID.dealBrightkiln, 'Tomas Reyna', 'Co-founder & CEO', null, null),
   ];
 
   function person(
@@ -1144,6 +1328,15 @@ runway_months,19,16,14`,
       'LoomStack pitch',
       daysAgo(now, 2),
     ),
+    // Gmail threads the deal-sorter attached (invented thread ids).
+    ...routine_sidecars.flatMap((row) => {
+      const state = JSON.parse(row.value ?? '{}') as {
+        threads: { id: string; subject: string; date: string }[];
+      };
+      return state.threads.map((t) =>
+        source(row.deal_id, 'email_thread', t.id, t.subject, `${t.date}T00:00:00.000Z`),
+      );
+    }),
   ];
 
   function source(
@@ -1676,7 +1869,7 @@ experiment, not the fundraise timing.`,
     network_contacts,
     thesis_versions,
     encrypted_provider_tokens: [],
-    deal_facts: [],
+    deal_facts: routine_sidecars,
     deal_notes: [],
     daily_briefs: [],
     chat_threads: [],
