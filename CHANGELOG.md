@@ -8,6 +8,51 @@ throughout.
 
 ---
 
+## [0.3.4] — 2026-09-23
+
+No schema change, no new environment variable, no new dependency. One Slack
+app change is needed before the tab shows reports — see **Deploy**.
+
+### Updates tab
+
+A new **Updates** tab (`/updates`, in the sidebar and the phone bottom bar)
+shows the three weekly dealflow reports and the Nick Update Digest runs, read
+live from their Slack channels. Reasoning in [DECISIONS.md](DECISIONS.md) D-050.
+
+- Filter by Dealflow or Digests, and by source. Each card opens on a short
+  preview — the first summary bullets and next deadlines of a report, or the
+  "worth your attention" list of a digest (else the run's own flag sentences,
+  such as "one is time-sensitive") — and every report section, digest item,
+  housekeeping block, run note and roster list stays collapsed until opened.
+  A digest's open "Candidate series noticed" question stays in view as
+  **Needs your call**. People's replies under a report are shown as replies,
+  never as part of it. Ledger lines, "Sent using Claude" footers and channel
+  system messages are never shown, and only the current roster version is.
+- Each source shows whether the app can read its channel, when it last
+  posted, whether a weekly report is overdue, and — when something is wrong —
+  the exact fix: add the `groups:history` scope, invite the bot to that
+  channel, or replace the token.
+- Read-only and not stored: the app never posts to Slack and writes nothing
+  to the database. What it reads is kept in server memory for five minutes;
+  the last good copy is kept up to a day and shown only when Slack is
+  unreachable or rate-limits. Removing the bot from a channel, or revoking the
+  token or its scope, drops everything kept from it at once. Refresh re-reads
+  a channel at most once every 20 seconds and always honours Slack's
+  `Retry-After`.
+- Closed while sign-in is unrestricted: outside demo mode the tab makes no
+  Slack call and says so until `AUTH_ALLOWED_EMAIL_DOMAINS` is set.
+- Slack text is rendered from a whitelist — bold, italic, code, lists, and
+  links whose scheme is `https`, `http` or `mailto`. Anything else, including
+  `javascript:` links, is shown as plain text.
+- /diagnostics lists the Updates tab's configuration.
+
+**Deploy:** in api.slack.com/apps, give the relay bot's app the
+`groups:history` bot scope and reinstall it (if the bot token changes, update
+`ASK_RELAY_SLACK_TOKEN` on Render and the Vercel standby, and the
+`SLACK_BOT_TOKEN` GitHub secret). Then run `/invite @<bot>` in
+#pef-dealflow, #openvc-dealflow, the referral dealflow channel and
+#nick-update-digest. Until then the tab shows these steps instead of reports.
+
 ## [0.3.3] — 2026-09-22
 
 No schema change, no new environment variable, no new dependency.

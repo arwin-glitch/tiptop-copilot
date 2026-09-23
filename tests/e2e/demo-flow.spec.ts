@@ -219,7 +219,16 @@ test('13 — a draft is produced and plainly marked as never sent', async ({ pag
 });
 
 test('the product never offers a way to send anything', async ({ page }) => {
-  for (const path of ['/today', '/inbox', '/deals', '/ask', '/portfolio', '/tasks', '/settings']) {
+  for (const path of [
+    '/today',
+    '/inbox',
+    '/deals',
+    '/ask',
+    '/updates',
+    '/portfolio',
+    '/tasks',
+    '/settings',
+  ]) {
     await page.goto(path);
     await expect(page.getByRole('button', { name: /^Send( |$)/ })).toHaveCount(0);
   }

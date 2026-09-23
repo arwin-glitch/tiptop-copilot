@@ -34,6 +34,7 @@ To run against real infrastructure, copy `.env.example` to `.env.local` and see
 | **Inbox** | Synced mail, classified. Metadata by default; full bodies only when you open a message or the classifier judges it consequential. |
 | **Deals** | The pipeline. Each deal has a scorecard, extracted facts with provenance, diligence questions, red flags and a decision history. |
 | **Ask** | One open-ended question, one direct answer, with the sources. The model reaches data only through an allowlisted tool layer. |
+| **Updates** | The weekly dealflow reports and Nick's update digests, read live from their Slack channels. Read-only; nothing is stored. |
 | **Portfolio** | Companies and their open asks. Suggested introductions are filtered against your own network data. |
 | **Knowledge** | Uploaded documents — thesis, memos, pass notes, market maps — searchable with page-level citations. |
 | **Tasks** | Follow-ups, overdue first. |

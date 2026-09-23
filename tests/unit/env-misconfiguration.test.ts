@@ -110,3 +110,39 @@ describe('APP_URL', () => {
     expect(check('app_url')?.status).toBe('demo');
   });
 });
+
+describe('Updates tab', () => {
+  const RESTRICTED = { ...LIVE, AUTH_ALLOWED_EMAIL_DOMAINS: 'example.com' };
+
+  it('is optional-missing without the Slack token', () => {
+    setEnv({ ...RESTRICTED, ASK_RELAY_SLACK_TOKEN: undefined });
+    const c = check('updates-tab');
+    expect(c?.status).toBe('optional-missing');
+    expect(c?.required).toBe(false);
+    expect(c?.variables).toEqual(['ASK_RELAY_SLACK_TOKEN', 'AUTH_ALLOWED_EMAIL_DOMAINS']);
+  });
+
+  it('is ready with the token, and names the scope and invites it still needs', () => {
+    setEnv({ ...RESTRICTED, ASK_RELAY_SLACK_TOKEN: 'xoxb-example-not-real' });
+    const c = check('updates-tab');
+    expect(c?.status).toBe('ready');
+    expect(c?.detail).toContain('groups:history');
+    expect(JSON.stringify(c)).not.toContain('xoxb-example-not-real');
+  });
+
+  it('stays closed while sign-in is unrestricted, token or not', () => {
+    setEnv({
+      ...LIVE,
+      AUTH_ALLOWED_EMAIL_DOMAINS: undefined,
+      ASK_RELAY_SLACK_TOKEN: 'xoxb-example-not-real',
+    });
+    const c = check('updates-tab');
+    expect(c?.status).toBe('optional-missing');
+    expect(c?.detail).toContain('AUTH_ALLOWED_EMAIL_DOMAINS');
+  });
+
+  it('reports demo in demo mode', () => {
+    setEnv({ DEMO_MODE: 'true', ASK_RELAY_SLACK_TOKEN: undefined });
+    expect(check('updates-tab')?.status).toBe('demo');
+  });
+});

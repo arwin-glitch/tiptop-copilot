@@ -484,3 +484,69 @@ push to `relay-kick` runs whatever workflow files the pushed commit carries,
 and a routine pushing a commit from before this change would start the old
 job, which fails on the deleted script. Removing the variable is what keeps
 it from running.
+
+### D-050 — The Updates tab reads the private channels live; nothing is copied or stored
+
+**Context.** Four cloud routines post every week to four private Slack
+channels: three dealflow reports (Fridays) and the Nick Update Digest (Monday
+and Friday runs, plus month-start and month-end, each run a parent message
+with one threaded reply per update). The reports are long — up to about 8,500
+characters in one message, and about 50,000 across one digest thread — and
+some are marked confidential or investors-only. The app's Slack token already
+reads the public relay channel for Ask answers and the Today briefing cards.
+
+**Decision.**
+
+- The Updates tab reads the four channels directly with the existing
+  read-only bot token (`conversations.history`, plus `conversations.replies`
+  for threads). No routine changes, no posting to Slack, no copies in the
+  relay channel, and no table or migration.
+- The sources are a hardcoded list of channel IDs, like the relay channel's.
+  One channel's name is a private person's name, so the repository labels it
+  "Referral partner" and reaches it by ID; the report's own heading, read at
+  runtime, identifies it on screen.
+- A per-instance in-memory cache: five minutes for a good read, one minute
+  after a refusal, while a thread may still be posting or when a thread could
+  not be read. The last good copy (up to a day) is served only while Slack
+  fails to answer (unreachable, rate-limited, an unknown error); when access
+  is withdrawn — bot removed, token revoked, scope dropped — everything kept
+  from that channel is dropped at once. A forced refresh is floored at 20
+  seconds per channel, never overrides `Retry-After` (a thread read's
+  included), and is rate-limited per user. Thread replies are re-read when a
+  parent's `latest_reply` changes, and at least every 30 minutes, since an
+  edit changes neither `reply_count` nor `latest_reply`.
+- Posts are classified by their structure, never by author: the routines post
+  through the Claude connector as a human member's own account, so neither
+  the user nor `bot_id` tells a report from a person's message.
+- Slack mrkdwn becomes React elements through a whitelist; link schemes are
+  limited to `https`, `http` and `mailto`, and every link opens with
+  `rel="noreferrer"`.
+- Each source reports its access state, and the page names the exact fix per
+  channel instead of showing an error or an empty page.
+- The tab stays closed — no Slack call at all — while
+  `AUTH_ALLOWED_EMAIL_DOMAINS` is empty outside demo mode.
+
+**Why.** The relay channel is public: everyone in the workspace can read it,
+so copying deal reports and investors-only digests there would publish them
+workspace-wide. Slack is already where the routines write and is the record
+Nick and the EA read, so a table would only be a second copy of confidential
+text in the database, with its own retention and sync to maintain. Next's
+caches were ruled out: `'use cache'` requires `cacheComponents`, which removes
+the `dynamic` segment config used across the app; `unstable_cache` and fetch
+caching persist to `.next/cache` on disk, would store Slack's HTTP-200
+`ok:false` refusals as successes, and cannot serve the last good copy on
+failure. A plain Map is the same pattern as the briefing pull.
+
+**Consequence.** The bot needs the `groups:history` scope and an invite to
+each channel; once invited, anything holding that token — this app, and the
+GitHub workflows that use the same token — can read those channels. The
+`on_auth_user_created` trigger gives every new account its own organisation
+with the owner role, so there is no shared role to gate on and the sign-in
+allowlist is the only boundary: every account on an allowed domain sees all
+four channels, and with no allowlist the tab is closed rather than open to
+any Google account. One of the dealflow channels was once deliberately kept
+from one reader; revisit gating if the app gains users on an allowed domain
+who should not see a channel. A read during the
+minutes a digest thread is still posting shows a partial run, marked "Still
+posting" and re-read after a minute. A report whose format drifts past the
+parser still appears, as a generic collapsed card with a link to Slack.
