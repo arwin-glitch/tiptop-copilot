@@ -145,6 +145,59 @@ test('stage, fit and sort apply in the browser with no server render, and Back u
   expect(rsc).toEqual([]);
 });
 
+test('a chip click and typing land at once while the open-tab refresh is loading', async ({
+  page,
+}) => {
+  // The watcher's first check sees a new version and refreshes; every /deals
+  // server render after the load is held until `release`.
+  await page.route(VERSION_URL, (route) => route.fulfill({ json: { version: 'changed' } }));
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(
+    (url) => url.pathname === '/deals',
+    async (route) => {
+      if (isDealsRefresh(route.request())) await held;
+      await route.fallback();
+    },
+  );
+  const refresh = page.waitForRequest(isDealsRefresh);
+  await gotoDeals(page);
+  const rows = page.getByRole('table').locator('tbody tr');
+  await expect(rows.first()).toBeVisible();
+  await refresh;
+
+  const diligence = page
+    .getByRole('group', { name: 'Filter by stage' })
+    .getByRole('button', { name: /^Diligence\s*\d+$/ });
+  const diligenceCount = Number(/(\d+)\s*$/.exec(await diligence.innerText())?.[1]);
+  await diligence.click();
+  // Held, the refresh never lands on its own: these fail if the click waits for it.
+  await expect(diligence).toHaveAttribute('aria-pressed', 'true', { timeout: 1_000 });
+  await expect(rows).toHaveCount(diligenceCount, { timeout: 1_000 });
+  const search = page.getByRole('searchbox', { name: 'Search deals' });
+  await search.pressSequentially('Bright');
+  await expect(search).toHaveValue('Bright', { timeout: 1_000 });
+
+  release();
+  await expect(page).toHaveURL(/stage=diligence/);
+  await expect(page).toHaveURL(/q=Bright/);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Brightkiln Freight');
+  await expect(diligence).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('Clear filters brings the list back in place and keeps keyboard focus', async ({ page }) => {
+  await gotoDeals(page, '/deals?stage=no-such-stage');
+  const clear = page.getByRole('button', { name: 'Clear filters' });
+  await clear.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/deals$/);
+  await expect(page.getByRole('table').locator('tbody tr').first()).toBeVisible();
+  await expect(
+    page.getByRole('group', { name: 'Filter by stage' }).getByRole('button', { name: /^All/ }),
+  ).toBeFocused();
+});
+
 test('the deal page shows the Deal-sorter card and links the Gmail thread', async ({ page }) => {
   await page.goto(`/deals/${DEMO.tidewell}`);
   await expect(page.getByRole('heading', { name: 'Deal-sorter' })).toBeVisible();

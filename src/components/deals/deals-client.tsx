@@ -25,6 +25,7 @@ export function DealsFilterBar({
   archivedCount = 0,
   onStageChange,
   onFitChange,
+  allStagesRef,
 }: {
   stages: DealStage[];
   counts: Record<string, number>;
@@ -39,6 +40,8 @@ export function DealsFilterBar({
   /** Stage and fit filter the loaded rows in place, without a server round trip. */
   onStageChange: (stage: string | null) => void;
   onFitChange: (fit: FitFilter | null) => void;
+  /** The "All" stage chip, which is always shown. */
+  allStagesRef?: React.Ref<HTMLButtonElement>;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -65,6 +68,7 @@ export function DealsFilterBar({
 
       <FilterChipRow aria-label="Filter by stage" className="sm:flex-wrap sm:overflow-x-visible">
         <FilterChip
+          ref={allStagesRef}
           pressed={!stage}
           label="All"
           count={Object.values(counts).reduce((a, b) => a + b, 0)}

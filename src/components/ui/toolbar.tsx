@@ -96,15 +96,18 @@ export function FilterChip({
   pressed,
   onToggle,
   className,
+  ref,
 }: {
   label: string;
   count?: number;
   pressed: boolean;
   onToggle: () => void;
   className?: string;
+  ref?: React.Ref<HTMLButtonElement>;
 }) {
   return (
     <button
+      ref={ref}
       type="button"
       onClick={onToggle}
       aria-pressed={pressed}

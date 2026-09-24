@@ -2,7 +2,6 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
 import { RestoreDealButton } from '@/components/deals/deal-actions';
 import { Badge, RecommendationBadge } from '@/components/ui/badge';
 import {
@@ -57,16 +56,12 @@ export function DealsTable({
   mode?: ColumnMode;
   /** The archived ("Not a deal") list, where each row can be restored. */
   archived?: boolean;
-  /** Applies a header click in place; without it the click navigates. */
-  onSort?: (sort: SortKey, direction: SortDirection) => void;
-}) {
-  const router = useRouter();
-  const params = useSearchParams();
-
   /**
-   * Sorting lives in the URL rather than in component state: it survives a
-   * reload, it is shareable, and Back undoes it.
+   * Applies a header click. The caller keeps the order in the URL, so it
+   * survives a reload, is shareable, and Back undoes it.
    */
+  onSort: (sort: SortKey, direction: SortDirection) => void;
+}) {
   const toggle = React.useCallback(
     (key: SortKey) => {
       // Clicking the active column reverses it; clicking a new one starts from
@@ -80,16 +75,9 @@ export function DealsTable({
           : key === 'company' || key === 'stage'
             ? 'asc'
             : 'desc';
-      if (onSort) {
-        onSort(key, nextDirection);
-        return;
-      }
-      const next = new URLSearchParams(params.toString());
-      next.set('sort', key);
-      next.set('dir', nextDirection);
-      router.push(`/deals?${next.toString()}`);
+      onSort(key, nextDirection);
     },
-    [direction, onSort, params, router, sort],
+    [direction, onSort, sort],
   );
 
   const sortFor = (key: SortKey) => ({

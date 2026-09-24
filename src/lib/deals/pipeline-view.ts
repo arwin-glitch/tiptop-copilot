@@ -110,6 +110,35 @@ export function readPipelineView(params: { get(key: string): string | null }): P
   };
 }
 
+/** The query keys the view owns; the search (`q`) and `archived` stay with the server. */
+export const VIEW_KEYS = ['stage', 'fit', 'sort', 'dir'] as const;
+export type ViewParams = Record<(typeof VIEW_KEYS)[number], string | null>;
+
+/** The view's raw query values, an empty one counting as absent. */
+export function viewParams(params: { get(key: string): string | null }): ViewParams {
+  return {
+    stage: params.get('stage') || null,
+    fit: params.get('fit') || null,
+    sort: params.get('sort') || null,
+    dir: params.get('dir') || null,
+  };
+}
+
+export function sameViewParams(a: ViewParams, b: ViewParams): boolean {
+  return VIEW_KEYS.every((key) => a[key] === b[key]);
+}
+
+/** `search` with the view's keys set from `view`; every other key is kept. */
+export function withViewParams(search: string, view: ViewParams): URLSearchParams {
+  const next = new URLSearchParams(search);
+  for (const key of VIEW_KEYS) {
+    const value = view[key];
+    if (value) next.set(key, value);
+    else next.delete(key);
+  }
+  return next;
+}
+
 export function filterRows(
   rows: DealRow[],
   { stage, fit }: { stage: string; fit: FitFilter | null },

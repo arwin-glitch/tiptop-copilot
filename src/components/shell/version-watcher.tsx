@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import { useReportRefresh } from '@/components/shell/refresh-status';
 
 const POLL_MS = 15_000;
 /** Longest back-off after repeated failed checks: 20 ticks, five minutes. */
@@ -18,7 +19,8 @@ const MAX_BACKOFF_TICKS = 20;
  */
 export function VersionWatcher({ version, endpoint }: { version: string; endpoint: string }) {
   const router = useRouter();
-  const [, startTransition] = React.useTransition();
+  const [isPending, startTransition] = React.useTransition();
+  const reportRefresh = useReportRefresh(isPending);
 
   React.useEffect(() => {
     let inFlight = false;
@@ -53,6 +55,7 @@ export function VersionWatcher({ version, endpoint }: { version: string; endpoin
         if (disposed || typeof body.version !== 'string') return;
         if (body.version !== version && body.version !== requested) {
           requested = body.version;
+          reportRefresh();
           startTransition(() => router.refresh());
         }
       } catch {
@@ -81,7 +84,7 @@ export function VersionWatcher({ version, endpoint }: { version: string; endpoin
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('pageshow', onVisible);
     };
-  }, [endpoint, router, version]);
+  }, [endpoint, reportRefresh, router, version]);
 
   return null;
 }

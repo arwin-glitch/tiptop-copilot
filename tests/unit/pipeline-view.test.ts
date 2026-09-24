@@ -5,8 +5,11 @@ import {
   filterRows,
   fitCounts,
   readPipelineView,
+  sameViewParams,
   sortRows,
   stageCounts,
+  viewParams,
+  withViewParams,
   type DealRow,
   type FitFilter,
 } from '@/lib/deals/pipeline-view';
@@ -144,5 +147,20 @@ describe('the stage and fit filters, applied in the browser', () => {
       sort: 'received',
       direction: 'desc',
     });
+  });
+
+  it('writes a chosen view into the URL and keeps the search and archived keys', () => {
+    const inUrl = viewParams(new URLSearchParams('q=kiln&stage=&archived=1&sort=company&dir=asc'));
+    // An empty value is the same as none, so a written URL reads back equal.
+    expect(inUrl).toEqual({ stage: null, fit: null, sort: 'company', dir: 'asc' });
+
+    const chosen = { ...inUrl, stage: 'diligence', sort: null, dir: null };
+    const written = withViewParams('?q=kiln&stage=&archived=1&sort=company&dir=asc', chosen);
+    expect(written.toString()).toBe('q=kiln&stage=diligence&archived=1');
+    expect(sameViewParams(viewParams(written), chosen)).toBe(true);
+    expect(sameViewParams(viewParams(written), inUrl)).toBe(false);
+
+    const cleared = { stage: null, fit: null, sort: null, dir: null };
+    expect(withViewParams(written.toString(), cleared).toString()).toBe('q=kiln&archived=1');
   });
 });
