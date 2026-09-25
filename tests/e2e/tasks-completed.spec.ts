@@ -34,6 +34,18 @@ test.beforeAll(async ({ browser }, testInfo) => {
 
 test.use({ storageState: SIGNED_IN });
 
+// Tests begin with nothing completed. Reopen whatever a test left completed,
+// even one that failed partway, so a retry and the specs after it start clean.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await gotoTasks(page, '/tasks?view=completed');
+  const reopen = tabs(page).completedPanel.getByRole('button', { name: /^Reopen / });
+  for (let left = await reopen.count(); left > 0; left--) {
+    await reopen.first().click();
+    await expect(reopen).toHaveCount(left - 1);
+  }
+});
+
 async function gotoTasks(page: Page, url = '/tasks') {
   await page.goto(url);
   await expect(page.getByRole('heading', { name: 'Tasks and drafts' })).toBeVisible();
@@ -77,13 +89,13 @@ test('a completed task moves to Completed, and Reopen brings it back to To do', 
   await gotoTasks(page);
   const { completed, todo, todoPanel, completedPanel } = tabs(page);
   await expect(todo).toHaveAttribute('aria-selected', 'true');
-  await expect(completed).toHaveAccessibleName(/^Completed\s*0$/);
+  await expect(completed).toHaveAccessibleName(/^Completed 0$/);
 
   const open = todoPanel.getByRole('listitem').filter({ hasText: LOOMSTACK });
   await open.getByRole('button', { name: 'Mark complete' }).click();
   await expect(page.getByText('Marked complete', { exact: true })).toBeVisible();
   await expect(open).toHaveCount(0);
-  await expect(completed).toHaveAccessibleName(/^Completed\s*1$/);
+  await expect(completed).toHaveAccessibleName(/^Completed 1$/);
 
   await completed.click();
   await expect(page).toHaveURL(/\/tasks\?view=completed$/);
@@ -97,8 +109,10 @@ test('a completed task moves to Completed, and Reopen brings it back to To do', 
   await done.getByRole('button', { name: `Reopen ${LOOMSTACK}` }).click();
   await expect(page.getByText('Reopened', { exact: true })).toBeVisible();
   await expect(completedPanel.getByText('Nothing completed yet')).toBeVisible();
-  // Reopening does not switch tabs; the task is waiting on To do.
+  // Reopening does not switch tabs; the task is waiting on To do. Focus, left
+  // behind by the vanished button, goes to the tab rather than the page.
   await expect(completed).toHaveAttribute('aria-selected', 'true');
+  await expect(completed).toBeFocused();
   await todo.click();
   await expect(page).toHaveURL(/\/tasks$/);
   await expect(todoPanel.getByRole('listitem').filter({ hasText: LOOMSTACK })).toBeVisible();
@@ -151,18 +165,22 @@ test('a tab click lands at once while a row action is refreshing the page', asyn
   await gotoTasks(page);
   const { todo, completed, todoPanel, completedPanel } = tabs(page);
 
-  // Every /tasks server render after the load is held until `release`.
+  // While held, every /tasks server render waits until `release`.
+  let held: Promise<void> | null = null;
   let release = () => {};
-  const held = new Promise<void>((resolve) => (release = resolve));
+  const hold = () => {
+    held = new Promise<void>((resolve) => (release = resolve));
+  };
   await page.route(
     (url) => url.pathname === '/tasks',
     async (route) => {
-      if (isTasksRsc(route.request())) await held;
+      if (held && isTasksRsc(route.request())) await held;
       await route.fallback();
     },
   );
 
-  const refresh = page.waitForRequest(isTasksRsc);
+  hold();
+  let refresh = page.waitForRequest(isTasksRsc);
   await todoPanel
     .getByRole('listitem')
     .filter({ hasText: RECRUITER })
@@ -181,14 +199,28 @@ test('a tab click lands at once while a row action is refreshing the page', asyn
   // The URL waits for the refresh, rather than freezing the page behind it.
   await expect(page).toHaveURL(/\/tasks$/);
 
+  held = null;
   release();
   await expect(page).toHaveURL(/\/tasks\?view=completed$/);
   const done = completedPanel.getByRole('listitem').filter({ hasText: RECRUITER });
   await expect(done).toBeVisible();
 
-  // Leave the demo task open for the rest of the suite.
+  // The same for Reopen, most likely followed by a look for the task on To do.
+  hold();
+  refresh = page.waitForRequest(isTasksRsc);
   await done.getByRole('button', { name: `Reopen ${RECRUITER}` }).click();
-  await expect(page.getByText('Reopened', { exact: true })).toBeVisible();
+  await refresh;
   await todo.click();
+  await expect(todoPanel).toBeVisible({ timeout: 1_000 });
+  await completed.click();
+  await expect(completedPanel).toBeVisible({ timeout: 1_000 });
+  await todo.click();
+  await expect(todoPanel).toBeVisible({ timeout: 1_000 });
+  await expect(page).toHaveURL(/\/tasks\?view=completed$/);
+
+  held = null;
+  release();
+  await expect(page).toHaveURL(/\/tasks$/);
+  await expect(page.getByText('Reopened', { exact: true })).toBeVisible();
   await expect(todoPanel.getByRole('listitem').filter({ hasText: RECRUITER })).toBeVisible();
 });

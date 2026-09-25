@@ -207,7 +207,15 @@ export function TaskControls({ taskId }: { taskId: string }) {
 }
 
 /** Puts a completed task back on the To do list. */
-export function ReopenTaskButton({ taskId, title }: { taskId: string; title: string }) {
+export function ReopenTaskButton({
+  taskId,
+  title,
+  onReopened,
+}: {
+  taskId: string;
+  title: string;
+  onReopened?: () => void;
+}) {
   const [pending, startTransition] = React.useTransition();
   const reportRefresh = useReportRefresh(pending);
   const router = useRouter();
@@ -224,6 +232,7 @@ export function ReopenTaskButton({ taskId, title }: { taskId: string; title: str
           const result = await updateTaskStatusAction(taskId, 'open');
           if (result.ok) {
             toast.success('Reopened');
+            onReopened?.();
             router.refresh();
           } else {
             toast.error(result.error?.message ?? 'Could not reopen it');

@@ -23,6 +23,8 @@ No schema change, no new environment variable, no new dependency.
   Each row shows when it was completed and has **Reopen**, which puts the task
   back on To do. The first 100 show, then **Show more**. No strikethrough.
 - The old "Completed" list at the bottom of the page (last 20) is gone.
+- Tab panels (Tasks, a deal, Settings) now show the focus ring when reached
+  with the keyboard.
 
 ## [0.3.5] — 2026-09-23
 

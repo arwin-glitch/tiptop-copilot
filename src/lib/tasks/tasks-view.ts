@@ -1,5 +1,12 @@
 import type { Task } from '@/lib/types/domain';
-import { addDaysToKey, localDateKey } from '@/lib/util/time';
+import {
+  addDaysToKey,
+  formatDate,
+  formatTime,
+  formatWeekdayTime,
+  localDateKey,
+  relativeTime,
+} from '@/lib/util/time';
 
 /**
  * The Tasks page's two tabs and the grouping of its Completed tab.
@@ -69,6 +76,39 @@ export function completedGroup(at: string | Date, now: Date, timeZone: string): 
   return day >= monday ? 'this_week' : 'earlier';
 }
 
+/**
+ * The "Completed …" line under a row, worded from the same calendar day as its
+ * heading: a rounded "2d ago" could sit under Yesterday, or "1d ago" under
+ * Earlier.
+ */
+export function completedLabel(
+  at: string | Date,
+  group: CompletedGroupKey,
+  now: Date,
+  timeZone: string,
+): string {
+  const instant = typeof at === 'string' ? new Date(at) : at;
+  if (Number.isNaN(instant.getTime())) return 'Completed';
+  switch (group) {
+    case 'today': {
+      const ago = now.getTime() - instant.getTime();
+      // Past a day ("1d ago") only on a 25-hour day; ahead of now only by clock skew.
+      return ago > -60_000 && ago < 86_400_000
+        ? `Completed ${relativeTime(instant, now)}`
+        : `Completed at ${formatTime(instant, timeZone)}`;
+    }
+    case 'yesterday':
+      return `Completed at ${formatTime(instant, timeZone)}`;
+    case 'this_week':
+      return `Completed ${formatWeekdayTime(instant, timeZone)}`;
+    case 'earlier':
+      return `Completed ${formatDate(instant, timeZone)}`;
+  }
+}
+
+/** How many completed tasks show before "Show more". */
+export const COMPLETED_PAGE = 100;
+
 export interface CompletedGroup<T> {
   key: CompletedGroupKey;
   label: string;
@@ -90,6 +130,26 @@ export function groupRuns<T extends { group: CompletedGroupKey }>(
     else out.push({ key: item.group, label: COMPLETED_GROUP_LABELS[item.group], items: [item] });
   }
   return out;
+}
+
+export interface CompletedSections<T> {
+  /** The shown rows under their headings; `total` also counts rows still hidden. */
+  sections: (CompletedGroup<T> & { total: number })[];
+  hidden: number;
+}
+
+/** The first `shown` of a newest-first list, under headings that count the whole group. */
+export function completedSections<T extends { group: CompletedGroupKey }>(
+  items: readonly T[],
+  shown: number,
+): CompletedSections<T> {
+  const totals = new Map<CompletedGroupKey, number>();
+  for (const item of items) totals.set(item.group, (totals.get(item.group) ?? 0) + 1);
+  const visible = items.slice(0, Math.max(0, shown));
+  return {
+    sections: groupRuns(visible).map((group) => ({ ...group, total: totals.get(group.key) ?? 0 })),
+    hidden: items.length - visible.length,
+  };
 }
 
 /** Where a task's title links: its deal, else its portfolio company. */

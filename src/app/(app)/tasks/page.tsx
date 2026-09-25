@@ -13,7 +13,13 @@ import { EmptyState, PlainText } from '@/components/ui/feedback';
 import { CreateFollowUpButton, TaskControls } from '@/components/today/today-actions';
 import { CompletedTasks, type CompletedTaskItem } from '@/components/tasks/completed-tasks';
 import { TasksTabs } from '@/components/tasks/tasks-tabs';
-import { completedAt, completedGroup, sortCompleted, taskHref } from '@/lib/tasks/tasks-view';
+import {
+  completedAt,
+  completedGroup,
+  completedLabel,
+  sortCompleted,
+  taskHref,
+} from '@/lib/tasks/tasks-view';
 import type { Task } from '@/lib/types/domain';
 import { relativeTime } from '@/lib/util/time';
 
@@ -36,15 +42,19 @@ export default async function TasksPage() {
 
   const openCount = overdue.length + dueToday.length + upcoming.length;
   const nothing = openCount === 0;
-  const completedItems: CompletedTaskItem[] = sortCompleted(completed).map((task) => ({
-    id: task.id,
-    title: task.title,
-    detail: task.detail,
-    href: taskHref(task),
-    suggested: task.source === 'suggested',
-    completedLabel: `Completed ${relativeTime(completedAt(task), now)}`,
-    group: completedGroup(completedAt(task), now, auth.profile.timezone),
-  }));
+  const completedItems: CompletedTaskItem[] = sortCompleted(completed).map((task) => {
+    const at = completedAt(task);
+    const group = completedGroup(at, now, auth.profile.timezone);
+    return {
+      id: task.id,
+      title: task.title,
+      detail: task.detail,
+      href: taskHref(task),
+      suggested: task.source === 'suggested',
+      completedLabel: completedLabel(at, group, now, auth.profile.timezone),
+      group,
+    };
+  });
 
   const todo = (
     <>
@@ -149,7 +159,7 @@ function TaskList({ tasks, now, overdue }: { tasks: Task[]; now: Date; overdue?:
     <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
       {tasks.map((task) => (
         <li key={task.id} className="flex items-start justify-between gap-3 px-4 py-3">
-          <div className="min-w-0">
+          <div className="min-w-0 break-words">
             <p className="text-sm font-medium">
               {task.deal_id ? (
                 <Link

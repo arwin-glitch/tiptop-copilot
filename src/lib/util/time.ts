@@ -153,6 +153,17 @@ export function formatDateTime(date: Date | string, timeZone: string): string {
   }).format(d);
 }
 
+/** "Tue 3:05 PM". */
+export function formatWeekdayTime(date: Date | string, timeZone: string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(d);
+}
+
 export function formatWeekdayLong(date: Date | string, timeZone: string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
   return new Intl.DateTimeFormat('en-US', {

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { formatTime } from '@/lib/util/time';
 import {
+  COMPLETED_PAGE,
   completedAt,
   completedGroup,
+  completedLabel,
+  completedSections,
   groupRuns,
   readTasksView,
   sortCompleted,
@@ -66,7 +70,71 @@ describe('completedGroup', () => {
 
   it('counts a completion after now as Today, and an unreadable one as Earlier', () => {
     expect(completedGroup('2026-09-24T18:00:00.000Z', THURSDAY_MORNING, CHICAGO)).toBe('today');
+    // 01:00 Friday in Chicago: a later day, still Today rather than a heading above it.
+    expect(completedGroup('2026-09-25T06:00:00.000Z', THURSDAY_MORNING, CHICAGO)).toBe('today');
     expect(completedGroup('not a date', THURSDAY_MORNING, CHICAGO)).toBe('earlier');
+  });
+});
+
+describe('completedLabel', () => {
+  const label = (at: string, now: Date) =>
+    completedLabel(at, completedGroup(at, now, CHICAGO), now, CHICAGO);
+
+  it('reads relative within today', () => {
+    expect(label('2026-09-24T14:59:40.000Z', THURSDAY_MORNING)).toBe('Completed just now');
+    expect(label('2026-09-24T12:00:00.000Z', THURSDAY_MORNING)).toBe('Completed 3h ago');
+  });
+
+  it('never contradicts its heading at a day boundary', () => {
+    // 23:55 Friday: 00:05 Thursday is under Yesterday, though nearly two days ago.
+    const lateFriday = new Date('2026-09-26T04:55:00.000Z');
+    const earlyThursday = '2026-09-24T05:05:00.000Z';
+    expect(completedGroup(earlyThursday, lateFriday, CHICAGO)).toBe('yesterday');
+    expect(label(earlyThursday, lateFriday)).toBe(
+      `Completed at ${formatTime(earlyThursday, CHICAGO)}`,
+    );
+
+    // 08:00 Monday: 23:00 Saturday is under Earlier, though only a day and a half ago.
+    const mondayMorning = new Date('2026-09-28T13:00:00.000Z');
+    const lateSaturday = '2026-09-27T04:00:00.000Z';
+    expect(completedGroup(lateSaturday, mondayMorning, CHICAGO)).toBe('earlier');
+    expect(label(lateSaturday, mondayMorning)).toBe('Completed Sep 26, 2026');
+  });
+
+  it('names the weekday this week, and gives a time rather than a future', () => {
+    expect(label('2026-09-22T20:05:00.000Z', THURSDAY_MORNING)).toMatch(/^Completed Tue 3:05\sPM$/);
+    expect(label('2026-09-24T18:00:00.000Z', THURSDAY_MORNING)).toMatch(/^Completed at 1:00\sPM$/);
+  });
+
+  it('says only "Completed" for an unreadable date', () => {
+    expect(completedLabel('not a date', 'earlier', THURSDAY_MORNING, CHICAGO)).toBe('Completed');
+  });
+});
+
+describe('completedSections', () => {
+  const items = (count: number, group: CompletedGroupKey, prefix: string) =>
+    Array.from({ length: count }, (_, i) => ({ id: `${prefix}${i}`, group }));
+
+  it('shows the first page, and counts hidden rows in their headings', () => {
+    const all = [...items(30, 'today', 't'), ...items(120, 'earlier', 'e')];
+    const { sections, hidden } = completedSections(all, COMPLETED_PAGE);
+    expect(COMPLETED_PAGE).toBe(100);
+    expect(hidden).toBe(50);
+    expect(sections.map((s) => [s.key, s.items.length, s.total])).toEqual([
+      ['today', 30, 30],
+      ['earlier', 70, 120],
+    ]);
+  });
+
+  it('leaves out a group whose rows are all hidden, and hides nothing once all are shown', () => {
+    const all = [...items(100, 'today', 't'), ...items(5, 'yesterday', 'y')];
+    expect(completedSections(all, 100).sections.map((s) => s.key)).toEqual(['today']);
+    const everything = completedSections(all, all.length);
+    expect(everything.hidden).toBe(0);
+    expect(everything.sections.map((s) => [s.key, s.items.length, s.total])).toEqual([
+      ['today', 100, 100],
+      ['yesterday', 5, 5],
+    ]);
   });
 });
 

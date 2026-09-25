@@ -58,12 +58,10 @@ export function TasksTabs({
     <Tabs value={view} onValueChange={(value) => setChosen(readTasksView(value))}>
       <TabsList aria-label="Tasks">
         <TabsTrigger value="todo">
-          To do
-          <span className="tabular ml-1.5 text-[var(--fg-subtle)]">{todoCount}</span>
+          To do <span className="tabular ml-0.5 text-[var(--fg-subtle)]">{todoCount}</span>
         </TabsTrigger>
         <TabsTrigger value="completed">
-          Completed
-          <span className="tabular ml-1.5 text-[var(--fg-subtle)]">{completedCount}</span>
+          Completed <span className="tabular ml-0.5 text-[var(--fg-subtle)]">{completedCount}</span>
         </TabsTrigger>
       </TabsList>
       {/* Both stay mounted, so a pending row action and "Show more" survive a switch. */}

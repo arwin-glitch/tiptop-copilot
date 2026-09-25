@@ -44,10 +44,7 @@ export function TabsContent({
 }: React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>) {
   // A short fade on arrival, so switching tabs reads as a change rather than a
   // flicker. The reduced-motion block in globals.css collapses it to nothing.
-  return (
-    <TabsPrimitive.Content
-      className={cn('animate-fade-in pt-4 outline-none', className)}
-      {...props}
-    />
-  );
+  // No outline-none: Tab from the tabs lands on the panel, and the global
+  // focus ring is what shows it.
+  return <TabsPrimitive.Content className={cn('animate-fade-in pt-4', className)} {...props} />;
 }
