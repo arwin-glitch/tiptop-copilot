@@ -8,6 +8,18 @@ throughout.
 
 ---
 
+## [0.3.9] — 2026-09-25
+
+No schema change, no new dependency, no new environment variable.
+
+### Every page reachable in a narrow window
+
+- Below the sidebar breakpoint the bottom bar held only six destinations, so
+  Meetings, Network, Knowledge, Tasks, Settings and Diagnostics could not be
+  reached in a phone or half-width window. It now holds all twelve and
+  scrolls sideways (swipe, trackpad, or mouse wheel), fades at an edge while
+  there is more to scroll to, and opens with the current page in view.
+
 ## [0.3.8] — 2026-09-25
 
 No schema change, no new dependency, no new environment variable.

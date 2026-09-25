@@ -67,13 +67,35 @@ test.describe('mobile layout', () => {
     const nav = page.getByRole('navigation', { name: 'Main' }).last();
     await expect(nav).toBeVisible();
 
-    for (const label of ['Today', 'Inbox', 'Deals', 'Ask', 'Updates', 'Portfolio']) {
-      const link = nav.getByRole('link', { name: label });
-      await expect(link).toBeVisible();
+    // Every destination is in the bar; the bar scrolls sideways when they
+    // do not all fit, so each is reached by scrolling it into view.
+    for (const label of [
+      'Today',
+      'Inbox',
+      'Deals',
+      'Ask',
+      'Updates',
+      'Portfolio',
+      'Meetings',
+      'Network',
+      'Knowledge',
+      'Tasks',
+      'Settings',
+      'Diagnostics',
+    ]) {
+      const link = nav.getByRole('link', { name: label, exact: true });
+      await link.scrollIntoViewIfNeeded();
+      await expect(link).toBeInViewport({ ratio: 0.9 });
       const box = await link.boundingBox();
       // Comfortably above the 44px minimum touch target.
       expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
     }
+  });
+
+  test('the bottom navigation opens scrolled to the current page', async ({ page }) => {
+    await page.goto('/tasks');
+    const nav = page.getByRole('navigation', { name: 'Main' }).last();
+    await expect(nav.getByRole('link', { name: 'Tasks' })).toBeInViewport({ ratio: 0.9 });
   });
 
   test('the bottom navigation stays fixed while the page scrolls', async ({ page }) => {

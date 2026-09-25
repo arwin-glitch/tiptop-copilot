@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -54,10 +55,6 @@ const GROUPS: { label: string; hrefs: string[] }[] = [
   { label: 'Records', hrefs: ['/portfolio', '/meetings', '/network', '/knowledge', '/tasks'] },
   { label: 'System', hrefs: ['/settings', '/diagnostics'] },
 ];
-
-/** Mobile: six primary destinations in a bottom bar, thumb-reachable. */
-const MOBILE_HREFS = ['/today', '/inbox', '/deals', '/ask', '/updates', '/portfolio'];
-const MOBILE_ITEMS = NAV_ITEMS.filter((i) => MOBILE_HREFS.includes(i.href));
 
 function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -124,26 +121,86 @@ export function SidebarNav() {
   );
 }
 
+/**
+ * Below the sidebar breakpoint: every destination in one bottom bar that
+ * scrolls sideways. It used to hold only the first six, which left Tasks,
+ * Meetings and the rest unreachable in a narrow window. Items keep a fixed
+ * width so the bar scrolls instead of squeezing, the edges fade while there
+ * is more to scroll to, and the current page is scrolled into view.
+ */
 export function MobileNav() {
   const pathname = usePathname();
+  const listRef = React.useRef<HTMLUListElement>(null);
+  const [more, setMore] = React.useState({ left: false, right: false });
+
+  const measure = React.useCallback(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const left = list.scrollLeft > 1;
+    const right = list.scrollLeft + list.clientWidth < list.scrollWidth - 1;
+    setMore((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  }, []);
+
+  React.useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    // Set scrollLeft rather than calling scrollIntoView: Chrome moves the
+    // keyboard's sequential-focus starting point to a scrolled-into-view
+    // element, so the first Tab would skip the skip link.
+    const current = list.querySelector<HTMLElement>('[aria-current="page"]');
+    if (current) {
+      const start = current.offsetLeft - list.offsetLeft;
+      const end = start + current.offsetWidth;
+      if (start < list.scrollLeft || end > list.scrollLeft + list.clientWidth) {
+        list.scrollLeft = start - (list.clientWidth - current.offsetWidth) / 2;
+      }
+    }
+    measure();
+  }, [pathname, measure]);
+
+  React.useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    // A mouse wheel scrolls vertically; over the bar, turn it sideways.
+    // Registered natively because React's wheel listener is passive and could
+    // not stop the page scrolling underneath.
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      if (list.scrollWidth <= list.clientWidth) return;
+      event.preventDefault();
+      list.scrollLeft += event.deltaY;
+    };
+    list.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      observer.disconnect();
+      list.removeEventListener('wheel', onWheel);
+    };
+  }, [measure]);
+
   return (
     <nav
       aria-label="Main"
       className="fixed inset-x-0 bottom-0 z-[var(--z-nav)] border-t border-[var(--border)] bg-[var(--bg-raised)] pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
-      <ul className="grid grid-cols-6">
-        {MOBILE_ITEMS.map((item) => {
+      <ul
+        ref={listRef}
+        onScroll={measure}
+        className="flex snap-x [scrollbar-width:none] overflow-x-auto overscroll-x-contain [&::-webkit-scrollbar]:hidden"
+      >
+        {NAV_ITEMS.map((item) => {
           const active = isActive(pathname, item.href);
           const Icon = item.icon;
           return (
-            <li key={item.href}>
+            <li key={item.href} className="min-w-[4.75rem] flex-1 shrink-0 snap-start">
               <Link
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   // min-h-14 keeps every target comfortably past the 44px the
                   // suite asserts, including with the safe-area inset applied.
-                  'text-micro relative flex min-h-14 flex-col items-center justify-center gap-1 transition-colors duration-[var(--motion-instant)]',
+                  'text-micro relative flex min-h-14 flex-col items-center justify-center gap-1 px-1 whitespace-nowrap transition-colors duration-[var(--motion-instant)]',
                   active ? 'text-[var(--fg)]' : 'text-[var(--fg-subtle)]',
                 )}
               >
@@ -166,6 +223,20 @@ export function MobileNav() {
           );
         })}
       </ul>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none absolute top-0 bottom-[env(safe-area-inset-bottom)] left-0 w-8 bg-gradient-to-r from-[var(--bg-raised)] to-transparent transition-opacity duration-[var(--motion-instant)]',
+          more.left ? 'opacity-100' : 'opacity-0',
+        )}
+      />
+      <span
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none absolute top-0 right-0 bottom-[env(safe-area-inset-bottom)] w-8 bg-gradient-to-l from-[var(--bg-raised)] to-transparent transition-opacity duration-[var(--motion-instant)]',
+          more.right ? 'opacity-100' : 'opacity-0',
+        )}
+      />
     </nav>
   );
 }
