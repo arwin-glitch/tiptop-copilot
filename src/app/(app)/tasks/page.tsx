@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
-import { dueAndOverdue, listTasks } from '@/lib/services/tasks';
+import { dueAndOverdue, listCompletedTasks } from '@/lib/services/tasks';
 import { listDrafts } from '@/lib/services/drafts';
 import { getStore } from '@/lib/runtime';
 import { pullTasksFromSlack } from '@/lib/services/task-ingest';
@@ -11,6 +11,9 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState, PlainText } from '@/components/ui/feedback';
 import { CreateFollowUpButton, TaskControls } from '@/components/today/today-actions';
+import { CompletedTasks, type CompletedTaskItem } from '@/components/tasks/completed-tasks';
+import { TasksTabs } from '@/components/tasks/tasks-tabs';
+import { completedAt, completedGroup, sortCompleted, taskHref } from '@/lib/tasks/tasks-view';
 import type { Task } from '@/lib/types/domain';
 import { relativeTime } from '@/lib/util/time';
 
@@ -27,20 +30,24 @@ export default async function TasksPage() {
 
   const [{ overdue, dueToday, upcoming }, completed, drafts] = await Promise.all([
     dueAndOverdue(auth.organizationId, now),
-    listTasks(auth.organizationId, { status: 'complete' }),
+    listCompletedTasks(auth.organizationId),
     listDrafts(auth.organizationId, { limit: 20 }),
   ]);
 
-  const nothing = overdue.length + dueToday.length + upcoming.length === 0;
+  const openCount = overdue.length + dueToday.length + upcoming.length;
+  const nothing = openCount === 0;
+  const completedItems: CompletedTaskItem[] = sortCompleted(completed).map((task) => ({
+    id: task.id,
+    title: task.title,
+    detail: task.detail,
+    href: taskHref(task),
+    suggested: task.source === 'suggested',
+    completedLabel: `Completed ${relativeTime(completedAt(task), now)}`,
+    group: completedGroup(completedAt(task), now, auth.profile.timezone),
+  }));
 
-  return (
-    <PageShell>
-      <PageHeader
-        title="Tasks and drafts"
-        subtitle="Follow-ups you owe someone, and the drafts waiting for you to send them yourself."
-        actions={<CreateFollowUpButton variant="primary" label="New follow-up" />}
-      />
-
+  const todo = (
+    <>
       {nothing ? (
         <EmptyState
           title="Nothing outstanding"
@@ -117,24 +124,22 @@ export default async function TasksPage() {
           </ul>
         </section>
       ) : null}
+    </>
+  );
 
-      {completed.length > 0 ? (
-        <section className="mt-10">
-          <SectionHeading count={completed.length}>Completed</SectionHeading>
-          <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
-            {completed.slice(0, 20).map((t) => (
-              <li key={t.id} className="px-4 py-2.5">
-                <p className="text-sm text-[var(--fg-muted)] line-through">{t.title}</p>
-                {t.completed_at ? (
-                  <p className="text-xs text-[var(--fg-subtle)]">
-                    Completed {relativeTime(t.completed_at, now)}
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+  return (
+    <PageShell>
+      <PageHeader
+        title="Tasks and drafts"
+        subtitle="Follow-ups you owe someone, and the drafts waiting for you to send them yourself."
+        actions={<CreateFollowUpButton variant="primary" label="New follow-up" />}
+      />
+      <TasksTabs
+        todoCount={openCount}
+        completedCount={completedItems.length}
+        todo={todo}
+        completed={<CompletedTasks items={completedItems} />}
+      />
     </PageShell>
   );
 }

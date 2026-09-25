@@ -8,6 +8,22 @@ throughout.
 
 ---
 
+## [0.3.6] — 2026-09-25
+
+No schema change, no new environment variable, no new dependency.
+
+### Tasks: Completed tab
+
+- The Tasks page has two tabs, **To do** (overdue, due today, upcoming and the
+  drafts) and **Completed**, each with its count. Switching is instant, in the
+  browser, and the tab stays in the URL (`?view=completed`), so a reload, a
+  shared link and Back keep it.
+- Completed lists every completed task, newest first, under Today, Yesterday,
+  Earlier this week and Earlier (in your timezone; weeks start on Monday).
+  Each row shows when it was completed and has **Reopen**, which puts the task
+  back on To do. The first 100 show, then **Show more**. No strikethrough.
+- The old "Completed" list at the bottom of the page (last 20) is gone.
+
 ## [0.3.5] — 2026-09-23
 
 No schema change and no new dependency. New optional environment variables:

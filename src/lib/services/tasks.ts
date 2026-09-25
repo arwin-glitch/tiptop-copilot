@@ -1,5 +1,6 @@
 import 'server-only';
 import type { AuthContext } from '@/lib/auth/session';
+import { listAllPages } from '@/lib/db/paging';
 import { getStore } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
 import type { Task, TaskStatus } from '@/lib/types/domain';
@@ -133,6 +134,16 @@ export async function listTasks(
   return rows.filter(
     (t) => t.status !== 'snoozed' || (t.snoozed_until ? Date.parse(t.snoozed_until) <= now : true),
   );
+}
+
+/**
+ * Every completed task, newest completed first. Paged, because completed
+ * tasks only accumulate and a plain list stops at the API's 1,000 rows.
+ */
+export async function listCompletedTasks(organizationId: string): Promise<Task[]> {
+  return (await listAllPages(getStore(), 'tasks', organizationId, { eq: { status: 'complete' } }, [
+    { field: 'completed_at', direction: 'desc' },
+  ])) as Task[];
 }
 
 /** Open tasks that are due now or overdue, most overdue first. */

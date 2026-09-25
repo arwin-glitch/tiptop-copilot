@@ -3,13 +3,14 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Check, Clock, Plus, RefreshCw } from 'lucide-react';
+import { Check, Clock, Plus, RefreshCw, RotateCcw } from 'lucide-react';
 import {
   createTaskAction,
   refreshOutlookAction,
   snoozeTaskAction,
   updateTaskStatusAction,
 } from '@/app/actions';
+import { useReportRefresh } from '@/components/shell/refresh-status';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Field, Input, Textarea } from '@/components/ui/form';
@@ -65,6 +66,8 @@ export function CreateFollowUpButton({
   const [detail, setDetail] = React.useState('');
   const [dueAt, setDueAt] = React.useState(defaultDue());
   const [pending, startTransition] = React.useTransition();
+  // On Tasks, whose tabs hold their URL writes while this refreshes.
+  const reportRefresh = useReportRefresh(pending);
   const router = useRouter();
 
   return (
@@ -118,7 +121,8 @@ export function CreateFollowUpButton({
             variant="primary"
             loading={pending}
             disabled={!title.trim()}
-            onClick={() =>
+            onClick={() => {
+              reportRefresh();
               startTransition(async () => {
                 const result = await createTaskAction({
                   title,
@@ -137,8 +141,8 @@ export function CreateFollowUpButton({
                 } else {
                   toast.error(result.error?.message ?? 'Could not create the follow-up');
                 }
-              })
-            }
+              });
+            }}
           >
             Create
           </Button>
@@ -156,9 +160,15 @@ function defaultDue(): string {
 
 export function TaskControls({ taskId }: { taskId: string }) {
   const [pending, startTransition] = React.useTransition();
+  // On Tasks, whose tabs hold their URL writes while this refreshes.
+  const reportRefresh = useReportRefresh(pending);
   const router = useRouter();
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: { message: string } }>, success: string) =>
+  const run = (
+    fn: () => Promise<{ ok: boolean; error?: { message: string } }>,
+    success: string,
+  ) => {
+    reportRefresh();
     startTransition(async () => {
       const result = await fn();
       if (result.ok) {
@@ -168,6 +178,7 @@ export function TaskControls({ taskId }: { taskId: string }) {
         toast.error(result.error?.message ?? 'That did not work');
       }
     });
+  };
 
   return (
     <div className="flex shrink-0 items-center gap-1">
@@ -192,5 +203,36 @@ export function TaskControls({ taskId }: { taskId: string }) {
         <Clock aria-hidden="true" />
       </Button>
     </div>
+  );
+}
+
+/** Puts a completed task back on the To do list. */
+export function ReopenTaskButton({ taskId, title }: { taskId: string; title: string }) {
+  const [pending, startTransition] = React.useTransition();
+  const reportRefresh = useReportRefresh(pending);
+  const router = useRouter();
+
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      loading={pending}
+      aria-label={`Reopen ${title}`}
+      onClick={() => {
+        reportRefresh();
+        startTransition(async () => {
+          const result = await updateTaskStatusAction(taskId, 'open');
+          if (result.ok) {
+            toast.success('Reopened');
+            router.refresh();
+          } else {
+            toast.error(result.error?.message ?? 'Could not reopen it');
+          }
+        });
+      }}
+    >
+      <RotateCcw aria-hidden="true" />
+      Reopen
+    </Button>
   );
 }

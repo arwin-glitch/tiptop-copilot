@@ -1,0 +1,100 @@
+import type { Task } from '@/lib/types/domain';
+import { addDaysToKey, localDateKey } from '@/lib/util/time';
+
+/**
+ * The Tasks page's two tabs and the grouping of its Completed tab.
+ *
+ * Pure, and outside the components, so the server page and the client tabs
+ * share one reading of `?view=` and the grouping can be tested on its own.
+ */
+
+export type TasksView = 'todo' | 'completed';
+
+/** `?view=completed` opens Completed; anything else, or nothing, is To do. */
+export function readTasksView(value: string | null | undefined): TasksView {
+  return value === 'completed' ? 'completed' : 'todo';
+}
+
+/** `search` with the view written in; To do is the bare URL. Other keys are kept. */
+export function withTasksView(search: string, view: TasksView): URLSearchParams {
+  const next = new URLSearchParams(search);
+  if (view === 'completed') next.set('view', 'completed');
+  else next.delete('view');
+  return next;
+}
+
+export type CompletedGroupKey = 'today' | 'yesterday' | 'this_week' | 'earlier';
+
+export const COMPLETED_GROUP_LABELS: Record<CompletedGroupKey, string> = {
+  today: 'Today',
+  yesterday: 'Yesterday',
+  this_week: 'Earlier this week',
+  earlier: 'Earlier',
+};
+
+/** When a completed task was completed: `completed_at`, else its last update. */
+export function completedAt(task: Pick<Task, 'completed_at' | 'updated_at'>): string {
+  return task.completed_at ?? task.updated_at;
+}
+
+/** Newest completed first; a task with no readable date goes last. */
+export function sortCompleted<T extends Pick<Task, 'id' | 'completed_at' | 'updated_at'>>(
+  tasks: readonly T[],
+): T[] {
+  const at = (task: T) => {
+    const ms = Date.parse(completedAt(task));
+    return Number.isNaN(ms) ? -Infinity : ms;
+  };
+  return [...tasks].sort((a, b) => at(b) - at(a) || a.id.localeCompare(b.id));
+}
+
+/**
+ * Which heading a completion falls under, by calendar day in `timeZone`.
+ * Weeks start on Monday, so on a Monday "Earlier this week" is empty and
+ * Sunday is Yesterday. A time after `now` (clock skew) counts as Today.
+ */
+export function completedGroup(at: string | Date, now: Date, timeZone: string): CompletedGroupKey {
+  const instant = typeof at === 'string' ? new Date(at) : at;
+  if (Number.isNaN(instant.getTime())) return 'earlier';
+
+  const today = localDateKey(now, timeZone);
+  const day = localDateKey(instant, timeZone);
+  // YYYY-MM-DD keys compare correctly as strings.
+  if (day >= today) return 'today';
+  if (day === addDaysToKey(today, -1)) return 'yesterday';
+
+  const [y, m, d] = today.split('-').map(Number);
+  const weekday = new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1)).getUTCDay();
+  const monday = addDaysToKey(today, -((weekday + 6) % 7));
+  return day >= monday ? 'this_week' : 'earlier';
+}
+
+export interface CompletedGroup<T> {
+  key: CompletedGroupKey;
+  label: string;
+  items: T[];
+}
+
+/**
+ * Consecutive runs of items that share a group, in order. Given a list sorted
+ * newest first (`sortCompleted`), that is one run per heading, and a list cut
+ * short by "Show more" still groups correctly.
+ */
+export function groupRuns<T extends { group: CompletedGroupKey }>(
+  items: readonly T[],
+): CompletedGroup<T>[] {
+  const out: CompletedGroup<T>[] = [];
+  for (const item of items) {
+    const last = out[out.length - 1];
+    if (last && last.key === item.group) last.items.push(item);
+    else out.push({ key: item.group, label: COMPLETED_GROUP_LABELS[item.group], items: [item] });
+  }
+  return out;
+}
+
+/** Where a task's title links: its deal, else its portfolio company. */
+export function taskHref(task: Pick<Task, 'deal_id' | 'portfolio_company_id'>): string | null {
+  if (task.deal_id) return `/deals/${task.deal_id}`;
+  if (task.portfolio_company_id) return `/portfolio/${task.portfolio_company_id}`;
+  return null;
+}
