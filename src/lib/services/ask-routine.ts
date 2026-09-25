@@ -4,6 +4,7 @@ import type { DataStore } from '@/lib/db/store';
 import { log } from '@/lib/security/redact';
 import { answerBridgeQuestion, listPendingBridgeQuestions } from './ask-bridge';
 import type { PendingBridgeQuestion } from './ask-bridge';
+import { processWide } from '@/lib/util/process-state';
 
 /**
  * The event-driven half of the Ask bridge.
@@ -115,13 +116,15 @@ export function parseAnswerMessage(rawText: unknown): RelayedAnswer | null {
   }
 }
 
-let lastSlackCheck = 0;
-let inFlight: Promise<number> | null = null;
+const askState = processWide('ask-routine', () => ({
+  lastSlackCheck: 0,
+  inFlight: null as Promise<number> | null,
+}));
 
 /** Test hook: the throttle is process-wide, so tests must be able to reset it. */
 export function resetSettleThrottle(): void {
-  lastSlackCheck = 0;
-  inFlight = null;
+  askState.lastSlackCheck = 0;
+  askState.inFlight = null;
 }
 
 /**
@@ -136,10 +139,10 @@ export async function settleAnswersFromSlack(
 ): Promise<number> {
   const e = env();
   if (!e.askRelaySlackToken) return 0;
-  if (inFlight) return inFlight;
-  if (Date.now() - lastSlackCheck < MIN_SLACK_CHECK_INTERVAL_MS) return 0;
+  if (askState.inFlight) return askState.inFlight;
+  if (Date.now() - askState.lastSlackCheck < MIN_SLACK_CHECK_INTERVAL_MS) return 0;
 
-  inFlight = (async () => {
+  askState.inFlight = (async () => {
     try {
       const pending = await listPendingBridgeQuestions(store, organizationId);
       if (pending.length === 0) return 0;
@@ -184,9 +187,9 @@ export async function settleAnswersFromSlack(
       });
       return 0;
     } finally {
-      lastSlackCheck = Date.now();
-      inFlight = null;
+      askState.lastSlackCheck = Date.now();
+      askState.inFlight = null;
     }
   })();
-  return inFlight;
+  return askState.inFlight;
 }

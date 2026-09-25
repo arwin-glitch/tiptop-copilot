@@ -5,6 +5,7 @@ import type { RelayObservation } from '@/lib/deals/routine-state';
 import { log } from '@/lib/security/redact';
 import { strictDomain } from '@/lib/deals/links';
 import { readRelayWindow, slackTsToIso, type SlackMessage } from '@/lib/slack/relay-history';
+import { processWide } from '@/lib/util/process-state';
 import { unwrapSlackText } from '@/lib/util/slack-text';
 import { ingestDealRelay, scrubErrorMessage, type DealIngestCounts } from './deal-ingest';
 
@@ -401,9 +402,11 @@ const MAX_PAGES = 5;
 const PAGE_SIZE = 200;
 const CALL_TIMEOUT_MS = 8_000;
 
-const statuses = new Map<string, DealRelayStatus>();
-const nextPullAt = new Map<string, number>();
-const inFlight = new Map<string, Promise<DealRelayStatus>>();
+const { statuses, nextPullAt, inFlight } = processWide('deal-relay', () => ({
+  statuses: new Map<string, DealRelayStatus>(),
+  nextPullAt: new Map<string, number>(),
+  inFlight: new Map<string, Promise<DealRelayStatus>>(),
+}));
 
 function emptyStatus(state: DealRelayState): DealRelayStatus {
   return {

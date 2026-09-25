@@ -5,6 +5,7 @@ import type { DataStore } from '@/lib/db/store';
 import { log } from '@/lib/security/redact';
 import { unwrapSlackText } from '@/lib/util/slack-text';
 import type { RoutineBriefing } from '@/lib/types/domain';
+import { processWide } from '@/lib/util/process-state';
 
 /**
  * The Today-page briefing card(s), posted by the Daily Overview and Daily
@@ -190,8 +191,10 @@ export async function readBriefingVersion(
 const BRIEFING_MARKER = 'BRIEFING_PAYLOAD_V1';
 const PULL_INTERVAL_MS = 60_000;
 const RETRY_AFTER_FAILURE_MS = 10_000;
-let nextBriefingPullAt = 0;
-let briefingPullInFlight: Promise<number> | null = null;
+const briefingState = processWide('briefing', () => ({
+  nextBriefingPullAt: 0,
+  briefingPullInFlight: null as Promise<number> | null,
+}));
 
 /** One relay-channel message -> a validated briefing payload, or null. */
 export function parseBriefingRelayMessage(text: unknown): RoutineBriefingPayload | null {
@@ -256,10 +259,10 @@ export async function pullBriefingsFromSlack(
 ): Promise<number> {
   const e = env();
   if (!e.askRelaySlackToken) return 0;
-  if (briefingPullInFlight) return briefingPullInFlight;
-  if (Date.now() < nextBriefingPullAt) return 0;
+  if (briefingState.briefingPullInFlight) return briefingState.briefingPullInFlight;
+  if (Date.now() < briefingState.nextBriefingPullAt) return 0;
 
-  briefingPullInFlight = (async () => {
+  briefingState.briefingPullInFlight = (async () => {
     let retryIn = RETRY_AFTER_FAILURE_MS;
     try {
       const url = `https://slack.com/api/conversations.history?channel=${encodeURIComponent(
@@ -330,11 +333,11 @@ export async function pullBriefingsFromSlack(
       });
       return 0;
     } finally {
-      nextBriefingPullAt = Date.now() + retryIn;
-      briefingPullInFlight = null;
+      briefingState.nextBriefingPullAt = Date.now() + retryIn;
+      briefingState.briefingPullInFlight = null;
     }
   })();
-  return briefingPullInFlight;
+  return briefingState.briefingPullInFlight;
 }
 
 /** A Slack message ts ("1785200000.000100", seconds) as a Date, if it is one. */
@@ -345,6 +348,6 @@ function slackTsToDate(ts: unknown): Date | undefined {
 
 /** Test seam: forget the throttle so a second pull in the same process runs. */
 export function resetBriefingPullThrottle(): void {
-  nextBriefingPullAt = 0;
-  briefingPullInFlight = null;
+  briefingState.nextBriefingPullAt = 0;
+  briefingState.briefingPullInFlight = null;
 }

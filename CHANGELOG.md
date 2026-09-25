@@ -8,6 +8,23 @@ throughout.
 
 ---
 
+## [0.3.8] — 2026-09-25
+
+No schema change, no new dependency, no new environment variable.
+
+### One throttle per server, not one per bundle
+
+- Next builds pages and route handlers into separate bundles, each with its
+  own copy of a module. The Tasks relay was moved to process-wide state in
+  0.3.7; the same now applies to the Deals relay pull, the Updates tab's
+  Slack caches and Retry-After block, the Today briefing and Ask-bridge
+  throttles, the portfolio pull, and the rate limiter's buckets. A page and
+  its API route now share one throttle, so Slack is read half as often and a
+  rate limit can no longer be dodged by alternating endpoints.
+- The Today watcher e2e test no longer flakes: a tick landing while the
+  previous check was still being read was skipped, and the test waited for a
+  check that never came.
+
 ## [0.3.7] — 2026-09-25
 
 No schema change and no new dependency. New optional environment variables,

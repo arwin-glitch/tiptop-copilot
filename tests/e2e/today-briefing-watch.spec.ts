@@ -100,10 +100,15 @@ test('asks once per new version while that refresh is still pending', async ({ p
     },
   );
 
-  for (let tick = 1; tick <= 3; tick++) {
-    await page.clock.runFor(15_000);
-    await expect.poll(() => checks).toBeGreaterThanOrEqual(tick);
-  }
+  // `checks` counts a request when it reaches the route, but the watcher only
+  // clears its in-flight flag once the response is read, so a tick that lands
+  // in between is skipped. Keep ticking until three checks have gone out.
+  await expect
+    .poll(async () => {
+      await page.clock.runFor(15_000);
+      return checks;
+    })
+    .toBeGreaterThanOrEqual(3);
   await page.waitForTimeout(1_000);
   expect(held).toHaveLength(1);
 });

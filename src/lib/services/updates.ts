@@ -18,6 +18,7 @@ import type {
   UpdateSourceView,
   UpdatesSnapshot,
 } from '@/lib/updates/types';
+import { processWide } from '@/lib/util/process-state';
 
 /**
  * The Updates tab's Slack reader: the dealflow and digest channels, read live
@@ -102,17 +103,24 @@ interface ReplyMessage {
   subtype?: string;
 }
 
-const sourceCache = new Map<string, SourceEntry>();
-const lastGood = new Map<string, { posts: UpdatePost[]; at: number }>();
-const sourceInFlight = new Map<string, Promise<SourceEntry>>();
-const repliesCache = new Map<
-  string,
-  { fingerprint: string; messages: ReplyMessage[]; fetchedAt: number }
->();
+const { sourceCache, lastGood, sourceInFlight, repliesCache } = processWide(
+  'updates-caches',
+  () => ({
+    sourceCache: new Map<string, SourceEntry>(),
+    lastGood: new Map<string, { posts: UpdatePost[]; at: number }>(),
+    sourceInFlight: new Map<string, Promise<SourceEntry>>(),
+    repliesCache: new Map<
+      string,
+      { fingerprint: string; messages: ReplyMessage[]; fetchedAt: number }
+    >(),
+  }),
+);
 /** Retry-After from conversations.replies, which Slack limits per method. */
-let repliesBlockedUntil = 0;
-let authCache: AuthEntry | null = null;
-let authInFlight: Promise<AuthEntry> | null = null;
+const updatesState = processWide('updates', () => ({
+  repliesBlockedUntil: 0,
+  authCache: null as AuthEntry | null,
+  authInFlight: null as Promise<AuthEntry> | null,
+}));
 
 /** Test seam: forget everything this process has read. */
 export function resetUpdatesCache(): void {
@@ -120,9 +128,9 @@ export function resetUpdatesCache(): void {
   lastGood.clear();
   sourceInFlight.clear();
   repliesCache.clear();
-  repliesBlockedUntil = 0;
-  authCache = null;
-  authInFlight = null;
+  updatesState.repliesBlockedUntil = 0;
+  updatesState.authCache = null;
+  updatesState.authInFlight = null;
 }
 
 /** Slack failed to answer; the channel may still be readable, so the last good copy may show. */
@@ -284,19 +292,19 @@ async function getAuth(
   now: number,
   force: boolean,
 ): Promise<{ entry: AuthEntry; fetched: boolean }> {
-  const cached = authCache;
+  const cached = updatesState.authCache;
   if (cached) {
     const fresh = now < cached.expiresAt;
     const forcedPastFloor = force && now - cached.fetchedAt >= FORCE_FLOOR_MS;
     if (fresh && !forcedPastFloor) return { entry: cached, fetched: false };
   }
-  if (authInFlight) return { entry: await authInFlight, fetched: false };
+  if (updatesState.authInFlight) return { entry: await updatesState.authInFlight, fetched: false };
   const pending = fetchAuth(feed, now).finally(() => {
-    authInFlight = null;
+    updatesState.authInFlight = null;
   });
-  authInFlight = pending;
+  updatesState.authInFlight = pending;
   const entry = await pending;
-  authCache = entry;
+  updatesState.authCache = entry;
   return { entry, fetched: true };
 }
 
@@ -433,7 +441,7 @@ async function readReplies(
       budget.stopped ||
       budget.callsLeft <= 0 ||
       Date.now() > budget.deadline ||
-      budget.now < repliesBlockedUntil
+      budget.now < updatesState.repliesBlockedUntil
     ) {
       return { ok: false };
     }
@@ -452,8 +460,8 @@ async function readReplies(
       if (!result.ok) {
         if (result.access.state === 'rate_limited') {
           budget.stopped = true;
-          repliesBlockedUntil = Math.max(
-            repliesBlockedUntil,
+          updatesState.repliesBlockedUntil = Math.max(
+            updatesState.repliesBlockedUntil,
             budget.now + result.access.retryAfterSec * 1000,
           );
         }

@@ -5,6 +5,7 @@ import type { AiUsageRecord } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { err, ok, type Result } from '@/lib/util/result';
 import type { UsageInfo } from '@/lib/ai/provider';
+import { processWide } from '@/lib/util/process-state';
 
 /**
  * Rate limiting and cost control.
@@ -21,7 +22,7 @@ export interface UsageWindow {
   limits: CostLimits;
 }
 
-const denyCache = new Map<string, number>();
+const denyCache = processWide('limits-deny', () => new Map<string, number>());
 
 function cacheKey(organizationId: string, userId: string): string {
   return `${organizationId}:${userId}`;
@@ -136,7 +137,7 @@ interface Bucket {
   resetAt: number;
 }
 
-const buckets = new Map<string, Bucket>();
+const buckets = processWide('limits-buckets', () => new Map<string, Bucket>());
 
 /**
  * Fixed-window limiter for non-AI endpoints (sync triggers, uploads, auth).

@@ -7,6 +7,7 @@ import type { PortfolioCompany, PortfolioContact } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { unwrapSlackText } from '@/lib/util/slack-text';
 import { normalizeCompanyName, normalizeDomain } from '@/lib/util/text';
+import { processWide } from '@/lib/util/process-state';
 
 /**
  * Payload for the portfolio webhook: companies that have become part of the
@@ -323,7 +324,9 @@ export async function ingestPortfolioFromSlack(
 }
 
 const PORTFOLIO_PULL_INTERVAL_MS = 60_000;
-let lastPortfolioPull = 0;
+const portfolioState = processWide('portfolio-ingest', () => ({
+  lastPortfolioPull: 0,
+}));
 
 /**
  * The Portfolio page's on-view version of `ingestPortfolioFromSlack`:
@@ -335,7 +338,7 @@ export async function pullPortfolioFromSlack(
   organizationId: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<PortfolioIngestResult | null> {
-  if (Date.now() - lastPortfolioPull < PORTFOLIO_PULL_INTERVAL_MS) return null;
-  lastPortfolioPull = Date.now();
+  if (Date.now() - portfolioState.lastPortfolioPull < PORTFOLIO_PULL_INTERVAL_MS) return null;
+  portfolioState.lastPortfolioPull = Date.now();
   return ingestPortfolioFromSlack(store, organizationId, fetchImpl);
 }
