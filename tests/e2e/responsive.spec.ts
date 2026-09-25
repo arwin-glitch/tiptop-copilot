@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { resolve } from 'node:path';
+import { expect, test } from '@playwright/test';
 
 /**
  * Mobile layout and accessibility.
@@ -9,12 +10,26 @@ import { expect, test, type Page } from '@playwright/test';
  * still navigable by keyboard and screen reader.
  */
 
-async function enterDemo(page: Page) {
+// One demo sign-in for the whole file: demo entry is capped at 60 a minute
+// across the suite, and a sign-in per test here tipped the suite over it.
+const SIGNED_IN = resolve('test-results', 'responsive-state.json');
+
+test.beforeAll(async ({ browser }, testInfo) => {
+  // An explicit empty state, or this context would inherit the file's
+  // `storageState` below and try to read the file it is about to write.
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    storageState: { cookies: [], origins: [] },
+  });
+  const page = await context.newPage();
   await page.goto('/login');
-  const enter = page.getByRole('button', { name: 'Enter demo workspace' });
-  if (await enter.isVisible().catch(() => false)) await enter.click();
+  await page.getByRole('button', { name: 'Enter demo workspace' }).click();
   await page.waitForURL(/\/today/);
-}
+  await context.storageState({ path: SIGNED_IN });
+  await context.close();
+});
+
+test.use({ storageState: SIGNED_IN });
 
 const PAGES = [
   '/today',
@@ -29,10 +44,6 @@ const PAGES = [
   '/tasks',
   '/settings',
 ];
-
-test.beforeEach(async ({ page }) => {
-  await enterDemo(page);
-});
 
 test.describe('mobile layout', () => {
   for (const path of PAGES) {

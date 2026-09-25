@@ -24,6 +24,7 @@ import {
   restoreDealAction,
   updateDealStageAction,
 } from '@/app/actions';
+import { useReportRefresh } from '@/components/shell/refresh-status';
 import { Badge, RecommendationBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { FieldLabel } from '@/components/ui/card';
@@ -333,6 +334,8 @@ export function NotADealButton({
 
 export function RestoreDealButton({ dealId, name }: { dealId: string; name?: string }) {
   const [pending, startTransition] = React.useTransition();
+  // It sits in the Deals list, which holds its own URL writes while this refreshes.
+  const reportRefresh = useReportRefresh(pending);
   const router = useRouter();
   return (
     <Button
@@ -340,7 +343,8 @@ export function RestoreDealButton({ dealId, name }: { dealId: string; name?: str
       variant="secondary"
       loading={pending}
       aria-label={name ? `Restore ${name}` : 'Restore'}
-      onClick={() =>
+      onClick={() => {
+        reportRefresh();
         startTransition(async () => {
           const result = await restoreDealAction(dealId);
           if (result.ok) {
@@ -349,8 +353,8 @@ export function RestoreDealButton({ dealId, name }: { dealId: string; name?: str
           } else {
             toast.error(result.error?.message ?? 'Could not restore it');
           }
-        })
-      }
+        });
+      }}
     >
       <ArchiveRestore aria-hidden="true" />
       Restore
