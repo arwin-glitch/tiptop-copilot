@@ -7,6 +7,7 @@ import { MobileNav, SidebarNav } from '@/components/shell/nav';
 import { MobileSectionLabel } from '@/components/shell/mobile-header';
 import { ThemeToggle } from '@/components/shell/theme-toggle';
 import { SignOutButton } from '@/components/shell/sign-out';
+import { TaskActionHost } from '@/components/tasks/task-action-host';
 import { Badge } from '@/components/ui/badge';
 import { FieldLabel } from '@/components/ui/card';
 
@@ -93,7 +94,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </header>
 
           <main id="main" className="min-w-0 flex-1 pb-20 lg:pb-0">
-            {children}
+            <TaskActionHost>{children}</TaskActionHost>
           </main>
         </div>
       </div>

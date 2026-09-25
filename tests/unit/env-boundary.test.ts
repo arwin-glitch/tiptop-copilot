@@ -175,6 +175,51 @@ describe('capabilityReport', () => {
   });
 });
 
+describe('the task-closer settings', () => {
+  it("reads only the routines' account by default, and turns the switches off by name", () => {
+    delete process.env.TASK_RELAY_POSTER_IDS;
+    delete process.env.TASK_REPLY_AUTOCLOSE;
+    delete process.env.TASK_SNAPSHOT_FEED;
+    resetEnvCache();
+    expect(env().taskRelayPosterIds).toEqual(['U0AKEG0Q389']);
+    expect(env().taskReplyAutoclose).toBe(true);
+    expect(env().taskSnapshotFeed).toBe('auto');
+
+    process.env.TASK_RELAY_POSTER_IDS = ' U0AAAAAAA1 ,U0BBBBBBB2,';
+    process.env.TASK_REPLY_AUTOCLOSE = 'OFF';
+    process.env.TASK_SNAPSHOT_FEED = 'off';
+    resetEnvCache();
+    expect(env().taskRelayPosterIds).toEqual(['U0AAAAAAA1', 'U0BBBBBBB2']);
+    expect(env().taskReplyAutoclose).toBe(false);
+    expect(env().taskSnapshotFeed).toBe('off');
+  });
+
+  it('reports what this instance has seen of the task-closer, with no value', () => {
+    process.env.ASK_RELAY_SLACK_TOKEN = 'xoxb-secret-slack-value';
+    resetEnvCache();
+    const report = capabilityReport({
+      taskCloser: {
+        relay: 'readable',
+        lastRun: 'Sep 25, 4:08 PM: 10 checked, 2 closed',
+        snapshot: 'needs chat:write (tried again every 6 hours)',
+        reply: 'on; runs once a day after 4 PM Central',
+      },
+    });
+    const closer = report.find((c) => c.key === 'task-closer');
+    expect(closer?.status).toBe('ready');
+    expect(closer?.detail).toContain('Last run: Sep 25, 4:08 PM: 10 checked, 2 closed.');
+    expect(closer?.detail).toContain('Snapshot feed: needs chat:write');
+    expect(closer?.variables).toEqual(
+      expect.arrayContaining([
+        'TASK_RELAY_POSTER_IDS',
+        'TASK_REPLY_AUTOCLOSE',
+        'TASK_SNAPSHOT_FEED',
+      ]),
+    );
+    expect(JSON.stringify(report)).not.toContain('xoxb-secret-slack-value');
+  });
+});
+
 describe('env()', () => {
   it('treats an empty string as unset rather than as a configured value', () => {
     process.env.ANTHROPIC_API_KEY = '   ';

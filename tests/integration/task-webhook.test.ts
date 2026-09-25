@@ -3,11 +3,7 @@ import { NextRequest } from 'next/server';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
 import { resetEnvCache } from '@/lib/config/env';
 import { POST as webhook } from '@/app/api/integrations/tasks/webhook/route';
-import {
-  ingestTasksFromSlack,
-  parseTaskRelayMessage,
-  resetTaskPullThrottle,
-} from '@/lib/services/task-ingest';
+import { ingestTasksFromSlack, parseTaskRelayMessage } from '@/lib/services/task-ingest';
 import type { Task } from '@/lib/types/domain';
 
 /**
@@ -179,8 +175,9 @@ describe('ambiguous tenancy', () => {
 });
 
 describe('the Slack relay path (for cloud routines that cannot reach the app)', () => {
-  const relay = (text: string) => ({ text });
-  const fakeSlack = (messages: Array<{ text: string }>, ok = true) =>
+  // The account the routines post as: the default poster allow-list.
+  const relay = (text: string, user = 'U0AKEG0Q389') => ({ text, user });
+  const fakeSlack = (messages: Array<{ text: string; user?: string }>, ok = true) =>
     (async () =>
       new Response(
         JSON.stringify(ok ? { ok: true, messages } : { ok: false, error: 'not_in_channel' }),
@@ -189,7 +186,6 @@ describe('the Slack relay path (for cloud routines that cannot reach the app)', 
   beforeEach(() => {
     process.env.ASK_RELAY_SLACK_TOKEN = 'xoxb-test';
     resetEnvCache();
-    resetTaskPullThrottle();
   });
 
   it('parses only the exact marker plus backticked JSON', () => {

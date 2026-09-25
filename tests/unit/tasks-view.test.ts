@@ -7,9 +7,15 @@ import {
   completedLabel,
   completedSections,
   groupRuns,
+  isAsleep,
+  isAwake,
+  isOpenNow,
   readTasksView,
+  snoozedDueLabel,
+  sortSnoozed,
   sortCompleted,
   taskHref,
+  wakeLabel,
   withTasksView,
   type CompletedGroupKey,
 } from '@/lib/tasks/tasks-view';
@@ -204,6 +210,69 @@ describe('the view in the URL', () => {
     expect(withTasksView('?view=completed', 'todo').toString()).toBe('');
     expect(withTasksView('?a=1&view=completed', 'todo').toString()).toBe('a=1');
     expect(withTasksView('?a=1', 'completed').toString()).toBe('a=1&view=completed');
+  });
+
+  it('reads and writes Snoozed as view=snoozed', () => {
+    expect(readTasksView('snoozed')).toBe('snoozed');
+    expect(readTasksView('SNOOZED')).toBe('todo');
+    expect(withTasksView('', 'snoozed').toString()).toBe('view=snoozed');
+    expect(withTasksView('?view=completed', 'snoozed').toString()).toBe('view=snoozed');
+    expect(withTasksView('?a=1&view=snoozed', 'todo').toString()).toBe('a=1');
+  });
+});
+
+describe('snoozes', () => {
+  const NOW = new Date('2026-09-25T15:00:00.000Z');
+  const snoozed = (id: string, until: string | null) => ({
+    id,
+    status: 'snoozed' as const,
+    snoozed_until: until,
+  });
+
+  it('wakes a snooze at its time, and never one with no wake time', () => {
+    expect(isAwake(snoozed('a', '2026-09-25T15:00:00.000Z'), NOW)).toBe(true);
+    expect(isAwake(snoozed('a', '2026-09-25T14:00:00.000Z'), NOW)).toBe(true);
+    expect(isAwake(snoozed('a', '2026-09-25T15:00:01.000Z'), NOW)).toBe(false);
+    expect(isAwake(snoozed('a', null), NOW)).toBe(false);
+    expect(isAwake({ status: 'open', snoozed_until: null }, NOW)).toBe(false);
+    expect(isOpenNow({ status: 'open', snoozed_until: null }, NOW)).toBe(true);
+    expect(isOpenNow(snoozed('a', '2026-09-24T00:00:00.000Z'), NOW)).toBe(true);
+    expect(isOpenNow({ status: 'complete', snoozed_until: null }, NOW)).toBe(false);
+    expect(isAsleep(snoozed('a', null), NOW)).toBe(true);
+    expect(isAsleep(snoozed('a', '2026-09-24T00:00:00.000Z'), NOW)).toBe(false);
+  });
+
+  it('lists the soonest wake first and no wake date last', () => {
+    const order = sortSnoozed([
+      snoozed('none', null),
+      snoozed('late', '2026-10-02T00:00:00.000Z'),
+      snoozed('soon', '2026-09-26T00:00:00.000Z'),
+    ]).map((t) => t.id);
+    expect(order).toEqual(['soon', 'late', 'none']);
+  });
+
+  it('says when a task wakes, in the profile timezone', () => {
+    expect(wakeLabel('2026-09-29T14:14:00.000Z', NOW, CHICAGO)).toBe(
+      'Wakes Sep 29, 9:14 AM · 4d from now',
+    );
+    expect(wakeLabel(null, NOW, CHICAGO)).toBe('No wake date');
+  });
+
+  it('shows a due date, flagged when it comes before the task wakes', () => {
+    const wake = '2026-09-29T14:00:00.000Z';
+    expect(snoozedDueLabel('2026-09-26T15:00:00.000Z', wake, NOW)).toEqual({
+      text: 'Due 1d from now, before it wakes',
+      beforeWake: true,
+    });
+    expect(snoozedDueLabel('2026-10-03T15:00:00.000Z', wake, NOW)).toEqual({
+      text: 'Due 8d from now',
+      beforeWake: false,
+    });
+    expect(snoozedDueLabel('2026-09-23T15:00:00.000Z', wake, NOW)?.text).toBe(
+      'Overdue, was due 2d ago, before it wakes',
+    );
+    expect(snoozedDueLabel('2026-10-02T15:00:00.000Z', null, NOW)?.beforeWake).toBe(true);
+    expect(snoozedDueLabel(null, wake, NOW)).toBeNull();
   });
 });
 

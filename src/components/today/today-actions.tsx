@@ -3,17 +3,20 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Check, Clock, Plus, RefreshCw, RotateCcw } from 'lucide-react';
+import { AlarmClockOff, Check, Clock, Plus, RefreshCw, RotateCcw } from 'lucide-react';
 import {
   createTaskAction,
   refreshOutlookAction,
+  restoreTaskAction,
   snoozeTaskAction,
   updateTaskStatusAction,
 } from '@/app/actions';
 import { useReportRefresh } from '@/components/shell/refresh-status';
+import { useTaskActionHost } from '@/components/tasks/task-action-host';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Field, Input, Textarea } from '@/components/ui/form';
+import type { TaskRestore } from '@/lib/tasks/tasks-view';
 
 export function RefreshOutlookButton() {
   const [pending, startTransition] = React.useTransition();
@@ -158,21 +161,54 @@ function defaultDue(): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function TaskControls({ taskId }: { taskId: string }) {
+const BACK_OPEN: TaskRestore = { status: 'open' };
+const UNDO_MS = 8_000;
+
+/**
+ * Mark complete and Snooze for a task on a list. Each toast carries an Undo,
+ * run by the layout's `TaskActionHost` because this row is gone by the time
+ * anyone clicks it. `restore` is where Undo puts a completed task back: open,
+ * or (from the Snoozed tab) snoozed until the same time.
+ */
+export function TaskControls({
+  taskId,
+  restore = BACK_OPEN,
+  snooze = true,
+  onDone,
+}: {
+  taskId: string;
+  restore?: TaskRestore;
+  snooze?: boolean;
+  /** Called once the action succeeded, before the refresh takes the row away. */
+  onDone?: () => void;
+}) {
   const [pending, startTransition] = React.useTransition();
   // On Tasks, whose tabs hold their URL writes while this refreshes.
   const reportRefresh = useReportRefresh(pending);
   const router = useRouter();
+  const host = useTaskActionHost();
 
   const run = (
     fn: () => Promise<{ ok: boolean; error?: { message: string } }>,
     success: string,
+    undo: TaskRestore,
   ) => {
     reportRefresh();
     startTransition(async () => {
       const result = await fn();
       if (result.ok) {
-        toast.success(success);
+        toast.success(success, {
+          duration: UNDO_MS,
+          action: {
+            label: 'Undo',
+            onClick: () =>
+              host.run(() => restoreTaskAction(taskId, undo), {
+                success: undo.status === 'snoozed' ? 'Snoozed again' : 'Back on your list',
+                error: 'Could not undo',
+              }),
+          },
+        });
+        onDone?.();
         router.refresh();
       } else {
         toast.error(result.error?.message ?? 'That did not work');
@@ -186,23 +222,80 @@ export function TaskControls({ taskId }: { taskId: string }) {
         variant="ghost"
         size="sm"
         disabled={pending}
-        onClick={() => run(() => updateTaskStatusAction(taskId, 'complete'), 'Marked complete')}
+        onClick={() =>
+          run(() => updateTaskStatusAction(taskId, 'complete'), 'Marked complete', restore)
+        }
         aria-label="Mark complete"
         title="Mark complete"
       >
         <Check aria-hidden="true" />
       </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={pending}
-        onClick={() => run(() => snoozeTaskAction(taskId, 3), 'Snoozed for 3 days')}
-        aria-label="Snooze for 3 days"
-        title="Snooze 3 days"
-      >
-        <Clock aria-hidden="true" />
-      </Button>
+      {snooze ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={pending}
+          onClick={() => run(() => snoozeTaskAction(taskId, 3), 'Snoozed for 3 days', BACK_OPEN)}
+          aria-label="Snooze for 3 days"
+          title="Snooze 3 days"
+        >
+          <Clock aria-hidden="true" />
+        </Button>
+      ) : null}
     </div>
+  );
+}
+
+/** Wakes a snoozed task now; the toast's Undo snoozes it again until the same time. */
+export function UnsnoozeTaskButton({
+  taskId,
+  title,
+  snoozedUntil,
+  onDone,
+}: {
+  taskId: string;
+  title: string;
+  snoozedUntil: string | null;
+  onDone?: () => void;
+}) {
+  const [pending, startTransition] = React.useTransition();
+  const reportRefresh = useReportRefresh(pending);
+  const router = useRouter();
+  const host = useTaskActionHost();
+
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      loading={pending}
+      aria-label={`Unsnooze ${title}`}
+      onClick={() => {
+        reportRefresh();
+        startTransition(async () => {
+          const result = await updateTaskStatusAction(taskId, 'open');
+          if (result.ok) {
+            toast.success('Back on To do', {
+              duration: UNDO_MS,
+              action: {
+                label: 'Undo',
+                onClick: () =>
+                  host.run(() => restoreTaskAction(taskId, { status: 'snoozed', snoozedUntil }), {
+                    success: 'Snoozed again',
+                    error: 'Could not undo',
+                  }),
+              },
+            });
+            onDone?.();
+            router.refresh();
+          } else {
+            toast.error(result.error?.message ?? 'Could not unsnooze it');
+          }
+        });
+      }}
+    >
+      <AlarmClockOff aria-hidden="true" />
+      Unsnooze
+    </Button>
   );
 }
 

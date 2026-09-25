@@ -8,6 +8,68 @@ throughout.
 
 ---
 
+## [0.3.7] — 2026-09-25
+
+No schema change and no new dependency. New optional environment variables,
+none of which needs setting: `TASK_RELAY_POSTER_IDS`, `TASK_REPLY_AUTOCLOSE`
+and `TASK_SNAPSHOT_FEED`. Reasoning in [DECISIONS.md](DECISIONS.md) D-052.
+
+### Tasks: Snoozed tab, Undo, and snoozes that come back
+
+- A third tab, **Snoozed**, between To do and Completed, with its count. It
+  lists the tasks still asleep, soonest to wake first ("Wakes Sep 29, 9:14 AM
+  · 4d from now", or "No wake date"), each with **Unsnooze** and Mark
+  complete, and its due date, in red when it comes before the task wakes.
+  Switching is instant and `?view=snoozed` survives a reload and Back, like
+  Completed.
+- A snoozed task now comes back when its snooze ends: it was missing for good
+  from To do, Today, the daily brief and deal and portfolio pages.
+- **Undo** in the "Marked complete", "Snoozed for 3 days" and "Back on To do"
+  toasts, on every page with task buttons. Undoing a completion from the
+  Snoozed tab puts the task back to sleep until the same time ("Snoozed
+  again"). On a phone the toasts sit above the tab bar.
+- The Tasks tabs no longer switch when focus alone lands on one (a closing
+  toast handing focus back to a tab switched it seconds later); a click, the
+  arrow keys, Home, End, PageUp and PageDown still switch them.
+
+### Tasks close themselves when the work is done
+
+- The new `task-closer` routine checks at 4pm Central whether follow-ups have
+  actually been done (a sent email, an accepted meeting) and posts what it
+  found to the private #deal-relay. The Tasks page, an open Tasks tab, the
+  Today page and the daily job read those posts and complete the task, unless
+  a person reopened, undid, snoozed or created it after the evidence. Until
+  the Slack app can post, only suggested tasks and "Reply to" tasks are
+  checked, and the line at the top of To do says so.
+- The app's own check closes an Inbox "Reply to …" task once a real reply went
+  out in the same email thread (not a draft, not the out-of-office auto-reply,
+  not a holding reply or hand-off, not a question back), once a day after 4pm
+  Central.
+- Nothing involving a counterparty kept Nick-only by standing rule is checked
+  by the app or posted to Slack.
+- Completed shows why a task closed automatically ("Closed automatically ·
+  email sent Sep 22", linked to the email in Gmail, with a one-line reason)
+  next to Reopen. The link is underlined and marked as opening Gmail, and a
+  phone shows up to three lines of the reason.
+- A muted line on To do says when the day's check ran and what it closed, or
+  after 5:30pm Central that "Today's 4 PM Central auto-check" has not reported
+  yet.
+- Diagnostics has a "task-closer" entry: whether #deal-relay can be read, the
+  last run, the snapshot feed ("needs chat:write" until the Slack app has that
+  scope) and the reply check.
+- Suggested tasks (`TASK_ADD_V1`) are only read from the account the routines
+  post as, and a suggested title past the first 1,000 tasks is no longer
+  added twice.
+- The daily job also runs at 22:30 UTC, so one afternoon run follows 4pm
+  Central in standard time too; only the morning run generates the outlook.
+
+**Deploy:** nothing to set. The routine starts in preview mode, posting
+markers the app ignores; it goes live once its first run matches the known
+answers. To check tasks a person created as well, add `chat:write` to the
+Copilot Slack app and reinstall it. The snapshot it then posts goes out when
+there is none, every 20 hours, and when the list changed only between 2pm and
+4pm Central, at most every 30 minutes.
+
 ## [0.3.6] — 2026-09-25
 
 No schema change, no new environment variable, no new dependency.

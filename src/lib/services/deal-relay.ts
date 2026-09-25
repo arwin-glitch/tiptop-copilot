@@ -4,6 +4,7 @@ import type { DataStore } from '@/lib/db/store';
 import type { RelayObservation } from '@/lib/deals/routine-state';
 import { log } from '@/lib/security/redact';
 import { strictDomain } from '@/lib/deals/links';
+import { readRelayWindow, slackTsToIso, type SlackMessage } from '@/lib/slack/relay-history';
 import { unwrapSlackText } from '@/lib/util/slack-text';
 import { ingestDealRelay, scrubErrorMessage, type DealIngestCounts } from './deal-ingest';
 
@@ -393,22 +394,6 @@ export interface DealRelayStatus {
   scanned: number;
 }
 
-interface SlackMessage {
-  text?: unknown;
-  ts?: unknown;
-  user?: unknown;
-  subtype?: unknown;
-}
-
-interface SlackHistoryBody {
-  ok?: boolean;
-  error?: string;
-  needed?: string;
-  messages?: SlackMessage[];
-  has_more?: boolean;
-  response_metadata?: { next_cursor?: string };
-}
-
 const PULL_INTERVAL_MS = 60_000;
 const RETRY_AFTER_FAILURE_MS = 10_000;
 const WINDOW_DAYS = 30;
@@ -459,80 +444,23 @@ export function dealRelayConfigured(e: AppEnv = env()): boolean {
   return Boolean(e.askRelaySlackToken);
 }
 
-const SLACK_ERROR_STATES: Record<string, DealRelayState> = {
-  not_in_channel: 'bot_not_in_channel',
-  channel_not_found: 'bot_not_in_channel',
-  missing_scope: 'missing_scope',
-  invalid_auth: 'bad_token',
-  not_authed: 'bad_token',
-  token_revoked: 'bad_token',
-  account_inactive: 'bad_token',
-  ratelimited: 'rate_limited',
-};
-
-interface FetchOutcome {
-  state: DealRelayState;
-  needed: string | null;
-  messages: SlackMessage[];
-  retryIn: number;
-}
-
-async function fetchRelayHistory(
-  fetchImpl: typeof fetch,
-  e: AppEnv,
-  now: Date,
-): Promise<FetchOutcome> {
-  const oldest = Math.floor((now.getTime() - WINDOW_DAYS * 86_400_000) / 1000);
-  const messages: SlackMessage[] = [];
-  let cursor: string | undefined;
-  try {
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const url =
-        `https://slack.com/api/conversations.history?channel=${encodeURIComponent(
-          e.dealRelayChannelId,
-        )}&limit=${PAGE_SIZE}&oldest=${oldest}` +
-        (cursor ? `&cursor=${encodeURIComponent(cursor)}` : '');
-      const response = await fetchImpl(url, {
-        headers: { Authorization: `Bearer ${e.askRelaySlackToken}` },
-        cache: 'no-store',
-        signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
-      });
-      if (response.status === 429) {
-        const seconds = Number(response.headers.get('retry-after'));
-        return {
-          state: 'rate_limited',
-          needed: null,
-          messages: [],
-          retryIn: Math.max(PULL_INTERVAL_MS, seconds > 0 ? seconds * 1000 : 0),
-        };
-      }
-      if (response.status >= 500) throw new Error(`Slack answered ${response.status}`);
-      const body = (await response.json()) as SlackHistoryBody;
-      if (!body.ok) {
-        const state = SLACK_ERROR_STATES[body.error ?? ''] ?? 'error';
-        const seconds = Number(response.headers.get('retry-after'));
-        return {
-          state,
-          needed: state === 'missing_scope' ? (body.needed ?? 'groups:history') : null,
-          messages: [],
-          // A refusal will not clear in ten seconds; a rate limit says when.
-          retryIn: Math.max(PULL_INTERVAL_MS, seconds > 0 ? seconds * 1000 : 0),
-        };
-      }
-      messages.push(...(body.messages ?? []));
-      cursor = body.response_metadata?.next_cursor || undefined;
-      if (!cursor || body.has_more === false) break;
-    }
-    return { state: 'ok', needed: null, messages, retryIn: PULL_INTERVAL_MS };
-  } catch (error) {
-    log.warn('Reading #deal-relay failed', { reason: scrubErrorMessage(error) });
-    return { state: 'error', needed: null, messages: [], retryIn: RETRY_AFTER_FAILURE_MS };
+async function fetchRelayHistory(fetchImpl: typeof fetch, e: AppEnv, now: Date) {
+  const outcome = await readRelayWindow({
+    token: e.askRelaySlackToken ?? '',
+    channelId: e.dealRelayChannelId,
+    windowDays: WINDOW_DAYS,
+    maxPages: MAX_PAGES,
+    pageSize: PAGE_SIZE,
+    now,
+    fetchImpl,
+    timeoutMs: CALL_TIMEOUT_MS,
+    refusalRetryMs: PULL_INTERVAL_MS,
+    faultRetryMs: RETRY_AFTER_FAILURE_MS,
+  });
+  if (outcome.fault !== undefined) {
+    log.warn('Reading #deal-relay failed', { reason: scrubErrorMessage(outcome.fault) });
   }
-}
-
-function slackTsToIso(ts: unknown): string | null {
-  if (typeof ts !== 'string' || !/^\d+(\.\d+)?$/.test(ts)) return null;
-  return new Date(Number(ts) * 1000).toISOString();
+  return outcome;
 }
 
 export interface CollectedRelay {
@@ -641,7 +569,10 @@ export function clampDates(deal: RelayDeal, postDay: string): RelayDeal {
  * a second organization (the sign-up trigger makes one for any new user who
  * belongs to none) the relay is folded nowhere rather than copied into both.
  */
-async function isRelayOrganization(store: DataStore, organizationId: string): Promise<boolean> {
+export async function isRelayOrganization(
+  store: DataStore,
+  organizationId: string,
+): Promise<boolean> {
   const organizations = (await store.list('organizations', '', {})) as { id: string }[];
   return organizations.length === 1 && organizations[0]?.id === organizationId;
 }

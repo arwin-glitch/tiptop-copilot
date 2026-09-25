@@ -31,7 +31,8 @@ import {
   setUpdateStatus,
 } from '@/lib/services/portfolio';
 import { deleteDocument, importNetworkCsv, uploadDocument } from '@/lib/services/knowledge';
-import { createTask, snoozeTask, updateTaskStatus } from '@/lib/services/tasks';
+import { createTask, restoreTask, snoozeTask, updateTaskStatus } from '@/lib/services/tasks';
+import type { TaskRestore } from '@/lib/tasks/tasks-view';
 import { updateThesis, type ThesisPatch } from '@/lib/services/thesis';
 import { getStore, getUpdatesFeed } from '@/lib/runtime';
 import { readUpdates } from '@/lib/services/updates';
@@ -159,6 +160,23 @@ export async function snoozeTaskAction(taskId: string, days: number): Promise<Ac
   const auth = await requireAuth();
   const until = new Date(Date.now() + Math.max(1, days) * 86_400_000).toISOString();
   const result = await snoozeTask(auth, taskId, until);
+  if (!result.ok) return fail(result.error);
+  revalidatePath('/today');
+  revalidatePath('/tasks');
+  return succeed();
+}
+
+/** The Undo in a task toast: back to open, or snoozed until the same time. */
+export async function restoreTaskAction(taskId: string, prev: TaskRestore): Promise<ActionResult> {
+  const auth = await requireAuth();
+  // Called from the browser, so the shape is checked rather than trusted.
+  const valid =
+    typeof taskId === 'string' &&
+    (prev?.status === 'open' ||
+      (prev?.status === 'snoozed' &&
+        (prev.snoozedUntil === null || typeof prev.snoozedUntil === 'string')));
+  if (!valid) return fail({ code: 'invalid_input', message: 'That undo is not valid.' });
+  const result = await restoreTask(auth, taskId, prev);
   if (!result.ok) return fail(result.error);
   revalidatePath('/today');
   revalidatePath('/tasks');

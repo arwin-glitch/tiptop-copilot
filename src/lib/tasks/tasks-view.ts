@@ -2,6 +2,7 @@ import type { Task } from '@/lib/types/domain';
 import {
   addDaysToKey,
   formatDate,
+  formatDateTime,
   formatTime,
   formatWeekdayTime,
   localDateKey,
@@ -9,25 +10,88 @@ import {
 } from '@/lib/util/time';
 
 /**
- * The Tasks page's two tabs and the grouping of its Completed tab.
+ * The Tasks page's tabs, when a snoozed task wakes, and the grouping of the
+ * Completed tab.
  *
  * Pure, and outside the components, so the server page and the client tabs
  * share one reading of `?view=` and the grouping can be tested on its own.
  */
 
-export type TasksView = 'todo' | 'completed';
+export type TasksView = 'todo' | 'snoozed' | 'completed';
 
-/** `?view=completed` opens Completed; anything else, or nothing, is To do. */
+/** `?view=snoozed` or `?view=completed` opens that tab; anything else, or nothing, is To do. */
 export function readTasksView(value: string | null | undefined): TasksView {
-  return value === 'completed' ? 'completed' : 'todo';
+  return value === 'completed' || value === 'snoozed' ? value : 'todo';
 }
 
 /** `search` with the view written in; To do is the bare URL. Other keys are kept. */
 export function withTasksView(search: string, view: TasksView): URLSearchParams {
   const next = new URLSearchParams(search);
-  if (view === 'completed') next.set('view', 'completed');
-  else next.delete('view');
+  if (view === 'todo') next.delete('view');
+  else next.set('view', view);
   return next;
+}
+
+/** Where an Undo puts a task back: open, or snoozed until the same time. */
+export type TaskRestore = { status: 'open' } | { status: 'snoozed'; snoozedUntil: string | null };
+
+/**
+ * A snoozed task whose wake time has passed. Nothing writes when a snooze
+ * ends: the row stays `snoozed` and every list works out that it is due back.
+ * A snooze with no wake time never wakes by itself.
+ */
+export function isAwake(task: Pick<Task, 'status' | 'snoozed_until'>, now: Date): boolean {
+  if (task.status !== 'snoozed' || !task.snoozed_until) return false;
+  const until = Date.parse(task.snoozed_until);
+  return !Number.isNaN(until) && until <= now.getTime();
+}
+
+/** On the To do list: open, or snoozed and awake. */
+export function isOpenNow(task: Pick<Task, 'status' | 'snoozed_until'>, now: Date): boolean {
+  return task.status === 'open' || isAwake(task, now);
+}
+
+/** Still asleep: snoozed, and waking later or never. */
+export function isAsleep(task: Pick<Task, 'status' | 'snoozed_until'>, now: Date): boolean {
+  return task.status === 'snoozed' && !isAwake(task, now);
+}
+
+/** Soonest wake first; no wake time last. */
+export function sortSnoozed<T extends Pick<Task, 'id' | 'snoozed_until'>>(
+  tasks: readonly T[],
+): T[] {
+  const at = (task: T) => {
+    const ms = task.snoozed_until ? Date.parse(task.snoozed_until) : Number.NaN;
+    return Number.isNaN(ms) ? Infinity : ms;
+  };
+  return [...tasks].sort((a, b) => at(a) - at(b) || a.id.localeCompare(b.id));
+}
+
+/** "Wakes Sep 29, 9:14 AM · 4d from now", or "No wake date". */
+export function wakeLabel(snoozedUntil: string | null, now: Date, timeZone: string): string {
+  const ms = snoozedUntil ? Date.parse(snoozedUntil) : Number.NaN;
+  if (Number.isNaN(ms)) return 'No wake date';
+  const at = new Date(ms);
+  return `Wakes ${formatDateTime(at, timeZone)} · ${relativeTime(at, now)}`;
+}
+
+/**
+ * A snoozed row's due line, "Due 1d from now", with `beforeWake` set when the
+ * deadline comes before the task wakes (or it has no wake date). Null
+ * without a due date.
+ */
+export function snoozedDueLabel(
+  dueAt: string | null,
+  snoozedUntil: string | null,
+  now: Date,
+): { text: string; beforeWake: boolean } | null {
+  const due = dueAt ? Date.parse(dueAt) : Number.NaN;
+  if (Number.isNaN(due)) return null;
+  const wake = snoozedUntil ? Date.parse(snoozedUntil) : Number.NaN;
+  const beforeWake = Number.isNaN(wake) || due < wake;
+  const when = relativeTime(new Date(due), now);
+  const text = due < now.getTime() ? `Overdue, was due ${when}` : `Due ${when}`;
+  return { text: beforeWake ? `${text}, before it wakes` : text, beforeWake };
 }
 
 export type CompletedGroupKey = 'today' | 'yesterday' | 'this_week' | 'earlier';

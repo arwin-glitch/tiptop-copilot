@@ -67,6 +67,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ServiceWorkerRegistrar />
         <Toaster
           position="bottom-right"
+          // Above the phone tab bar, so an 8-second Undo toast never covers it.
+          mobileOffset={{ bottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
           toastOptions={{
             style: {
               background: 'var(--bg-raised)',

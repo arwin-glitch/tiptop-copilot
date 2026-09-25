@@ -320,7 +320,9 @@ runs on its own hourly timer and the GitHub relay carries data both ways.
   `AUTH_ALLOWED_EMAIL_DOMAINS` is empty. The routine posts its `ASK_ANSWER_V1`
   message to the relay channel (default `C0C3JPW6PTJ`, override with
   `ASK_RELAY_CHANNEL_ID`); the Ask page reads that channel while an answer is
-  pending and completes the message itself. The app never posts to Slack. The Today page reads the same
+  pending and completes the message itself. The app posts nothing to Slack
+  except the optional task snapshot (`TASK_SNAPSHOT_FEED`, below), which needs
+  `chat:write` the token does not have yet. The Today page reads the same
   channel for the Daily Overview/Recap `BRIEFING_PAYLOAD_V1` messages, so
   without this token routine briefing cards never reach Today.
 
@@ -351,6 +353,37 @@ Portfolio companies are still listed under Invested either way. Deals the
 pull creates get ids derived from their source, so two deployments reading
 the same window collide rather than duplicate; keeping the token on one live
 deployment is still the simpler setup (see [DECISIONS.md](DECISIONS.md) D-051).
+
+### `TASK_RELAY_POSTER_IDS`, `TASK_REPLY_AUTOCLOSE`, `TASK_SNAPSHOT_FEED`
+
+Optional; nothing needs setting on Render. The `task-closer` cloud routine
+checks Nick's mailbox and calendar at 4pm Central and posts what it found done
+to the private `#deal-relay` as `TASK_CLOSE_V1` messages, plus one
+`TASK_CLOSER_RUN_V1` run record a day. The Tasks page, an open Tasks tab, the
+Today page and the daily job read them and complete the matching task, unless
+a person has touched it since the evidence (see
+[DECISIONS.md](DECISIONS.md) D-052). Reading uses `ASK_RELAY_SLACK_TOKEN` and
+`DEAL_RELAY_CHANNEL_ID`, like the Deals page.
+
+- `TASK_RELAY_POSTER_IDS` — comma-separated Slack user IDs whose
+  `TASK_CLOSE_V1`, `TASK_CLOSER_RUN_V1` and `TASK_ADD_V1` posts are read.
+  Unset, it defaults in code to the one account the routines post as. It is
+  never "anyone": a forged close would hide a real obligation.
+- `TASK_REPLY_AUTOCLOSE` — the app's own check, once a day at or after 4pm
+  Central, that closes an Inbox "Reply to …" task when a real reply (not a
+  holding reply, a hand-off or a question back) went out in the same Gmail
+  thread. On unless set to `off` (or `false`, `0`, `no`). It
+  needs no Slack, and runs only while the connected Google account is Nick's
+  mailbox; Diagnostics says when it skipped.
+- `TASK_SNAPSHOT_FEED` — the `TASK_OPEN_V1` snapshot of open tasks the app
+  posts to `#deal-relay` so the routine can close tasks a person made, by id.
+  `auto` (the default) tries, and while the Slack app lacks `chat:write` fails
+  quietly and retries every six hours; Diagnostics says "needs chat:write".
+  Adding `chat:write` to the Slack app (and reinstalling it; if Slack issues a
+  new token, update `ASK_RELAY_SLACK_TOKEN`) switches it on. `off` never posts.
+  It posts when there is no snapshot, every 20 hours, and, when the list
+  changed, between 2pm and 4pm Central at most every 30 minutes. Tasks
+  involving a counterparty kept Nick-only are left out.
 
 ---
 

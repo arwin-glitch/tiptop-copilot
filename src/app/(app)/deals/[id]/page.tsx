@@ -37,6 +37,7 @@ import {
 } from '@/components/deals/deal-actions';
 import { CreateFollowUpButton, TaskControls } from '@/components/today/today-actions';
 import { formatDate, relativeTime } from '@/lib/util/time';
+import { isOpenNow } from '@/lib/tasks/tasks-view';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,7 +105,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
   } = detail;
   const recommendation = analysis ? effectiveRecommendation(analysis) : null;
   const citations = analysis?.citations ?? [];
-  const openTasks = tasks.filter((t) => t.status === 'open');
+  const openTasks = tasks.filter((t) => isOpenNow(t, new Date()));
   const aiAvailable = getAI().available();
 
   const store = getStore();

@@ -20,6 +20,7 @@ import { DealsBrowser } from '@/components/deals/deals-browser';
 import { DealSorterStatus } from '@/components/deals/deal-sorter-status';
 import { chooseColumnMode, type DealRow } from '@/lib/deals/pipeline-view';
 import { describeDealSorterStatus } from '@/lib/deals/sorter-status';
+import { settlesWithin } from '@/lib/util/settle';
 
 export const metadata: Metadata = { title: 'Deals' };
 export const dynamic = 'force-dynamic';
@@ -208,18 +209,6 @@ async function DealsContent({ q, archived }: { q: string; archived: boolean }) {
       />
     </>
   );
-}
-
-/** Whether `promise` settles within `ms`; never rejects. */
-function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(false), ms);
-    const done = () => {
-      clearTimeout(timer);
-      resolve(true);
-    };
-    promise.then(done, done);
-  });
 }
 
 function single(value: string | string[] | undefined): string | undefined {

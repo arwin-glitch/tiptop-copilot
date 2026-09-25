@@ -14,6 +14,7 @@ import { ClassifyEmailButton, RequestActions } from '@/components/portfolio/port
 import { CreateFollowUpButton, TaskControls } from '@/components/today/today-actions';
 import { PORTFOLIO_REQUEST_LABELS } from '@/lib/types/domain';
 import { formatDate, relativeTime } from '@/lib/util/time';
+import { isOpenNow } from '@/lib/tasks/tasks-view';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +40,7 @@ export default async function PortfolioCompanyPage({
   if (!detail) notFound();
 
   const { company, contacts, updates, tasks, emails } = detail;
-  const openTasks = tasks.filter((t) => t.status === 'open');
+  const openTasks = tasks.filter((t) => isOpenNow(t, new Date()));
   const aiAvailable = getAI().available();
 
   const meetingNotes = await notesForCompany(

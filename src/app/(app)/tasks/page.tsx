@@ -1,50 +1,90 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { after } from 'next/server';
 import { AlertTriangle } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
-import { dueAndOverdue, listCompletedTasks } from '@/lib/services/tasks';
+import { dueAndOverdue, listCompletedTasks, listSnoozedTasks } from '@/lib/services/tasks';
 import { listDrafts } from '@/lib/services/drafts';
 import { getStore } from '@/lib/runtime';
-import { pullTasksFromSlack } from '@/lib/services/task-ingest';
+import {
+  autoCheckStatusLine,
+  autoCloseInfo,
+  autoCloseView,
+  linkMailbox,
+} from '@/lib/services/task-close';
+import { getTaskRelayStatus, pullTaskRelays, readTasksVersion } from '@/lib/services/task-relay';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
+import { VersionWatcher } from '@/components/shell/version-watcher';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState, PlainText } from '@/components/ui/feedback';
 import { CreateFollowUpButton, TaskControls } from '@/components/today/today-actions';
 import { CompletedTasks, type CompletedTaskItem } from '@/components/tasks/completed-tasks';
+import { SnoozedTasks, type SnoozedTaskItem } from '@/components/tasks/snoozed-tasks';
 import { TasksTabs } from '@/components/tasks/tasks-tabs';
 import {
   completedAt,
   completedGroup,
   completedLabel,
+  snoozedDueLabel,
   sortCompleted,
   taskHref,
+  wakeLabel,
 } from '@/lib/tasks/tasks-view';
 import type { Task } from '@/lib/types/domain';
+import { settlesWithin } from '@/lib/util/settle';
 import { relativeTime } from '@/lib/util/time';
 
 export const metadata: Metadata = { title: 'Tasks' };
 export const dynamic = 'force-dynamic';
 
+/** How long the page waits for the relay pull before listing what is stored. */
+const PULL_BUDGET_MS = 8_000;
+
 export default async function TasksPage() {
   const auth = await requireAuth();
+  const store = getStore();
+  const orgId = auth.organizationId;
+
+  // New suggested tasks, closes the task-closer posted, the 4pm "Reply to"
+  // check and the snapshot, before listing. Bounded: if Slack is slow the page
+  // lists what is stored and the pull finishes after the response, for the
+  // open-tab watcher to pick up.
+  const pull = pullTaskRelays(store, orgId).catch(() => null);
+  if (!(await settlesWithin(pull, PULL_BUDGET_MS))) {
+    after(async () => {
+      await pull;
+    });
+  }
+
   const now = new Date();
-
-  // A follow-up the watcher just spotted waits in the Slack relay; pull it in
-  // now so it shows as soon as the page is opened. Best effort, throttled.
-  await pullTasksFromSlack(getStore(), auth.organizationId).catch(() => null);
-
-  const [{ overdue, dueToday, upcoming }, completed, drafts] = await Promise.all([
-    dueAndOverdue(auth.organizationId, now),
-    listCompletedTasks(auth.organizationId),
-    listDrafts(auth.organizationId, { limit: 20 }),
+  const [{ overdue, dueToday, upcoming }, snoozedTasks, completed, drafts] = await Promise.all([
+    dueAndOverdue(orgId, now),
+    listSnoozedTasks(orgId, now),
+    listCompletedTasks(orgId),
+    listDrafts(orgId, { limit: 20 }),
   ]);
+  const [autos, mailbox, version] = await Promise.all([
+    autoCloseInfo(
+      store,
+      orgId,
+      completed.map((task) => task.id),
+    ),
+    linkMailbox(store, orgId),
+    readTasksVersion(store, orgId, now),
+  ]);
+  const statusLine = autoCheckStatusLine(
+    getTaskRelayStatus(orgId).lastRun,
+    now,
+    auth.profile.timezone,
+  );
 
   const openCount = overdue.length + dueToday.length + upcoming.length;
   const nothing = openCount === 0;
   const completedItems: CompletedTaskItem[] = sortCompleted(completed).map((task) => {
     const at = completedAt(task);
     const group = completedGroup(at, now, auth.profile.timezone);
+    const auto = autos.get(task.id);
     return {
       id: task.id,
       title: task.title,
@@ -53,11 +93,25 @@ export default async function TasksPage() {
       suggested: task.source === 'suggested',
       completedLabel: completedLabel(at, group, now, auth.profile.timezone),
       group,
+      ...(auto ? { auto: autoCloseView(auto, auth.profile.timezone, mailbox) } : {}),
     };
   });
+  const snoozedItems: SnoozedTaskItem[] = snoozedTasks.map((task) => ({
+    id: task.id,
+    title: task.title,
+    detail: task.detail,
+    href: taskHref(task),
+    suggested: task.source === 'suggested',
+    wakeLabel: wakeLabel(task.snoozed_until, now, auth.profile.timezone),
+    due: snoozedDueLabel(task.due_at, task.snoozed_until, now),
+    snoozedUntil: task.snoozed_until,
+  }));
 
   const todo = (
     <>
+      {statusLine ? (
+        <p className="-mt-2 mb-4 text-xs text-[var(--fg-subtle)]">{statusLine}</p>
+      ) : null}
       {nothing ? (
         <EmptyState
           title="Nothing outstanding"
@@ -144,10 +198,13 @@ export default async function TasksPage() {
         subtitle="Follow-ups you owe someone, and the drafts waiting for you to send them yourself."
         actions={<CreateFollowUpButton variant="primary" label="New follow-up" />}
       />
+      <VersionWatcher version={version} endpoint="/api/tasks/version" />
       <TasksTabs
         todoCount={openCount}
+        snoozedCount={snoozedItems.length}
         completedCount={completedItems.length}
         todo={todo}
+        snoozed={<SnoozedTasks items={snoozedItems} />}
         completed={<CompletedTasks items={completedItems} />}
       />
     </PageShell>

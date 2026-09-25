@@ -83,6 +83,9 @@ export const DEMO_IDS = {
   taskLedgerlyIntros: id(902),
   taskLoomstackPass: id(903),
   taskStonebridgeJd: id(904),
+  taskGirderOnboarding: id(905),
+  taskLpTimeline: id(906),
+  auditLpTimelineClosed: id(907),
 
   // Thesis
   thesisV1: id(1000),

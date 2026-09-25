@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { env } from '@/lib/config/env';
+import { listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
@@ -37,7 +38,8 @@ export interface TaskIngestResult {
   existing: string[];
 }
 
-function normalizeTitle(title: string): string {
+/** Case- and whitespace-insensitive: how one task title is matched against another. */
+export function normalizeTitle(title: string): string {
   return title.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
@@ -76,7 +78,8 @@ export async function ingestTasks(
     return { created: [], existing: payload.tasks.map((t) => t.title) };
   }
 
-  const known = (await store.list('tasks', organizationId, {})) as Task[];
+  // Every page: a title past the API's 1,000th row must still count as known.
+  const known = (await listAllPages(store, 'tasks', organizationId)) as Task[];
   const seen = new Set(known.map((t) => normalizeTitle(t.title)));
   const result: TaskIngestResult = { created: [], existing: [] };
 
@@ -168,7 +171,7 @@ export async function ingestTasksFromSlack(
     const body = (await response.json()) as {
       ok?: boolean;
       error?: string;
-      messages?: Array<{ text?: unknown }>;
+      messages?: Array<{ text?: unknown; user?: unknown; subtype?: unknown }>;
     };
     if (!body.ok) {
       log.warn('Slack relay channel could not be read for task additions', {
@@ -177,8 +180,13 @@ export async function ingestTasksFromSlack(
       return null;
     }
     const total: TaskIngestResult = { created: [], existing: [] };
-    // Oldest first, so a task posted twice keeps its first source.
+    // Oldest first, so a task posted twice keeps its first source. The relay
+    // channel is public, so only the routines' own account is read.
     for (const message of [...(body.messages ?? [])].reverse()) {
+      if (message.subtype !== undefined && message.subtype !== null) continue;
+      if (typeof message.user !== 'string' || !e.taskRelayPosterIds.includes(message.user)) {
+        continue;
+      }
       const payload = parseTaskRelayMessage(message.text);
       if (!payload) continue;
       const result = await ingestTasks(store, organizationId, {
@@ -195,23 +203,4 @@ export async function ingestTasksFromSlack(
     });
     return null;
   }
-}
-
-const TASK_PULL_INTERVAL_MS = 60_000;
-let lastTaskPull = 0;
-
-/** The Tasks page's on-view version, throttled like the portfolio one. */
-export async function pullTasksFromSlack(
-  store: DataStore,
-  organizationId: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<TaskIngestResult | null> {
-  if (Date.now() - lastTaskPull < TASK_PULL_INTERVAL_MS) return null;
-  lastTaskPull = Date.now();
-  return ingestTasksFromSlack(store, organizationId, fetchImpl);
-}
-
-/** Test seam: forget the throttle so a second pull in the same process runs. */
-export function resetTaskPullThrottle(): void {
-  lastTaskPull = 0;
 }

@@ -9,7 +9,7 @@ import { formatDealCronStatus, pullDealsFromSlack } from '@/lib/services/deal-re
 import { ensureGmailWatch } from '@/lib/services/gmail-watch';
 import { syncMailbox } from '@/lib/services/inbox';
 import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
-import { ingestTasksFromSlack } from '@/lib/services/task-ingest';
+import { formatTaskCronStatus, pullTaskRelays } from '@/lib/services/task-relay';
 import type { AuthContext } from '@/lib/auth/session';
 import type { Organization, OrganizationMember, UserProfile } from '@/lib/types/domain';
 
@@ -185,14 +185,16 @@ export async function POST(request: NextRequest) {
       log.error('Cron portfolio relay failed', { organizationId: organization.id });
     }
 
-    // New follow-ups noticed by a cloud routine arrive through the same relay
-    // channel, for the same egress-block reason.
+    // Follow-ups a cloud routine added or found done arrive through the relay
+    // channels, for the same egress-block reason, and the 4pm "Reply to" check
+    // runs here too. Counts only: this response lands in a public log.
     let tasksStatus: string;
     try {
-      const added = await ingestTasksFromSlack(store, organization.id);
-      tasksStatus = added ? `ok: ${added.created.length} added` : 'skipped: relay not readable';
-    } catch (error) {
-      tasksStatus = `failed: ${(error as Error)?.message?.slice(0, 120)}`;
+      tasksStatus = formatTaskCronStatus(
+        await pullTaskRelays(store, organization.id, { force: true }),
+      );
+    } catch {
+      tasksStatus = 'failed';
       log.error('Cron task relay failed', { organizationId: organization.id });
     }
 

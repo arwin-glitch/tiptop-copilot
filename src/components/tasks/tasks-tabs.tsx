@@ -6,10 +6,12 @@ import { useRefreshLoading } from '@/components/shell/refresh-status';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { readTasksView, withTasksView, type TasksView } from '@/lib/tasks/tasks-view';
 
+const ROVING_KEYS = ['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'];
+
 /**
- * The To do and Completed tabs of the Tasks page.
+ * The To do, Snoozed and Completed tabs of the Tasks page.
  *
- * The server renders both panels once and a click only switches between them.
+ * The server renders every panel once and a click only switches between them.
  * As on Deals, the clicked tab shows at once, from state, and is then written
  * to the URL with `history.pushState`, which Next folds into `useSearchParams`
  * without a server render, so a reload, a shared link and Back keep it. That
@@ -18,13 +20,17 @@ import { readTasksView, withTasksView, type TasksView } from '@/lib/tasks/tasks-
  */
 export function TasksTabs({
   todoCount,
+  snoozedCount,
   completedCount,
   todo,
+  snoozed,
   completed,
 }: {
   todoCount: number;
+  snoozedCount: number;
   completedCount: number;
   todo: React.ReactNode;
+  snoozed: React.ReactNode;
   completed: React.ReactNode;
 }) {
   const params = useSearchParams();
@@ -54,19 +60,45 @@ export function TasksTabs({
     return () => window.removeEventListener('popstate', drop);
   }, []);
 
+  // The keys Radix moves focus with still switch tabs, but focus alone does
+  // not: a toast hands focus back to the tab clicked before its Undo when it
+  // closes, and that must not switch the tab back seconds later.
+  const arrowed = React.useRef(false);
+  const onListKeyDown = (event: React.KeyboardEvent) => {
+    if (!ROVING_KEYS.includes(event.key)) return;
+    arrowed.current = true;
+    // Radix moves focus in a timeout of its own, queued before this one.
+    window.setTimeout(() => (arrowed.current = false));
+  };
+  const onTriggerFocus = (value: TasksView) => () => {
+    if (!arrowed.current) return;
+    arrowed.current = false;
+    setChosen(value);
+  };
+
   return (
-    <Tabs value={view} onValueChange={(value) => setChosen(readTasksView(value))}>
-      <TabsList aria-label="Tasks">
-        <TabsTrigger value="todo">
+    <Tabs
+      value={view}
+      activationMode="manual"
+      onValueChange={(value) => setChosen(readTasksView(value))}
+    >
+      <TabsList aria-label="Tasks" onKeyDown={onListKeyDown}>
+        <TabsTrigger value="todo" onFocus={onTriggerFocus('todo')}>
           To do <span className="tabular ml-0.5 text-[var(--fg-subtle)]">{todoCount}</span>
         </TabsTrigger>
-        <TabsTrigger value="completed">
+        <TabsTrigger value="snoozed" onFocus={onTriggerFocus('snoozed')}>
+          Snoozed <span className="tabular ml-0.5 text-[var(--fg-subtle)]">{snoozedCount}</span>
+        </TabsTrigger>
+        <TabsTrigger value="completed" onFocus={onTriggerFocus('completed')}>
           Completed <span className="tabular ml-0.5 text-[var(--fg-subtle)]">{completedCount}</span>
         </TabsTrigger>
       </TabsList>
-      {/* Both stay mounted, so a pending row action and "Show more" survive a switch. */}
+      {/* All stay mounted, so a pending row action and "Show more" survive a switch. */}
       <TabsContent value="todo" forceMount className="pt-6 data-[state=inactive]:hidden">
         {todo}
+      </TabsContent>
+      <TabsContent value="snoozed" forceMount className="pt-6 data-[state=inactive]:hidden">
+        {snoozed}
       </TabsContent>
       <TabsContent value="completed" forceMount className="pt-6 data-[state=inactive]:hidden">
         {completed}

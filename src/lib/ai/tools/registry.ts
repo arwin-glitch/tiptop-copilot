@@ -699,6 +699,8 @@ const listDueTasks: ToolSpec<z.ZodObject<{ include_overdue: z.ZodOptional<z.ZodB
   mutates: false,
   async run(_input, ctx) {
     const store = getStore();
+    // Misses snoozed tasks whose wake time has passed (`listOpenTasks` counts
+    // them); left alone because this tool only runs with an AI key.
     const tasks = (await store.list(
       'tasks',
       ctx.auth.organizationId,

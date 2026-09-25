@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { capabilityReport, envLimits, type CapabilityStatus } from '@/lib/config/env';
 import { getAI, getResearchProvider, getStore } from '@/lib/runtime';
 import { getUsageWindow } from '@/lib/security/limits';
+import { taskCloserRuntime } from '@/lib/services/task-relay';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,7 +23,9 @@ export const dynamic = 'force-dynamic';
  */
 export default async function DiagnosticsPage() {
   const auth = await requireAuth();
-  const checks = capabilityReport();
+  const checks = capabilityReport({
+    taskCloser: taskCloserRuntime(auth.organizationId, auth.profile.timezone),
+  });
   const limits = envLimits();
   const store = getStore();
   const ai = getAI();

@@ -52,6 +52,14 @@ export default function PrivacyPage() {
             sent to the research provider, never your private content, and results are labelled as
             public-web with their publication and retrieval dates.
           </p>
+          <p className="mt-2">
+            Tasks use a private Slack channel of your workspace: the app reads suggested tasks and
+            task-closing records posted there. Once the Slack app is allowed to post, the app also
+            posts its list of open tasks there for the task-closer routine — titles, due and
+            last-changed times and, for a task made from email, the sender&rsquo;s address, the
+            subject and the Gmail thread id. Setting{' '}
+            <code className="font-mono text-[12px]">TASK_SNAPSHOT_FEED=off</code> stops that post.
+          </p>
         </Section>
 
         <Section title="Google access">

@@ -62,6 +62,13 @@ are labelled as public-web with their publication and retrieval dates.
 Updates content is read from Slack and shown to signed-in users; it is never
 sent to the AI provider or anywhere else.
 
+Tasks use a private Slack channel of your workspace: the app reads suggested
+tasks and task-closing records posted there. Once the Slack app is allowed to
+post (`chat:write`), the app also posts its list of open tasks there for the
+task-closer routine — titles, due and last-changed times and, for a task made
+from email, the sender's address, the subject and the Gmail thread id.
+`TASK_SNAPSHOT_FEED=off` stops that post.
+
 There are no analytics, no third-party trackers and no telemetry.
 
 ---

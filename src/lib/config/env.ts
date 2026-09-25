@@ -157,7 +157,8 @@ export interface AppEnv {
   /**
    * Read-only Slack bot token. Needs `channels:history` for the relay channel
    * (Ask answers, Today briefing cards) and `groups:history` plus membership
-   * for the Updates tab's private channels. The app never posts.
+   * for the Updates tab's private channels. The app posts only the optional
+   * task snapshot (`taskSnapshotFeed`), which also needs `chat:write`.
    */
   askRelaySlackToken: string | undefined;
   askRelayChannelId: string;
@@ -172,6 +173,27 @@ export interface AppEnv {
   dealRelayChannelId: string;
   /** When non-empty, deal relay messages from any other Slack user ID are ignored. */
   dealRelayPosterIds: readonly string[];
+
+  /**
+   * The Slack user IDs whose `TASK_ADD_V1` and `TASK_CLOSE_V1` posts are
+   * read; everyone else's are ignored. Never empty: a post that closes a task
+   * is only trusted from the account the routines post as.
+   */
+  taskRelayPosterIds: readonly string[];
+  /** The app's own "Reply to" check (on unless `TASK_REPLY_AUTOCLOSE=off`). */
+  taskReplyAutoclose: boolean;
+  /**
+   * The `TASK_OPEN_V1` snapshot feed: `auto` tries to post and backs off
+   * quietly while the Slack app lacks `chat:write`; `off` never posts.
+   */
+  taskSnapshotFeed: 'auto' | 'off';
+}
+
+/** The account the task routines post as, so nothing has to be set on Render. */
+export const DEFAULT_TASK_RELAY_POSTER_IDS: readonly string[] = ['U0AKEG0Q389'];
+
+function switchedOff(value: string | undefined): boolean {
+  return ['off', 'false', '0', 'no'].includes((value ?? '').trim().toLowerCase());
 }
 
 let cached: AppEnv | null = null;
@@ -238,6 +260,15 @@ export function env(): AppEnv {
       .split(',')
       .map((id) => id.trim())
       .filter(Boolean),
+    taskRelayPosterIds: ((): readonly string[] => {
+      const ids = (str('TASK_RELAY_POSTER_IDS') ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
+      return ids.length > 0 ? ids : DEFAULT_TASK_RELAY_POSTER_IDS;
+    })(),
+    taskReplyAutoclose: !switchedOff(str('TASK_REPLY_AUTOCLOSE')),
+    taskSnapshotFeed: switchedOff(str('TASK_SNAPSHOT_FEED')) ? 'off' : 'auto',
   };
   return cached;
 }
@@ -297,11 +328,22 @@ export interface CapabilityCheck {
   required: boolean;
 }
 
+/** What the running app knows about the task-closer, as plain text; see `taskCloserRuntime`. */
+export interface TaskCloserRuntime {
+  relay: string;
+  lastRun: string | null;
+  snapshot: string;
+  reply: string;
+}
+
 /**
  * Diagnostics for the in-app setup page. Reports presence and shape only —
- * it must never echo a secret value.
+ * it must never echo a secret value. `runtime` adds what this instance has
+ * seen (the Diagnostics page passes it; the health endpoint does not).
  */
-export function capabilityReport(): CapabilityCheck[] {
+export function capabilityReport(
+  runtime: { taskCloser?: TaskCloserRuntime } = {},
+): CapabilityCheck[] {
   const e = env();
   const checks: CapabilityCheck[] = [];
 
@@ -567,6 +609,33 @@ export function capabilityReport(): CapabilityCheck[] {
       ? `Set. The Deals page reads the deal-sorter's posts from the private #deal-relay channel (${e.dealRelayChannelId})${e.dealRelayPosterIds.length > 0 ? ', from the listed posters only' : ''}. The Slack app must be a member and have groups:history.`
       : 'Not set. Deals from the deal-sorter routine never arrive; Portfolio companies still show under Invested.',
     variables: ['ASK_RELAY_SLACK_TOKEN', 'DEAL_RELAY_CHANNEL_ID', 'DEAL_RELAY_POSTER_IDS'],
+    required: false,
+  });
+
+  const closer = runtime.taskCloser;
+  const posters = `${e.taskRelayPosterIds.length} poster${e.taskRelayPosterIds.length === 1 ? '' : 's'}`;
+  const replyCheck = closer
+    ? ` "Reply to" check: ${closer.reply}.`
+    : e.taskReplyAutoclose
+      ? ` The app's own "Reply to" check runs once a day after 4 PM Central.`
+      : ` The app's own "Reply to" check is off.`;
+  checks.push({
+    key: 'task-closer',
+    label: 'Automatic task closing (task-closer)',
+    status: has(e.askRelaySlackToken) ? 'ready' : 'optional-missing',
+    detail: has(e.askRelaySlackToken)
+      ? `Set. Tasks close from the task-closer's TASK_CLOSE_V1 posts in #deal-relay (${e.dealRelayChannelId}), from ${posters} only.` +
+        (closer
+          ? ` Relay: ${closer.relay}. Last run: ${closer.lastRun ?? 'none reported in the last 14 days'}. Snapshot feed: ${closer.snapshot}.`
+          : '') +
+        replyCheck
+      : `Not set. Only a person closes tasks, apart from the app's own "Reply to" check.${closer ? ` "Reply to" check: ${closer.reply}.` : ''}`,
+    variables: [
+      'ASK_RELAY_SLACK_TOKEN',
+      'TASK_RELAY_POSTER_IDS',
+      'TASK_REPLY_AUTOCLOSE',
+      'TASK_SNAPSHOT_FEED',
+    ],
     required: false,
   });
 

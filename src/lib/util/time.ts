@@ -64,6 +64,20 @@ export function localDateKey(date: Date, timeZone: string): string {
   return `${p.year}-${p.month}-${p.day}`;
 }
 
+/** The wall clock in a zone: its calendar date, hour (0–23) and minute. */
+export function localClock(
+  date: Date,
+  timeZone: string,
+): { dateKey: string; hour: number; minute: number } {
+  const p = partsIn(date, timeZone);
+  // Some ICU builds spell midnight "24" with hour12 off.
+  return {
+    dateKey: `${p.year}-${p.month}-${p.day}`,
+    hour: Number(p.hour) % 24,
+    minute: Number(p.minute),
+  };
+}
+
 /** How far `timeZone` is ahead of UTC at a specific instant, in milliseconds. */
 function offsetAt(instant: Date, timeZone: string): number {
   const p = partsIn(instant, timeZone);
@@ -140,6 +154,12 @@ export function formatDate(date: Date | string, timeZone: string): string {
     day: 'numeric',
     year: 'numeric',
   }).format(d);
+}
+
+/** "Sep 22". */
+export function formatMonthDay(date: Date | string, timeZone: string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return new Intl.DateTimeFormat('en-US', { timeZone, month: 'short', day: 'numeric' }).format(d);
 }
 
 export function formatDateTime(date: Date | string, timeZone: string): string {

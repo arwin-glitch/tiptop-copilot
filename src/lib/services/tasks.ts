@@ -3,11 +3,20 @@ import type { AuthContext } from '@/lib/auth/session';
 import { listAllPages } from '@/lib/db/paging';
 import { getStore } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
+import {
+  isAsleep,
+  isAwake,
+  isOpenNow,
+  sortSnoozed,
+  type TaskRestore,
+} from '@/lib/tasks/tasks-view';
 import type { Task, TaskStatus } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { err, ok, type Result } from '@/lib/util/result';
 
 /** Follow-ups and tasks. Deliberately small: a task is a title, a due date and a link. */
+
+export { isAwake, type TaskRestore };
 
 export interface CreateTaskInput {
   title: string;
@@ -105,35 +114,26 @@ export async function snoozeTask(
   return ok(updated);
 }
 
-export interface TaskFilters {
-  status?: TaskStatus;
-  dealId?: string;
-  portfolioCompanyId?: string;
-  dueBefore?: string;
-  includeSnoozed?: boolean;
-}
-
-export async function listTasks(
-  organizationId: string,
-  filters: TaskFilters = {},
-): Promise<Task[]> {
-  const store = getStore();
-  const filter: Parameters<typeof store.list>[2] = { eq: {} };
-  if (filters.status) filter.eq!.status = filters.status;
-  if (filters.dealId) filter.eq!.deal_id = filters.dealId;
-  if (filters.portfolioCompanyId) filter.eq!.portfolio_company_id = filters.portfolioCompanyId;
-  if (filters.dueBefore) filter.lte = { due_at: filters.dueBefore };
-
-  const rows = (await store.list('tasks', organizationId, filter, {
-    orderBy: [{ field: 'due_at', direction: 'asc' }],
-  })) as Task[];
-
-  if (filters.includeSnoozed) return rows;
-  const now = Date.now();
-  // A snoozed task reappears once its snooze has elapsed.
-  return rows.filter(
-    (t) => t.status !== 'snoozed' || (t.snoozed_until ? Date.parse(t.snoozed_until) <= now : true),
-  );
+/**
+ * The Undo in the "Marked complete", "Snoozed" and "Back on To do" toasts.
+ * A snooze whose time has passed meanwhile comes back open. It is an ordinary
+ * person's change, audited with their id, so evidence older than it can never
+ * close the task again.
+ */
+export async function restoreTask(
+  auth: AuthContext,
+  taskId: string,
+  prev: TaskRestore,
+  now: Date = new Date(),
+): Promise<Result<Task>> {
+  if (prev.status === 'snoozed') {
+    if (prev.snoozedUntil === null) return updateTaskStatus(auth, taskId, 'snoozed');
+    const until = Date.parse(prev.snoozedUntil);
+    if (!Number.isNaN(until) && until > now.getTime()) {
+      return snoozeTask(auth, taskId, new Date(until).toISOString());
+    }
+  }
+  return updateTaskStatus(auth, taskId, 'open');
 }
 
 /**
@@ -146,12 +146,41 @@ export async function listCompletedTasks(organizationId: string): Promise<Task[]
   ])) as Task[];
 }
 
+/**
+ * Open tasks, and snoozed ones whose wake time has passed. Paged: open and
+ * snoozed rows are read together, so a long list cannot hide a woken task.
+ */
+export async function listOpenTasks(
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<Task[]> {
+  const rows = (await listAllPages(
+    getStore(),
+    'tasks',
+    organizationId,
+    { in: { status: ['open', 'snoozed'] } },
+    [{ field: 'due_at', direction: 'asc' }],
+  )) as Task[];
+  return rows.filter((task) => isOpenNow(task, now));
+}
+
+/** Snoozed tasks still asleep, soonest to wake first; no wake date last. */
+export async function listSnoozedTasks(
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<Task[]> {
+  const rows = (await listAllPages(getStore(), 'tasks', organizationId, {
+    eq: { status: 'snoozed' },
+  })) as Task[];
+  return sortSnoozed(rows.filter((task) => isAsleep(task, now)));
+}
+
 /** Open tasks that are due now or overdue, most overdue first. */
 export async function dueAndOverdue(
   organizationId: string,
   now: Date = new Date(),
 ): Promise<{ overdue: Task[]; dueToday: Task[]; upcoming: Task[] }> {
-  const tasks = await listTasks(organizationId, { status: 'open' });
+  const tasks = await listOpenTasks(organizationId, now);
   const nowMs = now.getTime();
   const endOfDay = nowMs + 86_400_000;
 

@@ -657,3 +657,121 @@ of duplicating; one live deployment with the relay token (Render, not the
 idle Vercel standby) is still the simpler setup. Deals matched only by name
 can still be told apart wrongly when neither side has a website. The status
 strip reflects the pulls on the instance that served the page.
+
+### D-052 — Closing finished tasks automatically: a person always wins, and no migration
+
+**Context.** Suggested follow-ups arrive from the `task-auto-suggest` routine,
+and Inbox tasks are made from real email, but nothing closed a task once the
+work was done: of the first ten suggested tasks, four were already done within
+hours. Snoozed tasks also never came back, because every list read only
+`status = 'open'`. Arwin decided on 2026-09-25: a separate `task-closer`
+routine at 4pm Central clock time (4pm CDT now, 4pm CST after Nov 1) that may
+close a snoozed task on evidence after the snooze; the app's own "Reply to"
+check on by default; and the open-task snapshot built now but live only once
+the Slack app has `chat:write`.
+
+**Decision.**
+
+- **Undo and the Snoozed tab.** Tasks has To do, Snoozed and Completed tabs,
+  switched in the browser and kept in `?view=`. A snooze wakes when it is read
+  (`snoozed_until` at or before now): the row stays `snoozed` and To do, Today,
+  the daily brief, deal and portfolio pages all list it as open. The "Marked
+  complete", "Snoozed" and "Back on To do" toasts carry an Undo, run by a host
+  mounted once in the app layout, so its refresh is reported to the tab guard
+  even though the row that showed the toast is gone. An Undo is an ordinary,
+  audited person's change. The Tasks tabs switch on a click or an arrow key,
+  never on focus alone: a toast hands focus back to the tab clicked before its
+  Undo when it closes, and that must not switch the tab.
+- **Relay.** The routine cannot reach the app, so it posts `TASK_CLOSE_V1`
+  (up to 20 closes a message) and one `TASK_CLOSER_RUN_V1` per Central date
+  to the private #deal-relay, not the public relay channel, where anyone could
+  forge a close and mailbox evidence would be exposed. The app reads 14 days
+  (5 pages of 200), only from `TASK_RELAY_POSTER_IDS` (default: the one
+  account the routines post as; never "anyone"), never a message with a
+  subtype, oldest first, with the first line exactly the marker. The preview
+  markers `TASK_CLOSE_PREVIEW_V1` and `TASK_CLOSER_PREVIEW_RUN_V1` are never
+  applied. Each close is validated on its own; a bad one is counted and
+  dropped. `TASK_ADD_V1` is now read from the same poster list only.
+- **Matching.** By `task_id` when that task exists and its title agrees,
+  as stored or as the snapshot showed it (clipped to 200 characters,
+  backticks as apostrophes), ignoring case, spacing and the `http://` Slack
+  adds when it auto-links a domain (titles cannot be edited here, so a
+  mismatch is a mistyped id); else by title among open or snoozed *suggested*
+  tasks, only when exactly one matches. A task a person created closes by id
+  or not at all.
+- **A person wins.** A close applies only to an open or snoozed task, and only
+  when its evidence time — the evidence, never later than the Slack post that
+  carried it — is strictly after the latest person's `task.created` or
+  `task.updated` audit row (for a task a person made with no such row, its
+  creation). One comparison covers Reopen, Undo, snooze, unsnooze and tasks
+  made by hand. A suggested task nobody touched also needs evidence no more
+  than 7 days before it was posted (the suggester runs behind: one real proof
+  predates its task by 6 minutes). The same evidence id is never applied to a
+  task twice, and the task is re-read just before the write; both checks sit
+  in the one write that the relay and the reply check share, so a Reopen
+  whose audit row was lost still cannot be undone by the same evidence.
+- **No migration.** A close is `status = complete` plus a `task.auto_completed`
+  audit row with no user and the evidence in its metadata. The Completed tab
+  reads those rows (dropping any that a person's later `task.updated`
+  outranks) and shows "Closed automatically · email sent Sep 22", linked to
+  the sent message in Gmail by `authuser=`, with the routine's one-line reason,
+  above Reopen. The 4pm check and snapshot posts are recorded the same way
+  (`task.autoclose_sweep`, `task.snapshot_posted`).
+- **The app's own "Reply to" check** (`TASK_REPLY_AUTOCLOSE`, on unless set to
+  off). Once per Central day, in the first pull at or after 16:00 Central,
+  for open or snoozed Inbox tasks whose title starts "Reply to": closed when
+  the same Gmail thread holds a message labelled `SENT` and not `DRAFT`, from
+  the connected mailbox, to the original sender, sent after both the source
+  message and the latest person's touch, and not the out-of-office
+  auto-reply, a holding reply or hand-off ("flag", "on his radar", "passed it
+  along", "looping in", "Arwin here", "he'll follow up", "away until", …) or a
+  question back (a snippet ending in "?"). It reads Gmail's snippet and, when
+  the body was fetched, the body above the quoted thread. It runs only when
+  the connected Google account is Nick's mailbox; otherwise Diagnostics says
+  so. A miss leaves the task open.
+- **Snapshot feed.** So the routine can close tasks a person made, the app
+  posts `TASK_OPEN_V1` (open and snoozed tasks with id, title, source, touch
+  time, thread and sender, at most ten parts of 3,500 characters) to
+  #deal-relay when there is none, every 20 hours, and, when the list changed,
+  between 2pm and 4pm Central at most every 30 minutes. The routine reads it
+  once, at 4pm, and each post is several messages in a channel that both
+  readers page by message count, so posting on every change would crowd out
+  the closes. The last post is also remembered in memory, so a lost audit row
+  cannot make it post on every pull. The Slack app has read scopes only, so
+  today every post answers `missing_scope`; the app waits six hours before
+  trying again and Diagnostics says "needs chat:write". Adding the scope
+  switches it on with no other change; `TASK_SNAPSHOT_FEED=off` stops it.
+- **Where it is pulled.** `/tasks` (bounded at 8 seconds, then finished with
+  `after()`), an open Tasks tab's version watcher (`/api/tasks/version`,
+  a hash with no task content), after `/today` renders, and the daily job,
+  whose status is counts only because it lands in a public log. The job now
+  also runs at 22:30 UTC, so one afternoon run follows 4pm Central in both
+  daylight and standard time; only the 11:00 UTC run generates the outlook.
+  Concurrent pulls share one run; each step runs at most once a minute.
+  Throttles, statuses and back-offs live on `globalThis`, because Next builds
+  pages and route handlers as separate bundles with their own module copies.
+  A muted line on To do says when the day's check ran and what it closed, or
+  after 5:30pm Central that it has not reported.
+
+**Why.** The audit trail already separates people (a user id) from machines
+(none), and the deal pipeline already protects a person's stage the same way,
+so "a person wins" needs no schema — and no hand-applied migration, the cause
+of the Sep 15 outage. Comparing times rather than flags makes re-reading the
+same window harmless and lets genuinely newer evidence close a task a person
+reopened. Title matching is limited to suggested tasks because a person's own
+titles repeat ("Reply to X"), while the suggester's are unique by
+construction (ingest skips any title already present, in any status, across
+every page of tasks — it used to stop at the API's first 1,000 rows).
+
+**Known limits.** The status write is not conditional; the race window is
+milliseconds in a single-user app. A Gmail sync that skips a message only
+causes a missed close, never a wrong one. Anything done by phone, in person,
+on LinkedIn or from Nick's personal mailbox never closes automatically.
+Nothing involving a counterparty kept Nick-only by standing rule is checked by
+the app or posted in the snapshot; the app knows them only by SHA-256 digests
+of their name and domain words, so this public repository does not name them.
+The reply check sees about 200 characters of a message whose body was never
+fetched, so a holding line further down can still read as a reply; its phrase
+list errs toward leaving tasks open. The AI tools' task list still reads open
+tasks only (it runs only with an AI key). The status line reflects pulls on
+the instance that served the page.

@@ -12,6 +12,8 @@ import { expect, test, type Page, type Request } from '@playwright/test';
 
 const LOOMSTACK = 'Send LoomStack pass note';
 const RECRUITER = 'Introduce Dev to a founding-engineer recruiter';
+// The demo's one task closed automatically; it stays completed throughout.
+const AUTO_CLOSED = 'Answer the LP question on the Q3 reporting timeline';
 
 // One demo sign-in for the whole file: demo entry is capped at 60 a minute
 // across the suite.
@@ -34,12 +36,16 @@ test.beforeAll(async ({ browser }, testInfo) => {
 
 test.use({ storageState: SIGNED_IN });
 
-// Tests begin with nothing completed. Reopen whatever a test left completed,
-// even one that failed partway, so a retry and the specs after it start clean.
+// Tests begin with only the auto-closed demo task completed. Reopen whatever a
+// test left completed, even one that failed partway, so a retry and the specs
+// after it start clean.
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await gotoTasks(page, '/tasks?view=completed');
-  const reopen = tabs(page).completedPanel.getByRole('button', { name: /^Reopen / });
+  const reopen = tabs(page)
+    .completedPanel.getByRole('listitem')
+    .filter({ hasNotText: AUTO_CLOSED })
+    .getByRole('button', { name: /^Reopen / });
   for (let left = await reopen.count(); left > 0; left--) {
     await reopen.first().click();
     await expect(reopen).toHaveCount(left - 1);
@@ -72,12 +78,15 @@ function isTasksRsc(request: Request): boolean {
   );
 }
 
-test('?view=completed opens the Completed tab, empty to begin with', async ({ page }) => {
+test('?view=completed opens the Completed tab, with only the auto-closed task', async ({
+  page,
+}) => {
   await gotoTasks(page, '/tasks?view=completed');
   const { todo, completed, todoPanel, completedPanel } = tabs(page);
   await expect(completed).toHaveAttribute('aria-selected', 'true');
   await expect(todo).toHaveAttribute('aria-selected', 'false');
-  await expect(completedPanel.getByText('Nothing completed yet')).toBeVisible();
+  await expect(completedPanel.getByRole('listitem')).toHaveCount(1);
+  await expect(completedPanel.getByRole('listitem')).toContainText(AUTO_CLOSED);
   await expect(todoPanel).toBeHidden();
   // The page-level empty state belongs to To do alone.
   await expect(page.getByText('Nothing outstanding')).toBeHidden();
@@ -89,13 +98,13 @@ test('a completed task moves to Completed, and Reopen brings it back to To do', 
   await gotoTasks(page);
   const { completed, todo, todoPanel, completedPanel } = tabs(page);
   await expect(todo).toHaveAttribute('aria-selected', 'true');
-  await expect(completed).toHaveAccessibleName(/^Completed 0$/);
+  await expect(completed).toHaveAccessibleName(/^Completed 1$/);
 
   const open = todoPanel.getByRole('listitem').filter({ hasText: LOOMSTACK });
   await open.getByRole('button', { name: 'Mark complete' }).click();
   await expect(page.getByText('Marked complete', { exact: true })).toBeVisible();
   await expect(open).toHaveCount(0);
-  await expect(completed).toHaveAccessibleName(/^Completed 1$/);
+  await expect(completed).toHaveAccessibleName(/^Completed 2$/);
 
   await completed.click();
   await expect(page).toHaveURL(/\/tasks\?view=completed$/);
@@ -108,11 +117,12 @@ test('a completed task moves to Completed, and Reopen brings it back to To do', 
 
   await done.getByRole('button', { name: `Reopen ${LOOMSTACK}` }).click();
   await expect(page.getByText('Reopened', { exact: true })).toBeVisible();
-  await expect(completedPanel.getByText('Nothing completed yet')).toBeVisible();
+  await expect(done).toHaveCount(0);
+  await expect(completed).toHaveAccessibleName(/^Completed 1$/);
   // Reopening does not switch tabs; the task is waiting on To do. Focus, left
-  // behind by the vanished button, goes to the tab rather than the page.
+  // behind by the vanished button, goes to the row that took its place.
   await expect(completed).toHaveAttribute('aria-selected', 'true');
-  await expect(completed).toBeFocused();
+  await expect(completedPanel.getByRole('listitem').filter({ hasText: AUTO_CLOSED })).toBeFocused();
   await todo.click();
   await expect(page).toHaveURL(/\/tasks$/);
   await expect(todoPanel.getByRole('listitem').filter({ hasText: LOOMSTACK })).toBeVisible();
@@ -121,6 +131,7 @@ test('a completed task moves to Completed, and Reopen brings it back to To do', 
 test('switching tabs needs no server render, and Back returns to To do', async ({ page }) => {
   await gotoTasks(page);
   const { todo, completed, todoPanel, completedPanel } = tabs(page);
+  const snoozed = page.getByRole('tab', { name: /^Snoozed/ });
   await expect(todoPanel).toBeVisible();
   // Let the load's own link prefetches finish.
   await page.waitForLoadState('networkidle');
@@ -138,10 +149,17 @@ test('switching tabs needs no server render, and Back returns to To do', async (
   // Arrow keys move between the tabs, as a tablist should.
   await completed.focus();
   await page.keyboard.press('ArrowLeft');
+  await expect(snoozed).toBeFocused();
+  await expect(snoozed).toHaveAttribute('aria-selected', 'true');
+  await expect(page).toHaveURL(/\/tasks\?view=snoozed$/);
+  await page.keyboard.press('ArrowLeft');
   await expect(todo).toBeFocused();
   await expect(todo).toHaveAttribute('aria-selected', 'true');
   await expect(page).toHaveURL(/\/tasks$/);
 
+  await page.goBack();
+  await expect(page).toHaveURL(/\/tasks\?view=snoozed$/);
+  await expect(snoozed).toHaveAttribute('aria-selected', 'true');
   await page.goBack();
   await expect(page).toHaveURL(/\/tasks\?view=completed$/);
   await expect(completed).toHaveAttribute('aria-selected', 'true');

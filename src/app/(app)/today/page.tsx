@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
+import { after } from 'next/server';
 import { AlertTriangle, ArrowRight, Calendar, Mail } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { getAI, getStore } from '@/lib/runtime';
@@ -11,6 +12,7 @@ import {
   pullBriefingsFromSlack,
 } from '@/lib/services/briefing';
 import { gatherTodayData, generateDailyBrief, getTodaysBrief } from '@/lib/services/brief';
+import { pullTaskRelays } from '@/lib/services/task-relay';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
 import { Badge, RecommendationBadge } from '@/components/ui/badge';
@@ -61,6 +63,11 @@ async function TodayContent() {
   const auth = await requireAuth();
   const now = new Date();
   const data = await gatherTodayData(auth, now);
+  // Task additions and closes waiting in Slack (and the 4pm reply check), after
+  // the response: Today only lists due tasks, and the next view shows the result.
+  after(async () => {
+    await pullTaskRelays(getStore(), auth.organizationId).catch(() => null);
+  });
   // Best-effort: a briefing-store fault (e.g. a pending migration) must never
   // take down the rest of the page, which is otherwise fully self-contained.
   // Pull any routine post that is waiting in the Slack relay first, so a card

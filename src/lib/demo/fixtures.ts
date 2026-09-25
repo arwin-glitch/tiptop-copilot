@@ -7,6 +7,7 @@ import {
   DEFAULT_THRESHOLDS,
 } from '@/lib/types/domain';
 import type {
+  AuditEvent,
   CalendarEvent,
   Deal,
   DealAnalysis,
@@ -1691,6 +1692,59 @@ runway_months,19,16,14`,
       ID.pcStonebridge,
       null,
     ),
+    // Snoozed until later this week: on the Snoozed tab, not on To do or Today.
+    {
+      ...task(
+        ID.taskGirderOnboarding,
+        'Ask Tom for the Girder AI onboarding numbers',
+        daysAhead(now, 6),
+        ID.dealGirder,
+        null,
+        'Waiting until the new importer has a finished customer.',
+      ),
+      status: 'snoozed',
+      snoozed_until: daysAhead(now, 4),
+      updated_at: daysAgo(now, 2),
+    },
+    // Closed by the task-closer routine; its audit row below says why.
+    {
+      ...task(
+        ID.taskLpTimeline,
+        'Answer the LP question on the Q3 reporting timeline',
+        daysAgo(now, 1),
+        null,
+        null,
+        'Suggested from the inbox: an LP asked when the Q3 reports go out.',
+      ),
+      status: 'complete',
+      source: 'suggested',
+      completed_at: hoursAgo(now, 26),
+      updated_at: hoursAgo(now, 26),
+    },
+  ];
+
+  const audit_events: AuditEvent[] = [
+    {
+      id: ID.auditLpTimelineClosed,
+      organization_id: ORG,
+      user_id: null,
+      action: 'task.auto_completed',
+      entity_type: 'task',
+      entity_id: ID.taskLpTimeline,
+      metadata: {
+        source: 'task-closer',
+        match: 'title',
+        kind: 'reply',
+        evidence_type: 'gmail_sent',
+        evidence_id: '18c0de0a1b2c3d4e',
+        thread_id: '18c0de0a1b2c3d4d',
+        evidence_at: hoursAgo(now, 27),
+        reason: 'Sent the LP the Q3 reporting dates; they replied with thanks.',
+        slack_ts: null,
+      },
+      ip_hash: null,
+      created_at: hoursAgo(now, 26),
+    },
   ];
 
   function task(
@@ -1876,7 +1930,7 @@ experiment, not the fundraise timing.`,
     chat_messages: [],
     generated_drafts: [],
     ai_usage: [],
-    audit_events: [],
+    audit_events,
     user_feedback: [],
     sync_runs: [],
     meeting_notes,
