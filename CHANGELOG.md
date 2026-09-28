@@ -8,6 +8,19 @@ throughout.
 
 ---
 
+## [0.3.10] — 2026-09-28
+
+No schema change, no new dependency, no new environment variable.
+
+### Updates: instant filter chips that turn off again
+
+- The view and source chips (All, Dealflow, Digests, and each channel) switch
+  at once. The page reads Slack once and renders every filter; a click only
+  shows a different one, so it no longer waits on a server render and a Slack
+  read. The filter is still written to the URL, so a reload, a shared link
+  and Back keep it.
+- Clicking the chip that is already on turns it off and goes back to All.
+
 ## [0.3.9] — 2026-09-25
 
 No schema change, no new dependency, no new environment variable.

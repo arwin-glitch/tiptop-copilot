@@ -12,24 +12,13 @@ import { EmptyState, ErrorState, Notice, SkeletonText } from '@/components/ui/fe
 import { RefreshUpdatesButton } from '@/components/updates/refresh-updates-button';
 import { SetupBanner, SourceStatusStrip } from '@/components/updates/source-status';
 import { UpdatePostCard } from '@/components/updates/update-card';
-import {
-  UpdatesFilters,
-  viewForGroup,
-  type UpdatesView,
-} from '@/components/updates/updates-filters';
+import { UpdatesBrowser } from '@/components/updates/updates-browser';
+import { panelKey, updatesHref, viewForGroup, type UpdatesFilter } from '@/lib/updates/view';
 
 export const metadata: Metadata = { title: 'Updates' };
 export const dynamic = 'force-dynamic';
 
-export default async function UpdatesPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const params = await searchParams;
-  const rawView = single(params.view);
-  const view: UpdatesView = rawView === 'dealflow' || rawView === 'digests' ? rawView : 'all';
-
+export default async function UpdatesPage() {
   return (
     <PageShell>
       <PageHeader
@@ -38,7 +27,7 @@ export default async function UpdatesPage({
         actions={<RefreshUpdatesButton />}
       />
       <Suspense fallback={<SkeletonText lines={10} />}>
-        <UpdatesContent view={view} sourceKey={single(params.source) ?? null} />
+        <UpdatesContent />
       </Suspense>
     </PageShell>
   );
@@ -49,13 +38,7 @@ function isRoutine(post: UpdatePost): boolean {
   return post.type === 'dealflow' || post.type === 'digest';
 }
 
-async function UpdatesContent({
-  view: requestedView,
-  sourceKey,
-}: {
-  view: UpdatesView;
-  sourceKey: string | null;
-}) {
+async function UpdatesContent() {
   const auth = await requireAuth();
   const now = new Date();
   const feed = getUpdatesFeed(now);
@@ -85,14 +68,47 @@ async function UpdatesContent({
   }
 
   const timeZone = auth.profile.timezone;
-  const selected = snapshot.sources.find((v) => v.source.key === sourceKey) ?? null;
-  const view = selected ? viewForGroup(selected.source.group) : requestedView;
-  const inView = snapshot.sources.filter(
-    (v) => view === 'all' || viewForGroup(v.source.group) === view,
-  );
-  const shown = selected ? [selected] : inView;
   const botHandle = snapshot.workspace.botHandle;
   const readable = snapshot.sources.some((v) => v.access.state === 'ok' || v.stale);
+
+  // Every filter's panel is rendered from this one read, so switching chips
+  // is instant and never goes back to Slack.
+  const panel = ({ view, source }: UpdatesFilter) => {
+    const shown = source
+      ? snapshot.sources.filter((v) => v.source.key === source)
+      : snapshot.sources.filter((v) => view === 'all' || viewForGroup(v.source.group) === view);
+    return (
+      <>
+        <SourceStatusStrip views={shown} now={now} botHandle={botHandle} setup={snapshot.setup} />
+        {!readable ? (
+          <EmptyState
+            title="Nothing to show until Slack access is fixed"
+            description="Follow the steps above, then press Refresh."
+          />
+        ) : view === 'all' ? (
+          <LatestFeed views={shown} now={now} timeZone={timeZone} />
+        ) : view === 'dealflow' ? (
+          <div className="space-y-8">
+            {shown.map((v) => (
+              <DealflowSection key={v.source.key} view={v} now={now} timeZone={timeZone} />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {shown.map((v) => (
+              <DigestSection key={v.source.key} view={v} now={now} timeZone={timeZone} />
+            ))}
+          </div>
+        )}
+      </>
+    );
+  };
+  const filters: UpdatesFilter[] = [
+    { view: 'all', source: null },
+    { view: 'dealflow', source: null },
+    { view: 'digests', source: null },
+    ...snapshot.sources.map((v) => ({ view: viewForGroup(v.source.group), source: v.source.key })),
+  ];
 
   return (
     <div className="space-y-5">
@@ -104,39 +120,15 @@ async function UpdatesContent({
         <SetupBanner setup={snapshot.setup} botHandle={botHandle} views={snapshot.sources} />
       ) : null}
 
-      <UpdatesFilters
-        view={view}
-        selected={selected?.source.key ?? null}
+      <UpdatesBrowser
         sources={snapshot.sources.map((v) => ({
           key: v.source.key,
           label: v.source.label,
           group: v.source.group,
           count: v.posts.filter(isRoutine).length,
         }))}
+        panels={Object.fromEntries(filters.map((f) => [panelKey(f), panel(f)]))}
       />
-
-      <SourceStatusStrip views={shown} now={now} botHandle={botHandle} setup={snapshot.setup} />
-
-      {!readable ? (
-        <EmptyState
-          title="Nothing to show until Slack access is fixed"
-          description="Follow the steps above, then press Refresh."
-        />
-      ) : view === 'all' ? (
-        <LatestFeed views={shown} now={now} timeZone={timeZone} />
-      ) : view === 'dealflow' ? (
-        <div className="space-y-8">
-          {shown.map((v) => (
-            <DealflowSection key={v.source.key} view={v} now={now} timeZone={timeZone} />
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-8">
-          {shown.map((v) => (
-            <DigestSection key={v.source.key} view={v} now={now} timeZone={timeZone} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -210,7 +202,10 @@ function LatestFeed({
                 footer={
                   earlier > 0 ? (
                     <Link
-                      href={`/updates?view=${viewForGroup(view.source.group)}&source=${encodeURIComponent(view.source.key)}`}
+                      href={updatesHref({
+                        view: viewForGroup(view.source.group),
+                        source: view.source.key,
+                      })}
                       className="text-sm text-[var(--accent)] underline-offset-2 hover:underline"
                     >
                       {earlier} earlier from {view.source.label} →
@@ -306,8 +301,4 @@ function DigestSection({ view, now, timeZone }: SectionProps) {
       ))}
     </section>
   );
-}
-
-function single(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
 }

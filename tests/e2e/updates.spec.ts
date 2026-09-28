@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 /**
  * The Updates tab over the invented demo workspace: every long body starts
@@ -31,6 +31,9 @@ test.use({ storageState: SIGNED_IN });
 const h1 = (page: import('@playwright/test').Page) =>
   page.getByRole('heading', { level: 1, name: 'Updates', exact: true });
 
+/** The filter panel on screen; the others stay rendered but hidden. */
+const shown = (page: Page) => page.locator('[data-updates-panel]:not([hidden])');
+
 test('the Updates tab is in the main navigation', async ({ page }) => {
   await page.goto('/today');
   const nav = page.getByRole('navigation', { name: 'Main' }).first();
@@ -58,16 +61,56 @@ test('the latest view shows each source and nothing it should hide', async ({ pa
   }
 });
 
+test('a chip filters at once, and clicking it again goes back to All', async ({ page }) => {
+  await page.goto('/updates');
+  const chips = page.getByRole('group', { name: 'Filter updates' });
+  const harbor = chips.getByRole('link', { name: /^Harbor Angels/ });
+  const all = chips.getByRole('link', { name: 'All', exact: true });
+  const digest = page.getByRole('heading', { name: /^Weekly digest ·/ });
+  await expect(digest).toBeVisible();
+
+  // No server render: a chip click must not reload the page or re-read Slack.
+  let documentLoads = 0;
+  page.on('request', (r) => {
+    const h = r.headers();
+    if (r.resourceType() === 'document' || (h['rsc'] === '1' && !h['next-router-prefetch']))
+      documentLoads++;
+  });
+
+  await harbor.click();
+  await expect(harbor).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveURL(/source=harbor/);
+  await expect(digest).toBeHidden();
+  await expect(page.getByRole('heading', { name: /^Harbor Angels ·/ }).first()).toBeVisible();
+
+  await harbor.click();
+  await expect(all).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveURL(/\/updates$/);
+  await expect(digest).toBeVisible();
+
+  const dealflow = chips.getByRole('link', { name: 'Dealflow', exact: true });
+  await dealflow.click();
+  await expect(dealflow).toHaveAttribute('aria-current', 'page');
+  await dealflow.click();
+  await expect(all).toHaveAttribute('aria-current', 'page');
+
+  await page.goBack();
+  await expect(dealflow).toHaveAttribute('aria-current', 'page');
+  expect(documentLoads).toBe(0);
+});
+
 test('report sections stay collapsed and an unsafe link is inert', async ({ page }) => {
   await page.goto('/updates?view=dealflow&source=harbor');
-  const deal = page.getByText('Quillmark Labs');
+  const deal = shown(page).getByText('Quillmark Labs');
   await expect(deal).toBeHidden();
 
-  await page.locator('summary', { hasText: /^New deals · 3/ }).click();
+  await shown(page)
+    .locator('summary', { hasText: /^New deals · 3/ })
+    .click();
   await expect(deal).toBeVisible();
 
   await expect(page.getByRole('link', { name: 'Unsafe link' })).toHaveCount(0);
-  const deadlines = page.locator('summary', { hasText: /^Upcoming deadlines & meetings/ });
+  const deadlines = shown(page).locator('summary', { hasText: /^Upcoming deadlines & meetings/ });
   await deadlines.click();
   await expect(deadlines.locator('xpath=..').getByText('Unsafe link')).toBeVisible();
 
@@ -82,26 +125,32 @@ test('the Digests view pins the roster and keeps each update collapsed', async (
   await page.goto('/updates');
   await page.getByRole('link', { name: 'Digests', exact: true }).click();
   await expect(page).toHaveURL(/view=digests/);
-  await expect(page.getByRole('heading', { name: 'Roster v2' })).toBeVisible();
+  await expect(shown(page).getByRole('heading', { name: 'Roster v2' })).toBeVisible();
   // The routine's open question stays in view on the latest run.
-  await expect(page.getByText('Needs your call')).toBeVisible();
+  await expect(shown(page).getByText('Needs your call')).toBeVisible();
 
-  const consent = page.getByText('Board consent due Thursday');
+  const consent = shown(page).getByText('Board consent due Thursday');
   await expect(consent).toBeHidden();
-  await page.locator('summary', { hasText: /^Updates · 3/ }).click();
+  await shown(page)
+    .locator('summary', { hasText: /^Updates · 3/ })
+    .click();
   await expect(consent).toBeHidden();
-  await page.locator('summary', { hasText: /^Cobalt Orchard/ }).click();
+  await shown(page)
+    .locator('summary', { hasText: /^Cobalt Orchard/ })
+    .click();
   await expect(consent).toBeVisible();
 
-  await page.locator('summary', { hasText: /^Notes · 1/ }).click();
-  await expect(page.getByText('Correction', { exact: true })).toBeVisible();
+  await shown(page)
+    .locator('summary', { hasText: /^Notes · 1/ })
+    .click();
+  await expect(shown(page).getByText('Correction', { exact: true })).toBeVisible();
 });
 
 test('a channel the bot cannot read says how to fix it', async ({ page }) => {
   await page.goto('/updates?view=dealflow');
-  const tile = page.getByRole('listitem').filter({ hasText: 'Syndicate Inbox' });
+  const tile = shown(page).getByRole('listitem').filter({ hasText: 'Syndicate Inbox' });
   await expect(tile).toContainText('Invite needed');
-  await expect(page.getByText('/invite @copilot_demo_bot')).toBeVisible();
+  await expect(shown(page).getByText('/invite @copilot_demo_bot')).toBeVisible();
   await expect(
     page.getByRole('link', { name: 'Open #syndicate-dealflow in Slack' }),
   ).toHaveAttribute('href', /^https:\/\/demo-workspace\.slack\.com\/archives\/CDEMO0000Y1/);
