@@ -145,10 +145,19 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // to every static asset request for no reason.
   const response = supabaseSession ? await refreshSession(request) : NextResponse.next();
 
+  // The relayed briefing page sets its own, stricter, sandboxing CSP; a second
+  // policy added here would be intersected with it and block its print button.
+  if (OWN_CSP_PATH.test(pathname)) return withSecurityHeaders(response, { ownCsp: true });
   return withSecurityHeaders(response);
 }
 
-function withSecurityHeaders(response: NextResponse): NextResponse {
+/** Routes that set their own Content-Security-Policy. */
+const OWN_CSP_PATH = /^\/api\/briefings\/[a-z]+\/view$/;
+
+function withSecurityHeaders(
+  response: NextResponse,
+  options: { ownCsp?: boolean } = {},
+): NextResponse {
   // 'unsafe-inline' on script-src is required for the Next.js bootstrap and the
   // pre-paint theme script. There is no user- or model-supplied HTML anywhere in
   // this app — every such string renders as text through <PlainText> — so the
@@ -166,7 +175,7 @@ function withSecurityHeaders(response: NextResponse): NextResponse {
     "object-src 'none'",
   ].join('; ');
 
-  response.headers.set('Content-Security-Policy', csp);
+  if (!options.ownCsp) response.headers.set('Content-Security-Policy', csp);
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('X-Frame-Options', 'DENY');
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');

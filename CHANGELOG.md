@@ -8,6 +8,22 @@ throughout.
 
 ---
 
+## [0.3.13] — 2026-09-30
+
+No schema change, no new dependency, no new environment variable.
+
+### Today: the full briefing looks exactly like the routine's page
+
+- "Open full briefing / dossier" now opens the page the Daily Overview or
+  Recap published, relayed to the app as a gzip + base64 copy in the private
+  relay channel (`BRIEFING_HTML_V1`, read on open, cached five minutes, never
+  stored). A "Save as PDF" bar prints it. When no copy arrived, the link
+  falls back to the text PDF from 0.3.11.
+- The page is served sandboxed at `/api/briefings/<kind>/view`: an opaque
+  origin, the page's own scripts, meta refreshes and base tags removed and
+  blocked by CSP, and only the app's nonce'd print script allowed. The proxy
+  leaves this one path's CSP to the route.
+
 ## [0.3.12] — 2026-09-30
 
 No schema change, no new dependency, no new environment variable.

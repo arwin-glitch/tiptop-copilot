@@ -2,7 +2,8 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 
 /**
- * The Today cards' "Open full briefing / dossier" opens a PDF the app builds
+ * The Today cards' "Open full briefing / dossier" opens the routine's page as
+ * relayed to the app, or - when none was relayed, as in the demo - a PDF the app builds
  * from the routine's text, not the routine's claude.ai artifact, which is
  * private to Arwin's account. The demo seeds one brief and one dossier.
  */
@@ -27,11 +28,11 @@ test.use({ storageState: SIGNED_IN });
 
 test('the briefing and dossier cards open a PDF the app builds itself', async ({ page }) => {
   await page.goto('/today');
-  for (const name of ['Open full briefing (PDF)', 'Open full dossier (PDF)']) {
+  for (const name of ['Open full briefing', 'Open full dossier']) {
     const link = page.getByRole('link', { name });
     await expect(link).toBeVisible();
     const href = (await link.getAttribute('href')) ?? '';
-    expect(href).toMatch(/^\/api\/briefings\/(morning|afternoon|dossier)\/pdf/);
+    expect(href).toMatch(/^\/api\/briefings\/(morning|afternoon|dossier)\/view/);
 
     // Fetched from inside the page, as a click would be: the production-build
     // session cookie is Secure, which a browser sends to localhost but

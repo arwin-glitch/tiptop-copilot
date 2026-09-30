@@ -115,17 +115,17 @@ export function RoutineBriefingCard({
             </p>
           </div>
         </div>
-        {/* The PDF, built by the app from the full text behind its own sign-in.
-            The routine's artifact (source_url) is private to Arwin's claude.ai
-            account, so it stays in his Slack message and is not linked here. */}
+        {/* The page exactly as the routine published it, relayed to the app
+            (falls back to a text PDF). The routine's artifact link is private
+            to Arwin's claude.ai account, so it stays in his Slack message. */}
         <Button asChild variant="secondary" size="sm" className="shrink-0">
           <a
-            href={`/api/briefings/${briefing.kind}/pdf?v=${encodeURIComponent(briefing.posted_at)}`}
+            href={`/api/briefings/${briefing.kind}/view?v=${encodeURIComponent(briefing.posted_at)}`}
             target="_blank"
             rel="noreferrer"
           >
             <FileText className="size-3.5" aria-hidden="true" />
-            Open full {briefing.kind === 'dossier' ? 'dossier' : 'briefing'} (PDF)
+            Open full {briefing.kind === 'dossier' ? 'dossier' : 'briefing'}
           </a>
         </Button>
       </CardHeader>
