@@ -28,6 +28,7 @@ import type {
   PortfolioCompany,
   PortfolioContact,
   PortfolioUpdate,
+  RoutineBriefing,
   Task,
   ThesisVersion,
   UserProfile,
@@ -1934,5 +1935,59 @@ experiment, not the fundraise timing.`,
     user_feedback: [],
     sync_runs: [],
     meeting_notes,
+    routine_briefings: demoRoutineBriefings(now),
   };
+}
+
+/** The Today cards the Daily Overview routine posts: one brief, one dossier. All invented. */
+function demoRoutineBriefings(now: Date): RoutineBriefing[] {
+  const dateKey = iso(now).slice(0, 10);
+  const postedAt = todayAt(now, 11, 31);
+  const row = (
+    id: string,
+    kind: RoutineBriefing['kind'],
+    title: string,
+    summary: string,
+  ): RoutineBriefing => ({
+    id,
+    organization_id: ORG,
+    kind,
+    date_key: dateKey,
+    title,
+    summary,
+    source_url: null,
+    posted_at: postedAt,
+    updated_at: postedAt,
+  });
+  return [
+    row(
+      '00000000-0000-4000-8000-00000000b001',
+      'morning',
+      'Morning Brief',
+      `GOING STALE — COULD COST MONEY
+- Harborline Fund Admin · wire instructions for a distribution · 3rd ask since last week, they say the payment is held until they hear back · was sitting under "4: notification"
+
+Act today:
+- Ledgerly: Maya asked for warm Series A intros to investors who know vertical AI in professional services.
+- LoomStack: the pass decision is recorded but the founder has not been told.
+
+Quick wins:
+1. Confirm the Vetrix reference call time with Tom.
+2. Thank Elena for the Q3 reporting dates.
+
+PORTFOLIO / PIPELINE
+Ledgerly grew ARR to $780K with 14 months of runway. Girder AI shared a new customer reference.`,
+    ),
+    row(
+      '00000000-0000-4000-8000-00000000b002',
+      'dossier',
+      'Dossier',
+      `11:00 AM · Ledgerly pre-board sync with Maya Chen
+The one thing to know: she wants the board to focus on the enterprise pricing experiment, not fundraise timing.
+How you got here: seed lead in 2025; last sync two weeks ago covered hiring and the VP Sales search.
+Worth asking:
+1. Which of the three VP Sales finalists is she leaning towards?
+2. What would change her fundraise timing?`,
+    ),
+  ];
 }

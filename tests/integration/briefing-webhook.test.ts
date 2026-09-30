@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
 import { resetEnvCache } from '@/lib/config/env';
+import { DEMO_IDS } from '@/lib/demo/ids';
 import { POST as webhook } from '@/app/api/integrations/briefing/webhook/route';
 import {
   getCurrentBrief,
@@ -32,6 +33,9 @@ const SAVED = { ...process.env };
 
 beforeEach(async () => {
   harness = await createHarness();
+  // The demo seeds a brief and a dossier for the Today page; these tests
+  // establish slot behaviour from an empty start.
+  await harness.store.removeWhere('routine_briefings', DEMO_IDS.org, {});
   process.env.BRIEFING_BRIDGE_TOKEN = TOKEN;
   resetEnvCache();
 });

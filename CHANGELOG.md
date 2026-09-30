@@ -8,6 +8,24 @@ throughout.
 
 ---
 
+## [0.3.11] — 2026-09-30
+
+No schema change and no new environment variable. New dependency: `pdf-lib`
+(pure JavaScript, no native code), used only to write the briefing PDF.
+
+### Today: "Open full briefing / dossier" opens a PDF
+
+- The button linked the routine's claude.ai artifact, which is created
+  private to Arwin's account, so Nick hit a permission wall. It now opens a
+  PDF the app builds from the routine's full text at
+  `/api/briefings/<kind>/pdf`, behind the app's own sign-in (401 without a
+  session). Headings, bullets and the red "Going stale" section carry over;
+  arrows and emoji the standard PDF fonts cannot print are mapped or dropped.
+- The artifact link stays in Arwin's Slack message; the app no longer shows
+  it anywhere.
+- The demo workspace now seeds one brief and one dossier, so the Today cards
+  appear in the demo.
+
 ## [0.3.10] — 2026-09-28
 
 No schema change, no new dependency, no new environment variable.

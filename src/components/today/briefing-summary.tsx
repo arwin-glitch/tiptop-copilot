@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { BookOpen, Moon, Sun } from 'lucide-react';
+import { BookOpen, FileText, Moon, Sun } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -115,13 +115,19 @@ export function RoutineBriefingCard({
             </p>
           </div>
         </div>
-        {briefing.source_url ? (
-          <Button asChild variant="secondary" size="sm" className="shrink-0">
-            <a href={briefing.source_url} target="_blank" rel="noreferrer">
-              Open full {briefing.kind === 'dossier' ? 'dossier' : 'briefing'}
-            </a>
-          </Button>
-        ) : null}
+        {/* The PDF, built by the app from the full text behind its own sign-in.
+            The routine's artifact (source_url) is private to Arwin's claude.ai
+            account, so it stays in his Slack message and is not linked here. */}
+        <Button asChild variant="secondary" size="sm" className="shrink-0">
+          <a
+            href={`/api/briefings/${briefing.kind}/pdf?v=${encodeURIComponent(briefing.posted_at)}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <FileText className="size-3.5" aria-hidden="true" />
+            Open full {briefing.kind === 'dossier' ? 'dossier' : 'briefing'} (PDF)
+          </a>
+        </Button>
       </CardHeader>
       <CardContent>
         <BriefingSummary summary={briefing.summary} />
