@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PlainText } from '@/components/ui/feedback';
+import { LinkedText } from '@/components/ask/linked-text';
 import { NotConfigured } from '@/components/ui/not-configured';
 import { Textarea } from '@/components/ui/form';
 import { CitationChip, SourceDrawer } from '@/components/evidence/source-drawer';
@@ -290,10 +291,14 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
           ) : null}
         </div>
 
-        <p className="mt-2.5 text-[15px] leading-relaxed font-medium">{answer}</p>
+        <p className="mt-2.5 text-[15px] leading-relaxed font-medium">
+          <LinkedText text={answer ?? ''} />
+        </p>
 
         {rest.length > 0 ? (
-          <PlainText text={rest.join('\n')} className="mt-3 text-[var(--fg-muted)]" />
+          <div className="plain-text mt-3 text-sm leading-relaxed text-[var(--fg-muted)]">
+            <LinkedText text={rest.join('\n')} />
+          </div>
         ) : null}
 
         {citations.length > 0 ? (

@@ -25,3 +25,18 @@ export function unwrapSlackText(text: string, options: { preferLabel?: boolean }
     .replaceAll('&gt;', '>')
     .replaceAll('&amp;', '&');
 }
+
+/**
+ * Only the link markup of `unwrapSlackText`, for text that is already
+ * unescaped: Slack auto-links a bare `Bill.com` inside an answer to
+ * `<http://Bill.com|Bill.com>`, which then shows up literally on the page.
+ * A labelled link becomes its label (the text actually written); a bare one
+ * becomes its URL.
+ */
+export function stripSlackLinks(text: string): string {
+  return text
+    .replace(/<mailto:([^|>\s]+)(?:\|[^>]*)?>/g, '$1')
+    .replace(/<(https?:[^|>\s]+)(?:\|([^>]*))?>/g, (_match, url: string, label?: string) =>
+      label ? label : url,
+    );
+}

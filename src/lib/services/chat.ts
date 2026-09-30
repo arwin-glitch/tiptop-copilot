@@ -13,6 +13,7 @@ import { newId } from '@/lib/util/hash';
 import { truncate } from '@/lib/util/text';
 import { err, ok, type Result } from '@/lib/util/result';
 import { fireAskRoutine } from './ask-routine';
+import { threadHistoryBefore } from './ask-bridge';
 import { getActiveThesis } from './thesis';
 
 /**
@@ -175,6 +176,7 @@ export async function ask(
       deal_id: scopeDealId,
       question: trimmed,
       created_at: assistantMessage.created_at,
+      history: await threadHistoryBefore(store, auth.organizationId, thread.id, userMessage.id),
     });
     return ok({ thread, userMessage, assistantMessage });
   }

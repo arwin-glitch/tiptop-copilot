@@ -47,6 +47,7 @@ const QUESTION = {
   deal_id: null,
   question: 'What needs my attention today?',
   created_at: '2026-09-21T15:00:00.000Z',
+  history: [],
 };
 
 function slackHistory(...texts: string[]) {

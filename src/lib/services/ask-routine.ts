@@ -48,6 +48,7 @@ export function fireText(question: PendingBridgeQuestion): string {
       thread_id: question.thread_id,
       deal_id: question.deal_id,
       question: question.question,
+      history: question.history,
     })}\``,
   ].join('\n');
 }

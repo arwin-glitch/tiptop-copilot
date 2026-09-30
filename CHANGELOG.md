@@ -8,6 +8,22 @@ throughout.
 
 ---
 
+## [0.3.12] — 2026-09-30
+
+No schema change, no new dependency, no new environment variable.
+
+### Ask: follow-up questions, and links you can click
+
+- A question handed to the answering routine now carries the conversation
+  before it in the same thread (up to 8 turns, 6,000 characters, newest
+  kept), on both the direct start and the Slack relay. "Can you attach the
+  links to those threads?" used to arrive alone and could not be answered.
+- Links into Gmail, Google Calendar, Google Drive, Slack, claude.ai and this
+  app are clickable in answers, shown as "Open in Gmail" and so on. Any other
+  URL stays plain text, since answers quote third-party email.
+- Slack's link markup (`<http://Bill.com|Bill.com>`) is stripped from answers
+  on arrival, and from answers already stored when they are shown.
+
 ## [0.3.11] — 2026-09-30
 
 No schema change and no new environment variable. New dependency: `pdf-lib`

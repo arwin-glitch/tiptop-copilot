@@ -1,6 +1,7 @@
 import 'server-only';
 import type { DataStore } from '@/lib/db/store';
 import type { ChatMessage } from '@/lib/types/domain';
+import { stripSlackLinks } from '@/lib/util/slack-text';
 
 /**
  * The read/write halves of the Ask bridge — see
@@ -20,6 +21,61 @@ export interface PendingBridgeQuestion {
   deal_id: string | null;
   question: string;
   created_at: string;
+  /**
+   * The conversation so far, oldest first: the answered questions and answers
+   * before this one in the same thread. Without it a follow-up such as "can
+   * you attach the links to those threads?" reaches the routine alone and
+   * cannot be answered.
+   */
+  history: BridgeTurn[];
+}
+
+export interface BridgeTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/** Enough for several follow-ups; small enough for a Slack relay message. */
+const HISTORY_TURNS = 8;
+const HISTORY_TURN_CHARS = 1_500;
+const HISTORY_TOTAL_CHARS = 6_000;
+
+/** The turns before `index`, newest kept first when the budget runs out. */
+export function conversationBefore(messages: ChatMessage[], index: number): BridgeTurn[] {
+  const turns: BridgeTurn[] = [];
+  let budget = HISTORY_TOTAL_CHARS;
+  for (let i = index - 1; i >= 0 && turns.length < HISTORY_TURNS; i--) {
+    const m = messages[i]!;
+    if (m.role !== 'user' && m.role !== 'assistant') continue;
+    if (m.status !== 'answered' || !m.content.trim()) continue;
+    let content = m.content.trim();
+    if (content.length > HISTORY_TURN_CHARS) content = `${content.slice(0, HISTORY_TURN_CHARS)}…`;
+    if (content.length > budget) break;
+    budget -= content.length;
+    turns.unshift({ role: m.role, content });
+  }
+  return turns;
+}
+
+/**
+ * The conversation before `messageId` in its thread. Reads the whole thread,
+ * not the capped list `ask()` loads for itself: that one holds the oldest 20
+ * messages, and a follow-up needs the newest ones.
+ */
+export async function threadHistoryBefore(
+  store: DataStore,
+  organizationId: string,
+  threadId: string,
+  messageId: string,
+): Promise<BridgeTurn[]> {
+  const messages = (await store.list(
+    'chat_messages',
+    organizationId,
+    { eq: { thread_id: threadId } },
+    { orderBy: [{ field: 'created_at', direction: 'asc' }] },
+  )) as ChatMessage[];
+  const index = messages.findIndex((m) => m.id === messageId);
+  return conversationBefore(messages, index < 0 ? messages.length : index);
 }
 
 export async function listPendingBridgeQuestions(
@@ -67,6 +123,7 @@ export async function listPendingBridgeQuestions(
       deal_id: dealId,
       question: question.content,
       created_at: p.created_at,
+      history: conversationBefore(threadMessages, idx - 1),
     });
   }
   return results;
@@ -90,7 +147,7 @@ export async function answerBridgeQuestion(
   if (existing.status !== 'pending') return { ok: false, reason: 'not_pending' };
 
   await store.update('chat_messages', organizationId, messageId, {
-    content: answer,
+    content: stripSlackLinks(answer),
     status: 'answered',
     model: 'claude-code-ask-bridge',
   });
