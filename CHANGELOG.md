@@ -8,6 +8,20 @@ throughout.
 
 ---
 
+## [0.3.14] — 2026-10-01
+
+No schema change, no new dependency, no new environment variable.
+
+### Today: the full briefing prints cleanly
+
+- Save as PDF on a relayed briefing, checkpoint or dossier now prints on
+  letter pages in the light design even when the reader's OS is in dark mode
+  (dark-mode rules are rewritten to apply on screen only), keeps colours and
+  backgrounds, and never splits a card, callout, row or list item across a
+  page break.
+- The Daily Overview and Recap routines now fill a fixed template in the
+  dossier's editorial style instead of improvising a design each run.
+
 ## [0.3.13] — 2026-09-30
 
 No schema change, no new dependency, no new environment variable.

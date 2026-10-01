@@ -70,3 +70,19 @@ describe('briefing page relay', () => {
     expect(out.match(/<script/g)).toHaveLength(1);
   });
 });
+
+describe('print-ready relayed pages', () => {
+  it('keeps dark mode on screen only and adds print rules', () => {
+    const out = prepareBriefingHtml(
+      '<html><head><style>@media (prefers-color-scheme:dark){:root{--bg:#000}}@media(prefers-color-scheme: dark){a{color:red}}</style></head><body><p>x</p></body></html>',
+      'n',
+    );
+    expect(out).not.toMatch(/@media\s*\(\s*prefers-color-scheme/);
+    expect(out.match(/@media screen and \(\s*prefers-color-scheme\s*:\s*dark\s*\)/g)).toHaveLength(
+      2,
+    );
+    expect(out).toContain('@page{size:letter;margin:12mm}');
+    expect(out).toContain('print-color-adjust:exact');
+    expect(out).toContain('break-inside:avoid');
+  });
+});

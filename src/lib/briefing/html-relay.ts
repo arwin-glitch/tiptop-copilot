@@ -161,18 +161,38 @@ export function resetBriefingHtmlCache(): void {
  * and any meta refresh or base tag as well means nothing in the page depends
  * on that one line of defence.
  */
+/**
+ * Print rules for any relayed page, so Save as PDF is clean even when a run
+ * improvised its own CSS: letter pages, colours and backgrounds kept, and
+ * cards, callouts, rows and list items never split across a page break.
+ * Whole meeting articles may still break; forcing them whole leaves blank
+ * half-pages.
+ */
+const PRINT_CSS = [
+  '@page{size:letter;margin:12mm}',
+  'html{-webkit-print-color-adjust:exact;print-color-adjust:exact}',
+  'body{background:#fff!important}',
+  '.card,.flag,.st,.stats,.ev,.ag,.tlx p,.chips,tr,li,blockquote,figure{break-inside:avoid}',
+  'h1,h2,h3,h4{break-after:avoid}',
+].join('');
+
 export function prepareBriefingHtml(html: string, nonce: string): string {
   const cleaned = html
     .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
     .replace(/<script\b[^>]*\/?>/gi, '')
     .replace(/<meta\b[^>]*http-equiv[^>]*>/gi, '')
-    .replace(/<base\b[^>]*>/gi, '');
+    .replace(/<base\b[^>]*>/gi, '')
+    // A saved PDF is always the light design, whatever the reader's OS theme:
+    // dark-mode rules apply on screen only.
+    .replace(/@media\s*\(\s*prefers-color-scheme\s*:\s*dark\s*\)/gi, (rule) =>
+      rule.replace(/@media\s*/i, '@media screen and '),
+    );
   const bar = `
 <div id="copilot-bar" style="position:sticky;top:0;z-index:2147483647;display:flex;gap:12px;align-items:center;justify-content:flex-end;padding:10px 16px;background:rgba(20,17,15,.92);color:#efe9e4;font:600 13px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif;backdrop-filter:blur(6px)">
   <span style="margin-right:auto;opacity:.75">TipTop Copilot</span>
   <button id="copilot-print" type="button" style="font:inherit;cursor:pointer;border:0;border-radius:8px;padding:8px 14px;background:#18c37e;color:#08130d">Save as PDF</button>
 </div>
-<style>@media print{#copilot-bar{display:none!important}}</style>
+<style>@media print{#copilot-bar{display:none!important}${PRINT_CSS}}</style>
 <script nonce="${nonce}">document.getElementById('copilot-print').addEventListener('click',function(){window.print()});</script>
 `;
   return /<body\b[^>]*>/i.test(cleaned)
