@@ -5,6 +5,7 @@ import { log } from '@/lib/security/redact';
 import { answerBridgeQuestion, listPendingBridgeQuestions } from './ask-bridge';
 import type { PendingBridgeQuestion } from './ask-bridge';
 import { processWide } from '@/lib/util/process-state';
+import { unwrapSlackText } from '@/lib/util/slack-text';
 
 /**
  * The event-driven half of the Ask bridge.
@@ -85,11 +86,6 @@ export async function fireAskRoutine(
   }
 }
 
-/** Slack escapes these regardless of a code span; undo just the entities. */
-function unescapeSlackEntities(text: string): string {
-  return text.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>');
-}
-
 export interface RelayedAnswer {
   message_id: string;
   answer: string;
@@ -98,7 +94,12 @@ export interface RelayedAnswer {
 /** One Slack message's text → the answer it relays, or null. */
 export function parseAnswerMessage(rawText: unknown): RelayedAnswer | null {
   if (typeof rawText !== 'string') return null;
-  const text = unescapeSlackEntities(rawText).trim();
+  // Undo Slack's link markup before parsing, not after. An answer that ends
+  // in a bare URL gets auto-linked with the closing `"}` swallowed into the
+  // link (`<https://…"}>`), which is invalid JSON; two answers were silently
+  // dropped that way on 2026-10-01. A labelled link keeps its label (Slack
+  // turns a bare `Bill.com` into `<http://Bill.com|Bill.com>`).
+  const text = unwrapSlackText(rawText, { preferLabel: true }).trim();
   if (!text.startsWith(ANSWER_MARKER)) return null;
   const json = /`([^`]+)`/.exec(text)?.[1];
   if (!json) return null;
@@ -113,6 +114,8 @@ export function parseAnswerMessage(rawText: unknown): RelayedAnswer | null {
     }
     return { message_id: payload.message_id, answer: payload.answer.trim().slice(0, 20_000) };
   } catch {
+    // Say so: a dropped answer otherwise looks like a routine that never replied.
+    log.warn('Ask answer in the relay channel is not valid JSON', { length: json.length });
     return null;
   }
 }

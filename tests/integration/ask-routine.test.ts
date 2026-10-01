@@ -134,6 +134,20 @@ describe('parseAnswerMessage', () => {
     ).toEqual({ message_id: 'abc', answer: 'Tom & Jerry > all' });
   });
 
+  it('survives Slack auto-linking a URL at the very end of the answer', () => {
+    // Slack wraps the trailing bare URL and swallows the closing `"}` into it.
+    // Real failure, 2026-10-01: two answers ending in a calendar link never settled.
+    expect(
+      parseAnswerMessage(
+        'ASK_ANSWER_V1\n`{"message_id":"abc","answer":"Acme &lt;&gt; Zeta (<http://zeta.ai|zeta.ai>), <https://mail.google.com/mail/?authuser=<mailto:nick@tiptop.vc|nick@tiptop.vc>#all/1a0>\\n\\nCalendar event: <https://www.google.com/calendar/event?eid=NzEz"}>`\n*Sent using* Claude',
+      ),
+    ).toEqual({
+      message_id: 'abc',
+      answer:
+        'Acme <> Zeta (zeta.ai), https://mail.google.com/mail/?authuser=nick@tiptop.vc#all/1a0\n\nCalendar event: https://www.google.com/calendar/event?eid=NzEz',
+    });
+  });
+
   it('ignores everything that is not a well-formed answer', () => {
     expect(parseAnswerMessage('hello')).toBeNull();
     expect(parseAnswerMessage('ASK_QUESTION_V1\n`{"message_id":"a","answer":"b"}`')).toBeNull();
