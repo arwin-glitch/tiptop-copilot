@@ -11,6 +11,7 @@ import {
   CalendarDays,
   CheckSquare,
   Inbox,
+  MailCheck,
   MessageSquare,
   Newspaper,
   Settings,
@@ -40,6 +41,7 @@ export const NAV_ITEMS = [
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/deals', label: 'Deals', icon: Target },
   { href: '/ask', label: 'Ask', icon: MessageSquare },
+  { href: '/follow-ups', label: 'Follow-ups', icon: MailCheck },
   { href: '/updates', label: 'Updates', icon: Newspaper },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { href: '/meetings', label: 'Meetings', icon: CalendarDays },
@@ -51,7 +53,7 @@ export const NAV_ITEMS = [
 ] as const;
 
 const GROUPS: { label: string; hrefs: string[] }[] = [
-  { label: 'Working', hrefs: ['/today', '/inbox', '/deals', '/ask', '/updates'] },
+  { label: 'Working', hrefs: ['/today', '/inbox', '/deals', '/ask', '/follow-ups', '/updates'] },
   { label: 'Records', hrefs: ['/portfolio', '/meetings', '/network', '/knowledge', '/tasks'] },
   { label: 'System', hrefs: ['/settings', '/diagnostics'] },
 ];

@@ -13,6 +13,7 @@ import {
 } from '@/lib/services/briefing';
 import { gatherTodayData, generateDailyBrief, getTodaysBrief } from '@/lib/services/brief';
 import { pullTaskRelays } from '@/lib/services/task-relay';
+import { readFollowUps } from '@/lib/services/follow-ups';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
 import { Badge, RecommendationBadge } from '@/components/ui/badge';
@@ -22,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { GeneratedMeta } from '@/components/evidence/source-drawer';
 import { BriefItemRow, ExpandableSection, OpenSourcesButton } from '@/components/today/sections';
 import { RoutineBriefingCard } from '@/components/today/briefing-summary';
+import { TopPrioritiesCard } from '@/components/today/top-priorities';
 import { BriefingWatcher } from '@/components/today/briefing-watcher';
 import {
   CreateFollowUpButton,
@@ -73,10 +75,13 @@ async function TodayContent() {
   // Pull any routine post that is waiting in the Slack relay first, so a card
   // posted a minute ago shows now rather than after the next scheduled sync.
   await pullBriefingsFromSlack(getStore(), auth.organizationId).catch(() => 0);
-  const [routineBrief, routineDossier] = await Promise.all([
+  const [routineBrief, routineDossier, followUps] = await Promise.all([
     getCurrentBrief(getStore(), auth.organizationId).catch(() => null),
     getCurrentDossier(getStore(), auth.organizationId).catch(() => null),
+    // Same rule as the briefings: a Slack fault only hides the card.
+    readFollowUps(getStore(), auth.organizationId, { now }).catch(() => null),
   ]);
+  const priorities = followUps?.state === 'ok' ? followUps.snapshot.priorities : null;
 
   // Generate on first view of the day so the page is never empty on arrival;
   // an explicit refresh regenerates it.
@@ -131,6 +136,8 @@ async function TodayContent() {
           </>
         }
       />
+
+      {priorities ? <TopPrioritiesCard priorities={priorities} now={now} /> : null}
 
       {routineBrief || routineDossier ? (
         <div

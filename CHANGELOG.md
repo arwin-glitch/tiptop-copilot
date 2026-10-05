@@ -8,6 +8,27 @@ throughout.
 
 ---
 
+## [0.3.15] — 2026-10-05
+
+No schema change, no new dependency, no new environment variable.
+
+### Follow-ups page and Top priorities on Today
+
+- New **Follow-ups** tab (Working group): who Nick is waiting on (he wrote
+  last, no reply yet, with a "Nudge drafted" badge when a follow-up draft sits
+  on the Gmail thread), recaps drafted after external meetings in Granola
+  (with what Nick promised), and replies drafted with real open meeting slots.
+- **Top priorities** card at the top of Today: the morning brief's and
+  afternoon checkpoint's ranked list, newest wins.
+- All of it is read live from the private #deal-relay channel
+  (`FOLLOWUPS_V1`, `MEETING_FOLLOWUP_V1`, `SCHEDULING_V1`, `PRIORITIES_V1`),
+  posted by cloud routines that only ever create Gmail drafts. Nothing is
+  stored, links are rebuilt from validated thread ids, and the page stays
+  closed until sign-in is limited to TipTop accounts. Demo mode shows
+  fictional data.
+- Also fixed in 0.3.14+ (f131777): Ask answers that ended in a link no longer
+  get stuck on "Checking your inbox…".
+
 ## [0.3.14] — 2026-10-01
 
 No schema change, no new dependency, no new environment variable.
