@@ -27,6 +27,8 @@ import { isRelayOrganization } from './deal-relay';
  *   Accumulated across the window, newest post per thread wins.
  * - `PRIORITIES_V1`: the morning brief's and checkpoint's ranked list. The
  *   newest wins.
+ * - `RELATIONSHIPS_V1`: the relationship radar's snapshot of who is waiting
+ *   on Nick and which key relationships are going cold. The newest wins.
  *
  * Every value is rendered as plain text. Links are rebuilt from validated
  * Gmail thread ids, never taken from a post.
@@ -36,12 +38,14 @@ export const FOLLOWUPS_MARKER = 'FOLLOWUPS_V1';
 export const MEETING_FOLLOWUP_MARKER = 'MEETING_FOLLOWUP_V1';
 export const SCHEDULING_MARKER = 'SCHEDULING_V1';
 export const PRIORITIES_MARKER = 'PRIORITIES_V1';
+export const RELATIONSHIPS_MARKER = 'RELATIONSHIPS_V1';
 
 const MARKERS = [
   FOLLOWUPS_MARKER,
   MEETING_FOLLOWUP_MARKER,
   SCHEDULING_MARKER,
   PRIORITIES_MARKER,
+  RELATIONSHIPS_MARKER,
 ] as const;
 type Marker = (typeof MARKERS)[number];
 
@@ -111,6 +115,33 @@ export const PRIORITIES_SCHEMA = z.object({
     .max(7),
 });
 
+export const RELATIONSHIP_KINDS = [
+  'lp',
+  'prospective_lp',
+  'portfolio',
+  'founder',
+  'coinvestor',
+  'other',
+] as const;
+
+const RELATIONSHIP_ITEM = z.object({
+  who: text(120),
+  company: optionalText(120),
+  kind: z.enum(RELATIONSHIP_KINDS),
+  thread_id: THREAD_ID.nullish(),
+  since: z.string().datetime(),
+  days: z.number().int().min(0).max(3650),
+  note: optionalText(300),
+});
+
+export const RELATIONSHIPS_SCHEMA = z.object({
+  run_at: z.string().datetime(),
+  waiting: z.array(RELATIONSHIP_ITEM).max(40),
+  cold: z.array(RELATIONSHIP_ITEM).max(40),
+});
+
+export type Relationships = z.infer<typeof RELATIONSHIPS_SCHEMA>;
+export type RelationshipItem = z.infer<typeof RELATIONSHIP_ITEM>;
 export type FollowUpItem = z.infer<typeof FOLLOWUPS_SCHEMA>['items'][number];
 export type MeetingFollowUp = z.infer<typeof MEETING_FOLLOWUP_SCHEMA> & { posted_at: string };
 export type SchedulingItem = z.infer<typeof SCHEDULING_SCHEMA>['items'][number] & {
@@ -122,13 +153,15 @@ export type ParsedFollowUpMessage =
   | { marker: typeof FOLLOWUPS_MARKER; value: z.infer<typeof FOLLOWUPS_SCHEMA> }
   | { marker: typeof MEETING_FOLLOWUP_MARKER; value: z.infer<typeof MEETING_FOLLOWUP_SCHEMA> }
   | { marker: typeof SCHEDULING_MARKER; value: z.infer<typeof SCHEDULING_SCHEMA> }
-  | { marker: typeof PRIORITIES_MARKER; value: Priorities };
+  | { marker: typeof PRIORITIES_MARKER; value: Priorities }
+  | { marker: typeof RELATIONSHIPS_MARKER; value: Relationships };
 
 const SCHEMAS: Record<Marker, z.ZodTypeAny> = {
   [FOLLOWUPS_MARKER]: FOLLOWUPS_SCHEMA,
   [MEETING_FOLLOWUP_MARKER]: MEETING_FOLLOWUP_SCHEMA,
   [SCHEDULING_MARKER]: SCHEDULING_SCHEMA,
   [PRIORITIES_MARKER]: PRIORITIES_SCHEMA,
+  [RELATIONSHIPS_MARKER]: RELATIONSHIPS_SCHEMA,
 };
 
 const MAX_MESSAGE_CHARS = 40_000;
@@ -168,6 +201,7 @@ export interface FollowUpsSnapshot {
   meetings: MeetingFollowUp[];
   scheduling: SchedulingItem[];
   priorities: Priorities | null;
+  relationships: Relationships | null;
 }
 
 /** Slack pages (newest first) -> the current view. Pure, for tests. */
@@ -184,7 +218,13 @@ export function collectFollowUps(
     .filter((x): x is { m: SlackMessage; iso: string } => x.iso !== null)
     .sort((a, b) => b.iso.localeCompare(a.iso));
 
-  const out: FollowUpsSnapshot = { waiting: null, meetings: [], scheduling: [], priorities: null };
+  const out: FollowUpsSnapshot = {
+    waiting: null,
+    meetings: [],
+    scheduling: [],
+    priorities: null,
+    relationships: null,
+  };
   const seenMeetings = new Set<string>();
   const seenThreads = new Set<string>();
 
@@ -216,6 +256,9 @@ export function collectFollowUps(
       case PRIORITIES_MARKER:
         if (!out.priorities) out.priorities = parsed.value;
         break;
+      case RELATIONSHIPS_MARKER:
+        if (!out.relationships) out.relationships = parsed.value;
+        break;
     }
   }
   out.meetings.sort((a, b) => b.met_at.localeCompare(a.met_at));
@@ -231,7 +274,13 @@ export interface FollowUpsResult {
   readAt: string;
 }
 
-const EMPTY: FollowUpsSnapshot = { waiting: null, meetings: [], scheduling: [], priorities: null };
+const EMPTY: FollowUpsSnapshot = {
+  waiting: null,
+  meetings: [],
+  scheduling: [],
+  priorities: null,
+  relationships: null,
+};
 const WINDOW_DAYS = 14;
 const MAX_PAGES = 5;
 const PAGE_SIZE = 200;

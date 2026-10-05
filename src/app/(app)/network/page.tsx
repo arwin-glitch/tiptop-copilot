@@ -4,6 +4,8 @@ import { requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { buildRelationshipList } from '@/lib/services/network';
+import { readFollowUps } from '@/lib/services/follow-ups';
+import { RelationshipAlerts } from '@/components/network/relationship-alerts';
 import {
   asRelationshipSortKey,
   sortRelationships,
@@ -61,16 +63,23 @@ async function NetworkContent({
     (a): a is string => Boolean(a),
   );
 
-  const rows = await buildRelationshipList(store, auth.organizationId, {
-    ownAddresses,
-    search: q || undefined,
-  });
+  const [rows, followUps] = await Promise.all([
+    buildRelationshipList(store, auth.organizationId, {
+      ownAddresses,
+      search: q || undefined,
+    }),
+    // The relationship radar's alerts; a Slack fault only hides the card.
+    readFollowUps(store, auth.organizationId).catch(() => null),
+  ]);
+  const relationships = followUps?.state === 'ok' ? followUps.snapshot.relationships : null;
 
   const awaiting = rows.filter((r) => r.awaitingUs).length;
   const met = rows.filter((r) => r.meetingCount > 0).length;
 
   return (
     <>
+      {relationships ? <RelationshipAlerts relationships={relationships} now={new Date()} /> : null}
+
       <StatGroup className="mb-5" columns={3}>
         <Stat size="sm" label="People" value={rows.length} hint="from mail and calendar" />
         <Stat size="sm" label="Met in person" value={met} hint="at least one meeting" />

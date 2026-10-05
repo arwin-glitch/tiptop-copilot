@@ -8,6 +8,22 @@ throughout.
 
 ---
 
+## [0.3.16] — 2026-10-05
+
+No schema change, no new dependency, no new environment variable.
+
+### Relationship alerts and one-click company research
+
+- **Network** now opens with **Relationship alerts**: who is waiting on Nick
+  (prospective LPs, LPs, portfolio founders, co-investors first) and which key
+  relationships have gone quiet, from the relationship radar routine's
+  `RELATIONSHIPS_V1` post in #deal-relay. Newest snapshot wins; a Slack
+  fault only hides the card.
+- **Research** button on every deal: opens Ask with a ready research question
+  (team, funding and investors, traction, competitors, recent news), answered
+  by the Ask routine with web search. "Ask about this deal" now also shows when
+  Ask runs through the cloud routine rather than an in-app model.
+
 ## [0.3.15] — 2026-10-05
 
 No schema change, no new dependency, no new environment variable.

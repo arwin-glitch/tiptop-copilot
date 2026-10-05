@@ -101,6 +101,45 @@ describe('parseFollowUpMessage', () => {
   });
 });
 
+describe('relationships', () => {
+  const REL = {
+    run_at: '2026-10-05T13:00:00Z',
+    waiting: [
+      {
+        who: 'Grace Okafor',
+        company: 'Lakeside',
+        kind: 'prospective_lp',
+        thread_id: '1a0000000000eeee',
+        since: '2026-10-02T15:00:00Z',
+        days: 3,
+      },
+    ],
+    cold: [{ who: 'Ivy Chen', kind: 'lp', since: '2026-08-03T15:00:00Z', days: 63 }],
+  };
+
+  it('parses and keeps the newest radar snapshot', () => {
+    expect(parseFollowUpMessage(post('RELATIONSHIPS_V1', REL))?.marker).toBe('RELATIONSHIPS_V1');
+    const out = collectFollowUps([
+      { ts: '1790950000.000100', text: post('RELATIONSHIPS_V1', REL), user: 'U1' },
+      {
+        ts: '1790900000.000100',
+        text: post('RELATIONSHIPS_V1', { ...REL, waiting: [] }),
+        user: 'U1',
+      },
+    ]);
+    expect(out.relationships?.waiting).toHaveLength(1);
+    expect(out.relationships?.cold[0]?.kind).toBe('lp');
+  });
+
+  it('rejects an unknown relationship kind', () => {
+    expect(
+      parseFollowUpMessage(
+        post('RELATIONSHIPS_V1', { ...REL, cold: [{ ...REL.cold[0], kind: 'friend' }] }),
+      ),
+    ).toBeNull();
+  });
+});
+
 describe('collectFollowUps', () => {
   const msg = (ts: number, text: string, user = 'U1') => ({ ts: `${ts}.000100`, text, user });
 

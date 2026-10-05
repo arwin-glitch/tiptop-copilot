@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AlertTriangle, ExternalLink, Link2, Mail, Paperclip } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
+import { env } from '@/lib/config/env';
 import { getAI, getStore } from '@/lib/runtime';
 import { notesForDeal } from '@/lib/services/meetings';
 import { getDealDetail, factHistory } from '@/lib/services/deals';
@@ -107,6 +108,9 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
   const citations = analysis?.citations ?? [];
   const openTasks = tasks.filter((t) => isOpenNow(t, new Date()));
   const aiAvailable = getAI().available();
+  // Ask also works through the cloud routine when no in-app model is set, so
+  // the Ask and Research links follow the Ask page's own rule.
+  const askAvailable = aiAvailable || Boolean(env().askBridgeToken);
 
   const store = getStore();
   const [meetingNotes, routine, integration] = await Promise.all([
@@ -182,10 +186,21 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
             {deal.is_archived ? null : <NotADealButton dealId={deal.id} />}
             {/* Export stays: the memo is assembled from stored facts and works
                 with the model switched off. The other two are model calls. */}
-            {aiAvailable ? (
-              <Button asChild variant="secondary" size="sm">
-                <Link href={`/ask?deal=${deal.id}`}>Ask about this deal</Link>
-              </Button>
+            {askAvailable ? (
+              <>
+                <Button asChild variant="secondary" size="sm">
+                  <Link
+                    href={`/ask?deal=${deal.id}&q=${encodeURIComponent(
+                      `Research ${deal.company_name}: founders and team, funding history and investors, traction, competitors, and recent news.`,
+                    )}`}
+                  >
+                    Research
+                  </Link>
+                </Button>
+                <Button asChild variant="secondary" size="sm">
+                  <Link href={`/ask?deal=${deal.id}`}>Ask about this deal</Link>
+                </Button>
+              </>
             ) : null}
             <ExportMemoButton dealId={deal.id} companyName={deal.company_name} />
             {aiAvailable ? <ReanalyzeButton dealId={deal.id} /> : null}
