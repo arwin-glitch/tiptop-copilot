@@ -4,6 +4,7 @@ import { ExternalLink } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
+import { LpUpdateCard } from '@/components/followups/relay-cards';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { LP_STAGES, readFollowUps, type LpItem, type LpStage } from '@/lib/services/follow-ups';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
@@ -71,12 +72,18 @@ async function FundTwoContent() {
   }
 
   const pipeline = snapshot.lpPipeline;
+  const lpUpdate = snapshot.lpUpdateDraft ? (
+    <LpUpdateCard draft={snapshot.lpUpdateDraft} now={now} />
+  ) : null;
   if (!pipeline || pipeline.lps.length === 0) {
     return (
-      <EmptyState
-        title="No LP pipeline yet"
-        description="The LP pipeline routine posts every weekday morning. Once it has run, every Fund II conversation shows here by stage."
-      />
+      <>
+        {lpUpdate}
+        <EmptyState
+          title="No LP pipeline yet"
+          description="The LP pipeline routine posts every weekday morning. Once it has run, every Fund II conversation shows here by stage."
+        />
+      </>
     );
   }
 
@@ -94,6 +101,7 @@ async function FundTwoContent() {
 
   return (
     <>
+      {lpUpdate}
       <p className="mb-4 text-sm text-[var(--fg-muted)]">
         {pipeline.fund} · checked {relativeTime(pipeline.run_at, now)}
       </p>

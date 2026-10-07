@@ -6,6 +6,7 @@ import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { buildRelationshipList } from '@/lib/services/network';
 import { readFollowUps } from '@/lib/services/follow-ups';
 import { RelationshipAlerts } from '@/components/network/relationship-alerts';
+import { IntrosCard } from '@/components/followups/relay-cards';
 import {
   asRelationshipSortKey,
   sortRelationships,
@@ -72,12 +73,15 @@ async function NetworkContent({
     readFollowUps(store, auth.organizationId).catch(() => null),
   ]);
   const relationships = followUps?.state === 'ok' ? followUps.snapshot.relationships : null;
+  const intros = followUps?.state === 'ok' ? followUps.snapshot.intros : null;
 
   const awaiting = rows.filter((r) => r.awaitingUs).length;
   const met = rows.filter((r) => r.meetingCount > 0).length;
 
   return (
     <>
+      {intros ? <IntrosCard intros={intros} now={new Date()} /> : null}
+
       {relationships ? (
         <RelationshipAlerts relationships={relationships} now={new Date()} showWaiting={false} />
       ) : null}

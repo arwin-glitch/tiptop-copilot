@@ -8,6 +8,29 @@ throughout.
 
 ---
 
+## [0.5.0] — 2026-10-07
+
+No schema change, no new dependency, no new environment variable.
+
+- **Search everything (Ctrl+K / Cmd+K):** one box in the sidebar and mobile
+  header across deals, portfolio, Fund II LPs, people, meetings, tasks and
+  documents (`/api/search`, signed-in, org-scoped, in-app links only).
+- **Deal board:** Deals has a Table / Board toggle; the board shows stage
+  columns with fit, summary and next step. The choice is remembered per browser.
+- **Portfolio health** card on Portfolio (`PORTFOLIO_HEALTH_V1`): last update,
+  a qualitative healthy / watch / at-risk flag and open asks per company. No
+  figures. The classifier-only "Open requests" empty state is hidden when the
+  card is present.
+- **Intros** card on Network (`INTROS_V1`): intros owed, made, connected or
+  stalled.
+- **The week ahead** on Meetings (`WEEK_AHEAD_V1`): next seven days with prep.
+- **LP update draft** card on Fund II (`LP_UPDATE_DRAFT_V1`): the quarterly LP
+  update drafted into Gmail, addressed to Nick only.
+- **IC memo** button on deals: asks the Ask routine for an investment-committee
+  memo from the mailbox, Granola and the web.
+- The relay read window is now 30 days so the quarterly LP update draft stays
+  visible.
+
 ## [0.4.0] — 2026-10-07
 
 No schema change, no new dependency, no new environment variable.

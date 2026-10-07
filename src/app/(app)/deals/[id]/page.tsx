@@ -110,6 +110,9 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
   // Ask also works through the cloud routine when no in-app model is set, so
   // the Ask and Research links follow the Ask page's own rule.
   const askAvailable = aiAvailable || Boolean(env().askBridgeToken);
+  const memoHref = `/ask?deal=${deal.id}&q=${encodeURIComponent(
+    `Write an IC memo for ${deal.company_name}: summary, team, market, product and traction, round and terms as stated, why now, risks, open diligence questions, and a recommendation.`,
+  )}`;
   const researchHref = `/ask?deal=${deal.id}&q=${encodeURIComponent(
     `Research ${deal.company_name}: founders and team, funding history and investors, traction, competitors, and recent news.`,
   )}`;
@@ -192,6 +195,9 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
               <>
                 <Button asChild variant="secondary" size="sm">
                   <Link href={researchHref}>Research</Link>
+                </Button>
+                <Button asChild variant="secondary" size="sm">
+                  <Link href={memoHref}>IC memo</Link>
                 </Button>
                 <Button asChild variant="secondary" size="sm">
                   <Link href={`/ask?deal=${deal.id}`}>Ask about this deal</Link>

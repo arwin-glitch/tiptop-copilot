@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { requireAuth } from '@/lib/auth/session';
+import { readFollowUps } from '@/lib/services/follow-ups';
+import { PortfolioHealthCard } from '@/components/followups/relay-cards';
 import { getStore } from '@/lib/runtime';
 import { listPortfolio, openRequests } from '@/lib/services/portfolio';
 import { pullPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
@@ -28,11 +30,15 @@ export default async function PortfolioPage() {
   // now so it shows as soon as the page is opened. Best effort, throttled.
   await pullPortfolioFromSlack(store, auth.organizationId).catch(() => null);
 
-  const [companies, requests, contacts] = await Promise.all([
+  const [companies, requests, contacts, followUps] = await Promise.all([
     listPortfolio(auth.organizationId),
     openRequests(auth.organizationId),
     store.list('network_contacts', auth.organizationId, {}) as Promise<NetworkContact[]>,
+    // The portfolio-health routine's snapshot; a Slack fault only hides it.
+    readFollowUps(store, auth.organizationId).catch(() => null),
   ]);
+  const health = followUps?.state === 'ok' ? followUps.snapshot.portfolioHealth : null;
+  const now = new Date();
 
   return (
     <PageShell>
@@ -47,109 +53,113 @@ export default async function PortfolioPage() {
         }
       />
 
-      <section className="mb-8">
-        <SectionHeading count={requests.length}>Open requests</SectionHeading>
-        {requests.length === 0 ? (
-          <EmptyState
-            title="No open requests"
-            description="Portfolio requests appear here when an update from a portfolio company is classified. Open a portfolio email in the Inbox and classify it."
-            action={{ label: 'Go to Inbox', href: '/inbox?category=portfolio_company' }}
-          />
-        ) : (
-          <ul className="space-y-3">
-            {requests.map((update) => {
-              const company = companies.find((c) => c.id === update.portfolio_company_id);
-              const suggested = contacts.filter((c) =>
-                update.suggested_network_contact_ids.includes(c.id),
-              );
-              return (
-                <li key={update.id}>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
-                          {company ? (
-                            <Link
-                              href={`/portfolio/${company.id}`}
-                              className="font-serif text-base underline-offset-2 hover:underline"
-                            >
-                              {company.name}
-                            </Link>
-                          ) : (
-                            'Portfolio company'
-                          )}
-                          {update.request_type ? (
-                            <Badge tone={update.urgency === 'high' ? 'danger' : 'warn'}>
-                              {PORTFOLIO_REQUEST_LABELS[update.request_type]}
-                            </Badge>
-                          ) : null}
-                          {update.urgency ? (
-                            <Badge tone="neutral">{update.urgency} urgency</Badge>
-                          ) : null}
-                        </p>
-                        <span className="text-xs text-[var(--fg-subtle)]">
-                          {relativeTime(update.occurred_at)}
-                        </span>
-                      </div>
+      {health ? <PortfolioHealthCard health={health} now={now} tz={auth.profile.timezone} /> : null}
 
-                      <p className="mt-2 text-sm">{update.summary}</p>
-                      {update.request_detail ? (
-                        <p className="mt-1.5 text-sm text-[var(--fg-muted)]">
-                          <span className="text-[var(--fg-subtle)]">Asked for: </span>
-                          {update.request_detail}
-                        </p>
-                      ) : null}
-
-                      {update.suggested_action ? (
-                        <div className="mt-3 rounded-md bg-[var(--bg-sunken)] p-3">
-                          <FieldLabel as="p">Suggested action</FieldLabel>
-                          <p className="mt-1 text-sm">{update.suggested_action}</p>
-                          {suggested.length > 0 ? (
-                            <ul className="mt-2 space-y-1">
-                              {suggested.map((c) => (
-                                <li key={c.id} className="text-[13px] text-[var(--fg-muted)]">
-                                  <span className="font-medium text-[var(--fg)]">
-                                    {c.full_name}
-                                  </span>
-                                  {c.title ? ` — ${c.title}` : ''}
-                                  {c.company ? `, ${c.company}` : ''}
-                                  {c.relationship ? ` · ${c.relationship}` : ''}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="mt-2 text-xs text-[var(--fg-subtle)]">
-                              No one in your uploaded network data matches this request. Nobody is
-                              suggested rather than inventing a name.
-                            </p>
-                          )}
+      {requests.length > 0 || !health ? (
+        <section className="mb-8">
+          <SectionHeading count={requests.length}>Open requests</SectionHeading>
+          {requests.length === 0 ? (
+            <EmptyState
+              title="No open requests"
+              description="Portfolio requests appear here when an update from a portfolio company is classified. Open a portfolio email in the Inbox and classify it."
+              action={{ label: 'Go to Inbox', href: '/inbox?category=portfolio_company' }}
+            />
+          ) : (
+            <ul className="space-y-3">
+              {requests.map((update) => {
+                const company = companies.find((c) => c.id === update.portfolio_company_id);
+                const suggested = contacts.filter((c) =>
+                  update.suggested_network_contact_ids.includes(c.id),
+                );
+                return (
+                  <li key={update.id}>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                            {company ? (
+                              <Link
+                                href={`/portfolio/${company.id}`}
+                                className="font-serif text-base underline-offset-2 hover:underline"
+                              >
+                                {company.name}
+                              </Link>
+                            ) : (
+                              'Portfolio company'
+                            )}
+                            {update.request_type ? (
+                              <Badge tone={update.urgency === 'high' ? 'danger' : 'warn'}>
+                                {PORTFOLIO_REQUEST_LABELS[update.request_type]}
+                              </Badge>
+                            ) : null}
+                            {update.urgency ? (
+                              <Badge tone="neutral">{update.urgency} urgency</Badge>
+                            ) : null}
+                          </p>
+                          <span className="text-xs text-[var(--fg-subtle)]">
+                            {relativeTime(update.occurred_at)}
+                          </span>
                         </div>
-                      ) : null}
 
-                      {update.citations.length > 0 ? (
+                        <p className="mt-2 text-sm">{update.summary}</p>
+                        {update.request_detail ? (
+                          <p className="mt-1.5 text-sm text-[var(--fg-muted)]">
+                            <span className="text-[var(--fg-subtle)]">Asked for: </span>
+                            {update.request_detail}
+                          </p>
+                        ) : null}
+
+                        {update.suggested_action ? (
+                          <div className="mt-3 rounded-md bg-[var(--bg-sunken)] p-3">
+                            <FieldLabel as="p">Suggested action</FieldLabel>
+                            <p className="mt-1 text-sm">{update.suggested_action}</p>
+                            {suggested.length > 0 ? (
+                              <ul className="mt-2 space-y-1">
+                                {suggested.map((c) => (
+                                  <li key={c.id} className="text-[13px] text-[var(--fg-muted)]">
+                                    <span className="font-medium text-[var(--fg)]">
+                                      {c.full_name}
+                                    </span>
+                                    {c.title ? ` — ${c.title}` : ''}
+                                    {c.company ? `, ${c.company}` : ''}
+                                    {c.relationship ? ` · ${c.relationship}` : ''}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="mt-2 text-xs text-[var(--fg-subtle)]">
+                                No one in your uploaded network data matches this request. Nobody is
+                                suggested rather than inventing a name.
+                              </p>
+                            )}
+                          </div>
+                        ) : null}
+
+                        {update.citations.length > 0 ? (
+                          <div className="mt-3">
+                            <CitationList
+                              ids={update.citations.map((c) => c.id)}
+                              citations={update.citations}
+                            />
+                          </div>
+                        ) : null}
+
                         <div className="mt-3">
-                          <CitationList
-                            ids={update.citations.map((c) => c.id)}
-                            citations={update.citations}
+                          <RequestActions
+                            updateId={update.id}
+                            portfolioCompanyId={update.portfolio_company_id}
+                            emailMessageId={update.email_message_id}
                           />
                         </div>
-                      ) : null}
-
-                      <div className="mt-3">
-                        <RequestActions
-                          updateId={update.id}
-                          portfolioCompanyId={update.portfolio_company_id}
-                          emailMessageId={update.email_message_id}
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+                      </CardContent>
+                    </Card>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       <section>
         <SectionHeading count={companies.length}>Companies</SectionHeading>

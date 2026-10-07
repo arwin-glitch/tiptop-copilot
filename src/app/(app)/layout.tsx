@@ -4,6 +4,7 @@ import { getAuthContext } from '@/lib/auth/session';
 import { isDemoMode } from '@/lib/config/env';
 import { Mark, Wordmark } from '@/components/brand/wordmark';
 import { MobileNav, SidebarNav } from '@/components/shell/nav';
+import { CommandPalette } from '@/components/shell/command-palette';
 import { MobileSectionLabel } from '@/components/shell/mobile-header';
 import { ThemeToggle } from '@/components/shell/theme-toggle';
 import { SignOutButton } from '@/components/shell/sign-out';
@@ -40,6 +41,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           >
             <Wordmark />
           </Link>
+
+          <CommandPalette className="mb-4 w-full" />
 
           <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto">
             <SidebarNav />
@@ -89,6 +92,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {demo ? <Badge tone="warn">Demo</Badge> : null}
+              <CommandPalette shortcut={false} className="px-2 py-1" />
               <ThemeToggle />
             </div>
           </header>

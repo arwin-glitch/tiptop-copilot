@@ -4,6 +4,7 @@ import * as React from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { ComparePanel, DealsFilterBar } from '@/components/deals/deals-client';
 import { DealsTable } from '@/components/deals/deals-table';
+import { DealsBoard } from '@/components/deals/deals-board';
 import { useRefreshLoading } from '@/components/shell/refresh-status';
 import { EmptyState } from '@/components/ui/feedback';
 import {
@@ -21,6 +22,26 @@ import {
   type ViewParams,
 } from '@/lib/deals/pipeline-view';
 import type { DealStage } from '@/lib/types/domain';
+
+const LAYOUT_KEY = 'deals-layout';
+const LAYOUT_EVENT = 'deals-layout-change';
+
+function readLayout(): 'table' | 'board' {
+  try {
+    return window.localStorage.getItem(LAYOUT_KEY) === 'board' ? 'board' : 'table';
+  } catch {
+    return 'table';
+  }
+}
+
+function subscribeLayout(onChange: () => void): () => void {
+  window.addEventListener(LAYOUT_EVENT, onChange);
+  window.addEventListener('storage', onChange);
+  return () => {
+    window.removeEventListener(LAYOUT_EVENT, onChange);
+    window.removeEventListener('storage', onChange);
+  };
+}
 
 /**
  * The pipeline list with its stage, fit and sort controls.
@@ -61,6 +82,17 @@ export function DealsBrowser({
   const pathname = usePathname();
   const refreshLoading = useRefreshLoading();
   const allStages = React.useRef<HTMLButtonElement>(null);
+  // Table or board, remembered per browser. A preference, not a shared view,
+  // so it lives in localStorage rather than the URL.
+  const layout = React.useSyncExternalStore(subscribeLayout, readLayout, () => 'table' as const);
+  const chooseLayout = (next: 'table' | 'board') => {
+    try {
+      window.localStorage.setItem(LAYOUT_KEY, next);
+    } catch {
+      // Storage blocked: nothing to remember the choice in.
+    }
+    window.dispatchEvent(new Event(LAYOUT_EVENT));
+  };
 
   const inUrl = viewParams(params);
   // The view last clicked, until the URL holds it.
@@ -142,14 +174,40 @@ export function DealsBrowser({
             />
           ) : null}
 
-          <DealsTable
-            rows={visible}
-            sort={sort}
-            direction={direction}
-            mode={mode}
-            archived={archived}
-            onSort={(key, dir) => choose({ sort: key, dir })}
-          />
+          <div
+            role="group"
+            aria-label="Pipeline layout"
+            className="mt-4 inline-flex rounded-md border border-[var(--border)] p-0.5 text-sm"
+          >
+            {(['table', 'board'] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={layout === option}
+                onClick={() => chooseLayout(option)}
+                className={
+                  layout === option
+                    ? 'rounded bg-[var(--bg-hover)] px-3 py-1 font-medium'
+                    : 'rounded px-3 py-1 text-[var(--fg-muted)] hover:text-[var(--fg)]'
+                }
+              >
+                {option === 'table' ? 'Table' : 'Board'}
+              </button>
+            ))}
+          </div>
+
+          {layout === 'board' ? (
+            <DealsBoard rows={visible} />
+          ) : (
+            <DealsTable
+              rows={visible}
+              sort={sort}
+              direction={direction}
+              mode={mode}
+              archived={archived}
+              onSort={(key, dir) => choose({ sort: key, dir })}
+            />
+          )}
         </>
       )}
     </>

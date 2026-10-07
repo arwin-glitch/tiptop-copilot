@@ -31,6 +31,14 @@ import { isRelayOrganization } from './deal-relay';
  *   on Nick and which key relationships are going cold. The newest wins.
  * - `LP_PIPELINE_V1`: the Fund II LP pipeline, every prospective LP and the
  *   stage they are at. The newest snapshot wins. Stages only, never amounts.
+ * - `PORTFOLIO_HEALTH_V1`: per portfolio company, when it last sent an update,
+ *   a qualitative runway flag and its open asks. Newest wins. No figures.
+ * - `INTROS_V1`: intros Nick was asked for, owes, made, and how they went.
+ *   Newest wins.
+ * - `WEEK_AHEAD_V1`: the next seven days of Nick's calendar with prep context.
+ *   Newest wins.
+ * - `LP_UPDATE_DRAFT_V1`: the quarterly LP update drafted into Gmail (to Nick
+ *   only). Newest wins.
  *
  * Every value is rendered as plain text. Links are rebuilt from validated
  * Gmail thread ids, never taken from a post.
@@ -42,6 +50,10 @@ export const SCHEDULING_MARKER = 'SCHEDULING_V1';
 export const PRIORITIES_MARKER = 'PRIORITIES_V1';
 export const RELATIONSHIPS_MARKER = 'RELATIONSHIPS_V1';
 export const LP_PIPELINE_MARKER = 'LP_PIPELINE_V1';
+export const PORTFOLIO_HEALTH_MARKER = 'PORTFOLIO_HEALTH_V1';
+export const INTROS_MARKER = 'INTROS_V1';
+export const WEEK_AHEAD_MARKER = 'WEEK_AHEAD_V1';
+export const LP_UPDATE_DRAFT_MARKER = 'LP_UPDATE_DRAFT_V1';
 
 const MARKERS = [
   FOLLOWUPS_MARKER,
@@ -50,6 +62,10 @@ const MARKERS = [
   PRIORITIES_MARKER,
   RELATIONSHIPS_MARKER,
   LP_PIPELINE_MARKER,
+  PORTFOLIO_HEALTH_MARKER,
+  INTROS_MARKER,
+  WEEK_AHEAD_MARKER,
+  LP_UPDATE_DRAFT_MARKER,
 ] as const;
 type Marker = (typeof MARKERS)[number];
 
@@ -184,6 +200,76 @@ export const LP_PIPELINE_SCHEMA = z.object({
 });
 
 export type LpPipeline = z.infer<typeof LP_PIPELINE_SCHEMA>;
+
+export const HEALTH_FLAGS = ['ok', 'watch', 'risk', 'unknown'] as const;
+
+export const PORTFOLIO_HEALTH_SCHEMA = z.object({
+  run_at: z.string().datetime(),
+  companies: z
+    .array(
+      z.object({
+        name: text(120),
+        last_update_at: z.string().datetime().nullish(),
+        thread_id: THREAD_ID.nullish(),
+        flag: z.enum(HEALTH_FLAGS),
+        headline: optionalText(200),
+        asks: z.array(text(200)).max(5).default([]),
+      }),
+    )
+    .max(80),
+});
+export type PortfolioHealth = z.infer<typeof PORTFOLIO_HEALTH_SCHEMA>;
+export type PortfolioHealthItem = PortfolioHealth['companies'][number];
+
+export const INTRO_STATUSES = ['owed', 'made', 'connected', 'stalled', 'declined'] as const;
+
+export const INTROS_SCHEMA = z.object({
+  run_at: z.string().datetime(),
+  intros: z
+    .array(
+      z.object({
+        for_who: text(120),
+        to_who: text(120),
+        status: z.enum(INTRO_STATUSES),
+        asked_at: z.string().datetime().nullish(),
+        made_at: z.string().datetime().nullish(),
+        thread_id: THREAD_ID.nullish(),
+        note: optionalText(200),
+      }),
+    )
+    .max(100),
+});
+export type Intros = z.infer<typeof INTROS_SCHEMA>;
+export type IntroItem = Intros['intros'][number];
+
+export const WEEK_AHEAD_SCHEMA = z.object({
+  run_at: z.string().datetime(),
+  events: z
+    .array(
+      z.object({
+        title: text(200),
+        starts_at: z.string().datetime(),
+        ends_at: z.string().datetime().nullish(),
+        with_who: z.array(text(120)).max(10).default([]),
+        kind: z.enum(['founder', 'lp', 'portfolio', 'investor', 'internal', 'personal', 'other']),
+        prep: optionalText(240),
+        thread_id: THREAD_ID.nullish(),
+      }),
+    )
+    .max(80),
+});
+export type WeekAhead = z.infer<typeof WEEK_AHEAD_SCHEMA>;
+export type WeekEvent = WeekAhead['events'][number];
+
+export const LP_UPDATE_DRAFT_SCHEMA = z.object({
+  run_at: z.string().datetime(),
+  period: text(60),
+  status: z.enum(['drafted', 'skipped']),
+  draft_thread_id: THREAD_ID.nullish(),
+  sections: z.array(text(80)).max(12).default([]),
+  note: optionalText(300),
+});
+export type LpUpdateDraft = z.infer<typeof LP_UPDATE_DRAFT_SCHEMA>;
 export type LpItem = z.infer<typeof LP_ITEM>;
 export type RelationshipItem = z.infer<typeof RELATIONSHIP_ITEM>;
 export type FollowUpItem = z.infer<typeof FOLLOWUPS_SCHEMA>['items'][number];
@@ -199,7 +285,11 @@ export type ParsedFollowUpMessage =
   | { marker: typeof SCHEDULING_MARKER; value: z.infer<typeof SCHEDULING_SCHEMA> }
   | { marker: typeof PRIORITIES_MARKER; value: Priorities }
   | { marker: typeof RELATIONSHIPS_MARKER; value: Relationships }
-  | { marker: typeof LP_PIPELINE_MARKER; value: LpPipeline };
+  | { marker: typeof LP_PIPELINE_MARKER; value: LpPipeline }
+  | { marker: typeof PORTFOLIO_HEALTH_MARKER; value: PortfolioHealth }
+  | { marker: typeof INTROS_MARKER; value: Intros }
+  | { marker: typeof WEEK_AHEAD_MARKER; value: WeekAhead }
+  | { marker: typeof LP_UPDATE_DRAFT_MARKER; value: LpUpdateDraft };
 
 const SCHEMAS: Record<Marker, z.ZodTypeAny> = {
   [FOLLOWUPS_MARKER]: FOLLOWUPS_SCHEMA,
@@ -208,6 +298,10 @@ const SCHEMAS: Record<Marker, z.ZodTypeAny> = {
   [PRIORITIES_MARKER]: PRIORITIES_SCHEMA,
   [RELATIONSHIPS_MARKER]: RELATIONSHIPS_SCHEMA,
   [LP_PIPELINE_MARKER]: LP_PIPELINE_SCHEMA,
+  [PORTFOLIO_HEALTH_MARKER]: PORTFOLIO_HEALTH_SCHEMA,
+  [INTROS_MARKER]: INTROS_SCHEMA,
+  [WEEK_AHEAD_MARKER]: WEEK_AHEAD_SCHEMA,
+  [LP_UPDATE_DRAFT_MARKER]: LP_UPDATE_DRAFT_SCHEMA,
 };
 
 const MAX_MESSAGE_CHARS = 40_000;
@@ -249,6 +343,10 @@ export interface FollowUpsSnapshot {
   priorities: Priorities | null;
   relationships: Relationships | null;
   lpPipeline: LpPipeline | null;
+  portfolioHealth: PortfolioHealth | null;
+  intros: Intros | null;
+  weekAhead: WeekAhead | null;
+  lpUpdateDraft: LpUpdateDraft | null;
 }
 
 /** Slack pages (newest first) -> the current view. Pure, for tests. */
@@ -272,6 +370,10 @@ export function collectFollowUps(
     priorities: null,
     relationships: null,
     lpPipeline: null,
+    portfolioHealth: null,
+    intros: null,
+    weekAhead: null,
+    lpUpdateDraft: null,
   };
   const seenMeetings = new Set<string>();
   const seenThreads = new Set<string>();
@@ -310,6 +412,18 @@ export function collectFollowUps(
       case LP_PIPELINE_MARKER:
         if (!out.lpPipeline) out.lpPipeline = parsed.value;
         break;
+      case PORTFOLIO_HEALTH_MARKER:
+        if (!out.portfolioHealth) out.portfolioHealth = parsed.value;
+        break;
+      case INTROS_MARKER:
+        if (!out.intros) out.intros = parsed.value;
+        break;
+      case WEEK_AHEAD_MARKER:
+        if (!out.weekAhead) out.weekAhead = parsed.value;
+        break;
+      case LP_UPDATE_DRAFT_MARKER:
+        if (!out.lpUpdateDraft) out.lpUpdateDraft = parsed.value;
+        break;
     }
   }
   out.meetings.sort((a, b) => b.met_at.localeCompare(a.met_at));
@@ -332,8 +446,12 @@ const EMPTY: FollowUpsSnapshot = {
   priorities: null,
   relationships: null,
   lpPipeline: null,
+  portfolioHealth: null,
+  intros: null,
+  weekAhead: null,
+  lpUpdateDraft: null,
 };
-const WINDOW_DAYS = 14;
+const WINDOW_DAYS = 30;
 const MAX_PAGES = 5;
 const PAGE_SIZE = 200;
 const CACHE_MS = 60_000;

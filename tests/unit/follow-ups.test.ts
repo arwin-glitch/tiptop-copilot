@@ -180,6 +180,65 @@ describe('LP pipeline', () => {
   });
 });
 
+describe('portfolio health, intros, week ahead, LP update', () => {
+  it('parses each and keeps the newest', () => {
+    const health = {
+      run_at: '2026-10-07T12:00:00Z',
+      companies: [
+        {
+          name: 'Zeta',
+          flag: 'watch',
+          last_update_at: '2026-08-27T12:00:00Z',
+          asks: ['Bridge decision'],
+        },
+      ],
+    };
+    const intros = {
+      run_at: '2026-10-07T12:00:00Z',
+      intros: [{ for_who: 'Zeta', to_who: 'Ivy Chen', status: 'owed' }],
+    };
+    const week = {
+      run_at: '2026-10-07T12:00:00Z',
+      events: [{ title: 'Board call', starts_at: '2026-10-08T15:00:00Z', kind: 'portfolio' }],
+    };
+    const lpUpdate = {
+      run_at: '2026-10-05T14:00:00Z',
+      period: 'Q3 2026',
+      status: 'drafted',
+      draft_thread_id: '1a0000000000abcd',
+    };
+    const out = collectFollowUps([
+      { ts: '1791300000.000100', text: post('PORTFOLIO_HEALTH_V1', health), user: 'U1' },
+      { ts: '1791300001.000100', text: post('INTROS_V1', intros), user: 'U1' },
+      { ts: '1791300002.000100', text: post('WEEK_AHEAD_V1', week), user: 'U1' },
+      { ts: '1791300003.000100', text: post('LP_UPDATE_DRAFT_V1', lpUpdate), user: 'U1' },
+    ]);
+    expect(out.portfolioHealth?.companies[0]?.flag).toBe('watch');
+    expect(out.intros?.intros[0]?.status).toBe('owed');
+    expect(out.weekAhead?.events[0]?.kind).toBe('portfolio');
+    expect(out.lpUpdateDraft?.period).toBe('Q3 2026');
+  });
+
+  it('rejects unknown flags and statuses', () => {
+    expect(
+      parseFollowUpMessage(
+        post('PORTFOLIO_HEALTH_V1', {
+          run_at: '2026-10-07T12:00:00Z',
+          companies: [{ name: 'Z', flag: 'great' }],
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      parseFollowUpMessage(
+        post('INTROS_V1', {
+          run_at: '2026-10-07T12:00:00Z',
+          intros: [{ for_who: 'a', to_who: 'b', status: 'maybe' }],
+        }),
+      ),
+    ).toBeNull();
+  });
+});
+
 describe('collectFollowUps', () => {
   const msg = (ts: number, text: string, user = 'U1') => ({ ts: `${ts}.000100`, text, user });
 

@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
+import { readFollowUps } from '@/lib/services/follow-ups';
+import { WeekAheadCard } from '@/components/followups/relay-cards';
 import { listMeetingNotes } from '@/lib/services/meetings';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { EmptyState, SkeletonText } from '@/components/ui/feedback';
@@ -35,7 +37,12 @@ export default async function MeetingsPage({
 
 async function MeetingsContent({ q }: { q: string }) {
   const auth = await requireAuth();
-  const notes = await listMeetingNotes(getStore(), auth.organizationId, { search: q || undefined });
+  const [notes, followUps] = await Promise.all([
+    listMeetingNotes(getStore(), auth.organizationId, { search: q || undefined }),
+    // The week-ahead routine's snapshot; a Slack fault only hides it.
+    readFollowUps(getStore(), auth.organizationId).catch(() => null),
+  ]);
+  const week = followUps?.state === 'ok' ? followUps.snapshot.weekAhead : null;
   // `notes` is one page, capped by listMeetingNotes. Reading its length as the
   // meeting count showed a flat "500" — the cap, presented as a fact — while
   // the real figure was 922. A stat that reports a limit is worse than no stat.
@@ -56,6 +63,10 @@ async function MeetingsContent({ q }: { q: string }) {
 
   return (
     <>
+      {week && !q ? (
+        <WeekAheadCard week={week} now={new Date()} tz={auth.profile.timezone} />
+      ) : null}
+
       <StatGroup className="mb-5" columns={3}>
         <Stat
           size="sm"
