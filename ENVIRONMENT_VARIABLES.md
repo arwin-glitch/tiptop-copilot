@@ -206,6 +206,20 @@ trigger a sync.
 node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 ```
 
+### Phone alerts: `VAPID_PUBLIC_KEY` (optional) and the `VAPID_PRIVATE_KEY` GitHub secret
+
+Phone alerts are Web Push. The app only decides what is due
+(`/api/cron/push`, guarded by `CRON_SECRET`); the `push-alerts` GitHub
+Actions workflow signs and sends them. So:
+
+- **`VAPID_PRIVATE_KEY`** is a **GitHub repository secret**, never a Render
+  variable. Until it is set the workflow logs a notice and sends nothing.
+- **`VAPID_PUBLIC_KEY`** is built into `src/lib/services/push-alerts.ts`; set
+  it on Render only to replace the key pair. Replacing it means every phone has
+  to turn alerts on again.
+
+Generate a new pair with `npx web-push generate-vapid-keys`.
+
 ### `GRANOLA_WEBHOOK_SECRET`
 
 Token required by `/api/integrations/granola/webhook`, the endpoint external

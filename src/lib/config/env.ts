@@ -75,6 +75,11 @@ export interface AppEnv {
   researchApiKey: string | undefined;
 
   cronSecret: string | undefined;
+  /**
+   * Optional override of the Web Push (VAPID) public key. The default is built
+   * in; the private half is a GitHub Actions secret, never set here.
+   */
+  vapidPublicKey: string | undefined;
   granolaWebhookSecret: string | undefined;
   /**
    * An ingest-only credential for senders that can post notes but must never
@@ -241,6 +246,7 @@ export function env(): AppEnv {
     researchApiKey: str('RESEARCH_API_KEY'),
 
     cronSecret: str('CRON_SECRET'),
+    vapidPublicKey: str('VAPID_PUBLIC_KEY'),
     granolaWebhookSecret: str('GRANOLA_WEBHOOK_SECRET'),
     granolaBridgeToken: str('GRANOLA_BRIDGE_TOKEN'),
     granolaSigningSecret: str('GRANOLA_SIGNING_SECRET'),

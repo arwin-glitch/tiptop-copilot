@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { envLimits, isDemoMode } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
+import { vapidPublicKey } from '@/lib/services/push-alerts';
 import { configuredCriteria, getActiveThesis } from '@/lib/services/thesis';
 import { googleConfigured } from '@/lib/google/oauth';
 import { PageHeader, PageShell, DataRow } from '@/components/shell/page-header';
@@ -14,6 +15,7 @@ import { Notice } from '@/components/ui/feedback';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ThesisEditor, TimezoneSetting } from '@/components/settings/settings-client';
 import { IntegrationControls } from '@/components/settings/integration-controls';
+import { PushAlertsSetting } from '@/components/settings/push-alerts';
 import { formatDateTime } from '@/lib/util/time';
 
 export const metadata: Metadata = { title: 'Settings' };
@@ -152,6 +154,7 @@ export default async function SettingsPage() {
           <Card>
             <CardContent className="space-y-5 pt-4">
               <TimezoneSetting current={auth.profile.timezone} />
+              <PushAlertsSetting publicKey={vapidPublicKey()} />
               <div>
                 <p className="text-sm font-medium">Account</p>
                 <dl className="mt-2 divide-y divide-[var(--border)]">

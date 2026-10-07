@@ -72,3 +72,45 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+// Phone alerts (Web Push). The payload is { title, body, url, tag } from the
+// push-alerts job; the url is an in-app path. A payload that is missing or
+// unreadable still shows a generic alert, because iOS revokes the permission
+// of a worker that receives a push and shows nothing.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = {};
+  }
+  const title = typeof data.title === 'string' && data.title ? data.title : 'TipTop Copilot';
+  const url = typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/today';
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: typeof data.body === 'string' ? data.body : '',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: typeof data.tag === 'string' ? data.tag : undefined,
+      data: { url },
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const path = (event.notification.data && event.notification.data.url) || '/today';
+  const target = new URL(path, self.location.origin);
+  if (target.origin !== self.location.origin) return;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+      for (const client of windows) {
+        if ('focus' in client) {
+          client.navigate(target.href).catch(() => undefined);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(target.href);
+    }),
+  );
+});

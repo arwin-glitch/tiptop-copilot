@@ -8,6 +8,27 @@ throughout.
 
 ---
 
+## [0.6.0] — 2026-10-07
+
+No schema change, no new app dependency. One new GitHub secret
+(`VAPID_PRIVATE_KEY`); nothing to set on Render.
+
+- **Phone alerts (Web Push) for Nick.** Settings > Preferences > Phone alerts
+  turns them on per device (on iPhone, from the Home Screen app). Four kinds,
+  each item alerting once, 8am to 8pm in the owner's timezone, at most one
+  notification per kind per run: money or legal items going stale (Top
+  priorities `money` items), the morning top 3, LPs/founders/portfolio
+  waiting on Nick 3+ days (relationship radar), and portfolio companies newly
+  flagged at risk (portfolio health). Tapping opens the right page.
+- **How it is sent:** the app computes due alerts from the relay snapshots and
+  serves them at `/api/cron/push` (bearer `CRON_SECRET`); the new
+  `push-alerts` workflow (every 30 minutes in the daytime) signs and sends
+  them with the VAPID private key it holds, then reports delivered keys and
+  dead endpoints back. Subscriptions and the sent ledger are `audit_events`
+  rows (`push.subscription`, `push.alerted`), so no migration.
+- Subscriptions are accepted only for real push services (Apple, Google,
+  Mozilla, Microsoft).
+
 ## [0.5.1] — 2026-10-07
 
 No schema change, no new dependency, no new environment variable.
