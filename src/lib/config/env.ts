@@ -519,7 +519,7 @@ export function capabilityReport(
     status: has(e.cronSecret) ? 'ready' : 'optional-missing',
     detail: has(e.cronSecret)
       ? 'Present. Cron endpoints require a matching bearer token.'
-      : 'Not set. Scheduled sync/outlook endpoints will reject all callers.',
+      : 'Not set. The scheduled sync and briefing endpoints will reject all callers.',
     variables: ['CRON_SECRET'],
     required: false,
   });

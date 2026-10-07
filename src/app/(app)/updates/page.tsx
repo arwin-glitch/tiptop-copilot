@@ -15,14 +15,14 @@ import { UpdatePostCard } from '@/components/updates/update-card';
 import { UpdatesBrowser } from '@/components/updates/updates-browser';
 import { panelKey, updatesHref, viewForGroup, type UpdatesFilter } from '@/lib/updates/view';
 
-export const metadata: Metadata = { title: 'Updates' };
+export const metadata: Metadata = { title: 'Dealflow reports' };
 export const dynamic = 'force-dynamic';
 
 export default async function UpdatesPage() {
   return (
     <PageShell>
       <PageHeader
-        title="Updates"
+        title="Dealflow reports"
         subtitle="Weekly dealflow reports and Nick's update digests, read live from Slack. Read-only."
         actions={<RefreshUpdatesButton />}
       />

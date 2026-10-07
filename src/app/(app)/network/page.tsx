@@ -78,7 +78,9 @@ async function NetworkContent({
 
   return (
     <>
-      {relationships ? <RelationshipAlerts relationships={relationships} now={new Date()} /> : null}
+      {relationships ? (
+        <RelationshipAlerts relationships={relationships} now={new Date()} showWaiting={false} />
+      ) : null}
 
       <StatGroup className="mb-5" columns={3}>
         <Stat size="sm" label="People" value={rows.length} hint="from mail and calendar" />

@@ -29,7 +29,7 @@ test.beforeAll(async ({ browser }, testInfo) => {
 test.use({ storageState: SIGNED_IN });
 
 const h1 = (page: import('@playwright/test').Page) =>
-  page.getByRole('heading', { level: 1, name: 'Updates', exact: true });
+  page.getByRole('heading', { level: 1, name: 'Dealflow reports', exact: true });
 
 /** The filter panel on screen; the others stay rendered but hidden. */
 const shown = (page: Page) => page.locator('[data-updates-panel]:not([hidden])');
@@ -37,10 +37,10 @@ const shown = (page: Page) => page.locator('[data-updates-panel]:not([hidden])')
 test('the Updates tab is in the main navigation', async ({ page }) => {
   await page.goto('/today');
   const nav = page.getByRole('navigation', { name: 'Main' }).first();
-  await nav.getByRole('link', { name: 'Updates' }).click();
+  await nav.getByRole('link', { name: 'Reports' }).click();
   await page.waitForURL(/\/updates/);
   await expect(h1(page)).toBeVisible();
-  await expect(nav.getByRole('link', { name: 'Updates' })).toHaveAttribute('aria-current', 'page');
+  await expect(nav.getByRole('link', { name: 'Reports' })).toHaveAttribute('aria-current', 'page');
 });
 
 test('the latest view shows each source and nothing it should hide', async ({ page }) => {

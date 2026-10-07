@@ -20,14 +20,20 @@ const KIND_LABEL: Record<RelationshipItem['kind'], string> = {
  * relationships have gone quiet. Plain text only; the only link is rebuilt
  * from a validated Gmail thread id.
  */
+export { AlertList };
+
 export function RelationshipAlerts({
   relationships,
   now,
+  showWaiting = true,
 }: {
   relationships: Relationships;
   now: Date;
+  /** Network shows only "Going cold"; who is waiting on Nick lives on Follow-ups. */
+  showWaiting?: boolean;
 }) {
-  if (relationships.waiting.length === 0 && relationships.cold.length === 0) return null;
+  const waiting = showWaiting ? relationships.waiting : [];
+  if (waiting.length === 0 && relationships.cold.length === 0) return null;
   return (
     <Card className="mb-6">
       <CardHeader>
@@ -38,14 +44,16 @@ export function RelationshipAlerts({
           </p>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-5 sm:grid-cols-2">
-        <AlertList
-          title="Waiting on Nick"
-          icon={<HeartHandshake className="size-4 text-[var(--warn)]" aria-hidden />}
-          items={relationships.waiting}
-          empty="Nobody important is waiting."
-          unit="waiting"
-        />
+      <CardContent className={showWaiting ? 'grid gap-5 sm:grid-cols-2' : undefined}>
+        {showWaiting ? (
+          <AlertList
+            title="Waiting on Nick"
+            icon={<HeartHandshake className="size-4 text-[var(--warn)]" aria-hidden />}
+            items={waiting}
+            empty="Nobody important is waiting."
+            unit="waiting"
+          />
+        ) : null}
         <AlertList
           title="Going cold"
           icon={<Snowflake className="size-4 text-[var(--info)]" aria-hidden />}

@@ -18,7 +18,6 @@ import { Badge, ProvenanceBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
 import { EmptyState, Notice, PlainText } from '@/components/ui/feedback';
-import { AiNotConfigured } from '@/components/ui/not-configured';
 import { Stat, StatGroup } from '@/components/ui/stat';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CitationList, GeneratedMeta, SourceDrawer } from '@/components/evidence/source-drawer';
@@ -111,6 +110,9 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
   // Ask also works through the cloud routine when no in-app model is set, so
   // the Ask and Research links follow the Ask page's own rule.
   const askAvailable = aiAvailable || Boolean(env().askBridgeToken);
+  const researchHref = `/ask?deal=${deal.id}&q=${encodeURIComponent(
+    `Research ${deal.company_name}: founders and team, funding history and investors, traction, competitors, and recent news.`,
+  )}`;
 
   const store = getStore();
   const [meetingNotes, routine, integration] = await Promise.all([
@@ -189,13 +191,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
             {askAvailable ? (
               <>
                 <Button asChild variant="secondary" size="sm">
-                  <Link
-                    href={`/ask?deal=${deal.id}&q=${encodeURIComponent(
-                      `Research ${deal.company_name}: founders and team, funding history and investors, traction, competitors, and recent news.`,
-                    )}`}
-                  >
-                    Research
-                  </Link>
+                  <Link href={researchHref}>Research</Link>
                 </Button>
                 <Button asChild variant="secondary" size="sm">
                   <Link href={`/ask?deal=${deal.id}`}>Ask about this deal</Link>
@@ -338,15 +334,22 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
             </div>
           </CardContent>
         </Card>
-      ) : (
-        // Same situation, different reason. Offering "Run an analysis" with no
-        // provider connected sends the reader to a button that always fails.
-        <AiNotConfigured
-          className="mb-6"
-          what="The scorecard"
-          stillWorks="Every fact extracted for this deal, its sources, attachments, notes, tasks and decision history are on the tabs below, and each one can be corrected by hand."
-        />
-      )}
+      ) : askAvailable ? (
+        // No in-app model: the deal-sorter's fit and evidence (above) are the
+        // quick read, and Research asks the Ask routine for a full profile.
+        <Card className="mb-6">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-5">
+            <p className="text-sm text-[var(--fg-muted)]">
+              {routine
+                ? "The deal-sorter's fit and evidence are above. For founders, funding, traction, competitors and recent news, run a Research profile."
+                : 'For founders, funding, traction, competitors and recent news, run a Research profile.'}
+            </p>
+            <Button asChild variant="primary" size="sm">
+              <Link href={researchHref}>Research {deal.company_name}</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {analysis && analysis.red_flags.length > 0 ? (
         <Card className="mb-6 border-[var(--danger)]/30">
@@ -497,7 +500,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
             <p className="text-sm text-[var(--fg-muted)]">
               {aiAvailable
                 ? 'Run an analysis to see the scorecard.'
-                : 'The scorecard is scored by a model, and no AI provider is connected. Key facts, Sources and Decisions are recorded independently and are complete.'}
+                : "The deal-sorter's fit and evidence are at the top of the page, and Research gives a full profile. Key facts, Sources and Decisions are below."}
             </p>
           )}
         </TabsContent>
@@ -657,7 +660,9 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                 </>
               ) : (
                 <p className="text-sm text-[var(--fg-muted)]">
-                  Run an analysis to generate diligence questions.
+                  {aiAvailable
+                    ? 'Run an analysis to generate diligence questions.'
+                    : 'Use Research at the top of the page for founders, funding, competitors and open questions.'}
                 </p>
               )}
 
@@ -672,7 +677,12 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                     capability and requests no send permission.
                   </p>
                 </div>
-              ) : null}
+              ) : (
+                <p className="mt-6 border-t border-[var(--border)] pt-4 text-xs text-[var(--fg-subtle)]">
+                  Reply drafts for this company are written by the triage routines straight into
+                  Gmail, on the thread, for you to review and send.
+                </p>
+              )}
 
               {drafts.length > 0 ? (
                 <div className="mt-5">

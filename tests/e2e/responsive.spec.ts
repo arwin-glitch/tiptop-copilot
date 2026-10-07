@@ -71,17 +71,18 @@ test.describe('mobile layout', () => {
     // do not all fit, so each is reached by scrolling it into view.
     for (const label of [
       'Today',
-      'Inbox',
+      'Follow-ups',
+      'Tasks',
       'Deals',
       'Ask',
-      'Updates',
+      'Inbox',
       'Portfolio',
+      'Fund II',
       'Meetings',
       'Network',
+      'Reports',
       'Knowledge',
-      'Tasks',
       'Settings',
-      'Diagnostics',
     ]) {
       const link = nav.getByRole('link', { name: label, exact: true });
       await link.scrollIntoViewIfNeeded();

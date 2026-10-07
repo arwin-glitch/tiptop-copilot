@@ -45,7 +45,7 @@ test('1 — Today opens on a real outlook assembled from records', async ({ page
   await expect(page.getByText('AI-generated')).toBeVisible();
 
   // And the sections are populated from the fixtures, not empty shells.
-  await expect(page.getByRole('button', { name: /Follow-ups/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Tasks due/ })).toBeVisible();
   await expect(page.getByText('2 overdue')).toBeVisible();
   await expect(page.getByText('Girder AI — reference call debrief')).toBeVisible();
 });
@@ -60,13 +60,14 @@ test('2 — every outlook claim carries the record it came from', async ({ page 
   await expect(drawer.getByRole('link').first()).toBeVisible();
 });
 
-test('3 — market signals say research is unconfigured rather than inventing any', async ({
+test('3 — with web research off, Today leaves market signals out instead of inventing any', async ({
   page,
 }) => {
-  // With research off the section has no items, so it collapses to a heading
-  // and a plain statement rather than an expandable list.
-  await expect(page.getByRole('heading', { name: 'Market signals' })).toBeVisible();
-  await expect(page.getByText('Web research not configured')).toBeVisible();
+  // A section that could never fill is left out rather than shown as a
+  // permanent "not configured" notice.
+  await expect(page.getByRole('heading', { name: 'Tasks due' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Market signals' })).toHaveCount(0);
+  await expect(page.getByText('Web research not configured')).toHaveCount(0);
 });
 
 test('4 — the Inbox is classified, and the injected email is flagged not hidden', async ({

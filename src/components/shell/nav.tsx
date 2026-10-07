@@ -4,13 +4,13 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Activity,
   BookOpen,
   Briefcase,
   Users,
   CalendarDays,
   CheckSquare,
   Inbox,
+  Landmark,
   MailCheck,
   MessageSquare,
   Newspaper,
@@ -24,7 +24,7 @@ import { FieldLabel } from '@/components/ui/card';
 /**
  * Navigation.
  *
- * Eight flat destinations is the point at which a sidebar stops being scanned
+ * A dozen flat destinations is well past the point at which a sidebar stops being scanned
  * and starts being read, so these are grouped by what the reader is actually
  * doing: **Working** is the daily loop, **Records** is the material it runs on,
  * **System** is configuration. `/diagnostics` joins the list here — it is a
@@ -38,24 +38,29 @@ import { FieldLabel } from '@/components/ui/card';
  */
 export const NAV_ITEMS = [
   { href: '/today', label: 'Today', icon: Sun },
-  { href: '/inbox', label: 'Inbox', icon: Inbox },
+  { href: '/follow-ups', label: 'Follow-ups', icon: MailCheck },
+  { href: '/tasks', label: 'Tasks', icon: CheckSquare },
   { href: '/deals', label: 'Deals', icon: Target },
   { href: '/ask', label: 'Ask', icon: MessageSquare },
-  { href: '/follow-ups', label: 'Follow-ups', icon: MailCheck },
-  { href: '/updates', label: 'Updates', icon: Newspaper },
+  { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase },
+  { href: '/fund-ii', label: 'Fund II', icon: Landmark },
   { href: '/meetings', label: 'Meetings', icon: CalendarDays },
   { href: '/network', label: 'Network', icon: Users },
+  { href: '/updates', label: 'Reports', icon: Newspaper },
   { href: '/knowledge', label: 'Knowledge', icon: BookOpen },
-  { href: '/tasks', label: 'Tasks', icon: CheckSquare },
   { href: '/settings', label: 'Settings', icon: Settings },
-  { href: '/diagnostics', label: 'Diagnostics', icon: Activity },
 ] as const;
 
+// Diagnostics is an operator page: it stays a real route, linked from
+// Settings, but is no longer a destination in the main navigation.
 const GROUPS: { label: string; hrefs: string[] }[] = [
-  { label: 'Working', hrefs: ['/today', '/inbox', '/deals', '/ask', '/follow-ups', '/updates'] },
-  { label: 'Records', hrefs: ['/portfolio', '/meetings', '/network', '/knowledge', '/tasks'] },
-  { label: 'System', hrefs: ['/settings', '/diagnostics'] },
+  { label: 'Working', hrefs: ['/today', '/follow-ups', '/tasks', '/deals', '/ask', '/inbox'] },
+  {
+    label: 'Records',
+    hrefs: ['/portfolio', '/fund-ii', '/meetings', '/network', '/updates', '/knowledge'],
+  },
+  { label: 'System', hrefs: ['/settings'] },
 ];
 
 function isActive(pathname: string, href: string): boolean {

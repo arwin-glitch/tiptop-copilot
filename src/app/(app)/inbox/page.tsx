@@ -97,6 +97,7 @@ async function InboxContent({
       mailboxConnected={Boolean(integration && integration.status === 'connected')}
       filters={{ q, category, unread, days }}
       aiAvailable={getAI().available()}
+      mailboxEmail={integration?.account_email ?? null}
     />
   );
 }

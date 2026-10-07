@@ -54,7 +54,7 @@ test.afterEach(async ({ page }) => {
 
 async function gotoTasks(page: Page, url = '/tasks') {
   await page.goto(url);
-  await expect(page.getByRole('heading', { name: 'Tasks and drafts' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible();
 }
 
 function tabs(page: Page) {

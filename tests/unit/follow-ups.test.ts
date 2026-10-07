@@ -140,6 +140,46 @@ describe('relationships', () => {
   });
 });
 
+describe('LP pipeline', () => {
+  const LP = {
+    run_at: '2026-10-07T13:00:00Z',
+    fund: 'Fund II',
+    lps: [
+      {
+        who: 'Grace Okafor',
+        firm: 'Lakeside',
+        kind: 'family_office',
+        stage: 'materials',
+        last_touch_at: '2026-10-04T15:00:00Z',
+        next_step: 'Send the deck',
+        thread_id: '1a0000000000ffff',
+      },
+      { who: 'Sam Patel', kind: 'fund_of_funds', stage: 'target' },
+    ],
+  };
+
+  it('parses the pipeline and keeps the newest snapshot', () => {
+    expect(parseFollowUpMessage(post('LP_PIPELINE_V1', LP))?.marker).toBe('LP_PIPELINE_V1');
+    const out = collectFollowUps([
+      { ts: '1791100000.000100', text: post('LP_PIPELINE_V1', LP), user: 'U1' },
+      { ts: '1791000000.000100', text: post('LP_PIPELINE_V1', { ...LP, lps: [] }), user: 'U1' },
+    ]);
+    expect(out.lpPipeline?.lps).toHaveLength(2);
+  });
+
+  it('rejects unknown stages and any amount field is ignored, not stored', () => {
+    expect(
+      parseFollowUpMessage(
+        post('LP_PIPELINE_V1', { ...LP, lps: [{ ...LP.lps[0], stage: 'wired' }] }),
+      ),
+    ).toBeNull();
+    const parsed = parseFollowUpMessage(
+      post('LP_PIPELINE_V1', { ...LP, lps: [{ ...LP.lps[1], amount: 250000 }] }),
+    );
+    expect(parsed?.marker === 'LP_PIPELINE_V1' && 'amount' in parsed.value.lps[0]!).toBe(false);
+  });
+});
+
 describe('collectFollowUps', () => {
   const msg = (ts: number, text: string, user = 'U1') => ({ ts: `${ts}.000100`, text, user });
 

@@ -28,7 +28,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, FieldLabel } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { EmptyState, Notice, PlainText } from '@/components/ui/feedback';
-import { NotConfigured } from '@/components/ui/not-configured';
 import { Select } from '@/components/ui/form';
 import { LiveSearch } from '@/components/ui/live-search';
 import {
@@ -40,6 +39,7 @@ import {
   type EmailMessage,
 } from '@/lib/types/domain';
 import { relativeTime } from '@/lib/util/time';
+import { gmailThreadUrl } from '@/lib/deals/links';
 import { cn } from '@/lib/util/cn';
 
 export interface InboxMessageView extends EmailMessage {
@@ -53,6 +53,7 @@ export function InboxClient({
   mailboxConnected,
   filters,
   aiAvailable,
+  mailboxEmail,
 }: {
   messages: InboxMessageView[];
   deals: Pick<Deal, 'id' | 'company_name'>[];
@@ -61,6 +62,8 @@ export function InboxClient({
   filters: { q: string; category: string; unread: boolean; days: string };
   /** Decided on the server. Gates the three actions here that call a model. */
   aiAvailable: boolean;
+  /** The connected mailbox, so "Open in Gmail" opens the right account. */
+  mailboxEmail: string | null;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -223,7 +226,12 @@ export function InboxClient({
 
       <div className="min-w-0">
         {selected ? (
-          <MessageDetail message={selected} deals={deals} aiAvailable={aiAvailable} />
+          <MessageDetail
+            message={selected}
+            deals={deals}
+            aiAvailable={aiAvailable}
+            mailboxEmail={mailboxEmail}
+          />
         ) : (
           <Card>
             <CardContent className="pt-5">
@@ -242,11 +250,14 @@ function MessageDetail({
   message,
   deals,
   aiAvailable,
+  mailboxEmail,
 }: {
   message: InboxMessageView;
   deals: Pick<Deal, 'id' | 'company_name'>[];
   aiAvailable: boolean;
+  mailboxEmail: string | null;
 }) {
+  const gmailHref = gmailThreadUrl(message.provider_message_id, mailboxEmail);
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
   const [draft, setDraft] = React.useState<{ subject: string; body: string } | null>(null);
@@ -384,16 +395,25 @@ function MessageDetail({
         </div>
 
         {!aiAvailable ? (
-          // Says why two buttons are missing. A silently shorter toolbar reads
-          // as a product that never had the feature, rather than one where a
-          // capability is switched off.
-          <NotConfigured
-            variant="inline"
-            className="mt-3"
-            title="Analysing and drafting are unavailable."
-            description="No AI provider is connected. You can still attach this message to a deal, set its category, create a task or ignore it."
-            action={{ label: 'See what is configured', href: '/diagnostics' }}
-          />
+          // The routines do this work outside the app: reply drafts land on the
+          // Gmail thread, and the deal-sorter picks deals up twice a day.
+          <p className="mt-3 text-xs text-[var(--fg-subtle)]">
+            Reply drafts for real people are written by the triage routines straight into Gmail, and
+            the deal-sorter adds deals to the pipeline twice a day.
+            {gmailHref ? (
+              <>
+                {' '}
+                <a
+                  href={gmailHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--accent)] underline-offset-2 hover:underline"
+                >
+                  Open in Gmail
+                </a>
+              </>
+            ) : null}
+          </p>
         ) : null}
 
         <div className="mt-4 flex flex-wrap items-center gap-2">

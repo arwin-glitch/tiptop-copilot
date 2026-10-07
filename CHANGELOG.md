@@ -8,6 +8,36 @@ throughout.
 
 ---
 
+## [0.4.0] — 2026-10-07
+
+No schema change, no new dependency, no new environment variable.
+
+### No more dead features
+- With no in-app AI key (the production setup), nothing shows a permanent
+  "not configured" notice any more. Today drops the outlook notice, the empty
+  LP section and Market signals; the deal scorecard slot becomes a one-click
+  Research profile next to the deal-sorter's fit; Inbox points to Gmail, where
+  the triage routines write reply drafts.
+
+### One place for who is waiting
+- Follow-ups now opens with **Waiting on you** (from the relationship radar),
+  then **You're waiting on**, meeting recaps and scheduling drafts, all in
+  "you" voice. Network keeps only **Going cold**. Today's task list is
+  "Tasks due"; the Tasks page is just "Tasks".
+
+### Fund II LP pipeline
+- New **Fund II** tab: every LP conversation by stage (target, contacted,
+  meeting, materials sent, soft commit, committed, passed), with "going quiet"
+  flags, from the LP pipeline routine's `LP_PIPELINE_V1` post in #deal-relay.
+  Stages only; amounts are never stored or shown.
+
+### Housekeeping
+- Navigation regrouped (Working: Today, Follow-ups, Tasks, Deals, Ask, Inbox;
+  Records: Portfolio, Fund II, Meetings, Network, Reports, Knowledge). "Updates"
+  is now "Dealflow reports"; Diagnostics is linked from Settings instead of the
+  main nav. Ops-only text removed from user screens. One HANDOVER.md entry point;
+  older handovers and prompts moved to docs/archive/. README screens updated.
+
 ## [0.3.16] — 2026-10-05
 
 No schema change, no new dependency, no new environment variable.

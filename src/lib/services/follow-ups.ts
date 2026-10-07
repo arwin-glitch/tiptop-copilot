@@ -29,6 +29,8 @@ import { isRelayOrganization } from './deal-relay';
  *   newest wins.
  * - `RELATIONSHIPS_V1`: the relationship radar's snapshot of who is waiting
  *   on Nick and which key relationships are going cold. The newest wins.
+ * - `LP_PIPELINE_V1`: the Fund II LP pipeline, every prospective LP and the
+ *   stage they are at. The newest snapshot wins. Stages only, never amounts.
  *
  * Every value is rendered as plain text. Links are rebuilt from validated
  * Gmail thread ids, never taken from a post.
@@ -39,6 +41,7 @@ export const MEETING_FOLLOWUP_MARKER = 'MEETING_FOLLOWUP_V1';
 export const SCHEDULING_MARKER = 'SCHEDULING_V1';
 export const PRIORITIES_MARKER = 'PRIORITIES_V1';
 export const RELATIONSHIPS_MARKER = 'RELATIONSHIPS_V1';
+export const LP_PIPELINE_MARKER = 'LP_PIPELINE_V1';
 
 const MARKERS = [
   FOLLOWUPS_MARKER,
@@ -46,6 +49,7 @@ const MARKERS = [
   SCHEDULING_MARKER,
   PRIORITIES_MARKER,
   RELATIONSHIPS_MARKER,
+  LP_PIPELINE_MARKER,
 ] as const;
 type Marker = (typeof MARKERS)[number];
 
@@ -141,6 +145,46 @@ export const RELATIONSHIPS_SCHEMA = z.object({
 });
 
 export type Relationships = z.infer<typeof RELATIONSHIPS_SCHEMA>;
+
+export const LP_STAGES = [
+  'target',
+  'contacted',
+  'meeting',
+  'materials',
+  'soft_commit',
+  'committed',
+  'passed',
+] as const;
+export type LpStage = (typeof LP_STAGES)[number];
+
+export const LP_KINDS = [
+  'individual',
+  'family_office',
+  'institution',
+  'fund_of_funds',
+  'existing_lp',
+  'other',
+] as const;
+
+const LP_ITEM = z.object({
+  who: text(120),
+  firm: optionalText(120),
+  kind: z.enum(LP_KINDS),
+  stage: z.enum(LP_STAGES),
+  last_touch_at: z.string().datetime().nullish(),
+  next_step: optionalText(200),
+  thread_id: THREAD_ID.nullish(),
+  note: optionalText(300),
+});
+
+export const LP_PIPELINE_SCHEMA = z.object({
+  run_at: z.string().datetime(),
+  fund: text(40),
+  lps: z.array(LP_ITEM).max(300),
+});
+
+export type LpPipeline = z.infer<typeof LP_PIPELINE_SCHEMA>;
+export type LpItem = z.infer<typeof LP_ITEM>;
 export type RelationshipItem = z.infer<typeof RELATIONSHIP_ITEM>;
 export type FollowUpItem = z.infer<typeof FOLLOWUPS_SCHEMA>['items'][number];
 export type MeetingFollowUp = z.infer<typeof MEETING_FOLLOWUP_SCHEMA> & { posted_at: string };
@@ -154,7 +198,8 @@ export type ParsedFollowUpMessage =
   | { marker: typeof MEETING_FOLLOWUP_MARKER; value: z.infer<typeof MEETING_FOLLOWUP_SCHEMA> }
   | { marker: typeof SCHEDULING_MARKER; value: z.infer<typeof SCHEDULING_SCHEMA> }
   | { marker: typeof PRIORITIES_MARKER; value: Priorities }
-  | { marker: typeof RELATIONSHIPS_MARKER; value: Relationships };
+  | { marker: typeof RELATIONSHIPS_MARKER; value: Relationships }
+  | { marker: typeof LP_PIPELINE_MARKER; value: LpPipeline };
 
 const SCHEMAS: Record<Marker, z.ZodTypeAny> = {
   [FOLLOWUPS_MARKER]: FOLLOWUPS_SCHEMA,
@@ -162,6 +207,7 @@ const SCHEMAS: Record<Marker, z.ZodTypeAny> = {
   [SCHEDULING_MARKER]: SCHEDULING_SCHEMA,
   [PRIORITIES_MARKER]: PRIORITIES_SCHEMA,
   [RELATIONSHIPS_MARKER]: RELATIONSHIPS_SCHEMA,
+  [LP_PIPELINE_MARKER]: LP_PIPELINE_SCHEMA,
 };
 
 const MAX_MESSAGE_CHARS = 40_000;
@@ -202,6 +248,7 @@ export interface FollowUpsSnapshot {
   scheduling: SchedulingItem[];
   priorities: Priorities | null;
   relationships: Relationships | null;
+  lpPipeline: LpPipeline | null;
 }
 
 /** Slack pages (newest first) -> the current view. Pure, for tests. */
@@ -224,6 +271,7 @@ export function collectFollowUps(
     scheduling: [],
     priorities: null,
     relationships: null,
+    lpPipeline: null,
   };
   const seenMeetings = new Set<string>();
   const seenThreads = new Set<string>();
@@ -259,6 +307,9 @@ export function collectFollowUps(
       case RELATIONSHIPS_MARKER:
         if (!out.relationships) out.relationships = parsed.value;
         break;
+      case LP_PIPELINE_MARKER:
+        if (!out.lpPipeline) out.lpPipeline = parsed.value;
+        break;
     }
   }
   out.meetings.sort((a, b) => b.met_at.localeCompare(a.met_at));
@@ -280,6 +331,7 @@ const EMPTY: FollowUpsSnapshot = {
   scheduling: [],
   priorities: null,
   relationships: null,
+  lpPipeline: null,
 };
 const WINDOW_DAYS = 14;
 const MAX_PAGES = 5;

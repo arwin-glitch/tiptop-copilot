@@ -52,8 +52,7 @@ function External({ href, children }: { href: string; children: ReactNode }) {
 
 const TOKEN_STEPS = (
   <>
-    update <Code>ASK_RELAY_SLACK_TOKEN</Code> on Render (plus the Vercel standby and the{' '}
-    <Code>SLACK_BOT_TOKEN</Code> GitHub secret)
+    update <Code>ASK_RELAY_SLACK_TOKEN</Code> where the app is hosted
   </>
 );
 

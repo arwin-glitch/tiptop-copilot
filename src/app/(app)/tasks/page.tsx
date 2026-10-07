@@ -194,8 +194,8 @@ export default async function TasksPage() {
   return (
     <PageShell>
       <PageHeader
-        title="Tasks and drafts"
-        subtitle="Follow-ups you owe someone, and the drafts waiting for you to send them yourself."
+        title="Tasks"
+        subtitle="Things you owe someone. Who you are waiting on, and who is waiting on you, are on Follow-ups."
         actions={<CreateFollowUpButton variant="primary" label="New follow-up" />}
       />
       <VersionWatcher version={version} endpoint="/api/tasks/version" />

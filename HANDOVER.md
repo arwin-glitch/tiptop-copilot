@@ -1,4 +1,30 @@
-# HANDOVER — TipTop Copilot build
+# HANDOVER — TipTop Copilot
+
+## Start here (October 2026)
+
+This is the one handover document. Older session handovers, prompts and the
+original plan are kept for the record in [docs/archive/](docs/archive/).
+
+**How it works now**
+
+- **Cloud routines do the thinking.** Scheduled Claude routines read Nick's
+  Gmail, Calendar, Granola and Slack. Their only writes are Gmail drafts,
+  Gmail labels and posts to private Slack relay channels. Nothing is ever sent.
+- **The app reads the relays.** `#briefing-ask-relay` carries briefings, Ask
+  questions and answers, tasks and portfolio adds; the private `#deal-relay`
+  carries deals, follow-ups, meeting recaps, scheduling drafts, Top priorities,
+  relationship alerts and the Fund II LP pipeline (see
+  `src/lib/services/follow-ups.ts` for the `*_V1` markers).
+- **No in-app AI key, on purpose.** Features that would need one are hidden or
+  pointed at the routine that does the same job.
+- **Deploys** go to Render from `master`; check them through GitHub's
+  deployments API (environment "master - tiptop-copilot"). Every change is
+  logged in [CHANGELOG.md](CHANGELOG.md); decisions in [DECISIONS.md](DECISIONS.md).
+
+The original build handover follows. Its environment notes (§0) still apply.
+
+---
+
 
 > **Status: the build described below is complete.**
 >

@@ -18,7 +18,6 @@ import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
 import { Badge, RecommendationBadge } from '@/components/ui/badge';
 import { EmptyState, Notice, SkeletonText } from '@/components/ui/feedback';
-import { AiNotConfigured } from '@/components/ui/not-configured';
 import { Button } from '@/components/ui/button';
 import { GeneratedMeta } from '@/components/evidence/source-drawer';
 import { BriefItemRow, ExpandableSection, OpenSourcesButton } from '@/components/today/sections';
@@ -164,13 +163,11 @@ async function TodayContent() {
           both would tell the reader the same thing twice, once as an amber
           warning and once as a working card. A genuine provider fault still
           surfaces regardless, since that's news the briefing doesn't carry. */}
-      {briefError && briefError.code === 'not_configured' && !routineBrief ? (
-        <AiNotConfigured
-          className="mb-6"
-          what="The daily outlook"
-          stillWorks="Everything below — your calendar, follow-ups, important email, new deals and portfolio requests — is read straight from your records and is complete."
-        />
-      ) : briefError && briefError.code !== 'not_configured' ? (
+      {/* No in-app model is the normal production setup: the routines' briefing
+          cards and Top priorities above are the outlook, so a "not configured"
+          notice here would only say a working page is broken. A real provider
+          fault still surfaces. */}
+      {briefError && briefError.code !== 'not_configured' ? (
         <Notice tone="warn" className="mb-5">
           <p className="font-medium">The outlook could not be generated.</p>
           <p className="mt-1 text-[var(--fg-muted)]">{briefError.message}</p>
@@ -250,7 +247,7 @@ async function TodayContent() {
 
       <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)] px-4 sm:px-5">
         <ExpandableSection
-          title="Follow-ups"
+          title="Tasks due"
           count={data.overdueTasks.length + data.dueTodayTasks.length}
           defaultOpen={data.overdueTasks.length > 0}
           emptyLabel="Nothing due"
@@ -443,7 +440,9 @@ async function TodayContent() {
                   <p className="mt-0.5 text-sm text-[var(--fg-muted)]">
                     {analysis
                       ? analysis.recommended_next_step
-                      : 'Not analysed yet — open the deal to run an analysis.'}
+                      : aiAvailable
+                        ? 'Not analysed yet — open the deal to run an analysis.'
+                        : "Open the deal for the deal-sorter's read and a one-click Research profile."}
                   </p>
                 </div>
                 {analysis ? (
@@ -457,9 +456,9 @@ async function TodayContent() {
                       {analysis.confidence}% confidence
                     </p>
                   </div>
-                ) : (
+                ) : aiAvailable ? (
                   <Badge tone="outline">Not analysed</Badge>
-                )}
+                ) : null}
               </li>
             ))}
           </ul>
@@ -507,49 +506,52 @@ async function TodayContent() {
           </ul>
         </ExpandableSection>
 
-        <ExpandableSection
-          title="LP, advisor and co-investor"
-          count={data.lpItems.length}
-          emptyLabel="Nothing waiting"
-        >
-          <ul>
-            {data.lpItems.map((message) => (
-              <li
-                key={message.id}
-                className="border-b border-[var(--border)] py-2.5 last:border-b-0"
-              >
-                <Link
-                  href={`/inbox?message=${message.id}`}
-                  className="text-sm font-medium underline-offset-2 hover:underline"
+        {/* Filled by the in-app email classifier only; with no model it could
+            never show anything, so it is left out rather than shown empty. */}
+        {aiAvailable || data.lpItems.length > 0 ? (
+          <ExpandableSection
+            title="LP, advisor and co-investor"
+            count={data.lpItems.length}
+            emptyLabel="Nothing waiting"
+          >
+            <ul>
+              {data.lpItems.map((message) => (
+                <li
+                  key={message.id}
+                  className="border-b border-[var(--border)] py-2.5 last:border-b-0"
                 >
-                  {message.subject ?? '(no subject)'}
-                </Link>
-                <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
-                  {message.from_name ?? message.from_address} · {relativeTime(message.sent_at, now)}
-                </p>
-                <p className="mt-1 line-clamp-2 text-sm text-[var(--fg-muted)]">
-                  {message.snippet}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </ExpandableSection>
+                  <Link
+                    href={`/inbox?message=${message.id}`}
+                    className="text-sm font-medium underline-offset-2 hover:underline"
+                  >
+                    {message.subject ?? '(no subject)'}
+                  </Link>
+                  <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
+                    {message.from_name ?? message.from_address} ·{' '}
+                    {relativeTime(message.sent_at, now)}
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-sm text-[var(--fg-muted)]">
+                    {message.snippet}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </ExpandableSection>
+        ) : null}
 
-        <ExpandableSection
-          title="Market signals"
-          count={brief?.sections.market_signals.length ?? 0}
-          emptyLabel={data.researchAvailable ? 'Nothing notable' : 'Web research not configured'}
-        >
-          {data.researchAvailable ? (
+        {data.researchAvailable ? (
+          <ExpandableSection
+            title="Market signals"
+            count={brief?.sections.market_signals.length ?? 0}
+            emptyLabel="Nothing notable"
+          >
             <ul>
               {(brief?.sections.market_signals ?? []).map((item) => (
                 <BriefItemRow key={item.id} item={item} citations={citations} />
               ))}
             </ul>
-          ) : (
-            <p className="text-sm text-[var(--fg-muted)]">{data.researchUnavailableReason}</p>
-          )}
-        </ExpandableSection>
+          </ExpandableSection>
+        ) : null}
       </div>
     </>
   );

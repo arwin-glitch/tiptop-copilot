@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
-import { CalendarClock, ExternalLink, Hourglass, NotebookPen } from 'lucide-react';
+import { CalendarClock, ExternalLink, HeartHandshake, Hourglass, NotebookPen } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
@@ -10,6 +10,7 @@ import {
   type FollowUpItem,
   type FollowUpsState,
   type MeetingFollowUp,
+  type RelationshipItem,
   type SchedulingItem,
 } from '@/lib/services/follow-ups';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
@@ -26,7 +27,7 @@ export default function FollowUpsPage() {
     <PageShell>
       <PageHeader
         title="Follow-ups"
-        subtitle="Who Nick is waiting on, recaps drafted after his meetings, and meeting times drafted into replies. Every draft sits in Gmail for review; nothing is sent."
+        subtitle="Who is waiting on you, who you are waiting on, recaps drafted after your meetings, and meeting times drafted into replies. Every draft sits in Gmail for review; nothing is sent."
       />
       <Suspense fallback={<SkeletonText lines={10} />}>
         <FollowUpsContent />
@@ -38,7 +39,7 @@ export default function FollowUpsPage() {
 const STATE_MESSAGE: Partial<Record<FollowUpsState, string>> = {
   not_configured: 'The Slack read token is not set, so the follow-up routines cannot be read.',
   restricted:
-    'This page stays closed until sign-in is limited to TipTop accounts (AUTH_ALLOWED_EMAIL_DOMAINS), because it names the people and threads Nick is waiting on.',
+    'This page stays closed until sign-in is limited to TipTop accounts (AUTH_ALLOWED_EMAIL_DOMAINS), because it names the people and threads you are waiting on.',
   other_workspace: 'Follow-ups are only read for the TipTop workspace.',
   bot_not_in_channel: 'The Copilot Slack app is not a member of #deal-relay.',
   missing_scope: 'The Copilot Slack app is missing the groups:history scope.',
@@ -62,14 +63,39 @@ async function FollowUpsContent() {
   }
 
   const waiting = snapshot.waiting?.items ?? [];
+  const onYou = snapshot.relationships?.waiting ?? [];
   return (
     <div className="space-y-8">
-      <section aria-labelledby="waiting-heading">
-        <SectionHeading count={waiting.length}>
-          <span id="waiting-heading">Waiting on a reply</span>
+      <section aria-labelledby="on-you-heading">
+        <SectionHeading count={onYou.length}>
+          <span id="on-you-heading">Waiting on you</span>
         </SectionHeading>
         <p className="-mt-2 mb-3 text-sm text-[var(--fg-muted)]">
-          Nick wrote last and hasn&apos;t heard back.{' '}
+          LPs, portfolio founders, co-investors and founders in a live process who asked you for
+          something and have not heard back.{' '}
+          {snapshot.relationships
+            ? `Checked ${relativeTime(snapshot.relationships.run_at, now)}.`
+            : 'The relationship radar has not posted yet.'}
+        </p>
+        {onYou.length === 0 ? (
+          <EmptyLine>
+            {snapshot.relationships ? 'Nobody important is waiting on you.' : 'Nothing yet.'}
+          </EmptyLine>
+        ) : (
+          <ul className="space-y-2">
+            {onYou.map((item) => (
+              <OnYouRow key={`${item.who}-${item.since}`} item={item} />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section aria-labelledby="waiting-heading">
+        <SectionHeading count={waiting.length}>
+          <span id="waiting-heading">You&apos;re waiting on</span>
+        </SectionHeading>
+        <p className="-mt-2 mb-3 text-sm text-[var(--fg-muted)]">
+          You wrote last and haven&apos;t heard back.{' '}
           {snapshot.waiting
             ? `Checked ${relativeTime(snapshot.waiting.runAt, now)}.`
             : 'The tracker has not posted yet.'}
@@ -91,7 +117,7 @@ async function FollowUpsContent() {
         </SectionHeading>
         <p className="-mt-2 mb-3 text-sm text-[var(--fg-muted)]">
           After each external meeting in Granola, a thank-you and recap is drafted to the attendees.
-          Anything Nick promised also lands on Tasks.
+          Anything you promised also lands on Tasks.
         </p>
         {snapshot.meetings.length === 0 ? (
           <EmptyLine>No recaps drafted in the last two weeks.</EmptyLine>
@@ -109,8 +135,8 @@ async function FollowUpsContent() {
           <span id="scheduling-heading">Scheduling drafts</span>
         </SectionHeading>
         <p className="-mt-2 mb-3 text-sm text-[var(--fg-muted)]">
-          Emails asking to find a time get a reply drafted with real open slots from Nick&apos;s
-          calendar, Tuesday to Thursday.
+          Emails asking to find a time get a reply drafted with real open slots from your calendar,
+          Tuesday to Thursday.
         </p>
         {snapshot.scheduling.length === 0 ? (
           <EmptyLine>No scheduling replies drafted in the last two weeks.</EmptyLine>
@@ -145,6 +171,43 @@ function ThreadLink({ threadId }: { threadId: string | null | undefined }) {
   );
 }
 
+const KIND_LABEL: Record<RelationshipItem['kind'], string> = {
+  lp: 'LP',
+  prospective_lp: 'Prospective LP',
+  portfolio: 'Portfolio',
+  founder: 'Founder',
+  coinvestor: 'Co-investor',
+  other: 'Contact',
+};
+
+function OnYouRow({ item }: { item: RelationshipItem }) {
+  return (
+    <li>
+      <Card>
+        <CardContent className="flex items-start gap-3 pt-4">
+          <HeartHandshake className="mt-0.5 size-4 shrink-0 text-[var(--warn)]" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">
+                {item.who}
+                {item.company ? (
+                  <span className="text-[var(--fg-muted)]"> · {item.company}</span>
+                ) : null}
+              </span>
+              <Badge tone="neutral">{KIND_LABEL[item.kind]}</Badge>
+              <Badge tone={waitTone(item.days)}>
+                {item.days} {item.days === 1 ? 'day' : 'days'}
+              </Badge>
+            </div>
+            {item.note ? <p className="mt-0.5 text-sm">{item.note}</p> : null}
+          </div>
+          <ThreadLink threadId={item.thread_id} />
+        </CardContent>
+      </Card>
+    </li>
+  );
+}
+
 function waitTone(days: number): 'danger' | 'warn' | 'neutral' {
   if (days >= 14) return 'danger';
   if (days >= 7) return 'warn';
@@ -172,7 +235,7 @@ function WaitingRow({ item, tz }: { item: FollowUpItem; tz: string }) {
             </div>
             <p className="mt-0.5 truncate text-sm">{item.subject}</p>
             <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
-              Nick wrote {formatDate(item.last_sent_at, tz)}
+              You wrote {formatDate(item.last_sent_at, tz)}
               {item.note ? ` · ${item.note}` : ''}
             </p>
           </div>

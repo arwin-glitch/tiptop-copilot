@@ -30,16 +30,24 @@ To run against real infrastructure, copy `.env.example` to `.env.local` and see
 
 | Screen | What it is for |
 | --- | --- |
-| **Today** | The daily outlook: meetings with prep, important mail, new deals, overdue follow-ups, open portfolio requests. Assembled from records; the model narrows and phrases. |
-| **Inbox** | Synced mail, classified. Metadata by default; full bodies only when you open a message or the classifier judges it consequential. |
-| **Deals** | The pipeline. Each deal has a scorecard, extracted facts with provenance, diligence questions, red flags and a decision history. |
-| **Ask** | One open-ended question, one direct answer, with the sources. The model reaches data only through an allowlisted tool layer. |
-| **Updates** | The weekly dealflow reports and Nick's update digests, read live from their Slack channels. Read-only; nothing is stored. |
-| **Portfolio** | Companies and their open asks. Suggested introductions are filtered against your own network data. |
-| **Knowledge** | Uploaded documents — thesis, memos, pass notes, market maps — searchable with page-level citations. |
-| **Tasks** | Follow-ups, overdue first. |
-| **Settings** | Thesis, scoring weights, thresholds, pipeline stages, integrations. |
-| **Diagnostics** | What is configured and what is missing. Presence only — never a value. |
+| **Today** | Top priorities, the routines' morning brief / afternoon checkpoint and meeting dossier, then tasks due, the calendar, important mail, new deals and portfolio requests. |
+| **Follow-ups** | Who is waiting on you, who you are waiting on (with nudge drafts in Gmail), recaps drafted after external meetings, and meeting times drafted into replies. |
+| **Tasks** | Things you owe someone. Added from mail, Granola and Slack by a routine, closed automatically when the work is done. Snooze and Undo. |
+| **Deals** | The pipeline, sorted by the deal-sorter routine twice a day, with fit, evidence and a one-click Research profile. |
+| **Ask** | One question, one direct answer from live Gmail, Calendar, Slack, Granola and the web, with links to the sources. |
+| **Inbox** | Synced mail. Reply drafts are written by the triage routines straight into Gmail. |
+| **Portfolio** | Fund I companies and their open asks; new closes are added automatically. |
+| **Fund II** | Every LP conversation for Fund II by stage (target to committed), with what is going quiet. Stages only, never amounts. |
+| **Meetings** | Granola notes, linked to deals and companies by attendee. |
+| **Network** | Everyone you correspond or meet with, plus which key relationships are going cold. |
+| **Reports** | The weekly dealflow reports and Nick's update digests, read live from Slack. |
+| **Knowledge** | Uploaded documents, searchable with page-level citations. |
+| **Settings** | Thesis, scoring, integrations. **Diagnostics** (linked from Settings) shows what is configured — presence only, never a value. |
+
+Most live content is produced by cloud routines (Claude) that read Nick's
+Gmail, Calendar, Granola and Slack, write only Gmail drafts and labels, and post
+their results to private Slack relay channels the app reads. The app itself
+runs without an in-app AI key on purpose.
 
 ---
 
@@ -115,7 +123,7 @@ npm run test:e2e:install  # one-time browser download
 | [PUBLISH_CHECKLIST.md](PUBLISH_CHECKLIST.md) | Everything between here and live |
 | [PRIVACY.md](PRIVACY.md) | What is stored, where it goes, how to remove it |
 | [DECISIONS.md](DECISIONS.md) | Numbered record of every material choice |
-| [PLAN.md](PLAN.md) | Acceptance criteria and milestones |
+| [PLAN.md](docs/archive/PLAN.md) | Acceptance criteria and milestones |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
 
 ---
