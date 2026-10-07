@@ -219,6 +219,48 @@ describe('portfolio health, intros, week ahead, LP update', () => {
     expect(out.lpUpdateDraft?.period).toBe('Q3 2026');
   });
 
+  it('joins the numbered parts of the newest run and ignores older runs', () => {
+    const run = '2026-10-07T19:00:00Z';
+    const row = (n: number) => ({ for_who: `F${n}`, to_who: `T${n}`, status: 'owed' });
+    const out = collectFollowUps([
+      {
+        ts: '1791400002.000100',
+        text: post('INTROS_V1', { run_at: run, part: 2, intros: [row(2)] }),
+        user: 'U1',
+      },
+      {
+        ts: '1791400001.000100',
+        text: post('INTROS_V1', { run_at: run, part: 1, intros: [row(1)] }),
+        user: 'U1',
+      },
+      {
+        ts: '1791300000.000100',
+        text: post('INTROS_V1', { run_at: '2026-10-06T19:00:00Z', intros: [row(9)] }),
+        user: 'U1',
+      },
+      {
+        ts: '1791400003.000100',
+        text: post('WEEK_AHEAD_V1', {
+          run_at: run,
+          part: 2,
+          events: [{ title: 'Early', starts_at: '2026-10-08T10:00:00Z', kind: 'other' }],
+        }),
+        user: 'U1',
+      },
+      {
+        ts: '1791400000.000100',
+        text: post('WEEK_AHEAD_V1', {
+          run_at: run,
+          part: 1,
+          events: [{ title: 'Late', starts_at: '2026-10-09T10:00:00Z', kind: 'other' }],
+        }),
+        user: 'U1',
+      },
+    ]);
+    expect(out.intros?.intros.map((i) => i.for_who)).toEqual(['F1', 'F2']);
+    expect(out.weekAhead?.events.map((e) => e.title)).toEqual(['Early', 'Late']);
+  });
+
   it('rejects unknown flags and statuses', () => {
     expect(
       parseFollowUpMessage(

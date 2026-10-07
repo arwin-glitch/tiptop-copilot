@@ -40,6 +40,9 @@ import { isRelayOrganization } from './deal-relay';
  * - `LP_UPDATE_DRAFT_V1`: the quarterly LP update drafted into Gmail (to Nick
  *   only). Newest wins.
  *
+ * The four list snapshots (LP pipeline, portfolio health, intros, week ahead)
+ * may arrive in numbered parts sharing one run_at; the parts are joined.
+ *
  * Every value is rendered as plain text. Links are rebuilt from validated
  * Gmail thread ids, never taken from a post.
  */
@@ -72,6 +75,11 @@ type Marker = (typeof MARKERS)[number];
 const THREAD_ID = z.string().regex(/^[0-9a-f]{10,24}$/i);
 const text = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).nullish();
+/**
+ * A long list may be split across several posts from one run (Slack caps a
+ * message's length): each part repeats the run's run_at and numbers itself.
+ */
+const PART = z.number().int().min(1).max(20).optional();
 
 export const FOLLOWUPS_SCHEMA = z.object({
   run_at: z.string().datetime(),
@@ -195,6 +203,7 @@ const LP_ITEM = z.object({
 
 export const LP_PIPELINE_SCHEMA = z.object({
   run_at: z.string().datetime(),
+  part: PART,
   fund: text(40),
   lps: z.array(LP_ITEM).max(300),
 });
@@ -205,6 +214,7 @@ export const HEALTH_FLAGS = ['ok', 'watch', 'risk', 'unknown'] as const;
 
 export const PORTFOLIO_HEALTH_SCHEMA = z.object({
   run_at: z.string().datetime(),
+  part: PART,
   companies: z
     .array(
       z.object({
@@ -225,6 +235,7 @@ export const INTRO_STATUSES = ['owed', 'made', 'connected', 'stalled', 'declined
 
 export const INTROS_SCHEMA = z.object({
   run_at: z.string().datetime(),
+  part: PART,
   intros: z
     .array(
       z.object({
@@ -244,6 +255,7 @@ export type IntroItem = Intros['intros'][number];
 
 export const WEEK_AHEAD_SCHEMA = z.object({
   run_at: z.string().datetime(),
+  part: PART,
   events: z
     .array(
       z.object({
@@ -377,6 +389,26 @@ export function collectFollowUps(
   };
   const seenMeetings = new Set<string>();
   const seenThreads = new Set<string>();
+  // Split snapshots: every part of the newest run, keyed by part number.
+  const parts = new Map<Marker, { runAt: string; byPart: Map<number, unknown> }>();
+  const addPart = (marker: Marker, value: { run_at: string; part?: number }) => {
+    const entry = parts.get(marker);
+    if (!entry) {
+      parts.set(marker, { runAt: value.run_at, byPart: new Map([[value.part ?? 1, value]]) });
+    } else if (entry.runAt === value.run_at && !entry.byPart.has(value.part ?? 1)) {
+      entry.byPart.set(value.part ?? 1, value);
+    }
+  };
+  const merged = <T extends { run_at: string }, K extends keyof T>(
+    marker: Marker,
+    key: K,
+  ): T | null => {
+    const entry = parts.get(marker);
+    if (!entry) return null;
+    const ordered = [...entry.byPart.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v as T);
+    const first = ordered[0]!;
+    return { ...first, [key]: ordered.flatMap((v) => v[key] as unknown[]) };
+  };
 
   for (const { m, iso } of usable) {
     const parsed = parseFollowUpMessage(m.text);
@@ -410,16 +442,10 @@ export function collectFollowUps(
         if (!out.relationships) out.relationships = parsed.value;
         break;
       case LP_PIPELINE_MARKER:
-        if (!out.lpPipeline) out.lpPipeline = parsed.value;
-        break;
       case PORTFOLIO_HEALTH_MARKER:
-        if (!out.portfolioHealth) out.portfolioHealth = parsed.value;
-        break;
       case INTROS_MARKER:
-        if (!out.intros) out.intros = parsed.value;
-        break;
       case WEEK_AHEAD_MARKER:
-        if (!out.weekAhead) out.weekAhead = parsed.value;
+        addPart(parsed.marker, parsed.value);
         break;
       case LP_UPDATE_DRAFT_MARKER:
         if (!out.lpUpdateDraft) out.lpUpdateDraft = parsed.value;
@@ -427,6 +453,13 @@ export function collectFollowUps(
     }
   }
   out.meetings.sort((a, b) => b.met_at.localeCompare(a.met_at));
+  out.lpPipeline = merged<LpPipeline, 'lps'>(LP_PIPELINE_MARKER, 'lps');
+  out.portfolioHealth = merged<PortfolioHealth, 'companies'>(PORTFOLIO_HEALTH_MARKER, 'companies');
+  out.intros = merged<Intros, 'intros'>(INTROS_MARKER, 'intros');
+  const week = merged<WeekAhead, 'events'>(WEEK_AHEAD_MARKER, 'events');
+  out.weekAhead = week
+    ? { ...week, events: [...week.events].sort((a, b) => a.starts_at.localeCompare(b.starts_at)) }
+    : null;
   return out;
 }
 

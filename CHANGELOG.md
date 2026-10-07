@@ -8,6 +8,16 @@ throughout.
 
 ---
 
+## [0.5.1] — 2026-10-07
+
+No schema change, no new dependency, no new environment variable.
+
+- **Long relay lists in parts:** a Slack message has a length cap, and the first
+  intros run lost 77 of its 100 rows to it. The LP pipeline, portfolio health,
+  intros and week-ahead posts may now arrive as numbered parts that share one
+  `run_at`; the app joins every part of the newest run (week-ahead re-sorted by
+  start time). Single posts without `part` work as before.
+
 ## [0.5.0] — 2026-10-07
 
 No schema change, no new dependency, no new environment variable.
