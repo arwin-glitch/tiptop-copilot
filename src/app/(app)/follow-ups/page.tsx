@@ -16,6 +16,7 @@ import {
 import { readEmailSession } from '@/lib/services/email-session';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { EmailSessionCard } from '@/components/followups/email-session-card';
+import { AutoRefresh } from '@/components/shell/auto-refresh';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Notice, SkeletonText } from '@/components/ui/feedback';
@@ -69,6 +70,7 @@ async function FollowUpsContent() {
   const session = await readEmailSession(getStore(), auth.organizationId, { now });
   return (
     <div className="space-y-8">
+      <AutoRefresh minutes={10} />
       <EmailSessionCard session={session} />
       <section aria-labelledby="on-you-heading">
         <SectionHeading count={onYou.length}>

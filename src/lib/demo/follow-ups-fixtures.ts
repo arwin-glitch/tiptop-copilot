@@ -339,6 +339,7 @@ export function demoFollowUps(now: Date): FollowUpsSnapshot {
         },
       ],
     },
+    emailJudgedAt: {},
     lpUpdateDraft: {
       run_at: ago(2, 14),
       period: 'Q3 2026',

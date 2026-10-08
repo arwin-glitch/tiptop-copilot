@@ -402,6 +402,8 @@ export interface FollowUpsSnapshot {
   weekAhead: WeekAhead | null;
   lpUpdateDraft: LpUpdateDraft | null;
   emailQueue: EmailQueue | null;
+  /** When each queued email was last judged (its post time), by email id. */
+  emailJudgedAt: Record<string, string>;
 }
 
 /** Slack pages (newest first) -> the current view. Pure, for tests. */
@@ -430,8 +432,13 @@ export function collectFollowUps(
     weekAhead: null,
     lpUpdateDraft: null,
     emailQueue: null,
+    emailJudgedAt: {},
   };
   const seenMeetings = new Set<string>();
+  // Email judgments accumulate: each post covers only new or changed emails,
+  // and the newest judgment per email wins.
+  const judged: EmailQueueItem[] = [];
+  let judgedRunAt: string | null = null;
   const seenThreads = new Set<string>();
   // Split snapshots: every part of the newest run, keyed by part number.
   const parts = new Map<Marker, { runAt: string; byPart: Map<number, unknown> }>();
@@ -489,8 +496,15 @@ export function collectFollowUps(
       case PORTFOLIO_HEALTH_MARKER:
       case INTROS_MARKER:
       case WEEK_AHEAD_MARKER:
-      case EMAIL_QUEUE_MARKER:
         addPart(parsed.marker, parsed.value);
+        break;
+      case EMAIL_QUEUE_MARKER:
+        judgedRunAt ??= parsed.value.run_at;
+        for (const item of parsed.value.items) {
+          if (out.emailJudgedAt[item.id]) continue;
+          out.emailJudgedAt[item.id] = iso;
+          judged.push(item);
+        }
         break;
       case LP_UPDATE_DRAFT_MARKER:
         if (!out.lpUpdateDraft) out.lpUpdateDraft = parsed.value;
@@ -501,7 +515,7 @@ export function collectFollowUps(
   out.lpPipeline = merged<LpPipeline, 'lps'>(LP_PIPELINE_MARKER, 'lps');
   out.portfolioHealth = merged<PortfolioHealth, 'companies'>(PORTFOLIO_HEALTH_MARKER, 'companies');
   out.intros = merged<Intros, 'intros'>(INTROS_MARKER, 'intros');
-  out.emailQueue = merged<EmailQueue, 'items'>(EMAIL_QUEUE_MARKER, 'items');
+  out.emailQueue = judgedRunAt ? { run_at: judgedRunAt, items: judged } : null;
   const week = merged<WeekAhead, 'events'>(WEEK_AHEAD_MARKER, 'events');
   out.weekAhead = week
     ? { ...week, events: [...week.events].sort((a, b) => a.starts_at.localeCompare(b.starts_at)) }
@@ -530,6 +544,7 @@ const EMPTY: FollowUpsSnapshot = {
   weekAhead: null,
   lpUpdateDraft: null,
   emailQueue: null,
+  emailJudgedAt: {},
 };
 const WINDOW_DAYS = 30;
 const MAX_PAGES = 5;

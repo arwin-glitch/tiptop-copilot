@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSession,
+  groupFromLabels,
   isSettled,
   sessionSummary,
+  type LiveInbox,
   type SessionAnswer,
 } from '@/lib/services/email-session';
+import { displayName } from '@/lib/google/gmail-inbox';
 import { collectFollowUps, type FollowUpsSnapshot } from '@/lib/services/follow-ups';
 import { buildReplyMime, stripQuoted } from '@/lib/google/gmail-send';
 import { swapSignOff } from '@/components/followups/email-session-client';
@@ -53,7 +56,35 @@ describe('EMAIL_QUEUE_V1', () => {
         text: post({ run_at: run, part: 1, items: [queueItem('aa00000000000001', 'today', 'A')] }),
       },
     ]);
-    expect(snap.emailQueue?.items.map((i) => i.who)).toEqual(['A', 'B']);
+    expect(snap.emailQueue?.items.map((i) => i.who).sort()).toEqual(['A', 'B']);
+  });
+
+  it('accumulates judgments across posts, newest per email wins, with its time', () => {
+    const snap = collectFollowUps([
+      {
+        ts: '1791400100.000100',
+        user: 'U1',
+        text: post({
+          run_at: '2026-10-08T12:00:00Z',
+          items: [queueItem('aa00000000000001', 'deals', 'A', 'Changed since')],
+        }),
+      },
+      {
+        ts: '1791400000.000100',
+        user: 'U1',
+        text: post({
+          run_at: '2026-10-08T11:00:00Z',
+          items: [
+            queueItem('aa00000000000001', 'replies', 'A', 'Old take'),
+            queueItem('aa00000000000002', 'money', 'B'),
+          ],
+        }),
+      },
+    ]);
+    const byId = new Map(snap.emailQueue?.items.map((i) => [i.id, i]));
+    expect(byId.get('aa00000000000001')?.group).toBe('deals');
+    expect(byId.size).toBe(2);
+    expect(snap.emailJudgedAt['aa00000000000001']).toBe(new Date(1791400100000).toISOString());
   });
 
   it('rejects an unknown group', () => {
@@ -202,6 +233,98 @@ describe('buildSession', () => {
     expect(summary.answered).toBe(1);
     expect(summary.forNick).toBe(3);
     expect(summary.forArwin).toBe(1);
+  });
+
+  it('follows the live inbox: answered/archived emails drop, new ones appear', () => {
+    const labels = new Map([
+      ['L1', '@Do ASAP'],
+      ['L2', '@Ready to Archive'],
+    ]);
+    const inbox: LiveInbox = {
+      // Dana and Ledgerly still in the inbox; Tom, Maya, Event Hub left it.
+      ids: new Set([
+        'aa00000000000001',
+        'aa00000000000002',
+        'cc00000000000001',
+        'cc00000000000002',
+      ]),
+      meta: new Map([
+        [
+          'cc00000000000001',
+          {
+            id: 'cc00000000000001',
+            who: 'New Founder',
+            subject: 'Quick question',
+            labelIds: ['INBOX'],
+            latestAt: '2026-10-08T14:00:00Z',
+            lastFromUs: false,
+          },
+        ],
+        [
+          'cc00000000000002',
+          {
+            id: 'cc00000000000002',
+            who: 'Promo',
+            subject: 'Sale',
+            labelIds: ['INBOX', 'L2'],
+            latestAt: '2026-10-08T14:00:00Z',
+            lastFromUs: false,
+          },
+        ],
+      ]),
+      labelNames: labels,
+    };
+    const s = buildSession({
+      snapshot: snapshotWith(items),
+      answers: new Map(),
+      deals: [],
+      portfolio: [],
+      now: NOW,
+      inbox,
+    });
+    expect(s.items.map((i) => i.who)).toEqual(['Dana', 'Ledgerly', 'New Founder', 'Promo']);
+    const fresh = s.items.find((i) => i.who === 'New Founder');
+    expect(fresh?.group).toBe('new');
+    expect(fresh?.needsNick).toBe(true);
+    expect(s.items.find((i) => i.who === 'Promo')?.needsNick).toBe(false);
+  });
+
+  it('sorts unjudged emails by the triage labels', () => {
+    const names = new Map([
+      ['a', '@Do ASAP'],
+      ['b', '@Deals to Review'],
+      ['c', '@For Arwin'],
+      ['d', '@Low Prio'],
+    ]);
+    const g = (labelIds: string[], lastFromUs = false) =>
+      groupFromLabels({ labelIds, lastFromUs }, names);
+    expect(g(['a'])).toBe('today');
+    expect(g(['b'])).toBe('deals');
+    expect(g(['c'])).toBe('replies');
+    expect(g(['d'])).toBe('archive');
+    expect(g(['CATEGORY_PROMOTIONS'])).toBe('archive');
+    expect(g(['INBOX'])).toBe('new');
+    expect(g(['a'], true)).toBe('archive');
+  });
+
+  it('drops an answer once the email changed and was judged again', () => {
+    const snap = snapshotWith(items);
+    const judged = snap.emailJudgedAt['aa00000000000001']!;
+    const before = new Date(Date.parse(judged) - 60_000).toISOString();
+    const answers = new Map<string, SessionAnswer>([
+      [
+        'aa00000000000001',
+        { answer: 'sent', note: null, signature: 'nick', viaApp: true, at: before, by: 'Nick' },
+      ],
+    ]);
+    const s = buildSession({ snapshot: snap, answers, deals: [], portfolio: [], now: NOW });
+    expect(s.items.find((i) => i.id === 'aa00000000000001')?.answer).toBeNull();
+  });
+
+  it('reads a display name from a From header', () => {
+    expect(displayName('"Jane Doe" <jane@x.com>')).toBe('Jane Doe');
+    expect(displayName('Jane Doe <jane@x.com>')).toBe('Jane Doe');
+    expect(displayName('jane@x.com')).toBe('jane');
   });
 
   it('is empty without a queue or radar', () => {

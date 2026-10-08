@@ -46,6 +46,7 @@ const GROUP_LABEL: Record<SessionItem['group'], string> = {
   owed: 'Promise you made',
   intros: 'Intro offer',
   waiting: 'Waiting on you',
+  new: 'New in your inbox',
   replies: 'Friendly reply',
   archive: 'To archive',
 };

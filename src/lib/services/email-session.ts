@@ -4,6 +4,16 @@ import type { DataStore } from '@/lib/db/store';
 import type { AuditEvent, Deal, PortfolioCompany } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import {
+  listInboxThreadIds,
+  readLabelNames,
+  readThreadMeta,
+  type InboxThreadMeta,
+} from '@/lib/google/gmail-inbox';
+import { env } from '@/lib/config/env';
+import type { Integration } from '@/lib/types/domain';
+import { processWide } from '@/lib/util/process-state';
+import { getPrimaryIntegration } from './inbox';
+import {
   EMAIL_GROUPS,
   readFollowUps,
   type EmailGroup,
@@ -14,10 +24,15 @@ import {
 /**
  * The email session: Nick's open emails, one at a time, in working order.
  *
- * The queue comes from the For Nick refresh (EMAIL_QUEUE_V1 in #deal-relay).
- * The app adds what only it knows: who is waiting with no queued email yet
- * (the relationship radar), what each person is in the Copilot (a deal, a
- * portfolio company, a Fund II LP), and what Nick already answered.
+ * Which emails appear comes live from Nick's Gmail inbox on every load: an
+ * email answered or archived in Gmail drops out, a new one appears. The
+ * email-queue routine adds the judgment for each (group, why, draft) as
+ * EMAIL_QUEUE_V1 posts in #deal-relay, re-judging only new or changed
+ * threads; an email it has not judged yet is sorted by Nick's triage
+ * @-labels until it does. The app adds what only it knows: what each person is
+ * in the Copilot (a deal, a portfolio company, a Fund II LP) and what Nick
+ * already answered. Without a Gmail connection (demo) the judged list is used
+ * as is.
  *
  * Answers are rows in `audit_events` (action `email.session_answer`), so they
  * survive reloads, are shared between Nick and Arwin, and need no migration.
@@ -43,13 +58,16 @@ const ANSWER_WINDOW_DAYS = 21;
 /** Arwin's pile: the groups Nick does not have to decide. */
 export const ARWIN_GROUPS: readonly EmailGroup[] = ['replies', 'archive'];
 
-const MINUTES: Record<EmailGroup | 'waiting', number> = {
+export type SessionGroup = EmailGroup | 'waiting' | 'new';
+
+const MINUTES: Record<SessionGroup, number> = {
   today: 1.5,
   money: 1.5,
   deals: 1.5,
   owed: 0.5,
   intros: 0.5,
   waiting: 1,
+  new: 1,
   replies: 0.5,
   archive: 0.1,
 };
@@ -73,7 +91,7 @@ export interface SessionItem {
   id: string;
   who: string;
   about: string;
-  group: EmailGroup | 'waiting';
+  group: SessionGroup;
   call: EmailQueueItem['call'];
   flags: string[];
   draft: EmailQueueItem['draft'];
@@ -92,12 +110,13 @@ export interface EmailSession {
   items: SessionItem[];
 }
 
-const GROUP_ORDER: (EmailGroup | 'waiting')[] = [
+const GROUP_ORDER: SessionGroup[] = [
   'today',
   'money',
   'deals',
   'owed',
   'intros',
+  'new',
   'waiting',
   'replies',
   'archive',
@@ -118,6 +137,37 @@ function mentions(haystack: string, name: string): boolean {
   return ` ${haystack} `.includes(` ${n} `);
 }
 
+export interface LiveInbox {
+  /** Thread ids in the inbox right now. */
+  ids: Set<string>;
+  /** Who/what for inbox threads the routine has not judged yet. */
+  meta: Map<string, InboxThreadMeta>;
+  /** Gmail label id -> name (for the triage @-labels). */
+  labelNames: Map<string, string>;
+}
+
+/**
+ * Sort an email the routine has not judged yet, from Nick's triage labels.
+ * Pure, for tests.
+ */
+export function groupFromLabels(
+  meta: Pick<InboxThreadMeta, 'labelIds' | 'lastFromUs'>,
+  labelNames: Map<string, string>,
+): SessionGroup {
+  if (meta.lastFromUs) return 'archive';
+  const names = meta.labelIds.map((id) => (labelNames.get(id) ?? id).toLowerCase());
+  const has = (re: RegExp) => names.some((n) => re.test(n));
+  if (has(/do asap/)) return 'today';
+  if (has(/deals? to review/)) return 'deals';
+  if (has(/for arwin/)) return 'replies';
+  if (
+    has(/ready to archive|low prio|to read|waiting|^category_(promotions|social|updates|forums)$/)
+  ) {
+    return 'archive';
+  }
+  return 'new';
+}
+
 /** Pure, for tests. */
 export function buildSession(input: {
   snapshot: FollowUpsSnapshot;
@@ -125,8 +175,18 @@ export function buildSession(input: {
   deals: Pick<Deal, 'id' | 'company_name' | 'stage'>[];
   portfolio: Pick<PortfolioCompany, 'id' | 'name'>[];
   now: Date;
+  /** Live inbox; null means "use the judged list as is" (demo, Gmail down). */
+  inbox?: LiveInbox | null;
 }): EmailSession {
   const { snapshot, answers, deals, portfolio, now } = input;
+  const inbox = input.inbox ?? null;
+  const inInbox = (id: string) => !inbox || inbox.ids.has(id);
+  // An answer from before the email was last judged (it changed since) no longer applies.
+  const answerFor = (id: string): SessionAnswer | null => {
+    const a = answers.get(id) ?? null;
+    const judgedAt = snapshot.emailJudgedAt[id];
+    return a && judgedAt && a.at < judgedAt ? null : a;
+  };
   const queue = snapshot.emailQueue;
   const days = (iso: string | null | undefined) =>
     iso ? Math.max(0, Math.floor((now.getTime() - Date.parse(iso)) / 86_400_000)) : null;
@@ -176,10 +236,10 @@ export function buildSession(input: {
   const seenIds = new Set<string>();
   const seenWho = new Set<string>();
   for (const q of queue?.items ?? []) {
-    if (seenIds.has(q.id)) continue;
+    if (seenIds.has(q.id) || !inInbox(q.id)) continue;
     seenIds.add(q.id);
     seenWho.add(norm(q.who));
-    const answer = answers.get(q.id) ?? null;
+    const answer = answerFor(q.id);
     items.push({
       id: q.id,
       who: q.who,
@@ -200,6 +260,7 @@ export function buildSession(input: {
   // Waiting on Nick per the radar, with no queued email for that person yet.
   for (const w of snapshot.relationships?.waiting ?? []) {
     if (!w.thread_id || seenIds.has(w.thread_id) || seenWho.has(norm(w.who))) continue;
+    if (!inInbox(w.thread_id)) continue;
     seenIds.add(w.thread_id);
     items.push({
       id: w.thread_id,
@@ -215,6 +276,34 @@ export function buildSession(input: {
       needsNick: true,
       context: contextFor(`${w.who} ${w.company ?? ''} ${w.note ?? ''}`),
       answer: answers.get(w.thread_id) ?? null,
+    });
+  }
+
+  // In the inbox but not judged yet: sorted by Nick's @-labels for now.
+  for (const id of inbox?.ids ?? []) {
+    if (seenIds.has(id)) continue;
+    const meta = inbox?.meta.get(id);
+    if (!meta) continue;
+    seenIds.add(id);
+    const group = groupFromLabels(meta, inbox!.labelNames);
+    const answer = answers.get(id) ?? null;
+    items.push({
+      id,
+      who: meta.who,
+      about: meta.subject,
+      group,
+      call: group === 'archive' ? 'archive' : 'reply',
+      flags: ['New'],
+      draft: 'none',
+      why: meta.lastFromUs
+        ? 'You replied last, so nothing is waiting on you here.'
+        : 'Just arrived, sorted by its Gmail label for now. The full read comes within the hour.',
+      waitingDays: days(meta.latestAt),
+      minutes: MINUTES[group],
+      needsNick:
+        !(ARWIN_GROUPS as readonly SessionGroup[]).includes(group) || answer?.answer === 'stop',
+      context: contextFor(`${meta.who} ${meta.subject}`),
+      answer,
     });
   }
 
@@ -290,6 +379,67 @@ export async function recordAnswer(
   await store.insert('audit_events', row);
 }
 
+const INBOX_TTL_MS = 60_000;
+const META_TTL_MS = 10 * 60_000;
+const LABELS_TTL_MS = 60 * 60_000;
+const MAX_NEW_LOOKUPS = 40;
+
+const inboxCache = processWide('email-session-inbox', () => ({
+  ids: new Map<string, { at: number; ids: string[] }>(),
+  meta: new Map<string, { at: number; meta: InboxThreadMeta | null }>(),
+  labels: new Map<string, { at: number; names: Map<string, string> }>(),
+}));
+
+/** Test hook. */
+export function resetInboxCache(): void {
+  inboxCache.ids.clear();
+  inboxCache.meta.clear();
+  inboxCache.labels.clear();
+}
+
+/**
+ * The inbox as it is in Gmail now (cached a minute), plus who/what for the
+ * threads the routine has not judged yet. Null when Gmail cannot be read, so
+ * the session falls back to the judged list instead of showing nothing.
+ */
+async function readLiveInbox(
+  store: DataStore,
+  integration: Integration,
+  judged: Set<string>,
+): Promise<LiveInbox | null> {
+  const now = Date.now();
+  let cached = inboxCache.ids.get(integration.id);
+  if (!cached || now - cached.at > INBOX_TTL_MS) {
+    const res = await listInboxThreadIds(store, integration);
+    if (!res.ok) return null;
+    cached = { at: now, ids: res.value };
+    inboxCache.ids.set(integration.id, cached);
+  }
+  let labels = inboxCache.labels.get(integration.id);
+  if (!labels || now - labels.at > LABELS_TTL_MS) {
+    labels = { at: now, names: await readLabelNames(store, integration) };
+    inboxCache.labels.set(integration.id, labels);
+  }
+  const missing = cached.ids
+    .filter((id) => !judged.has(id))
+    .filter((id) => {
+      const m = inboxCache.meta.get(id);
+      return !m || now - m.at > META_TTL_MS;
+    })
+    .slice(0, MAX_NEW_LOOKUPS);
+  for (let i = 0; i < missing.length; i += 8) {
+    const batch = missing.slice(i, i + 8);
+    const metas = await Promise.all(batch.map((id) => readThreadMeta(store, integration, id)));
+    batch.forEach((id, k) => inboxCache.meta.set(id, { at: now, meta: metas[k] ?? null }));
+  }
+  const meta = new Map<string, InboxThreadMeta>();
+  for (const id of cached.ids) {
+    const m = inboxCache.meta.get(id)?.meta;
+    if (m && !judged.has(id)) meta.set(id, m);
+  }
+  return { ids: new Set(cached.ids), meta, labelNames: labels.names };
+}
+
 export async function readEmailSession(
   store: DataStore,
   organizationId: string,
@@ -298,6 +448,16 @@ export async function readEmailSession(
   const now = options.now ?? new Date();
   const followUps = await readFollowUps(store, organizationId, { now });
   if (followUps.state !== 'ok') return { state: 'unavailable', runAt: null, items: [] };
+  const integration = env().demoMode
+    ? null
+    : await getPrimaryIntegration(store, organizationId).catch(() => null);
+  const inbox = integration
+    ? await readLiveInbox(
+        store,
+        integration,
+        new Set(Object.keys(followUps.snapshot.emailJudgedAt)),
+      ).catch(() => null)
+    : null;
   const [answers, deals, portfolio] = await Promise.all([
     readAnswers(store, organizationId, now).catch(() => new Map<string, SessionAnswer>()),
     (store.list('deals', organizationId, {}, { limit: 1000 }) as Promise<Deal[]>).catch(() => []),
@@ -307,7 +467,7 @@ export async function readEmailSession(
       >
     ).catch(() => []),
   ]);
-  return buildSession({ snapshot: followUps.snapshot, answers, deals, portfolio, now });
+  return buildSession({ snapshot: followUps.snapshot, answers, deals, portfolio, now, inbox });
 }
 
 /** For the Follow-ups card: how much is left for Nick, and roughly how long. */

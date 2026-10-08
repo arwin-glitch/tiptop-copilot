@@ -10,6 +10,7 @@ import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Notice } from '@/components/ui/feedback';
 import { EmailSessionClient } from '@/components/followups/email-session-client';
+import { AutoRefresh } from '@/components/shell/auto-refresh';
 import { relativeTime } from '@/lib/util/time';
 
 export const metadata: Metadata = { title: 'Email session' };
@@ -36,10 +37,11 @@ export default async function EmailSessionPage() {
         title="Email session"
         subtitle={
           session.runAt
-            ? `One email at a time, most important first. Queue checked ${relativeTime(session.runAt, now)}.`
+            ? `Straight from your inbox, one at a time, most important first. Refreshes every 10 minutes; details checked ${relativeTime(session.runAt, now)}.`
             : 'One email at a time, most important first.'
         }
       />
+      <AutoRefresh minutes={10} />
       {session.state === 'ok' ? (
         <EmailSessionClient
           items={session.items}
