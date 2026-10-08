@@ -293,6 +293,10 @@ function SessionCard({
       toast.error('Write a reply first, or tell Arwin what to say.');
       return;
     }
+    if (canSend && signature === 'nick' && loaded && !loaded.signatures?.nick) {
+      toast.error("Nick's signature couldn't be read from Gmail. Try again, or sign as Arwin.");
+      return;
+    }
     if (!canSend) {
       window.open(gmailUrl(item.id, mailbox), '_blank', 'noopener');
       setMode('gmail');
@@ -311,7 +315,7 @@ function SessionCard({
         return c - 1;
       });
     }, 1000);
-  }, [body, canSend, item.id, mailbox, reallySend]);
+  }, [body, canSend, item.id, mailbox, reallySend, signature, loaded]);
 
   const undo = () => {
     if (timer.current) window.clearInterval(timer.current);
@@ -431,9 +435,10 @@ function SessionCard({
           <p className="border-t border-[var(--border)] pt-2 text-xs whitespace-pre-line text-[var(--fg-muted)]">
             {signatureText}
           </p>
-        ) : signature === 'nick' && loaded ? (
-          <p className="border-t border-[var(--border)] pt-2 text-xs text-[var(--fg-subtle)]">
-            Nick&apos;s Gmail signature is added when it sends.
+        ) : signature === 'nick' && loaded && canSend ? (
+          <p className="border-t border-[var(--border)] pt-2 text-xs text-[var(--warn)]">
+            Couldn&apos;t read Nick&apos;s signature from Gmail, so Send is paused for Nick. Try
+            again in a moment, or sign as Arwin.
           </p>
         ) : null}
         {loaded?.draftError ? (
@@ -451,7 +456,8 @@ function SessionCard({
       ) : mode === 'gmail' ? (
         <div className="flex flex-wrap items-center gap-2 rounded-md bg-[var(--bg-hover)] px-3 py-2 text-sm">
           <span className="flex-1">
-            Gmail opened on this thread. Send it there, then come back.
+            Gmail opened on this thread. Pick the {signature === 'nick' ? '“v1”' : '“Arwin”'}{' '}
+            signature from the pen menu, send it there, then come back.
           </span>
           <Button
             size="sm"

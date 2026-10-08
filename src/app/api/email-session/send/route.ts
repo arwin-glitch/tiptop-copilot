@@ -37,6 +37,18 @@ export async function POST(request: NextRequest) {
     parsed.data.signature === 'nick'
       ? await readPrimarySignature(store, s.integration)
       : ARWIN_SIGNATURE_HTML;
+  if (!signatureHtml) {
+    // Never send as Nick without his real signature.
+    return fail(
+      {
+        code: 'provider_unavailable',
+        message:
+          "Couldn't read Nick's signature from Gmail, so nothing was sent. Try again, or sign as Arwin.",
+        retryable: true,
+      },
+      503,
+    );
+  }
   const sent = await sendReply(store, s.integration, {
     id: parsed.data.id,
     body: parsed.data.body,

@@ -8,6 +8,7 @@ import {
 import { collectFollowUps, type FollowUpsSnapshot } from '@/lib/services/follow-ups';
 import { buildReplyMime, stripQuoted } from '@/lib/google/gmail-send';
 import { swapSignOff } from '@/components/followups/email-session-client';
+import { ARWIN_SIGNATURE_HTML } from '@/lib/email/signatures';
 
 /** The email session: order, Arwin's pile, answers, context, and the outgoing email. */
 
@@ -238,6 +239,24 @@ describe('outgoing email', () => {
     const html = Buffer.from(parts.at(-1)!.split('\r\n')[0]!, 'base64').toString('utf8');
     expect(html).toContain('Executive Assistant, TipTop Ventures');
     expect(html).toContain('<div>Sounds good.</div>');
+  });
+
+  it("sends Arwin's real Gmail signature with its links", () => {
+    const mime = buildReplyMime({
+      from: 'nick@tiptop.vc',
+      to: 'jane@example.com',
+      cc: '',
+      subject: 'Re: Hi',
+      inReplyTo: '',
+      references: '',
+      body: 'Thanks!\n\nBest,\nArwin',
+      signatureHtml: ARWIN_SIGNATURE_HTML,
+    });
+    const parts = mime.split(/\r\n\r\n/);
+    const html = Buffer.from(parts.at(-1)!.split('\r\n')[0]!, 'base64').toString('utf8');
+    expect(html).toContain('href="https://www.linkedin.com/in/arwin-angelo-reyes-36699b228/"');
+    expect(html).toContain('href="http://tiptop.vc/"');
+    expect(html).toContain('Executive Assistant to Nick Tippmann');
   });
 
   it('keeps header injection out', () => {
