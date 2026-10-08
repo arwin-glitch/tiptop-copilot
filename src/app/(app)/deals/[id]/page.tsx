@@ -679,8 +679,8 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                   </FieldLabel>
                   <DraftButtons dealId={deal.id} recommendation={recommendation} />
                   <p className="mt-2 text-xs text-[var(--fg-subtle)]">
-                    Drafts are created for you to review and send yourself. This product has no send
-                    capability and requests no send permission.
+                    Drafts are created for you to review and send yourself. Nothing here sends on
+                    its own.
                   </p>
                 </div>
               ) : (

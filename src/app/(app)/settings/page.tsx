@@ -7,6 +7,7 @@ import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { vapidPublicKey } from '@/lib/services/push-alerts';
 import { configuredCriteria, getActiveThesis } from '@/lib/services/thesis';
 import { googleConfigured } from '@/lib/google/oauth';
+import { canSend } from '@/lib/google/gmail-send';
 import { PageHeader, PageShell, DataRow } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -64,8 +65,9 @@ export default async function SettingsPage() {
               <div>
                 <CardTitle as="h2">Google Workspace</CardTitle>
                 <p className="mt-1 text-sm text-[var(--fg-muted)]">
-                  Read-only Gmail and Calendar. This app requests no send permission and cannot send
-                  email.
+                  Gmail and Calendar, read-only by default. Sending is a separate switch below: once
+                  it is on, the email session can send a reply from this mailbox when someone taps
+                  Send. Nothing ever sends on its own.
                 </p>
               </div>
               {integration ? (
@@ -102,6 +104,29 @@ export default async function SettingsPage() {
                     for the full list.
                   </p>
                 </Notice>
+              ) : null}
+
+              {integration && !demo ? (
+                <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-[var(--border)] p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">Send from the email session</p>
+                    <p className="text-sm text-[var(--fg-muted)]">
+                      {canSend(integration)
+                        ? 'On. Replies send from this mailbox only when someone taps Send.'
+                        : 'Off. The mailbox owner turns it on once; Google asks to approve sending and organizing mail.'}
+                    </p>
+                  </div>
+                  {canSend(integration) ? (
+                    <Badge tone="ok">On</Badge>
+                  ) : (
+                    <a
+                      href="/api/integrations/google/start?send=1"
+                      className="inline-flex h-9 items-center rounded-md bg-[var(--accent)] px-3.5 text-sm font-medium text-[var(--accent-fg)] hover:opacity-90"
+                    >
+                      Turn on sending
+                    </a>
+                  )}
+                </div>
               ) : null}
 
               <dl className="divide-y divide-[var(--border)]">

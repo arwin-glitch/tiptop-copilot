@@ -13,7 +13,9 @@ import {
   type RelationshipItem,
   type SchedulingItem,
 } from '@/lib/services/follow-ups';
+import { readEmailSession } from '@/lib/services/email-session';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
+import { EmailSessionCard } from '@/components/followups/email-session-card';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Notice, SkeletonText } from '@/components/ui/feedback';
@@ -27,7 +29,7 @@ export default function FollowUpsPage() {
     <PageShell>
       <PageHeader
         title="Follow-ups"
-        subtitle="Who is waiting on you, who you are waiting on, recaps drafted after your meetings, and meeting times drafted into replies. Every draft sits in Gmail for review; nothing is sent."
+        subtitle="Who is waiting on you, who you are waiting on, recaps drafted after your meetings, and meeting times drafted into replies. Every draft sits in Gmail for review; nothing is sent unless you tap Send in an email session."
       />
       <Suspense fallback={<SkeletonText lines={10} />}>
         <FollowUpsContent />
@@ -64,8 +66,10 @@ async function FollowUpsContent() {
 
   const waiting = snapshot.waiting?.items ?? [];
   const onYou = snapshot.relationships?.waiting ?? [];
+  const session = await readEmailSession(getStore(), auth.organizationId, { now });
   return (
     <div className="space-y-8">
+      <EmailSessionCard session={session} />
       <section aria-labelledby="on-you-heading">
         <SectionHeading count={onYou.length}>
           <span id="on-you-heading">Waiting on you</span>

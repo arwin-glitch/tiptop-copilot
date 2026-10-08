@@ -20,7 +20,7 @@ The realistic threats to an internal fund tool that reads a partner's mailbox:
 | T7 | An attacker replays or forges a session | HMAC-signed, httpOnly, sameSite cookie; constant-time comparison |
 | T8 | A hostile attachment exploits a parser | Local parsing only, magic-byte sniffing, size and page ceilings |
 | T9 | Cross-site request forgery | Server actions (Next's origin check), not open POST routes |
-| T10 | An AI action with real-world consequences | There are none: no send, no transfer, no decision |
+| T10 | An AI action with real-world consequences | There are none: AI never sends, transfers or decides. The only send is a person tapping Send in the email session, after the mailbox owner opts in |
 
 ---
 

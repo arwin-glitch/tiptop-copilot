@@ -6,14 +6,16 @@ import type { DataStore } from '@/lib/db/store';
 import type { EncryptedProviderToken, Integration } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
 import { newId } from '@/lib/util/hash';
+import { SEND_SCOPES } from './send-scopes';
 
 /**
  * Google OAuth 2.0 authorization-code flow with encrypted refresh-token
  * storage.
  *
- * Scopes are read-only and deliberately minimal. `gmail.send` is not requested
- * and is not requestable from this codebase — the product creates drafts and
- * has no send path.
+ * The default connection is read-only and deliberately minimal. Sending is a
+ * separate opt-in (`{ send: true }`), started from Settings by the mailbox
+ * owner, which adds the scope in send-scopes.ts on top of these. The only code
+ * that uses it is the email session's Send button; see gmail-send.ts.
  */
 
 export const GOOGLE_SCOPES = [
@@ -40,7 +42,10 @@ export function googleConfigured(): boolean {
   return Boolean(e.googleClientId && e.googleClientSecret);
 }
 
-export function buildAuthorizationUrl(state: string): Result<string> {
+export function buildAuthorizationUrl(
+  state: string,
+  options: { send?: boolean } = {},
+): Result<string> {
   const e = env();
   if (!googleConfigured()) {
     return err('not_configured', 'Google OAuth client is not configured.');
@@ -49,7 +54,7 @@ export function buildAuthorizationUrl(state: string): Result<string> {
     client_id: e.googleClientId!,
     redirect_uri: e.googleRedirectUri,
     response_type: 'code',
-    scope: REQUESTED_SCOPES.join(' '),
+    scope: [...REQUESTED_SCOPES, ...(options.send ? SEND_SCOPES : [])].join(' '),
     access_type: 'offline',
     // Forces a refresh token even when the user has consented before.
     prompt: 'consent',

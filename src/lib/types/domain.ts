@@ -931,7 +931,8 @@ export interface GeneratedDraft {
   portfolio_company_id: Uuid | null;
   email_message_id: Uuid | null;
   /**
-   * Always false. The app has no send capability and requests no send scope.
+   * Always false. Generated drafts never send; the only send path is the
+   * email session's Send button, which does not use this table.
    * Present so the UI can state the fact rather than imply it.
    */
   sent: false;

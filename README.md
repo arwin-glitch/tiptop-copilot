@@ -71,9 +71,12 @@ broken, and several are enforced at the database level.
 5. **The AI cannot mark a deal invested.** `INVESTED` is absent from the output
    enum, and `deal_decisions.actor` has a database-level `check (actor =
    'human')`.
-6. **There is no send capability.** No `gmail.send` scope is requested
-   anywhere, `generated_drafts.sent` has `check (sent = false)`, and there is
-   deliberately no `sendDraft()`.
+6. **Nothing sends on its own.** Drafts never send:
+   `generated_drafts.sent` has `check (sent = false)` and there is deliberately
+   no `sendDraft()`. The one send path is the email session's Send button
+   (Follow-ups), behind a separate opt-in Google grant (`gmail.modify`, named
+   only in `src/lib/google/send-scopes.ts`) and a person's tap; AI tools, cron
+   jobs and routines cannot reach it (pinned by tests).
 7. **Untrusted content is fenced, never obeyed.** Email, attachment, document
    and web text is wrapped in a labelled block that the system prompt declares
    to be data. Detection *annotates*; a false positive must never make an email

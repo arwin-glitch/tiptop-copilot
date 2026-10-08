@@ -32,6 +32,7 @@ const EMPTY: FollowUpsSnapshot = {
   intros: null,
   weekAhead: null,
   lpUpdateDraft: null,
+  emailQueue: null,
 };
 
 // 15:00 UTC = 10:00 in Chicago (daylight time).

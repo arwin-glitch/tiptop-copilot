@@ -152,8 +152,8 @@ export default async function TasksPage() {
         <section className="mt-10">
           <SectionHeading count={drafts.length}>Drafts</SectionHeading>
           <p className="-mt-2 mb-3 text-sm text-[var(--fg-muted)]">
-            Every draft is unsent. This product has no send capability and requests no send
-            permission — copy a draft into your mail client to send it.
+            Every draft is unsent. Nothing sends on its own — copy a draft into your mail client to
+            send it.
           </p>
           <ul className="space-y-3">
             {drafts.map((d) => (

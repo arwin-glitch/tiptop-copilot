@@ -8,11 +8,13 @@ import type { AuditEvent, GeneratedDraft } from '@/lib/types/domain';
 import { createHarness, type Harness } from '../helpers/harness';
 
 /**
- * Invariant 6: there is no send capability.
+ * Invariant 6: nothing sends on its own.
  *
- * Not "sending is unimplemented" — the scope is never requested, `sent` is
- * permanently false, and there is deliberately no `sendDraft()`. These tests
- * assert that as a property of the codebase, not just of one function.
+ * Drafts never send: `sent` is permanently false and there is deliberately no
+ * `sendDraft()`. The one send path is the email session's Send button, which
+ * needs a separate opt-in Google grant and a person's tap. These tests assert
+ * that as a property of the codebase: the write scope lives in one file, and
+ * only the email session and Settings can reach the send module.
  */
 
 const SRC = path.resolve(import.meta.dirname, '../../src');
@@ -195,7 +197,7 @@ describe('draftAsPlainText', () => {
   });
 });
 
-describe('there is no send capability anywhere', () => {
+describe('nothing sends on its own', () => {
   it('exports no function that sends', () => {
     for (const name of Object.keys(draftsModule)) {
       expect(name).not.toMatch(/^send/i);
@@ -210,7 +212,7 @@ describe('there is no send capability anywhere', () => {
     }
   });
 
-  it('names no write scope anywhere in the source, in any file', async () => {
+  it('names a write scope in exactly one file, and only gmail.modify', async () => {
     // Matched as a scope URL, so a deep link to the Gmail UI does not trip it.
     const WRITE_SCOPE =
       /auth\/(gmail\.(send|compose|modify|insert)|calendar(\.events)?(?!\.readonly))|['"]https:\/\/mail\.google\.com\/['"]/;
@@ -218,9 +220,48 @@ describe('there is no send capability anywhere', () => {
     const offenders: string[] = [];
     for (const file of files) {
       const source = await readFile(file, 'utf8');
-      if (WRITE_SCOPE.test(source)) offenders.push(path.relative(SRC, file));
+      if (WRITE_SCOPE.test(source))
+        offenders.push(path.relative(SRC, file).split(path.sep).join('/'));
     }
-    expect(offenders).toEqual([]);
+    expect(offenders).toEqual(['lib/google/send-scopes.ts']);
+    const { SEND_SCOPES } = await import('@/lib/google/send-scopes');
+    expect([...SEND_SCOPES]).toEqual(['https://www.googleapis.com/auth/gmail.modify']);
+  });
+
+  it('only the email session and Settings can reach the send module', async () => {
+    // AI tools, cron jobs, relay readers and drafts must never import it.
+    const ALLOWED = new Set([
+      'app/api/email-session/send/route.ts',
+      'app/api/email-session/archive/route.ts',
+      'app/api/email-session/draft/route.ts',
+      'app/(app)/follow-ups/session/page.tsx',
+      'app/(app)/settings/page.tsx',
+    ]);
+    const files = await walk(SRC);
+    const importers: string[] = [];
+    for (const file of files) {
+      const source = await readFile(file, 'utf8');
+      if (/from ['"][^'"]*google\/gmail-send['"]/.test(source)) {
+        importers.push(path.relative(SRC, file).split(path.sep).join('/'));
+      }
+    }
+    expect(importers.length).toBeGreaterThan(0);
+    for (const file of importers) expect(ALLOWED.has(file), file).toBe(true);
+  });
+
+  it('the default Google connection is read-only; sending is asked for only on opt-in', async () => {
+    process.env.GOOGLE_CLIENT_ID ||= 'test-client';
+    process.env.GOOGLE_CLIENT_SECRET ||= 'test-secret';
+    const { resetEnvCache } = await import('@/lib/config/env');
+    resetEnvCache();
+    const { buildAuthorizationUrl } = await import('@/lib/google/oauth');
+    const plain = buildAuthorizationUrl('state');
+    const optIn = buildAuthorizationUrl('state', { send: true });
+    expect(plain.ok && optIn.ok).toBe(true);
+    if (plain.ok && optIn.ok) {
+      expect(decodeURIComponent(plain.value)).not.toContain('gmail.modify');
+      expect(decodeURIComponent(optIn.value)).toContain('gmail.modify');
+    }
   });
 
   it('the migrations pin generated_drafts.sent to false at the database level', async () => {

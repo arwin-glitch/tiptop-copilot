@@ -245,9 +245,11 @@ it is broken; see the table in [TESTING.md](TESTING.md) §1.
    recommendation with no re-analysis.
 5. **The AI cannot mark a deal invested.** `INVESTED` is absent from the output
    enum; `deal_decisions.actor` has a DB-level `check (actor = 'human')`.
-6. **No send capability.** No `gmail.send` scope is requested anywhere.
-   `generated_drafts.sent` has `check (sent = false)`. There is deliberately no
-   `sendDraft()` function.
+6. **Nothing sends on its own.** Drafts never send (`generated_drafts.sent`
+   has `check (sent = false)`, no `sendDraft()`). The only send path is the
+   email session's Send button, behind the opt-in "Turn on sending" grant
+   (`gmail.modify`, only in `send-scopes.ts`) and a person's tap. Tests pin that
+   only the email session and Settings import `gmail-send.ts`.
 7. **Untrusted content is fenced, never obeyed.** Email/attachment/document/web
    text goes through `fenceUntrusted()` with `UNTRUSTED_CONTENT_RULE`. Detection
    *annotates*, never hides — a false positive must not make an email invisible.

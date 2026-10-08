@@ -8,6 +8,32 @@ throughout.
 
 ---
 
+## [0.7.0] — 2026-10-08
+
+No schema change, no new dependency, no new environment variable.
+
+- **Email session (Follow-ups).** A card at the top of Follow-ups starts a
+  one-email-at-a-time session over Nick's open emails, most urgent first: today,
+  money/legal/tax, deals, promises owed, intro offers, then anyone else waiting
+  on him. Each card shows why it matters, context the Copilot already has (deal
+  stage, portfolio company and its health, Fund II stage, days waiting) and the
+  live draft from Gmail, editable. Answers: Send, Tell Arwin (a note), No reply
+  needed, Archive, Later. "I have 10 / 25 min" trims the queue; progress is
+  saved. Friendly replies and archives sit in an "Arwin handles these" pile
+  Nick can pull items back from. A "For Arwin" list shows the notes and
+  archives to act on. The rest of Follow-ups is unchanged.
+- **Sending, opt-in.** Settings › Integrations › "Turn on sending" asks
+  Google for `gmail.modify` on top of the read scopes (the mailbox owner does
+  this once). Then Send replies from Nick's inbox on the same thread with an
+  8-second undo, signed with Nick's own Gmail signature or Arwin's, and Archive
+  works from the app. Until then, Send opens the email in Gmail. Nothing ever
+  sends on its own: drafts still never send, AI tools and cron jobs cannot
+  reach the send module, and tests pin both. Invariant 6 is reworded to match.
+- New relay marker `EMAIL_QUEUE_V1` (parts supported) from the new
+  **email-queue** routine (twice daily), which reads the For Nick list and drops
+  emails already answered in Gmail. Answers live in `audit_events`
+  (`email.session_answer`).
+
 ## [0.6.0] — 2026-10-07
 
 No schema change, no new app dependency. One new GitHub secret

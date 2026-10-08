@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { authOrError } from '@/lib/auth/session';
 import { env } from '@/lib/config/env';
@@ -17,8 +17,11 @@ export const OAUTH_STATE_COOKIE = 'tiptop_oauth_state';
  * The `state` parameter is a signed, single-use nonce bound to the caller and
  * stored in an httpOnly cookie; the callback refuses anything that does not
  * match. That is the CSRF control for the OAuth round trip.
+ *
+ * `?send=1` is the "Turn on sending" button: the same flow, also asking for
+ * the send scope. Only the email session's Send button uses it.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const auth = await authOrError();
   if (!auth.ok) {
     return NextResponse.json(
@@ -54,7 +57,8 @@ export async function GET() {
   });
   const state = signedValue(statePayload);
 
-  const url = buildAuthorizationUrl(state);
+  const send = request.nextUrl.searchParams.get('send') === '1';
+  const url = buildAuthorizationUrl(state, { send });
   if (!url.ok) {
     return NextResponse.json({ ok: false, error: url.error }, { status: 503 });
   }

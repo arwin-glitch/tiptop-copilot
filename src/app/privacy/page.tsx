@@ -64,11 +64,13 @@ export default function PrivacyPage() {
 
         <Section title="Google access">
           <p>
-            Read-only. The app requests{' '}
+            Read-only by default. The app requests{' '}
             <code className="font-mono text-[12px]">gmail.readonly</code>,{' '}
             <code className="font-mono text-[12px]">calendar.readonly</code> and your account email
-            address. It does <strong>not</strong> request permission to send email, and has no send
-            capability — replies are produced as drafts for you to send yourself.
+            address. Sending is a separate switch the mailbox owner turns on in Settings, which also
+            requests <code className="font-mono text-[12px]">gmail.modify</code>. With it on, a
+            reply sends only when someone taps Send in the email session; nothing sends on its own,
+            and AI features never send.
           </p>
           <p className="mt-2">
             Refresh tokens are encrypted with AES-256-GCM using a key held only in the server

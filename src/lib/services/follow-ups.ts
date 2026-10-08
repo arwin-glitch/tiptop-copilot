@@ -40,6 +40,9 @@ import { isRelayOrganization } from './deal-relay';
  * - `LP_UPDATE_DRAFT_V1`: the quarterly LP update drafted into Gmail (to Nick
  *   only). Newest wins.
  *
+ * - `EMAIL_QUEUE_V1`: Nick's open emails for the email session, in working
+ *   order, from the For Nick refresh. Newest run wins (parts joined).
+ *
  * The four list snapshots (LP pipeline, portfolio health, intros, week ahead)
  * may arrive in numbered parts sharing one run_at; the parts are joined.
  *
@@ -57,6 +60,7 @@ export const PORTFOLIO_HEALTH_MARKER = 'PORTFOLIO_HEALTH_V1';
 export const INTROS_MARKER = 'INTROS_V1';
 export const WEEK_AHEAD_MARKER = 'WEEK_AHEAD_V1';
 export const LP_UPDATE_DRAFT_MARKER = 'LP_UPDATE_DRAFT_V1';
+export const EMAIL_QUEUE_MARKER = 'EMAIL_QUEUE_V1';
 
 const MARKERS = [
   FOLLOWUPS_MARKER,
@@ -69,6 +73,7 @@ const MARKERS = [
   INTROS_MARKER,
   WEEK_AHEAD_MARKER,
   LP_UPDATE_DRAFT_MARKER,
+  EMAIL_QUEUE_MARKER,
 ] as const;
 type Marker = (typeof MARKERS)[number];
 
@@ -282,6 +287,41 @@ export const LP_UPDATE_DRAFT_SCHEMA = z.object({
   note: optionalText(300),
 });
 export type LpUpdateDraft = z.infer<typeof LP_UPDATE_DRAFT_SCHEMA>;
+
+/** Order the email session works in; replies and archive are Arwin's pile. */
+export const EMAIL_GROUPS = [
+  'today',
+  'money',
+  'deals',
+  'owed',
+  'intros',
+  'replies',
+  'archive',
+] as const;
+export type EmailGroup = (typeof EMAIL_GROUPS)[number];
+
+export const EMAIL_QUEUE_SCHEMA = z.object({
+  run_at: z.string().datetime(),
+  part: PART,
+  items: z
+    .array(
+      z.object({
+        /** Gmail thread or message id (hex); links and sending resolve either. */
+        id: THREAD_ID,
+        who: text(120),
+        about: text(200),
+        group: z.enum(EMAIL_GROUPS),
+        call: z.enum(['reply', 'send', 'archive']),
+        flags: z.array(text(30)).max(6).default([]),
+        draft: z.enum(['on_thread', 'yours', 'none']),
+        why: optionalText(500),
+        waiting_since: z.string().datetime().nullish(),
+      }),
+    )
+    .max(150),
+});
+export type EmailQueue = z.infer<typeof EMAIL_QUEUE_SCHEMA>;
+export type EmailQueueItem = EmailQueue['items'][number];
 export type LpItem = z.infer<typeof LP_ITEM>;
 export type RelationshipItem = z.infer<typeof RELATIONSHIP_ITEM>;
 export type FollowUpItem = z.infer<typeof FOLLOWUPS_SCHEMA>['items'][number];
@@ -301,7 +341,8 @@ export type ParsedFollowUpMessage =
   | { marker: typeof PORTFOLIO_HEALTH_MARKER; value: PortfolioHealth }
   | { marker: typeof INTROS_MARKER; value: Intros }
   | { marker: typeof WEEK_AHEAD_MARKER; value: WeekAhead }
-  | { marker: typeof LP_UPDATE_DRAFT_MARKER; value: LpUpdateDraft };
+  | { marker: typeof LP_UPDATE_DRAFT_MARKER; value: LpUpdateDraft }
+  | { marker: typeof EMAIL_QUEUE_MARKER; value: EmailQueue };
 
 const SCHEMAS: Record<Marker, z.ZodTypeAny> = {
   [FOLLOWUPS_MARKER]: FOLLOWUPS_SCHEMA,
@@ -314,6 +355,7 @@ const SCHEMAS: Record<Marker, z.ZodTypeAny> = {
   [INTROS_MARKER]: INTROS_SCHEMA,
   [WEEK_AHEAD_MARKER]: WEEK_AHEAD_SCHEMA,
   [LP_UPDATE_DRAFT_MARKER]: LP_UPDATE_DRAFT_SCHEMA,
+  [EMAIL_QUEUE_MARKER]: EMAIL_QUEUE_SCHEMA,
 };
 
 const MAX_MESSAGE_CHARS = 40_000;
@@ -359,6 +401,7 @@ export interface FollowUpsSnapshot {
   intros: Intros | null;
   weekAhead: WeekAhead | null;
   lpUpdateDraft: LpUpdateDraft | null;
+  emailQueue: EmailQueue | null;
 }
 
 /** Slack pages (newest first) -> the current view. Pure, for tests. */
@@ -386,6 +429,7 @@ export function collectFollowUps(
     intros: null,
     weekAhead: null,
     lpUpdateDraft: null,
+    emailQueue: null,
   };
   const seenMeetings = new Set<string>();
   const seenThreads = new Set<string>();
@@ -445,6 +489,7 @@ export function collectFollowUps(
       case PORTFOLIO_HEALTH_MARKER:
       case INTROS_MARKER:
       case WEEK_AHEAD_MARKER:
+      case EMAIL_QUEUE_MARKER:
         addPart(parsed.marker, parsed.value);
         break;
       case LP_UPDATE_DRAFT_MARKER:
@@ -456,6 +501,7 @@ export function collectFollowUps(
   out.lpPipeline = merged<LpPipeline, 'lps'>(LP_PIPELINE_MARKER, 'lps');
   out.portfolioHealth = merged<PortfolioHealth, 'companies'>(PORTFOLIO_HEALTH_MARKER, 'companies');
   out.intros = merged<Intros, 'intros'>(INTROS_MARKER, 'intros');
+  out.emailQueue = merged<EmailQueue, 'items'>(EMAIL_QUEUE_MARKER, 'items');
   const week = merged<WeekAhead, 'events'>(WEEK_AHEAD_MARKER, 'events');
   out.weekAhead = week
     ? { ...week, events: [...week.events].sort((a, b) => a.starts_at.localeCompare(b.starts_at)) }
@@ -483,6 +529,7 @@ const EMPTY: FollowUpsSnapshot = {
   intros: null,
   weekAhead: null,
   lpUpdateDraft: null,
+  emailQueue: null,
 };
 const WINDOW_DAYS = 30;
 const MAX_PAGES = 5;
