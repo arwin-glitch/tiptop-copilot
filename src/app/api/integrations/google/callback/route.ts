@@ -78,12 +78,25 @@ export async function GET(request: NextRequest) {
 
   const store = getStore();
   const existing = await getPrimaryIntegration(store, auth.value.organizationId);
+  // Reconnecting (for example "Turn on sending") must upgrade the mailbox that
+  // is already connected, never swap in a different Google account by mistake.
+  if (
+    existing?.account_email &&
+    accountEmail &&
+    existing.account_email.toLowerCase() !== accountEmail.toLowerCase()
+  ) {
+    return redirectWithError(
+      `The Copilot is connected to ${existing.account_email}. Choose that Google account, or disconnect it first.`,
+    );
+  }
   const now = new Date().toISOString();
 
   const integration: Integration = {
     id: existing?.id ?? newId(),
     organization_id: auth.value.organizationId,
-    user_id: auth.value.userId,
+    // Keep the mailbox's existing owner, so an assistant reconnecting it
+    // upgrades the same connection instead of creating a second one.
+    user_id: existing?.user_id ?? auth.value.userId,
     provider: 'google',
     kinds: [
       ...(grantedScopes.some((s) => s.includes('gmail')) ? (['gmail'] as const) : []),
