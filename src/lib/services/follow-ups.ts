@@ -499,7 +499,8 @@ export function collectFollowUps(
         addPart(parsed.marker, parsed.value);
         break;
       case EMAIL_QUEUE_MARKER:
-        judgedRunAt ??= parsed.value.run_at;
+        // The post time, not the routine's own run_at (which can drift).
+        judgedRunAt ??= iso;
         for (const item of parsed.value.items) {
           if (out.emailJudgedAt[item.id]) continue;
           out.emailJudgedAt[item.id] = iso;
