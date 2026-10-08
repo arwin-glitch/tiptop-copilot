@@ -120,10 +120,12 @@ describe('buildSession', () => {
       now: NOW,
     });
     expect(s.items.map((i) => i.who)).toEqual(['Dana', 'Ledgerly', 'Tom', 'Maya', 'Event Hub']);
+    // Quick replies are Nick's too; only "nothing to answer" leaves his queue.
     expect(s.items.filter((i) => i.needsNick).map((i) => i.who)).toEqual([
       'Dana',
       'Ledgerly',
       'Tom',
+      'Maya',
     ]);
     expect(s.items[0]?.waitingDays).toBe(3);
   });
@@ -272,6 +274,7 @@ describe('buildSession', () => {
           },
         ],
       ]),
+      otherIds: new Set(),
       labelNames: labels,
     };
     const s = buildSession({
@@ -287,6 +290,29 @@ describe('buildSession', () => {
     expect(fresh?.group).toBe('new');
     expect(fresh?.needsNick).toBe(true);
     expect(s.items.find((i) => i.who === 'Promo')?.needsNick).toBe(false);
+  });
+
+  it('outside the Primary tab, shows only urgent emails', () => {
+    const snap = snapshotWith([
+      queueItem('dd00000000000001', 'money', 'Billing', 'Invoice past due'),
+      queueItem('dd00000000000002', 'replies', 'Newsletter guy', 'Thoughts?'),
+      queueItem('dd00000000000003', 'archive', 'Promo', 'Sale'),
+    ]);
+    const inbox: LiveInbox = {
+      ids: new Set(),
+      otherIds: new Set(['dd00000000000001', 'dd00000000000002', 'dd00000000000003']),
+      meta: new Map(),
+      labelNames: new Map(),
+    };
+    const s = buildSession({
+      snapshot: snap,
+      answers: new Map(),
+      deals: [],
+      portfolio: [],
+      now: NOW,
+      inbox,
+    });
+    expect(s.items.map((i) => i.who)).toEqual(['Billing']);
   });
 
   it('sorts unjudged emails by the triage labels', () => {

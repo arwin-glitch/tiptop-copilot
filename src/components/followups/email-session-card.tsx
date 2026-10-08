@@ -25,7 +25,7 @@ export function EmailSessionCard({ session }: { session: EmailSession }) {
         <p className="text-sm text-[var(--fg-muted)]">
           {done
             ? `All done for now. ${answered} answered.`
-            : `${forNick} need you · about ${minutes} min · ${forArwin} Arwin handles`}
+            : `${forNick} need you · about ${minutes} min${forArwin ? ` · ${forArwin} with nothing to answer` : ''}`}
           {!done && answered > 0 ? ` · ${answered} done` : ''}
         </p>
       </div>

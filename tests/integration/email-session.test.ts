@@ -28,7 +28,7 @@ describe('email session', () => {
     expect(s.items[0]?.group).toBe('today');
     const summary = sessionSummary(s);
     expect(summary.forNick).toBeGreaterThan(0);
-    expect(summary.forArwin).toBe(2);
+    expect(summary.forArwin).toBe(1);
   });
 
   it('records answers, newest wins, and keeps a note word for word', async () => {

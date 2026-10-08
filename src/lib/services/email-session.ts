@@ -55,8 +55,15 @@ export type SessionAnswerInput = z.infer<typeof ANSWER_SCHEMA>;
 const ANSWER_ACTION = 'email.session_answer';
 const ANSWER_WINDOW_DAYS = 21;
 
-/** Arwin's pile: the groups Nick does not have to decide. */
-export const ARWIN_GROUPS: readonly EmailGroup[] = ['replies', 'archive'];
+/**
+ * The only batch that leaves Nick's queue: emails with nothing to answer,
+ * cleared with one "Archive all". Anything in the inbox that needs a reply is
+ * Nick's: Arwin handles what he can before it ever reaches the session.
+ */
+export const ARWIN_GROUPS: readonly EmailGroup[] = ['archive'];
+
+/** Outside the Primary tab, only these surface in the session. */
+const URGENT_OUTSIDE_PRIMARY: readonly string[] = ['today', 'money', 'deals', 'owed', 'waiting'];
 
 export type SessionGroup = EmailGroup | 'waiting' | 'new';
 
@@ -138,8 +145,10 @@ function mentions(haystack: string, name: string): boolean {
 }
 
 export interface LiveInbox {
-  /** Thread ids in the inbox right now. */
+  /** Primary-tab thread ids in the inbox right now. */
   ids: Set<string>;
+  /** Inbox threads in the other tabs (Promotions, Updates, ...): shown only when urgent. */
+  otherIds: Set<string>;
   /** Who/what for inbox threads the routine has not judged yet. */
   meta: Map<string, InboxThreadMeta>;
   /** Gmail label id -> name (for the triage @-labels). */
@@ -180,7 +189,10 @@ export function buildSession(input: {
 }): EmailSession {
   const { snapshot, answers, deals, portfolio, now } = input;
   const inbox = input.inbox ?? null;
-  const inInbox = (id: string) => !inbox || inbox.ids.has(id);
+  const inInbox = (id: string, group?: string) =>
+    !inbox ||
+    inbox.ids.has(id) ||
+    (inbox.otherIds.has(id) && group !== undefined && URGENT_OUTSIDE_PRIMARY.includes(group));
   // An answer from before the email was last judged (it changed since) no longer applies.
   const answerFor = (id: string): SessionAnswer | null => {
     const a = answers.get(id) ?? null;
@@ -236,7 +248,7 @@ export function buildSession(input: {
   const seenIds = new Set<string>();
   const seenWho = new Set<string>();
   for (const q of queue?.items ?? []) {
-    if (seenIds.has(q.id) || !inInbox(q.id)) continue;
+    if (seenIds.has(q.id) || !inInbox(q.id, q.group)) continue;
     seenIds.add(q.id);
     seenWho.add(norm(q.who));
     const answer = answerFor(q.id);
@@ -260,7 +272,7 @@ export function buildSession(input: {
   // Waiting on Nick per the radar, with no queued email for that person yet.
   for (const w of snapshot.relationships?.waiting ?? []) {
     if (!w.thread_id || seenIds.has(w.thread_id) || seenWho.has(norm(w.who))) continue;
-    if (!inInbox(w.thread_id)) continue;
+    if (!inInbox(w.thread_id, 'waiting')) continue;
     seenIds.add(w.thread_id);
     items.push({
       id: w.thread_id,
@@ -385,7 +397,7 @@ const LABELS_TTL_MS = 60 * 60_000;
 const MAX_NEW_LOOKUPS = 40;
 
 const inboxCache = processWide('email-session-inbox', () => ({
-  ids: new Map<string, { at: number; ids: string[] }>(),
+  ids: new Map<string, { at: number; ids: string[]; otherIds: string[] }>(),
   meta: new Map<string, { at: number; meta: InboxThreadMeta | null }>(),
   labels: new Map<string, { at: number; names: Map<string, string> }>(),
 }));
@@ -410,9 +422,12 @@ async function readLiveInbox(
   const now = Date.now();
   let cached = inboxCache.ids.get(integration.id);
   if (!cached || now - cached.at > INBOX_TTL_MS) {
-    const res = await listInboxThreadIds(store, integration);
-    if (!res.ok) return null;
-    cached = { at: now, ids: res.value };
+    const [primary, other] = await Promise.all([
+      listInboxThreadIds(store, integration, 'category:primary'),
+      listInboxThreadIds(store, integration, '-category:primary'),
+    ]);
+    if (!primary.ok) return null;
+    cached = { at: now, ids: primary.value, otherIds: other.ok ? other.value : [] };
     inboxCache.ids.set(integration.id, cached);
   }
   let labels = inboxCache.labels.get(integration.id);
@@ -437,7 +452,12 @@ async function readLiveInbox(
     const m = inboxCache.meta.get(id)?.meta;
     if (m && !judged.has(id)) meta.set(id, m);
   }
-  return { ids: new Set(cached.ids), meta, labelNames: labels.names };
+  return {
+    ids: new Set(cached.ids),
+    otherIds: new Set(cached.otherIds),
+    meta,
+    labelNames: labels.names,
+  };
 }
 
 export async function readEmailSession(

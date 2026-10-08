@@ -47,7 +47,7 @@ const GROUP_LABEL: Record<SessionItem['group'], string> = {
   intros: 'Intro offer',
   waiting: 'Waiting on you',
   new: 'New in your inbox',
-  replies: 'Friendly reply',
+  replies: 'Quick reply',
   archive: 'To archive',
 };
 
@@ -211,12 +211,16 @@ export function EmailSessionClient({
           <p className="text-sm text-[var(--fg-muted)]">
             {open.length
               ? `${open.length} left for next time. Pick “All” to keep going.`
-              : 'Arwin takes it from here.'}
+              : 'The rest has nothing to answer.'}
           </p>
         </div>
       )}
 
-      <ArwinPile items={items.filter((i) => !forNick(i))} answerOf={answerOf} onAnswer={answer} />
+      <NothingToAnswer
+        items={items.filter((i) => !forNick(i))}
+        answerOf={answerOf}
+        onAnswer={answer}
+      />
       <ForArwin items={items} answerOf={answerOf} localAnswers={local} onAnswer={answer} />
     </div>
   );
@@ -539,7 +543,12 @@ function SessionCard({
   );
 }
 
-function ArwinPile({
+/**
+ * Emails with nothing to answer (FYIs, closed loops, notifications in the
+ * Primary tab): Nick clears them in one tap. "Look at it" moves one into his
+ * queue instead.
+ */
+function NothingToAnswer({
   items,
   answerOf,
   onAnswer,
@@ -548,12 +557,9 @@ function ArwinPile({
   answerOf: (i: SessionItem) => SessionAnswerKind | null;
   onAnswer: (id: string, kind: SessionAnswerKind, extra?: Record<string, unknown>) => Promise<void>;
 }) {
-  const open = items.filter((i) => !answerOf(i) || answerOf(i) === 'later');
-  if (!items.length) return null;
-  const replies = open.filter((i) => i.group === 'replies');
-  const archive = open.filter((i) => i.group === 'archive');
+  const archive = items.filter((i) => !answerOf(i) || answerOf(i) === 'later');
+  if (!archive.length) return null;
   const archiveAll = async () => {
-    if (!archive.length) return;
     const res = await postJson('/api/email-session/archive', { ids: archive.map((i) => i.id) });
     if (!res.ok) {
       toast.error('Could not archive. Try again.');
@@ -568,28 +574,27 @@ function ArwinPile({
   return (
     <details className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
       <summary className="cursor-pointer list-none p-4">
-        <span className="font-semibold">Arwin handles these</span>
+        <span className="font-semibold">Nothing to answer</span>
         <span className="ml-2 text-sm text-[var(--fg-muted)]">
-          {replies.length} friendly {replies.length === 1 ? 'reply' : 'replies'} · {archive.length}{' '}
-          to archive · unless you say otherwise
+          {archive.length} {archive.length === 1 ? 'email' : 'emails'} to clear in one tap
         </span>
       </summary>
       <div className="space-y-3 border-t border-[var(--border)] p-4">
-        {archive.length ? (
-          <Button size="sm" onClick={() => void archiveAll()}>
-            <Archive aria-hidden /> Archive all {archive.length}
-          </Button>
-        ) : null}
+        <Button size="sm" onClick={() => void archiveAll()}>
+          <Archive aria-hidden /> Archive all {archive.length}
+        </Button>
         <ul className="divide-y divide-[var(--border)]">
-          {[...replies, ...archive].map((i) => (
+          {archive.map((i) => (
             <li key={i.id} className="flex items-center gap-3 py-2 text-sm">
               <span className="min-w-0 flex-1">
                 <span className="font-medium">{i.who}</span>{' '}
                 <span className="text-[var(--fg-muted)]">· {i.about}</span>
+                {i.why ? (
+                  <span className="block text-xs text-[var(--fg-subtle)]">{i.why}</span>
+                ) : null}
               </span>
-              <Badge tone="outline">{i.group === 'archive' ? 'Archive' : 'Reply'}</Badge>
               <Button size="sm" variant="ghost" onClick={() => void onAnswer(i.id, 'stop')}>
-                I&apos;ll handle it
+                Look at it
               </Button>
             </li>
           ))}

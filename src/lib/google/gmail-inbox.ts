@@ -31,10 +31,14 @@ async function get<T>(
   }
 }
 
-/** Thread ids in the inbox now, newest first (up to 300). */
+/**
+ * Thread ids in the inbox now, newest first (up to 300). `query` narrows it,
+ * e.g. "category:primary" for the Primary tab only.
+ */
 export async function listInboxThreadIds(
   store: DataStore,
   integration: Integration,
+  query = '',
 ): Promise<Result<string[]>> {
   const ids: string[] = [];
   let pageToken = '';
@@ -42,7 +46,9 @@ export async function listInboxThreadIds(
     const res = await get<{ threads?: { id: string }[]; nextPageToken?: string }>(
       store,
       integration,
-      `/threads?labelIds=INBOX&maxResults=100${pageToken ? `&pageToken=${pageToken}` : ''}`,
+      `/threads?labelIds=INBOX&maxResults=100${query ? `&q=${encodeURIComponent(query)}` : ''}${
+        pageToken ? `&pageToken=${pageToken}` : ''
+      }`,
     );
     if (!res.ok) return res;
     for (const t of res.value.threads ?? []) ids.push(t.id);
