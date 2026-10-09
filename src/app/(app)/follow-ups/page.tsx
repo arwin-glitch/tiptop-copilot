@@ -181,7 +181,7 @@ function PresenceLine({ presence, now }: { presence: MailboxOwnerPresence; now: 
     ? `${name} hasn't signed in to the app yet`
     : lastSeenAt
       ? `${name} last opened the app ${relativeTime(lastSeenAt, now)}`
-      : `${name} has an account but no activity yet`;
+      : `${name} hasn't opened the app since visits started being tracked (Oct 9)`;
   const alerts = signedIn
     ? alertDevices > 0
       ? `phone alerts on (${alertDevices} ${alertDevices === 1 ? 'device' : 'devices'})`

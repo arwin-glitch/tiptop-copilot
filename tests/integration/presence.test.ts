@@ -82,6 +82,26 @@ describe('presence', () => {
     expect(await mailboxOwnerPresence(store, auth.organizationId, auth.userId, mailbox)).toBeNull();
   });
 
+  it('ignores rows a background job writes under the owner, like a mailbox sync', async () => {
+    const { store, auth } = harness;
+    await addArwin();
+    const mailbox = (await store.userProfileById(auth.userId))!.email;
+    const before = await mailboxOwnerPresence(store, auth.organizationId, ARWIN, mailbox);
+    await store.insert('audit_events', {
+      id: newId(),
+      organization_id: auth.organizationId,
+      user_id: auth.userId,
+      action: 'integration.sync_finished',
+      entity_type: 'integration',
+      entity_id: null,
+      metadata: {},
+      ip_hash: null,
+      created_at: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+    const after = await mailboxOwnerPresence(store, auth.organizationId, ARWIN, mailbox);
+    expect(after?.lastSeenAt).toBe(before?.lastSeenAt);
+  });
+
   it('says so when the mailbox owner has never signed in', async () => {
     const { store, auth } = harness;
     const seen = await mailboxOwnerPresence(

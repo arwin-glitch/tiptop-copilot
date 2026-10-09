@@ -23,7 +23,9 @@ No schema change, no new dependency, no new environment variable.
   anyone other than the mailbox owner sees when the owner last used the app
   and whether phone alerts are on. A page view writes one `app.visited` row in
   `audit_events`, at most once per 15 minutes per person; activity from before
-  this release (answers, Ask questions) still counts.
+  this release (answers, Ask questions) still counts. Only rows a person makes
+  count (visit, session answer, Ask question, alerts turned on): background jobs
+  such as the mailbox sync write rows under the mailbox owner too.
 
 ## [0.7.0] — 2026-10-08
 

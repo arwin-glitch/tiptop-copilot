@@ -9,13 +9,21 @@ import { processWide } from '@/lib/util/process-state';
  *
  * A page view writes one `app.visited` row in `audit_events`, at most once per
  * VISIT_THROTTLE_MS per person (no schema change, same as the push ledger).
- * Last activity is the newest audit row by that person of any kind, so things
- * done before visit tracking existed (an answer, a question in Ask) still count.
+ * Last activity is the newest row of a kind only a person in the app creates
+ * (a visit, a session answer, a question in Ask, turning on alerts). Background
+ * jobs such as the mailbox sync write rows under the mailbox owner too, so
+ * "any row by Nick" would say he was here when only a sync ran.
  */
 
 export const VISIT_ACTION = 'app.visited';
 const VISIT_THROTTLE_MS = 15 * 60_000;
 const SUBSCRIPTION_ACTION = 'push.subscription';
+const PERSON_ACTIONS = [
+  VISIT_ACTION,
+  'email.session_answer',
+  'chat.question_asked',
+  SUBSCRIPTION_ACTION,
+] as const;
 
 const lastWrite = processWide('presence-last-write', () => new Map<string, number>());
 
@@ -101,13 +109,18 @@ export async function mailboxOwnerPresence(
   }
 
   const userId = owner.member.user_id;
-  const [latest, alertDevices] = await Promise.all([
-    store.list(
-      'audit_events',
-      organizationId,
-      { eq: { user_id: userId } },
-      { orderBy: [{ field: 'created_at', direction: 'desc' }], limit: 1 },
-    ) as Promise<AuditEvent[]>,
+  const [latestPerKind, alertDevices] = await Promise.all([
+    Promise.all(
+      PERSON_ACTIONS.map(
+        (action) =>
+          store.list(
+            'audit_events',
+            organizationId,
+            { eq: { user_id: userId, action } },
+            { orderBy: [{ field: 'created_at', direction: 'desc' }], limit: 1 },
+          ) as Promise<AuditEvent[]>,
+      ),
+    ),
     store.count('audit_events', organizationId, {
       eq: { action: SUBSCRIPTION_ACTION, user_id: userId },
     }),
@@ -115,7 +128,12 @@ export async function mailboxOwnerPresence(
   return {
     name: owner.profile.full_name?.split(' ')[0] || firstNameFromEmail(target),
     signedIn: true,
-    lastSeenAt: latest[0]?.created_at ?? null,
+    lastSeenAt:
+      latestPerKind
+        .map((rows) => rows[0]?.created_at)
+        .filter((at): at is string => Boolean(at))
+        .sort()
+        .at(-1) ?? null,
     alertDevices,
   };
 }
