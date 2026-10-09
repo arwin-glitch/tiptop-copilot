@@ -14,6 +14,8 @@ import {
   type SchedulingItem,
 } from '@/lib/services/follow-ups';
 import { readEmailSession } from '@/lib/services/email-session';
+import { getPrimaryIntegration } from '@/lib/services/inbox';
+import { mailboxOwnerPresence, type MailboxOwnerPresence } from '@/lib/services/presence';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { EmailSessionCard } from '@/components/followups/email-session-card';
 import { AutoRefresh } from '@/components/shell/auto-refresh';
@@ -68,10 +70,24 @@ async function FollowUpsContent() {
   const waiting = snapshot.waiting?.items ?? [];
   const onYou = snapshot.relationships?.waiting ?? [];
   const session = await readEmailSession(getStore(), auth.organizationId, { now });
+  const integration = await getPrimaryIntegration(getStore(), auth.organizationId).catch(
+    () => null,
+  );
+  const presence = auth.isDemo
+    ? null
+    : await mailboxOwnerPresence(
+        getStore(),
+        auth.organizationId,
+        auth.userId,
+        integration?.account_email,
+      ).catch(() => null);
   return (
     <div className="space-y-8">
       <AutoRefresh minutes={10} />
-      <EmailSessionCard session={session} />
+      <div className="space-y-2">
+        <EmailSessionCard session={session} />
+        {presence ? <PresenceLine presence={presence} now={now} /> : null}
+      </div>
       <section aria-labelledby="on-you-heading">
         <SectionHeading count={onYou.length}>
           <span id="on-you-heading">Waiting on you</span>
@@ -155,6 +171,27 @@ async function FollowUpsContent() {
         )}
       </section>
     </div>
+  );
+}
+
+/** For Arwin: whether Nick has been in, so nobody has to ask him. */
+function PresenceLine({ presence, now }: { presence: MailboxOwnerPresence; now: Date }) {
+  const { name, signedIn, lastSeenAt, alertDevices } = presence;
+  const seen = !signedIn
+    ? `${name} hasn't signed in to the app yet`
+    : lastSeenAt
+      ? `${name} last opened the app ${relativeTime(lastSeenAt, now)}`
+      : `${name} has an account but no activity yet`;
+  const alerts = signedIn
+    ? alertDevices > 0
+      ? `phone alerts on (${alertDevices} ${alertDevices === 1 ? 'device' : 'devices'})`
+      : 'phone alerts not set up'
+    : null;
+  return (
+    <p className="px-1 text-xs text-[var(--fg-subtle)]">
+      {seen}
+      {alerts ? ` · ${alerts}` : ''}
+    </p>
   );
 }
 

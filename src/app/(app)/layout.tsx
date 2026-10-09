@@ -1,7 +1,10 @@
 import { redirect } from 'next/navigation';
+import { after } from 'next/server';
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth/session';
 import { isDemoMode } from '@/lib/config/env';
+import { getStore } from '@/lib/runtime';
+import { recordVisit } from '@/lib/services/presence';
 import { Mark, Wordmark } from '@/components/brand/wordmark';
 import { MobileNav, SidebarNav } from '@/components/shell/nav';
 import { CommandPalette } from '@/components/shell/command-palette';
@@ -17,6 +20,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!auth) redirect('/login');
 
   const demo = isDemoMode();
+  // "Last opened the app" for the people Nick works with; after the response, so
+  // a store fault can never slow or break a page.
+  if (!demo) {
+    const { organizationId, userId } = auth;
+    after(() => recordVisit(getStore(), organizationId, userId));
+  }
   const displayName = auth.profile.full_name ?? auth.profile.email;
 
   return (

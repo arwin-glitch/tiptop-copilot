@@ -93,9 +93,10 @@ export function EmailSessionClient({
   const [budget, setBudget] = React.useState<Budget>(() => {
     try {
       const v = typeof window === 'undefined' ? null : window.localStorage.getItem(BUDGET_KEY);
-      return v === '10' || v === '25' || v === 'all' ? v : 'all';
+      // First session starts small: the 10 most urgent minutes, not the whole pile.
+      return v === '10' || v === '25' || v === 'all' ? v : '10';
     } catch {
-      return 'all';
+      return '10';
     }
   });
   const answerOf = React.useCallback(

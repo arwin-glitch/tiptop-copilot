@@ -24,6 +24,7 @@ import { BriefItemRow, ExpandableSection, OpenSourcesButton } from '@/components
 import { RoutineBriefingCard } from '@/components/today/briefing-summary';
 import { TopPrioritiesCard } from '@/components/today/top-priorities';
 import { BriefingWatcher } from '@/components/today/briefing-watcher';
+import { WelcomeBack } from '@/components/today/welcome-back';
 import {
   CreateFollowUpButton,
   RefreshOutlookButton,
@@ -135,6 +136,8 @@ async function TodayContent() {
           </>
         }
       />
+
+      <WelcomeBack />
 
       {priorities ? <TopPrioritiesCard priorities={priorities} now={now} /> : null}
 

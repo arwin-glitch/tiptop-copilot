@@ -8,6 +8,23 @@ throughout.
 
 ---
 
+## [0.7.1] — 2026-10-09
+
+No schema change, no new dependency, no new environment variable.
+
+- **Welcome back (Today).** A one-time card for Nick's first visit after his
+  leave: the email session, phone alerts and "Waiting on you", each with a
+  link. "Got it" hides it on that device; it is gone for everyone after
+  31 October.
+- **Smaller first session.** The email session starts on "10 min" (the most
+  urgent emails that fit) unless someone already picked 25 or All on that
+  device. The Follow-ups card says so.
+- **"Nick last opened the app" (Follow-ups).** Under the email session card,
+  anyone other than the mailbox owner sees when the owner last used the app
+  and whether phone alerts are on. A page view writes one `app.visited` row in
+  `audit_events`, at most once per 15 minutes per person; activity from before
+  this release (answers, Ask questions) still counts.
+
 ## [0.7.0] — 2026-10-08
 
 No schema change, no new dependency, no new environment variable.
