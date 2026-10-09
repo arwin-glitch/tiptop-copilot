@@ -49,7 +49,8 @@ export interface DocSendReader {
   threadId: string;
   latestMessageId: string;
   hot: boolean;
-  match: { who: string; firm: string | null; stage: LpStage } | null;
+  /** `person`: this is the pipeline LP; `firm`: someone else at an LP's firm. */
+  match: { who: string; firm: string | null; stage: LpStage; by: 'person' | 'firm' } | null;
 }
 
 const SUBJECT = /^\s*(\S+@\S+?)\s+viewed( and downloaded)? the document\s+(.+?)\s*$/i;
@@ -92,7 +93,10 @@ function nameFromLocal(local: string): string | null {
 }
 
 /** The pipeline entry this viewer most likely is: same firm by domain, else same person by name. */
-export function matchLp(email: string, lps: readonly LpItem[]): LpItem | null {
+export function matchLp(
+  email: string,
+  lps: readonly LpItem[],
+): { lp: LpItem; by: 'person' | 'firm' } | null {
   const [local = '', domain = ''] = email.split('@');
   const localKey = alnum(local);
   const corporate = domain && !FREE_MAIL.has(domain);
@@ -111,7 +115,10 @@ export function matchLp(email: string, lps: readonly LpItem[]): LpItem | null {
     return firm === domainKey || firm.includes(domainKey) || domainKey.includes(firm);
   };
 
-  return lps.find((lp) => byFirm(lp) && byName(lp)) ?? lps.find(byFirm) ?? lps.find(byName) ?? null;
+  const person = lps.find((lp) => byFirm(lp) && byName(lp)) ?? lps.find(byName);
+  if (person) return { lp: person, by: 'person' };
+  const firm = lps.find(byFirm);
+  return firm ? { lp: firm, by: 'firm' } : null;
 }
 
 const DAY = 86_400_000;
@@ -143,7 +150,8 @@ export function buildReaders(
     const kinds = new Set(list.map((v) => documentKind(v.document)));
     const kind = kinds.has('fundraise') ? 'prospect' : kinds.has('lp_update') ? 'lp' : 'other';
     const [local = '', domain = ''] = email.split('@');
-    const lp = matchLp(email, options.lps);
+    const found = matchLp(email, options.lps);
+    const lp = found?.lp;
     const base = {
       lastAt: newest.at,
       views: list.length,
@@ -151,7 +159,7 @@ export function buildReaders(
     };
     readers.push({
       email,
-      name: lp?.who ?? nameFromLocal(local),
+      name: found?.by === 'person' ? found.lp.who : nameFromLocal(local),
       domain: domain && !FREE_MAIL.has(domain) ? domain : null,
       kind,
       documents: [...new Set(list.map((v) => v.document))],
@@ -159,7 +167,7 @@ export function buildReaders(
       threadId: newest.threadId,
       latestMessageId: newest.messageId,
       hot: isHot(base, options.now),
-      match: lp ? { who: lp.who, firm: lp.firm ?? null, stage: lp.stage } : null,
+      match: lp ? { who: lp.who, firm: lp.firm ?? null, stage: lp.stage, by: found!.by } : null,
       ...base,
     });
   }

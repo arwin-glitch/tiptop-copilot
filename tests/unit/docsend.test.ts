@@ -63,13 +63,29 @@ describe('matching a viewer to the LP pipeline', () => {
   const lps = [lp('Asya Moss', 'Moses Capital', 'meeting'), lp('Cal McGrath', null, 'committed')];
 
   it('matches by firm domain and by name on personal mail', () => {
-    expect(matchLp('david@mosescapital.example', lps)?.who).toBe('Asya Moss');
-    expect(matchLp('calmcgrath@gmail.com', lps)?.who).toBe('Cal McGrath');
+    expect(matchLp('david@mosescapital.example', lps)).toMatchObject({
+      lp: { who: 'Asya Moss' },
+      by: 'firm',
+    });
+    expect(matchLp('calmcgrath@gmail.com', lps)).toMatchObject({
+      lp: { who: 'Cal McGrath' },
+      by: 'person',
+    });
     expect(matchLp('someone@gmail.com', lps)).toBeNull();
   });
 });
 
 describe('readers', () => {
+  it('does not rename a viewer after a colleague in the pipeline', () => {
+    const [r] = buildReaders([view('prem@inovia.example', PROSPECT, 2)], {
+      ownDomain: 'acme.vc',
+      lps: [lp('Marianne Dubois', 'Inovia', 'contacted')],
+      now: NOW,
+    });
+    expect(r!.name).toBeNull();
+    expect(r!.match).toMatchObject({ by: 'firm', who: 'Marianne Dubois' });
+  });
+
   it('groups by viewer, drops TipTop, and puts hot prospects first', () => {
     const readers = buildReaders(
       [
