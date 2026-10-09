@@ -6,6 +6,7 @@ import { log } from '@/lib/security/redact';
 import type { AuditEvent, Organization, OrganizationMember, UserProfile } from '@/lib/types/domain';
 import { newId, sha256 } from '@/lib/util/hash';
 import { localClock } from '@/lib/util/time';
+import { buildReaders, readDocSendViews, type DocSendReader } from './docsend';
 import { readFollowUps, type FollowUpsSnapshot } from './follow-ups';
 
 /**
@@ -173,17 +174,37 @@ function listBody(lines: string[]): string {
 /**
  * The alerts due now, from the relay snapshot and the ledger of keys already
  * sent. Pure, for tests. One notification per kind, so a first run with many
- * open items is still four pings at most.
+ * open items is still five pings at most.
  */
 export function computeDueAlerts(
   snapshot: FollowUpsSnapshot,
   alreadySent: ReadonlySet<string>,
   now: Date,
   timeZone: string,
+  docsend: readonly DocSendReader[] = [],
 ): PushAlert[] {
   const clock = localClock(now, timeZone);
   if (clock.hour < QUIET_BEFORE_HOUR || clock.hour >= QUIET_FROM_HOUR) return [];
   const alerts: PushAlert[] = [];
+
+  // Someone outside TipTop opened fundraising material in the last day.
+  const opened = docsend
+    .filter((r) => r.kind === 'prospect' && now.getTime() - Date.parse(r.lastAt) <= 86_400_000)
+    .map((r) => ({ key: `docsend:${r.latestMessageId}`, r }))
+    .filter(({ key }) => !alreadySent.has(key));
+  if (opened.length) {
+    const who = (r: DocSendReader) => `${r.name ?? r.email}${r.domain ? ` (${r.domain})` : ''}`;
+    alerts.push({
+      keys: opened.map((o) => o.key),
+      title:
+        opened.length === 1
+          ? `${who(opened[0]!.r)} opened your fund materials`
+          : `${opened.length} people opened your fund materials`,
+      body: listBody(opened.map(({ r }) => `${who(r)}: ${r.documents[0]}`)),
+      url: '/fund-ii',
+      tag: 'docsend',
+    });
+  }
 
   const priorities = snapshot.priorities;
   if (priorities) {
@@ -317,7 +338,16 @@ export async function buildOutbox(
         alertedKeys(store, org.id, now),
         ownerTimeZone(store, org.id),
       ]);
-      const alerts = computeDueAlerts(followUps.snapshot, sent, now, tz);
+      const docsend = await readDocSendViews(store, org.id, { now }).catch(() => null);
+      const readers =
+        docsend?.state === 'ok'
+          ? buildReaders(docsend.views, {
+              ownDomain: docsend.ownDomain,
+              lps: followUps.snapshot.lpPipeline?.lps ?? [],
+              now,
+            })
+          : [];
+      const alerts = computeDueAlerts(followUps.snapshot, sent, now, tz, readers);
       out.push({
         organizationId: org.id,
         subscriptions: subscriptions.map(({ endpoint, keys }) => ({ endpoint, keys })),

@@ -132,7 +132,8 @@ export function PushAlertsSetting({ publicKey }: { publicKey: string }) {
       <p className="text-sm font-medium">Phone alerts</p>
       <p className="mt-1 text-sm text-[var(--fg-muted)]">
         A ping when money or legal items go stale, your morning top 3, LPs and founders waiting on
-        you, and portfolio companies newly at risk. Each item alerts once, 8am to 8pm only.
+        you, portfolio companies newly at risk, and someone outside TipTop opening your fund
+        materials on DocSend. Each item alerts once, 8am to 8pm only.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {state === 'loading' ? (

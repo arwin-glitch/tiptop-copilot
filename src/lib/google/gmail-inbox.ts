@@ -120,3 +120,55 @@ export async function readThreadMeta(
     lastFromUs: Boolean(own) && from.toLowerCase().includes(own),
   };
 }
+
+export interface MessageHeadline {
+  id: string;
+  threadId: string;
+  subject: string;
+  at: string | null;
+}
+
+/** Message ids matching a Gmail search, anywhere in the mailbox, newest first. */
+export async function listMessageIds(
+  store: DataStore,
+  integration: Integration,
+  query: string,
+  max = 300,
+): Promise<Result<string[]>> {
+  const ids: string[] = [];
+  let pageToken = '';
+  while (ids.length < max) {
+    const res = await get<{ messages?: { id: string }[]; nextPageToken?: string }>(
+      store,
+      integration,
+      `/messages?maxResults=${Math.min(100, max - ids.length)}&q=${encodeURIComponent(query)}${
+        pageToken ? `&pageToken=${pageToken}` : ''
+      }`,
+    );
+    if (!res.ok) return res;
+    for (const m of res.value.messages ?? []) ids.push(m.id);
+    if (!res.value.nextPageToken) break;
+    pageToken = res.value.nextPageToken;
+  }
+  return ok(ids);
+}
+
+/** Subject and time of one message, no body. */
+export async function readMessageHeadline(
+  store: DataStore,
+  integration: Integration,
+  id: string,
+): Promise<MessageHeadline | null> {
+  const res = await get<Msg & { id: string; threadId: string }>(
+    store,
+    integration,
+    `/messages/${id}?format=metadata&metadataHeaders=Subject`,
+  );
+  if (!res.ok) return null;
+  return {
+    id,
+    threadId: res.value.threadId,
+    subject: header(res.value, 'Subject'),
+    at: res.value.internalDate ? new Date(Number(res.value.internalDate)).toISOString() : null,
+  };
+}

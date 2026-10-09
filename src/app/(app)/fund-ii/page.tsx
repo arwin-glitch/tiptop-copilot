@@ -5,6 +5,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { LpUpdateCard } from '@/components/followups/relay-cards';
+import { DocSendReaders } from '@/components/fund-ii/docsend-readers';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { LP_STAGES, readFollowUps, type LpItem, type LpStage } from '@/lib/services/follow-ups';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
@@ -44,8 +45,11 @@ export default function FundTwoPage() {
     <PageShell>
       <PageHeader
         title="Fund II"
-        subtitle="Every LP conversation for Fund II and where it stands, read from your mail by the LP pipeline routine every weekday. Stages only; no amounts."
+        subtitle="Who is reading your DocSend links, and every LP conversation for Fund II and where it stands, read from your mail. Stages only; no amounts."
       />
+      <Suspense fallback={<SkeletonText lines={4} className="mb-8" />}>
+        <DocSendReaders />
+      </Suspense>
       <Suspense fallback={<SkeletonText lines={10} />}>
         <FundTwoContent />
       </Suspense>
