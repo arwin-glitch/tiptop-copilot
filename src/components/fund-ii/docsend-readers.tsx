@@ -119,7 +119,9 @@ function ReaderRow({ reader: r, now }: { reader: DocSendReader; now: Date }) {
                 {r.hot ? <span className="sr-only">Hot: </span> : null}
                 {r.name ?? r.email}
               </span>
-              {r.domain && r.name ? <span className="text-sm text-[var(--fg-muted)]">{r.domain}</span> : null}
+              {r.domain && r.name ? (
+                <span className="text-sm text-[var(--fg-muted)]">{r.domain}</span>
+              ) : null}
               {r.match ? (
                 <Badge tone="info">{STAGE_LABEL[r.match.stage]}</Badge>
               ) : (

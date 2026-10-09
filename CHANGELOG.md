@@ -8,6 +8,21 @@ throughout.
 
 ---
 
+## [0.8.0] — 2026-10-09
+
+No schema change, no new dependency, no new environment variable.
+
+- **Reading your DocSend (Fund II).** Who outside TipTop opened the
+  prospective-partner update or a deck, read from DocSend's view emails in
+  Nick's mailbox (last 6 months; nothing connects to DocSend itself). One row
+  per person: documents, number of views, first and last view, downloads, and
+  their Fund II pipeline stage when they match one (by firm domain or name).
+  Hot readers (a view in the last 3 days, or a repeat view or download in the
+  last 2 weeks) sit on top. Fund I LPs reading the regular LP update are listed
+  separately. Visits from TipTop addresses are ignored.
+- **Phone alert for DocSend.** A ping when someone outside TipTop opens fund
+  materials, once per view, 8am to 8pm. Never for LP-update reads.
+
 ## [0.7.1] — 2026-10-09
 
 No schema change, no new dependency, no new environment variable.
