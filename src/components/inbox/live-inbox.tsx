@@ -448,7 +448,10 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
 
         <section
           aria-label="Reading pane"
-          className={cn('min-w-0', !selected && 'hidden lg:block')}
+          className={cn(
+            'min-w-0 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto',
+            !selected && 'hidden lg:block',
+          )}
         >
           {selected ? (
             <ThreadView
@@ -859,6 +862,7 @@ function ReplyBox({
   const [sending, setSending] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const timer = React.useRef<number | null>(null);
+  const quietOpen = React.useRef(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -869,6 +873,8 @@ function ReplyBox({
         setLoaded(d);
         if (d.draft?.body) {
           setBody(d.draft.body);
+          // Shown, not focused: opening an email must not jump the page to the reply.
+          quietOpen.current = true;
           setOpen(true);
         }
       })
@@ -880,7 +886,12 @@ function ReplyBox({
   }, [threadId, setOpen]);
 
   React.useEffect(() => {
-    if (open) document.getElementById(`reply-${threadId}`)?.focus();
+    if (!open) return;
+    if (quietOpen.current) {
+      quietOpen.current = false;
+      return;
+    }
+    document.getElementById(`reply-${threadId}`)?.focus();
   }, [open, threadId]);
 
   const send = React.useCallback(async () => {
