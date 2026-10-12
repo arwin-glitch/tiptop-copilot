@@ -8,6 +8,30 @@ throughout.
 
 ---
 
+## [0.9.0] — 2026-10-12
+
+No schema change, no new dependency, no new environment variable.
+
+- **Inbox, live like Gmail.** The Inbox tab now reads Nick's Gmail directly
+  instead of the synced copy: Primary, Other tabs, Starred and Sent, and a
+  search box that takes Gmail search (from:, has:attachment, and so on) across
+  all mail. A reading pane shows the whole conversation (older messages
+  collapsed, quoted text folded, hard-wrapped plain text rejoined), with
+  attachments listed by name.
+- **Act on mail.** Archive (with Undo), Move to inbox, Star, Mark read/unread,
+  and select several at once. Opening an unread email marks it read, as Gmail
+  does. Nothing is ever deleted: there is no trash or delete action.
+- **Reply in place.** Reply all opens with the draft already on the thread in
+  Gmail, if there is one. Sign as Nick or Arwin; Send goes out from Nick's
+  inbox through the same path as the email session, with 8 seconds to undo.
+  Without the sending grant, Send opens the email in Gmail instead.
+- **Gmail's keys:** j/k, o, e, s, r, u, Shift+U, x and /.
+- **Flagged mail stays flagged.** Text aimed at an AI assistant is still
+  detected, badged in the list and explained in the reading pane.
+- **Retired with the old Inbox:** the in-app AI "Draft reply" (it needed an
+  in-app model, which production does not have; drafts come from Gmail) and
+  attach-to-deal from the Inbox.
+
 ## [0.8.0] — 2026-10-09
 
 No schema change, no new dependency, no new environment variable.
