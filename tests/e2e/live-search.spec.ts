@@ -71,13 +71,13 @@ test('deleting the text by hand also restores the list', async ({ page }) => {
 });
 
 test('every search box on the app filters as you type', async ({ page }) => {
-  // One control, five places. If any page is still on the old submit-only
+  // One control, four places. (Inbox searches Gmail on Enter, like Gmail,
+  // rather than calling Gmail on every keystroke.) If any page is still on the old submit-only
   // form, its box will not be a searchbox and this fails there.
   for (const [path, label] of [
     ['/meetings', 'Search meetings'],
     ['/deals', 'Search deals'],
     ['/network', 'Search network'],
-    ['/inbox', 'Search email'],
     ['/knowledge', 'Search knowledge base'],
   ] as const) {
     await page.goto(path);

@@ -228,7 +228,7 @@ describe('nothing sends on its own', () => {
     expect([...SEND_SCOPES]).toEqual(['https://www.googleapis.com/auth/gmail.modify']);
   });
 
-  it('only the email session and Settings can reach the send module', async () => {
+  it('only the email session, the Inbox tab and Settings can reach the send module', async () => {
     // AI tools, cron jobs, relay readers and drafts must never import it.
     const ALLOWED = new Set([
       'app/api/email-session/send/route.ts',
@@ -236,6 +236,8 @@ describe('nothing sends on its own', () => {
       'app/api/email-session/draft/route.ts',
       'app/(app)/follow-ups/session/page.tsx',
       'app/(app)/settings/page.tsx',
+      'app/api/inbox/modify/route.ts',
+      'lib/services/inbox-live.ts',
     ]);
     const files = await walk(SRC);
     const importers: string[] = [];

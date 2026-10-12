@@ -3,6 +3,7 @@ import type { DataStore } from '@/lib/db/store';
 import { getAccessToken } from '@/lib/google/oauth';
 import type { Integration } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
+import { htmlToPlainText } from '@/lib/util/text';
 
 /**
  * Read-only view of Nick's Gmail inbox for the email session: which threads
@@ -171,4 +172,115 @@ export async function readMessageHeadline(
     subject: header(res.value, 'Subject'),
     at: res.value.internalDate ? new Date(Number(res.value.internalDate)).toISOString() : null,
   };
+}
+
+/* ------------------------------------------------------------ live inbox */
+
+export interface ThreadStub {
+  id: string;
+  snippet: string;
+  historyId: string;
+}
+
+/** One page of threads for a Gmail search (optionally limited to label ids). */
+export async function listThreadPage(
+  store: DataStore,
+  integration: Integration,
+  options: { q?: string; labelIds?: string[]; pageToken?: string; max?: number },
+): Promise<Result<{ threads: ThreadStub[]; nextPageToken: string | null }>> {
+  const params = new URLSearchParams({ maxResults: String(options.max ?? 50) });
+  for (const label of options.labelIds ?? []) params.append('labelIds', label);
+  if (options.q) params.set('q', options.q);
+  if (options.pageToken) params.set('pageToken', options.pageToken);
+  const res = await get<{ threads?: ThreadStub[]; nextPageToken?: string }>(
+    store,
+    integration,
+    `/threads?${params.toString()}`,
+  );
+  if (!res.ok) return res;
+  return ok({ threads: res.value.threads ?? [], nextPageToken: res.value.nextPageToken ?? null });
+}
+
+interface FullPart {
+  mimeType?: string;
+  filename?: string;
+  headers?: { name: string; value: string }[];
+  body?: { data?: string; attachmentId?: string; size?: number };
+  parts?: FullPart[];
+}
+
+const decode = (data: string) =>
+  Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+
+function findText(part: FullPart | undefined, mime: string): string {
+  if (!part) return '';
+  if (part.mimeType === mime && part.body?.data && !part.filename) return decode(part.body.data);
+  for (const child of part.parts ?? []) {
+    const text = findText(child, mime);
+    if (text) return text;
+  }
+  return '';
+}
+
+function attachmentNames(part: FullPart | undefined, out: string[] = []): string[] {
+  if (!part) return out;
+  if (part.filename && part.body?.attachmentId) out.push(part.filename);
+  for (const child of part.parts ?? []) attachmentNames(child, out);
+  return out;
+}
+
+export interface FullMessage {
+  id: string;
+  from: string;
+  to: string;
+  cc: string;
+  date: string | null;
+  subject: string;
+  text: string;
+  attachments: string[];
+  labelIds: string[];
+}
+
+export interface FullThread {
+  id: string;
+  subject: string;
+  labelIds: string[];
+  messages: FullMessage[];
+}
+
+/** The whole conversation as plain text, drafts left out. Read scope only. */
+export async function readThreadFull(
+  store: DataStore,
+  integration: Integration,
+  id: string,
+): Promise<Result<FullThread>> {
+  const res = await get<{
+    id: string;
+    messages?: (Msg & { id: string; payload?: FullPart })[];
+  }>(store, integration, `/threads/${id}?format=full`);
+  if (!res.ok) return res;
+  const messages = (res.value.messages ?? [])
+    .filter((m) => !m.labelIds?.includes('DRAFT'))
+    .map((m) => {
+      const plain = findText(m.payload, 'text/plain');
+      const html = plain ? '' : findText(m.payload, 'text/html');
+      return {
+        id: m.id,
+        from: header(m, 'From'),
+        to: header(m, 'To'),
+        cc: header(m, 'Cc'),
+        date: m.internalDate ? new Date(Number(m.internalDate)).toISOString() : null,
+        subject: header(m, 'Subject'),
+        text: (plain || htmlToPlainText(html)).replace(/\r\n/g, '\n').trim(),
+        attachments: attachmentNames(m.payload),
+        labelIds: m.labelIds ?? [],
+      };
+    });
+  if (messages.length === 0) return err('not_found', 'That conversation has no messages.');
+  return ok({
+    id: res.value.id,
+    subject: messages[0]!.subject || '(no subject)',
+    labelIds: [...new Set(messages.flatMap((m) => m.labelIds))],
+    messages,
+  });
 }

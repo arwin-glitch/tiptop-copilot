@@ -368,3 +368,24 @@ export async function archiveThread(
   });
   return res.ok ? ok(true) : res;
 }
+
+/** The only labels the inbox may change: read state, star, and inbox (archive / move back). */
+export type InboxLabel = 'UNREAD' | 'STARRED' | 'INBOX';
+
+/** Add or remove those labels on a whole thread. Refuses without the send grant. */
+export async function setThreadLabels(
+  store: DataStore,
+  integration: Integration,
+  id: string,
+  change: { add?: InboxLabel[]; remove?: InboxLabel[] },
+): Promise<Result<true>> {
+  if (!canSend(integration)) return err('forbidden', 'This needs sending turned on.');
+  const threadId = await resolveThreadId(store, integration, id);
+  if (!threadId.ok) return threadId;
+  const res = await gmail<unknown>(store, integration, `/threads/${threadId.value}/modify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ addLabelIds: change.add ?? [], removeLabelIds: change.remove ?? [] }),
+  });
+  return res.ok ? ok(true) : res;
+}

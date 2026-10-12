@@ -207,16 +207,15 @@ test('12 — Ask answers from the records and shows what it used', async ({ page
   await expect(page.getByText('Answers cite their sources')).toBeVisible();
 });
 
-test('13 — a draft is produced and plainly marked as never sent', async ({ page }) => {
-  await page.goto(`/inbox?message=${DEMO.plumblineMessage}`);
-  await page.getByRole('button', { name: 'Draft reply' }).click();
+test('13 — without the sending grant, a reply can only be finished in Gmail', async ({ page }) => {
+  await page.goto('/inbox');
+  await page.getByRole('button', { name: /Plumbline — construction estimating/ }).click();
+  const pane = page.getByRole('region', { name: 'Reading pane' });
+  await pane.getByRole('button', { name: 'Reply' }).click();
 
-  const notSent = page.getByText('Draft — not sent');
-  await expect(notSent).toBeVisible({ timeout: 30_000 });
-
-  // Copying it out is the only route onward — there is no send control.
-  await expect(page.getByRole('button', { name: 'Copy draft' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Send/ })).toHaveCount(0);
+  // Demo has no send grant: the only route onward is Gmail, never an in-app Send.
+  await expect(pane.getByRole('button', { name: 'Send in Gmail' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Send$/ })).toHaveCount(0);
 });
 
 test('the product never offers a way to send anything', async ({ page }) => {
