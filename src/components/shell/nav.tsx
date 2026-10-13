@@ -7,6 +7,7 @@ import {
   BookOpen,
   Briefcase,
   Users,
+  CalendarClock,
   CalendarDays,
   CheckSquare,
   Inbox,
@@ -43,6 +44,7 @@ export const NAV_ITEMS = [
   { href: '/deals', label: 'Deals', icon: Target },
   { href: '/ask', label: 'Ask', icon: MessageSquare },
   { href: '/inbox', label: 'Inbox', icon: Inbox },
+  { href: '/calendar', label: 'Calendar', icon: CalendarClock },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { href: '/fund-ii', label: 'Fund II', icon: Landmark },
   { href: '/meetings', label: 'Meetings', icon: CalendarDays },
@@ -55,7 +57,10 @@ export const NAV_ITEMS = [
 // Diagnostics is an operator page: it stays a real route, linked from
 // Settings, but is no longer a destination in the main navigation.
 const GROUPS: { label: string; hrefs: string[] }[] = [
-  { label: 'Working', hrefs: ['/today', '/follow-ups', '/tasks', '/deals', '/ask', '/inbox'] },
+  {
+    label: 'Working',
+    hrefs: ['/today', '/follow-ups', '/tasks', '/deals', '/ask', '/inbox', '/calendar'],
+  },
   {
     label: 'Records',
     hrefs: ['/portfolio', '/fund-ii', '/meetings', '/network', '/updates', '/knowledge'],

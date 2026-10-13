@@ -41,7 +41,8 @@ function unauthorized(request: NextRequest): NextResponse | null {
 export async function GET(request: NextRequest) {
   const denied = unauthorized(request);
   if (denied) return denied;
-  const outbox = await buildOutbox(getStore());
+  const scope = request.nextUrl.searchParams.get('scope') === 'meetings' ? 'meetings' : 'all';
+  const outbox = await buildOutbox(getStore(), new Date(), scope);
   return NextResponse.json(
     { ok: true, publicKey: vapidPublicKey(), outbox },
     { headers: { 'Cache-Control': 'no-store' } },

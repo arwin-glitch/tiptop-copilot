@@ -1,9 +1,14 @@
 # Phone alerts for Nick (Web Push).
 #
-# Every 30 minutes in the daytime, ask the app which alerts are due
-# (GET /api/cron/push) and send them with the VAPID private key held here as
-# the VAPID_PRIVATE_KEY secret. The app also refuses to alert outside 8am-8pm
-# in the owner's timezone, so a late-starting run cannot ping at night.
+# One run loops through the day: every minute it asks the app for meetings
+# starting in about five minutes (GET /api/cron/push?scope=meetings), and every
+# half hour for everything else, then signs and sends them with the VAPID
+# private key held here as the VAPID_PRIVATE_KEY secret.
+#
+# GitHub starts scheduled runs late (sometimes hours), so the schedule only
+# makes sure a loop is running: a run that finds another already looping waits
+# in the concurrency queue, and each run hands over to the next before its
+# 6-hour limit. The loop stops itself outside 6am-9pm Central.
 #
 # Until VAPID_PRIVATE_KEY is added this job is a no-op, not a failure.
 
@@ -11,11 +16,13 @@ name: push-alerts
 
 on:
   schedule:
-    # 13:00-01:30 UTC covers 8am-8pm Central in daylight and standard time.
-    # GitHub often starts these late; that only delays an alert.
-    - cron: '7,37 13-23 * * *'
-    - cron: '7,37 0-1 * * *'
+    # 11:00-02:00 UTC covers 6am-9pm Central in daylight and standard time.
+    - cron: '3 11-23 * * *'
+    - cron: '3 0-2 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: push-alerts
@@ -24,6 +31,7 @@ concurrency:
 jobs:
   send:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
 
@@ -49,9 +57,13 @@ jobs:
           npm init -y >/dev/null
           npm install --no-audit --no-fund web-push@3.6.7
 
-      - name: Send due alerts
+      - name: Send alerts every minute
         run: node "${RUNNER_TEMP}/sender/push-alerts.mjs"
         env:
           APP_URL: ${{ vars.APP_URL || 'https://tiptop-copilot.onrender.com' }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          # Under the 350-minute job limit, leaving time to hand over.
+          LOOP_MAX_MINUTES: '330'
+          LOOP_FROM_HOUR: '6'
+          LOOP_UNTIL_HOUR: '21'

@@ -8,6 +8,34 @@ throughout.
 
 ---
 
+## [0.10.0] — 2026-10-13
+
+No schema change, no new dependency, no new environment variable.
+
+- **Meeting alerts, 5 minutes before.** A phone ping before each real
+  meeting: "Lindel / Nick in 5 min · 10:05 AM · with Lindel · Tap to join".
+  Tapping opens the Zoom/Meet/Teams link directly (`/go/meeting`). A meeting
+  means someone else is on it (invited and not declined, or the organizer), it
+  has a video link, or its title names someone ("Coffee w/ Jane", "X <> Y").
+  Blocks never ping: Focus time, out of office, Gmail bookings (flights,
+  hotels), holds nobody accepted, Lunch/Gym/Travel/Prep-style entries with no
+  one on them, family time, declined meetings, and room-only bookings.
+  Meeting alerts ignore the 8am-8pm quiet window; everything else keeps it.
+- **Alerts every minute.** The GitHub sender now loops through the day
+  (6am-9pm Central), asking for meetings every minute and for everything else
+  every half hour; a scheduled run waiting in the queue takes over before each
+  run's time limit. Repository is public, so the runner minutes are free.
+- **Calendar tab.** Nick's calendar, live, day by day (today and the next six
+  days). Every entry is marked Meeting (pings 5 min before) or Block (no ping)
+  with the reason. Meetings show who is on them, a Join link, and "How you got
+  here": the daily dossier's section for that meeting (with "The one thing to
+  know" and "Worth asking"), the week-ahead prep note on other days, and the
+  latest email threads with the people on it.
+- **Inbox: compose, forward, attachments.** Compose a new email (or press c),
+  forward one with its attachments (up to 20 MB), and open attachments: PDFs
+  and images open in a tab, everything else downloads (never rendered here).
+  Same Send path, signatures and 8-second undo as replies.
+
 ## [0.9.0] — 2026-10-12
 
 No schema change, no new dependency, no new environment variable.

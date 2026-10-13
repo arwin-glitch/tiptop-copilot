@@ -131,9 +131,11 @@ export function PushAlertsSetting({ publicKey }: { publicKey: string }) {
     <div>
       <p className="text-sm font-medium">Phone alerts</p>
       <p className="mt-1 text-sm text-[var(--fg-muted)]">
-        A ping when money or legal items go stale, your morning top 3, LPs and founders waiting on
-        you, portfolio companies newly at risk, and someone outside TipTop opening your fund
-        materials on DocSend. Each item alerts once, 8am to 8pm only.
+        A ping 5 minutes before each real meeting (calendar blocks like Focus, Hold or Lunch never
+        ping; the Calendar tab shows which is which), plus money or legal items going stale, your
+        morning top 3, LPs and founders waiting on you, portfolio companies newly at risk, and
+        someone outside TipTop opening your fund materials on DocSend. Each item alerts once;
+        everything but meetings stays within 8am to 8pm.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {state === 'loading' ? (

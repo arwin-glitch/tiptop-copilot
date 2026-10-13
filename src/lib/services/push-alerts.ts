@@ -6,7 +6,9 @@ import { log } from '@/lib/security/redact';
 import type { AuditEvent, Organization, OrganizationMember, UserProfile } from '@/lib/types/domain';
 import { newId, sha256 } from '@/lib/util/hash';
 import { localClock } from '@/lib/util/time';
+import { dueMeetingAlerts, listMeetingEvents } from '@/lib/calendar/meetings';
 import { buildReaders, readDocSendViews, type DocSendReader } from './docsend';
+import { getPrimaryIntegration } from './inbox';
 import { readFollowUps, type FollowUpsSnapshot } from './follow-ups';
 
 /**
@@ -321,10 +323,51 @@ export interface OutboxEntry {
   alerts: PushAlert[];
 }
 
-/** What the sender job should push now, per organization with a subscribed phone. */
+/**
+ * Meeting alerts: real meetings (see classifyMeeting) starting in about five
+ * minutes. These ignore the 8am-8pm quiet window, because an early meeting
+ * still needs the heads-up; calendar blocks never alert.
+ */
+async function meetingAlerts(
+  store: DataStore,
+  organizationId: string,
+  sent: ReadonlySet<string>,
+  now: Date,
+  timeZone: string,
+): Promise<PushAlert[]> {
+  const integration = await getPrimaryIntegration(store, organizationId).catch(() => null);
+  if (!integration || integration.status === 'disconnected') return [];
+  const events = await listMeetingEvents(
+    store,
+    integration,
+    new Date(now.getTime() - 60_000),
+    new Date(now.getTime() + 15 * 60_000),
+  );
+  if (!events.ok) return [];
+  const own = [integration.account_email ?? ''].filter(Boolean);
+  return dueMeetingAlerts(events.value, own, sent, now, timeZone).map((m) => {
+    const event = events.value.find((e) => e.id === m.eventId);
+    return {
+      keys: [m.key],
+      title: m.title,
+      body: clip(m.body),
+      url: event?.joinUrl ? `/go/meeting?id=${encodeURIComponent(m.eventId)}` : '/calendar',
+      tag: `meeting-${m.eventId.slice(0, 40)}`,
+    };
+  });
+}
+
+export type OutboxScope = 'all' | 'meetings';
+
+/**
+ * What the sender job should push now, per organization with a subscribed
+ * phone. The sender asks every minute for meetings only, and for everything
+ * every half hour.
+ */
 export async function buildOutbox(
   store: DataStore,
   now: Date = new Date(),
+  scope: OutboxScope = 'all',
 ): Promise<OutboxEntry[]> {
   const organizations = (await store.list('organizations', '', {})) as Organization[];
   const out: OutboxEntry[] = [];
@@ -332,22 +375,26 @@ export async function buildOutbox(
     try {
       const subscriptions = await listSubscriptions(store, org.id);
       if (!subscriptions.length) continue;
-      const followUps = await readFollowUps(store, org.id, { now, force: true });
-      if (followUps.state !== 'ok') continue;
       const [sent, tz] = await Promise.all([
         alertedKeys(store, org.id, now),
         ownerTimeZone(store, org.id),
       ]);
-      const docsend = await readDocSendViews(store, org.id, { now }).catch(() => null);
-      const readers =
-        docsend?.state === 'ok'
-          ? buildReaders(docsend.views, {
-              ownDomain: docsend.ownDomain,
-              lps: followUps.snapshot.lpPipeline?.lps ?? [],
-              now,
-            })
-          : [];
-      const alerts = computeDueAlerts(followUps.snapshot, sent, now, tz, readers);
+      const alerts: PushAlert[] = await meetingAlerts(store, org.id, sent, now, tz).catch(() => []);
+      if (scope === 'all') {
+        const followUps = await readFollowUps(store, org.id, { now, force: true });
+        if (followUps.state === 'ok') {
+          const docsend = await readDocSendViews(store, org.id, { now }).catch(() => null);
+          const readers =
+            docsend?.state === 'ok'
+              ? buildReaders(docsend.views, {
+                  ownDomain: docsend.ownDomain,
+                  lps: followUps.snapshot.lpPipeline?.lps ?? [],
+                  now,
+                })
+              : [];
+          alerts.push(...computeDueAlerts(followUps.snapshot, sent, now, tz, readers));
+        }
+      }
       out.push({
         organizationId: org.id,
         subscriptions: subscriptions.map(({ endpoint, keys }) => ({ endpoint, keys })),
