@@ -33,7 +33,7 @@ const DEADLINE_MS = 15_000;
 const HISTORY_TTL_MS = 6 * 3_600_000;
 const FETCH_BATCH = 10;
 const HISTORY_BATCH = 5;
-const MAX_HISTORY_LOOKUPS = 60;
+const MAX_HISTORY_LOOKUPS = 150;
 const META_CACHE_MAX = 5_000;
 
 export type CompanyUpdatesState = 'ok' | 'not_connected' | 'error';
@@ -179,23 +179,35 @@ async function classify(
   companies: readonly CompanyLike[],
   own: readonly string[],
   lookup: (key: string) => Promise<boolean | null>,
-): Promise<CompanyUpdate[]> {
+): Promise<{ updates: CompanyUpdate[]; incomplete: boolean }> {
   const screened = metas
     .map((m) => screenCandidate(m, { own, companies }))
-    .filter((s): s is Screened => s !== null);
-  const keys = [
+    .filter((s): s is Screened => s !== null)
+    // Newest first, so if the lookup cap is reached it is old mail that waits.
+    .sort((a, b) => (b.message.date ?? '').localeCompare(a.message.date ?? ''));
+  const allKeys = [
     ...new Set(screened.map((s) => s.historyKey).filter((k): k is string => Boolean(k))),
-  ].slice(0, MAX_HISTORY_LOOKUPS);
+  ];
+  const keys = allKeys.slice(0, MAX_HISTORY_LOOKUPS);
   const emailed = new Map<string, boolean>();
+  let failed = 0;
   for (let i = 0; i < keys.length; i += HISTORY_BATCH) {
     const batch = keys.slice(i, i + HISTORY_BATCH);
     const results = await Promise.all(batch.map((k) => lookup(k)));
-    batch.forEach((k, j) => emailed.set(k, results[j] === true));
+    batch.forEach((k, j) => {
+      if (results[j] === null) failed += 1;
+      else emailed.set(k, results[j] === true);
+    });
   }
   const updates = screened
     .map((s) => decideUpdate(s, s.historyKey ? (emailed.get(s.historyKey) ?? false) : false))
     .filter((u): u is CompanyUpdate => u !== null);
-  return newestPerThread(updates);
+  // A lookup that failed or never ran is unknown, not "never emailed": say the
+  // list is still loading so the next view tries again soon.
+  return {
+    updates: newestPerThread(updates),
+    incomplete: failed > 0 || allKeys.length > keys.length,
+  };
 }
 
 /* -------------------------------------------------------------- demo */
@@ -273,9 +285,10 @@ async function demoUpdates(
   now: Date,
 ): Promise<CompanyUpdate[]> {
   const companies = await portfolioCompanies(store, organizationId);
-  return classify(demoMetas(now), companies, ownAddresses(null), async (key) =>
+  const { updates } = await classify(demoMetas(now), companies, ownAddresses(null), async (key) =>
     DEMO_EMAILED.has(key),
   );
+  return updates;
 }
 
 /* --------------------------------------------------------------- read */
@@ -312,10 +325,13 @@ export async function readCompanyUpdates(
     // come back for the rest sooner rather than hold the page.
     const metas = await readMetas(store, integration, ids.value, Date.now() + DEADLINE_MS);
     const at = now.getTime();
-    const updates = await classify(metas, companies, ownAddresses(integration), (key) =>
-      emailedBefore(store, integration, key, at),
+    const { updates, incomplete } = await classify(
+      metas,
+      companies,
+      ownAddresses(integration),
+      (key) => emailedBefore(store, integration, key, at),
     );
-    const partial = metas.length < ids.value.length;
+    const partial = metas.length < ids.value.length || incomplete;
     const result: CompanyUpdatesResult = { state: 'ok', updates, checkedAt, partial };
     const ttl = partial ? PARTIAL_TTL_MS : LIST_TTL_MS;
     cache.lists.set(organizationId, { at, ttl, result });
