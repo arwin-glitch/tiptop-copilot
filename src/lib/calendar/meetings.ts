@@ -123,11 +123,32 @@ export interface MeetingVerdict {
   with: string[];
 }
 
-const personName = (a: { name: string | null; email: string }) =>
-  a.name?.trim() || a.email.split('@')[0]!;
+/** Nick's other addresses: they are him, never "someone else on the invite". */
+export const NICK_ALIASES = ['nick@tiptop.vc', 'nick@tiptopvc.com', 'ntippman@gmail.com'];
+
+/** "Jane Doe", or "Arwin Reyes" from arwin.reyes@…; a bare handle stays as it is. */
+function prettyName(a: { name: string | null; email: string }): string {
+  if (a.name?.trim()) return a.name.trim();
+  const local = a.email.split('@')[0]!;
+  const parts = local.split(/[._-]+/).filter((p) => /^[a-z]{2,}$/i.test(p));
+  if (parts.length < 2) return local;
+  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
+}
+
+/** One name per person: "Arwin" and "Arwin Reyes" (two addresses) show once. */
+function uniqueNames(names: string[]): string[] {
+  const out: string[] = [];
+  for (const n of names) {
+    const first = n.split(' ')[0]!.toLowerCase();
+    const dup = out.findIndex((o) => o.split(' ')[0]!.toLowerCase() === first);
+    if (dup < 0) out.push(n);
+    else if (n.length > out[dup]!.length) out[dup] = n;
+  }
+  return out;
+}
 
 export function classifyMeeting(event: MeetingEvent, ownEmails: readonly string[]): MeetingVerdict {
-  const own = new Set(ownEmails.map((e) => e.toLowerCase()));
+  const own = new Set([...ownEmails, ...NICK_ALIASES].map((e) => e.toLowerCase()));
   const isOwn = (email: string, self: boolean) => self || own.has(email);
   const no = (reason: string): MeetingVerdict => ({ meeting: false, reason, with: [] });
 
@@ -150,7 +171,7 @@ export function classifyMeeting(event: MeetingEvent, ownEmails: readonly string[
   const others = event.attendees.filter((a) => !a.resource && !isOwn(a.email, a.self));
   const active = others.filter((a) => a.response !== 'declined');
   const accepted = others.filter((a) => a.response === 'accepted');
-  const names = active.map(personName).slice(0, 4);
+  const names = uniqueNames(active.map(prettyName)).slice(0, 4);
   const blockTitle = BLOCK_TITLE.test(event.title);
 
   if (HOLD_TITLE.test(event.title) && accepted.length === 0) return no('A hold, not confirmed');
@@ -160,8 +181,17 @@ export function classifyMeeting(event: MeetingEvent, ownEmails: readonly string[
     return { meeting: true, reason: `With ${names.join(', ')}`, with: names };
   }
   const organizer = event.organizer && !isOwn(event.organizer.email, event.organizer.self);
+  // A group invite (other guests hidden) Nick has not accepted, like an open
+  // LP pitch session: he may well not go, so it does not ping.
+  if (organizer && (!me || me.response === 'needsAction' || me.response === 'tentative')) {
+    return no(
+      me?.response === 'tentative'
+        ? 'Group invite Nick marked maybe'
+        : "Group invite Nick hasn't accepted",
+    );
+  }
   if (organizer && !blockTitle) {
-    const who = event.organizer!.email.split('@')[0]!;
+    const who = prettyName({ name: null, email: event.organizer!.email });
     return { meeting: true, reason: `Invited by ${who}`, with: [who] };
   }
   if (event.transparent) return no('Marked free, no one else on it');

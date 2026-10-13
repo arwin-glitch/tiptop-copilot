@@ -55,10 +55,28 @@ describe('what counts as a meeting', () => {
     expect(v).toMatchObject({ meeting: true, with: ['Lindel Eakman'] });
   });
 
-  it('an invite someone else sent Nick', () => {
-    expect(
-      verdict({ title: 'Partner sync', organizer: { email: 'jo@fund.com', self: false } }).meeting,
-    ).toBe(true);
+  it('an invite someone else sent Nick, once he has accepted it', () => {
+    const invite = { title: 'Partner sync', organizer: { email: 'jo@fund.com', self: false } };
+    expect(verdict({ ...invite, attendees: [me('accepted')] }).meeting).toBe(true);
+  });
+
+  it('not an open group invite he never accepted, like an LP pitch session', () => {
+    const pitch = {
+      title: 'Caddie <> LP Pitch / Q&A',
+      organizer: { email: 'mike@pef.com', self: false },
+    };
+    expect(verdict({ ...pitch, attendees: [me('needsAction')] }).reason).toBe(
+      "Group invite Nick hasn't accepted",
+    );
+    expect(verdict({ ...pitch, attendees: [] }).meeting).toBe(false);
+  });
+
+  it("Nick's own other addresses are not other people", () => {
+    const v = verdict({
+      title: 'Tiptop <> Nakama',
+      attendees: [me(), person('ntippman@gmail.com'), person('jake.lee@nakama.com')],
+    });
+    expect(v.with).toEqual(['Jake Lee']);
   });
 
   it('a block with a video link but no title words is still a call', () => {
