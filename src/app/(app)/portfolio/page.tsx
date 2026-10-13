@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { requireAuth } from '@/lib/auth/session';
 import { readFollowUps } from '@/lib/services/follow-ups';
 import { PortfolioHealthCard } from '@/components/followups/relay-cards';
@@ -9,7 +10,8 @@ import { pullPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, FieldLabel } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/feedback';
+import { EmptyState, SkeletonText } from '@/components/ui/feedback';
+import { PortfolioNumbers } from '@/components/portfolio/portfolio-numbers';
 import {
   AddPortfolioButton,
   ImportPortfolioButton,
@@ -160,6 +162,16 @@ export default async function PortfolioPage() {
           )}
         </section>
       ) : null}
+
+      {/* Company-reported numbers from their update emails, live from Gmail;
+          streams in on its own so the rest of the page never waits for it. */}
+      <Suspense fallback={<SkeletonText lines={4} className="mb-8" />}>
+        <PortfolioNumbers
+          organizationId={auth.organizationId}
+          companies={companies}
+          timeZone={auth.profile.timezone}
+        />
+      </Suspense>
 
       <section>
         <SectionHeading count={companies.length}>Companies</SectionHeading>

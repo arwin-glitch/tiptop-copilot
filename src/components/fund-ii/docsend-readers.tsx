@@ -3,12 +3,15 @@ import { requireAuth } from '@/lib/auth/session';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { buildReaders, readDocSendViews, type DocSendReader } from '@/lib/services/docsend';
+import { followUpDraft, readFollowUpContext } from '@/lib/services/docsend-follow-up';
 import { readFollowUps, type LpStage } from '@/lib/services/follow-ups';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
+import { FollowUpButton } from '@/components/fund-ii/follow-up-button';
+import { WarmPaths } from '@/components/fund-ii/warm-paths';
 import { SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { relativeTime } from '@/lib/util/time';
+import { formatMonthDay, relativeTime } from '@/lib/util/time';
 
 const STAGE_LABEL: Record<LpStage, string> = {
   target: 'Target',
@@ -46,6 +49,21 @@ export async function DocSendReaders() {
   const hot = prospects.filter((r) => r.hot);
   const shown = prospects.slice(0, Math.max(SHOWN, hot.length));
   const rest = prospects.slice(shown.length);
+  // Has Nick already written to them? Checked for every row with a Follow up
+  // button (shown first, then the earlier ones), so he does not follow up
+  // twice. A row that could not be checked says so.
+  const followUp = await readFollowUpContext(
+    store,
+    auth.organizationId,
+    prospects.map((r) => r.email),
+    { now, isDemo: auth.isDemo },
+  );
+  const tz = auth.profile.timezone;
+  const rowProps = { now, tz, canSend: followUp.canSend };
+  const sentProps = (r: DocSendReader) => ({
+    lastSentAt: followUp.lastSent[r.email] ?? null,
+    sentChecked: followUp.checked.has(r.email),
+  });
 
   return (
     <section aria-labelledby="docsend-heading" className="mb-8">
@@ -65,7 +83,7 @@ export async function DocSendReaders() {
       ) : (
         <ul className="space-y-2">
           {shown.map((r) => (
-            <ReaderRow key={r.email} reader={r} now={now} />
+            <ReaderRow key={r.email} reader={r} {...sentProps(r)} {...rowProps} />
           ))}
         </ul>
       )}
@@ -76,7 +94,7 @@ export async function DocSendReaders() {
           </summary>
           <ul className="mt-2 space-y-2">
             {rest.map((r) => (
-              <ReaderRow key={r.email} reader={r} now={now} />
+              <ReaderRow key={r.email} reader={r} {...sentProps(r)} {...rowProps} />
             ))}
           </ul>
         </details>
@@ -103,7 +121,23 @@ export async function DocSendReaders() {
   );
 }
 
-function ReaderRow({ reader: r, now }: { reader: DocSendReader; now: Date }) {
+function ReaderRow({
+  reader: r,
+  now,
+  tz,
+  canSend,
+  lastSentAt,
+  sentChecked,
+}: {
+  reader: DocSendReader;
+  now: Date;
+  tz: string;
+  canSend: boolean;
+  /** When Nick last emailed them (last 60 days), if known. */
+  lastSentAt: string | null;
+  /** False when his sent mail could not be checked for this reader. */
+  sentChecked: boolean;
+}) {
   const href = gmailThreadUrl(r.threadId, DEFAULT_MAILBOX);
   return (
     <li>
@@ -139,6 +173,19 @@ function ReaderRow({ reader: r, now }: { reader: DocSendReader; now: Date }) {
               {r.views} {r.views === 1 ? 'view' : 'views'} · last {relativeTime(r.lastAt, now)}
               {r.views > 1 ? ` · first ${relativeTime(r.firstAt, now)}` : ''}
             </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <FollowUpButton draft={followUpDraft(r)} canSend={canSend} who={r.name ?? r.email} />
+              {lastSentAt ? (
+                <span className="text-xs text-[var(--fg-muted)]">
+                  You emailed them {formatMonthDay(lastSentAt, tz)}
+                </span>
+              ) : !sentChecked ? (
+                <span className="text-xs text-[var(--fg-subtle)]">
+                  Couldn&apos;t check your sent mail for them
+                </span>
+              ) : null}
+              <WarmPaths email={r.email} />
+            </div>
           </div>
           {href ? (
             <a

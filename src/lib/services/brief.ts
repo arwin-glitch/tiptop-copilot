@@ -25,7 +25,7 @@ import { truncate } from '@/lib/util/text';
 import { err, ok, type Result } from '@/lib/util/result';
 import { latestAnalysesByDeal } from './deal-analysis';
 import { readSidecars } from './deal-ingest';
-import { NICK_ALIASES } from '@/lib/calendar/meetings';
+import { isCalendarNotice, NICK_ALIASES } from '@/lib/calendar/meetings';
 import { getPrimaryIntegration } from './inbox';
 import { dueAndOverdue } from './tasks';
 import { getActiveThesis } from './thesis';
@@ -247,7 +247,10 @@ async function buildMeetingPrep(
   const nowMs = Date.now();
   const lastInteraction =
     recentEmails.find(
-      (m) => attendeeAddresses.has(m.from_address.toLowerCase()) && Date.parse(m.sent_at) <= nowMs,
+      (m) =>
+        attendeeAddresses.has(m.from_address.toLowerCase()) &&
+        Date.parse(m.sent_at) <= nowMs &&
+        !isCalendarNotice(m.subject),
     ) ?? null;
 
   const openQuestions = relatedDeal?.open_questions.slice(0, 3) ?? [];

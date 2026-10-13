@@ -9,6 +9,7 @@ import type { UpdatePost, UpdateSourceView } from '@/lib/updates/types';
 import { relativeTime } from '@/lib/util/time';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { EmptyState, ErrorState, Notice, SkeletonText } from '@/components/ui/feedback';
+import { FreshCompanyUpdates } from '@/components/updates/company-updates';
 import { RefreshUpdatesButton } from '@/components/updates/refresh-updates-button';
 import { SetupBanner, SourceStatusStrip } from '@/components/updates/source-status';
 import { UpdatePostCard } from '@/components/updates/update-card';
@@ -23,7 +24,7 @@ export default async function UpdatesPage() {
     <PageShell>
       <PageHeader
         title="Dealflow reports"
-        subtitle="Weekly dealflow reports and Nick's update digests, read live from Slack. Read-only."
+        subtitle="Weekly dealflow reports and Nick's update digests, read live from Slack, plus company updates that landed in Gmail since. Read-only."
         actions={<RefreshUpdatesButton />}
       />
       <Suspense fallback={<SkeletonText lines={10} />}>
@@ -57,17 +58,32 @@ async function UpdatesContent() {
     );
   }
   const snapshot = await readUpdates(feed, { now }).catch(() => null);
+  const timeZone = auth.profile.timezone;
+  // Founder updates that landed between digests, live from Gmail. Streams in
+  // on its own so a slow mailbox never holds up the Slack reports.
+  const fresh = (
+    <Suspense fallback={<SkeletonText lines={4} />}>
+      <FreshCompanyUpdates
+        organizationId={auth.organizationId}
+        snapshot={snapshot}
+        now={now}
+        timeZone={timeZone}
+      />
+    </Suspense>
+  );
   if (!snapshot) {
     return (
-      <ErrorState
-        title="Updates could not be loaded"
-        message="Reading the Slack channels failed unexpectedly. Try Refresh in a minute."
-        stillUsable="Every other page."
-      />
+      <div className="space-y-5">
+        {fresh}
+        <ErrorState
+          title="Updates could not be loaded"
+          message="Reading the Slack channels failed unexpectedly. Try Refresh in a minute."
+          stillUsable="Every other page."
+        />
+      </div>
     );
   }
 
-  const timeZone = auth.profile.timezone;
   const botHandle = snapshot.workspace.botHandle;
   const readable = snapshot.sources.some((v) => v.access.state === 'ok' || v.stale);
 
@@ -119,6 +135,8 @@ async function UpdatesContent() {
       {snapshot.setup ? (
         <SetupBanner setup={snapshot.setup} botHandle={botHandle} views={snapshot.sources} />
       ) : null}
+
+      {fresh}
 
       <UpdatesBrowser
         sources={snapshot.sources.map((v) => ({

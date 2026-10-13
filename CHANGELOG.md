@@ -8,6 +8,32 @@ throughout.
 
 ---
 
+## [0.11.0] — 2026-10-13
+
+No schema change, no new dependency, no new environment variable.
+
+- **Fresh company updates (Reports).** Founder and investor updates from the
+  last 30 days, read live from Gmail, above the Slack digests: so an update
+  that lands between digests (like Hank's on Oct 12) shows the same day. Only
+  updates from portfolio companies or people Nick has emailed are shown, each
+  with the reason, the kind (investor/quarterly/fundraise "Day N"), "you were
+  bcc'd", and "In the Slack digest" when it already appeared there.
+- **Numbers from their updates (Portfolio).** ARR or MRR (never converted),
+  cash, runway, raising status and YoY growth pulled from each portfolio
+  company's update emails by rules (no model), each with its as-of date and
+  source email, ARR/MRR with a small trend line. Labelled company-reported.
+  Plan, target, deal, customer, pipeline and prior-period figures are refused;
+  when two figures conflict, neither is shown.
+- **Follow up (Fund II).** DocSend prospect rows get a Follow up button that
+  opens the compose window prefilled to the reader in Nick's voice, plus "You
+  emailed them <date>" from sent mail so nobody gets chased twice.
+- **Who can intro? (Fund II).** On LP cards and DocSend rows: people Nick
+  already knows at the firm, and people who have been on threads with them and
+  could introduce him, from the last 3 years of his mail, each with a sample
+  thread. Read-only; says so honestly when nothing is found.
+- **Calendar invites are not "emails".** Invites, updates and RSVPs no longer
+  count as the last email with someone on Today or the Calendar tab.
+
 ## [0.10.0] — 2026-10-13
 
 No schema change, no new dependency, no new environment variable.

@@ -214,3 +214,18 @@ Worth asking:
     });
   });
 });
+
+describe('calendar notices are not conversations', () => {
+  it('spots invites, updates and RSVPs, but not real emails', async () => {
+    const { isCalendarNotice } = await import('@/lib/calendar/meetings');
+    expect(
+      isCalendarNotice('Invitation: Dawid <> Nick @ Tue Oct 13, 2026 9am (CDT) (nick@acme.vc)'),
+    ).toBe(true);
+    expect(isCalendarNotice('Accepted: Nick Tippmann <> Jack (Flycore) @ Tue Oct 20, 2026')).toBe(
+      true,
+    );
+    expect(isCalendarNotice('Updated invitation: Daily 1:1 @ Tue Jul 21')).toBe(true);
+    expect(isCalendarNotice('Re: fintavo | Pre-Seed Round fully signed')).toBe(false);
+    expect(isCalendarNotice('Accepted offer details')).toBe(false);
+  });
+});

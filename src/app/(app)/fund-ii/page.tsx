@@ -6,8 +6,10 @@ import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { LpUpdateCard } from '@/components/followups/relay-cards';
 import { DocSendReaders } from '@/components/fund-ii/docsend-readers';
+import { WarmPaths } from '@/components/fund-ii/warm-paths';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { LP_STAGES, readFollowUps, type LpItem, type LpStage } from '@/lib/services/follow-ups';
+import { searchableFirm } from '@/lib/services/warm-paths';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -175,6 +177,8 @@ function isStale(lp: LpItem, now: Date): boolean {
 function LpCard({ lp, now, tz }: { lp: LpItem; now: Date; tz: string }) {
   const href = lp.thread_id ? gmailThreadUrl(lp.thread_id, DEFAULT_MAILBOX) : null;
   const stale = lp.stage !== 'committed' && lp.stage !== 'passed' && isStale(lp, now);
+  const firm = searchableFirm(lp.firm);
+  const canAskIntro = Boolean(lp.thread_id || firm);
   return (
     <li>
       <Card>
@@ -212,6 +216,11 @@ function LpCard({ lp, now, tz }: { lp: LpItem; now: Date; tz: string }) {
               : 'Not contacted yet'}
             {lp.note ? ` · ${lp.note}` : ''}
           </p>
+          {canAskIntro ? (
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <WarmPaths thread={lp.thread_id ?? null} firm={firm} />
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </li>

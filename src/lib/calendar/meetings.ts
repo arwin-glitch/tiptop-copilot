@@ -152,6 +152,14 @@ export interface MeetingVerdict {
   with: string[];
 }
 
+/** Google Calendar's own mails: invites, updates, RSVPs and cancellations. */
+const CALENDAR_NOTICE =
+  /^\s*(invitation|updated invitation|accepted|declined|tentatively accepted|canceled event|cancelled event|event canceled|event cancelled|new event|updated event)\b.*:/i;
+
+export function isCalendarNotice(subject: string | null | undefined): boolean {
+  return CALENDAR_NOTICE.test(subject ?? '');
+}
+
 /** Nick's other addresses: they are him, never "someone else on the invite". */
 export const NICK_ALIASES = ['nick@tiptop.vc', 'nick@tiptopvc.com', 'ntippman@gmail.com'];
 

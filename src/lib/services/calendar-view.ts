@@ -3,6 +3,7 @@ import { isDemoMode } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import {
   classifyMeeting,
+  isCalendarNotice,
   listMeetingEvents,
   meetingFromStoredEvent,
   type MeetingEvent,
@@ -132,13 +133,15 @@ async function recentThreads(
   const hit = recentCache.get(key);
   if (hit && Date.now() - hit.at < RECENT_TTL_MS) return hit.threads;
   const q = `{${emails.map((e) => `from:${e} to:${e} cc:${e}`).join(' ')}} newer_than:1y`;
-  const page = await listThreadPage(store, integration, { q, max: 3 });
+  const page = await listThreadPage(store, integration, { q, max: 8 });
   if (!page.ok) return [];
   const metas = await Promise.all(
     page.value.threads.map((t) => readThreadMeta(store, integration, t.id).catch(() => null)),
   );
+  // Calendar invites and RSVPs are not conversations: skip them.
   const threads = metas
-    .filter((m): m is NonNullable<typeof m> => Boolean(m))
+    .filter((m): m is NonNullable<typeof m> => Boolean(m) && !isCalendarNotice(m!.subject))
+    .slice(0, 3)
     .map((m) => ({ id: m.id, subject: m.subject, at: m.latestAt }));
   recentCache.set(key, { at: Date.now(), threads });
   return threads;
