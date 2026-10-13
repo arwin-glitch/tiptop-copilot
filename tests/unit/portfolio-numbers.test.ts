@@ -719,3 +719,13 @@ describe('caught on live data (Oct 13)', () => {
     expect(n?.raising).toBeNull();
   });
 });
+
+describe('raising label tidying', () => {
+  it('drops markdown emphasis from the quoted words', () => {
+    const r = extractMetrics(
+      'Starting seed conversations next week, *raising $7M* from new investors.',
+    ).raising;
+    expect(r?.label).not.toMatch(/\*/);
+    expect(r?.label).toMatch(/raising \$7M/);
+  });
+});

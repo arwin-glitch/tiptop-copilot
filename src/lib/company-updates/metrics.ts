@@ -936,7 +936,12 @@ const LEAD_SUBJECT =
   /^(?:we|i|the team|the company|our team)(?:\s*['’](?:re|ll|ve|m|d)\b|\s+(?:are|am|will be|will|have|had|were|was))?\s+(?:(?:now|currently|also|actively|officially|finally)\s+)*/i;
 
 function cleanRaising(clause: string): string {
-  let s = clause.trim().replace(LEAD_CONNECTOR, '').trim();
+  // Emails in plain text keep their *bold* and _italic_ marks: drop them.
+  let s = clause
+    .replace(/(^|[\s(])[*_]+(?=\S)|(?<=\S)[*_]+(?=[\s).,;:!?]|$)/g, '$1')
+    .trim()
+    .replace(LEAD_CONNECTOR, '')
+    .trim();
   s = s.replace(LEAD_SUBJECT, '').trim();
   s = s.replace(/^(?:a|an|the)\s+(?=[A-Z$€£]|series|seed|pre|bridge|round)/i, '');
   s = s.replace(/[\s.,;:!]+$/, '');
