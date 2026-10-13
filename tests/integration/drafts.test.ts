@@ -237,6 +237,7 @@ describe('nothing sends on its own', () => {
       'app/(app)/follow-ups/session/page.tsx',
       'app/(app)/settings/page.tsx',
       'app/api/inbox/modify/route.ts',
+      'app/api/inbox/compose/route.ts',
       'lib/services/inbox-live.ts',
     ]);
     const files = await walk(SRC);

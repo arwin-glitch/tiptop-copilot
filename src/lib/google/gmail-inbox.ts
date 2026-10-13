@@ -222,11 +222,42 @@ function findText(part: FullPart | undefined, mime: string): string {
   return '';
 }
 
-function attachmentNames(part: FullPart | undefined, out: string[] = []): string[] {
+export interface AttachmentRef {
+  name: string;
+  id: string;
+  mimeType: string;
+  size: number;
+}
+
+function attachmentRefs(part: FullPart | undefined, out: AttachmentRef[] = []): AttachmentRef[] {
   if (!part) return out;
-  if (part.filename && part.body?.attachmentId) out.push(part.filename);
-  for (const child of part.parts ?? []) attachmentNames(child, out);
+  if (part.filename && part.body?.attachmentId) {
+    out.push({
+      name: part.filename,
+      id: part.body.attachmentId,
+      mimeType: part.mimeType ?? 'application/octet-stream',
+      size: part.body.size ?? 0,
+    });
+  }
+  for (const child of part.parts ?? []) attachmentRefs(child, out);
   return out;
+}
+
+/** One attachment's bytes. Read scope only. */
+export async function readAttachment(
+  store: DataStore,
+  integration: Integration,
+  messageId: string,
+  attachmentId: string,
+): Promise<Result<Buffer>> {
+  const res = await get<{ data?: string }>(
+    store,
+    integration,
+    `/messages/${messageId}/attachments/${attachmentId}`,
+  );
+  if (!res.ok) return res;
+  if (!res.value.data) return err('not_found', 'That attachment is empty.');
+  return ok(Buffer.from(res.value.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64'));
 }
 
 export interface FullMessage {
@@ -237,7 +268,7 @@ export interface FullMessage {
   date: string | null;
   subject: string;
   text: string;
-  attachments: string[];
+  attachments: AttachmentRef[];
   labelIds: string[];
 }
 
@@ -272,7 +303,7 @@ export async function readThreadFull(
         date: m.internalDate ? new Date(Number(m.internalDate)).toISOString() : null,
         subject: header(m, 'Subject'),
         text: (plain || htmlToPlainText(html)).replace(/\r\n/g, '\n').trim(),
-        attachments: attachmentNames(m.payload),
+        attachments: attachmentRefs(m.payload),
         labelIds: m.labelIds ?? [],
       };
     });

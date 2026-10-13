@@ -7,6 +7,7 @@ import {
   readLabelNames,
   readThreadFull,
   readThreadMeta,
+  type AttachmentRef,
   type FullThread,
   type InboxThreadMeta,
 } from '@/lib/google/gmail-inbox';
@@ -22,6 +23,8 @@ import { getPrimaryIntegration } from './inbox';
  * sees in Gmail, read live. Replies and archive go through the same send path
  * as the email session (gmail-send.ts), so nothing ever sends on its own.
  */
+
+export type { AttachmentRef };
 
 export const INBOX_TABS = ['primary', 'other', 'starred', 'sent'] as const;
 export type InboxTab = (typeof INBOX_TABS)[number];
@@ -71,7 +74,7 @@ export interface LiveMessage {
   cc: string;
   at: string | null;
   text: string;
-  attachments: string[];
+  attachments: AttachmentRef[];
   fromUs: boolean;
   flagged: boolean;
 }

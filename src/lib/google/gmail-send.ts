@@ -8,7 +8,7 @@ import { err, ok, type Result } from '@/lib/util/result';
 import { SEND_SCOPES } from './send-scopes';
 
 /**
- * The only send path in the product: the email session's Send button.
+ * The only send path in the product: Send in the email session and the Inbox.
  *
  * Sending is a separate, opt-in grant. The default Google connection stays
  * read-only (see oauth.ts); the mailbox owner turns sending on from Settings,
@@ -18,9 +18,10 @@ import { SEND_SCOPES } from './send-scopes';
  * Rules this module keeps:
  * - It sends only when a signed-in person taps Send on one email. Nothing in
  *   the AI tools, the routines or the cron jobs imports it.
- * - It replies on an existing thread, to the recipients of the draft already
- *   on that thread (or, with no draft, reply-all to the latest message), from
- *   the connected mailbox only.
+ * - A reply goes on an existing thread, to the recipients of the draft already
+ *   on that thread (or, with no draft, reply-all to the latest message). A new
+ *   email or forward (sendNew) goes to the addresses the person typed. Either
+ *   way, only from the connected mailbox.
  * - Reading the draft and the signature needs only the read scope.
  */
 
@@ -388,4 +389,136 @@ export async function setThreadLabels(
     body: JSON.stringify({ addLabelIds: change.add ?? [], removeLabelIds: change.remove ?? [] }),
   });
   return res.ok ? ok(true) : res;
+}
+
+export interface MimeAttachment {
+  filename: string;
+  mimeType: string;
+  data: Buffer;
+}
+
+/** RFC 2822 new message (no thread), plain + HTML, optionally with attachments. Exported for tests. */
+export function buildNewMime(input: {
+  from: string;
+  to: string;
+  cc: string;
+  subject: string;
+  body: string;
+  signatureHtml: string | null;
+  attachments?: MimeAttachment[];
+}): string {
+  const reply = buildReplyMime({ ...input, inReplyTo: '', references: '' });
+  if (!input.attachments?.length) return reply;
+  // Re-wrap: the alternative part becomes the first part of a multipart/mixed.
+  const split = reply.indexOf('\r\n\r\n');
+  const headerLines = reply.slice(0, split).split('\r\n');
+  const altType = headerLines.find((h) => h.startsWith('Content-Type: multipart/alternative'))!;
+  const outer = headerLines.filter((h) => !h.startsWith('Content-Type: multipart/alternative'));
+  const mixed = `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  const clean = (v: string) => v.replace(/[\r\n"]+/g, ' ').trim();
+  const parts = input.attachments.map((a) =>
+    [
+      `--${mixed}`,
+      `Content-Type: ${clean(a.mimeType) || 'application/octet-stream'}; name="${clean(a.filename)}"`,
+      `Content-Disposition: attachment; filename="${clean(a.filename)}"`,
+      'Content-Transfer-Encoding: base64',
+      '',
+      (a.data.toString('base64').match(/.{1,76}/g) ?? []).join('\r\n'),
+    ].join('\r\n'),
+  );
+  return [
+    ...outer,
+    `Content-Type: multipart/mixed; boundary="${mixed}"`,
+    '',
+    `--${mixed}`,
+    altType,
+    '',
+    reply.slice(split + 4),
+    ...parts,
+    `--${mixed}--`,
+    '',
+  ].join('\r\n');
+}
+
+const MAX_FORWARD_BYTES = 20 * 1024 * 1024;
+
+interface AttachmentPart {
+  filename?: string;
+  mimeType?: string;
+  body?: { attachmentId?: string; size?: number };
+  parts?: AttachmentPart[];
+}
+
+function attachmentParts(part: AttachmentPart | undefined, out: AttachmentPart[] = []) {
+  if (!part) return out;
+  if (part.filename && part.body?.attachmentId) out.push(part);
+  for (const child of part.parts ?? []) attachmentParts(child, out);
+  return out;
+}
+
+/**
+ * Send a new email (or a forward, which carries the original's attachments)
+ * from the connected mailbox, from a person's tap on Send. Refuses without the
+ * send grant.
+ */
+export async function sendNew(
+  store: DataStore,
+  integration: Integration,
+  input: {
+    to: string;
+    cc: string;
+    subject: string;
+    body: string;
+    signatureHtml: string | null;
+    forwardMessageId?: string | null;
+  },
+): Promise<Result<{ messageId: string; threadId: string }>> {
+  if (!canSend(integration)) return err('forbidden', 'Sending is not turned on for this mailbox.');
+  if (!input.to.trim()) return err('invalid_input', 'Add who it goes to.');
+  if (!input.body.trim()) return err('invalid_input', 'The email is empty.');
+
+  const attachments: MimeAttachment[] = [];
+  if (input.forwardMessageId) {
+    const original = await gmail<Message & { payload?: AttachmentPart }>(
+      store,
+      integration,
+      `/messages/${input.forwardMessageId}?format=full`,
+    );
+    if (!original.ok) return original;
+    let total = 0;
+    for (const part of attachmentParts(original.value.payload)) {
+      total += part.body?.size ?? 0;
+      if (total > MAX_FORWARD_BYTES) {
+        return err('invalid_input', 'The attachments are over 20 MB. Forward this one from Gmail.');
+      }
+      const data = await gmail<{ data: string }>(
+        store,
+        integration,
+        `/messages/${input.forwardMessageId}/attachments/${part.body!.attachmentId}`,
+      );
+      if (!data.ok) return data;
+      attachments.push({
+        filename: part.filename!,
+        mimeType: part.mimeType ?? 'application/octet-stream',
+        data: Buffer.from(data.value.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64'),
+      });
+    }
+  }
+
+  const raw = buildNewMime({
+    from: integration.account_email ?? '',
+    to: input.to,
+    cc: input.cc,
+    subject: input.subject,
+    body: input.body,
+    signatureHtml: input.signatureHtml,
+    attachments,
+  });
+  const sent = await gmail<{ id: string; threadId: string }>(store, integration, '/messages/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw: b64urlEncode(raw) }),
+  });
+  if (!sent.ok) return sent;
+  return ok({ messageId: sent.value.id, threadId: sent.value.threadId });
 }

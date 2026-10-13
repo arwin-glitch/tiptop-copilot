@@ -6,7 +6,9 @@ import {
   Archive,
   ArrowLeft,
   ExternalLink,
+  Forward,
   Inbox as InboxIcon,
+  PenSquare,
   Loader2,
   MailOpen,
   Mail,
@@ -24,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/form';
 import { Notice } from '@/components/ui/feedback';
 import { swapSignOff } from '@/components/followups/email-session-client';
+import { Composer, type ComposeDraft } from '@/components/inbox/composer';
 import { cn } from '@/lib/util/cn';
 import type {
   InboxTab,
@@ -103,6 +106,7 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [checked, setChecked] = React.useState<Set<string>>(new Set());
   const [replyOpen, setReplyOpen] = React.useState(false);
+  const [compose, setCompose] = React.useState<{ title: string; draft: ComposeDraft } | null>(null);
   const searchRef = React.useRef<HTMLInputElement>(null);
   const { canAct, mailbox } = list;
 
@@ -289,6 +293,10 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
           e.preventDefault();
           searchRef.current?.focus();
           break;
+        case 'c':
+          e.preventDefault();
+          setCompose({ title: 'New email', draft: { to: '', subject: '', body: '\n\nNick' } });
+          break;
         case 'x':
           if (selected) toggleCheck(selected.id);
           break;
@@ -311,6 +319,14 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          onClick={() =>
+            setCompose({ title: 'New email', draft: { to: '', subject: '', body: '\n\nNick' } })
+          }
+        >
+          <PenSquare className="size-4" aria-hidden /> Compose
+        </Button>
         <div role="tablist" aria-label="Mailbox" className="flex flex-wrap gap-1">
           {TABS.map((t) => (
             <Button
@@ -464,6 +480,7 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
               onBack={() => setSelectedId(null)}
               onAct={(action) => act([selected.id], action)}
               onSent={() => void load({ tab, q: searched }, { quiet: true })}
+              onForward={(draft) => setCompose({ title: 'Forward', draft })}
             />
           ) : (
             <div className="grid h-full min-h-60 place-items-center rounded-[var(--radius-card)] border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--fg-subtle)]">
@@ -475,6 +492,16 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
           )}
         </section>
       </div>
+      {compose ? (
+        <Composer
+          key={compose.title + compose.draft.subject}
+          title={compose.title}
+          initial={compose.draft}
+          canSend={canAct}
+          onClose={() => setCompose(null)}
+          onSent={() => void load({ tab, q: searched }, { quiet: true })}
+        />
+      ) : null}
     </div>
   );
 }
@@ -581,6 +608,7 @@ function ThreadView({
   onBack,
   onAct,
   onSent,
+  onForward,
 }: {
   row: LiveThreadRow;
   canAct: boolean;
@@ -590,6 +618,7 @@ function ThreadView({
   onBack: () => void;
   onAct: (action: Action) => Promise<boolean>;
   onSent: () => void;
+  onForward: (draft: ComposeDraft) => void;
 }) {
   const [thread, setThread] = React.useState<LiveThread | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -652,6 +681,15 @@ function ThreadView({
             className={cn('size-4', row.starred && 'fill-[var(--warn)] text-[var(--warn)]')}
             aria-hidden
           />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label="Forward"
+          disabled={!thread}
+          onClick={() => thread && onForward(forwardDraft(thread))}
+        >
+          <Forward className="size-4" aria-hidden />
         </Button>
         <Button asChild size="sm" variant="ghost">
           <a
@@ -816,12 +854,21 @@ function MessageItem({ message: m, startOpen }: { message: LiveMessage; startOpe
           {m.attachments.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
               {m.attachments.map((a) => (
-                <span
-                  key={a}
-                  className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 text-xs"
+                <a
+                  key={a.id}
+                  href={`/api/inbox/attachment?${new URLSearchParams({
+                    m: m.id,
+                    a: a.id,
+                    name: a.name,
+                    type: a.mimeType,
+                  }).toString()}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 text-xs hover:bg-[var(--bg-hover)]"
                 >
-                  <Paperclip className="size-3" aria-hidden /> {a}
-                </span>
+                  <Paperclip className="size-3" aria-hidden /> {a.name}
+                  <span className="text-[var(--fg-subtle)]">{fileSize(a.size)}</span>
+                </a>
               ))}
             </div>
           ) : null}
@@ -1028,4 +1075,32 @@ function ReplyBox({
       </div>
     </div>
   );
+}
+
+function fileSize(bytes: number): string {
+  if (!bytes) return '';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** Gmail's forward: the newest message quoted under a header, its attachments carried along. */
+export function forwardDraft(thread: LiveThread): ComposeDraft {
+  const last = thread.messages.at(-1)!;
+  const header = [
+    '---------- Forwarded message ---------',
+    `From: ${last.from}`,
+    `Date: ${longTime(last.at)}`,
+    `Subject: ${thread.subject}`,
+    `To: ${last.to}`,
+    last.cc ? `Cc: ${last.cc}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return {
+    to: '',
+    subject: /^fwd?:/i.test(thread.subject) ? thread.subject : `Fwd: ${thread.subject}`,
+    body: `\n\nNick\n\n${header}\n\n${last.text}`,
+    forwardOf: last.attachments.length ? last.id : null,
+    attachmentNames: last.attachments.map((a) => a.name),
+  };
 }

@@ -28,7 +28,7 @@ describe('live inbox', () => {
             date: '2026-10-12T15:00:00.000Z',
             subject: 'Q3 update',
             text: 'Numbers attached.',
-            attachments: ['q3.pdf'],
+            attachments: [{ name: 'q3.pdf', id: 'att1', mimeType: 'application/pdf', size: 1200 }],
             labelIds: ['INBOX'],
           },
           {
@@ -57,7 +57,7 @@ describe('live inbox', () => {
       ['Jane Founder', false],
       ['Nick', true],
     ]);
-    expect(thread.messages[0]!.attachments).toEqual(['q3.pdf']);
+    expect(thread.messages[0]!.attachments.map((a) => a.name)).toEqual(['q3.pdf']);
   });
 });
 
