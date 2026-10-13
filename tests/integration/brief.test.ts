@@ -98,6 +98,18 @@ describe('gatherTodayData', () => {
     }
   });
 
+  it("never names Nick's own email, or a future-dated one, as a meeting's last interaction", async () => {
+    const data = await gatherTodayData(harness.auth);
+    const own = harness.auth.profile.email.toLowerCase();
+    for (const prep of data.meetingPrep) {
+      if (!prep.lastInteraction) continue;
+      expect(prep.lastInteraction.from_address.toLowerCase()).not.toBe(own);
+      expect(Date.parse(prep.lastInteraction.sent_at)).toBeLessThanOrEqual(Date.now());
+      const attendees = prep.event.attendees.map((a) => a.email.toLowerCase());
+      expect(attendees).toContain(prep.lastInteraction.from_address.toLowerCase());
+    }
+  });
+
   it('reports that research is unavailable rather than leaving it ambiguous', async () => {
     const data = await gatherTodayData(harness.auth);
     expect(data.researchAvailable).toBe(false);

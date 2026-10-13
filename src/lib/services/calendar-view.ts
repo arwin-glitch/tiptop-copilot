@@ -4,6 +4,7 @@ import type { DataStore } from '@/lib/db/store';
 import {
   classifyMeeting,
   listMeetingEvents,
+  meetingFromStoredEvent,
   type MeetingEvent,
   type MeetingVerdict,
 } from '@/lib/calendar/meetings';
@@ -143,31 +144,6 @@ async function recentThreads(
   return threads;
 }
 
-/** Demo: calendar rows from the fixture store, shaped like live events. */
-function fromStoreEvent(e: CalendarEvent): MeetingEvent {
-  return {
-    id: e.provider_event_id,
-    status: null,
-    title: e.title,
-    startsAt: e.starts_at,
-    endsAt: e.ends_at,
-    allDay: e.all_day,
-    eventType: null,
-    transparent: false,
-    location: e.location,
-    description: e.description,
-    joinUrl: null,
-    organizer: e.organizer_email ? { email: e.organizer_email, self: false } : null,
-    attendees: e.attendees.map((a) => ({
-      email: a.email,
-      name: a.name,
-      response: a.response,
-      self: false,
-      resource: false,
-    })),
-  };
-}
-
 export async function readCalendarDay(
   store: DataStore,
   organizationId: string,
@@ -187,7 +163,7 @@ export async function readCalendarDay(
         (r) => r.starts_at >= window.start.toISOString() && r.starts_at < window.end.toISOString(),
       )
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
-      .map(fromStoreEvent);
+      .map(meetingFromStoredEvent);
   } else {
     integration = await getPrimaryIntegration(store, organizationId).catch(() => null);
     if (!integration || integration.status === 'disconnected') {

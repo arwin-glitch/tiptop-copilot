@@ -25,6 +25,7 @@ import { truncate } from '@/lib/util/text';
 import { err, ok, type Result } from '@/lib/util/result';
 import { latestAnalysesByDeal } from './deal-analysis';
 import { readSidecars } from './deal-ingest';
+import { NICK_ALIASES } from '@/lib/calendar/meetings';
 import { getPrimaryIntegration } from './inbox';
 import { dueAndOverdue } from './tasks';
 import { getActiveThesis } from './thesis';
@@ -237,9 +238,17 @@ async function buildMeetingPrep(
   const relatedPortfolio =
     portfolio.find((p) => p.domain && externalDomains.includes(p.domain)) ?? null;
 
-  const attendeeAddresses = new Set(event.attendees.map((a) => a.email.toLowerCase()));
+  // Nick's own addresses are on every invite; matching them made every meeting's
+  // "last interaction" the same email Nick himself had sent.
+  const own = new Set([auth.profile.email, ...NICK_ALIASES].map((e) => e.toLowerCase()));
+  const attendeeAddresses = new Set(
+    event.attendees.map((a) => a.email.toLowerCase()).filter((e) => !own.has(e)),
+  );
+  const nowMs = Date.now();
   const lastInteraction =
-    recentEmails.find((m) => attendeeAddresses.has(m.from_address.toLowerCase())) ?? null;
+    recentEmails.find(
+      (m) => attendeeAddresses.has(m.from_address.toLowerCase()) && Date.parse(m.sent_at) <= nowMs,
+    ) ?? null;
 
   const openQuestions = relatedDeal?.open_questions.slice(0, 3) ?? [];
 

@@ -1,7 +1,7 @@
 import 'server-only';
 import type { DataStore } from '@/lib/db/store';
 import { getAccessToken } from '@/lib/google/oauth';
-import type { Integration } from '@/lib/types/domain';
+import type { CalendarEvent, Integration } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
 
 /**
@@ -62,6 +62,35 @@ interface GoogleEvent {
 
 const JOIN_URL =
   /https:\/\/(?:[\w-]+\.)?(?:zoom\.us\/(?:j|my|w)\/[^\s"<>)]+|meet\.google\.com\/[a-z0-9-]+|teams\.microsoft\.com\/l\/meetup-join\/[^\s"<>)]+|teams\.live\.com\/meet\/[^\s"<>)]+|[\w-]+\.webex\.com\/[^\s"<>)]+|whereby\.com\/[^\s"<>)]+|around\.co\/[^\s"<>)]+)/i;
+
+/**
+ * A synced calendar row (the Today page, demo mode) shaped like a live event.
+ * Synced rows lack Google's event type and self flags, so the classifier
+ * leans on titles, attendees and Nick's own addresses for them.
+ */
+export function meetingFromStoredEvent(e: CalendarEvent): MeetingEvent {
+  return {
+    id: e.provider_event_id,
+    status: null,
+    title: e.title,
+    startsAt: e.all_day ? null : e.starts_at,
+    endsAt: e.ends_at,
+    allDay: e.all_day,
+    eventType: null,
+    transparent: false,
+    location: e.location,
+    description: e.description,
+    joinUrl: JOIN_URL.exec(`${e.location ?? ''} ${e.description ?? ''}`)?.[0] ?? null,
+    organizer: e.organizer_email ? { email: e.organizer_email, self: false } : null,
+    attendees: e.attendees.map((a) => ({
+      email: a.email.toLowerCase(),
+      name: a.name,
+      response: a.response,
+      self: false,
+      resource: /resource\.calendar\.google\.com$/.test(a.email),
+    })),
+  };
+}
 
 export function toMeetingEvent(e: GoogleEvent): MeetingEvent {
   const video = e.conferenceData?.entryPoints?.find((p) => p.entryPointType === 'video')?.uri;

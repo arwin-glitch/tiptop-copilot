@@ -14,6 +14,9 @@ import {
 import { gatherTodayData, generateDailyBrief, getTodaysBrief } from '@/lib/services/brief';
 import { pullTaskRelays } from '@/lib/services/task-relay';
 import { readFollowUps } from '@/lib/services/follow-ups';
+import { classifyMeeting, meetingFromStoredEvent } from '@/lib/calendar/meetings';
+import { gmailThreadUrl } from '@/lib/deals/links';
+import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
 import { Badge, RecommendationBadge } from '@/components/ui/badge';
@@ -102,6 +105,15 @@ async function TodayContent() {
 
   const citations: Citation[] = brief?.citations ?? [];
   const firstName = auth.profile.full_name?.split(' ')[0] ?? 'there';
+
+  // Today lists only real meetings, judged the same way as the Calendar tab
+  // and the 5-minute phone alert; blocks are counted, not listed.
+  const judged = data.meetingPrep.map((prep) => ({
+    prep,
+    verdict: classifyMeeting(meetingFromStoredEvent(prep.event), [auth.profile.email]),
+  }));
+  const todaysMeetings = judged.filter((j) => j.verdict.meeting);
+  const hiddenBlocks = judged.length - todaysMeetings.length;
 
   const nothingToday =
     data.meetings.length === 0 &&
@@ -303,13 +315,13 @@ async function TodayContent() {
         </ExpandableSection>
 
         <ExpandableSection
-          title="Today's calendar"
-          count={data.meetings.length}
-          defaultOpen={data.meetings.length > 0}
-          emptyLabel="No meetings"
+          title="Today's meetings"
+          count={todaysMeetings.length}
+          defaultOpen={todaysMeetings.length > 0}
+          emptyLabel="No meetings today"
         >
           <ul className="space-y-3">
-            {data.meetingPrep.map((prep) => (
+            {todaysMeetings.map(({ prep, verdict }) => (
               <li
                 key={prep.event.id}
                 className="border-b border-[var(--border)] pb-3 last:border-b-0 last:pb-0"
@@ -332,9 +344,11 @@ async function TodayContent() {
                 </div>
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-[var(--fg-subtle)]">
                   <Calendar className="size-3" aria-hidden="true" />
-                  {prep.event.attendees.map((a) => a.email).join(', ') || 'No attendees listed'}
+                  {verdict.reason}
                 </p>
-                <p className="mt-1.5 text-sm text-[var(--fg-muted)]">{prep.suggestedPrep}</p>
+                {prep.relatedDeal || prep.relatedPortfolio ? (
+                  <p className="mt-1.5 text-sm text-[var(--fg-muted)]">{prep.suggestedPrep}</p>
+                ) : null}
                 {prep.openQuestions.length > 0 ? (
                   <ul className="mt-1.5 space-y-1">
                     {prep.openQuestions.map((q, i) => (
@@ -346,19 +360,36 @@ async function TodayContent() {
                 ) : null}
                 {prep.lastInteraction ? (
                   <p className="mt-1.5 text-xs text-[var(--fg-subtle)]">
-                    Last interaction:{' '}
-                    <Link
-                      href={`/inbox?message=${prep.lastInteraction.id}`}
-                      className="underline-offset-2 hover:underline"
-                    >
-                      {prep.lastInteraction.subject ?? '(no subject)'}
-                    </Link>{' '}
+                    Last email from them:{' '}
+                    {lastEmailHref(prep.lastInteraction.provider_message_id) ? (
+                      <a
+                        href={lastEmailHref(prep.lastInteraction.provider_message_id)!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline-offset-2 hover:underline"
+                      >
+                        {prep.lastInteraction.subject ?? '(no subject)'}
+                      </a>
+                    ) : (
+                      (prep.lastInteraction.subject ?? '(no subject)')
+                    )}{' '}
                     · {relativeTime(prep.lastInteraction.sent_at, now)}
                   </p>
                 ) : null}
               </li>
             ))}
           </ul>
+          <p className="mt-3 text-xs text-[var(--fg-subtle)]">
+            {hiddenBlocks > 0
+              ? `${hiddenBlocks} ${hiddenBlocks === 1 ? 'block' : 'blocks'} (Focus, Travel, Prep and the like) not shown. `
+              : ''}
+            <Link
+              href="/calendar"
+              className="text-[var(--accent)] underline-offset-2 hover:underline"
+            >
+              Full day and meeting prep in Calendar →
+            </Link>
+          </p>
         </ExpandableSection>
 
         <ExpandableSection
@@ -558,4 +589,9 @@ async function TodayContent() {
       </div>
     </>
   );
+}
+
+/** Gmail link for a synced message id; demo and malformed ids get no link. */
+function lastEmailHref(providerMessageId: string): string | null {
+  return gmailThreadUrl(providerMessageId, DEFAULT_MAILBOX);
 }
