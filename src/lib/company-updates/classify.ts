@@ -798,12 +798,22 @@ export function registrableDomain(domain: string): string {
  * the like), so an update from news.acme.com counts mail Nick sent to acme.com.
  */
 export function historyKeyFor(sender: Sender, replyTo?: string): string {
+  const who = founderBehind(sender, replyTo);
+  return isFreeEmailDomain(who.domain) ? who.address : who.domain;
+}
+
+/**
+ * The person behind an update: the Reply-To founder for a platform send, with
+ * the company's registrable domain (news.acme.com -> acme.com).
+ */
+export function founderBehind(sender: Sender, replyTo?: string): Sender {
   let who = sender;
   if (UPDATE_PLATFORMS.some((d) => onDomain(sender.domain, d)) && replyTo) {
     const reply = parseSender(replyTo);
     if (reply && !UPDATE_PLATFORMS.some((d) => onDomain(reply.domain, d))) who = reply;
   }
-  return isFreeEmailDomain(who.domain) ? who.address : registrableDomain(who.domain);
+  if (isFreeEmailDomain(who.domain)) return who;
+  return { ...who, domain: registrableDomain(who.domain) };
 }
 
 /** Gmail search for mail Nick sent to that key. Only safe characters reach the query. */
@@ -834,8 +844,20 @@ export function screenCandidate(
     (l) => l === 'CATEGORY_PROMOTIONS' || l === 'CATEGORY_FORUMS',
   );
   if (promo && !solid) return null;
-  // A mailing list needs the company's own domain, or an explicit investor update.
-  if (message.bulk && !solid && verdict.kind !== 'investor') return null;
+  // A mailing list needs the company's own domain, an explicit investor update,
+  // or a subject that names the sender's own company: founders send updates
+  // through Visible, Mailchimp or a news subdomain. Nick must still have
+  // emailed them (the history check that follows).
+  if (message.bulk && !solid && verdict.kind !== 'investor') {
+    const named = verdict.named ?? companyFromSubject(message.subject);
+    const founder = founderBehind(sender, message.replyTo);
+    const display = UPDATE_PLATFORMS.some((d) => onDomain(sender.domain, d))
+      ? { ...founder, name: sender.name }
+      : founder;
+    if (!named || !(nameMatchesSender(named, founder) || nameMatchesSender(named, display))) {
+      return null;
+    }
+  }
   // "Baby Update!", "Lease Update: signed": a bare "<Name> Update" from outside
   // the portfolio needs the name to be the sender's own company.
   if (!solid && verdict.named) {

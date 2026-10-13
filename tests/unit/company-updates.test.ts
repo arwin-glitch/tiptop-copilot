@@ -713,3 +713,44 @@ describe('updates the first version missed (Oct 13)', () => {
     expect(screen('Shop <hello@shop.example>', 'Holiday September Newsletter')).toBeNull();
   });
 });
+
+describe('founder updates sent as mass mail (Oct 13, live)', () => {
+  const bulk = (from: string, subject: string, replyTo = '') =>
+    screenCandidate(
+      {
+        id: 'abc1234567',
+        threadId: 'abc1234567',
+        from,
+        replyTo,
+        to: 'nick@acme.vc',
+        cc: '',
+        subject,
+        snippet: '',
+        date: '2026-10-13T12:00:00Z',
+        labelIds: ['INBOX', 'CATEGORY_UPDATES'],
+        bulk: true,
+      },
+      { own: ['nick@acme.vc'], companies: [] },
+    );
+
+  it('keeps a Visible send whose subject names the company', () => {
+    expect(
+      bulk(
+        'Aerofleet <email@visible.vc>',
+        'Aerofleet Q3 Update — $4M raised',
+        'Pat <pat@aerofleet.example>',
+      )?.historyKey,
+    ).toBe('aerofleet.example');
+  });
+
+  it("keeps a news-subdomain list send from the company's own domain", () => {
+    expect(
+      bulk('Mia <mia@news.dentalqc.example>', 'DentalQC September Update: QC is live')?.historyKey,
+    ).toBe('dentalqc.example');
+  });
+
+  it("still drops a list send that doesn't name the sender's company", () => {
+    expect(bulk('Deals <deals@shopmail.example>', 'October Update: 30% off everything')).toBeNull();
+    expect(bulk('Promo <hi@brand.example>', 'Q3 Update from our partners at Zeta')).toBeNull();
+  });
+});

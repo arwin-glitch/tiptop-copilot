@@ -17,7 +17,9 @@ Fixes from checking 0.11.0 against Nick's real mailbox.
   subdomain (news.acme.com counts as acme.com), and founders' monthly
   "Newsletter" letters from the company's own domain. A first load that runs
   out of time says so ("still reading some of your mail") instead of showing a
-  quietly short list.
+  quietly short list. A founder's update sent as mass mail (Visible, Mailchimp, a
+  news subdomain) counts when its subject names the sender's own company and
+  Nick has emailed them before.
 - **Portfolio numbers:** other companies' or goal figures ("companies have
   gotten to $20M ARR", "$20M ARR by end of 2027") are refused; one misread
   point 3x off a company's series is dropped from the trend; "Raising" now
