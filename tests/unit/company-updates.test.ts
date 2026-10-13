@@ -754,3 +754,46 @@ describe('founder updates sent as mass mail (Oct 13, live)', () => {
     expect(bulk('Promo <hi@brand.example>', 'Q3 Update from our partners at Zeta')).toBeNull();
   });
 });
+
+describe('cold pitches with numbers in the subject (Oct 13, live)', () => {
+  const one = (from: string, subject: string) =>
+    screenCandidate(
+      {
+        id: 'abc1234567',
+        threadId: 'abc1234567',
+        from,
+        to: 'nick@acme.vc',
+        cc: '',
+        subject,
+        snippet: '',
+        date: '2026-10-13T12:00:00Z',
+        labelIds: ['INBOX', 'CATEGORY_PERSONAL'],
+        bulk: false,
+      },
+      { own: ['nick@acme.vc'], companies: [] },
+    );
+
+  it('drops metric-only subjects from outside the portfolio', () => {
+    expect(
+      one(
+        'Maria <maria@hairco.example>',
+        'HairCo — AI scalp diagnostics | 45 paying customers | $111k ARR',
+      ),
+    ).toBeNull();
+    expect(
+      one(
+        'Vik <vik@sim.example>',
+        'Consumer Behavior Simulation Platform | $1.2M ARR | 90% Accuracy',
+      ),
+    ).toBeNull();
+  });
+
+  it('keeps an update that names its period, and names the company without the month', () => {
+    expect(
+      one('Alex <alex@shopco.example>', "ShopCo Q3'26: $5.4M ARR, profitable growth"),
+    ).not.toBeNull();
+    expect(companyFromSubject('MovixTech September Update: Crown and bridge QC is live')).toBe(
+      'MovixTech',
+    );
+  });
+});

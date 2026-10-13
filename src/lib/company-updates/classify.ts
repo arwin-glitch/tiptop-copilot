@@ -405,7 +405,10 @@ export function companyFromSubject(subject: string): string | null {
   ];
   for (const c of candidates) {
     if (!c || !/^[A-Z0-9]/.test(c)) continue;
-    const name = trimQualifiers(c);
+    // "MovixTech September Update" names MovixTech, not "MovixTech September".
+    const name = trimQualifiers(c)
+      .replace(new RegExp(String.raw`\s+(?:${MONTH_NAMES})(?:\s+20\d{2})?$`, 'i'), '')
+      .trim();
     if (name && namedOk(name) && !/\b(?:updates?|Q[1-4])$/i.test(name)) return name;
   }
   return null;
@@ -844,6 +847,9 @@ export function screenCandidate(
     (l) => l === 'CATEGORY_PROMOTIONS' || l === 'CATEGORY_FORUMS',
   );
   if (promo && !solid) return null;
+  // "Acme — AI for X | 45 paying customers | $111K ARR" is how cold pitches read:
+  // numbers alone (no "update", quarter or month) count only from a portfolio company.
+  if (verdict.kind === 'metrics' && !solid) return null;
   // A mailing list needs the company's own domain, an explicit investor update,
   // or a subject that names the sender's own company: founders send updates
   // through Visible, Mailchimp or a news subdomain. Nick must still have
