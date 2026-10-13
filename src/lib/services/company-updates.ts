@@ -42,6 +42,8 @@ export interface CompanyUpdatesResult {
   state: CompanyUpdatesState;
   updates: CompanyUpdate[];
   checkedAt: string;
+  /** The first read hit its time limit: some mail is still to be read. */
+  partial?: boolean;
 }
 
 const cache = processWide('company-updates', () => ({
@@ -119,7 +121,7 @@ function plainDomain(domain: string | null | undefined): string | null {
  */
 export function buildUpdatesQuery(companies: readonly CompanyLike[]): string {
   const subjectTerms =
-    'subject:(update OR updates OR Q1 OR Q2 OR Q3 OR Q4 OR ARR OR MRR OR fundraise OR fundraising OR "investor letter" OR "shareholder letter" OR "seed round")';
+    'subject:(update OR updates OR Q1 OR Q2 OR Q3 OR Q4 OR ARR OR MRR OR fundraise OR fundraising OR newsletter OR "investor letter" OR "shareholder letter" OR "seed round")';
   const names = companies
     .map((c) => quoted(c.name))
     .filter((n): n is string => Boolean(n))
@@ -313,8 +315,9 @@ export async function readCompanyUpdates(
     const updates = await classify(metas, companies, ownAddresses(integration), (key) =>
       emailedBefore(store, integration, key, at),
     );
-    const result: CompanyUpdatesResult = { state: 'ok', updates, checkedAt };
-    const ttl = metas.length < ids.value.length ? PARTIAL_TTL_MS : LIST_TTL_MS;
+    const partial = metas.length < ids.value.length;
+    const result: CompanyUpdatesResult = { state: 'ok', updates, checkedAt, partial };
+    const ttl = partial ? PARTIAL_TTL_MS : LIST_TTL_MS;
     cache.lists.set(organizationId, { at, ttl, result });
     return result;
   } catch {

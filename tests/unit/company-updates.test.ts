@@ -17,6 +17,7 @@ import {
   nameMatchesSender,
   newestPerThread,
   parseSender,
+  registrableDomain,
   screenCandidate,
   type CandidateMessage,
   type CompanyLike,
@@ -667,5 +668,48 @@ describe('demo mode', () => {
     expect(stonebridge?.revenue?.value.display).toBe('$215K');
     expect(stonebridge?.cash?.value.display).toBe('$1.4M');
     expect(stonebridge?.runway?.value.label).toBe('into Mar 2028');
+  });
+});
+
+describe('updates the first version missed (Oct 13)', () => {
+  const screen = (from: string, subject: string, replyTo = '') =>
+    screenCandidate(
+      {
+        id: 'abc1234567',
+        threadId: 'abc1234567',
+        from,
+        replyTo,
+        to: 'investors@fund.example',
+        cc: '',
+        subject,
+        snippet: '',
+        date: '2026-10-12T12:00:00Z',
+        labelIds: ['INBOX', 'CATEGORY_PERSONAL'],
+        bulk: false,
+      },
+      { own: ['nick@acme.vc'], companies: [] },
+    );
+
+  it('checks the founder behind a Visible send, not visible.vc', () => {
+    const s = screen(
+      'Aerofleet <email@visible.vc>',
+      'Aerofleet Q3 Update — $4M raised, $1M+ ARR',
+      'Pat Lee <pat@aerofleet.example>',
+    );
+    expect(s?.historyKey).toBe('aerofleet.example');
+  });
+
+  it("treats a company's news subdomain as the company", () => {
+    expect(registrableDomain('news.dentalqc.example')).toBe('dentalqc.example');
+    expect(registrableDomain('mail.acme.co.uk')).toBe('acme.co.uk');
+    const s = screen('Mia <mia@news.dentalqc.example>', 'DentalQC September Update: QC is live');
+    expect(s?.historyKey).toBe('dentalqc.example');
+  });
+
+  it("accepts a founder's monthly newsletter from the company's own domain, not marketing", () => {
+    expect(
+      screen('Dan <dan@trynurseryco.example>', 'NurseryCo September 2026 Newsletter'),
+    ).not.toBeNull();
+    expect(screen('Shop <hello@shop.example>', 'Holiday September Newsletter')).toBeNull();
   });
 });

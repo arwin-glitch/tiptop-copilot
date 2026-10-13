@@ -67,6 +67,9 @@ export async function FreshCompanyUpdates({
         Founder and investor updates from the last 30 days, live from Gmail. Only portfolio
         companies and people you&apos;ve emailed are shown. Checked{' '}
         {relativeTime(result.checkedAt, now)}.
+        {result.partial
+          ? ' Still reading some of your mail - refresh in a minute for the rest.'
+          : ''}
       </p>
       {updates.length === 0 ? (
         <p className="text-sm text-[var(--fg-subtle)]">No company updates in the last 30 days.</p>

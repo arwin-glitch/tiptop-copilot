@@ -31,6 +31,8 @@ const FETCH_BATCH = 10;
 const MAX_THREAD_CACHE = 3000;
 /** A thread with more people than this is a mass email, not a relationship. */
 export const MAX_GROUP = 12;
+/** An introducer must have shared an email this small (or smaller) with the target. */
+export const MAX_INTRO_MESSAGE = 6;
 const TOP_KNOWN = 8;
 const TOP_INTRODUCERS = 5;
 const MAX_TARGET_DOMAINS = 3;
@@ -689,6 +691,9 @@ export function buildWarmPaths(
     for (const m of t.messages) {
       const on = [...m.from, ...m.recipients];
       if (!on.some(isTheirs)) continue;
+      // A group invite or event thread doesn't make someone an intro path:
+      // only a small email they shared with the target counts.
+      if (new Set(on.filter((e) => !isBulkAddress(e))).size > MAX_INTRO_MESSAGE) continue;
       for (const e of on) if (!matchesTarget(e, target) && !isOwn(e, ctx)) sharedMessage.add(e);
     }
     const knownHere = theirs.filter((p) => direct.has(p.email));

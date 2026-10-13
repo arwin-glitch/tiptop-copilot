@@ -7,6 +7,7 @@ import {
   hasAnyMetric,
   sparkline,
   toSentences,
+  withoutOutliers,
   NO_METRICS,
   type ReportedMetrics,
   type UpdateReport,
@@ -661,5 +662,60 @@ describe('finding a company in the mailbox', () => {
         ),
       ).toBe(false);
     });
+  });
+});
+
+describe('caught on live data (Oct 13)', () => {
+  it("does not read other companies' ARR or a goal as the company's", () => {
+    const text = `Top feedback from our board meeting:
+- Sales action item: Holman to become Head of Sales for an indefinite period of time - companies have gotten to $20M ARR with their CEO as Head of Sales.
+- Product action item: the roadmap should get us to 1,000 schools and $20M ARR by end of 2027.`;
+    expect(extractMetrics(text).revenue).toBeNull();
+  });
+
+  it('keeps the later MRR in a "from X to Y" line', () => {
+    const m = extractMetrics(
+      'Revenue. $150 MRR in June to $2,700 at the end of September across eight paying firms.',
+    );
+    expect(m.revenue).toMatchObject({ kind: 'MRR', amount: 2700 });
+  });
+
+  it('never calls a closed or finished round "raising"', () => {
+    for (const text of [
+      'Thrilled to be writing you a few short days after the close of our Seed round.',
+      "We're still riding a wave of excitement, having surpassed our fundraising goals.",
+      'After paying legal expenses and other one-time fees associated with the fundraise, we have $3.5M.',
+      'Fintavo | Pre-Seed Closing Update',
+    ]) {
+      expect(extractMetrics(text).raising, text).toBeNull();
+    }
+    expect(
+      extractMetrics('We are preparing to launch a $4.5M seed round next month.').raising,
+    ).not.toBeNull();
+  });
+
+  it('drops a single misread point from an ARR series', () => {
+    const pts = [3.6, 3.89, 3.98, 20, 4.12, 4.31].map((a, i) => ({
+      date: `2026-0${i + 1}-01T00:00:00Z`,
+      amount: a * 1e6,
+    }));
+    expect(withoutOutliers(pts).map((p) => p.amount / 1e6)).toEqual([3.6, 3.89, 3.98, 4.12, 4.31]);
+  });
+
+  it('drops a raise mentioned months before the latest update', () => {
+    const report = (date: string, metrics: Partial<ReportedMetrics>): UpdateReport => ({
+      messageId: `m${date}`,
+      threadId: `t${date}`,
+      subject: 'Acme update',
+      date,
+      metrics: { ...NO_METRICS, ...metrics },
+    });
+    const n = buildCompanyNumbers({ id: 'c1', name: 'Acme' }, [
+      report('2026-03-10T00:00:00Z', { raising: { label: 'raising a seed', evidence: 'x' } }),
+      report('2026-10-07T00:00:00Z', {
+        revenue: { kind: 'ARR', amount: 5_610_000, display: '$5.61M', evidence: 'x' } as never,
+      }),
+    ]);
+    expect(n?.raising).toBeNull();
   });
 });

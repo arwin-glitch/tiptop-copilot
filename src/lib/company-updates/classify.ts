@@ -325,6 +325,13 @@ function namedOk(name: string | undefined): boolean {
   return !words.every((w) => NAME_STOP.has(w) || PERIOD_TOKEN_RE.test(w));
 }
 
+const MONTH_NAMES =
+  'january|february|march|april|may|june|july|august|september|october|november|december';
+const COMPANY_NEWSLETTER_RE = new RegExp(
+  String.raw`^([A-Za-z0-9][\w.&'’-]*(?:\s+[A-Za-z0-9][\w.&'’-]*){0,2}?)\s+(?:(?:${MONTH_NAMES})(?:\s+20\d{2})?|q[1-4](?:\s*['’]?\s*\d{2,4})?)\s+(?:investor\s+|company\s+)?newsletter\s*$`,
+  'i',
+);
+
 /** Does this subject read like a company or investor update? Null when it doesn't. */
 export function classifyUpdateSubject(subject: string): SubjectVerdict | null {
   const raw = subject.trim();
@@ -332,6 +339,17 @@ export function classifyUpdateSubject(subject: string): SubjectVerdict | null {
   const s = stripForward(raw);
   if (!s || REPLY_RE.test(s) || CALENDAR_RE.test(s)) return null;
   if (INVESTOR_RE.test(s)) return { kind: 'investor', label: 'Investor update' };
+  // "Plantiful September 2026 Newsletter": a founder's own periodic letter. The
+  // name must still be the sender's company (screenCandidate checks), which is
+  // what keeps marketing newsletters out.
+  const letter = COMPANY_NEWSLETTER_RE.exec(s);
+  if (letter && namedOk(letter[1])) {
+    return {
+      kind: 'periodic',
+      label: /\bq[1-4]\b/i.test(s) ? 'Quarterly update' : 'Monthly update',
+      named: trimQualifiers(letter[1]!),
+    };
+  }
   if (SOFT_EXCLUDE_RE.test(s) || PAPERWORK_RE.test(s) || SAFE_NOUN_RE.test(s)) return null;
 
   // "Q4 2026 board meeting prep" is a meeting about a period, not an update.
@@ -717,6 +735,7 @@ export interface CandidateMessage {
   id: string;
   threadId: string;
   from: string;
+  replyTo?: string;
   to: string;
   cc: string;
   subject: string;
@@ -747,9 +766,44 @@ function solidMatch(match: PortfolioMatch | null): boolean {
 
 const SKIP_LABELS = new Set(['SENT', 'DRAFT', 'SPAM', 'TRASH', 'CHAT']);
 
-/** A domain for company mail, the full address for gmail.com and the like. */
-export function historyKeyFor(sender: Sender): string {
-  return isFreeEmailDomain(sender.domain) ? sender.address : sender.domain;
+/**
+ * Services founders send investor updates through. The From address is the
+ * service's; the founder is on Reply-To, so trust is checked against that.
+ */
+const UPDATE_PLATFORMS = [
+  'visible.vc',
+  'mcsv.net',
+  'mailchimpapp.net',
+  'mailchimp.com',
+  'sendgrid.net',
+  'hubspotemail.net',
+  'hs-email.net',
+  'intercom-mail.com',
+];
+
+/** Second-level labels under which a company's own domain has three parts. */
+const TWO_PART_SUFFIX = /^(?:co|com|org|net|ac|gov)\.[a-z]{2}$/;
+
+/** news.movixtech.com -> movixtech.com; acme.co.uk stays acme.co.uk. */
+export function registrableDomain(domain: string): string {
+  const labels = domain.toLowerCase().split('.').filter(Boolean);
+  if (labels.length <= 2) return labels.join('.');
+  const lastTwo = labels.slice(-2).join('.');
+  return TWO_PART_SUFFIX.test(lastTwo) ? labels.slice(-3).join('.') : lastTwo;
+}
+
+/**
+ * Whose history decides trust: the founder behind a platform send, keyed by
+ * their company's registrable domain (or the full address for gmail.com and
+ * the like), so an update from news.acme.com counts mail Nick sent to acme.com.
+ */
+export function historyKeyFor(sender: Sender, replyTo?: string): string {
+  let who = sender;
+  if (UPDATE_PLATFORMS.some((d) => onDomain(sender.domain, d)) && replyTo) {
+    const reply = parseSender(replyTo);
+    if (reply && !UPDATE_PLATFORMS.some((d) => onDomain(reply.domain, d))) who = reply;
+  }
+  return isFreeEmailDomain(who.domain) ? who.address : registrableDomain(who.domain);
 }
 
 /** Gmail search for mail Nick sent to that key. Only safe characters reach the query. */
@@ -798,7 +852,7 @@ export function screenCandidate(
     match,
     bcc: !own.some((o) => recipients.has(o)),
     // A subject-only match still needs Nick to have emailed the sender.
-    historyKey: solid ? null : historyKeyFor(sender),
+    historyKey: solid ? null : historyKeyFor(sender, message.replyTo),
   };
 }
 

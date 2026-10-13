@@ -439,6 +439,9 @@ const BEFORE_EXCLUDE = new RegExp(
     String.raw`\b(?:net new|new|added|incremental|expansion|churned|lost|booked)\s+(?:ARR|MRR)\b`,
     String.raw`\b(?:ARR|MRR)\s+(?:added|growth|increase|churn|churned|lost|change)\b`,
     String.raw`\b(?:competitors?|comparables?|comps|peers?|incumbents?|industry|median|average|top quartile|companies with|customers with|companies at|startups with)\b`,
+    // "companies have gotten to $20M ARR with their CEO selling": other companies, or a hypothetical.
+    String.raw`\b(?:companies|startups|businesses|founders)\b`,
+    String.raw`\b(?:gotten|get|gets|getting|got|grow|growing|scale|scaling)\s+(?:us\s+)?to\s*$`,
   ].join('|'),
   'i',
 );
@@ -874,9 +877,11 @@ const RAISE_VERB =
 /** Something is being done about the round: raised, opened, launched, planned, closing. */
 const RAISE_ACTION =
   /\b(?:rais(?:e|es|ing)|fundrais\w*|open(?:s|ed|ing)?|launch(?:es|ed|ing)?|kick(?:s|ed|ing)?\s+off|start(?:s|ed|ing)?|clos(?:e|es|ing)|first close|term sheets?|in market|going out|go out|out to market|talks|conversations|process|soft[- ]circled|oversubscribed|commit(?:ted|ments?)|lead investor|led by|prepar\w+|plan(?:s|ned|ning)?|target(?:s|ed|ing)?|pitch(?:es|ing)?|meetings|timeline|soon|upcoming)\b/i;
-const RAISE_PAST = /\b(?:closed|raised|completed|finished|wrapped|announced|since)\b/i;
+const RAISE_PAST =
+  /\b(?:closed|raised|completed|finished|wrapped|announced|since|surpass\w*|exceeded|close of|closing of|after the close|post[- ]close|associated with|paid|paying|closing update)\b/i;
+/** Only a raise that is happening or about to: "we're raising", "preparing to launch a $4.5M seed". */
 const RAISE_STRONG_FUTURE =
-  /\b(?:raising|preparing|planning|planned|plans?\s+to|launch(?:ing)?|kick(?:ing)?\s+off|start(?:ing)?|in market|going out|talks|will|'ll|’ll|upcoming|next|first close|closing)\b/i;
+  /\b(?:raising|preparing|planning|planned|plans?\s+to|launch(?:ing)?|kick(?:ing)?\s+off|start(?:ing)?|in market|going out|talks|will|'ll|’ll|upcoming|next)\b/i;
 const RAISE_NEGATION =
   /\b(?:not|no plans? to|don['’]t|do not|aren['’]t|are not|won['’]t|isn['’]t|without)\b[^.]{0,25}\b(?:rais|fundrais|round)/i;
 const RAISE_CONDITIONAL = /\b(?:if|whether|unless)\b/i;
@@ -963,7 +968,14 @@ function raisingIn(sentence: string, company?: string): TextMetric | null {
     if (at < 0) continue;
     if (RAISE_NEGATION.test(clause) || RAISE_CONDITIONAL.test(clause)) continue;
     if (!RAISE_ACTION.test(clause)) continue;
-    if (RAISE_PAST.test(clause) && !RAISE_STRONG_FUTURE.test(clause)) continue;
+    // A raise in progress or ahead, never one that already happened.
+    if (!RAISE_STRONG_FUTURE.test(clause)) continue;
+    if (
+      RAISE_PAST.test(clause) &&
+      !/\b(?:raising|preparing|will|'ll|’ll|next|upcoming)\b/i.test(clause)
+    ) {
+      continue;
+    }
     if (RAISE_THIRD_PARTY.test(clause.slice(0, at)) || RAISE_THEIRS.test(clause)) continue;
     const subject = NAMED_SUBJECT.exec(clause.trim().replace(LEAD_CONNECTOR, '').trim())?.[1];
     if (
@@ -1117,6 +1129,14 @@ export interface CompanyNumbers {
 }
 
 const HISTORY_MAX = 12;
+const RAISING_FRESH_DAYS = 120;
+
+/** A raise mentioned months before the latest update is history, not news. */
+function recentRaising<T extends { asOf: string }>(raising: T | null, newest: string | null) {
+  if (!raising || !newest) return null;
+  const age = Date.parse(newest) - Date.parse(raising.asOf);
+  return age <= RAISING_FRESH_DAYS * 86_400_000 ? raising : null;
+}
 
 /** The latest value of each metric across a company's updates, with where it came from. */
 export function buildCompanyNumbers(
@@ -1146,7 +1166,7 @@ export function buildCompanyNumbers(
     growth: latest('growth'),
     cash: latest('cash'),
     runway: latest('runway'),
-    raising: latest('raising'),
+    raising: recentRaising(latest('raising'), sorted[0]?.date ?? null),
     history: [],
     updatesRead: reports.length,
     latestUpdateAt: sorted[0]?.date ?? null,
@@ -1159,9 +1179,36 @@ export function buildCompanyNumbers(
       if (!rev || rev.kind !== revenue.value.kind) continue;
       byDay.set(r.date.slice(0, 10), { date: r.date, amount: rev.amount });
     }
-    result.history = [...byDay.values()].slice(-HISTORY_MAX);
+    const points = [...byDay.values()];
+    const kept = withoutOutliers(points);
+    result.history = kept.slice(-HISTORY_MAX);
+    // The latest figure itself looks like a misread (3x off the rest): show nothing.
+    if (!kept.some((p) => p.date === revenue.asOf && p.amount === revenue.value.amount)) {
+      result.revenue = null;
+      if (!result.growth && !result.cash && !result.runway && !result.raising) return null;
+    }
   }
   return result;
+}
+
+const OUTLIER_FACTOR = 3;
+
+/**
+ * Drop a point that is 3x above or below the median of the others, when there
+ * are at least three others to judge by: a series of $3.6M, $3.9M, $4.0M, $20M,
+ * $4.1M has one misread ("companies have gotten to $20M ARR"), not a 5x month.
+ */
+export function withoutOutliers(points: readonly MetricPoint[]): MetricPoint[] {
+  if (points.length < 4) return [...points];
+  return points.filter((p, i) => {
+    const others = points
+      .filter((_, j) => j !== i)
+      .map((o) => o.amount)
+      .sort((a, b) => a - b);
+    const mid = others[Math.floor(others.length / 2)]!;
+    if (mid <= 0) return true;
+    return p.amount <= mid * OUTLIER_FACTOR && p.amount >= mid / OUTLIER_FACTOR;
+  });
 }
 
 /* ------------------------------------------------------------ sparkline */

@@ -35,6 +35,8 @@ export interface MessageMeta {
   id: string;
   threadId: string;
   from: string;
+  /** Who replies go to; for updates sent through Visible or Mailchimp, the founder. */
+  replyTo?: string;
   to: string;
   cc: string;
   subject: string;
@@ -56,7 +58,16 @@ interface RawMessage {
   payload?: { headers?: { name: string; value: string }[] };
 }
 
-const HEADERS = ['From', 'To', 'Cc', 'Subject', 'List-Unsubscribe', 'List-Id', 'Precedence'];
+const HEADERS = [
+  'From',
+  'Reply-To',
+  'To',
+  'Cc',
+  'Subject',
+  'List-Unsubscribe',
+  'List-Id',
+  'Precedence',
+];
 
 export async function readMessageMeta(
   store: DataStore,
@@ -78,6 +89,7 @@ export async function readMessageMeta(
     id: m.id,
     threadId: m.threadId,
     from: header('From'),
+    replyTo: header('Reply-To'),
     to: header('To'),
     cc: header('Cc'),
     subject: header('Subject'),

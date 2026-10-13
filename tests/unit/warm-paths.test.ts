@@ -442,6 +442,17 @@ describe('buildWarmPaths', () => {
     expect(emails.some((e) => e.endsWith('@summit.example'))).toBe(false);
   });
 
+  it('does not count people from a group email (an event invite) as intro paths', () => {
+    const golf = mail('g1', '2026-09-20T00:00:00Z', [
+      [
+        'host@events.example',
+        'grace@lakesidefo.example, nick@tiptop.vc, a@one.example, b@two.example, c@three.example, d@four.example, e@five.example',
+      ],
+    ]);
+    const intro = buildWarmPaths([golf], target, CTX).introducers.map((p) => p.email);
+    expect(intro).toEqual([]);
+  });
+
   it('ranks by shared threads, then recency, and keeps the top five', () => {
     const many = Array.from({ length: 7 }, (_, i) =>
       mail(`f${i}`, `2026-0${i + 1}-01T00:00:00Z`, [

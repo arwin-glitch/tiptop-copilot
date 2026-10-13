@@ -8,6 +8,24 @@ throughout.
 
 ---
 
+## [0.11.1] — 2026-10-13
+
+Fixes from checking 0.11.0 against Nick's real mailbox.
+
+- **Fresh company updates** now catch updates sent through Visible or
+  Mailchimp (trust is checked against the founder on Reply-To), from a news
+  subdomain (news.acme.com counts as acme.com), and founders' monthly
+  "Newsletter" letters from the company's own domain. A first load that runs
+  out of time says so ("still reading some of your mail") instead of showing a
+  quietly short list.
+- **Portfolio numbers:** other companies' or goal figures ("companies have
+  gotten to $20M ARR", "$20M ARR by end of 2027") are refused; one misread
+  point 3x off a company's series is dropped from the trend; "Raising" now
+  means a raise in progress or ahead and from the last 120 days, never a round
+  that closed.
+- **Who can intro?** only counts someone as an introducer when they shared a
+  small email (6 people or fewer) with the target, not an event invite.
+
 ## [0.11.0] — 2026-10-13
 
 No schema change, no new dependency, no new environment variable.
