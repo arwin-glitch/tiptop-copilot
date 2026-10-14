@@ -11,7 +11,9 @@ import { err, ok, type Result } from '@/lib/util/result';
  *
  * A meeting has another person in it: someone else invited and not declined,
  * someone else as organizer, a video link, or a title that names someone
- * ("Coffee w/ Jane", "Intro: X <> Y"). Everything else is a block.
+ * ("Coffee w/ Jane", "Intro: X <> Y"). Everything else is a block. An event
+ * platform or a no-reply sender is not a person, so an RSVP that Luma or
+ * Eventbrite put on the calendar, with nobody else on it, is a block.
  */
 
 const CALENDAR = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
@@ -28,7 +30,8 @@ export interface MeetingEvent {
   location: string | null;
   description: string | null;
   joinUrl: string | null;
-  organizer: { email: string; self: boolean } | null;
+  /** `name` is Google's display name; synced rows only have the address. */
+  organizer: { email: string; self: boolean; name?: string | null } | null;
   attendees: {
     email: string;
     name: string | null;
@@ -50,7 +53,7 @@ interface GoogleEvent {
   conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
-  organizer?: { email?: string; self?: boolean };
+  organizer?: { email?: string; displayName?: string; self?: boolean };
   attendees?: {
     email?: string;
     displayName?: string;
@@ -81,7 +84,9 @@ export function meetingFromStoredEvent(e: CalendarEvent): MeetingEvent {
     location: e.location,
     description: e.description,
     joinUrl: JOIN_URL.exec(`${e.location ?? ''} ${e.description ?? ''}`)?.[0] ?? null,
-    organizer: e.organizer_email ? { email: e.organizer_email, self: false } : null,
+    organizer: e.organizer_email
+      ? { email: e.organizer_email.toLowerCase(), self: false, name: null }
+      : null,
     attendees: e.attendees.map((a) => ({
       email: a.email.toLowerCase(),
       name: a.name,
@@ -108,7 +113,11 @@ export function toMeetingEvent(e: GoogleEvent): MeetingEvent {
     description: e.description ?? null,
     joinUrl: e.hangoutLink ?? video ?? found ?? null,
     organizer: e.organizer?.email
-      ? { email: e.organizer.email.toLowerCase(), self: Boolean(e.organizer.self) }
+      ? {
+          email: e.organizer.email.toLowerCase(),
+          self: Boolean(e.organizer.self),
+          name: e.organizer.displayName?.trim() || null,
+        }
       : null,
     attendees: (e.attendees ?? [])
       .filter((a) => a.email)
@@ -163,13 +172,44 @@ export function isCalendarNotice(subject: string | null | undefined): boolean {
 /** Nick's other addresses: they are him, never "someone else on the invite". */
 export const NICK_ALIASES = ['nick@tiptop.vc', 'nick@tiptopvc.com', 'ntippman@gmail.com'];
 
-/** "Jane Doe", or "Arwin Reyes" from arwin.reyes@…; a bare handle stays as it is. */
-function prettyName(a: { name: string | null; email: string }): string {
-  if (a.name?.trim()) return a.name.trim();
+/** Event and RSVP platforms: their invites come from a machine, not a person. */
+const EVENT_PLATFORM_DOMAIN =
+  /(^|\.)(lu\.ma|luma\.com|luma-mail\.com|eventbrite\.[a-z.]+|partiful\.com|splashthat\.com|hopin\.(com|to)|meetup\.com|cvent\.com|on24\.com|bizzabo\.com|airmeet\.com)$/i;
+
+/** Mailbox names no person uses: invite robots, no-reply and notification senders. */
+const MACHINE_LOCAL =
+  /^(calendar[-_.]?(invites?|invitations?|notifications?)|calendar|invites?|invitations?|events?|rsvps?|webinars?|no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?|notify|mailer[-_.]?daemon)(\+[^@]*)?$/i;
+
+/**
+ * Never "someone else": 'platform' for an event platform (Luma, Eventbrite),
+ * 'mailbox' for a robot mailbox name on any domain (calendar@, no-reply@).
+ */
+function machineSender(email: string): 'platform' | 'mailbox' | null {
+  const [local = '', domain = ''] = email.toLowerCase().split('@');
+  if (EVENT_PLATFORM_DOMAIN.test(domain)) return 'platform';
+  return MACHINE_LOCAL.test(local) ? 'mailbox' : null;
+}
+
+/**
+ * Titles that name the other side outright ("Intro: Pat <> Nick", "Call w/
+ * Pat"). Narrower than WITH_SOMEONE, whose "demo", "pitch" and "chat" are
+ * common in event names.
+ */
+const NAMES_SOMEONE = /(<>|\bw\/\s*\S|\b(intro|1:1|1-1|one on one)\b)/i;
+
+const capitalise = (p: string) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+
+/**
+ * "Jane Doe" (the display name), "Arwin Reyes" from arwin.reyes@…, or "Andrew"
+ * from andrew@…; any other handle stays as it is.
+ */
+function prettyName(a: { name?: string | null; email: string }): string {
+  const name = a.name?.trim();
+  if (name && !name.includes('@')) return name;
   const local = a.email.split('@')[0]!;
   const parts = local.split(/[._-]+/).filter((p) => /^[a-z]{2,}$/i.test(p));
-  if (parts.length < 2) return local;
-  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
+  if (parts.length >= 2) return parts.map(capitalise).join(' ');
+  return /^[a-z]{2,}$/i.test(local) ? capitalise(local) : local;
 }
 
 /** One name per person: "Arwin" and "Arwin Reyes" (two addresses) show once. */
@@ -205,7 +245,9 @@ export function classifyMeeting(event: MeetingEvent, ownEmails: readonly string[
   const me = event.attendees.find((a) => isOwn(a.email, a.self));
   if (me?.response === 'declined') return no('Nick declined');
 
-  const others = event.attendees.filter((a) => !a.resource && !isOwn(a.email, a.self));
+  const others = event.attendees.filter(
+    (a) => !a.resource && !isOwn(a.email, a.self) && !machineSender(a.email),
+  );
   const active = others.filter((a) => a.response !== 'declined');
   const accepted = others.filter((a) => a.response === 'accepted');
   const names = uniqueNames(active.map(prettyName)).slice(0, 4);
@@ -217,7 +259,16 @@ export function classifyMeeting(event: MeetingEvent, ownEmails: readonly string[
   if (active.length > 0) {
     return { meeting: true, reason: `With ${names.join(', ')}`, with: names };
   }
-  const organizer = event.organizer && !isOwn(event.organizer.email, event.organizer.self);
+  const organizer =
+    event.organizer && !isOwn(event.organizer.email, event.organizer.self) ? event.organizer : null;
+  const robot = organizer ? machineSender(organizer.email) : null;
+  // Luma, Eventbrite and no-reply invites: Nick registered for an event, and
+  // nobody he would meet is on the entry. A firm's shared calendar@ or
+  // events@ mailbox can still book a real meeting when the title names the
+  // other side; it then falls through to the link and title rules below.
+  if (robot === 'platform' || (robot === 'mailbox' && !NAMES_SOMEONE.test(event.title))) {
+    return no('An event registration, not a meeting');
+  }
   // A group invite (other guests hidden) Nick has not accepted, like an open
   // LP pitch session: he may well not go, so it does not ping.
   if (organizer && (!me || me.response === 'needsAction' || me.response === 'tentative')) {
@@ -227,8 +278,8 @@ export function classifyMeeting(event: MeetingEvent, ownEmails: readonly string[
         : "Group invite Nick hasn't accepted",
     );
   }
-  if (organizer && !blockTitle) {
-    const who = prettyName({ name: null, email: event.organizer!.email });
+  if (organizer && !robot && !blockTitle) {
+    const who = prettyName(organizer);
     return { meeting: true, reason: `Invited by ${who}`, with: [who] };
   }
   if (event.transparent) return no('Marked free, no one else on it');
@@ -287,6 +338,73 @@ export async function readMeetingEvent(
   }
 }
 
+/**
+ * Titles that say the meeting is face to face. "Coffee at 3pm" or "lunch at
+ * 12" is a time, not a place, so a bare clock time after "at" does not count.
+ */
+const IN_PERSON_TITLE =
+  /\b(irl|in[-\s]person|face[-\s]to[-\s]face)\b|\b(coffee|lunch|dinner|breakfast|drinks)\s+at\s+(?=\S)(?!\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?(?!\w)|noon\b|midnight\b)/i;
+
+/** Titles that say it is a call ("Virtual coffee", "Coffee w/ Pat (Zoom)"). */
+const VIDEO_TITLE =
+  /\b(zoom|google meet|hangouts?|(ms|microsoft) teams|teams (call|meeting)|(on|via|over) (teams|zoom|meet)|webex|skype|facetime|virtual|online|video call)\b/i;
+
+/** Locations that are a call, not a place. */
+const NOT_A_PLACE = new RegExp(
+  [
+    String.raw`https?:\/\/|\bwww\.`, // a link
+    String.raw`\b[\w-]+(?:\.[\w-]+)+\/\S`, // a link without https: teams.microsoft.com/l/…
+    String.raw`\b(?:zoom|google meet|meet\.google|hangouts?|teams|webex|whereby|skype|facetime|gotomeeting|bluejeans|jitsi|ringcentral|discord|slack|webinar|livestream|video|virtual|online|phone|call|dial[- ]?in|conference (?:line|call|bridge|number)|meeting id|passcode)\b`,
+    String.raw`\bpin\s*[:#]?\s*\d`, // "PIN 4821", not "Pin Oak Dr"
+    String.raw`^\s*(?:meet|remote|tbd|tba)\s*$`,
+    String.raw`(?:^|[\s,(])\+\d`, // a dial-in: +1 646-555-0100,,845#
+    String.raw`\(?\b\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b`, // a phone number, with or without x204
+    String.raw`^[\d\s().,#*;+-]{7,}$`, // nothing but digits
+  ].join('|'),
+  'i',
+);
+
+/** Google Meet: what Nick's calendar (and most Google calendars) attach by default. */
+const GOOGLE_MEET = /^https:\/\/meet\.google\.com\//i;
+
+/** A real place (an address, a venue, an office, a room), not a link or a call. */
+export function physicalLocation(event: Pick<MeetingEvent, 'location'>): string | null {
+  const location = event.location?.trim();
+  return location && !NOT_A_PLACE.test(location) ? location : null;
+}
+
+/**
+ * Google copies a booked room's name into the location. The room says where
+ * the organizer will be, not that Nick is there, so on its own it is not a
+ * sign of face to face.
+ */
+function onlyBookedRooms(location: string, attendees: MeetingEvent['attendees']): boolean {
+  const rooms = attendees
+    .filter((a) => a.resource && a.name?.trim())
+    .map((a) => a.name!.trim().toLowerCase());
+  if (rooms.length === 0) return false;
+  const rest = rooms.reduce((left, room) => left.split(room).join(' '), location.toLowerCase());
+  return !/[a-z0-9]/i.test(rest);
+}
+
+/**
+ * Face to face: the title says so (IRL, in person, coffee at a place) or it
+ * is at a real place with no link anyone chose. Nick's calendar attaches a
+ * Meet link to everything he creates, so a Meet link next to a place still
+ * means in person. A Zoom or Teams link next to a place is a hybrid meeting,
+ * so the join stays. A title or location that names a call always wins.
+ */
+export function isInPerson(
+  event: Pick<MeetingEvent, 'title' | 'location'> &
+    Partial<Pick<MeetingEvent, 'joinUrl' | 'attendees'>>,
+): boolean {
+  const location = event.location?.trim() ?? '';
+  if (VIDEO_TITLE.test(event.title) || (location && NOT_A_PLACE.test(location))) return false;
+  if (IN_PERSON_TITLE.test(event.title)) return true;
+  if (!location || onlyBookedRooms(location, event.attendees ?? [])) return false;
+  return !event.joinUrl || GOOGLE_MEET.test(event.joinUrl);
+}
+
 export const MEETING_LEAD_MINUTES = 5;
 
 export interface MeetingAlert {
@@ -294,6 +412,8 @@ export interface MeetingAlert {
   eventId: string;
   title: string;
   body: string;
+  /** Face to face: the tap opens the Calendar tab, not the video link. */
+  inPerson: boolean;
 }
 
 /**
@@ -324,15 +444,18 @@ export function dueMeetingAlerts(
       timeZone,
     });
     const mins = Math.max(1, Math.round(minutes));
+    const inPerson = isInPerson(event);
+    const where = inPerson
+      ? physicalLocation(event)?.slice(0, 60)
+      : event.joinUrl
+        ? 'Tap to join'
+        : event.location?.slice(0, 60);
     out.push({
       key,
       eventId: event.id,
       title: `${event.title} in ${mins} min`,
-      body: [
-        at,
-        verdict.with.length ? `with ${verdict.with.join(', ')}` : null,
-        event.joinUrl ? 'Tap to join' : event.location ? event.location.slice(0, 60) : null,
-      ]
+      inPerson,
+      body: [at, verdict.with.length ? `with ${verdict.with.join(', ')}` : null, where]
         .filter(Boolean)
         .join(' · '),
     });

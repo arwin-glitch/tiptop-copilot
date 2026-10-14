@@ -8,6 +8,21 @@ throughout.
 
 ---
 
+## [0.11.3] — 2026-10-14
+
+- **Event sign-ups don't ping.** An RSVP that Luma, Eventbrite or a similar
+  platform put on the calendar is a block ("An event registration, not a
+  meeting"), unless a real person is on it too. A firm's shared calendar@ or
+  no-reply@ mailbox still books a real meeting when the title names the other
+  side ("Intro: Pat <> Nick").
+- **Names read right.** "Invited by" uses the organizer's own name from the
+  invite, and a one-word address (pat@) shows as "Pat".
+- **In-person meetings show the place.** IRL meetings, or ones at a real place
+  with only the auto-attached Meet link, say where instead of "Tap to join",
+  and the tap opens the Calendar tab. Zoom or Teams links next to a place
+  (hybrid) keep "Tap to join". The Calendar card shows the place first and
+  keeps a muted Join link.
+
 ## [0.11.2] — 2026-10-14
 
 - **Meeting alerts start on time every morning.** The alert loop no longer

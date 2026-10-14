@@ -326,7 +326,9 @@ export interface OutboxEntry {
 /**
  * Meeting alerts: real meetings (see classifyMeeting) starting in about five
  * minutes. These ignore the 8am-8pm quiet window, because an early meeting
- * still needs the heads-up; calendar blocks never alert.
+ * still needs the heads-up; calendar blocks never alert. A tap joins the
+ * video call, except for a face-to-face meeting, which opens the Calendar tab
+ * (its card still has the Join link).
  */
 async function meetingAlerts(
   store: DataStore,
@@ -351,7 +353,10 @@ async function meetingAlerts(
       keys: [m.key],
       title: m.title,
       body: clip(m.body),
-      url: event?.joinUrl ? `/go/meeting?id=${encodeURIComponent(m.eventId)}` : '/calendar',
+      url:
+        event?.joinUrl && !m.inPerson
+          ? `/go/meeting?id=${encodeURIComponent(m.eventId)}`
+          : '/calendar',
       tag: `meeting-${m.eventId.slice(0, 40)}`,
     };
   });

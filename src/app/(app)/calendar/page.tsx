@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { Bell, BellOff, ExternalLink, Video } from 'lucide-react';
+import { Bell, BellOff, ExternalLink, MapPin, Video } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
+import { physicalLocation } from '@/lib/calendar/meetings';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { readCalendarDay, type CalendarEntry } from '@/lib/services/calendar-view';
@@ -125,7 +126,10 @@ function EntryCard({
   tz: string;
   ownEmail: string;
 }) {
-  const { event, verdict, dossier, prep, recent } = entry;
+  const { event, verdict, inPerson, dossier, prep, recent } = entry;
+  // Face to face: where it is first. Join stays, muted, in case Nick dials in
+  // after all (his calendar attaches Meet to everything he creates).
+  const place = inPerson ? physicalLocation(event) : null;
   const time = event.startsAt
     ? `${formatTime(event.startsAt, tz)}${event.endsAt ? ` – ${formatTime(event.endsAt, tz)}` : ''}`
     : 'All day';
@@ -181,15 +185,31 @@ function EntryCard({
                 </p>
               ) : null}
             </div>
-            {event.joinUrl ? (
-              <a
-                href={event.joinUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--accent)] underline-offset-2 hover:underline"
-              >
-                <Video className="size-3.5" aria-hidden /> Join
-              </a>
+            {place || event.joinUrl ? (
+              <div className="flex max-w-[45%] shrink-0 flex-col items-end gap-0.5 text-xs">
+                {place ? (
+                  <span
+                    title={place}
+                    className="inline-flex max-w-full items-center gap-1 text-[var(--fg-muted)]"
+                  >
+                    <MapPin className="size-3.5 shrink-0" aria-hidden />
+                    <span className="min-w-0 truncate">{place}</span>
+                  </span>
+                ) : null}
+                {event.joinUrl ? (
+                  <a
+                    href={event.joinUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                      'inline-flex shrink-0 items-center gap-1 underline-offset-2 hover:underline',
+                      inPerson ? 'text-[var(--fg-muted)]' : 'text-[var(--accent)]',
+                    )}
+                  >
+                    <Video className="size-3.5" aria-hidden /> Join
+                  </a>
+                ) : null}
+              </div>
             ) : null}
           </div>
 

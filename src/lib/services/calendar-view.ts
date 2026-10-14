@@ -4,6 +4,7 @@ import type { DataStore } from '@/lib/db/store';
 import {
   classifyMeeting,
   isCalendarNotice,
+  isInPerson,
   listMeetingEvents,
   meetingFromStoredEvent,
   type MeetingEvent,
@@ -105,6 +106,8 @@ export interface RecentThread {
 export interface CalendarEntry {
   event: MeetingEvent;
   verdict: MeetingVerdict;
+  /** Face to face: show where first; any Join link is secondary (Meet is auto-attached). */
+  inPerson: boolean;
   dossier: DossierSection | null;
   prep: string | null;
   recent: RecentThread[];
@@ -219,7 +222,10 @@ export async function readCalendarDay(
   const entries = await Promise.all(
     events.map(async (event): Promise<CalendarEntry> => {
       const verdict = classifyMeeting(event, own);
-      if (!verdict.meeting) return { event, verdict, dossier: null, prep: null, recent: [] };
+      const inPerson = isInPerson(event);
+      if (!verdict.meeting) {
+        return { event, verdict, inPerson, dossier: null, prep: null, recent: [] };
+      }
       const dossier = claimed.get(event.id) ?? null;
       const week = weekEvents.find(
         (w) =>
@@ -233,7 +239,7 @@ export async function readCalendarDay(
       const recent = integration
         ? await recentThreads(store, integration, outside).catch(() => [])
         : [];
-      return { event, verdict, dossier, prep: week?.prep ?? null, recent };
+      return { event, verdict, inPerson, dossier, prep: week?.prep ?? null, recent };
     }),
   );
   return { state: 'ok', dateKey, entries };
