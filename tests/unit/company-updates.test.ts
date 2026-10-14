@@ -830,3 +830,42 @@ describe('a quarterly letter titled by its news (Oct 14, live)', () => {
     expect(one('Tax <tax@cpa.example>', 'Estimated taxes at Acme — Q4 2026 meeting')).toBeNull();
   });
 });
+
+describe('row names (Oct 14)', () => {
+  const decide = (from: string, subject: string, replyTo = '') => {
+    const s = screenCandidate(
+      {
+        id: 'abc1234567',
+        threadId: 'abc1234567',
+        from,
+        replyTo,
+        to: 'team@crewcheck.example',
+        cc: '',
+        subject,
+        snippet: '',
+        date: '2026-10-13T21:00:00Z',
+        labelIds: ['INBOX'],
+        bulk: from.includes('visible.vc'),
+      },
+      { own: ['nick@acme.vc'], companies: [] },
+    );
+    return s ? decideUpdate(s, true) : null;
+  };
+
+  it('names the company, not the founder', () => {
+    expect(
+      decide('Ro Gale <ro@crewcheck.example>', 'Enterprise rollouts at Crewcheck — Q3 2026')
+        ?.company,
+    ).toBe('Crewcheck');
+  });
+
+  it('names the company behind a Visible send', () => {
+    expect(
+      decide(
+        'Pat Lee via Visible <email@visible.vc>',
+        'Aerofleet Q3 Update — $4M raised',
+        'Pat <pat@aerofleet.example>',
+      )?.company,
+    ).toBe('Aerofleet');
+  });
+});

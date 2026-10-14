@@ -940,11 +940,23 @@ export function decideUpdate(screened: Screened, emailedBefore: boolean): Compan
   else return null;
   // A name read off the subject heads the row only when it is the sender's own
   // company; otherwise the sender's name does ("October" is not a company).
-  const named = companyFromSubject(message.subject);
+  // The company the subject names ("... at Acme — Q3 2026", "Acme Q3 Update"),
+  // when it is the sender's own: checked against the founder behind a Visible
+  // or Mailchimp send too, so the row reads "Acme", not "Pat via Visible".
+  const named = verdict.named ?? companyFromSubject(message.subject);
+  const founder = founderBehind(sender, message.replyTo);
+  const ownCompany =
+    named &&
+    (nameMatchesSender(named, sender) ||
+      nameMatchesSender(named, founder) ||
+      (UPDATE_PLATFORMS.some((d) => onDomain(sender.domain, d)) &&
+        nameMatchesSender(named, { ...founder, name: sender.name.replace(/\s+via\s+\S+$/i, '') })))
+      ? named
+      : null;
   return {
     messageId: message.id,
     threadId: message.threadId,
-    company: match?.company.name ?? (named && nameMatchesSender(named, sender) ? named : null),
+    company: match?.company.name ?? ownCompany,
     companyId: solid ? (match?.company.id ?? null) : null,
     sender: sender.name,
     senderAddress: sender.address,
