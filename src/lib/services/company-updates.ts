@@ -340,3 +340,53 @@ export async function readCompanyUpdates(
     return cache.lists.get(organizationId)?.result ?? { state: 'error', updates: [], checkedAt };
   }
 }
+
+/* ------------------------------------------------------------ explain */
+
+/**
+ * Why one message is or isn't in Fresh company updates, step by step. For
+ * diagnosing a missed update against the real portfolio list and mailbox.
+ */
+export async function explainUpdate(
+  store: DataStore,
+  organizationId: string,
+  messageId: string,
+): Promise<Record<string, unknown>> {
+  const integration = await getPrimaryIntegration(store, organizationId).catch(() => null);
+  if (!integration) return { step: 'no mailbox connected' };
+  const meta = await readMessageMeta(store, integration, messageId);
+  if (!meta.ok) return { step: 'could not read the message', error: meta.error.message };
+  const companies = await portfolioCompanies(store, organizationId);
+  const own = ownAddresses(integration);
+  const header = {
+    from: meta.value.from,
+    replyTo: meta.value.replyTo ?? '',
+    subject: meta.value.subject,
+    labels: meta.value.labelIds,
+    bulk: meta.value.bulk,
+    date: meta.value.date,
+  };
+  const ids = await listMessageIds(store, integration, buildUpdatesQuery(companies), MAX_MESSAGES);
+  const position = ids.ok ? ids.value.indexOf(messageId) : null;
+  const search = ids.ok
+    ? { found: position !== -1, position, of: ids.value.length }
+    : { error: ids.error.message };
+  const screened = screenCandidate(meta.value, { own, companies });
+  if (!screened) return { step: 'dropped at screening (headers)', header, search };
+  const emailed = screened.historyKey
+    ? await emailedBefore(store, integration, screened.historyKey, Date.now())
+    : null;
+  const decided = decideUpdate(screened, emailed === true);
+  return {
+    step: decided ? 'kept' : 'dropped at trust (not portfolio, not emailed)',
+    header,
+    search,
+    verdict: screened.verdict,
+    portfolioMatch: screened.match
+      ? { name: screened.match.company.name, by: screened.match.by }
+      : null,
+    historyKey: screened.historyKey,
+    emailedBefore: emailed,
+    decided,
+  };
+}
