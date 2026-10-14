@@ -134,6 +134,9 @@ const QUARTER_WORD_RE =
 /** A quarter tag alone ("Q4 2026 estimated taxes") says nothing; it needs one of these with it. */
 const PERIOD_NOUN_RE =
   /\b(?:updates?|letter|report|results|recap|review|metrics|highlights|numbers|kpis?|ARR|MRR|revenue|financials)\b/i;
+/** "… at Acme — Q3 2026", "… from Acme | Q3'26": the company, right before the quarter tag. */
+const QUARTER_FROM_RE =
+  /\b(?:at|from)\s+([A-Z][\w.&'’-]*(?:\s+[A-Z][\w.&'’-]*){0,2})\s*(?:[—–|:-]|,)\s*(?:Q[1-4]|[1-4](?:st|nd|rd|th)\s+quarter|H[12])\b/;
 const METRIC_RE =
   /[$€£]\s?\d[\d.,]*\s?(?:k|m|mm|b|bn|million|thousand)?\b[^\n]{0,20}?\b(?:ARR|MRR|GMV|revenue|bookings)\b|\b(?:ARR|MRR)\b[^\n]{0,15}?[$€£]\s?\d/i;
 const MEETING_RE = /\b(?:meeting|call|sync|agenda|offsite|session|dinner|lunch|coffee|planning)\b/i;
@@ -357,6 +360,14 @@ export function classifyUpdateSubject(subject: string): SubjectVerdict | null {
   const quarterTag = QUARTER_TAG_RE.test(s) && PERIOD_NOUN_RE.test(s);
   if (!meeting && (quarterTag || QUARTER_WORD_RE.test(s) || PERIODIC_RE.test(s))) {
     return { kind: 'periodic', label: periodicLabel(s) };
+  }
+  // "Enterprise rollouts and team growth at Acme — Q3 2026": a quarter with its
+  // year plus the company the letter is from. The name must still be the
+  // sender's own company (screenCandidate checks), which keeps tax and
+  // marketing subjects with a quarter in them out.
+  const fromCompany = !meeting && QUARTER_TAG_RE.test(s) ? QUARTER_FROM_RE.exec(s) : null;
+  if (fromCompany && namedOk(fromCompany[1])) {
+    return { kind: 'periodic', label: periodicLabel(s), named: trimQualifiers(fromCompany[1]!) };
   }
   const month = MONTH_UPDATE_RE.exec(s);
   // "May" only as a capitalised month: "we may update" is not a monthly update.

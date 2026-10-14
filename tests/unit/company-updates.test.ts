@@ -797,3 +797,36 @@ describe('cold pitches with numbers in the subject (Oct 13, live)', () => {
     );
   });
 });
+
+describe('a quarterly letter titled by its news (Oct 14, live)', () => {
+  const one = (from: string, subject: string) =>
+    screenCandidate(
+      {
+        id: 'abc1234567',
+        threadId: 'abc1234567',
+        from,
+        to: 'cofounder@crewcheck.example',
+        cc: '',
+        subject,
+        snippet: '',
+        date: '2026-10-13T21:00:00Z',
+        labelIds: ['INBOX', 'CATEGORY_PERSONAL'],
+        bulk: false,
+      },
+      { own: ['nick@acme.vc'], companies: [] },
+    );
+
+  it("keeps it when the company named before the quarter is the sender's", () => {
+    const s = one(
+      'Ro Gale <ro@crewcheck.example>',
+      'Enterprise rollouts and team growth at Crewcheck — Q3 2026',
+    );
+    expect(s?.verdict).toMatchObject({ kind: 'periodic', named: 'Crewcheck' });
+    expect(s?.historyKey).toBe('crewcheck.example');
+  });
+
+  it('drops a quarter subject that names someone else', () => {
+    expect(one('Promo <hi@vendor.example>', 'Big savings from Zeta — Q4 2026')).toBeNull();
+    expect(one('Tax <tax@cpa.example>', 'Estimated taxes at Acme — Q4 2026 meeting')).toBeNull();
+  });
+});
