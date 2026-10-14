@@ -8,6 +8,14 @@ throughout.
 
 ---
 
+## [0.11.2] — 2026-10-14
+
+- **Meeting alerts start on time every morning.** The alert loop no longer
+  stops at 9pm and waits for GitHub to start the next day's run (which came
+  hours late on Oct 14). It now waits quietly overnight without calling the
+  app, starts its own successor every 5.5 hours, and survives a bad reply
+  from the app instead of exiting. The hourly schedule is only a backup.
+
 ## [0.11.1] — 2026-10-13
 
 Fixes from checking 0.11.0 against Nick's real mailbox.

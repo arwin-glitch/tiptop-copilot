@@ -12,12 +12,16 @@
  * Meeting alerts must land about five minutes before a meeting, which a
  * GitHub schedule (often hours late) cannot do. So one run loops: every
  * minute it asks for meetings only, and every half hour for everything,
- * until LOOP_UNTIL_HOUR in Central time (or LOOP_MAX_MINUTES). Without
- * LOOP_MAX_MINUTES it runs once, as before.
+ * between LOOP_FROM_HOUR and LOOP_UNTIL_HOUR Central, waiting quietly
+ * outside them. At LOOP_MAX_MINUTES it stops and sets the `handover` step
+ * output, and the workflow starts the next run, so a loop is always going
+ * and 6am never depends on a late schedule. Without LOOP_MAX_MINUTES it runs
+ * once, as before.
  *
  * Needs the `web-push` package; the workflow installs it without touching
  * package.json, because the app itself never sends.
  */
+import { appendFileSync } from 'node:fs';
 import webpush from 'web-push';
 
 const APP_URL = (process.env.APP_URL || 'https://tiptop-copilot.onrender.com').replace(/\/$/, '');
@@ -122,18 +126,30 @@ if (!LOOP_MAX_MINUTES) {
 
 const started = Date.now();
 let minute = 0;
+let idleNoted = false;
 for (;;) {
-  const hour = centralHour();
-  if (hour >= LOOP_UNTIL_HOUR || hour < LOOP_FROM_HOUR) {
-    console.log(`outside ${LOOP_FROM_HOUR}:00-${LOOP_UNTIL_HOUR}:00 Central; stopping`);
-    break;
-  }
   if (Date.now() - started > LOOP_MAX_MINUTES * 60_000) {
-    console.log('reached the run limit; the next run takes over');
+    console.log('reached the run limit; handing over to the next run');
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, 'handover=true\n');
     break;
   }
+  const hour = centralHour();
+  // Overnight the run just waits (no calls to the app, so it can sleep), and
+  // is already running when 6am comes: GitHub starts scheduled runs late.
+  if (hour >= LOOP_UNTIL_HOUR || hour < LOOP_FROM_HOUR) {
+    if (!idleNoted) console.log(`outside ${LOOP_FROM_HOUR}:00-${LOOP_UNTIL_HOUR}:00 Central; waiting`);
+    idleNoted = true;
+    await sleep(60_000);
+    continue;
+  }
+  idleNoted = false;
   const tickStart = Date.now();
-  await runOnce(minute % FULL_EVERY === 0 ? 'all' : 'meetings');
+  try {
+    await runOnce(minute % FULL_EVERY === 0 ? 'all' : 'meetings');
+  } catch (error) {
+    // One bad minute (a dropped connection, a garbled reply) must not end the loop.
+    console.log(`pass failed: ${error?.message ?? error}`);
+  }
   minute++;
   await sleep(Math.max(1_000, 60_000 - (Date.now() - tickStart)));
 }

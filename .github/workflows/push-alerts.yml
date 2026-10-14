@@ -5,24 +5,27 @@
 # half hour for everything else, then signs and sends them with the VAPID
 # private key held here as the VAPID_PRIVATE_KEY secret.
 #
-# GitHub starts scheduled runs late (sometimes hours), so the schedule only
-# makes sure a loop is running: a run that finds another already looping waits
-# in the concurrency queue, and each run hands over to the next before its
-# 6-hour limit. The loop stops itself outside 6am-9pm Central.
+# GitHub starts scheduled runs late (sometimes hours), so the loop never
+# stops between days: outside 6am-9pm Central it waits without calling the
+# app, and after 5.5 hours it starts its own successor ("Hand over" below),
+# which waits in the concurrency queue until this run ends. The hourly
+# schedule is only a backup that restarts the chain if it ever breaks; a
+# scheduled run that finds a loop going just waits its turn.
 #
-# Until VAPID_PRIVATE_KEY is added this job is a no-op, not a failure.
+# Until VAPID_PRIVATE_KEY is added this job is a no-op, not a failure (and
+# does not hand over, so it cannot spin).
 
 name: push-alerts
 
 on:
   schedule:
-    # 11:00-02:00 UTC covers 6am-9pm Central in daylight and standard time.
-    - cron: '3 11-23 * * *'
-    - cron: '3 0-2 * * *'
+    - cron: '3 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
+  # Only to start the next run of this workflow.
+  actions: write
 
 concurrency:
   group: push-alerts
@@ -58,6 +61,7 @@ jobs:
           npm install --no-audit --no-fund web-push@3.6.7
 
       - name: Send alerts every minute
+        id: send
         run: node "${RUNNER_TEMP}/sender/push-alerts.mjs"
         env:
           APP_URL: ${{ vars.APP_URL || 'https://tiptop-copilot.onrender.com' }}
@@ -67,3 +71,12 @@ jobs:
           LOOP_MAX_MINUTES: '330'
           LOOP_FROM_HOUR: '6'
           LOOP_UNTIL_HOUR: '21'
+
+      - name: Hand over to the next run
+        # Set only when the loop reached its run limit: a run that exited
+        # early (no key, bad secret) or was cancelled does not chain.
+        if: always() && steps.send.outputs.handover == 'true'
+        run: gh workflow run push-alerts.yml --ref "${GITHUB_REF_NAME}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
