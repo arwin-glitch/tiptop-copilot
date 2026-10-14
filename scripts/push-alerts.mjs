@@ -137,7 +137,8 @@ for (;;) {
   // Overnight the run just waits (no calls to the app, so it can sleep), and
   // is already running when 6am comes: GitHub starts scheduled runs late.
   if (hour >= LOOP_UNTIL_HOUR || hour < LOOP_FROM_HOUR) {
-    if (!idleNoted) console.log(`outside ${LOOP_FROM_HOUR}:00-${LOOP_UNTIL_HOUR}:00 Central; waiting`);
+    if (!idleNoted)
+      console.log(`outside ${LOOP_FROM_HOUR}:00-${LOOP_UNTIL_HOUR}:00 Central; waiting`);
     idleNoted = true;
     await sleep(60_000);
     continue;
