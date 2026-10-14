@@ -20,6 +20,13 @@ name: push-alerts
 on:
   schedule:
     - cron: '3 * * * *'
+  # A change to the sender queues a run with the new code behind the one
+  # looping now, so it takes over without waiting for the schedule.
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/push-alerts.yml
+      - scripts/push-alerts.mjs
   workflow_dispatch:
 
 permissions:
