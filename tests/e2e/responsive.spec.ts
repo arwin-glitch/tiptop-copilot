@@ -77,13 +77,13 @@ test.describe('mobile layout', () => {
     await expect(nav).toBeVisible();
 
     // Every destination is in the bar; the bar scrolls sideways when they
-    // do not all fit, so each is reached by scrolling it into view.
+    // do not all fit, so each is reached by scrolling it into view. Ask is
+    // not one: it is the Ask Arwin launcher above the bar (ask-widget.spec).
     for (const label of [
       'Today',
       'Follow-ups',
       'Tasks',
       'Deals',
-      'Ask',
       'Inbox',
       'Lists',
       'Portfolio',
@@ -93,6 +93,7 @@ test.describe('mobile layout', () => {
       'Reports',
       'Knowledge',
       'Settings',
+      'Help',
     ]) {
       const link = nav.getByRole('link', { name: label, exact: true });
       await link.scrollIntoViewIfNeeded();

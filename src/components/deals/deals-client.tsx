@@ -57,7 +57,7 @@ export function DealsFilterBar({
   };
 
   return (
-    <div className="space-y-3" aria-busy={pending}>
+    <div className="space-y-3" aria-busy={pending} data-tour="deals-filters">
       <LiveSearch
         path="/deals"
         value={q}

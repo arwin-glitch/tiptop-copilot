@@ -3,25 +3,19 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { CornerDownLeft, Wrench } from 'lucide-react';
 import { askAction } from '@/app/actions';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { PlainText } from '@/components/ui/feedback';
-import { LinkedText } from '@/components/ask/linked-text';
 import { NotConfigured } from '@/components/ui/not-configured';
-import { Textarea } from '@/components/ui/form';
-import { CitationChip, SourceDrawer } from '@/components/evidence/source-drawer';
-import type { ChatMessage, Citation } from '@/lib/types/domain';
-import { cn } from '@/lib/util/cn';
+import { AskComposer, ConversationMessage, WorkingMessage } from '@/components/ask/message-parts';
+import type { ChatMessage } from '@/lib/types/domain';
 
 /**
  * Ask TipTop.
  *
- * Chat lives here and only here — the rest of the product is structured, so
- * this screen is the one place where an open-ended question is genuinely the
- * right interface.
+ * The full-page form of Ask. Day to day, questions go through the Ask Arwin
+ * widget (components/ask/ask-widget.tsx) on every page; this page stays for
+ * deep links, long answers and citations, and shares its message parts with
+ * the widget.
  */
 export function AskClient({
   initialMessages,
@@ -189,155 +183,28 @@ export function AskClient({
       <ol className="space-y-4">
         {messages.map((message) => (
           <li key={message.id}>
-            {message.role === 'user' ? (
-              <div className="flex justify-end">
-                <div className="max-w-[85%] rounded-[var(--radius-card)] rounded-br-sm bg-[var(--accent-soft)] px-3.5 py-2.5">
-                  <PlainText text={message.content} />
-                </div>
-              </div>
-            ) : message.status === 'pending' ? (
-              <Card>
-                <CardContent className="pt-4">
-                  <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
-                    <span className="skeleton size-3 rounded-full" />
-                    Checking your inbox, calendar and Slack…
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              <AssistantMessage message={message} />
-            )}
+            <ConversationMessage message={message} />
           </li>
         ))}
         {pending ? (
           <li>
-            <Card>
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
-                  <span className="skeleton size-3 rounded-full" />
-                  Searching your records…
-                </div>
-              </CardContent>
-            </Card>
+            <WorkingMessage label="Searching your records…" />
           </li>
         ) : null}
       </ol>
       <div ref={endRef} />
 
       {aiAvailable ? (
-        <form
+        <AskComposer
           className="sticky bottom-16 mt-5 lg:bottom-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit(question);
-          }}
-        >
-          <div className="shadow-lifted rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg-raised)] p-2">
-            <Textarea
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={(e) => {
-                // Plain Enter sends; Shift+Enter still inserts a newline.
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  submit(question);
-                }
-              }}
-              rows={2}
-              placeholder={dealName ? `Ask about ${dealName}…` : 'Ask about anything in TipTop…'}
-              aria-label="Your question"
-              className="min-h-0 resize-none border-0 bg-transparent px-2 py-1.5 focus-visible:outline-none"
-            />
-            <div className="flex items-center justify-between gap-2 px-2 pb-1">
-              <span className="text-micro text-[var(--fg-subtle)]">
-                Answers cite their sources. Unknowns are stated, not filled in.
-              </span>
-              <Button
-                type="submit"
-                size="sm"
-                variant="primary"
-                loading={pending}
-                disabled={!question.trim()}
-              >
-                Ask
-                <CornerDownLeft aria-hidden="true" />
-              </Button>
-            </div>
-          </div>
-        </form>
+          value={question}
+          onChange={setQuestion}
+          onSubmit={submit}
+          pending={pending}
+          placeholder={dealName ? `Ask about ${dealName}…` : 'Ask about anything in TipTop…'}
+          hint="Answers cite their sources. Unknowns are stated, not filled in."
+        />
       ) : null}
     </div>
   );
-}
-
-function AssistantMessage({ message }: { message: ChatMessage }) {
-  const citations: Citation[] = message.citations;
-  const [answer, ...rest] = splitAnswer(message.content);
-
-  return (
-    <Card>
-      <CardContent className="pt-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Badge tone="outline">
-            <span aria-hidden="true">✦</span> AI-generated
-          </Badge>
-          {citations.length > 0 ? (
-            <SourceDrawer citations={citations}>
-              <Button variant="ghost" size="sm">
-                Sources
-                <span className="tabular ml-1 text-[var(--fg-subtle)]">{citations.length}</span>
-              </Button>
-            </SourceDrawer>
-          ) : null}
-        </div>
-
-        <p className="mt-2.5 text-[15px] leading-relaxed font-medium">
-          <LinkedText text={answer ?? ''} />
-        </p>
-
-        {rest.length > 0 ? (
-          <div className="plain-text mt-3 text-sm leading-relaxed text-[var(--fg-muted)]">
-            <LinkedText text={rest.join('\n')} />
-          </div>
-        ) : null}
-
-        {citations.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {citations.map((c) => (
-              <CitationChip key={c.id} citation={c} citations={citations} />
-            ))}
-          </div>
-        ) : null}
-
-        {message.tool_calls.length > 0 ? (
-          <details className="mt-3">
-            <summary className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--fg-subtle)]">
-              <Wrench className="size-3" aria-hidden="true" />
-              {message.tool_calls.length} tool call{message.tool_calls.length === 1 ? '' : 's'}
-            </summary>
-            <ul className="mt-1.5 space-y-1">
-              {message.tool_calls.map((t, i) => (
-                <li
-                  key={i}
-                  className={cn(
-                    'text-[11px]',
-                    t.ok ? 'text-[var(--fg-muted)]' : 'text-[var(--danger)]',
-                  )}
-                >
-                  <span className="font-mono">{t.name}</span> — {t.summary}
-                </li>
-              ))}
-            </ul>
-          </details>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-/** The first paragraph is the direct answer; everything after is support. */
-function splitAnswer(content: string): string[] {
-  const blocks = content.split('\n');
-  const first = blocks[0] ?? '';
-  return [first, ...blocks.slice(1)];
 }

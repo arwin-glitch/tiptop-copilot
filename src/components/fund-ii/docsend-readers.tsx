@@ -85,7 +85,7 @@ export async function DocSendReaders() {
   });
 
   return (
-    <section aria-labelledby="docsend-heading" className="mb-8">
+    <section aria-labelledby="docsend-heading" data-tour="fund-readers" className="mb-8">
       <SectionHeading count={hot.length}>
         <span id="docsend-heading">Reading your DocSend</span>
       </SectionHeading>
@@ -142,7 +142,7 @@ export async function DocSendReaders() {
 
 function ReadersUnavailable({ children }: { children: React.ReactNode }) {
   return (
-    <section aria-labelledby="docsend-heading" className="mb-8">
+    <section aria-labelledby="docsend-heading" data-tour="fund-readers" className="mb-8">
       <SectionHeading>
         <span id="docsend-heading">Reading your DocSend</span>
       </SectionHeading>

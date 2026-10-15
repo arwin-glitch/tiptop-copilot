@@ -8,6 +8,53 @@ throughout.
 
 ---
 
+## [Unreleased]
+
+- **Help and guided tours.** Help is in the System group of the menu. It shows
+  a card for every page and for Ask Arwin: what it is for, a small sketch of
+  the page with numbered pins for where to click, the same steps as one-line
+  labels, its tabs, and two buttons. "Show me" runs a tour on the real page: it
+  dims everything but one element at a time and explains it in a line, with
+  "2 of 5", Back, Next and Done. Esc ends it. "Take the 2-minute tour" walks
+  one stop on every page, opening each in turn. The "?" beside a page title
+  tours that page, and Settings links to Help. A step whose element is not on
+  screen (a phone layout, an empty list) is skipped. The tour never blocks the
+  page: clicks go through to it, leaving the page ends the tour, and it waits
+  while the Ask Arwin panel is open. Page shortcuts stand down while a tour
+  card has focus. The copy, steps and tab labels live in one place
+  (`src/lib/help/registry.ts`), and a test checks every step against the code.
+  No new dependency, no migration.
+- **At a glance on Today.** Three small cards open Today: Do now, Intros owed
+  and Coming up, one short line per task, four a card, with the full count in
+  the title and "+N more" to Tasks. Tick a line and the task is done: the count
+  drops at once, the line strikes through and folds away, and an 8-second Undo
+  is offered. Do now is anything undated, overdue or due within two days;
+  Coming up is 3 to 30 days out (a week-level date reads "Oct 19 wk"); intros
+  are read from the routine or the title ("Intro A to B", arrows), never "intro
+  call". Short labels come from the task-suggest routine (new optional
+  `short`, `bucket` and `due_precision` fields on `TASK_ADD_V1`, each dropped
+  on its own if malformed; `due_at` now takes any offset, a bare date or a
+  Central time); otherwise the app shortens the title itself, no AI. A relay
+  message with one bad task or date keeps the rest of its tasks. With the
+  cards showing, Tasks due starts closed, with the overdue count beside its
+  title. On a narrow screen, a tablet or a small laptop the cards stack, and a
+  long line wraps instead of being cut. No migration.
+- **Ask Arwin replaces the Ask tab.** A green chat button sits in the
+  bottom-right corner of every page (above the tab bar on a phone), with a
+  "Hi. Need any help?" greeting that can be closed for good. It opens a panel:
+  past conversations first (the question, the last thing said, when it
+  started, and Answered / Waiting / No answer), a "New conversation" button,
+  and the conversation itself. The page dims behind it, and keys typed in it
+  never reach the page's own shortcuts (the Inbox's Gmail keys, the email
+  session's Ctrl+Enter send). A phone on its side or a short window gets the
+  full-screen sheet. An answer still on its way keeps being checked with the
+  panel closed, and the button gets a gold dot when it lands. "Ask about
+  today", a deal's Research, IC memo and Ask links, and `?ask=<question>` on
+  any page open the panel instead of leaving the page. `/ask` stays as the full
+  page, one click away from the panel. Esc closes it; keyboard focus stays in
+  the panel while it is open, and a screen reader hears when an answer lands,
+  panel open or closed.
+
 ## [0.11.4] — 2026-10-15
 
 - **Portfolio numbers load at once.** "Numbers from their updates" shows the

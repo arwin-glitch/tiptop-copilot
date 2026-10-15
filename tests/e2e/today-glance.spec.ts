@@ -1,0 +1,214 @@
+import path from 'node:path';
+import { expect, test, type Page } from '@playwright/test';
+
+/**
+ * Today's "At a glance" cards over the invented demo tasks: Do now, Intros
+ * owed and Coming up, one short line each, with the full title as the
+ * tickbox's name. A tick completes the task at once, with an Undo; the task
+ * then lives on the Tasks page's Completed tab.
+ */
+
+const ELENA = 'Introduce Elena Marsh to Ben Adeyemi';
+const CHRIS = 'Intro Chris Dalton to Ivy Lin and Sam Park';
+const LUMEN = 'Lumen product walkthrough with the team';
+// The demo's one task closed automatically; it stays completed throughout.
+const AUTO_CLOSED = 'Answer the LP question on the Q3 reporting timeline';
+
+// One demo sign-in for the whole file: demo entry is capped at 60 a minute
+// across the suite.
+const SIGNED_IN = path.resolve('test-results', 'today-glance-state.json');
+
+test.beforeAll(async ({ browser }, testInfo) => {
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    storageState: { cookies: [], origins: [] },
+  });
+  const page = await context.newPage();
+  await page.goto('/login');
+  await page.getByRole('button', { name: 'Enter demo workspace' }).click();
+  await page.waitForURL(/\/today/);
+  await context.storageState({ path: SIGNED_IN });
+  await context.close();
+});
+
+test.use({ storageState: SIGNED_IN });
+
+// Every test starts with the demo's open tasks. Reopen whatever a test left
+// completed, even one that failed partway, so the specs after it start clean.
+test.afterEach(async ({ page }) => {
+  await page.goto('/tasks?view=completed');
+  const panel = page.getByRole('tabpanel', { name: /^Completed/ });
+  await expect(panel).toBeVisible();
+  const reopen = panel
+    .getByRole('listitem')
+    .filter({ hasNotText: AUTO_CLOSED })
+    .getByRole('button', { name: /^Reopen / });
+  for (let left = await reopen.count(); left > 0; left--) {
+    await reopen.first().click();
+    await expect(reopen).toHaveCount(left - 1);
+  }
+});
+
+async function openGlance(page: Page) {
+  await page.goto('/today');
+  const glance = page.getByRole('region', { name: 'At a glance' });
+  await expect(glance).toBeVisible();
+  return glance;
+}
+
+test('three cards, each titled with its count, one short line per task', async ({ page }) => {
+  const glance = await openGlance(page);
+  await expect(glance.getByRole('heading', { name: 'Do now · 7' })).toBeVisible();
+  await expect(glance.getByRole('heading', { name: 'Intros owed · 6' })).toBeVisible();
+  await expect(glance.getByRole('heading', { name: 'Coming up · 4' })).toBeVisible();
+
+  // Short labels on screen, the full title as the tickbox's name.
+  await expect(glance.getByText('Priya → Omar', { exact: true })).toBeVisible();
+  await expect(glance.getByText('Chris → Ivy + Sam P.', { exact: true })).toBeVisible();
+  await expect(glance.getByRole('checkbox', { name: CHRIS })).toBeVisible();
+  await expect(glance.getByText('Northwind note', { exact: true })).toBeVisible();
+  await expect(glance.getByText(/^[A-Z][a-z]{2} \d{1,2} wk$/)).toBeVisible();
+
+  // The demo's two overdue tasks lead Do now, each marked.
+  await expect(glance.getByRole('img', { name: 'overdue' })).toHaveCount(2);
+  await expect(glance.getByText(/4 PM Central|Auto-check/)).toBeVisible();
+
+  // Four lines a card at most; three columns side by side on a desktop.
+  await expect(glance.getByRole('checkbox')).toHaveCount(12);
+  const tops = await Promise.all(
+    ['Do now', 'Intros owed', 'Coming up'].map(async (name) => {
+      const box = await glance.getByRole('heading', { name: new RegExp(`^${name}`) }).boundingBox();
+      return box?.y ?? -1;
+    }),
+  );
+  expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(2);
+
+  // With the cards above, Tasks due waits behind a click; the overdue count still shows.
+  await expect(page.getByRole('button', { name: /Tasks due/ })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+  await expect(page.getByText('2 overdue')).toBeVisible();
+});
+
+test('a tick completes the task: the count drops, Undo is offered, and it moves to Completed', async ({
+  page,
+}) => {
+  const glance = await openGlance(page);
+  const box = glance.getByRole('checkbox', { name: ELENA });
+  await box.check();
+  await expect(glance.getByRole('heading', { name: 'Intros owed · 5' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+  // The refresh takes the line away.
+  await expect(box).toHaveCount(0);
+
+  await page.reload();
+  await expect(glance.getByRole('heading', { name: 'Intros owed · 5' })).toBeVisible();
+  await expect(glance.getByRole('checkbox', { name: ELENA })).toHaveCount(0);
+
+  await page.goto('/tasks?view=completed');
+  await expect(
+    page
+      .getByRole('tabpanel', { name: /^Completed/ })
+      .getByRole('listitem')
+      .filter({ hasText: ELENA }),
+  ).toBeVisible();
+});
+
+test('Undo puts the task back on its card', async ({ page }) => {
+  const glance = await openGlance(page);
+  await glance.getByRole('checkbox', { name: CHRIS }).check();
+  await expect(glance.getByRole('heading', { name: 'Intros owed · 5' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByText('Back on your list', { exact: true })).toBeVisible();
+  const box = glance.getByRole('checkbox', { name: CHRIS });
+  await expect(box).toBeVisible();
+  await expect(box).not.toBeChecked();
+  await expect(glance.getByRole('heading', { name: 'Intros owed · 6' })).toBeVisible();
+
+  await page.reload();
+  await expect(glance.getByRole('checkbox', { name: CHRIS })).toBeVisible();
+});
+
+test('"+N more" opens the full list on Tasks', async ({ page }) => {
+  const glance = await openGlance(page);
+  // Do now has seven, four shown.
+  await glance.getByRole('link', { name: '+3 more' }).click();
+  await page.waitForURL(/\/tasks$/);
+  await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible();
+});
+
+test('Space on a focused tickbox ticks it', async ({ page }) => {
+  const glance = await openGlance(page);
+  const box = glance.getByRole('checkbox', { name: LUMEN });
+  await box.focus();
+  await page.keyboard.press('Space');
+  await expect(glance.getByRole('heading', { name: 'Coming up · 3' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+});
+
+test('on a phone the cards stack, with no sideways scroll', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const glance = await openGlance(page);
+  const boxes = await Promise.all(
+    ['Do now', 'Intros owed', 'Coming up'].map((name) =>
+      glance.getByRole('heading', { name: new RegExp(`^${name}`) }).boundingBox(),
+    ),
+  );
+  const [a, b, c] = boxes.map((box) => box ?? { x: -1, y: -1, width: 0, height: 0 });
+  expect(Math.abs(a!.x - b!.x)).toBeLessThan(2);
+  expect(Math.abs(b!.x - c!.x)).toBeLessThan(2);
+  expect(b!.y).toBeGreaterThan(a!.y);
+  expect(c!.y).toBeGreaterThan(b!.y);
+
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(2);
+});
+
+/** Where each card's heading is, by card. */
+async function cardBoxes(page: Page) {
+  const glance = page.getByRole('region', { name: 'At a glance' });
+  const boxes = await Promise.all(
+    ['Do now', 'Intros owed', 'Coming up'].map((name) =>
+      glance.getByRole('heading', { name: new RegExp(`^${name}`) }).boundingBox(),
+    ),
+  );
+  return boxes.map((box) => box ?? { x: -1, y: -1, width: 0, height: 0 });
+}
+
+/** True when no line on any card is cut short (one or two lines, never clipped). */
+async function everyLineShows(page: Page): Promise<boolean> {
+  return page
+    .getByRole('region', { name: 'At a glance' })
+    .locator('li span[title]')
+    .evaluateAll((labels) =>
+      labels.every((el) => el.scrollHeight <= el.clientHeight + 1 && el.textContent !== ''),
+    );
+}
+
+test('the cards sit side by side only where every line fits', async ({ page }) => {
+  // A tablet, and a small laptop with the sidebar: one column, like a phone.
+  for (const viewport of [
+    { width: 820, height: 1180 },
+    { width: 1100, height: 800 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await openGlance(page);
+    const [a, b, c] = await cardBoxes(page);
+    expect(Math.abs(a!.x - c!.x), `${viewport.width}px`).toBeLessThan(2);
+    expect(b!.y, `${viewport.width}px`).toBeGreaterThan(a!.y);
+    expect(await everyLineShows(page), `${viewport.width}px`).toBe(true);
+  }
+
+  // A 1280px laptop: three across, and still nothing cut.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openGlance(page);
+  const [a, b, c] = await cardBoxes(page);
+  expect(Math.abs(a!.y - b!.y)).toBeLessThan(2);
+  expect(b!.x).toBeGreaterThan(a!.x);
+  expect(c!.x).toBeGreaterThan(b!.x);
+  expect(await everyLineShows(page)).toBe(true);
+});

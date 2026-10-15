@@ -12,11 +12,13 @@ import {
   pullBriefingsFromSlack,
 } from '@/lib/services/briefing';
 import { gatherTodayData, generateDailyBrief, getTodaysBrief } from '@/lib/services/brief';
-import { pullTaskRelays } from '@/lib/services/task-relay';
+import { getTaskRelayStatus, pullTaskRelays } from '@/lib/services/task-relay';
+import { readTodayGlance } from '@/lib/services/task-glance';
 import { readFollowUps } from '@/lib/services/follow-ups';
 import { classifyMeeting, meetingFromStoredEvent } from '@/lib/calendar/meetings';
 import { gmailThreadUrl } from '@/lib/deals/links';
-import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
+import { autoCheckStatusLine, DEFAULT_MAILBOX } from '@/lib/services/task-close';
+import { glanceIsEmpty } from '@/lib/tasks/glance';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
 import { Badge, RecommendationBadge } from '@/components/ui/badge';
@@ -28,6 +30,7 @@ import { RoutineBriefingCard } from '@/components/today/briefing-summary';
 import { TopPrioritiesCard } from '@/components/today/top-priorities';
 import { BriefingWatcher } from '@/components/today/briefing-watcher';
 import { WelcomeBack } from '@/components/today/welcome-back';
+import { TodayGlance } from '@/components/today/today-glance';
 import {
   CreateFollowUpButton,
   RefreshOutlookButton,
@@ -62,7 +65,7 @@ export default async function TodayPage() {
                 an action that cannot succeed is not an action. */}
             {aiAvailable ? (
               <>
-                <Button asChild variant="secondary" size="sm">
+                <Button asChild variant="secondary" size="sm" data-tour="today-ask">
                   <Link href="/ask?q=What%20actually%20needs%20my%20attention%20today%3F">
                     Ask about today
                   </Link>
@@ -114,13 +117,25 @@ async function TodayContent({
   // Pull any routine post that is waiting in the Slack relay first, so a card
   // posted a minute ago shows now rather than after the next scheduled sync.
   await pullBriefingsFromSlack(getStore(), auth.organizationId).catch(() => 0);
-  const [routineBrief, routineDossier, followUps] = await Promise.all([
+  const [routineBrief, routineDossier, followUps, glance] = await Promise.all([
     getCurrentBrief(getStore(), auth.organizationId).catch(() => null),
     getCurrentDossier(getStore(), auth.organizationId).catch(() => null),
     // Same rule as the briefings: a Slack fault only hides the card.
     readFollowUps(getStore(), auth.organizationId, { now }).catch(() => null),
+    // And a store fault only hides the glance cards.
+    readTodayGlance(getStore(), auth.organizationId, {
+      now,
+      timeZone: auth.profile.timezone,
+    }).catch(() => null),
   ]);
   const priorities = followUps?.state === 'ok' ? followUps.snapshot.priorities : null;
+  const showGlance = glance !== null && !glanceIsEmpty(glance);
+  const glanceFootnote =
+    autoCheckStatusLine(
+      getTaskRelayStatus(auth.organizationId).lastRun,
+      now,
+      auth.profile.timezone,
+    ) ?? 'Unticked items are checked against mail and calendar at 4 PM Central.';
 
   // Generate on first view of the day so the page is never empty on arrival;
   // an explicit refresh regenerates it.
@@ -159,6 +174,8 @@ async function TodayContent({
   return (
     <>
       <WelcomeBack />
+
+      {showGlance ? <TodayGlance glance={glance} footnote={glanceFootnote} /> : null}
 
       {priorities ? <TopPrioritiesCard priorities={priorities} now={now} /> : null}
 
@@ -269,19 +286,26 @@ async function TodayContent({
         </Card>
       ) : null}
 
-      <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)] px-4 sm:px-5">
+      <div
+        data-tour="today-sections"
+        className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)] px-4 sm:px-5"
+      >
+        {/* The glance cards above already list these, so the full rows wait
+            behind a click; the overdue count stays readable while closed. */}
         <ExpandableSection
           title="Tasks due"
           count={data.overdueTasks.length + data.dueTodayTasks.length}
-          defaultOpen={data.overdueTasks.length > 0}
+          defaultOpen={!showGlance && data.overdueTasks.length > 0}
           emptyLabel="Nothing due"
+          note={
+            data.overdueTasks.length > 0 ? (
+              <span className="flex items-center gap-1 text-sm font-medium text-[var(--danger)]">
+                <AlertTriangle className="size-3.5" aria-hidden="true" />
+                {data.overdueTasks.length} overdue
+              </span>
+            ) : null
+          }
         >
-          {data.overdueTasks.length > 0 ? (
-            <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-[var(--danger)]">
-              <AlertTriangle className="size-3.5" aria-hidden="true" />
-              {data.overdueTasks.length} overdue
-            </p>
-          ) : null}
           <ul>
             {[...data.overdueTasks, ...data.dueTodayTasks].map((task) => (
               <li

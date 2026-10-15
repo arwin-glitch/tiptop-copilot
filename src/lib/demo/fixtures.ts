@@ -39,6 +39,7 @@ import type {
   ThesisVersion,
   UserProfile,
 } from '@/lib/types/domain';
+import { demoGlance } from './glance-fixtures';
 import { demoCrmId, DEMO_IDS as ID } from './ids';
 
 /**
@@ -1911,6 +1912,9 @@ experiment, not the fundraise timing.`,
     },
   ];
 
+  // Suggested tasks with the routine's short labels, for Today's "At a glance".
+  const glance = demoGlance(now);
+
   return {
     organizations,
     organization_members,
@@ -1925,7 +1929,7 @@ experiment, not the fundraise timing.`,
     deal_sources,
     deal_analyses,
     deal_decisions,
-    tasks,
+    tasks: [...tasks, ...glance.tasks],
     portfolio_companies,
     portfolio_contacts,
     portfolio_updates,
@@ -1941,7 +1945,7 @@ experiment, not the fundraise timing.`,
     chat_messages: [],
     generated_drafts: [],
     ai_usage: [],
-    audit_events,
+    audit_events: [...audit_events, ...glance.audit_events],
     user_feedback: [],
     sync_runs: [],
     meeting_notes,

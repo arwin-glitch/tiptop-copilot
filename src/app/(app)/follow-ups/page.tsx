@@ -84,11 +84,11 @@ async function FollowUpsContent() {
   return (
     <div className="space-y-8">
       <AutoRefresh minutes={10} />
-      <div className="space-y-2">
+      <div className="space-y-2" data-tour="followups-session">
         <EmailSessionCard session={session} />
         {presence ? <PresenceLine presence={presence} now={now} /> : null}
       </div>
-      <section aria-labelledby="on-you-heading">
+      <section aria-labelledby="on-you-heading" data-tour="followups-on-you">
         <SectionHeading count={onYou.length}>
           <span id="on-you-heading">Waiting on you</span>
         </SectionHeading>
@@ -112,7 +112,7 @@ async function FollowUpsContent() {
         )}
       </section>
 
-      <section aria-labelledby="waiting-heading">
+      <section aria-labelledby="waiting-heading" data-tour="followups-waiting">
         <SectionHeading count={waiting.length}>
           <span id="waiting-heading">You&apos;re waiting on</span>
         </SectionHeading>
@@ -133,7 +133,7 @@ async function FollowUpsContent() {
         )}
       </section>
 
-      <section aria-labelledby="meetings-heading">
+      <section aria-labelledby="meetings-heading" data-tour="followups-recaps">
         <SectionHeading count={snapshot.meetings.length}>
           <span id="meetings-heading">Meeting recaps</span>
         </SectionHeading>

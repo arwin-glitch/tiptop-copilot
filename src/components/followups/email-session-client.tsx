@@ -18,6 +18,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/form';
+import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
 import { cn } from '@/lib/util/cn';
 import type { SessionAnswerKind, SessionItem } from '@/lib/services/email-session';
 
@@ -342,8 +343,11 @@ function SessionCard({
   };
 
   // Keyboard on a computer: Ctrl/Cmd+Enter send, E archive, L later, P pass.
+  // None of them while something is drawn over the session (the Ask Arwin
+  // panel, a tour card, a dialog): Ctrl+Enter there must never send this email.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (keyBelongsToOverlay(e)) return;
       const typing = (e.target as HTMLElement | null)?.closest('textarea, input');
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();

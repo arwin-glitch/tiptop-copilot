@@ -112,6 +112,31 @@ export function startOfDayUtc(dateKey: string, timeZone: string): Date {
   return new Date(localMidnight - offsetAt(new Date(firstGuess), timeZone));
 }
 
+/**
+ * The instant a wall-clock time on a calendar day reads in `timeZone`, e.g.
+ * 09:00 in Chicago on `2026-10-26`. Same two passes as `startOfDayUtc`, so a
+ * day the clocks change is right too. Null for a date or time that does not
+ * exist on a calendar.
+ */
+export function wallTimeToUtc(
+  dateKey: string,
+  hour: number,
+  minute: number,
+  timeZone: string,
+  second = 0,
+): Date | null {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  if (!y || !m || !d || m > 12 || d > 31) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) {
+    return null;
+  }
+  const wall = Date.UTC(y, m - 1, d, hour, minute, second);
+  // 2026-02-30 would quietly roll into March.
+  if (new Date(wall).getUTCDate() !== d) return null;
+  const firstGuess = wall - offsetAt(new Date(wall), timeZone);
+  return new Date(wall - offsetAt(new Date(firstGuess), timeZone));
+}
+
 export interface DayWindow {
   dateKey: string;
   start: Date;

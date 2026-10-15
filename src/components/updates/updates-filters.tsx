@@ -59,7 +59,7 @@ export function UpdatesFilters({
   };
 
   return (
-    <FilterChipRow aria-label="Filter updates">
+    <FilterChipRow aria-label="Filter updates" data-tour="reports-filters">
       {VIEWS.map((v) =>
         chip(v.view, view === v.view && !source, { view: v.view, source: null }, v.label),
       )}

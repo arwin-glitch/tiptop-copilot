@@ -94,7 +94,7 @@ async function ListsContent() {
   const now = new Date();
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" data-tour="lists-groups">
       {GROUPS.map((group) => {
         const inGroup = live.filter((l) => l.entity_type === group.type);
         if (inGroup.length === 0) return null;

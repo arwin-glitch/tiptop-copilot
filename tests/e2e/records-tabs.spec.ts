@@ -324,6 +324,10 @@ test('keyboard focus never stops underneath the stuck bar', async ({ page }) => 
       const stop = await page.evaluate(() => {
         const el = document.activeElement as HTMLElement | null;
         if (!el || !el.closest('main') || el.closest('[data-page-tabs]')) return null;
+        // The page header (its "?" tour button, its actions) sits above the
+        // bar in the page's flow: focus there scrolls to the top, where the
+        // bar is not stuck, so it is never underneath it.
+        if (el.closest('main header')) return null;
         const r = el.getBoundingClientRect();
         return { top: r.top, bottom: r.bottom };
       });

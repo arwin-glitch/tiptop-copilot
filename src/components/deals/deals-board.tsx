@@ -32,7 +32,7 @@ export function DealsBoard({ rows }: { rows: DealRow[] }) {
   const ordered = [...columns.entries()].sort((a, b) => a[1].order - b[1].order);
 
   return (
-    <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-tour="deals-pipeline">
       {ordered.map(([key, col]) => (
         <section key={key} aria-labelledby={`board-${key}`} className="min-w-0">
           <h2 id={`board-${key}`} className="mb-2 flex items-baseline gap-2 text-sm font-semibold">

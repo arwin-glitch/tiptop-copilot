@@ -33,6 +33,7 @@ import {
 import { deleteDocument, importNetworkCsv, uploadDocument } from '@/lib/services/knowledge';
 import { createTask, restoreTask, snoozeTask, updateTaskStatus } from '@/lib/services/tasks';
 import type { TaskRestore } from '@/lib/tasks/tasks-view';
+import { setTaskGlance, type GlancePatch } from '@/lib/services/task-glance';
 import { updateThesis, type ThesisPatch } from '@/lib/services/thesis';
 import { getStore, getUpdatesFeed } from '@/lib/runtime';
 import { readUpdates } from '@/lib/services/updates';
@@ -180,6 +181,29 @@ export async function restoreTaskAction(taskId: string, prev: TaskRestore): Prom
   if (!result.ok) return fail(result.error);
   revalidatePath('/today');
   revalidatePath('/tasks');
+  return succeed();
+}
+
+/**
+ * A person's own short label or card for a task on Today's "At a glance".
+ * Rate-limited, and the patch is checked by the service, not trusted.
+ */
+export async function setTaskGlanceAction(
+  taskId: string,
+  patch: GlancePatch,
+): Promise<ActionResult> {
+  const auth = await requireAuth();
+  const limited = rateLimit(`glance:${auth.userId}`, 30, 60_000);
+  if (!limited.ok) return fail(limited.error);
+  if (typeof taskId !== 'string' || patch === null || typeof patch !== 'object') {
+    return fail({ code: 'invalid_input', message: 'That change is not valid.' });
+  }
+  const result = await setTaskGlance(auth, taskId, {
+    ...(typeof patch.short === 'string' ? { short: patch.short } : {}),
+    ...(typeof patch.bucket === 'string' ? { bucket: patch.bucket } : {}),
+  });
+  if (!result.ok) return fail(result.error);
+  revalidatePath('/today');
   return succeed();
 }
 

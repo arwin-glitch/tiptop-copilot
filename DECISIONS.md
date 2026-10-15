@@ -775,3 +775,79 @@ fetched, so a holding line further down can still read as a reply; its phrase
 list errs toward leaving tasks open. The AI tools' task list still reads open
 tasks only (it runs only with an AI key). The status line reflects pulls on
 the instance that served the page.
+
+### D-053 — Today's "At a glance": every line is a task, labels live beside it, no migration
+
+**Context.** Arwin asked on 2026-10-15 for a Today Nick can read in one
+glance: what to do now, which intros he owes, and what is coming, as short
+lines he can tick off, with no long scrolling. Top priorities is a relay post,
+not tasks, so it cannot be ticked; Tasks due lists only the next 24 hours.
+
+**Decision.**
+
+- **Three cards from open tasks.** Do now, Intros owed and Coming up sit
+  between the welcome-back card and Top priorities, four lines a card, the
+  full count in the title and "+N more" to Tasks; the block is left out when
+  all three are empty. Only open tasks, and snoozed ones that have woken,
+  count. A tick is the ordinary "Marked complete" (`task.updated` with the
+  person's id) with the same 8-second Undo run by the layout's task host, so
+  the task-closer sees a later close for it as `not_open`. The count drops at
+  once; the line strikes through and is held in place until its fold has
+  played, because the server's answer to the tick already leaves it out.
+  With the cards showing, Tasks due starts closed and shows the overdue count
+  beside its title.
+- **Buckets, in local days in the profile's timezone.** A person's card
+  always wins. The routine's `intro` sticks; its `now` and `upcoming` are
+  hints that a due date overrules (so Coming up becomes Do now when its date
+  arrives). A title with an arrow (→, ->, " <> ", ↔), starting "intro",
+  "introduce", "introduction" or "connect" (after an optional "make"/"send"
+  and article), or "send … intros" is an intro, but never one with "intro
+  call". Otherwise: undated, overdue or due within today+2 is Do now; today+3
+  to +30 is Coming up; later is not shown. Do now runs overdue oldest first,
+  then soonest due, then undated newest first; intros oldest owed first;
+  Coming up soonest first.
+- **Labels.** The task-suggest routine may send `short` (≤ 40 characters,
+  ≤ 6 words, one line, no backticks), `bucket` and `due_precision` on each
+  `TASK_ADD_V1` task; each is dropped on its own when malformed, so a bad
+  label never costs the task. `due_at` now takes any offset, a bare date
+  (09:00 Central that day) or a time with no offset (Central wall time), and
+  is stored as UTC. On the Slack relay, where nobody sees a rejection and the
+  same message is read every run, a payload that fails as a whole is kept
+  task by task: a task failing only on `detail`, `due_at` or `urgent` loses
+  that field, only a task with no usable title is left out, and the failure
+  is logged. The JSON is read from the first "{" to the last "}", so a
+  backtick inside a value no longer loses the message. The webhook stays
+  strict: its caller gets the validation error. Without a label the app shortens the title deterministically (no
+  model): a trailing "(…)" goes; "Intro A to B and C" is "A → B + C" in first
+  names; "Reply to X …" is "X: reply"; a linked deal or portfolio company, or
+  a portfolio name in the title, leads "Company: three words" without
+  articles and generic verbs; otherwise the first five words and "…"; never
+  over 40 characters. Arrows display as →; a week-level date reads
+  "Oct 19 wk".
+- **No migration.** Labels and cards are `task.glance_set` audit rows: no
+  user for the routine's, the person's id for theirs, folded per field with
+  the newest person's value first. They are not one of the task-closer's
+  "person touched it" actions, so moving a task between cards never stops it
+  closing itself. `setTaskGlanceAction` (rate-limited) writes a person's row;
+  no screen offers it yet.
+- **No label dedupe.** Only the title decides whether a task already exists
+  ("never resurrect", unchanged). A label never does, even for an intro:
+  labels are first names by design, so two different intros ("Chris Dalton
+  to Sam Park", "Chris Okafor to Sam Lee") or the same pair introduced again
+  months later share "Chris → Sam". Not reposting a pair under new wording is
+  the routine prompt's rule; a duplicate that slips through costs one tick,
+  while a dropped intro is a promise nobody sees.
+- **The routine prompts** (task-auto-suggest and task-closer) gain the
+  fields and rules above; the app accepts payloads with or without them.
+
+**Why.** Every line being a real task means the tick, the Undo, the Completed
+tab, the 4pm task-closer and "a person wins" all work unchanged, and the
+audit trail already holds per-task routine and person state without a schema
+change (the Sep 15 outage came from a hand-applied migration). Short labels
+are the routine's job because it has read the thread; the shortener only has
+to be predictable.
+
+**Known limits.** The shortener knows company names only from linked deals
+and the portfolio, so an unlinked deal's name is not recognised. An intro the
+routine reposts under new wording shows twice until one is ticked. Day
+boundaries follow the profile's timezone, not where Nick is travelling.

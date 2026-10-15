@@ -222,7 +222,7 @@ function LatestFeed({
     .sort((a, b) => Number(b.post.ts) - Number(a.post.ts));
 
   return (
-    <section>
+    <section data-tour="reports-latest">
       <SectionHeading>Latest</SectionHeading>
       {latest.length === 0 ? (
         <EmptyState

@@ -119,7 +119,7 @@ export default async function TasksPage() {
           action={{ label: 'Go to Deals', href: '/deals' }}
         />
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-8" data-tour="tasks-list">
           {overdue.length > 0 ? (
             <section>
               <SectionHeading count={overdue.length}>
