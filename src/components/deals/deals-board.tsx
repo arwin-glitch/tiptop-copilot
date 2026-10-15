@@ -6,7 +6,7 @@ import type { DealRow } from '@/lib/deals/pipeline-view';
 
 const FIT: Record<NonNullable<DealRow['fit']>, { label: string; tone: BadgeProps['tone'] }> = {
   likely: { label: 'Likely fit', tone: 'ok' },
-  possible: { label: 'Possible fit', tone: 'info' },
+  possible: { label: 'Possible fit', tone: 'accent' },
   unlikely: { label: 'Unlikely fit', tone: 'neutral' },
 };
 

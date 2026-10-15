@@ -189,7 +189,7 @@ function ReaderRow({
                 <span className="text-sm text-[var(--fg-muted)]">{r.domain}</span>
               ) : null}
               {r.match ? (
-                <Badge tone="info">
+                <Badge tone="accent">
                   {r.match.by === 'firm'
                     ? `${r.match.firm ?? 'Firm'} in pipeline · ${STAGE_LABEL[r.match.stage]}`
                     : STAGE_LABEL[r.match.stage]}

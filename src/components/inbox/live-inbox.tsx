@@ -357,7 +357,9 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search all mail, like Gmail (from:jane has:attachment)"
-              className="h-9 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] pr-8 pl-8 text-sm"
+              // The same field edge as every other input (controlBase in
+              // ui/form.tsx): --border-control clears 3:1 (WCAG 1.4.11).
+              className="h-9 w-full rounded-md border border-[var(--border-control)] bg-[var(--bg-raised)] pr-8 pl-8 text-sm text-[var(--fg)] placeholder:text-[var(--fg-subtle)]"
             />
             {searched ? (
               <button
@@ -526,9 +528,14 @@ function ThreadRow({
   return (
     <li
       className={cn(
-        'group flex items-start gap-2 px-3 py-2.5',
-        active ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]',
+        'group relative flex items-start gap-2 px-3 py-2.5',
         row.unread ? 'bg-[var(--bg-raised)]' : '',
+        // Last, so the j/k selection wins over the unread fill (tailwind-merge
+        // keeps the later background). The gold rule is the 3:1 marker; the
+        // tint on its own is barely 1.2:1 against the list.
+        active
+          ? 'bg-[var(--accent-soft)] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-[var(--gold)]'
+          : 'hover:bg-[var(--bg-hover)]',
       )}
     >
       <input
@@ -544,10 +551,10 @@ function ThreadRow({
         onClick={onStar}
         aria-label={row.starred ? 'Unstar' : 'Star'}
         aria-pressed={row.starred}
-        className="mt-0.5 text-[var(--fg-subtle)] hover:text-[var(--warn)]"
+        className="mt-0.5 text-[var(--fg-subtle)] hover:text-[var(--gold)]"
       >
         <Star
-          className={cn('size-4', row.starred && 'fill-[var(--warn)] text-[var(--warn)]')}
+          className={cn('size-4', row.starred && 'fill-[var(--gold)] text-[var(--gold)]')}
           aria-hidden
         />
       </button>
@@ -678,7 +685,7 @@ function ThreadView({
           aria-pressed={row.starred}
         >
           <Star
-            className={cn('size-4', row.starred && 'fill-[var(--warn)] text-[var(--warn)]')}
+            className={cn('size-4', row.starred && 'fill-[var(--gold)] text-[var(--gold)]')}
             aria-hidden
           />
         </Button>

@@ -30,9 +30,11 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  // Meta tags cannot read CSS variables: these are --bg from globals.css
+  // (light :root and .dark). Keep them in step with it.
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#faf8f6' },
-    { media: '(prefers-color-scheme: dark)', color: '#191212' },
+    { media: '(prefers-color-scheme: light)', color: '#f6f1e4' },
+    { media: '(prefers-color-scheme: dark)', color: '#102b23' },
   ],
 };
 
@@ -59,7 +61,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             thing a keyboard user reached could be painted underneath it. */}
         <a
           href="#main"
-          className="focus:shadow-lifted sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[var(--z-toast)] focus:rounded-md focus:bg-[var(--accent)] focus:px-3 focus:py-2 focus:text-sm focus:text-[var(--accent-fg)]"
+          className="focus:shadow-lifted sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[var(--z-toast)] focus:rounded-md focus:bg-[var(--primary)] focus:px-3 focus:py-2 focus:text-sm focus:text-[var(--primary-fg)]"
         >
           Skip to content
         </a>
@@ -69,13 +71,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           position="bottom-right"
           // Above the phone tab bar, so an 8-second Undo toast never covers it.
           mobileOffset={{ bottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
-          toastOptions={{
-            style: {
-              background: 'var(--bg-raised)',
-              color: 'var(--fg)',
-              border: '1px solid var(--border)',
-            },
-          }}
+          // No `theme` and no inline colours: every toast colour (surface,
+          // edge, description, the Undo button, focus) is a token, set in the
+          // Toasts block at the end of globals.css, so toasts follow the app's
+          // own light/dark choice rather than Sonner's light default.
         />
       </body>
     </html>

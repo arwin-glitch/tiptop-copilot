@@ -237,7 +237,7 @@ function Context({ row }: { row: RelationshipRow }) {
     return (
       <span className="flex flex-wrap items-center gap-1.5">
         <Link href={`/deals/${dealId}`}>
-          <Badge tone="info">{dealName}</Badge>
+          <Badge tone="accent">{dealName}</Badge>
         </Link>
         {row.role ? <span className="text-mini text-[var(--fg-subtle)]">{row.role}</span> : null}
       </span>

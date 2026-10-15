@@ -150,7 +150,7 @@ export function AskClient({
     <div className="flex flex-col">
       {dealName ? (
         <div className="mb-4">
-          <Badge tone="info">Scoped to {dealName}</Badge>
+          <Badge tone="accent">Scoped to {dealName}</Badge>
           <p className="mt-1.5 text-xs text-[var(--fg-subtle)]">
             Every tool read is restricted to this deal. Ask about anything else from the main Ask
             screen.

@@ -13,8 +13,8 @@ const KIND: Record<
 > = {
   money: { label: 'Money', tone: 'danger' },
   reply: { label: 'Reply', tone: 'warn' },
-  meeting: { label: 'Meeting', tone: 'info' },
-  deal: { label: 'Deal', tone: 'info' },
+  meeting: { label: 'Meeting', tone: 'jewel' },
+  deal: { label: 'Deal', tone: 'accent' },
   portfolio: { label: 'Portfolio', tone: 'ok' },
   other: { label: 'Other', tone: 'neutral' },
 };
@@ -30,7 +30,7 @@ export function TopPrioritiesCard({ priorities, now }: { priorities: Priorities;
     <Card className="mb-6">
       <CardHeader>
         <div className="flex items-center gap-2.5">
-          <span className="flex size-8 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)]">
+          <span className="flex size-8 items-center justify-center rounded-full border border-[var(--border-strong)] bg-[var(--jewel)] text-[var(--jewel-fg)]">
             <ListChecks className="size-4" aria-hidden />
           </span>
           <div>

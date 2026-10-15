@@ -15,7 +15,7 @@ export function EmailSessionCard({ session }: { session: EmailSession }) {
       aria-labelledby="email-session-heading"
       className="flex flex-wrap items-center gap-4 rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg-raised)] p-4"
     >
-      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--accent)] text-[var(--accent-fg)]">
+      <span className="grid size-10 shrink-0 place-items-center rounded-full border border-[var(--border-strong)] bg-[var(--jewel)] text-[var(--jewel-fg)]">
         <Inbox className="size-5" aria-hidden />
       </span>
       <div className="min-w-0 flex-1">
@@ -31,7 +31,7 @@ export function EmailSessionCard({ session }: { session: EmailSession }) {
       </div>
       <Link
         href="/follow-ups/session"
-        className="inline-flex h-9 items-center rounded-md bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-fg)] hover:opacity-90"
+        className="inline-flex h-9 items-center rounded-md bg-[var(--primary)] px-4 text-sm font-medium text-[var(--primary-fg)] hover:bg-[var(--primary-hover)]"
       >
         {done ? 'Review' : answered > 0 ? 'Continue' : 'Start'}
       </Link>

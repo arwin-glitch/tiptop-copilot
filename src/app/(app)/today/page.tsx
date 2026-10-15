@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { after } from 'next/server';
 import { AlertTriangle, ArrowRight, Calendar, Mail } from 'lucide-react';
-import { requireAuth } from '@/lib/auth/session';
+import { requireAuth, type AuthContext } from '@/lib/auth/session';
 import { getAI, getStore } from '@/lib/runtime';
 import {
   briefingVersion,
@@ -40,11 +40,42 @@ import type { Citation } from '@/lib/types/domain';
 export const metadata: Metadata = { title: 'Today' };
 export const dynamic = 'force-dynamic';
 
-export default function TodayPage() {
+export default async function TodayPage() {
+  // The header renders outside the Suspense boundary, like every other page's:
+  // it needs only the signed-in profile, so the forest-green band and its gold
+  // hairline are there from the first paint instead of snapping in (and pushing
+  // the page down) once the brief and the Slack pulls finish.
+  const auth = await requireAuth();
+  const now = new Date();
+  const firstName = auth.profile.full_name?.split(' ')[0] ?? 'there';
+  const aiAvailable = getAI().available();
   return (
     <PageShell>
+      <PageHeader
+        eyebrow={formatWeekdayLong(now, auth.profile.timezone)}
+        title={`Good day, ${firstName}`}
+        subtitle="What matters, why it matters, and what to do about it."
+        actions={
+          <>
+            {/* Both of these are model calls. With no provider connected they
+                would fail on click, so they are absent rather than offered —
+                an action that cannot succeed is not an action. */}
+            {aiAvailable ? (
+              <>
+                <Button asChild variant="secondary" size="sm">
+                  <Link href="/ask?q=What%20actually%20needs%20my%20attention%20today%3F">
+                    Ask about today
+                  </Link>
+                </Button>
+                <RefreshOutlookButton />
+              </>
+            ) : null}
+            <CreateFollowUpButton />
+          </>
+        }
+      />
       <Suspense fallback={<TodaySkeleton />}>
-        <TodayContent />
+        <TodayContent auth={auth} now={now} aiAvailable={aiAvailable} />
       </Suspense>
     </PageShell>
   );
@@ -53,7 +84,6 @@ export default function TodayPage() {
 function TodaySkeleton() {
   return (
     <div className="space-y-6">
-      <SkeletonText lines={2} className="max-w-md" />
       <Card>
         <CardContent className="pt-5">
           <SkeletonText lines={4} />
@@ -64,9 +94,15 @@ function TodaySkeleton() {
   );
 }
 
-async function TodayContent() {
-  const auth = await requireAuth();
-  const now = new Date();
+async function TodayContent({
+  auth,
+  now,
+  aiAvailable,
+}: {
+  auth: AuthContext;
+  now: Date;
+  aiAvailable: boolean;
+}) {
   const data = await gatherTodayData(auth, now);
   // Task additions and closes waiting in Slack (and the 4pm reply check), after
   // the response: Today only lists due tasks, and the next view shows the result.
@@ -101,10 +137,7 @@ async function TodayContent() {
     else briefError = { code: generated.error.code, message: generated.error.message };
   }
 
-  const aiAvailable = getAI().available();
-
   const citations: Citation[] = brief?.citations ?? [];
-  const firstName = auth.profile.full_name?.split(' ')[0] ?? 'there';
 
   // Today lists only real meetings, judged the same way as the Calendar tab
   // and the 5-minute phone alert; blocks are counted, not listed.
@@ -125,30 +158,6 @@ async function TodayContent() {
 
   return (
     <>
-      <PageHeader
-        eyebrow={formatWeekdayLong(now, auth.profile.timezone)}
-        title={`Good day, ${firstName}`}
-        subtitle="What matters, why it matters, and what to do about it."
-        actions={
-          <>
-            {/* Both of these are model calls. With no provider connected they
-                would fail on click, so they are absent rather than offered —
-                an action that cannot succeed is not an action. */}
-            {aiAvailable ? (
-              <>
-                <Button asChild variant="secondary" size="sm">
-                  <Link href="/ask?q=What%20actually%20needs%20my%20attention%20today%3F">
-                    Ask about today
-                  </Link>
-                </Button>
-                <RefreshOutlookButton />
-              </>
-            ) : null}
-            <CreateFollowUpButton />
-          </>
-        }
-      />
-
       <WelcomeBack />
 
       {priorities ? <TopPrioritiesCard priorities={priorities} now={now} /> : null}
@@ -217,7 +226,7 @@ async function TodayContent() {
                 <ol className="space-y-2.5">
                   {brief.priorities.map((item, i) => (
                     <li key={item.id} className="flex gap-3">
-                      <span className="tabular mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[11px] font-semibold text-[var(--accent)]">
+                      <span className="tabular mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--jewel)] text-[11px] font-semibold text-[var(--jewel-fg)]">
                         {i + 1}
                       </span>
                       <div className="min-w-0">
@@ -333,7 +342,7 @@ async function TodayContent() {
                   <span className="text-sm font-medium">{prep.event.title}</span>
                   {prep.relatedDeal ? (
                     <Link href={`/deals/${prep.relatedDeal.id}`}>
-                      <Badge tone="info">{prep.relatedDeal.company_name}</Badge>
+                      <Badge tone="accent">{prep.relatedDeal.company_name}</Badge>
                     </Link>
                   ) : null}
                   {prep.relatedPortfolio ? (
@@ -383,10 +392,7 @@ async function TodayContent() {
             {hiddenBlocks > 0
               ? `${hiddenBlocks} ${hiddenBlocks === 1 ? 'block' : 'blocks'} (Focus, Travel, Prep and the like) not shown. `
               : ''}
-            <Link
-              href="/calendar"
-              className="text-[var(--accent)] underline-offset-2 hover:underline"
-            >
+            <Link href="/calendar" className="link-inline">
               Full day and meeting prep in Calendar →
             </Link>
           </p>

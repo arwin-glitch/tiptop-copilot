@@ -149,7 +149,7 @@ export function CommandPalette({
                 go(ordered[active]);
               }
             }}
-            className="w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm"
+            className="w-full rounded-md border border-[var(--border-control)] bg-[var(--bg)] px-3 py-2 text-sm"
           />
           <ul
             role="listbox"
@@ -215,8 +215,13 @@ function ResultOption({
         onMouseEnter={onHover}
         onClick={onPick}
         className={cn(
-          'flex w-full items-start gap-3 rounded-md px-2.5 py-2 text-left',
-          active ? 'bg-[var(--bg-hover)]' : '',
+          'relative flex w-full items-start gap-3 rounded-md px-2.5 py-2 text-left',
+          // Focus stays in the input, so this row is the only sign of what
+          // Enter opens. A tint alone is about 1.2:1 against the dialog; the
+          // inset ring and the gold rule each clear 3:1.
+          active
+            ? 'bg-[var(--bg-hover)] shadow-[inset_0_0_0_1px_var(--border-control)] before:absolute before:inset-y-1.5 before:left-0 before:w-[3px] before:rounded-full before:bg-[var(--gold)]'
+            : '',
         )}
       >
         <span className="mt-0.5 w-16 shrink-0 text-[11px] text-[var(--fg-subtle)]">

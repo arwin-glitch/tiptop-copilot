@@ -105,29 +105,42 @@ export function ErrorState({
   );
 }
 
+/**
+ * A callout. `note`, the default, is a neutral explanation (a setting that is
+ * off, a copy that is cached, an override you made): parchment or emerald with
+ * a gold edge, so it belongs to the page instead of shouting in status blue.
+ * `info` and `warn` are for real states.
+ */
 export function Notice({
   children,
-  tone = 'info',
+  tone = 'note',
   className,
 }: {
   children: React.ReactNode;
-  tone?: 'info' | 'warn';
+  tone?: 'note' | 'info' | 'warn';
   className?: string;
 }) {
   return (
     <div
       className={cn(
-        'flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-sm',
-        tone === 'info'
-          ? 'border-[var(--info)]/25 bg-[var(--info-soft)] text-[var(--fg)]'
-          : 'border-[var(--warn)]/30 bg-[var(--warn-soft)] text-[var(--fg)]',
+        'flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-sm text-[var(--fg)]',
+        tone === 'note' &&
+          'border-l-2 border-[var(--border)] border-l-[var(--gold)] bg-[var(--note-soft)]',
+        tone === 'info' && 'border-[var(--info)]/25 bg-[var(--info-soft)]',
+        tone === 'warn' && 'border-[var(--warn)]/30 bg-[var(--warn-soft)]',
         className,
       )}
     >
-      {tone === 'info' ? (
-        <Info className="mt-0.5 size-4 shrink-0 text-[var(--info)]" aria-hidden="true" />
-      ) : (
+      {tone === 'warn' ? (
         <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[var(--warn)]" aria-hidden="true" />
+      ) : (
+        <Info
+          className={cn(
+            'mt-0.5 size-4 shrink-0',
+            tone === 'note' ? 'text-[var(--accent)]' : 'text-[var(--info)]',
+          )}
+          aria-hidden="true"
+        />
       )}
       <div className="min-w-0 flex-1">{children}</div>
     </div>

@@ -6,7 +6,7 @@ import * as SwitchPrimitive from '@radix-ui/react-switch';
 import { cn } from '@/lib/util/cn';
 
 const controlBase =
-  'w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-raised)] px-3 py-2 text-sm text-[var(--fg)] placeholder:text-[var(--fg-subtle)] disabled:cursor-not-allowed disabled:opacity-60';
+  'w-full rounded-md border border-[var(--border-control)] bg-[var(--bg-raised)] px-3 py-2 text-sm text-[var(--fg)] placeholder:text-[var(--fg-subtle)] disabled:cursor-not-allowed disabled:opacity-60';
 
 export function Label({
   className,
@@ -61,13 +61,15 @@ export function Switch({
     <SwitchPrimitive.Root
       className={cn(
         'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors',
-        'data-[state=checked]:bg-[var(--accent)] data-[state=unchecked]:bg-[var(--border-strong)]',
+        'data-[state=checked]:bg-[var(--primary)] data-[state=unchecked]:bg-[var(--switch-track)]',
         'disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...props}
     >
-      <SwitchPrimitive.Thumb className="pointer-events-none block size-4 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform data-[state=checked]:translate-x-4" />
+      {/* The thumb flips colour with the track so it clears 3:1 against it in
+          both states: on gold or emerald it takes the fill's own text colour. */}
+      <SwitchPrimitive.Thumb className="pointer-events-none block size-4 translate-x-0.5 rounded-full bg-[var(--switch-thumb)] shadow-sm transition-transform data-[state=checked]:translate-x-4 data-[state=checked]:bg-[var(--primary-fg)]" />
     </SwitchPrimitive.Root>
   );
 }

@@ -88,7 +88,7 @@ export function ThemeToggle() {
           className={cn(
             'rounded p-1.5 transition-colors',
             theme === value
-              ? 'bg-[var(--bg-hover)] text-[var(--fg)]'
+              ? 'bg-[var(--nav-active)] text-[var(--accent)]'
               : 'text-[var(--fg-subtle)] hover:text-[var(--fg)]',
           )}
         >

@@ -188,7 +188,7 @@ function StaleNotice({ view, now }: { view: UpdateSourceView; now: Date }) {
         ? "Slack didn't answer"
         : 'Slack refused the latest read';
   return (
-    <Notice tone="info">
+    <Notice>
       Showing the copy from {relativeTime(view.stale.since, now)} — {reason}.
     </Notice>
   );

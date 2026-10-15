@@ -6,8 +6,9 @@ import * as React from 'react';
  * The supplied files ship three fixed-colour variants (white, `#2B6D56`,
  * `#241B1B`). All three are the same sixteen paths with one flat fill, so
  * rather than carry three assets this draws the mark once in `currentColor`
- * and lets the theme decide — which also means it inherits the accent in dark
- * mode without a second file to keep in sync.
+ * and lets the theme decide: --brand-mark is the brand pack's #2B6D56 on light
+ * grounds and the brand's bright #0FC382 on emerald, without a second file to
+ * keep in sync. It is always green: gold is the accent, never the brand.
  *
  * Only the mark is here, not the "TipTop Ventures" wordmark: this product is
  * TipTop Copilot, and the lockup's own wordmark would say otherwise.
@@ -48,13 +49,12 @@ export function Wordmark({
 }) {
   return (
     <span className={`inline-flex items-center gap-2.5 ${className ?? ''}`}>
-      {/* The brand renders the mark in green on light and reversed on dark;
-          --accent carries exactly that pair. */}
-      <Mark className="text-[var(--accent)]" size={22} />
+      {/* TipTop green on every ground: --brand-mark carries the pair. */}
+      <Mark className="text-[var(--brand-mark)]" size={22} />
       <span className="flex flex-col leading-none">
         <span className="font-serif text-[15px] font-semibold tracking-tight">TipTop Copilot</span>
         {showSubtitle ? (
-          <span className="mt-0.5 text-[10px] tracking-[0.14em] text-[var(--fg-subtle)] uppercase">
+          <span className="mt-0.5 text-[10px] tracking-[0.2em] text-[var(--label-gold)] uppercase">
             Investment cockpit
           </span>
         ) : null}

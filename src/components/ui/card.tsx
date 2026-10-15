@@ -8,8 +8,9 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
         // A raised surface now actually looks raised. The border alone was
         // doing all the work, which is why a page of cards read as a page of
         // outlines. `--elevation-raised` is deliberately faint — one step, not
-        // a drop shadow.
-        'shadow-raised rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]',
+        // a drop shadow. The sheen is light catching the top-left corner, so
+        // a dark card reads as a lit emerald facet rather than a flat panel.
+        'shadow-raised rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)] bg-[image:var(--surface-sheen)]',
         className,
       )}
       {...props}

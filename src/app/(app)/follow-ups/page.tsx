@@ -341,7 +341,7 @@ function SchedulingRow({ item, tz }: { item: SchedulingItem; tz: string }) {
             {item.slots.length > 0 ? (
               <div className="mt-1.5 flex flex-wrap gap-1.5">
                 {item.slots.map((slot) => (
-                  <Badge key={slot} tone="info">
+                  <Badge key={slot} tone="jewel">
                     {formatDateTime(slot, tz)}
                   </Badge>
                 ))}

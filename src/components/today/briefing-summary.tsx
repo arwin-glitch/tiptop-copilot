@@ -99,7 +99,7 @@ export function RoutineBriefingCard({
               'flex size-9 shrink-0 items-center justify-center rounded-full',
               briefing.kind === 'dossier'
                 ? 'bg-[var(--neutral-soft)] text-[var(--fg-muted)]'
-                : 'bg-[var(--accent-soft)] text-[var(--accent)]',
+                : 'border border-[var(--border-strong)] bg-[var(--jewel)] text-[var(--jewel-fg)]',
             )}
             aria-hidden="true"
           >

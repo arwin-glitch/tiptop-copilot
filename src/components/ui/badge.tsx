@@ -14,6 +14,10 @@ const badgeVariants = cva(
         warn: 'border-transparent bg-[var(--warn-soft)] text-[var(--warn)]',
         danger: 'border-transparent bg-[var(--danger-soft)] text-[var(--danger)]',
         outline: 'border-[var(--border-strong)] bg-transparent text-[var(--fg-muted)]',
+        // Brand tones for categories (a deal, a meeting, a fit), so labels
+        // that are not states stop borrowing the status colours.
+        accent: 'border-[var(--border-strong)] bg-[var(--accent-soft)] text-[var(--accent)]',
+        jewel: 'border-transparent bg-[var(--jewel)] text-[var(--jewel-fg)]',
       },
     },
     defaultVariants: { tone: 'neutral' },

@@ -40,7 +40,12 @@ export interface KindStyle {
 }
 
 const ACCENT = { rail: 'bg-[var(--accent)]', chip: 'bg-[var(--accent-soft)] text-[var(--accent)]' };
-const INFO = { rail: 'bg-[var(--info)]', chip: 'bg-[var(--info-soft)] text-[var(--info)]' };
+// Digests are a category, not a status, so they wear emerald rather than
+// status blue.
+const JEWEL = {
+  rail: 'bg-[var(--chart-2)]',
+  chip: 'border border-[var(--border-strong)] bg-[var(--jewel)] text-[var(--jewel-fg)]',
+};
 const NEUTRAL = {
   rail: 'bg-[var(--fg-subtle)]/40',
   chip: 'bg-[var(--neutral-soft)] text-[var(--fg-muted)]',
@@ -57,13 +62,13 @@ export function postStyle(post: UpdatePost, source: UpdateSource): KindStyle {
       };
     case 'digest':
       if (post.kind === 'weekly') {
-        return { icon: Mailbox, ...INFO, badgeTone: 'info', badgeLabel: 'Weekly digest' };
+        return { icon: Mailbox, ...JEWEL, badgeTone: 'jewel', badgeLabel: 'Weekly digest' };
       }
       if (post.kind === 'month-start' || post.kind === 'month-end') {
         return {
           icon: CalendarRange,
-          ...INFO,
-          badgeTone: 'info',
+          ...JEWEL,
+          badgeTone: 'jewel',
           badgeLabel: post.kind === 'month-start' ? 'Month-start' : 'Month-end',
         };
       }
@@ -78,7 +83,7 @@ export function postStyle(post: UpdatePost, source: UpdateSource): KindStyle {
 export function sourceStyle(source: UpdateSource): { icon: LucideIcon; chip: string } {
   return {
     icon: SOURCE_ICON[source.icon],
-    chip: source.group === 'digest' ? INFO.chip : ACCENT.chip,
+    chip: source.group === 'digest' ? JEWEL.chip : ACCENT.chip,
   };
 }
 
