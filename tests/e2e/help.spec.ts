@@ -109,24 +109,27 @@ test.describe('guided tours', () => {
     await page.getByRole('link', { name: 'Show me Today' }).click();
     await page.waitForURL(/\/today$/);
 
-    await expectStep(page, /Today · 1 of 5/i, 'Start here each day');
+    await expectStep(page, /Today · 1 of 6/i, 'Start here each day');
     // The cut-out sits on the sidebar entry, and focus is in the card.
     await expect(page.locator('[data-tour-spotlight]')).toBeVisible();
     await expect(next(page)).toBeFocused();
     await expect(card(page)).toHaveAttribute('role', 'dialog');
 
+    // Top priorities first, then the glance cards under it, as on the page.
     await next(page).click();
-    await expectStep(page, /2 of 5/, 'Your day at a glance');
+    await expectStep(page, /2 of 6/, 'Your top priorities');
     await expect(next(page)).toBeFocused();
     await page.keyboard.press('Enter');
-    await expectStep(page, /3 of 5/, 'Tick it off');
+    await expectStep(page, /3 of 6/, 'Your day at a glance');
+    await next(page).click();
+    await expectStep(page, /4 of 6/, 'Tick it off');
     await card(page).getByRole('button', { name: 'Back' }).click();
-    await expectStep(page, /2 of 5/, 'Your day at a glance');
+    await expectStep(page, /3 of 6/, 'Your day at a glance');
     await next(page).click();
     await next(page).click();
-    await expectStep(page, /4 of 5/, 'Quick actions');
+    await expectStep(page, /5 of 6/, 'Quick actions');
     await next(page).click();
-    await expectStep(page, /5 of 5/, 'Everything else, folded');
+    await expectStep(page, /6 of 6/, 'Everything else, folded');
     await expect(next(page)).toHaveText('Done');
     await next(page).click();
 
@@ -180,20 +183,20 @@ test.describe('guided tours', () => {
     await page.waitForURL(/\/today$/);
     await expectStep(page, /1 of 16/, 'Every page, one menu');
     await next(page).click();
-    await expectStep(page, /Today · 2 of 16/i, 'Your day at a glance');
+    await expectStep(page, /Today · 2 of 16/i, 'Your top priorities');
     await next(page).click();
     await page.waitForURL(/\/follow-ups$/);
     await expectStep(page, /Follow-ups · 3 of 16/i, 'Clear email, one by one');
     await card(page).getByRole('button', { name: 'Back' }).click();
     await page.waitForURL(/\/today$/);
-    await expectStep(page, /Today · 2 of 16/i, 'Your day at a glance');
+    await expectStep(page, /Today · 2 of 16/i, 'Your top priorities');
     await page.keyboard.press('Escape');
     await expect(card(page)).toHaveCount(0);
   });
 
   test('the page keeps working under a tour, and leaving ends it', async ({ page }) => {
     await page.goto('/today?tour=today');
-    await expectStep(page, /1 of 5/, 'Start here each day');
+    await expectStep(page, /1 of 6/, 'Start here each day');
     // The dimming lets the click through to the real navigation.
     await page
       .getByRole('navigation', { name: 'Main' })

@@ -851,3 +851,18 @@ to be predictable.
 and the portfolio, so an unlinked deal's name is not recognised. An intro the
 routine reposts under new wording shows twice until one is ticked. Day
 boundaries follow the profile's timezone, not where Nick is travelling.
+
+**Amended 2026-10-15, on Arwin's request that day.** Do now and Top
+priorities on screen together read as two to-do lists. Top priorities now
+leads Today, right after the welcome-back card and unchanged, and while it
+holds today's list the glance row shows only Intros owed and Coming up
+(`todayLead` decides `hideNow`, `todayGlanceCards` applies it; the buckets
+themselves are unchanged). "Today's" is the profile's local day: an older list
+(a routine that stopped posting, the weekend, Monday before the morning brief)
+still shows, with its age, but Do now comes back beside it, because undated
+tasks and those due in the next two days are listed nowhere else on Today.
+With no list at all (the relay not set up, a failed read, an empty list) all
+three cards show as before, so Today always has a live to-do list. The row is
+left out when every card it would show is empty, and Tasks due starts open on
+overdue tasks whenever Do now is not on the page. The 2-minute tour stops on
+Top priorities, and on the glance cards (`grandStandIn`) when there is none.

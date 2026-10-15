@@ -1,3 +1,9 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import {
+  AppRouterContext,
+  type AppRouterInstance,
+} from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHarness, type Harness } from '../helpers/harness';
 import { ingestTasks, parseTaskRelayMessage } from '@/lib/services/task-ingest';
@@ -9,6 +15,11 @@ import {
   setTaskGlance,
 } from '@/lib/services/task-glance';
 import { updateTaskStatus } from '@/lib/services/tasks';
+import { todayLead, type FollowUpsResult } from '@/lib/services/follow-ups';
+import { demoFollowUps } from '@/lib/demo/follow-ups-fixtures';
+import { todayGlanceCards, type Glance, type GlanceBucket } from '@/lib/tasks/glance';
+import { TaskActionHost } from '@/components/tasks/task-action-host';
+import { TodayGlance } from '@/components/today/today-glance';
 import type { AuditEvent, Task } from '@/lib/types/domain';
 
 /**
@@ -49,6 +60,32 @@ function relay(body: unknown) {
   expect(parsed).not.toBeNull();
   return parsed!;
 }
+
+/** The glance row's markup as Today renders it: no browser, so no effects run. */
+function renderGlance(glance: Glance, cards: readonly GlanceBucket[]): string {
+  const noop = () => undefined;
+  const router = {
+    back: noop,
+    forward: noop,
+    refresh: noop,
+    push: noop,
+    replace: noop,
+    prefetch: noop,
+  } as unknown as AppRouterInstance;
+  return renderToStaticMarkup(
+    createElement(
+      AppRouterContext.Provider,
+      { value: router },
+      createElement(
+        TaskActionHost,
+        null,
+        createElement(TodayGlance, { glance, cards, footnote: 'Checked at 4 PM.' }),
+      ),
+    ),
+  );
+}
+
+const count = (markup: string, pattern: RegExp) => markup.match(pattern)?.length ?? 0;
 
 function closeFor(task: Task, at: string): RelayClose {
   return {
@@ -328,6 +365,75 @@ describe('readTodayGlance on the demo workspace', () => {
     );
     expect(titles).not.toContain('Ask Tom for the Girder AI onboarding numbers');
     expect(titles).not.toContain('Answer the LP question on the Q3 reporting timeline');
+  });
+
+  it("Today hides Do now under the demo's list for today, and shows it again without one", async () => {
+    const now = new Date();
+    const clock = { now, timeZone: harness.auth.profile.timezone };
+    const glance = await readTodayGlance(harness.store, org(), clock);
+    const read = (state: FollowUpsResult['state'], snapshot = demoFollowUps(now)) => ({
+      state,
+      snapshot,
+      readAt: now.toISOString(),
+    });
+
+    // The demo's ranked list is always today's: Intros owed and Coming up stay.
+    const lead = todayLead(read('ok'), clock);
+    expect(lead.priorities?.items.length).toBeGreaterThan(0);
+    expect(lead.hideNow).toBe(true);
+    expect(todayGlanceCards(glance, { hideNow: lead.hideNow })).toEqual(['intro', 'upcoming']);
+
+    // Yesterday's list still leads, but Do now comes back beside it.
+    const demo = demoFollowUps(now);
+    const dayOld = new Date(now.getTime() - 86_400_000).toISOString();
+    const stale = todayLead(
+      read('ok', { ...demo, priorities: { ...demo.priorities!, run_at: dayOld } }),
+      clock,
+    );
+    expect(stale.priorities).not.toBeNull();
+    expect(todayGlanceCards(glance, { hideNow: stale.hideNow })).toEqual([
+      'now',
+      'intro',
+      'upcoming',
+    ]);
+
+    // No list (Slack not set up, or a failed read): all three, Do now with its seven.
+    for (const fallback of [read('not_configured'), read('error'), null]) {
+      const none = todayLead(fallback, clock);
+      expect(none.priorities).toBeNull();
+      expect(todayGlanceCards(glance, { hideNow: none.hideNow })).toEqual([
+        'now',
+        'intro',
+        'upcoming',
+      ]);
+    }
+    expect(glance.now.total).toBe(7);
+  });
+
+  it('renders three cards across with the overdue marks, or two without Do now', async () => {
+    const glance = await readTodayGlance(harness.store, org(), {
+      now: new Date(),
+      timeZone: harness.auth.profile.timezone,
+    });
+
+    // No list for today: three across at the cards' 56rem column, and the
+    // demo's two overdue tasks marked on Do now.
+    const three = renderGlance(glance, todayGlanceCards(glance));
+    expect(three).toContain('@4xl:grid-cols-3');
+    expect(three).not.toContain('sm:grid-cols-2');
+    expect(count(three, /<h3[\s>]/g)).toBe(3);
+    expect(three).toMatch(/Do now/);
+    expect(count(three, /aria-label="overdue"/g)).toBe(2);
+    expect(count(three, /type="checkbox"/g)).toBe(12);
+
+    // Today's list showing: two across from the small breakpoint, no Do now.
+    const two = renderGlance(glance, todayGlanceCards(glance, { hideNow: true }));
+    expect(two).toContain('sm:grid-cols-2');
+    expect(two).not.toContain('@4xl:grid-cols-3');
+    expect(count(two, /<h3[\s>]/g)).toBe(2);
+    expect(two).not.toMatch(/Do now/);
+    expect(count(two, /aria-label="overdue"/g)).toBe(0);
+    expect(count(two, /type="checkbox"/g)).toBe(8);
   });
 
   it('a person moving a task outranks the routine on the cards', async () => {

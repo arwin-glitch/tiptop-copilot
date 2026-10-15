@@ -10,6 +10,10 @@ throughout.
 
 ## [Unreleased]
 
+- **Top priorities leads Today.** The card opens the page, unchanged. While it
+  holds today's list, the glance row under it shows only Intros owed and
+  Coming up, and Tasks due opens on overdue tasks; with no list, or only an
+  older one, Do now is back beside them and Tasks due starts closed.
 - **Affinity's data where it is used.** Each imported list feeds the page that
   needs it, as a subtab or a one-click switch, never a long scroll:
   - **Deals:** new subtabs. *Pipeline* lists Copilot's deals and Affinity's

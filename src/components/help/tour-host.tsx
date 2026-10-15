@@ -20,7 +20,8 @@ import { readStoredTour, startTour, TOUR_START_EVENT, writeStoredTour } from './
  * everything else around a cut-out, and puts a small card beside it: the
  * step, "2 of 5", Back / Next / Done. Esc or the X ends it. A step whose
  * target never shows (an empty state, a phone layout, a closed section) is
- * skipped rather than waited on.
+ * skipped rather than waited on, unless the 2-minute tour names a stand-in
+ * for it on that page: then the stand-in is shown in its place.
  *
  * It must never get in the way of the page: the dimming lets every click
  * through, the card is the only thing that catches the pointer, a failure
@@ -197,7 +198,12 @@ function TourEngine() {
   const router = useRouter();
   const [tour, setTour] = React.useState<ActiveTour | null>(null);
   const [phase, setPhase] = React.useState<Phase>('idle');
-  const [found, setFound] = React.useState<{ el: Element; key: string } | null>(null);
+  const [found, setFound] = React.useState<{
+    el: Element;
+    key: string;
+    /** The step's stand-in was found, not the step itself. */
+    standIn: boolean;
+  } | null>(null);
   const [layout, setLayout] = React.useState<{ rect: Box; viewport: Size } | null>(null);
   const [cardSize, setCardSize] = React.useState<Size>({ width: 352, height: 200 });
   const [slow, setSlow] = React.useState(false);
@@ -365,12 +371,13 @@ function TourEngine() {
 
     const look = () => {
       if (cancelled || tourRef.current !== tour) return;
-      const el = findTarget(step.target);
+      const own = findTarget(step.target);
+      const el = own ?? (step.standIn ? findTarget(step.standIn.target) : null);
       if (el) {
         settledRef.current = true;
         reveal(el);
         setSlow(false);
-        setFound({ el, key: stepKey });
+        setFound({ el, key: stepKey, standIn: own === null });
         setPhase('shown');
         return;
       }
@@ -468,8 +475,10 @@ function TourEngine() {
 
   const total = steps.length;
   const last = tour.index === total - 1;
+  // The stand-in's own words and placement, when it is what was found.
+  const shown = found?.key === stepKey && found.standIn && step.standIn ? step.standIn : step;
   const position =
-    showCard && layout ? placeCard(layout.rect, cardSize, layout.viewport, step.placement) : null;
+    showCard && layout ? placeCard(layout.rect, cardSize, layout.viewport, shown.placement) : null;
   const spot =
     layout && phase !== 'navigating'
       ? {
@@ -535,10 +544,10 @@ function TourEngine() {
             </button>
           </div>
           <h2 id="tour-step-title" className="text-title mt-0.5 font-serif font-semibold">
-            {step.title}
+            {shown.title}
           </h2>
           <p id="tour-step-body" className="mt-1 text-sm text-[var(--fg-muted)]">
-            {step.body}
+            {shown.body}
           </p>
           {total > 1 && total <= 24 ? (
             <div aria-hidden="true" className="mt-3 flex flex-wrap gap-1">

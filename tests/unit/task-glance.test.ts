@@ -11,6 +11,7 @@ import {
   isIntroTitle,
   localDayDiff,
   shortLabel,
+  todayGlanceCards,
   type FoldedGlance,
   type GlanceRow,
 } from '@/lib/tasks/glance';
@@ -401,6 +402,43 @@ describe('buildGlance', () => {
     const glance = buildGlance([task({ status: 'complete' })], new Map(), clock);
     expect(glanceIsEmpty(glance)).toBe(true);
     expect(glance.now).toEqual({ items: [], total: 0 });
+  });
+});
+
+describe('todayGlanceCards', () => {
+  const doNow = task({ title: 'Approve the hiring plan' });
+  const intro = task({ title: 'Intro Priya Raman to Omar Haddad' });
+  const later = task({ title: 'Write the quarterly LP note', due_at: '2026-10-22T15:00:00.000Z' });
+  const glanceOf = (...tasks: Task[]) => buildGlance(tasks, new Map(), clock);
+
+  it('shows all three without Top priorities, so Today always has a to-do list', () => {
+    const glance = glanceOf(doNow, intro, later);
+    expect(todayGlanceCards(glance)).toEqual(['now', 'intro', 'upcoming']);
+    expect(todayGlanceCards(glance, { hideNow: false })).toEqual(['now', 'intro', 'upcoming']);
+    // Do now alone still brings the row, the empty cards saying "Clear".
+    expect(todayGlanceCards(glanceOf(doNow))).toEqual(['now', 'intro', 'upcoming']);
+  });
+
+  it('steps Do now aside while Top priorities shows, and leaves the buckets alone', () => {
+    const glance = glanceOf(doNow, intro, later);
+    expect(todayGlanceCards(glance, { hideNow: true })).toEqual(['intro', 'upcoming']);
+    // The cards keep their own counts; Do now's task is still on Do now.
+    expect(glance.now.total).toBe(1);
+    expect(glance.intro.total).toBe(1);
+    expect(glance.upcoming.total).toBe(1);
+    // One of the two with something on it is enough; the other says "Clear".
+    expect(todayGlanceCards(glanceOf(doNow, later), { hideNow: true })).toEqual([
+      'intro',
+      'upcoming',
+    ]);
+  });
+
+  it('leaves the row out rather than show blank cards', () => {
+    // Only Do now has lines, and it is stepped aside: no row at all.
+    expect(todayGlanceCards(glanceOf(doNow), { hideNow: true })).toEqual([]);
+    expect(todayGlanceCards(glanceOf(), { hideNow: true })).toEqual([]);
+    expect(todayGlanceCards(glanceOf())).toEqual([]);
+    expect(todayGlanceCards(null)).toEqual([]);
   });
 });
 

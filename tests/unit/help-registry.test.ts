@@ -245,6 +245,25 @@ describe('tours', () => {
     expect(pages).toEqual(HELP_PAGES.map((p) => p.name));
   });
 
+  it("stop on Today's glance cards on the 2-minute tour when Top priorities is missing", () => {
+    const grand = tourSteps(GRAND_TOUR_ID);
+    const today = grand.find((s) => s.pageName === 'Today');
+    expect(today?.target).toBe('today-priorities');
+    expect(today?.standIn?.target).toBe('today-glance');
+    expect(today?.standIn?.path).toBe('/today');
+    // One stand-in, never itself a stop; a page's own tour walks both steps.
+    expect(grand.filter((s) => s.standIn)).toHaveLength(1);
+    for (const page of HELP_PAGES) {
+      const standIns = page.steps.filter((s) => s.grandStandIn);
+      expect(standIns.length, page.id).toBeLessThanOrEqual(1);
+      expect(
+        standIns.some((s) => s.grand),
+        page.id,
+      ).toBe(false);
+    }
+    expect(tourSteps('today').some((s) => s.standIn)).toBe(false);
+  });
+
   it('know which ids can start', () => {
     expect(isTourId('today')).toBe(true);
     expect(isTourId(GRAND_TOUR_ID)).toBe(true);

@@ -37,6 +37,13 @@ export interface TourStep {
   placement: TourPlacement;
   /** One stop on the 2-minute tour of every page. */
   grand?: true;
+  /**
+   * Stands in for the page's `grand` stop on the 2-minute tour when that
+   * stop's target is not on the page: Today without Top priorities shows its
+   * glance cards instead. The two must render together, in one streamed
+   * section, so the stand-in is never taken while the usual stop is loading.
+   */
+  grandStandIn?: true;
 }
 
 export interface HelpSubtab {
@@ -136,7 +143,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'today',
     name: 'Today',
     href: '/today',
-    purpose: "Your day on one screen: what to do now, intros you owe, and what's next.",
+    purpose: "Your day on one screen: top priorities, intros you owe, and what's next.",
     subtabs: [],
     steps: [
       navStep(
@@ -145,11 +152,18 @@ export const HELP_PAGES: readonly HelpPage[] = [
         'Today opens first. Everything that needs you, on one screen.',
       ),
       {
-        target: 'today-glance',
-        title: 'Your day at a glance',
-        body: "Three cards: what to do now, intros you owe, and what's coming up.",
+        target: 'today-priorities',
+        title: 'Your top priorities',
+        body: 'What to do first, ranked, with why. Updated by the morning brief and afternoon checkpoint.',
         placement: 'bottom',
         grand: true,
+      },
+      {
+        target: 'today-glance',
+        title: 'Your day at a glance',
+        body: "Intros you owe and what's coming up. Do now joins them until today's priorities arrive.",
+        placement: 'bottom',
+        grandStandIn: true,
       },
       {
         target: 'glance-tick',
@@ -172,18 +186,18 @@ export const HELP_PAGES: readonly HelpPage[] = [
     ],
     sketch: [
       ...header('page-actions'),
-      { x: 1, y: 4, w: 7, h: 4.6, tone: 'card', pin: 'today-glance' },
-      { x: 8.5, y: 4, w: 7, h: 4.6, tone: 'card' },
-      { x: 16, y: 4, w: 7, h: 4.6, tone: 'card' },
-      { x: 2, y: 5, w: 2.5, h: 0.6, tone: 'chip' },
-      { x: 9.5, y: 5, w: 2.5, h: 0.6, tone: 'chip' },
-      { x: 17, y: 5, w: 2.5, h: 0.6, tone: 'gold' },
-      { x: 2, y: 6.4, w: 0.8, h: 0.8, tone: 'check', pin: 'glance-tick' },
-      { x: 3.2, y: 6.5, w: 4, h: 0.6, tone: 'line' },
-      { x: 9.5, y: 6.5, w: 5, h: 0.6, tone: 'line' },
-      { x: 17, y: 6.5, w: 5, h: 0.6, tone: 'line' },
-      { x: 1, y: 9.6, w: 22, h: 5.6, tone: 'card', pin: 'today-sections' },
-      ...lines(2, 10.6, 18, 3),
+      { x: 1, y: 3.8, w: 22, h: 4.4, tone: 'card', pin: 'today-priorities' },
+      ...lines(2, 4.6, 14, 3),
+      { x: 17, y: 4.6, w: 2.5, h: 0.6, tone: 'chip' },
+      { x: 1, y: 8.8, w: 10.6, h: 3.4, tone: 'card', pin: 'today-glance' },
+      { x: 12.4, y: 8.8, w: 10.6, h: 3.4, tone: 'card' },
+      { x: 2, y: 9.6, w: 2.5, h: 0.6, tone: 'chip' },
+      { x: 13.4, y: 9.6, w: 2.5, h: 0.6, tone: 'gold' },
+      { x: 2, y: 10.8, w: 0.8, h: 0.8, tone: 'check', pin: 'glance-tick' },
+      { x: 3.2, y: 10.9, w: 6, h: 0.6, tone: 'line' },
+      { x: 13.4, y: 10.9, w: 7, h: 0.6, tone: 'line' },
+      { x: 1, y: 12.8, w: 22, h: 3.2, tone: 'card', pin: 'today-sections' },
+      ...lines(2, 13.6, 18, 2),
     ],
   },
   {
@@ -754,6 +768,8 @@ export interface ResolvedStep extends TourStep {
   path: string | null;
   /** The page's name, shown over the step on the card. */
   pageName: string;
+  /** 2-minute tour only: the step shown in this one's place when its target is missing. */
+  standIn?: ResolvedStep;
 }
 
 /** The first stop of the 2-minute tour, before the pages themselves. */
@@ -790,11 +806,17 @@ export function tourSteps(id: string): ResolvedStep[] {
   if (id === GRAND_TOUR_ID) {
     return [
       GRAND_INTRO,
-      ...HELP_PAGES.flatMap((page) =>
-        page.steps
+      ...HELP_PAGES.flatMap((page) => {
+        const resolve = (step: TourStep): ResolvedStep => ({
+          ...step,
+          path: page.href,
+          pageName: page.name,
+        });
+        const standIn = page.steps.find((step) => step.grandStandIn);
+        return page.steps
           .filter((step) => step.grand)
-          .map((step) => ({ ...step, path: page.href, pageName: page.name })),
-      ),
+          .map((step) => ({ ...resolve(step), ...(standIn ? { standIn: resolve(standIn) } : {}) }));
+      }),
       GRAND_OUTRO,
     ];
   }

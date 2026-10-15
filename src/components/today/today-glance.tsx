@@ -61,15 +61,26 @@ function without<T>(set: ReadonlySet<T>, id: T): Set<T> {
 }
 
 /**
- * Today's three "At a glance" cards: one short line per task, a tickbox to
- * finish it. A tick completes the task at once: the count drops, the line is
- * struck through and folds away, and an 8-second Undo is offered, run by the
+ * Today's "At a glance" cards: one short line per task, a tickbox to finish
+ * it. A tick completes the task at once: the count drops, the line is struck
+ * through and folds away, and an 8-second Undo is offered, run by the
  * layout's task host because the row is gone by the time anyone clicks it.
+ *
+ * `cards` is which of the three to show, from `todayGlanceCards`: Do now
+ * steps aside while today's Top priorities is on the page.
  *
  * The server's answer to the tick already leaves the task out, so a ticked
  * row is held here, in its old place, until its fold has played.
  */
-export function TodayGlance({ glance, footnote }: { glance: Glance; footnote: string }) {
+export function TodayGlance({
+  glance,
+  cards,
+  footnote,
+}: {
+  glance: Glance;
+  cards: readonly GlanceBucket[];
+  footnote: string;
+}) {
   const [done, setDone] = React.useState<ReadonlySet<string>>(() => new Set());
   const [leaving, setLeaving] = React.useState<ReadonlyMap<string, Leaving>>(() => new Map());
   const [pending, startTransition] = React.useTransition();
@@ -120,6 +131,8 @@ export function TodayGlance({ glance, footnote }: { glance: Glance; footnote: st
     });
   };
 
+  const shown = CARDS.filter((card) => cards.includes(card.key));
+
   return (
     <section
       aria-labelledby="glance-heading"
@@ -130,11 +143,13 @@ export function TodayGlance({ glance, footnote }: { glance: Glance; footnote: st
         At a glance
       </h2>
       {/* Side by side only where each card is wide enough to read its lines
-          (about 290px: the cards' own column, sidebar or not, at 56rem);
-          narrower, the phone's single column. A long label wraps to a second
-          line rather than being cut. */}
-      <div className="grid gap-3 @4xl:grid-cols-3">
-        {CARDS.map((card) => (
+          (about 290px). Three need the cards' own column at 56rem, sidebar
+          or not; two fit from the small breakpoint, where the column is at
+          least 592px with or without the sidebar. Narrower, the phone's
+          single column. A long label wraps to a second line rather than
+          being cut. */}
+      <div className={cn('grid gap-3', shown.length === 3 ? '@4xl:grid-cols-3' : 'sm:grid-cols-2')}>
+        {shown.map((card) => (
           <GlanceCardView
             key={card.key}
             id={card.key}

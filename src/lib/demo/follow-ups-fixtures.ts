@@ -1,4 +1,8 @@
 import type { FollowUpsSnapshot } from '@/lib/services/follow-ups';
+import { localDateKey, wallTimeToUtc } from '@/lib/util/time';
+
+/** The demo profile's timezone (`fixtures.ts`). */
+const DEMO_TIMEZONE = 'America/Chicago';
 
 /** Demo mode only. Every name, company and id is fictional. */
 export function demoFollowUps(now: Date): FollowUpsSnapshot {
@@ -12,6 +16,10 @@ export function demoFollowUps(now: Date): FollowUpsSnapshot {
     d.setUTCHours(hour, 0, 0, 0);
     return d.toISOString();
   };
+  // The morning brief at 7 AM on the demo profile's today, or now if that is
+  // still ahead: always today's list there, so Do now steps aside for it.
+  const brief = wallTimeToUtc(localDateKey(now, DEMO_TIMEZONE), 7, 0, DEMO_TIMEZONE);
+  const briefAt = new Date(Math.min(now.getTime(), brief?.getTime() ?? now.getTime()));
   return {
     waiting: {
       runAt: ago(0, 14),
@@ -392,7 +400,7 @@ export function demoFollowUps(now: Date): FollowUpsSnapshot {
       ],
     },
     priorities: {
-      run_at: ago(0, 11),
+      run_at: briefAt.toISOString(),
       source: 'morning',
       items: [
         {

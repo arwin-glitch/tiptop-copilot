@@ -27,7 +27,7 @@ const KIND: Record<
 export function TopPrioritiesCard({ priorities, now }: { priorities: Priorities; now: Date }) {
   if (priorities.items.length === 0) return null;
   return (
-    <Card className="mb-6">
+    <Card className="mb-6" data-tour="today-priorities">
       <CardHeader>
         <div className="flex items-center gap-2.5">
           <span className="flex size-8 items-center justify-center rounded-full border border-[var(--border-strong)] bg-[var(--jewel)] text-[var(--jewel-fg)]">

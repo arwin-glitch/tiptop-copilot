@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-import { collectFollowUps, parseFollowUpMessage } from '@/lib/services/follow-ups';
+import {
+  collectFollowUps,
+  parseFollowUpMessage,
+  todayLead,
+  type FollowUpsResult,
+  type FollowUpsSnapshot,
+} from '@/lib/services/follow-ups';
 
 /** All names and ids below are fictional. */
 const post = (marker: string, value: unknown) => `${marker}\n\`${JSON.stringify(value)}\``;
@@ -312,5 +318,56 @@ describe('collectFollowUps', () => {
     );
     expect(out.waiting).toBeNull();
     expect(out.priorities).toBeNull();
+  });
+});
+
+describe('todayLead', () => {
+  const withPriorities = (priorities: unknown) =>
+    collectFollowUps(
+      priorities
+        ? [{ ts: '1790940000.000100', text: post('PRIORITIES_V1', priorities), user: 'U1' }]
+        : [],
+    );
+  const result = (
+    state: FollowUpsResult['state'],
+    snapshot: FollowUpsSnapshot,
+  ): FollowUpsResult => ({ state, snapshot, readAt: '2026-10-05T12:00:00Z' });
+  const CHICAGO = 'America/Chicago';
+  // 9 AM in Chicago on the list's own day; it was posted at 6:10 AM there.
+  const sameDay = { now: new Date('2026-10-05T14:00:00Z'), timeZone: CHICAGO };
+
+  it("leads Today with today's ranked list, which stands in for Do now", () => {
+    const lead = todayLead(result('ok', withPriorities(PRIORITIES)), sameDay);
+    expect(lead.priorities?.items.map((i) => i.title)).toEqual(['Pay the Northwind invoice']);
+    expect(lead.hideNow).toBe(true);
+  });
+
+  it('still shows an older list, but leaves Do now on the page beside it', () => {
+    const shown = withPriorities(PRIORITIES);
+    // The next morning, before the brief, and three days on (a stopped routine).
+    for (const now of ['2026-10-06T13:00:00Z', '2026-10-08T15:00:00Z']) {
+      const lead = todayLead(result('ok', shown), { now: new Date(now), timeZone: CHICAGO });
+      expect(lead.priorities, now).not.toBeNull();
+      expect(lead.hideNow, now).toBe(false);
+    }
+  });
+
+  it("judges today by the profile's own day, not UTC's", () => {
+    // 10:30 PM on the 4th in Chicago, though already the 5th in UTC.
+    const late = withPriorities({ ...PRIORITIES, run_at: '2026-10-05T03:30:00Z' });
+    expect(todayLead(result('ok', late), sameDay).hideNow).toBe(false);
+    expect(todayLead(result('ok', late), { ...sameDay, timeZone: 'UTC' }).hideNow).toBe(true);
+  });
+
+  it('is no list otherwise, so Today falls back to the glance with Do now', () => {
+    const none = { priorities: null, hideNow: false };
+    expect(todayLead(null, sameDay)).toEqual(none);
+    expect(todayLead(result('ok', withPriorities(null)), sameDay)).toEqual(none);
+    expect(todayLead(result('ok', withPriorities({ ...PRIORITIES, items: [] })), sameDay)).toEqual(
+      none,
+    );
+    // A read that did not work hides the list, even with one in hand.
+    expect(todayLead(result('not_configured', withPriorities(PRIORITIES)), sameDay)).toEqual(none);
+    expect(todayLead(result('error', withPriorities(PRIORITIES)), sameDay)).toEqual(none);
   });
 });

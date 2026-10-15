@@ -418,6 +418,25 @@ export function glanceIsEmpty(glance: Glance): boolean {
   return glance.now.total + glance.intro.total + glance.upcoming.total === 0;
 }
 
+/**
+ * The cards Today shows, in order; none when the row is left out.
+ *
+ * Today's Top priorities list, when it is showing, is the page's to-do list,
+ * so Do now steps aside (`hideNow`, from `todayLead`) rather than list the
+ * same work a second way; Intros owed and Coming up stay. Without a list for
+ * today all three show, so Today always has a to-do list. The row is left out
+ * when every card it would show is empty; otherwise an empty card says
+ * "Clear", as before.
+ */
+export function todayGlanceCards(
+  glance: Glance | null,
+  { hideNow = false }: { hideNow?: boolean } = {},
+): GlanceBucket[] {
+  if (!glance) return [];
+  const cards = GLANCE_BUCKETS.filter((bucket) => !(hideNow && bucket === 'now'));
+  return cards.some((bucket) => glance[bucket].total > 0) ? cards : [];
+}
+
 /** Open (or awake) tasks -> the three cards, each sorted, capped and counted. */
 export function buildGlance(
   tasks: readonly GlanceTask[],

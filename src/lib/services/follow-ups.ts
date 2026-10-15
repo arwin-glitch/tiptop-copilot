@@ -12,6 +12,7 @@ import {
 import { processWide } from '@/lib/util/process-state';
 import { settlesWithin } from '@/lib/util/settle';
 import { unwrapSlackText } from '@/lib/util/slack-text';
+import { localDateKey } from '@/lib/util/time';
 import { demoFollowUps } from '@/lib/demo/follow-ups-fixtures';
 import { isRelayOrganization } from './deal-relay';
 
@@ -620,6 +621,30 @@ export async function readFollowUps(
   })();
   cache.inFlight.set(organizationId, run);
   return run;
+}
+
+/**
+ * What Today leads with. `priorities` is the Top priorities card's list: the
+ * snapshot's when the read worked and the list has something on it, else
+ * null. The card shows it whatever its age, as it always has; its own line
+ * says how old it is.
+ *
+ * `hideNow` is whether that list stands in for Do now: only when it was posted
+ * today in the profile's timezone. An older list (a routine that has stopped
+ * posting, the weekend, Monday before the morning brief) leaves Do now on the
+ * page, since undated tasks and those due in the next two days are listed
+ * nowhere else on Today. Pure.
+ */
+export function todayLead(
+  result: FollowUpsResult | null,
+  { now, timeZone }: { now: Date; timeZone: string },
+): { priorities: Priorities | null; hideNow: boolean } {
+  const list = result?.state === 'ok' ? result.snapshot.priorities : null;
+  const priorities = list && list.items.length > 0 ? list : null;
+  const hideNow =
+    priorities !== null &&
+    localDateKey(new Date(priorities.run_at), timeZone) === localDateKey(now, timeZone);
+  return { priorities, hideNow };
 }
 
 /**

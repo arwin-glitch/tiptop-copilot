@@ -14,11 +14,11 @@ import {
 import { gatherTodayData, generateDailyBrief, getTodaysBrief } from '@/lib/services/brief';
 import { getTaskRelayStatus, pullTaskRelays } from '@/lib/services/task-relay';
 import { readTodayGlance } from '@/lib/services/task-glance';
-import { readFollowUps } from '@/lib/services/follow-ups';
+import { readFollowUps, todayLead } from '@/lib/services/follow-ups';
 import { classifyMeeting, meetingFromStoredEvent } from '@/lib/calendar/meetings';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { autoCheckStatusLine, DEFAULT_MAILBOX } from '@/lib/services/task-close';
-import { glanceIsEmpty } from '@/lib/tasks/glance';
+import { todayGlanceCards } from '@/lib/tasks/glance';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
 import { Badge, RecommendationBadge } from '@/components/ui/badge';
@@ -128,8 +128,15 @@ async function TodayContent({
       timeZone: auth.profile.timezone,
     }).catch(() => null),
   ]);
-  const priorities = followUps?.state === 'ok' ? followUps.snapshot.priorities : null;
-  const showGlance = glance !== null && !glanceIsEmpty(glance);
+  // Top priorities leads the page whenever it has a list. Today's list is the
+  // to-do list, so Do now steps aside for it; with no list, or only an older
+  // one, all three glance cards show and the page still has a live to-do list.
+  const { priorities, hideNow } = todayLead(followUps, {
+    now,
+    timeZone: auth.profile.timezone,
+  });
+  const glanceCards = todayGlanceCards(glance, { hideNow });
+  const nowListed = glanceCards.includes('now');
   const glanceFootnote =
     autoCheckStatusLine(
       getTaskRelayStatus(auth.organizationId).lastRun,
@@ -175,9 +182,11 @@ async function TodayContent({
     <>
       <WelcomeBack />
 
-      {showGlance ? <TodayGlance glance={glance} footnote={glanceFootnote} /> : null}
-
       {priorities ? <TopPrioritiesCard priorities={priorities} now={now} /> : null}
+
+      {glance && glanceCards.length > 0 ? (
+        <TodayGlance glance={glance} cards={glanceCards} footnote={glanceFootnote} />
+      ) : null}
 
       {routineBrief || routineDossier ? (
         <div
@@ -290,12 +299,15 @@ async function TodayContent({
         data-tour="today-sections"
         className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)] px-4 sm:px-5"
       >
-        {/* The glance cards above already list these, so the full rows wait
-            behind a click; the overdue count stays readable while closed. */}
+        {/* When Do now is on the page it already lists these, so the full
+            rows wait behind a click; the overdue count stays readable while
+            closed. When Do now has stepped aside for today's Top priorities,
+            or there is no glance row, overdue tasks open the section, since
+            nothing above lists them. */}
         <ExpandableSection
           title="Tasks due"
           count={data.overdueTasks.length + data.dueTodayTasks.length}
-          defaultOpen={!showGlance && data.overdueTasks.length > 0}
+          defaultOpen={!nowListed && data.overdueTasks.length > 0}
           emptyLabel="Nothing due"
           note={
             data.overdueTasks.length > 0 ? (
