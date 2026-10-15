@@ -11,6 +11,7 @@ import { WarmPaths } from '@/components/fund-ii/warm-paths';
 import { SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { Notice } from '@/components/ui/feedback';
 import { formatMonthDay, relativeTime } from '@/lib/util/time';
 
 const STAGE_LABEL: Record<LpStage, string> = {
@@ -35,9 +36,27 @@ export async function DocSendReaders() {
   const now = new Date();
   const store = getStore();
   const followUps = await readFollowUps(store, auth.organizationId, { now }).catch(() => null);
-  if (followUps?.state !== 'ok') return null;
+  // The LP pipeline is what tells an LP from a prospect, so without it the
+  // list is not shown at all; it says why rather than leaving a blank tab.
+  if (followUps?.state !== 'ok') {
+    return (
+      <ReadersUnavailable>
+        {followUps?.state === 'restricted'
+          ? 'This page stays closed until sign-in is limited to TipTop accounts (AUTH_ALLOWED_EMAIL_DOMAINS).'
+          : "DocSend readers couldn't be matched against the LP pipeline right now. Try again in a minute."}
+      </ReadersUnavailable>
+    );
+  }
   const result = await readDocSendViews(store, auth.organizationId, { now });
-  if (result.state !== 'ok') return null;
+  if (result.state !== 'ok') {
+    return (
+      <ReadersUnavailable>
+        {result.state === 'not_connected'
+          ? 'Connect Gmail in Settings to see who opened your DocSend links.'
+          : "DocSend activity couldn't be read right now. Try again in a minute."}
+      </ReadersUnavailable>
+    );
+  }
 
   const readers = buildReaders(result.views, {
     ownDomain: result.ownDomain,
@@ -117,6 +136,19 @@ export async function DocSendReaders() {
           </ul>
         </details>
       ) : null}
+    </section>
+  );
+}
+
+function ReadersUnavailable({ children }: { children: React.ReactNode }) {
+  return (
+    <section aria-labelledby="docsend-heading" className="mb-8">
+      <SectionHeading>
+        <span id="docsend-heading">Reading your DocSend</span>
+      </SectionHeading>
+      <Notice tone="warn">
+        <p>{children}</p>
+      </Notice>
     </section>
   );
 }

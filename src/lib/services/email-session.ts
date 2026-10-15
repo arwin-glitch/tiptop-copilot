@@ -10,6 +10,7 @@ import {
   type InboxThreadMeta,
 } from '@/lib/google/gmail-inbox';
 import { env } from '@/lib/config/env';
+import { fundTwoLpHref } from '@/lib/records-tabs';
 import type { Integration } from '@/lib/types/domain';
 import { processWide } from '@/lib/util/process-state';
 import { getPrimaryIntegration } from './inbox';
@@ -236,7 +237,7 @@ export function buildSession(input: {
         out.push({
           kind: 'lp',
           label: `Fund II · ${lp.stage.replace(/_/g, ' ')}`,
-          href: '/fund-ii',
+          href: fundTwoLpHref(lp.stage),
         });
         break;
       }

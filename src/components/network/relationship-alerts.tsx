@@ -26,14 +26,17 @@ export function RelationshipAlerts({
   relationships,
   now,
   showWaiting = true,
+  empty = null,
 }: {
   relationships: Relationships;
   now: Date;
   /** Network shows only "Going cold"; who is waiting on Nick lives on Follow-ups. */
   showWaiting?: boolean;
+  /** What to show when there is no alert at all. Nothing, by default. */
+  empty?: React.ReactNode;
 }) {
   const waiting = showWaiting ? relationships.waiting : [];
-  if (waiting.length === 0 && relationships.cold.length === 0) return null;
+  if (waiting.length === 0 && relationships.cold.length === 0) return empty;
   return (
     <Card className="mb-6">
       <CardHeader>

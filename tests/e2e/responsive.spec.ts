@@ -39,11 +39,19 @@ const PAGES = [
   '/ask',
   '/updates',
   '/portfolio',
+  '/fund-ii',
   '/network',
   '/meetings',
   '/knowledge',
   '/tasks',
   '/settings',
+  // The Records pages' other subtabs, which hold the long lists and tables.
+  '/updates?tab=fresh',
+  '/portfolio?tab=companies',
+  '/fund-ii?tab=pipeline',
+  '/network?tab=people',
+  '/meetings?tab=notes',
+  '/knowledge?tab=contacts',
 ];
 
 test.describe('mobile layout', () => {
@@ -119,6 +127,28 @@ test.describe('mobile layout', () => {
     await nav.getByRole('link', { name: 'Deals' }).click();
     await page.waitForURL(/\/deals/);
     await expect(page.getByRole('heading', { name: 'Deals' })).toBeVisible();
+  });
+
+  test("a page's subtabs stay in reach under the header while it scrolls", async ({ page }) => {
+    // The reports are the longest tab in the demo workspace.
+    await page.goto('/updates');
+    const tabs = page.getByRole('navigation', { name: 'Reports sections' });
+    await expect(tabs).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Weekly digest ·/ })).toBeVisible();
+    // Every tab is a full touch target.
+    for (const link of await tabs.getByRole('link').all()) {
+      expect((await link.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight / 2));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(300);
+
+    // Stuck directly below the mobile header, not behind it.
+    const header = await page.locator('header').first().boundingBox();
+    const bar = await tabs.boundingBox();
+    expect(bar).not.toBeNull();
+    expect(Math.abs((bar?.y ?? 0) - ((header?.y ?? 0) + (header?.height ?? 0)))).toBeLessThan(2);
+    await expect(tabs.getByRole('link', { name: /^Fresh updates/ })).toBeInViewport();
   });
 
   test('the deal detail page is readable on a narrow screen', async ({ page }) => {

@@ -4,23 +4,28 @@ import { requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { buildRelationshipList } from '@/lib/services/network';
-import { readFollowUps } from '@/lib/services/follow-ups';
+import { readFollowUps, readFollowUpsWithin } from '@/lib/services/follow-ups';
 import { RelationshipAlerts } from '@/components/network/relationship-alerts';
-import { IntrosCard } from '@/components/followups/relay-cards';
+import { IntrosCard, snapshotUnavailable } from '@/components/followups/relay-cards';
 import {
   asRelationshipSortKey,
   sortRelationships,
   type RelationshipSortKey,
   type SortDirection,
 } from '@/lib/network/relationship-view';
+import { NETWORK_TABS, SNAPSHOT_WAIT_MS, landsOnSnapshot, openingTab } from '@/lib/records-tabs';
+import { single, tabHref } from '@/lib/util/page-tabs';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { EmptyState, SkeletonText } from '@/components/ui/feedback';
+import { PageTabs } from '@/components/ui/page-tabs';
 import { Stat, StatGroup } from '@/components/ui/stat';
 import { NetworkTable } from '@/components/network/network-table';
 import { NetworkFilterBar } from '@/components/network/network-client';
 
 export const metadata: Metadata = { title: 'Network' };
 export const dynamic = 'force-dynamic';
+
+const PEOPLE_HREF = tabHref(NETWORK_TABS.path, 'people', NETWORK_TABS.defaultKey);
 
 export default async function NetworkPage({
   searchParams,
@@ -29,6 +34,16 @@ export default async function NetworkPage({
 }) {
   const params = await searchParams;
   const q = single(params.q) ?? '';
+
+  // Intros are only the routine's snapshot from Slack. A bare URL opens there
+  // when it lists an intro and on People otherwise, never on an empty page.
+  let introsShow = false;
+  if (landsOnSnapshot(NETWORK_TABS, params)) {
+    const auth = await requireAuth();
+    const landing = await readFollowUpsWithin(getStore(), auth.organizationId, SNAPSHOT_WAIT_MS);
+    introsShow = landing?.state === 'ok' && (landing.snapshot.intros?.intros.length ?? 0) > 0;
+  }
+  const { tab, home } = openingTab(NETWORK_TABS, params, introsShow);
   const sort = asRelationshipSortKey(single(params.sort));
   const direction: SortDirection = single(params.dir) === 'asc' ? 'asc' : 'desc';
 
@@ -38,14 +53,76 @@ export default async function NetworkPage({
         title="Network"
         subtitle="Everyone you have actually corresponded or sat down with, counted from your own mail and calendar. No relationship score — the evidence itself."
       />
-      <Suspense fallback={<SkeletonText lines={10} />}>
-        <NetworkContent q={q} sort={sort} direction={direction} />
+      <PageTabs
+        label={NETWORK_TABS.navLabel}
+        path={NETWORK_TABS.path}
+        tabs={NETWORK_TABS.tabs.map((t) => ({ key: t.key, label: t.label }))}
+        active={tab}
+        defaultKey={home}
+      />
+      <Suspense key={tab} fallback={<SkeletonText lines={10} />}>
+        {tab === 'people' ? (
+          <PeopleTab q={q} sort={sort} direction={direction} />
+        ) : tab === 'cold' ? (
+          <ColdTab />
+        ) : (
+          <IntrosTab />
+        )}
       </Suspense>
     </PageShell>
   );
 }
 
-async function NetworkContent({
+/** The intro tracker's snapshot: who you owe an intro, and how the rest went. */
+async function IntrosTab() {
+  const auth = await requireAuth();
+  const followUps = await readFollowUps(getStore(), auth.organizationId).catch(() => null);
+  const empty = (description: string) => (
+    <EmptyState
+      title="No intros to show"
+      description={description}
+      action={{ label: 'See people', href: PEOPLE_HREF }}
+    />
+  );
+  if (followUps?.state !== 'ok') return empty(snapshotUnavailable(followUps?.state));
+  const intros = followUps.snapshot.intros;
+  const none = empty('Shows here once the intro routine has posted.');
+  if (!intros) return none;
+  return <IntrosCard intros={intros} now={new Date()} empty={none} />;
+}
+
+/** The relationship radar's "going cold" list. */
+async function ColdTab() {
+  const auth = await requireAuth();
+  const followUps = await readFollowUps(getStore(), auth.organizationId).catch(() => null);
+  const empty = (title: string, description: string) => (
+    <EmptyState
+      title={title}
+      description={description}
+      action={{ label: 'See people', href: PEOPLE_HREF }}
+    />
+  );
+  if (followUps?.state !== 'ok') {
+    return empty('Nothing to show', snapshotUnavailable(followUps?.state));
+  }
+  const relationships = followUps.snapshot.relationships;
+  if (!relationships) {
+    return empty('Nothing to show', 'Shows here once the relationship routine has posted.');
+  }
+  return (
+    <RelationshipAlerts
+      relationships={relationships}
+      now={new Date()}
+      showWaiting={false}
+      empty={empty(
+        'Nothing going cold',
+        'No key relationship has gone quiet. The full list is under People.',
+      )}
+    />
+  );
+}
+
+async function PeopleTab({
   q,
   sort,
   direction,
@@ -64,28 +141,16 @@ async function NetworkContent({
     (a): a is string => Boolean(a),
   );
 
-  const [rows, followUps] = await Promise.all([
-    buildRelationshipList(store, auth.organizationId, {
-      ownAddresses,
-      search: q || undefined,
-    }),
-    // The relationship radar's alerts; a Slack fault only hides the card.
-    readFollowUps(store, auth.organizationId).catch(() => null),
-  ]);
-  const relationships = followUps?.state === 'ok' ? followUps.snapshot.relationships : null;
-  const intros = followUps?.state === 'ok' ? followUps.snapshot.intros : null;
+  const rows = await buildRelationshipList(store, auth.organizationId, {
+    ownAddresses,
+    search: q || undefined,
+  });
 
   const awaiting = rows.filter((r) => r.awaitingUs).length;
   const met = rows.filter((r) => r.meetingCount > 0).length;
 
   return (
     <>
-      {intros ? <IntrosCard intros={intros} now={new Date()} /> : null}
-
-      {relationships ? (
-        <RelationshipAlerts relationships={relationships} now={new Date()} showWaiting={false} />
-      ) : null}
-
       <StatGroup className="mb-5" columns={3}>
         <Stat size="sm" label="People" value={rows.length} hint="from mail and calendar" />
         <Stat size="sm" label="Met in person" value={met} hint="at least one meeting" />
@@ -105,7 +170,7 @@ async function NetworkContent({
           }
           action={{
             label: q ? 'Clear search' : 'Go to Settings',
-            href: q ? '/network' : '/settings',
+            href: q ? PEOPLE_HREF : '/settings',
           }}
         />
       ) : (
@@ -117,8 +182,4 @@ async function NetworkContent({
       )}
     </>
   );
-}
-
-function single(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
 }

@@ -23,7 +23,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('typing narrows the meeting list without pressing Enter', async ({ page }) => {
-  await page.goto('/meetings');
+  await page.goto('/meetings?tab=notes');
 
   const cards = page.locator('main li');
   const before = await cards.count();
@@ -40,7 +40,7 @@ test('typing narrows the meeting list without pressing Enter', async ({ page }) 
 });
 
 test('clearing the box restores the full list', async ({ page }) => {
-  await page.goto('/meetings');
+  await page.goto('/meetings?tab=notes');
   const cards = page.locator('main li');
   const before = await cards.count();
 
@@ -57,7 +57,7 @@ test('clearing the box restores the full list', async ({ page }) => {
 });
 
 test('deleting the text by hand also restores the list', async ({ page }) => {
-  await page.goto('/meetings');
+  await page.goto('/meetings?tab=notes');
   const cards = page.locator('main li');
   const before = await cards.count();
 
@@ -75,9 +75,9 @@ test('every search box on the app filters as you type', async ({ page }) => {
   // rather than calling Gmail on every keystroke.) If any page is still on the old submit-only
   // form, its box will not be a searchbox and this fails there.
   for (const [path, label] of [
-    ['/meetings', 'Search meetings'],
+    ['/meetings?tab=notes', 'Search meetings'],
     ['/deals', 'Search deals'],
-    ['/network', 'Search network'],
+    ['/network?tab=people', 'Search network'],
     ['/knowledge', 'Search knowledge base'],
   ] as const) {
     await page.goto(path);

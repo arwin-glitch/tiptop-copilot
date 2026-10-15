@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowDownLeft, ArrowUpRight, CalendarDays } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { ShowMore } from '@/components/ui/show-more';
 import {
   Table,
   TableBody,
@@ -21,6 +22,13 @@ import {
   type SortDirection,
 } from '@/lib/network/relationship-view';
 import { relativeTime } from '@/lib/util/time';
+
+/**
+ * Cards per page on a phone. The desktop table scrolls inside its own frame
+ * with a sticky header; the phone list has no frame, so every card would add
+ * to the page's own scroll.
+ */
+const MOBILE_STEP = 30;
 
 /**
  * The relationship list.
@@ -46,6 +54,7 @@ export function NetworkTable({
 }) {
   const router = useRouter();
   const params = useSearchParams();
+  const [shown, setShown] = React.useState(MOBILE_STEP);
 
   const toggle = React.useCallback(
     (key: RelationshipSortKey) => {
@@ -150,7 +159,7 @@ export function NetworkTable({
       </div>
 
       <ul className="shadow-raised mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)] lg:hidden">
-        {rows.map((row) => (
+        {rows.slice(0, shown).map((row) => (
           <li key={row.email} className="px-4 py-3.5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -180,6 +189,13 @@ export function NetworkTable({
           </li>
         ))}
       </ul>
+      <ShowMore
+        className="lg:hidden"
+        shown={shown}
+        total={rows.length}
+        step={MOBILE_STEP}
+        onMore={() => setShown((n) => n + MOBILE_STEP)}
+      />
     </>
   );
 }

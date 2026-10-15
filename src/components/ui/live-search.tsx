@@ -44,8 +44,14 @@ export interface LiveSearchProps {
   /** Query-string key. Defaults to `q`. */
   param?: string;
   /**
-   * Other params a new query clears — a page number, which would otherwise
-   * land a new search on page 12 of a result that may have two.
+   * Params set on every navigation, e.g. the subtab the box sits on, so that
+   * clearing a search opened from a link without one stays on that tab.
+   */
+  keep?: Readonly<Record<string, string>>;
+  /**
+   * Params a new query clears: a page number, which would otherwise land a new
+   * search on page 12 of a result that may have two, or how far a "Show more"
+   * list was expanded, which belongs to the previous results.
    */
   reset?: readonly string[];
   className?: string;
@@ -57,6 +63,7 @@ export function LiveSearch({
   placeholder,
   label,
   param = 'q',
+  keep,
   reset,
   className,
 }: LiveSearchProps) {
@@ -82,6 +89,7 @@ export function LiveSearch({
   const commit = React.useCallback(
     (next: string) => {
       const search = new URLSearchParams(params.toString());
+      for (const [key, value] of Object.entries(keep ?? {})) search.set(key, value);
       const trimmed = next.trim();
       if (trimmed) search.set(param, trimmed);
       else search.delete(param);
@@ -89,7 +97,7 @@ export function LiveSearch({
       const qs = search.toString();
       startTransition(() => router.replace(qs ? `${path}?${qs}` : path, { scroll: false }));
     },
-    [params, param, path, reset, router],
+    [params, param, path, router, keep, reset],
   );
 
   React.useEffect(() => {

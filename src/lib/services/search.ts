@@ -1,5 +1,6 @@
 import 'server-only';
 import type { DataStore } from '@/lib/db/store';
+import { fundTwoLpHref } from '@/lib/records-tabs';
 import { log } from '@/lib/security/redact';
 import type {
   CrmList,
@@ -156,7 +157,7 @@ export async function searchEverything(
       kind: 'lp',
       label: lp.who,
       sub: [lp.firm, `Fund II · ${lp.stage.replace('_', ' ')}`].filter(Boolean).join(' · '),
-      href: '/fund-ii',
+      href: fundTwoLpHref(lp.stage),
     });
   }
   for (const c of people) {
