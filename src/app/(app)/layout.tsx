@@ -29,7 +29,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const displayName = auth.profile.full_name ?? auth.profile.email;
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className={demo ? 'has-demo-banner flex min-h-dvh flex-col' : 'flex min-h-dvh flex-col'}>
       {demo ? (
         <div
           role="status"
@@ -88,7 +88,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-[var(--z-header)] flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--bg)]/95 px-4 py-2.5 backdrop-blur lg:hidden">
+          {/* A fixed height rather than padding: a page's subtab bar sticks
+              just below it, at --app-header-h. */}
+          <header className="sticky top-0 z-[var(--z-header)] flex h-[var(--app-header-h)] items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--bg)]/95 px-4 backdrop-blur lg:hidden">
             <div className="flex min-w-0 items-center gap-2">
               {/* Named just "TipTop Copilot", not "… — Today": Playwright
                   matches accessible names by substring unless told otherwise,

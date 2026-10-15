@@ -10,6 +10,7 @@ import {
   type SlackMessage,
 } from '@/lib/slack/relay-history';
 import { processWide } from '@/lib/util/process-state';
+import { settlesWithin } from '@/lib/util/settle';
 import { unwrapSlackText } from '@/lib/util/slack-text';
 import { demoFollowUps } from '@/lib/demo/follow-ups-fixtures';
 import { isRelayOrganization } from './deal-relay';
@@ -619,4 +620,20 @@ export async function readFollowUps(
   })();
   cache.inFlight.set(organizationId, run);
   return run;
+}
+
+/**
+ * readFollowUps for a page choosing which tab to open on, which cannot stream
+ * that choice: past `ms` the answer is null, read as "nothing to show", rather
+ * than holding the whole page for Slack's own 8-second-a-page timeout. The
+ * read carries on in the background and fills the cache for the next view.
+ */
+export async function readFollowUpsWithin(
+  store: DataStore,
+  organizationId: string,
+  ms: number,
+  options: Parameters<typeof readFollowUps>[2] = {},
+): Promise<FollowUpsResult | null> {
+  const read = readFollowUps(store, organizationId, options).catch(() => null);
+  return (await settlesWithin(read, ms)) ? read : null;
 }

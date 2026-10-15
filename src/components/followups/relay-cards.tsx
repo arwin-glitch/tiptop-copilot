@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react';
 import { CalendarDays, ExternalLink, FileText } from 'lucide-react';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import type {
+  FollowUpsState,
   IntroItem,
   Intros,
   LpUpdateDraft,
@@ -35,6 +37,21 @@ function GmailLink({ threadId, label }: { threadId: string | null | undefined; l
   );
 }
 
+/**
+ * Why a routine's snapshot is not shown, in one plain sentence, for a page
+ * whose whole tab is that snapshot. `null` is a read that threw.
+ */
+export function snapshotUnavailable(state: FollowUpsState | null | undefined): string {
+  switch (state) {
+    case 'restricted':
+      return 'This stays hidden until sign-in is limited to TipTop accounts (AUTH_ALLOWED_EMAIL_DOMAINS).';
+    case 'not_configured':
+      return 'The Slack read token is not set, so the routine cannot be read.';
+    default:
+      return "The routine's post couldn't be read from Slack right now. Try again in a minute.";
+  }
+}
+
 function Checked({ at, now }: { at: string; now: Date }) {
   return <p className="text-xs text-[var(--fg-subtle)]">Checked {relativeTime(at, now)}</p>;
 }
@@ -53,12 +70,15 @@ export function PortfolioHealthCard({
   health,
   now,
   tz,
+  empty = null,
 }: {
   health: PortfolioHealth;
   now: Date;
   tz: string;
+  /** What to show when the check lists no company. Nothing, by default. */
+  empty?: ReactNode;
 }) {
-  if (health.companies.length === 0) return null;
+  if (health.companies.length === 0) return empty;
   const sorted = [...health.companies].sort(
     (a, b) => FLAG_ORDER.indexOf(a.flag) - FLAG_ORDER.indexOf(b.flag),
   );
@@ -114,8 +134,17 @@ const INTRO: Record<IntroItem['status'], { label: string; tone: BadgeProps['tone
 };
 const INTRO_ORDER: IntroItem['status'][] = ['owed', 'made', 'stalled', 'connected', 'declined'];
 
-export function IntrosCard({ intros, now }: { intros: Intros; now: Date }) {
-  if (intros.intros.length === 0) return null;
+export function IntrosCard({
+  intros,
+  now,
+  empty = null,
+}: {
+  intros: Intros;
+  now: Date;
+  /** What to show when there is no intro. Nothing, by default. */
+  empty?: ReactNode;
+}) {
+  if (intros.intros.length === 0) return empty;
   const sorted = [...intros.intros].sort(
     (a, b) => INTRO_ORDER.indexOf(a.status) - INTRO_ORDER.indexOf(b.status),
   );
@@ -180,11 +209,30 @@ const KIND_LABEL: Record<WeekEvent['kind'], string> = {
   other: 'Other',
 };
 
-export function WeekAheadCard({ week, now, tz }: { week: WeekAhead; now: Date; tz: string }) {
-  const upcoming = week.events
+/**
+ * The week's events still to come, soonest first: what the card shows. A
+ * weekly snapshot runs out before the next one posts (by the weekend, often).
+ */
+export function upcomingWeekEvents(week: WeekAhead, now: Date): WeekEvent[] {
+  return week.events
     .filter((e) => new Date(e.ends_at ?? e.starts_at).getTime() >= now.getTime())
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
-  if (upcoming.length === 0) return null;
+}
+
+export function WeekAheadCard({
+  week,
+  now,
+  tz,
+  empty = null,
+}: {
+  week: WeekAhead;
+  now: Date;
+  tz: string;
+  /** What to show when nothing is still to come. Nothing, by default. */
+  empty?: ReactNode;
+}) {
+  const upcoming = upcomingWeekEvents(week, now);
+  if (upcoming.length === 0) return empty;
   const days = new Map<string, WeekEvent[]>();
   for (const e of upcoming) {
     const day = formatWeekdayLong(new Date(e.starts_at), tz);

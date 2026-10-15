@@ -20,7 +20,8 @@ async function enterDemo(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await enterDemo(page);
-  await page.goto('/network');
+  // The people list is its own tab; Intros is the default.
+  await page.goto('/network?tab=people');
   await expect(page.getByRole('heading', { name: 'Network', level: 1 })).toBeVisible();
 });
 
@@ -87,6 +88,8 @@ test('search narrows the list and can be cleared', async ({ page }) => {
 
   await expect(page.getByText('Nobody matches')).toBeVisible();
   await page.getByRole('link', { name: 'Clear search' }).click();
-  await page.waitForURL(/\/network/);
+  // Back to the full list, still on the people tab.
+  await page.waitForURL((url) => url.pathname === '/network' && !url.searchParams.get('q'));
+  expect(new URL(page.url()).searchParams.get('tab')).toBe('people');
   await expect(page.getByRole('table')).toBeVisible();
 });

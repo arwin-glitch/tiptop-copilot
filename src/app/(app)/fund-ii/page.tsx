@@ -8,12 +8,21 @@ import { LpUpdateCard } from '@/components/followups/relay-cards';
 import { DocSendReaders } from '@/components/fund-ii/docsend-readers';
 import { WarmPaths } from '@/components/fund-ii/warm-paths';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
-import { LP_STAGES, readFollowUps, type LpItem, type LpStage } from '@/lib/services/follow-ups';
+import {
+  LP_STAGES,
+  readFollowUps,
+  type FollowUpsState,
+  type LpItem,
+  type LpStage,
+} from '@/lib/services/follow-ups';
+import { FUND_II_TABS, resolvePageTab } from '@/lib/records-tabs';
+import { tabHref } from '@/lib/util/page-tabs';
 import { searchableFirm } from '@/lib/services/warm-paths';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState, Notice, SkeletonText } from '@/components/ui/feedback';
+import { PageTabs } from '@/components/ui/page-tabs';
 import { Stat, StatGroup } from '@/components/ui/stat';
 import { formatDate, relativeTime } from '@/lib/util/time';
 
@@ -42,42 +51,70 @@ const KIND_LABEL: Record<LpItem['kind'], string> = {
 /** A conversation with no touch in three weeks is going quiet. */
 const STALE_DAYS = 21;
 
-export default function FundTwoPage() {
+type Params = Record<string, string | string[] | undefined>;
+
+export default async function FundTwoPage({ searchParams }: { searchParams: Promise<Params> }) {
+  const tab = resolvePageTab(FUND_II_TABS, await searchParams);
   return (
     <PageShell>
       <PageHeader
         title="Fund II"
         subtitle="Who is reading your DocSend links, and every LP conversation for Fund II and where it stands, read from your mail. Stages only; no amounts."
       />
-      <Suspense fallback={<SkeletonText lines={4} className="mb-8" />}>
-        <DocSendReaders />
-      </Suspense>
-      <Suspense fallback={<SkeletonText lines={10} />}>
-        <FundTwoContent />
+      <PageTabs
+        label={FUND_II_TABS.navLabel}
+        path={FUND_II_TABS.path}
+        tabs={FUND_II_TABS.tabs.map((t) => ({ key: t.key, label: t.label }))}
+        active={tab}
+        defaultKey={FUND_II_TABS.defaultKey}
+      />
+      <Suspense key={tab} fallback={<SkeletonText lines={10} />}>
+        {tab === 'pipeline' ? (
+          <PipelineTab />
+        ) : tab === 'passed' ? (
+          <PassedTab />
+        ) : (
+          <DocSendReaders />
+        )}
       </Suspense>
     </PageShell>
   );
 }
 
-async function FundTwoContent() {
+/**
+ * The LP pipeline routine's snapshot, grouped by stage. One read (cached) for
+ * the Pipeline and Passed tabs alike; neither touches Gmail.
+ */
+async function loadPipeline() {
   const auth = await requireAuth();
   const now = new Date();
   const { state, snapshot } = await readFollowUps(getStore(), auth.organizationId, { now });
-  const tz = auth.profile.timezone;
-
-  if (state !== 'ok') {
-    return (
-      <Notice tone="warn">
-        <p>
-          {state === 'restricted'
-            ? 'This page stays closed until sign-in is limited to TipTop accounts (AUTH_ALLOWED_EMAIL_DOMAINS).'
-            : 'The LP pipeline could not be read from Slack right now. Try again in a minute.'}
-        </p>
-      </Notice>
-    );
+  const pipeline = state === 'ok' ? snapshot.lpPipeline : null;
+  const byStage = new Map<LpStage, LpItem[]>(LP_STAGES.map((s) => [s, []]));
+  for (const lp of pipeline?.lps ?? []) byStage.get(lp.stage)?.push(lp);
+  for (const list of byStage.values()) {
+    list.sort((a, b) => (b.last_touch_at ?? '').localeCompare(a.last_touch_at ?? ''));
   }
+  const count = (s: LpStage) => byStage.get(s)?.length ?? 0;
+  return { tz: auth.profile.timezone, now, state, snapshot, pipeline, byStage, count };
+}
 
-  const pipeline = snapshot.lpPipeline;
+function PipelineUnavailable({ state }: { state: FollowUpsState }) {
+  return (
+    <Notice tone="warn">
+      <p>
+        {state === 'restricted'
+          ? 'This page stays closed until sign-in is limited to TipTop accounts (AUTH_ALLOWED_EMAIL_DOMAINS).'
+          : 'The LP pipeline could not be read from Slack right now. Try again in a minute.'}
+      </p>
+    </Notice>
+  );
+}
+
+async function PipelineTab() {
+  const { tz, now, state, snapshot, pipeline, byStage, count } = await loadPipeline();
+  if (state !== 'ok') return <PipelineUnavailable state={state} />;
+
   const lpUpdate = snapshot.lpUpdateDraft ? (
     <LpUpdateCard draft={snapshot.lpUpdateDraft} now={now} />
   ) : null;
@@ -93,12 +130,6 @@ async function FundTwoContent() {
     );
   }
 
-  const byStage = new Map<LpStage, LpItem[]>(LP_STAGES.map((s) => [s, []]));
-  for (const lp of pipeline.lps) byStage.get(lp.stage)?.push(lp);
-  for (const list of byStage.values()) {
-    list.sort((a, b) => (b.last_touch_at ?? '').localeCompare(a.last_touch_at ?? ''));
-  }
-  const count = (s: LpStage) => byStage.get(s)?.length ?? 0;
   const active = pipeline.lps.filter((lp) => lp.stage !== 'passed').length;
   const stale = pipeline.lps.filter(
     (lp) => lp.stage !== 'passed' && lp.stage !== 'committed' && isStale(lp, now),
@@ -148,24 +179,48 @@ async function FundTwoContent() {
           </section>
         ))}
       </div>
-
-      {count('passed') > 0 ? (
-        <section aria-labelledby="stage-passed" className="mt-8">
-          <SectionHeading count={count('passed')}>
-            <span id="stage-passed">Passed</span>
-          </SectionHeading>
-          <ul className="space-y-1 text-sm text-[var(--fg-muted)]">
-            {byStage.get('passed')?.map((lp) => (
-              <li key={`${lp.who}-${lp.firm ?? ''}`}>
-                {lp.who}
-                {lp.firm ? ` · ${lp.firm}` : ''}
-                {lp.note ? ` · ${lp.note}` : ''}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
     </>
+  );
+}
+
+async function PassedTab() {
+  const { state, pipeline, byStage, count } = await loadPipeline();
+  if (state !== 'ok') return <PipelineUnavailable state={state} />;
+  if (!pipeline || pipeline.lps.length === 0) {
+    return (
+      <EmptyState
+        title="No LP pipeline yet"
+        description="The LP pipeline routine posts every weekday morning. Once it has run, anyone who passed shows here."
+      />
+    );
+  }
+  if (count('passed') === 0) {
+    return (
+      <EmptyState
+        title="Nobody has passed yet"
+        description="An LP who passes moves here from the pipeline, with any note on why."
+        action={{
+          label: 'See the LP pipeline',
+          href: tabHref(FUND_II_TABS.path, 'pipeline', FUND_II_TABS.defaultKey),
+        }}
+      />
+    );
+  }
+  return (
+    <section aria-labelledby="stage-passed">
+      <SectionHeading count={count('passed')}>
+        <span id="stage-passed">Passed</span>
+      </SectionHeading>
+      <ul className="space-y-1 text-sm text-[var(--fg-muted)]">
+        {byStage.get('passed')?.map((lp) => (
+          <li key={`${lp.who}-${lp.firm ?? ''}`}>
+            {lp.who}
+            {lp.firm ? ` · ${lp.firm}` : ''}
+            {lp.note ? ` · ${lp.note}` : ''}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

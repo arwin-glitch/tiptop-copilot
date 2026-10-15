@@ -2,17 +2,32 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
-import { readFollowUps } from '@/lib/services/follow-ups';
-import { WeekAheadCard } from '@/components/followups/relay-cards';
+import { readFollowUps, readFollowUpsWithin } from '@/lib/services/follow-ups';
+import {
+  WeekAheadCard,
+  snapshotUnavailable,
+  upcomingWeekEvents,
+} from '@/components/followups/relay-cards';
 import { listMeetingNotes } from '@/lib/services/meetings';
+import { MEETINGS_TABS, SNAPSHOT_WAIT_MS, landsOnSnapshot, openingTab } from '@/lib/records-tabs';
+import { SHOW_PARAM, showMoreHref, shownCount, single, tabHref } from '@/lib/util/page-tabs';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { EmptyState, SkeletonText } from '@/components/ui/feedback';
+import { PageTabs } from '@/components/ui/page-tabs';
+import { ShowMore } from '@/components/ui/show-more';
 import { Stat, StatGroup } from '@/components/ui/stat';
 import { MeetingNoteList } from '@/components/meetings/meeting-note-list';
 import { MeetingsFilterBar } from '@/components/meetings/meetings-client';
 
 export const metadata: Metadata = { title: 'Meetings' };
 export const dynamic = 'force-dynamic';
+
+const NOTES_HREF = tabHref(MEETINGS_TABS.path, 'notes', MEETINGS_TABS.defaultKey);
+
+/** Notes rendered per page. Each card carries its full note, so not all 500. */
+const NOTES_STEP = 25;
+/** The most notes one read returns (listMeetingNotes' cap). */
+const NOTES_MAX = 500;
 
 export default async function MeetingsPage({
   searchParams,
@@ -22,33 +37,82 @@ export default async function MeetingsPage({
   const params = await searchParams;
   const q = single(params.q) ?? '';
 
+  // The week ahead is only the routine's snapshot from Slack, and a weekly
+  // one runs out by the weekend. A bare URL opens there while a meeting is
+  // still to come and on Notes otherwise, never on an empty page.
+  let weekShows = false;
+  if (landsOnSnapshot(MEETINGS_TABS, params)) {
+    const auth = await requireAuth();
+    const now = new Date();
+    const landing = await readFollowUpsWithin(getStore(), auth.organizationId, SNAPSHOT_WAIT_MS, {
+      now,
+    });
+    const week = landing?.state === 'ok' ? landing.snapshot.weekAhead : null;
+    weekShows = week ? upcomingWeekEvents(week, now).length > 0 : false;
+  }
+  const { tab, home } = openingTab(MEETINGS_TABS, params, weekShows);
+  const shown = shownCount(params[SHOW_PARAM], NOTES_STEP, NOTES_MAX);
+
   return (
     <PageShell>
       <PageHeader
         title="Meetings"
         subtitle="Every note Granola has written, whether or not the company is already a deal. The record of what was actually said."
       />
-      <Suspense fallback={<SkeletonText lines={10} />}>
-        <MeetingsContent q={q} />
+      <PageTabs
+        label={MEETINGS_TABS.navLabel}
+        path={MEETINGS_TABS.path}
+        tabs={MEETINGS_TABS.tabs.map((t) => ({ key: t.key, label: t.label }))}
+        active={tab}
+        defaultKey={home}
+      />
+      <Suspense key={tab} fallback={<SkeletonText lines={10} />}>
+        {tab === 'notes' ? <NotesTab q={q} shown={shown} /> : <WeekTab />}
       </Suspense>
     </PageShell>
   );
 }
 
-async function MeetingsContent({ q }: { q: string }) {
+/** The week-ahead routine's snapshot: what is still to come, by day. */
+async function WeekTab() {
   const auth = await requireAuth();
-  const [notes, followUps] = await Promise.all([
-    listMeetingNotes(getStore(), auth.organizationId, { search: q || undefined }),
-    // The week-ahead routine's snapshot; a Slack fault only hides it.
-    readFollowUps(getStore(), auth.organizationId).catch(() => null),
-  ]);
-  const week = followUps?.state === 'ok' ? followUps.snapshot.weekAhead : null;
+  const followUps = await readFollowUps(getStore(), auth.organizationId).catch(() => null);
+  const empty = (title: string, description: string) => (
+    <EmptyState
+      title={title}
+      description={description}
+      action={{ label: 'See all notes', href: NOTES_HREF }}
+    />
+  );
+  if (followUps?.state !== 'ok') {
+    return empty('No week ahead to show', snapshotUnavailable(followUps?.state));
+  }
+  const week = followUps.snapshot.weekAhead;
+  if (!week) {
+    return empty('No week ahead to show', 'Shows here once the week-ahead routine has posted.');
+  }
+  return (
+    <WeekAheadCard
+      week={week}
+      now={new Date()}
+      tz={auth.profile.timezone}
+      empty={empty('Nothing coming up', 'No meeting is left on the week ahead.')}
+    />
+  );
+}
+
+async function NotesTab({ q, shown }: { q: string; shown: number }) {
+  const auth = await requireAuth();
   // `notes` is one page, capped by listMeetingNotes. Reading its length as the
   // meeting count showed a flat "500" — the cap, presented as a fact — while
   // the real figure was 922. A stat that reports a limit is worse than no stat.
-  const total = await getStore().count('meeting_notes', auth.organizationId, {
-    eq: { provider: 'granola' },
-  });
+  const [notes, total] = await Promise.all([
+    listMeetingNotes(getStore(), auth.organizationId, {
+      search: q || undefined,
+      limit: NOTES_MAX,
+    }),
+    getStore().count('meeting_notes', auth.organizationId, { eq: { provider: 'granola' } }),
+  ]);
 
   const people = new Set<string>();
   const companies = new Set<string>();
@@ -63,10 +127,6 @@ async function MeetingsContent({ q }: { q: string }) {
 
   return (
     <>
-      {week && !q ? (
-        <WeekAheadCard week={week} now={new Date()} tz={auth.profile.timezone} />
-      ) : null}
-
       <StatGroup className="mb-5" columns={3}>
         <Stat
           size="sm"
@@ -91,17 +151,28 @@ async function MeetingsContent({ q }: { q: string }) {
             }
             action={{
               label: q ? 'Clear search' : 'Check Diagnostics',
-              href: q ? '/meetings' : '/diagnostics',
+              href: q ? NOTES_HREF : '/diagnostics',
             }}
           />
         ) : (
-          <MeetingNoteList notes={notes} timezone={auth.profile.timezone} />
+          <>
+            {/* The stats above count every note read; only a page of cards is
+                rendered, newest first, and grows on request. */}
+            <MeetingNoteList notes={notes.slice(0, shown)} timezone={auth.profile.timezone} />
+            <ShowMore
+              shown={shown}
+              total={notes.length}
+              step={NOTES_STEP}
+              href={showMoreHref(MEETINGS_TABS.path, { tab: 'notes', q }, shown, NOTES_STEP)}
+              note={
+                !q && total > notes.length
+                  ? `The newest ${notes.length} of ${total} are listed. Search to reach older notes.`
+                  : undefined
+              }
+            />
+          </>
         )}
       </div>
     </>
   );
-}
-
-function single(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
 }

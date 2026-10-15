@@ -12,13 +12,14 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('Reports shows fresh company updates from Gmail', async ({ page }) => {
-  await page.goto('/updates');
+  // Fresh updates are their own tab on Reports.
+  await page.goto('/updates?tab=fresh');
   await expect(page.getByText('Fresh company updates').first()).toBeVisible({ timeout: 30_000 });
   await page.screenshot({ path: 'test-results/reports-fresh.png', fullPage: true });
 });
 
 test('Portfolio shows company-reported numbers', async ({ page }) => {
-  await page.goto('/portfolio');
+  await page.goto('/portfolio?tab=numbers');
   await expect(page.getByText('Numbers from their updates').first()).toBeVisible({
     timeout: 30_000,
   });

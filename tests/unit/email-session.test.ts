@@ -192,6 +192,28 @@ describe('buildSession', () => {
     });
     expect(s.items[0]?.context.map((c) => c.kind)).toEqual(['deal', 'portfolio', 'risk', 'lp']);
     expect(s.items[0]?.context[0]?.href).toBe('/deals/d1');
+    expect(s.items[0]?.context[3]?.href).toBe('/fund-ii?tab=pipeline');
+  });
+
+  it('links an LP who passed to the Passed tab, where they are listed', () => {
+    // The pipeline tab shows only open stages; a passed LP is on Passed alone.
+    const snap = snapshotWith([queueItem('aa00000000000004', 'deals', 'Grace', 'Thanks anyway')], {
+      lpPipeline: {
+        run_at: '2026-10-08T12:00:00Z',
+        fund: 'Fund II',
+        lps: [{ who: 'Grace', firm: 'Lakeside', kind: 'family_office', stage: 'passed' }],
+      },
+    });
+    const s = buildSession({
+      snapshot: snap,
+      answers: new Map(),
+      deals: [],
+      portfolio: [],
+      now: NOW,
+    });
+    expect(s.items[0]?.context).toEqual([
+      { kind: 'lp', label: 'Fund II · passed', href: '/fund-ii?tab=passed' },
+    ]);
   });
 
   it('does not match a name inside another word', () => {

@@ -15,11 +15,18 @@ import { SetupBanner, SourceStatusStrip } from '@/components/updates/source-stat
 import { UpdatePostCard } from '@/components/updates/update-card';
 import { UpdatesBrowser } from '@/components/updates/updates-browser';
 import { panelKey, updatesHref, viewForGroup, type UpdatesFilter } from '@/lib/updates/view';
+import { UPDATES_TABS, resolvePageTab } from '@/lib/records-tabs';
+import { PageTabs } from '@/components/ui/page-tabs';
 
 export const metadata: Metadata = { title: 'Dealflow reports' };
 export const dynamic = 'force-dynamic';
 
-export default async function UpdatesPage() {
+export default async function UpdatesPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const tab = resolvePageTab(UPDATES_TABS, await searchParams);
   return (
     <PageShell>
       <PageHeader
@@ -27,8 +34,15 @@ export default async function UpdatesPage() {
         subtitle="Weekly dealflow reports and Nick's update digests, read live from Slack, plus company updates that landed in Gmail since. Read-only."
         actions={<RefreshUpdatesButton />}
       />
-      <Suspense fallback={<SkeletonText lines={10} />}>
-        <UpdatesContent />
+      <PageTabs
+        label={UPDATES_TABS.navLabel}
+        path={UPDATES_TABS.path}
+        tabs={UPDATES_TABS.tabs.map((t) => ({ key: t.key, label: t.label }))}
+        active={tab}
+        defaultKey={UPDATES_TABS.defaultKey}
+      />
+      <Suspense key={tab} fallback={<SkeletonText lines={10} />}>
+        {tab === 'fresh' ? <FreshTab /> : <ReportsTab />}
       </Suspense>
     </PageShell>
   );
@@ -39,48 +53,58 @@ function isRoutine(post: UpdatePost): boolean {
   return post.type === 'dealflow' || post.type === 'digest';
 }
 
-async function UpdatesContent() {
+/** Both tabs read channels that hold confidential reports; closed until sign-in is limited. */
+function Restricted() {
+  return (
+    <Notice tone="warn">
+      <p className="font-medium">
+        This tab stays closed until sign-in is limited to TipTop accounts.
+      </p>
+      <p className="mt-1">
+        The channels behind it hold confidential deal reports and investors-only updates, and right
+        now any Google account can sign in. Set <code>AUTH_ALLOWED_EMAIL_DOMAINS</code> (for example{' '}
+        <code>tiptop.vc</code>) on Render and redeploy.
+      </p>
+    </Notice>
+  );
+}
+
+/**
+ * Founder updates that landed between digests, live from Gmail. The Slack read
+ * (cached) only marks which of them the digest already covered.
+ */
+async function FreshTab() {
   const auth = await requireAuth();
   const now = new Date();
   const feed = getUpdatesFeed(now);
-  if (!feed) {
-    return (
-      <Notice tone="warn">
-        <p className="font-medium">
-          This tab stays closed until sign-in is limited to TipTop accounts.
-        </p>
-        <p className="mt-1">
-          The channels behind it hold confidential deal reports and investors-only updates, and
-          right now any Google account can sign in. Set <code>AUTH_ALLOWED_EMAIL_DOMAINS</code> (for
-          example <code>tiptop.vc</code>) on Render and redeploy.
-        </p>
-      </Notice>
-    );
-  }
+  if (!feed) return <Restricted />;
   const snapshot = await readUpdates(feed, { now }).catch(() => null);
-  const timeZone = auth.profile.timezone;
-  // Founder updates that landed between digests, live from Gmail. Streams in
-  // on its own so a slow mailbox never holds up the Slack reports.
-  const fresh = (
+  return (
     <Suspense fallback={<SkeletonText lines={4} />}>
       <FreshCompanyUpdates
         organizationId={auth.organizationId}
         snapshot={snapshot}
         now={now}
-        timeZone={timeZone}
+        timeZone={auth.profile.timezone}
       />
     </Suspense>
   );
+}
+
+async function ReportsTab() {
+  const auth = await requireAuth();
+  const now = new Date();
+  const feed = getUpdatesFeed(now);
+  if (!feed) return <Restricted />;
+  const snapshot = await readUpdates(feed, { now }).catch(() => null);
+  const timeZone = auth.profile.timezone;
   if (!snapshot) {
     return (
-      <div className="space-y-5">
-        {fresh}
-        <ErrorState
-          title="Updates could not be loaded"
-          message="Reading the Slack channels failed unexpectedly. Try Refresh in a minute."
-          stillUsable="Every other page."
-        />
-      </div>
+      <ErrorState
+        title="Updates could not be loaded"
+        message="Reading the Slack channels failed unexpectedly. Try Refresh in a minute."
+        stillUsable="Fresh updates, and every other page."
+      />
     );
   }
 
@@ -135,8 +159,6 @@ async function UpdatesContent() {
       {snapshot.setup ? (
         <SetupBanner setup={snapshot.setup} botHandle={botHandle} views={snapshot.sources} />
       ) : null}
-
-      {fresh}
 
       <UpdatesBrowser
         sources={snapshot.sources.map((v) => ({

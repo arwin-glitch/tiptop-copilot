@@ -150,6 +150,9 @@
      z-40 and z-50 were picked independently in three files and the dialog
      shared a layer with the demo banner. */
   --z-sticky: 20;
+  /* A page's subtab bar: above sticky table headers that scroll under it,
+     below the mobile header it sits beneath. */
+  --z-subnav: 25;
   --z-header: 30;
   --z-nav: 40;
   --z-banner: 50;
@@ -159,6 +162,44 @@
   /* Page rhythm. One gutter and one stack step, so screens agree. */
   --gutter: 1rem;
   --stack: 1.5rem;
+
+  /* What is stuck to the top of the window, so a sticky bar can sit under it:
+     the mobile header (fixed height, below lg) and the demo banner (none
+     outside demo mode). */
+  --app-header-h: 3.25rem;
+  --app-banner-h: 0px;
+  /* A page's subtab bar (PageTabs): its 44px touch targets, 40px from lg. */
+  --page-tabs-h: 2.75rem;
+}
+
+/* The demo banner's height on one line: a 12px line, 6px padding top and
+   bottom, and its 1px border. On a phone it can wrap, but there the mobile
+   header is the taller of the two. Set on the root as well as the layout, so
+   the scroll padding below (on <html>) sees it too. */
+.has-demo-banner,
+:root:has(.has-demo-banner) {
+  --app-banner-h: calc(var(--text-mini) * var(--text-mini--line-height) + 0.75rem + 1px);
+}
+
+/* Focus never lands under what is stuck to the top (WCAG 2.4.11). When Tab or
+   Shift+Tab, or a jump to an anchor, scrolls something into view, it stops
+   below the mobile header or demo banner and a page's subtab bar, rather than
+   at the very top of the window where the bar covers it. */
+:root:has([data-page-tabs]) {
+  scroll-padding-top: calc(
+    max(var(--app-header-h), var(--app-banner-h)) + var(--page-tabs-h) + 0.5rem
+  );
+}
+
+@media (min-width: 64rem) {
+  :root {
+    --page-tabs-h: 2.5rem;
+  }
+
+  /* No mobile header from lg: only the banner, in demo mode, sits above the bar. */
+  :root:has([data-page-tabs]) {
+    scroll-padding-top: calc(var(--app-banner-h) + var(--page-tabs-h) + 0.5rem);
+  }
 }
 
 @media (min-width: 640px) {
