@@ -392,6 +392,37 @@
     inset 0 1px 0 rgb(237 230 211 / 0.07), 0 12px 32px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.4);
 }
 
+/* Dark mode proper sits a step deeper than the always-dark islands that light
+   mode borrows (the rail, the page-header band, the phone bars): those keep
+   the `.dark` values above so light mode is unchanged, while a dark page and
+   everything inside it, islands included, take these. Same hues, about a
+   fifth less light. */
+:root.dark,
+:root.dark .dark {
+  --bg: #0b211a;
+  --bg-raised: #102d24;
+  --bg-sunken: #081a14;
+  --bg-overlay: #143a2f;
+  --bg-sidebar: #103126;
+  --bg-band: #113429;
+  --bg-hover: #173f33;
+  --nav-active: #194739;
+
+  --border: #24493c;
+  --accent-soft: #153f32;
+
+  /* The bright brand green, a touch deeper; forest-dark type still clears
+     6:1 on it. The logo keeps the brand's own green (--brand-mark). */
+  --primary: #0db376;
+  --primary-hover: #1cc285;
+
+  --jewel: #1a4c3b;
+  --neutral-soft: #153529;
+  --note-soft: #13342a;
+  --ok-soft: #11353a;
+  --chart-grid: #2a4f40;
+}
+
 @theme inline {
   --color-bg: var(--bg);
   --color-bg-raised: var(--bg-raised);
