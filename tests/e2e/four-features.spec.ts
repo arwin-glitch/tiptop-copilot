@@ -23,6 +23,14 @@ test('Portfolio shows company-reported numbers', async ({ page }) => {
     timeout: 30_000,
   });
   await expect(page.getByText(/company-reported/i).first()).toBeVisible();
+  // Stored after the first read: a reload shows the same numbers, with when they were read.
+  const updated = page.locator('[data-numbers-updated]');
+  await expect(updated).toContainText(/Updated .+ · Checked \d+ compan/);
+  const stamp = await updated.locator('time').getAttribute('datetime');
+  expect(stamp).toBeTruthy();
+  await page.reload();
+  await expect(page.locator('[data-numbers-updated] time')).toHaveAttribute('datetime', stamp!);
+  await expect(page.getByText('$780K').first()).toBeVisible();
   await page.screenshot({ path: 'test-results/portfolio-numbers.png', fullPage: true });
 });
 

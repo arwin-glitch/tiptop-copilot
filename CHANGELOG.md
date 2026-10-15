@@ -8,6 +8,16 @@ throughout.
 
 ---
 
+## [0.11.4] — 2026-10-15
+
+- **Portfolio numbers load at once.** "Numbers from their updates" shows the
+  last read from the database straight away, right after a restart or deploy
+  too, with an "Updated <time>" note. Numbers older than 30 minutes are read
+  afresh from Gmail in the background (sooner if the last read ran out of
+  time), and the daily job refreshes them too. A company the background read
+  could not finish keeps its last numbers rather than figures from part of its
+  mail. Extraction rules, labels, dates and source-email links are unchanged.
+
 ## [0.11.3] — 2026-10-14
 
 - **Event sign-ups don't ping.** An RSVP that Luma, Eventbrite or a similar

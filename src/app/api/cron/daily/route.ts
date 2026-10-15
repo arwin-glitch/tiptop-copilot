@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { after, NextResponse, type NextRequest } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
@@ -8,13 +8,19 @@ import { pullBriefingsFromSlack } from '@/lib/services/briefing';
 import { formatDealCronStatus, pullDealsFromSlack } from '@/lib/services/deal-relay';
 import { ensureGmailWatch } from '@/lib/services/gmail-watch';
 import { syncMailbox } from '@/lib/services/inbox';
+import { listPortfolio } from '@/lib/services/portfolio';
 import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
+import { refreshPortfolioNumbers } from '@/lib/services/portfolio-numbers';
 import { formatTaskCronStatus, pullTaskRelays } from '@/lib/services/task-relay';
+import { settlesWithin } from '@/lib/util/settle';
 import type { AuthContext } from '@/lib/auth/session';
 import type { Organization, OrganizationMember, UserProfile } from '@/lib/types/domain';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
+
+/** How long the job waits on the numbers refresh before letting it finish in the background. */
+const NUMBERS_BUDGET_MS = 60_000;
 
 /**
  * Scheduled job: sync mailboxes and pre-generate the daily outlook.
@@ -68,6 +74,7 @@ export async function POST(request: NextRequest) {
     portfolio: string;
     tasks: string;
     deals: string;
+    numbers: string;
   }[] = [];
 
   let organizations: Organization[] = [];
@@ -97,6 +104,7 @@ export async function POST(request: NextRequest) {
         portfolio: 'skipped',
         tasks: 'skipped',
         deals: 'skipped',
+        numbers: 'skipped',
       });
       continue;
     }
@@ -112,6 +120,7 @@ export async function POST(request: NextRequest) {
         portfolio: 'skipped',
         tasks: 'skipped',
         deals: 'skipped',
+        numbers: 'skipped',
       });
       continue;
     }
@@ -211,6 +220,30 @@ export async function POST(request: NextRequest) {
       log.error('Cron deal relay pull failed', { organizationId: organization.id });
     }
 
+    // The Portfolio page's stored numbers, read afresh from Gmail so they stay
+    // current when nobody opens the page. A long read finishes after the
+    // response rather than holding the job. Counts only: public log.
+    let numbersStatus: string;
+    try {
+      const companies = await listPortfolio(organization.id);
+      const run = refreshPortfolioNumbers(store, organization.id, companies);
+      if (await settlesWithin(run, NUMBERS_BUDGET_MS)) {
+        const done = await run;
+        numbersStatus =
+          done.state === 'ok'
+            ? `ok: ${done.snapshot?.companies.length ?? 0} with numbers${done.snapshot?.partial ? ', partial' : ''}`
+            : `skipped: ${done.state}`;
+      } else {
+        after(async () => {
+          await run;
+        });
+        numbersStatus = 'running';
+      }
+    } catch {
+      numbersStatus = 'failed';
+      log.error('Cron portfolio numbers refresh failed', { organizationId: organization.id });
+    }
+
     results.push({
       organization: organization.name,
       sync: syncStatus,
@@ -220,6 +253,7 @@ export async function POST(request: NextRequest) {
       portfolio: portfolioStatus,
       tasks: tasksStatus,
       deals: dealsStatus,
+      numbers: numbersStatus,
     });
   }
 

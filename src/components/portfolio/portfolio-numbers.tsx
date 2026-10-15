@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { after } from 'next/server';
 import { ExternalLink } from 'lucide-react';
 import type { CompanyLike } from '@/lib/company-updates/classify';
 import {
@@ -11,9 +12,9 @@ import {
 } from '@/lib/company-updates/metrics';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
-import { readPortfolioNumbers } from '@/lib/services/portfolio-numbers';
+import { loadPortfolioNumbers } from '@/lib/services/portfolio-numbers';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
-import { formatDate } from '@/lib/util/time';
+import { formatDate, formatDateTime } from '@/lib/util/time';
 import { SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -22,6 +23,7 @@ import { Card, CardContent } from '@/components/ui/card';
  * Portfolio: the numbers each company reported in its own update emails.
  * Every figure is the company's word, shown with the date of the email it
  * came from and a link to that email. Companies with no numbers are left out.
+ * Shown from the last stored read; a stale one is refreshed in the background.
  */
 export async function PortfolioNumbers({
   organizationId,
@@ -33,9 +35,17 @@ export async function PortfolioNumbers({
   timeZone: string;
 }) {
   if (companies.length === 0) return null;
-  const result = await readPortfolioNumbers(getStore(), organizationId, companies).catch(
+  const loaded = await loadPortfolioNumbers(getStore(), organizationId, companies).catch(
     () => null,
   );
+  // The refresh finishes after the response; `after` keeps it alive.
+  const pending = loaded?.pending;
+  if (pending) {
+    after(async () => {
+      await pending;
+    });
+  }
+  const result = loaded?.result ?? null;
 
   const heading = (count?: number) => (
     <SectionHeading count={count}>
@@ -48,9 +58,11 @@ export async function PortfolioNumbers({
       <section aria-labelledby="portfolio-numbers-heading" className="mb-8">
         {heading()}
         <p className="text-sm text-[var(--fg-muted)]">
-          {result?.state === 'not_connected'
-            ? 'Connect Gmail in Settings to read the numbers founders share in their updates.'
-            : "Gmail didn't answer, so the numbers are hidden for now. Try again in a minute."}
+          {result?.state === 'pending'
+            ? 'Reading the numbers from Gmail for the first time. Refresh in a minute to see them.'
+            : result?.state === 'not_connected'
+              ? 'Connect Gmail in Settings to read the numbers founders share in their updates.'
+              : "Gmail didn't answer, so the numbers are hidden for now. Try again in a minute."}
         </p>
       </section>
     );
@@ -61,14 +73,16 @@ export async function PortfolioNumbers({
     <section aria-labelledby="portfolio-numbers-heading" className="mb-8">
       {heading(rows.length)}
       <p className="-mt-2 mb-1 text-sm text-[var(--fg-muted)]">
-        Company-reported figures from founder update emails in the last 12 months, read live from
-        Gmail. Nothing here is checked against other sources. Each figure shows the date of the
-        email it came from.
+        Company-reported figures from founder update emails in the last 12 months, read from Gmail.
+        Nothing here is checked against other sources. Each figure shows the date of the email it
+        came from.
       </p>
-      <p className="mb-3 text-xs text-[var(--fg-subtle)]">
-        Checked {result.checked} {result.checked === 1 ? 'company' : 'companies'} · {rows.length}{' '}
-        shared numbers
-        {result.partial ? ' · still reading some mail, refresh in a minute for the rest' : ''}
+      <p className="mb-3 text-xs text-[var(--fg-subtle)]" data-numbers-updated>
+        Updated{' '}
+        <time dateTime={result.checkedAt}>{formatDateTime(result.checkedAt, timeZone)}</time>
+        {loaded?.refreshing ? ' · checking Gmail for newer updates' : ''} · Checked {result.checked}{' '}
+        {result.checked === 1 ? 'company' : 'companies'} · {rows.length} shared numbers
+        {result.partial ? ' · some mail not read yet, refresh in a minute for the rest' : ''}
       </p>
       {rows.length === 0 ? (
         <p className="text-sm text-[var(--fg-subtle)]">

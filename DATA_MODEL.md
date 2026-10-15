@@ -184,6 +184,14 @@ The column exists so the UI can state plainly that nothing was sent. The
 constraint means it can never say otherwise. There is no code path that would
 attempt to set it, and if one were added the database would reject it.
 
+### `audit_events` as job state
+
+Besides the audit trail, a few background jobs keep their state here under
+their own `action`, so they need no table or migration: the phone-alert
+subscriptions and delivery ledger (`push.subscription`, `push.alerted`), and
+the Portfolio page's stored numbers (`portfolio.numbers_snapshot`, one row per
+organization holding the last read, replaced by each refresh).
+
 ### `ai_usage`
 
 Recorded for **failed** calls too, with the error code and zero cost. A failed

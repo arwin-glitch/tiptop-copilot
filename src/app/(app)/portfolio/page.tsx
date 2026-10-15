@@ -163,8 +163,9 @@ export default async function PortfolioPage() {
         </section>
       ) : null}
 
-      {/* Company-reported numbers from their update emails, live from Gmail;
-          streams in on its own so the rest of the page never waits for it. */}
+      {/* Company-reported numbers from their update emails, stored and
+          refreshed from Gmail in the background; streams in on its own so the
+          rest of the page never waits for it. */}
       <Suspense fallback={<SkeletonText lines={4} className="mb-8" />}>
         <PortfolioNumbers
           organizationId={auth.organizationId}
