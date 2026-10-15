@@ -117,10 +117,18 @@ create table if not exists crm_list_entries (
 alter table crm_list_entries add column if not exists imported_values jsonb
   check (imported_values is null or jsonb_typeof(imported_values) = 'object');
 
+-- Every company and person an entry links to. A deal (Affinity opportunity)
+-- can sit with several organizations and people; record_id stays the single
+-- "about" record, these are all of them. Filled by the import as names are
+-- matched to records; empty until then.
+alter table crm_list_entries add column if not exists linked_record_ids uuid[] not null default '{}';
+
 create index if not exists crm_list_entries_list_idx
   on crm_list_entries (organization_id, list_id, position);
 create index if not exists crm_list_entries_record_idx
   on crm_list_entries (record_id) where record_id is not null;
+create index if not exists crm_list_entries_linked_idx
+  on crm_list_entries using gin (linked_record_ids);
 
 -- ----------------------------------------------------------------- notes --
 
