@@ -52,10 +52,7 @@ export function NotConfigured({
           {action ? (
             <>
               {' '}
-              <Link
-                href={action.href}
-                className="text-[var(--accent)] underline-offset-2 hover:underline"
-              >
+              <Link href={action.href} className="link-inline">
                 {action.label}
               </Link>
               .

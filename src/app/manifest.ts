@@ -12,8 +12,9 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: '/',
     display: 'standalone',
     orientation: 'portrait-primary',
-    background_color: '#faf8f6',
-    theme_color: '#faf8f6',
+    // The light --bg from globals.css; a manifest cannot read CSS variables.
+    background_color: '#f6f1e4',
+    theme_color: '#f6f1e4',
     categories: ['business', 'productivity'],
     icons: [
       { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 import { enterDemoAction } from '@/app/actions/session';
+import { GoldFiligree } from '@/components/brand/gold-filigree';
 import { Wordmark } from '@/components/brand/wordmark';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -76,10 +77,23 @@ export default async function LoginPage({
   return (
     <main
       id="main"
-      className="flex min-h-dvh items-center justify-center bg-[var(--bg)] px-4 py-10"
+      className="relative isolate flex min-h-dvh items-center justify-center overflow-hidden bg-[var(--bg)] bg-[image:var(--spotlight)] px-4 py-10"
     >
+      {/* A forest-green band across the top in both themes, with the gold
+          line art in it and a gold hairline for an edge, like the page-header
+          band inside the app. It ends just above the middle of the page, so
+          the column (centred on that middle) always has the wordmark on the
+          band and the card overlapping its edge, whatever the viewport. */}
+      <div
+        aria-hidden="true"
+        className="dark absolute inset-x-0 top-0 isolate -z-10 h-[calc(50%-2.5rem)] bg-[var(--bg-band)] after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-[var(--gold-rule)]"
+      >
+        <GoldFiligree variant="band" />
+      </div>
       <div className="w-full max-w-md">
-        <div className="mb-7 flex justify-center">
+        {/* On the band, so it takes the band's (dark) tokens: cream type and
+            the bright brand green for the mark. */}
+        <div className="dark mb-7 flex justify-center text-[var(--fg)]">
           <Wordmark />
         </div>
 

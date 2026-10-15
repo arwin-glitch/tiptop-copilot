@@ -15,12 +15,7 @@ function SegView({ seg }: { seg: Seg }) {
   const href = seg.href ? safeHref(seg.href) : null;
   if (href) {
     node = (
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer"
-        className="text-[var(--accent)] underline-offset-2 hover:underline"
-      >
+      <a href={href} target="_blank" rel="noreferrer" className="link-inline">
         {node}
       </a>
     );

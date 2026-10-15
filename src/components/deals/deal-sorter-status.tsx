@@ -46,10 +46,7 @@ export function DealSorterStatus({
           {view.configLink ? (
             <>
               {' '}
-              <Link
-                href="/diagnostics"
-                className="text-[var(--accent)] underline-offset-2 hover:underline"
-              >
+              <Link href="/diagnostics" className="link-inline">
                 See what is configured
               </Link>
             </>

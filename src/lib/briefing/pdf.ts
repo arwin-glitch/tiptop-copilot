@@ -30,9 +30,9 @@ const CONTENT_WIDTH = PAGE.width - MARGIN.x * 2;
 
 const INK = rgb(0.11, 0.1, 0.09);
 const MUTED = rgb(0.42, 0.4, 0.38);
-const ACCENT = rgb(0.05, 0.55, 0.36);
+const ACCENT = rgb(0.122, 0.353, 0.275); // #1F5A46, the light theme's emerald
 const DANGER = rgb(0.72, 0.16, 0.12);
-const RULE = rgb(0.86, 0.84, 0.82);
+const RULE = rgb(0.89, 0.85, 0.75); // parchment hairline
 
 const REPLACEMENTS: Record<string, string> = {
   '→': '->',

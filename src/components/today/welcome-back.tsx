@@ -93,7 +93,7 @@ export function WelcomeBack() {
             className="flex min-w-0 flex-col gap-2 rounded-md border border-[var(--border)] p-3"
           >
             <div className="flex items-center gap-2">
-              <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--accent)] text-xs font-semibold text-[var(--accent-fg)]">
+              <span className="grid size-7 shrink-0 place-items-center rounded-full border border-[var(--border-strong)] bg-[var(--jewel)] font-serif text-xs font-semibold text-[var(--jewel-fg)]">
                 {i + 1}
               </span>
               <step.icon className="size-4 text-[var(--fg-muted)]" aria-hidden />
@@ -113,7 +113,7 @@ export function WelcomeBack() {
         <button
           type="button"
           onClick={dismiss}
-          className="inline-flex h-8 items-center rounded-md bg-[var(--accent)] px-3 text-sm font-medium text-[var(--accent-fg)] hover:opacity-90"
+          className="inline-flex h-8 items-center rounded-md bg-[var(--primary)] px-3 text-sm font-medium text-[var(--primary-fg)] hover:bg-[var(--primary-hover)]"
         >
           Got it
         </button>

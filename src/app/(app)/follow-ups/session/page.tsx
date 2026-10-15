@@ -27,9 +27,11 @@ export default async function EmailSessionPage() {
 
   return (
     <PageShell>
+      {/* `dark`: it sits on the page-header band below, which runs up behind
+          everything above the header. */}
       <Link
         href="/follow-ups"
-        className="mb-2 inline-flex items-center gap-1 text-sm text-[var(--fg-muted)] hover:text-[var(--fg)]"
+        className="dark mb-2 inline-flex items-center gap-1 text-sm text-[var(--fg-muted)] hover:text-[var(--fg)]"
       >
         <ArrowLeft className="size-4" aria-hidden /> Follow-ups
       </Link>

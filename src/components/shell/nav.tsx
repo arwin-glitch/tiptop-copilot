@@ -87,7 +87,13 @@ export function SidebarNav() {
         const headingId = `nav-group-${group.label.toLowerCase()}`;
         return (
           <div key={group.label}>
-            <FieldLabel as="p" id={headingId} className="px-2.5 pb-1.5">
+            {/* Gold small caps: the one place the sidebar spends its accent
+                on text, so the group names read as engraved headings. */}
+            <FieldLabel
+              as="p"
+              id={headingId}
+              className="px-2.5 pb-1.5 tracking-[0.18em] text-[var(--label-gold)]"
+            >
               {group.label}
             </FieldLabel>
             <ul aria-labelledby={headingId} className="flex flex-col gap-0.5">
@@ -109,7 +115,7 @@ export function SidebarNav() {
                         'relative flex items-center gap-2.5 rounded-md py-2 pr-2.5 pl-4 text-sm transition-colors duration-[var(--motion-instant)]',
                         'before:absolute before:top-1.5 before:bottom-1.5 before:left-0 before:w-[2px] before:rounded-full before:transition-colors before:duration-[var(--motion-instant)]',
                         active
-                          ? 'bg-[var(--bg-hover)] font-medium text-[var(--fg)] before:bg-[var(--accent)]'
+                          ? 'bg-[var(--nav-active)] font-medium text-[var(--fg)] shadow-[inset_0_0_0_1px_var(--border)] before:bg-[var(--gold)]'
                           : 'text-[var(--fg-muted)] before:bg-transparent hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]',
                       )}
                     >
@@ -194,7 +200,8 @@ export function MobileNav() {
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-[var(--z-nav)] border-t border-[var(--border)] bg-[var(--bg-raised)] pb-[env(safe-area-inset-bottom)] lg:hidden"
+      // Emerald in both themes, like the desktop rail, with a gold top edge.
+      className="dark fixed inset-x-0 bottom-0 z-[var(--z-nav)] bg-[var(--bg-sidebar)] pb-[env(safe-area-inset-bottom)] text-[var(--fg)] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,rgb(212_175_55/0.3),var(--gold)_30%,var(--gold)_70%,rgb(212_175_55/0.3))] lg:hidden"
     >
       <ul
         ref={listRef}
@@ -238,14 +245,14 @@ export function MobileNav() {
       <span
         aria-hidden="true"
         className={cn(
-          'pointer-events-none absolute top-0 bottom-[env(safe-area-inset-bottom)] left-0 w-8 bg-gradient-to-r from-[var(--bg-raised)] to-transparent transition-opacity duration-[var(--motion-instant)]',
+          'pointer-events-none absolute top-0 bottom-[env(safe-area-inset-bottom)] left-0 w-8 bg-gradient-to-r from-[var(--bg-sidebar)] to-transparent transition-opacity duration-[var(--motion-instant)]',
           more.left ? 'opacity-100' : 'opacity-0',
         )}
       />
       <span
         aria-hidden="true"
         className={cn(
-          'pointer-events-none absolute top-0 right-0 bottom-[env(safe-area-inset-bottom)] w-8 bg-gradient-to-l from-[var(--bg-raised)] to-transparent transition-opacity duration-[var(--motion-instant)]',
+          'pointer-events-none absolute top-0 right-0 bottom-[env(safe-area-inset-bottom)] w-8 bg-gradient-to-l from-[var(--bg-sidebar)] to-transparent transition-opacity duration-[var(--motion-instant)]',
           more.right ? 'opacity-100' : 'opacity-0',
         )}
       />

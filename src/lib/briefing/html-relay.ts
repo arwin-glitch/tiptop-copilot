@@ -188,9 +188,9 @@ export function prepareBriefingHtml(html: string, nonce: string): string {
       rule.replace(/@media\s*/i, '@media screen and '),
     );
   const bar = `
-<div id="copilot-bar" style="position:sticky;top:0;z-index:2147483647;display:flex;gap:12px;align-items:center;justify-content:flex-end;padding:10px 16px;background:rgba(20,17,15,.92);color:#efe9e4;font:600 13px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif;backdrop-filter:blur(6px)">
+<div id="copilot-bar" style="position:sticky;top:0;z-index:2147483647;display:flex;gap:12px;align-items:center;justify-content:flex-end;padding:10px 16px;background:rgba(16,43,35,.92);color:#eee8d6;border-bottom:1px solid rgba(212,175,55,.35);font:600 13px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif;backdrop-filter:blur(6px)">
   <span style="margin-right:auto;opacity:.75">TipTop Copilot</span>
-  <button id="copilot-print" type="button" style="font:inherit;cursor:pointer;border:0;border-radius:8px;padding:8px 14px;background:#18c37e;color:#08130d">Save as PDF</button>
+  <button id="copilot-print" type="button" style="font:inherit;cursor:pointer;border:0;border-radius:8px;padding:8px 14px;background:#0fc382;color:#052016">Save as PDF</button>
 </div>
 <style>@media print{#copilot-bar{display:none!important}${PRINT_CSS}}</style>
 <script nonce="${nonce}">document.getElementById('copilot-print').addEventListener('click',function(){window.print()});</script>

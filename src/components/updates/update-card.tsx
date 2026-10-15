@@ -300,7 +300,7 @@ function DealflowCard({
       meta={meta.join(' · ')}
     >
       <Chips>
-        {newDeals !== null ? <Badge tone="info">{plural(newDeals, 'new deal')}</Badge> : null}
+        {newDeals !== null ? <Badge tone="accent">{plural(newDeals, 'new deal')}</Badge> : null}
         {updates ? <Badge tone="neutral">{plural(updates, 'update')}</Badge> : null}
         {/* Only when both sections say "None" — prose the parser cannot count is not quiet. */}
         {newDeals === 0 && updates === 0 ? <Badge tone="neutral">Quiet week</Badge> : null}

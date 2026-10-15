@@ -128,7 +128,7 @@ function UpdateRow({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="font-medium break-words">{title}</span>
-              <Badge tone={u.reason === 'portfolio' ? 'ok' : 'info'}>
+              <Badge tone={u.reason === 'portfolio' ? 'jewel' : 'accent'}>
                 {REASON_LABEL[u.reason]}
               </Badge>
               <Badge tone="neutral">{u.kindLabel}</Badge>

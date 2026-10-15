@@ -275,7 +275,7 @@ function activityAt(row: DealRow): string {
   return row.lastActivity ? `${row.lastActivity}T12:00:00.000Z` : row.receivedAt;
 }
 
-const FIT_TONE = { likely: 'ok', possible: 'info', unlikely: 'neutral' } as const;
+const FIT_TONE = { likely: 'ok', possible: 'accent', unlikely: 'neutral' } as const;
 
 function FitBadge({ fit }: { fit: NonNullable<DealRow['fit']> }) {
   return <Badge tone={FIT_TONE[fit]}>{FIT_LABELS[fit]}</Badge>;

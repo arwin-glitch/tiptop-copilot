@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { cn } from '@/lib/util/cn';
 import { FieldLabel } from '@/components/ui/card';
+import { GoldFiligree } from '@/components/brand/gold-filigree';
 
 export function PageShell({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn('mx-auto w-full max-w-6xl px-4 py-6 sm:px-6', className)} {...props} />;
@@ -28,10 +29,38 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <header className={cn('mb-6 flex flex-wrap items-start justify-between gap-4', className)}>
-      <div className="min-w-0">
+    <header
+      className={cn(
+        // A forest-green band in both themes, like the rail: `dark` re-scopes
+        // every token inside it, so text colour is restated. Deliberately no
+        // `isolate`: the band and the line art take negative z-indexes in the
+        // page's stacking context, which puts them behind everything in flow,
+        // including anything a page sets above its header (a back link).
+        'dark relative mb-10 flex flex-wrap items-start justify-between gap-4 text-[var(--fg)]',
+        className,
+      )}
+    >
+      {/* The band runs edge to edge of the content column and up past the
+          top of the page, whatever sits above the header. The width comes
+          from a spread shadow, which never adds scrollable overflow; the
+          column clips it sideways (overflow-x: clip in the app layout) and
+          clip-path holds it to the band's own height. It ends in the margin
+          below the header, so it costs no layout. */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 -top-[100vh] -bottom-5 -z-20 bg-[var(--bg-band)] shadow-[0_0_0_100vmax_var(--bg-band)] [clip-path:inset(0_-100vmax)]"
+      />
+      <GoldFiligree variant="header" />
+      {/* The band's lower edge is a gold hairline, full width. */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 -bottom-5 h-px bg-[var(--gold-rule)] shadow-[0_0_0_100vmax_var(--gold-rule)] [clip-path:inset(0_-100vmax)]"
+      />
+      {/* Capped at max-w-2xl so the title block never reaches the band's
+          full-strength zone (.filigree-header starts it at 760px). */}
+      <div className="max-w-2xl min-w-0">
         {eyebrow ? (
-          <p className="text-micro mb-1 font-medium tracking-[0.12em] text-[var(--fg-subtle)] uppercase">
+          <p className="text-micro mb-1 font-medium tracking-[0.16em] text-[var(--label-gold)] uppercase">
             {eyebrow}
           </p>
         ) : null}

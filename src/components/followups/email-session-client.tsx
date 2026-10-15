@@ -158,9 +158,9 @@ export function EmailSessionClient({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
-          <div className="h-2 overflow-hidden rounded-full bg-[var(--bg-hover)]">
+          <div className="h-2 overflow-hidden rounded-full bg-[var(--chart-track)]">
             <div
-              className="h-full rounded-full bg-[var(--ok)] transition-all"
+              className="h-full rounded-full bg-[var(--chart-1)] transition-all"
               style={{ width: `${nickItems.length ? (doneCount / nickItems.length) * 100 : 100}%` }}
             />
           </div>
@@ -415,7 +415,7 @@ function SessionCard({
                 className={cn(
                   'rounded-md border px-2 py-0.5',
                   signature === s
-                    ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-fg)]'
+                    ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-fg)]'
                     : 'border-[var(--border)]',
                 )}
               >

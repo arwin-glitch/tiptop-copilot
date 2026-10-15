@@ -1,11 +1,16 @@
 import type { Metadata } from 'next';
+import { GoldFiligree } from '@/components/brand/gold-filigree';
 import { Wordmark } from '@/components/brand/wordmark';
 
 export const metadata: Metadata = { title: 'Offline' };
 
 export default function OfflinePage() {
   return (
-    <main id="main" className="flex min-h-dvh items-center justify-center px-4">
+    <main
+      id="main"
+      className="relative isolate flex min-h-dvh items-center justify-center overflow-hidden px-4"
+    >
+      <GoldFiligree variant="login" />
       <div className="max-w-sm text-center">
         <div className="mb-6 flex justify-center">
           <Wordmark />

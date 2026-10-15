@@ -241,7 +241,11 @@ function TrendLine({
   const describe = (p: MetricPoint) =>
     `${formatMoney(p.amount)} ${kind}, ${formatDate(p.date, timeZone)}`;
   const label = `${kind} trend from zero: ${history.map(describe).join('; ')}`;
+  const first = line.points[0];
   const last = line.points.at(-1);
+  // An emerald wash between the line and zero, under the gold line.
+  const area =
+    first && last ? `${line.path} L${last.x} ${HEIGHT - PAD} L${first.x} ${HEIGHT - PAD} Z` : null;
   return (
     <svg
       viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
@@ -256,18 +260,19 @@ function TrendLine({
         x2={WIDTH - PAD}
         y1={HEIGHT - PAD}
         y2={HEIGHT - PAD}
-        stroke="var(--border)"
+        stroke="var(--chart-grid)"
         strokeWidth={1}
       />
+      {area ? <path d={area} fill="var(--chart-area)" stroke="none" /> : null}
       <path
         d={line.path}
         fill="none"
-        stroke="var(--accent)"
+        stroke="var(--chart-1)"
         strokeWidth={2}
         strokeLinejoin="round"
         strokeLinecap="round"
       />
-      {last ? <circle cx={last.x} cy={last.y} r={2.5} fill="var(--accent)" /> : null}
+      {last ? <circle cx={last.x} cy={last.y} r={2.5} fill="var(--chart-1)" /> : null}
       {line.points.map((p, i) => (
         <circle key={i} cx={p.x} cy={p.y} r={6} fill="transparent">
           <title>{describe(history[i]!)}</title>

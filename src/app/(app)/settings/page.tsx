@@ -121,7 +121,7 @@ export default async function SettingsPage() {
                   ) : (
                     <a
                       href="/api/integrations/google/start?send=1"
-                      className="inline-flex h-9 items-center rounded-md bg-[var(--accent)] px-3.5 text-sm font-medium text-[var(--accent-fg)] hover:opacity-90"
+                      className="inline-flex h-9 items-center rounded-md bg-[var(--primary)] px-3.5 text-sm font-medium text-[var(--primary-fg)] hover:bg-[var(--primary-hover)]"
                     >
                       Turn on sending
                     </a>

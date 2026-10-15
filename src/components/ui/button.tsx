@@ -11,12 +11,16 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-[var(--accent)] text-[var(--accent-fg)] hover:opacity-90',
+        // Gold in dark, emerald in light: --primary carries the pair.
+        primary:
+          'bg-[var(--primary)] text-[var(--primary-fg)] shadow-raised hover:bg-[var(--primary-hover)]',
         secondary:
-          'border border-[var(--border-strong)] bg-[var(--bg-raised)] text-[var(--fg)] hover:bg-[var(--bg-hover)]',
+          'border border-[var(--border-strong)] bg-[var(--bg-raised)] text-[var(--fg)] hover:border-[var(--border-control)] hover:bg-[var(--bg-hover)]',
         ghost: 'text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]',
-        danger: 'bg-[var(--danger)] text-white hover:opacity-90',
-        link: 'text-[var(--accent)] underline-offset-4 hover:underline',
+        danger: 'bg-[var(--danger)] text-[var(--danger-fg)] hover:opacity-90',
+        // Underlined at rest: gold against ivory is too close in lightness
+        // for colour alone to mark a link (WCAG 1.4.1).
+        link: 'text-[var(--accent)] underline decoration-[color:var(--link-underline)] underline-offset-4 hover:text-[var(--accent-hover)] hover:decoration-current',
       },
       size: {
         sm: 'h-8 px-2.5 text-[13px]',

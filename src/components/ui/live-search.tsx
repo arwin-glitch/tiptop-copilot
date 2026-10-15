@@ -137,7 +137,7 @@ export function LiveSearch({
           type="button"
           onClick={clear}
           aria-label="Clear search"
-          className="absolute top-1/2 right-2 grid size-5 -translate-y-1/2 place-items-center rounded-[var(--radius-sm)] text-[var(--fg-subtle)] hover:text-[var(--fg)] focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:outline-none"
+          className="absolute top-1/2 right-2 grid size-5 -translate-y-1/2 place-items-center rounded-[var(--radius-field)] text-[var(--fg-subtle)] hover:text-[var(--fg)] focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:outline-none"
         >
           <X className="size-3.5" aria-hidden="true" />
         </button>

@@ -1,11 +1,19 @@
 @import 'tailwindcss';
 
 /*
- * TipTop Copilot design system.
+ * TipTop Copilot design system: emerald and gold.
  *
- * Editorial and restrained: warm paper, ink-black type, one structural accent,
- * and colour reserved almost entirely for recommendation state. Typography does
- * the hierarchy work so the interface can stay quiet.
+ * Green leads, gold accents. Forest and emerald surfaces, cream type, and
+ * TipTop green on everything that acts or is selected: filled buttons,
+ * links, the active nav row, switches, chips, progress and the TipTop mark
+ * itself. Gold is kept to the accent jobs only: small-caps labels, hairlines
+ * and rules, the line art, the active-nav edge rail and the star. Dark is the
+ * hero theme; light is the same palette on parchment inside an emerald frame.
+ * Every text pairing passes WCAG AA in both.
+ *
+ * Colour still means something: the status set (ok, warn, danger, info) is kept
+ * deliberately off-brand (teal rather than green, orange rather than gold)
+ * so a warning never reads as decoration and an accent never reads as a status.
  *
  * No paid or externally-hosted fonts: a serif display stack for editorial
  * headings, a system sans for the interface, and a system mono for figures.
@@ -75,70 +83,143 @@
     }
   }
 
-  /* Brand palette, from the TipTop brand pack:
-     #241B1B ink · #2C5345 deep green · #2B6D56 green · #0FC382 bright green
-     #84DBE0 blue accent · #FAF8F6 paper · #FFFFFF white
-     "Built on a foundation of shades of green with neutral and blue accents." */
-  --color-paper: #faf8f6;
-  --color-paper-raised: #ffffff;
-  --color-ink: #241b1b;
-  --color-brand-green: #2b6d56;
-  --color-brand-green-deep: #2c5345;
-  --color-brand-green-bright: #0fc382;
-  --color-brand-blue: #84dbe0;
-
-  /* Recommendation palette. Kept as a distinct signal system, but pulled into
-     the brand's green/blue family so it reads as one product.
-     #0FC382 and #84DBE0 are deliberately absent here: both are far too light
-     for body text on paper (2.2:1 and worse). They appear as fills and as the
-     dark-theme accent, never as small type on a light background. */
-  --color-rec-advance: #2b6d56;
-  --color-rec-dig: #17646b;
-  --color-rec-monitor: #8a6212;
-  --color-rec-pass: #8b3a2f;
-  --color-rec-insufficient: #635b59;
+  /* Brand reference. Components read the semantic tokens on :root and .dark,
+     never raw values, so this is documentation rather than utilities:
+     Green:   #2B6D56 brand, #0FC382 brand bright, #186E4E link, #45D6A0 lit
+     Forest:  #0E2720 page, #14392D card, #153E31 rail, #164234 band
+     Gold:    #D4AF37 leaf, #D4B25A label, #AC8E39 antique, #865C00 deep
+     Ivory:   #EEE8D6 type on emerald, #F6F1E4 parchment, #FFFDF7 card */
 }
 
 :root {
   color-scheme: light;
+  /* Native checkboxes and radios pick up the theme instead of browser blue. */
+  accent-color: var(--primary);
 
-  --bg: #faf8f6;
-  --bg-raised: #ffffff;
-  --bg-sunken: #f1efec;
-  --bg-hover: #ebe8e4;
+  /* Parchment, not white: the page is warm, cards sit a step brighter. The
+     rail, the phone bars and the page-header band stay emerald in light mode
+     too (each is `dark`-scoped), so paper content sits in a green frame. */
+  --bg: #f6f1e4;
+  --bg-raised: #fffdf7;
+  --bg-sunken: #eee7d6;
+  --bg-overlay: #fffdf7;
+  --bg-sidebar: #fbf7ec;
+  /* The band behind a page title. Every band is `dark`-scoped, so this light
+     value only shows if a band ever drops the class. */
+  --bg-band: #e4ede5;
+  --bg-hover: #ede5d2;
+  --nav-active: #e2ece4;
 
-  --fg: #241b1b;
-  --fg-muted: #5f5654;
-  --fg-subtle: #8a8180;
+  /* Deep emerald ink. --fg-subtle is real text in ~250 places, so it holds
+     4.5:1 or better on every surface here. */
+  --fg: #10261f;
+  --fg-muted: #44564d;
+  --fg-subtle: #55645c;
 
-  --border: #e4e0da;
-  --border-strong: #cbc5bd;
+  /* Hairlines are translucent bronze so they warm whatever they sit on: the
+     gold hairline is one of the places gold is allowed. --border-control is
+     opaque and darker: an input's edge is the only thing that says "type
+     here", so it clears 3:1 (WCAG 1.4.11) on every surface a field sits on,
+     dialogs included. */
+  --border: rgb(138 106 28 / 0.2);
+  --border-strong: rgb(150 112 20 / 0.42);
+  --border-control: #8c7a50;
 
-  --accent: #2b6d56;
-  --accent-fg: #ffffff;
-  --accent-soft: #e6f2ec;
+  /* Green leads. --accent is the action colour (text links, selected chips,
+     active tabs, progress): TipTop green, a little more saturated than the
+     brand fill so a link still reads as green, not ink, on parchment. */
+  --accent: #186e4e;
+  --accent-hover: #145c41;
+  --accent-fg: #fbf7ec;
+  --accent-soft: #e1eee5;
+  --link-underline: rgb(24 110 78 / 0.45);
 
-  --focus: #2b6d56;
+  /* Filled controls: the brand green with ivory type. */
+  --primary: #2b6d56;
+  --primary-hover: #1f5a46;
+  --primary-fg: #fbf7ec;
 
-  --ok: #2b6d56;
-  --warn: #8a6212;
-  --danger: #8b3a2f;
-  --info: #17646b;
+  /* The TipTop mark. Always the brand green, never gold: #2B6D56 on light
+     grounds (the brand pack's own fill), #0FC382 on emerald. */
+  --brand-mark: #2b6d56;
 
-  --ok-soft: #e6f2ec;
-  --warn-soft: #f7f0dc;
-  --danger-soft: #f7e8e5;
-  --info-soft: #e7f6f7;
-  --neutral-soft: #efece8;
+  /* Gold is the accent, and only the accent: eyebrows and group labels
+     (--label-gold), hairlines and rules, the line art, the active-nav edge
+     rail and the star. A saturated amber-gold rather than a greyed bronze,
+     so it still reads as gold, not brown, on parchment. */
+  --gold: #9a7420;
+  --label-gold: #865c00;
 
-  /* Elevation.
-     Tinted with the brand ink rather than pure black: a neutral-black shadow
-     over #FAF8F6 paper reads grey and dirty, and the warmth is the whole point
-     of the palette. Three steps only — a surface is resting, lifted, or over
-     the page. Anything more and the hierarchy stops meaning anything. */
-  --elevation-raised: 0 1px 2px rgb(36 27 27 / 0.04), 0 1px 1px rgb(36 27 27 / 0.03);
-  --elevation-lifted: 0 2px 4px rgb(36 27 27 / 0.05), 0 4px 12px rgb(36 27 27 / 0.05);
-  --elevation-overlay: 0 8px 24px rgb(36 27 27 / 0.1), 0 2px 6px rgb(36 27 27 / 0.06);
+  /* Jewel: an emerald chip with a pale mint glyph (avatars, step numbers,
+     icon chips). */
+  --jewel: #2b6d56;
+  --jewel-fg: #e6f4ec;
+
+  --focus: #1f5a46;
+
+  /* Status: teal, orange, warm red, blue. Teal rather than green, so success
+     never reads as the brand and the brand never reads as a status. */
+  --ok: #086a70;
+  --warn: #a84b0c;
+  --danger: #b0362b;
+  --danger-fg: #fffdf7;
+  --info: #1d5c88;
+
+  --ok-soft: #d9eeee;
+  --warn-soft: #fbe7d5;
+  --danger-soft: #f8e0db;
+  --info-soft: #e0ecf5;
+  --neutral-soft: #ede6d6;
+
+  /* A neutral explanation (Notice's default): parchment with a gold edge. */
+  --note-soft: #f8f1dc;
+
+  /* An off switch is sage, not gold: gold would read as "on". */
+  --switch-thumb: #fffdf7;
+  --switch-track: #6e8478;
+  --scrim: rgb(16 38 31 / 0.32);
+
+  /* Charts, sparklines, progress: green first, gold second. */
+  --chart-1: #2b6d56;
+  --chart-2: #9a7420;
+  --chart-area: rgb(43 109 86 / 0.14);
+  --chart-grid: rgb(138 106 28 / 0.28);
+  --chart-track: #e6e3d3;
+
+  /* Gold line art (components/brand/gold-filigree.tsx). Each line is a deep
+     gold stroke under a bright one, like leaf with an edge. --ornament-opacity
+     is the full strength, used only where no text sits; --ornament-quiet
+     scales it down wherever a line can cross text, which keeps --fg-subtle
+     and --label-gold above 4.5:1 there. */
+  --ornament-deep: #a07a20;
+  --ornament-bright: #d2ae52;
+  --ornament-opacity: 0.6;
+  --ornament-quiet: 0.16;
+  --gold-rule: rgb(176 138 46 / 0.6);
+
+  /* A soft pool of light behind a centred card (sign-in). */
+  --spotlight: radial-gradient(55% 50% at 50% 45%, rgb(255 253 247 / 0.85), transparent 70%);
+
+  /* A faint light across the top of the page; scrolls with it. */
+  --page-glow:
+    radial-gradient(1100px 520px at 0 -120px, rgb(225 238 229 / 0.7), transparent 60%),
+    radial-gradient(900px 480px at 100% -80px, rgb(243 232 200 / 0.5), transparent 55%);
+
+  /* Light catching the top-left corner of a card. */
+  --surface-sheen: linear-gradient(165deg, rgb(238 244 236 / 0.6), transparent 45%);
+
+  /* Elevation, tinted with emerald ink rather than black: a neutral shadow
+     over parchment reads grey and dirty. The inset line is a gilt top edge.
+     Three steps only: a surface is resting, lifted, or over the page. */
+  --elevation-raised:
+    inset 0 1px 0 rgb(201 164 76 / 0.3), 0 1px 2px rgb(16 38 31 / 0.05),
+    0 1px 1px rgb(16 38 31 / 0.04);
+  --elevation-lifted:
+    inset 0 1px 0 rgb(201 164 76 / 0.35), 0 2px 4px rgb(16 38 31 / 0.06),
+    0 4px 12px rgb(16 38 31 / 0.06);
+  --elevation-overlay:
+    inset 0 1px 0 rgb(201 164 76 / 0.4), 0 8px 24px rgb(16 38 31 / 0.12),
+    0 2px 6px rgb(16 38 31 / 0.07);
 
   /* Motion durations. Paired with the --ease-* tokens in @theme. */
   --motion-instant: 90ms;
@@ -169,50 +250,105 @@
 
 .dark {
   color-scheme: dark;
+  accent-color: var(--primary);
 
-  /* The brand's #241B1B is the *raised* surface here, not the page: a dark UI
-     needs the page to sit below its cards, so the base is a shade deeper and
-     the brand ink carries the panels. */
-  --bg: #191212;
-  --bg-raised: #241b1b;
-  --bg-sunken: #1f1717;
-  --bg-hover: #2e2423;
+  /* Forest and emerald, never near-black. The page is a deep green-black
+     (L ~12%) that still reads as green; cards, the rail and the page-header
+     band step up at the same hue, the way the facets of the reference catch
+     light. Cards separate from the page by tone, so hairlines stay quiet. */
+  --bg: #102b23;
+  --bg-raised: #14392d;
+  --bg-sunken: #0c231c;
+  --bg-overlay: #19473a;
+  --bg-sidebar: #153e31;
+  --bg-band: #164234;
+  --bg-hover: #1d4c3e;
+  --nav-active: #1f5644;
 
-  --fg: #faf8f6;
-  --fg-muted: #b3a9a7;
-  --fg-subtle: #8b8280;
+  /* Cream, with sage for the quieter steps. */
+  --fg: #eee8d6;
+  --fg-muted: #bfcbbf;
+  --fg-subtle: #adbfb2;
 
-  --border: #362b2a;
-  --border-strong: #4a3d3b;
+  /* Opaque, never gold-alpha: gold at low alpha over emerald composites to
+     olive. Plain dividers are a lighter emerald (a facet edge), strong edges
+     are a bronze hairline, and a field's edge is antique gold at 3:1 or
+     better against every surface it sits on, dialogs and drawers included. */
+  --border: #2b5647;
+  --border-strong: #7a6a35;
+  --border-control: #ac8e39;
 
-  /* #0FC382 is 7.4:1 on this background — the bright green finally has
-     somewhere it belongs. */
-  --accent: #0fc382;
-  --accent-fg: #241b1b;
-  --accent-soft: #16332a;
+  /* Green leads: a lit emerald for text links, selected chips, active tabs
+     and progress. 4.5:1 on every surface, the active nav row included. */
+  --accent: #45d6a0;
+  --accent-hover: #74e2b9;
+  --accent-fg: #052016;
+  --accent-soft: #1a4c3d;
+  --link-underline: rgb(69 214 160 / 0.5);
 
-  --focus: #0fc382;
+  /* Filled controls are the brand's bright green with forest-dark type
+     (7.5:1); ivory on a green this vivid would fail. */
+  --primary: #0fc382;
+  --primary-hover: #2fd193;
+  --primary-fg: #052016;
 
-  --ok: #3fd39b;
-  --warn: #d8b263;
-  --danger: #e08b7c;
-  --info: #84dbe0;
+  --brand-mark: #0fc382;
 
-  --ok-soft: #13241d;
-  --warn-soft: #241f10;
-  --danger-soft: #241512;
-  --info-soft: #12262a;
-  --neutral-soft: #221b1a;
+  --gold: #d4af37;
+  --label-gold: #d8b663;
 
-  /* A shadow on a dark ground barely reads, so elevation here is carried by a
-     deeper cast *plus* a one-pixel top highlight — the panel catches light
-     rather than dropping shade. Same three steps, same token names, so no
-     component needs to know which theme it is in. */
-  --elevation-raised: inset 0 1px 0 rgb(250 248 246 / 0.03), 0 1px 2px rgb(0 0 0 / 0.35);
+  --jewel: #1f5a46;
+  --jewel-fg: #b5ecd2;
+
+  --focus: #74e2b9;
+
+  --ok: #4fd0d6;
+  --warn: #f2a14e;
+  --danger: #f49686;
+  --danger-fg: #1c0d0a;
+  --info: #8cc8ee;
+
+  --ok-soft: #153f45;
+  --warn-soft: #3d2c1a;
+  --danger-soft: #3f2420;
+  --info-soft: #1a3443;
+  --neutral-soft: #1a4034;
+
+  --note-soft: #183f33;
+
+  --switch-thumb: #f7f1e1;
+  --switch-track: #6a8b7d;
+  --scrim: rgb(3 12 9 / 0.62);
+
+  --chart-1: #45d6a0;
+  --chart-2: #d4af37;
+  --chart-area: rgb(69 214 160 / 0.16);
+  --chart-grid: #335d4c;
+  --chart-track: #24503f;
+
+  --ornament-deep: #b8923a;
+  --ornament-bright: #ecd27c;
+  --ornament-opacity: 0.8;
+  --ornament-quiet: 0.12;
+  --gold-rule: rgb(212 175 55 / 0.6);
+
+  --spotlight: radial-gradient(55% 50% at 50% 45%, rgb(31 90 70 / 0.55), transparent 70%);
+
+  --page-glow:
+    radial-gradient(1100px 560px at 0 -140px, rgb(31 90 70 / 0.4), transparent 62%),
+    radial-gradient(900px 500px at 100% -100px, rgb(23 74 58 / 0.4), transparent 58%);
+
+  --surface-sheen: linear-gradient(165deg, rgb(46 125 98 / 0.16), transparent 50%);
+
+  /* A shadow on a dark ground barely reads, so elevation here is a deeper
+     cast plus a one-pixel ivory highlight along the top edge: the panel
+     catches light. Same three steps, same names, so no component needs to
+     know which theme it is in. */
+  --elevation-raised: inset 0 1px 0 rgb(237 230 211 / 0.05), 0 1px 2px rgb(0 0 0 / 0.35);
   --elevation-lifted:
-    inset 0 1px 0 rgb(250 248 246 / 0.04), 0 2px 6px rgb(0 0 0 / 0.4), 0 8px 20px rgb(0 0 0 / 0.3);
+    inset 0 1px 0 rgb(237 230 211 / 0.06), 0 2px 6px rgb(0 0 0 / 0.4), 0 8px 20px rgb(0 0 0 / 0.3);
   --elevation-overlay:
-    inset 0 1px 0 rgb(250 248 246 / 0.05), 0 12px 32px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.4);
+    inset 0 1px 0 rgb(237 230 211 / 0.07), 0 12px 32px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.4);
 }
 
 @theme inline {
@@ -237,6 +373,23 @@
   --color-danger-soft: var(--danger-soft);
   --color-info-soft: var(--info-soft);
   --color-neutral-soft: var(--neutral-soft);
+  --color-bg-overlay: var(--bg-overlay);
+  --color-bg-sidebar: var(--bg-sidebar);
+  --color-bg-band: var(--bg-band);
+  --color-nav-active: var(--nav-active);
+  --color-border-control: var(--border-control);
+  --color-accent-hover: var(--accent-hover);
+  --color-label-gold: var(--label-gold);
+  --color-gold: var(--gold);
+  --color-brand-mark: var(--brand-mark);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
+  --color-danger-fg: var(--danger-fg);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-jewel: var(--jewel);
+  --color-jewel-fg: var(--jewel-fg);
 
   /* `inline` so these resolve through the cascade: one `shadow-raised` class
      picks up the warm shadow on paper and the highlight-plus-cast in dark,
@@ -257,6 +410,9 @@
 
   body {
     background-color: var(--bg);
+    /* Never `fixed`: a fixed background repaints on every scroll frame. */
+    background-image: var(--page-glow);
+    background-repeat: no-repeat;
     color: var(--fg);
     font-family: var(--font-sans);
     font-feature-settings: 'cv05', 'ss01';
@@ -348,4 +504,149 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border-strong) transparent;
   }
+
+  /* A link inside running text. Green against cream (or deep green against
+     emerald ink) is too close in lightness for colour alone to mark it
+     (WCAG 1.4.1), so it is underlined at rest: a quiet green underline that
+     firms up on hover. Standalone links with an icon or an arrow do not need
+     this. */
+  .link-inline {
+    color: var(--accent);
+    text-decoration-line: underline;
+    text-decoration-color: var(--link-underline);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    transition:
+      color var(--motion-instant) var(--ease-standard),
+      text-decoration-color var(--motion-instant) var(--ease-standard);
+  }
+
+  .link-inline:hover {
+    color: var(--accent-hover);
+    text-decoration-color: currentColor;
+  }
+
+  /* Where the gold line art may run at full strength. Everywhere else it is
+     scaled down by --ornament-quiet, so a line that crosses text never pulls
+     that text below 4.5:1. Masks multiply (`intersect`), so each layer only
+     has to describe one edge of the free zone. */
+
+  /* The rail: full strength only in the right-hand part of the nav block,
+     clear of the wordmark and search above and the account block below. Nav
+     labels are short and left-aligned, so the right of the rail is empty. */
+  .filigree-sidebar {
+    mask-image:
+      linear-gradient(to right, rgb(0 0 0 / var(--ornament-quiet)) 56%, #000 80%),
+      linear-gradient(
+        to bottom,
+        rgb(0 0 0 / var(--ornament-quiet)) 140px,
+        #000 200px,
+        #000 calc(100% - 210px),
+        rgb(0 0 0 / var(--ornament-quiet)) calc(100% - 150px)
+      );
+    mask-composite: intersect;
+  }
+
+  /* The sign-in band: quiet around the wordmark, which sits centred near
+     the band's lower edge; the card that overlaps the edge is opaque. */
+  .filigree-band {
+    mask-image: radial-gradient(
+      ellipse 260px 120px at 50% calc(100% - 96px),
+      rgb(0 0 0 / var(--ornament-quiet)) 70%,
+      #000 100%
+    );
+  }
+
+  /* Offline: everything outside the centred column. */
+  .filigree-login {
+    mask-image: radial-gradient(
+      ellipse 340px 310px at 50% 50%,
+      rgb(0 0 0 / var(--ornament-quiet)) 72%,
+      #000 100%
+    );
+  }
+
+  /* The header band fades out downwards and at both ends, and runs at full
+     strength only past 760px from its left edge: the title block is capped at
+     max-w-2xl (672px), so nothing it holds reaches that far. Below that width
+     the whole band stays quiet. */
+  .filigree-header {
+    mask-image:
+      linear-gradient(to bottom, #000 55%, transparent),
+      linear-gradient(to right, transparent, #000 8%, #000 92%, transparent),
+      linear-gradient(to right, rgb(0 0 0 / var(--ornament-quiet)) 760px, #000 900px);
+    mask-composite: intersect;
+  }
+}
+
+/* Toasts (Sonner).
+   Sonner hard-codes a light theme (#3f3f3f descriptions, a near-black action
+   button, light grey close-button edges) and injects its stylesheet after this
+   one, so each rule here carries one more attribute than the rule it replaces.
+   Every colour is a token, which makes Sonner's own `theme` irrelevant: a toast
+   follows the app's theme, including a manual light or dark choice that a
+   `theme="system"` toaster would ignore. Deliberately unlayered: Sonner's rules
+   are unlayered too, and any layered rule loses to them. */
+:root [data-sonner-toaster][data-sonner-theme] {
+  --normal-bg: var(--bg-overlay);
+  --normal-bg-hover: var(--bg-hover);
+  --normal-border: var(--border-strong);
+  --normal-border-hover: var(--border-control);
+  --normal-text: var(--fg);
+  --border-radius: var(--radius-card);
+  font-family: var(--font-sans);
+}
+
+:root [data-sonner-toaster] [data-sonner-toast][data-styled='true'] {
+  box-shadow: var(--elevation-overlay);
+}
+
+/* What still works, after a failure: --fg-muted clears 4.5:1 on the overlay. */
+:root [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-description] {
+  color: var(--fg-muted);
+}
+
+/* The action (Undo) is a filled green button, like every primary action. */
+:root [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-button] {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-radius: var(--radius-field);
+  font-weight: 600;
+}
+
+:root [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-button]:hover {
+  background: var(--primary-hover);
+}
+
+:root [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-button][data-cancel] {
+  background: var(--bg-hover);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--border-control);
+}
+
+:root [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-close-button] {
+  background: var(--normal-bg);
+  border-color: var(--border-control);
+  color: var(--fg);
+}
+
+:root [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-close-button]:hover {
+  background: var(--normal-bg-hover);
+}
+
+/* Sonner sets `outline: none` and a black ring, which vanishes on emerald:
+   restore the app's own focus ring. */
+:root [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-button]:focus-visible,
+:root
+  [data-sonner-toaster]
+  [data-sonner-toast][data-styled='true']
+  [data-close-button]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+:root [data-sonner-toaster] [data-sonner-toast][data-styled='true']:focus-visible {
+  box-shadow:
+    var(--elevation-overlay),
+    0 0 0 2px var(--focus);
 }

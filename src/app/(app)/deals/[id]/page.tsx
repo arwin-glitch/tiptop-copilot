@@ -303,7 +303,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
             </div>
 
             {analysis.human_override ? (
-              <Notice tone="info" className="mt-4">
+              <Notice className="mt-4">
                 <p className="font-medium">
                   You overrode this from {analysis.recommendation.replace(/_/g, ' ')} to{' '}
                   {analysis.human_override.recommendation.replace(/_/g, ' ')}.

@@ -133,7 +133,7 @@ export function Composer({
     <div
       role="dialog"
       aria-label={title}
-      className="fixed inset-x-0 bottom-0 z-[var(--z-header)] flex max-h-[92dvh] flex-col rounded-t-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg-raised)] shadow-2xl sm:right-6 sm:left-auto sm:w-[560px]"
+      className="fixed inset-x-0 bottom-0 z-[var(--z-header)] flex max-h-[92dvh] flex-col rounded-t-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg-overlay)] shadow-2xl sm:right-6 sm:left-auto sm:w-[560px]"
     >
       <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-2">
         <span className="flex-1 text-sm font-semibold">{title}</span>

@@ -71,7 +71,7 @@ async function CalendarContent({ day }: { day: string | null }) {
             className={cn(
               'rounded-md border px-3 py-1.5 text-sm',
               d === dateKey
-                ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-fg)]'
+                ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-fg)]'
                 : 'border-[var(--border)] hover:bg-[var(--bg-hover)]',
             )}
           >
