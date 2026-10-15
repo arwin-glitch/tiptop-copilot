@@ -177,6 +177,7 @@ export function DealsBrowser({
           <div
             role="group"
             aria-label="Pipeline layout"
+            data-tour="deals-layout"
             className="mt-4 inline-flex rounded-md border border-[var(--border)] p-0.5 text-sm"
           >
             {(['table', 'board'] as const).map((option) => (

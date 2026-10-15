@@ -65,6 +65,10 @@ const PAGES = [
   '/network?tab=events',
   '/network?tab=people&source=affinity',
   '/meetings?tab=notes&source=affinity',
+  // Campaigns: the list, a report, and the composer of the demo draft.
+  '/fund-ii?tab=campaigns',
+  '/fund-ii/campaigns/00000000-0000-4000-8000-0000000007d0',
+  '/fund-ii/campaigns/00000000-0000-4000-8000-0000000007d1',
 ];
 
 test.describe('mobile layout', () => {
@@ -90,13 +94,13 @@ test.describe('mobile layout', () => {
     await expect(nav).toBeVisible();
 
     // Every destination is in the bar; the bar scrolls sideways when they
-    // do not all fit, so each is reached by scrolling it into view.
+    // do not all fit, so each is reached by scrolling it into view. Ask is
+    // not one: it is the Ask Arwin launcher above the bar (ask-widget.spec).
     for (const label of [
       'Today',
       'Follow-ups',
       'Tasks',
       'Deals',
-      'Ask',
       'Inbox',
       'Portfolio',
       'Fund II',
@@ -105,6 +109,7 @@ test.describe('mobile layout', () => {
       'Reports',
       'Knowledge',
       'Settings',
+      'Help',
     ]) {
       const link = nav.getByRole('link', { name: label, exact: true });
       await link.scrollIntoViewIfNeeded();

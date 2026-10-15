@@ -9,6 +9,9 @@ import {
 import type {
   AuditEvent,
   CalendarEvent,
+  Campaign,
+  CampaignEvent,
+  CampaignRecipient,
   CrmField,
   CrmList,
   CrmListEntry,
@@ -39,7 +42,8 @@ import type {
   ThesisVersion,
   UserProfile,
 } from '@/lib/types/domain';
-import { demoCrmId, DEMO_IDS as ID } from './ids';
+import { demoGlance } from './glance-fixtures';
+import { demoCampaignId, demoCrmId, DEMO_IDS as ID } from './ids';
 
 /**
  * Fictional demo data.
@@ -81,6 +85,9 @@ export interface DemoDb {
   crm_records: CrmRecord[];
   crm_list_entries: CrmListEntry[];
   crm_notes: CrmNote[];
+  campaigns: Campaign[];
+  campaign_recipients: CampaignRecipient[];
+  campaign_events: CampaignEvent[];
   [key: string]: unknown[];
 }
 
@@ -1911,6 +1918,9 @@ experiment, not the fundraise timing.`,
     },
   ];
 
+  // Suggested tasks with the routine's short labels, for Today's "At a glance".
+  const glance = demoGlance(now);
+
   return {
     organizations,
     organization_members,
@@ -1925,7 +1935,7 @@ experiment, not the fundraise timing.`,
     deal_sources,
     deal_analyses,
     deal_decisions,
-    tasks,
+    tasks: [...tasks, ...glance.tasks],
     portfolio_companies,
     portfolio_contacts,
     portfolio_updates,
@@ -1941,13 +1951,216 @@ experiment, not the fundraise timing.`,
     chat_messages: [],
     generated_drafts: [],
     ai_usage: [],
-    audit_events,
+    audit_events: [...audit_events, ...glance.audit_events],
     user_feedback: [],
     sync_runs: [],
     meeting_notes,
     routine_briefings: demoRoutineBriefings(now),
     ...demoCrm(now),
+    ...demoCampaigns(now),
   };
+}
+
+/* -------------------------------------------------------------- campaigns */
+//
+// One sent LP update with its opens, clicks, replies, a bounce and an
+// unsubscribe, and one draft. The recipients are the invented LP Pipeline
+// people from the CRM above plus three more, all on .example domains.
+
+function demoCampaigns(now: Date): {
+  campaigns: Campaign[];
+  campaign_recipients: CampaignRecipient[];
+  campaign_events: CampaignEvent[];
+} {
+  const sentAt = daysAgo(now, 12);
+  const at = (hours: number) => iso(new Date(Date.parse(sentAt) + hours * 3_600_000));
+  const link = 'https://tiptop.example/q3-letter';
+  const campaigns: Campaign[] = [
+    {
+      id: ID.campaignQ3Update,
+      organization_id: ORG,
+      name: 'Q3 LP update',
+      subject: 'TipTop Q3 update',
+      body_template: [
+        'Hi {{first_name|there}},',
+        '',
+        `Our Q3 letter is up: [read it here](${link}).`,
+        '',
+        'Three highlights:',
+        '- Two new investments',
+        '- Ledgerly closed its Series A',
+        '- Fund II first close is on track',
+        '',
+        'As always, reply with any questions.',
+      ].join('\n'),
+      from_identity: 'nick',
+      status: 'sent',
+      attachments: [],
+      link_allowlist: [link],
+      confirmed_at: sentAt,
+      confirmed_by: USER,
+      last_sent_at: at(0.01),
+      track_activity: true,
+      // It went out with the unsubscribe line (Hana used it).
+      unsubscribe_link: true,
+      confirmed_through: daysAgo(now, 13),
+      pause_reason: null,
+      created_by: USER,
+      created_at: daysAgo(now, 13),
+      updated_at: at(0.01),
+      sent_at: at(0.01),
+    },
+    {
+      id: ID.campaignDraft,
+      organization_id: ORG,
+      name: 'Fund II first close note',
+      subject: 'Fund II: first close',
+      body_template: 'Hi {{first_name|there}},\n\nA quick note on where Fund II stands.',
+      from_identity: 'nick',
+      status: 'draft',
+      attachments: [],
+      link_allowlist: [],
+      confirmed_at: null,
+      confirmed_by: null,
+      last_sent_at: null,
+      track_activity: true,
+      unsubscribe_link: false,
+      confirmed_through: null,
+      pause_reason: null,
+      created_by: USER,
+      created_at: daysAgo(now, 1),
+      updated_at: daysAgo(now, 1),
+      sent_at: null,
+    },
+  ];
+
+  type Seed = {
+    email: string;
+    name: string;
+    company: string | null;
+    record: number | null;
+    opens?: number;
+    clicks?: number;
+    replied?: number;
+    bounced?: number;
+    unsubscribed?: number;
+  };
+  const seeds: Seed[] = [
+    {
+      email: 'maren@oakhaven-capital.example',
+      name: 'Maren Solberg',
+      company: 'Oakhaven Capital',
+      record: 20,
+      opens: 3,
+      clicks: 1,
+      replied: 5,
+    },
+    {
+      email: 'desmond@pinecrest-fo.example',
+      name: 'Desmond Achterberg',
+      company: 'Pinecrest Family Office',
+      record: 21,
+      opens: 2,
+      clicks: 1,
+    },
+    {
+      email: 'lucia.ferraro@mail.example',
+      name: 'Lucia Ferraro',
+      company: null,
+      record: 22,
+      opens: 1,
+    },
+    { email: 'owen@thistlewood.example', name: 'Owen Thistlewood', company: null, record: 23 },
+    {
+      email: 'hana@riverlight.example',
+      name: 'Hana Kuroda',
+      company: 'Riverlight Ventures',
+      record: 24,
+      opens: 1,
+      unsubscribed: 30,
+    },
+    {
+      email: 'gabriel@stroudfamily.example',
+      name: 'Gabriel Stroud',
+      company: null,
+      record: null,
+      opens: 1,
+      replied: 20,
+    },
+    {
+      email: 'wren@halloway-capital.example',
+      name: 'Wren Halloway',
+      company: 'Halloway Capital',
+      record: null,
+      bounced: 0.1,
+    },
+    {
+      email: 'noor@abadi.example',
+      name: 'Noor Abadi',
+      company: null,
+      record: null,
+      opens: 2,
+      clicks: 2,
+    },
+  ];
+  const campaign_recipients: CampaignRecipient[] = seeds.map((s, n) => {
+    const first = s.name.split(' ')[0] as string;
+    return {
+      id: demoCampaignId('recipient', n),
+      organization_id: ORG,
+      campaign_id: ID.campaignQ3Update,
+      email: s.email,
+      name: s.name,
+      merge: { name: s.name, first_name: first, ...(s.company ? { company: s.company } : {}) },
+      record_id: s.record === null ? null : demoCrmId('record', s.record),
+      status: 'sent',
+      gmail_message_id: `demo-q3-${n}`,
+      gmail_thread_id: `demo-q3-${n}`,
+      error: null,
+      attempted_at: sentAt,
+      sent_at: sentAt,
+      opened_at: s.opens || s.clicks ? at(1 + n) : null,
+      open_count: s.opens ?? 0,
+      clicked_at: s.clicks ? at(2 + n) : null,
+      click_count: s.clicks ?? 0,
+      replied_at: s.replied ? at(s.replied) : null,
+      bounced_at: s.bounced !== undefined ? at(s.bounced) : null,
+      unsubscribed_at: s.unsubscribed ? at(s.unsubscribed) : null,
+      created_at: daysAgo(now, 13),
+      updated_at: sentAt,
+    };
+  });
+
+  const campaign_events: CampaignEvent[] = [];
+  const event = (
+    n: number,
+    kind: CampaignEvent['kind'],
+    when: string,
+    extra: Partial<CampaignEvent> = {},
+  ) => {
+    campaign_events.push({
+      id: demoCampaignId('event', campaign_events.length),
+      organization_id: ORG,
+      campaign_id: ID.campaignQ3Update,
+      recipient_id: demoCampaignId('recipient', n),
+      kind,
+      url: null,
+      email: null,
+      at: when,
+      user_agent: null,
+      automated: false,
+      ...extra,
+    });
+  };
+  seeds.forEach((s, n) => {
+    if (s.opens) event(n, 'open', at(1 + n));
+    if (s.clicks) event(n, 'click', at(2 + n), { url: link });
+    if (s.replied) event(n, 'reply', at(s.replied));
+    if (s.bounced !== undefined) event(n, 'bounce', at(s.bounced));
+    if (s.unsubscribed) event(n, 'unsubscribe', at(s.unsubscribed), { email: s.email });
+  });
+
+  return { campaigns, campaign_recipients, campaign_events };
 }
 
 /** The Today cards the Daily Overview routine posts: one brief, one dossier. All invented. */

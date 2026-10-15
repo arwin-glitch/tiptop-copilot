@@ -150,7 +150,7 @@ async function DocumentsTab({ auth, q }: { auth: AuthContext; q: string }) {
         </section>
       ) : null}
 
-      <section className="mb-8">
+      <section className="mb-8" data-tour="knowledge-documents">
         <SectionHeading count={documents.length}>Documents</SectionHeading>
         {documents.length === 0 ? (
           <EmptyState

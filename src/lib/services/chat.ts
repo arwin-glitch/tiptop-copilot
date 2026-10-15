@@ -8,11 +8,13 @@ import type { AuthContext } from '@/lib/auth/session';
 import { getAI, getStore } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
 import { checkAiBudget, recordAiUsage } from '@/lib/security/limits';
+import { log } from '@/lib/security/redact';
+import { summarizeThreads, type ThreadSummary } from '@/lib/chat/thread-summary';
 import type { ChatMessage, ChatThread, Citation, Deal } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { truncate } from '@/lib/util/text';
 import { err, ok, type Result } from '@/lib/util/result';
-import { fireAskRoutine } from './ask-routine';
+import { fireAskRoutine, settleAnswersFromSlack } from './ask-routine';
 import { threadHistoryBefore } from './ask-bridge';
 import { getActiveThesis } from './thesis';
 
@@ -60,6 +62,105 @@ export async function getThread(
     { orderBy: [{ field: 'created_at', direction: 'asc' }] },
   )) as ChatMessage[];
   return { thread, messages };
+}
+
+/**
+ * The Ask Arwin history list: the reader's recent conversations, each with
+ * where it stands and the last thing said in it.
+ *
+ * Two reads whatever the length: the threads, then every message of those
+ * threads in one `in` query. With `settle`, a waiting answer is first looked
+ * for in the Slack relay (throttled process-wide), so a list left open while
+ * an answer is on its way catches it the same way the Ask page does.
+ */
+export async function listThreadSummaries(
+  auth: Pick<AuthContext, 'organizationId' | 'userId'>,
+  options: { limit?: number; settle?: boolean } = {},
+): Promise<Result<ThreadSummary[]>> {
+  const store = getStore();
+  const limit = Math.min(Math.max(options.limit ?? 20, 1), 50);
+  try {
+    const read = async () => {
+      const threads = await listThreads(auth.organizationId, auth.userId, limit);
+      if (threads.length === 0) return [];
+      const messages = (await store.list(
+        'chat_messages',
+        auth.organizationId,
+        { in: { thread_id: threads.map((t) => t.id) } },
+        { orderBy: [{ field: 'created_at', direction: 'desc' }], limit: 1_000 },
+      )) as ChatMessage[];
+      return summarizeThreads(threads, messages);
+    };
+
+    const summaries = await read();
+    if (options.settle && summaries.some((s) => s.status === 'waiting')) {
+      const settled = await settleAnswersFromSlack(store, auth.organizationId);
+      if (settled > 0) return ok(await read());
+    }
+    return ok(summaries);
+  } catch (error) {
+    log.warn('Ask history could not be read', {
+      reason: error instanceof Error ? error.message.slice(0, 120) : 'unknown',
+    });
+    return err('internal', 'Past conversations could not be loaded.', {
+      stillUsable: 'A new question still works, and the full Ask page lists them too.',
+      retryable: true,
+    });
+  }
+}
+
+export interface ThreadView {
+  /** Null for a conversation not started yet (a deal-scoped one, say). */
+  thread: ChatThread | null;
+  messages: ChatMessage[];
+  deal: { id: string; name: string } | null;
+}
+
+/**
+ * One conversation for the Ask Arwin widget, or the deal a new one would be
+ * scoped to. Only the reader's own conversations are returned. While an answer
+ * is waiting, the Slack relay is checked first (unless `settle` is false, as
+ * straight after asking, when the answer cannot be there yet), which is how
+ * the widget's poll picks the answer up.
+ */
+export async function readThreadView(
+  auth: Pick<AuthContext, 'organizationId' | 'userId'>,
+  ref: { threadId?: string | null; dealId?: string | null },
+  options: { settle?: boolean } = {},
+): Promise<Result<ThreadView>> {
+  const store = getStore();
+  try {
+    let thread: ChatThread | null = null;
+    let messages: ChatMessage[] = [];
+    if (ref.threadId) {
+      const loaded = await getThread(auth.organizationId, ref.threadId);
+      if (!loaded || loaded.thread.user_id !== auth.userId) {
+        return err('not_found', 'That conversation does not exist.');
+      }
+      thread = loaded.thread;
+      messages = loaded.messages;
+      const waiting = messages.some((m) => m.role === 'assistant' && m.status === 'pending');
+      if (waiting && options.settle !== false) {
+        const settled = await settleAnswersFromSlack(store, auth.organizationId);
+        if (settled > 0)
+          messages = (await getThread(auth.organizationId, thread.id))?.messages ?? [];
+      }
+    }
+
+    const dealId = thread?.deal_id ?? ref.dealId ?? null;
+    let deal: ThreadView['deal'] = null;
+    if (dealId) {
+      const row = (await store.get('deals', auth.organizationId, dealId)) as Deal | null;
+      if (row) deal = { id: row.id, name: row.company_name };
+      else if (!thread) return err('not_found', 'That deal no longer exists.');
+    }
+    return ok({ thread, messages, deal });
+  } catch (error) {
+    log.warn('Ask conversation could not be read', {
+      reason: error instanceof Error ? error.message.slice(0, 120) : 'unknown',
+    });
+    return err('internal', 'That conversation could not be loaded.', { retryable: true });
+  }
 }
 
 export interface AskOptions {

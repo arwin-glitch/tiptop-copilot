@@ -314,6 +314,19 @@ describe('column types', () => {
 
 describe('file names', () => {
   it('suggests a list name without the export suffixes', () => {
+    // Affinity's own download names: underscores for spaces, the saved view
+    // after the list name, "__export_" (or "__notes_export_") and the date.
+    expect(defaultListName('Harbor_Seed_Pipeline_All_deals__export_Oct-15-2026.csv')).toBe(
+      'Harbor Seed Pipeline',
+    );
+    expect(
+      defaultListName('Northwind_LP_Pipeline_All_LPs__sheet___notes_export_Oct-15-2026.csv'),
+    ).toBe('Northwind LP Pipeline');
+    expect(
+      defaultListName(
+        'Saltglass_Partners_All_organizations__introductions_export_Oct-15-2026 (1).csv',
+      ),
+    ).toBe('Saltglass Partners');
     expect(defaultListName('Startup Deal Pipeline - All deals.csv')).toBe('Startup Deal Pipeline');
     expect(defaultListName('Startup Deal Pipeline - All deals - 2026-10-15.csv')).toBe(
       'Startup Deal Pipeline',

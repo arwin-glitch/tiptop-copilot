@@ -12,8 +12,8 @@ import {
   CheckSquare,
   Inbox,
   Landmark,
+  LifeBuoy,
   MailCheck,
-  MessageSquare,
   Newspaper,
   Settings,
   Sun,
@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/util/cn';
 import { FieldLabel } from '@/components/ui/card';
+import { navTourId } from '@/lib/help/tour-ids';
 
 /**
  * Navigation.
@@ -31,6 +32,10 @@ import { FieldLabel } from '@/components/ui/card';
  * **System** is configuration. `/diagnostics` joins the list here — it is a
  * real route that had no entry anywhere and was reachable only by typing the
  * URL.
+ *
+ * Ask is not a destination any more: it is the Ask Arwin widget, a launcher on
+ * every page (components/ask/ask-widget.tsx). `/ask` stays as its full-page
+ * fallback, reached from the widget, deep links and citations.
  *
  * One `<nav>` element, not three. The accessibility suite locates the sidebar
  * and the bottom bar by `aria-label="Main"` and asserts the *last* one is the
@@ -47,7 +52,6 @@ export const NAV_ITEMS = [
   { href: '/follow-ups', label: 'Follow-ups', icon: MailCheck },
   { href: '/tasks', label: 'Tasks', icon: CheckSquare },
   { href: '/deals', label: 'Deals', icon: Target },
-  { href: '/ask', label: 'Ask', icon: MessageSquare },
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/calendar', label: 'Calendar', icon: CalendarClock },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase },
@@ -57,6 +61,8 @@ export const NAV_ITEMS = [
   { href: '/updates', label: 'Reports', icon: Newspaper },
   { href: '/knowledge', label: 'Knowledge', icon: BookOpen, also: ['/lists'] },
   { href: '/settings', label: 'Settings', icon: Settings },
+  // What every page holds, and a guided tour of each (lib/help/registry.ts).
+  { href: '/help', label: 'Help', icon: LifeBuoy },
 ] as const;
 
 // Diagnostics is an operator page: it stays a real route, linked from
@@ -64,16 +70,14 @@ export const NAV_ITEMS = [
 const GROUPS: { label: string; hrefs: string[] }[] = [
   {
     label: 'Working',
-    hrefs: ['/today', '/follow-ups', '/tasks', '/deals', '/ask', '/inbox', '/calendar'],
+    hrefs: ['/today', '/follow-ups', '/tasks', '/deals', '/inbox', '/calendar'],
   },
   {
     label: 'Records',
     hrefs: ['/portfolio', '/fund-ii', '/meetings', '/network', '/updates', '/knowledge'],
   },
-  { label: 'System', hrefs: ['/settings'] },
+  { label: 'System', hrefs: ['/settings', '/help'] },
 ];
-
-type NavItem = (typeof NAV_ITEMS)[number];
 
 function under(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -82,14 +86,17 @@ function under(pathname: string, href: string): boolean {
 /** A path is in an item's section at its own href or one of the paths it also covers. */
 export function isActive(
   pathname: string,
-  item: Pick<NavItem, 'href'> & { also?: readonly string[] },
+  item: { href: string; also?: readonly string[] },
 ): boolean {
   return under(pathname, item.href) || (item.also ?? []).some((path) => under(pathname, path));
 }
 
+/** Real sections that are not in the navigation, still named in the phone header. */
+const OFF_NAV_SECTIONS = [{ href: '/ask', label: 'Ask' }] as const;
+
 /** The label for the section a path belongs to, for the mobile header. */
 export function sectionLabel(pathname: string): string | null {
-  const match = NAV_ITEMS.find((i) => isActive(pathname, i));
+  const match = [...NAV_ITEMS, ...OFF_NAV_SECTIONS].find((i) => isActive(pathname, i));
   return match?.label ?? null;
 }
 
@@ -97,7 +104,7 @@ export function SidebarNav() {
   const pathname = usePathname();
 
   return (
-    <nav aria-label="Main" className="flex flex-col gap-5">
+    <nav aria-label="Main" data-tour="main-nav" className="flex flex-col gap-5">
       {GROUPS.map((group) => {
         const headingId = `nav-group-${group.label.toLowerCase()}`;
         return (
@@ -122,6 +129,7 @@ export function SidebarNav() {
                     <Link
                       href={item.href}
                       aria-current={active ? 'page' : undefined}
+                      data-tour={navTourId(item.href)}
                       className={cn(
                         // The 2px rail is the active marker rather than a
                         // filled pill: it survives both themes at the same
@@ -215,6 +223,7 @@ export function MobileNav() {
   return (
     <nav
       aria-label="Main"
+      data-tour="main-nav"
       // Emerald in both themes, like the desktop rail, with a gold top edge.
       className="dark fixed inset-x-0 bottom-0 z-[var(--z-nav)] bg-[var(--bg-sidebar)] pb-[env(safe-area-inset-bottom)] text-[var(--fg)] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,rgb(212_175_55/0.3),var(--gold)_30%,var(--gold)_70%,rgb(212_175_55/0.3))] lg:hidden"
     >
@@ -231,6 +240,7 @@ export function MobileNav() {
               <Link
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
+                data-tour={navTourId(item.href)}
                 className={cn(
                   // min-h-14 keeps every target comfortably past the 44px the
                   // suite asserts, including with the safe-area inset applied.

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { cn } from '@/lib/util/cn';
 import { FieldLabel } from '@/components/ui/card';
 import { GoldFiligree } from '@/components/brand/gold-filigree';
+import { PageTourButton } from '@/components/help/page-tour-button';
 
 export function PageShell({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn('mx-auto w-full max-w-6xl px-4 py-6 sm:px-6', className)} {...props} />;
@@ -64,13 +65,23 @@ export function PageHeader({
             {eyebrow}
           </p>
         ) : null}
-        <h1 className="sm:text-display font-serif text-2xl leading-tight font-semibold">{title}</h1>
+        {/* The "?" starts this page's guided tour (only on pages that have one). */}
+        <div className="flex items-center gap-2.5">
+          <h1 className="sm:text-display min-w-0 font-serif text-2xl leading-tight font-semibold">
+            {title}
+          </h1>
+          <PageTourButton />
+        </div>
         {subtitle ? (
           <p className="mt-1.5 max-w-2xl text-sm text-[var(--fg-muted)]">{subtitle}</p>
         ) : null}
         {meta ? <div className="mt-2">{meta}</div> : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? (
+        <div data-tour="page-actions" className="flex flex-wrap items-center gap-2">
+          {actions}
+        </div>
+      ) : null}
     </header>
   );
 }

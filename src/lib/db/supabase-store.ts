@@ -86,6 +86,16 @@ export class SupabaseStore implements DataStore {
         b = b.or(ors);
       }
     }
+    if (filter.textContains) {
+      for (const [k, text] of Object.entries(filter.textContains)) {
+        if (!text) continue;
+        // Literal text inside ILIKE: `\`, `%` and `_` escaped (backslash is
+        // Postgres's default LIKE escape). PostgREST reads `*` as `%` and has
+        // no escape for it, so a `*` matches any one character instead.
+        const literal = text.replace(/[\\%_]/g, '\\$&').replace(/\*/g, '_');
+        b = b.ilike(k, `%${literal}%`);
+      }
+    }
     return b;
   }
 
@@ -203,6 +213,28 @@ export class SupabaseStore implements DataStore {
     const updated = (data ?? [])[0] as Row<T> | undefined;
     if (!updated) throw new Error(`[${table}] ${id} not found in organization ${organizationId}`);
     return updated;
+  }
+
+  async updateWhere<T extends TableName>(
+    table: T,
+    organizationId: string,
+    filter: Filter,
+    patch: Partial<Row<T>>,
+  ): Promise<Row<T>[]> {
+    // One UPDATE ... WHERE: Postgres re-checks the WHERE on each row it
+    // locks, so of two concurrent callers only one can match a row whose
+    // condition the other's write just changed.
+    let b = this.client.from(table).update(patch as never) as unknown as Builder;
+    assertScoped(table, organizationId);
+    if (!scopeless(table)) b = b.eq('organization_id', organizationId);
+    b = this.applyFilter(b, filter);
+    const { data, error } = await (
+      b as unknown as {
+        select: () => Promise<{ data: unknown[] | null; error: { message: string } | null }>;
+      }
+    ).select();
+    if (error) throw storeError(`[${table}] updateWhere failed`, error);
+    return (data ?? []) as Row<T>[];
   }
 
   async upsert<T extends TableName>(

@@ -87,7 +87,7 @@ export function DealsTable({
 
   return (
     <>
-      <div className="hidden lg:block">
+      <div className="hidden lg:block" data-tour="deals-pipeline">
         <Table
           caption={
             mode === 'scores'
@@ -218,7 +218,10 @@ export function DealsTable({
       </div>
 
       {/* Below lg: the same rows, asked a different question. */}
-      <ul className="shadow-raised mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)] lg:hidden">
+      <ul
+        data-tour="deals-pipeline"
+        className="shadow-raised mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)] lg:hidden"
+      >
         {rows.map((row) => (
           <li key={row.id}>
             <Link

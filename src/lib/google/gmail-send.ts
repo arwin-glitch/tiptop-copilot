@@ -8,7 +8,8 @@ import { err, ok, type Result } from '@/lib/util/result';
 import { SEND_SCOPES } from './send-scopes';
 
 /**
- * The only send path in the product: Send in the email session and the Inbox.
+ * The only send path in the product: Send in the email session and the Inbox,
+ * and campaigns (one email per recipient) once a person confirms one.
  *
  * Sending is a separate, opt-in grant. The default Google connection stays
  * read-only (see oauth.ts); the mailbox owner turns sending on from Settings,
@@ -16,8 +17,11 @@ import { SEND_SCOPES } from './send-scopes';
  * grant, `canSend` is false and every function here that writes refuses.
  *
  * Rules this module keeps:
- * - It sends only when a signed-in person taps Send on one email. Nothing in
- *   the AI tools, the routines or the cron jobs imports it.
+ * - It sends only when a signed-in person taps Send on one email, or taps
+ *   Send on a campaign's review screen (which shows the recipient count, the
+ *   from-address, the subject and a sample) and keeps its page open while the
+ *   batches go. Nothing in the AI tools, the routines or the cron jobs
+ *   imports it, and nothing here runs on a schedule.
  * - A reply goes on an existing thread, to the recipients of the draft already
  *   on that thread (or, with no draft, reply-all to the latest message). A new
  *   email or forward (sendNew) goes to the addresses the person typed. Either
@@ -28,6 +32,8 @@ import { SEND_SCOPES } from './send-scopes';
 export { SEND_SCOPES };
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
+/** Media upload: a whole RFC 822 message as the body, up to 35 MB, unlike the JSON path. */
+const UPLOAD_BASE = 'https://gmail.googleapis.com/upload/gmail/v1/users/me';
 
 export function canSend(integration: Integration | null): boolean {
   return Boolean(integration && SEND_SCOPES.every((s) => integration.scopes.includes(s)));
@@ -56,11 +62,12 @@ async function gmail<T>(
   integration: Integration,
   path: string,
   init?: RequestInit,
+  base: string = BASE,
 ): Promise<Result<T>> {
   const token = await getAccessToken(store, integration);
   if (!token.ok) return token;
   try {
-    const response = await fetch(`${BASE}${path}`, {
+    const response = await fetch(`${base}${path}`, {
       ...init,
       headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${token.value}` },
     });
@@ -519,6 +526,119 @@ export async function sendNew(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ raw: b64urlEncode(raw) }),
   });
+  if (!sent.ok) return sent;
+  return ok({ messageId: sent.value.id, threadId: sent.value.threadId });
+}
+
+/** A header value, RFC 2047-encoded when it is not plain ASCII (a subject with an em dash). */
+export function encodeHeaderValue(value: string): string {
+  const clean = value.replace(/[\r\n]+/g, ' ').trim();
+  if (/^[\x20-\x7e]*$/.test(clean)) return clean;
+  return `=?UTF-8?B?${Buffer.from(clean, 'utf8').toString('base64')}?=`;
+}
+
+/**
+ * One campaign email as RFC 2822: plain and HTML alternatives (the HTML
+ * already carries the signature and, when the campaign tracks, the pixel and
+ * tracked links), attachments, and, only when the campaign has its
+ * unsubscribe link switched on, the List-Unsubscribe headers mail providers
+ * show as their own unsubscribe button. Exported for tests.
+ */
+export function buildCampaignMime(input: {
+  from: string;
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  attachments?: MimeAttachment[];
+  listUnsubscribe?: string | null;
+}): string {
+  const stamp = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  const alt = `a_${stamp}`;
+  const mixed = `m_${stamp}`;
+  const clean = (v: string) => v.replace(/[\r\n]+/g, ' ').trim();
+  const quoted = (v: string) => v.replace(/[\r\n"]+/g, ' ').trim();
+  const wrap = (data: Buffer) => (data.toString('base64').match(/.{1,76}/g) ?? []).join('\r\n');
+  const alternative = [
+    `--${alt}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    wrap(Buffer.from(input.text, 'utf8')),
+    `--${alt}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    wrap(Buffer.from(input.html, 'utf8')),
+    `--${alt}--`,
+  ];
+  const headers = [
+    `From: ${clean(input.from)}`,
+    `To: ${clean(input.to)}`,
+    `Subject: ${encodeHeaderValue(input.subject)}`,
+    input.listUnsubscribe ? `List-Unsubscribe: <${clean(input.listUnsubscribe)}>` : '',
+    input.listUnsubscribe ? 'List-Unsubscribe-Post: List-Unsubscribe=One-Click' : '',
+    'MIME-Version: 1.0',
+  ].filter(Boolean);
+  if (!input.attachments?.length) {
+    return [
+      ...headers,
+      `Content-Type: multipart/alternative; boundary="${alt}"`,
+      '',
+      ...alternative,
+      '',
+    ].join('\r\n');
+  }
+  const parts = input.attachments.flatMap((a) => [
+    `--${mixed}`,
+    `Content-Type: ${quoted(a.mimeType) || 'application/octet-stream'}; name="${quoted(a.filename)}"`,
+    `Content-Disposition: attachment; filename="${quoted(a.filename)}"`,
+    'Content-Transfer-Encoding: base64',
+    '',
+    wrap(a.data),
+  ]);
+  return [
+    ...headers,
+    `Content-Type: multipart/mixed; boundary="${mixed}"`,
+    '',
+    `--${mixed}`,
+    `Content-Type: multipart/alternative; boundary="${alt}"`,
+    '',
+    ...alternative,
+    ...parts,
+    `--${mixed}--`,
+    '',
+  ].join('\r\n');
+}
+
+/**
+ * Send one campaign email to one recipient from the connected mailbox.
+ * Called only by a campaign batch that a person confirmed and is driving from
+ * their open page, or by "Send test to me". Refuses without the send grant.
+ */
+export async function sendCampaignEmail(
+  store: DataStore,
+  integration: Integration,
+  input: {
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+    attachments?: MimeAttachment[];
+    listUnsubscribe?: string | null;
+  },
+): Promise<Result<{ messageId: string; threadId: string }>> {
+  if (!canSend(integration)) return err('forbidden', 'Sending is not turned on for this mailbox.');
+  if (!input.to.trim()) return err('invalid_input', 'No recipient.');
+  if (!input.text.trim()) return err('invalid_input', 'The email is empty.');
+  const raw = buildCampaignMime({ ...input, from: integration.account_email ?? '' });
+  const sent = await gmail<{ id: string; threadId: string }>(
+    store,
+    integration,
+    '/messages/send?uploadType=media',
+    { method: 'POST', headers: { 'Content-Type': 'message/rfc822' }, body: raw },
+    UPLOAD_BASE,
+  );
   if (!sent.ok) return sent;
   return ok({ messageId: sent.value.id, threadId: sent.value.threadId });
 }

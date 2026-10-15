@@ -34,7 +34,7 @@ To run against real infrastructure, copy `.env.example` to `.env.local` and see
 | **Follow-ups** | Who is waiting on you, who you are waiting on (with nudge drafts in Gmail), recaps drafted after external meetings, and meeting times drafted into replies. |
 | **Tasks** | Things you owe someone. Added from mail, Granola and Slack by a routine, closed automatically when the work is done. Snooze and Undo. |
 | **Deals** | The pipeline, sorted by the deal-sorter routine twice a day, with fit, evidence and a one-click Research profile. |
-| **Ask** | One question, one direct answer from live Gmail, Calendar, Slack, Granola and the web, with links to the sources. |
+| **Ask Arwin** | A chat launcher in the corner of every page (not a tab): one question, one direct answer from live Gmail, Calendar, Slack, Granola and the web, with links to the sources, plus the history of past conversations. `/ask` is the full-page version. |
 | **Inbox** | Synced mail. Reply drafts are written by the triage routines straight into Gmail. |
 | **Portfolio** | Fund I companies and their open asks; new closes are added automatically. |
 | **Fund II** | Every LP conversation for Fund II by stage (target to committed), with what is going quiet. Stages only, never amounts. |
@@ -43,6 +43,7 @@ To run against real infrastructure, copy `.env.example` to `.env.local` and see
 | **Reports** | The weekly dealflow reports and Nick's update digests, read live from Slack. |
 | **Knowledge** | Uploaded documents, searchable with page-level citations. |
 | **Settings** | Thesis, scoring, integrations. **Diagnostics** (linked from Settings) shows what is configured — presence only, never a value. |
+| **Help** | What every page holds, as a card per page with a sketch of where things sit, its tabs, and "Show me": a guided tour that spotlights the real page step by step. A 2-minute tour walks every page; the "?" beside a page title tours that page. |
 
 Most live content is produced by cloud routines (Claude) that read Nick's
 Gmail, Calendar, Granola and Slack, write only Gmail drafts and labels, and post
@@ -123,6 +124,7 @@ npm run test:e2e:install  # one-time browser download
 | [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) | Every variable in prose |
 | [SUPABASE_SETUP.md](SUPABASE_SETUP.md) | Database, auth and storage from zero |
 | [GOOGLE_OAUTH_SETUP.md](GOOGLE_OAUTH_SETUP.md) | Read-only Gmail and Calendar |
+| [docs/MCP.md](docs/MCP.md) | The MCP server: connecting claude.ai, Claude Code and routines to the CRM |
 | [PUBLISH_CHECKLIST.md](PUBLISH_CHECKLIST.md) | Everything between here and live |
 | [PRIVACY.md](PRIVACY.md) | What is stored, where it goes, how to remove it |
 | [DECISIONS.md](DECISIONS.md) | Numbered record of every material choice |

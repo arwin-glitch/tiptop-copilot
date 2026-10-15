@@ -4,6 +4,7 @@ import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
 import { generateDailyBrief } from '@/lib/services/brief';
+import { checkReplies } from '@/lib/services/campaigns';
 import { pullBriefingsFromSlack } from '@/lib/services/briefing';
 import { formatDealCronStatus, pullDealsFromSlack } from '@/lib/services/deal-relay';
 import { ensureGmailWatch } from '@/lib/services/gmail-watch';
@@ -12,6 +13,7 @@ import { listPortfolio } from '@/lib/services/portfolio';
 import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
 import { refreshPortfolioNumbers } from '@/lib/services/portfolio-numbers';
 import { formatTaskCronStatus, pullTaskRelays } from '@/lib/services/task-relay';
+import { sweepKeepInTouch } from '@/lib/services/keep-in-touch';
 import { settlesWithin } from '@/lib/util/settle';
 import type { AuthContext } from '@/lib/auth/session';
 import type { Organization, OrganizationMember, UserProfile } from '@/lib/types/domain';
@@ -75,6 +77,7 @@ export async function POST(request: NextRequest) {
     tasks: string;
     deals: string;
     numbers: string;
+    campaigns: string;
   }[] = [];
 
   let organizations: Organization[] = [];
@@ -105,6 +108,7 @@ export async function POST(request: NextRequest) {
         tasks: 'skipped',
         deals: 'skipped',
         numbers: 'skipped',
+        campaigns: 'skipped',
       });
       continue;
     }
@@ -121,6 +125,7 @@ export async function POST(request: NextRequest) {
         tasks: 'skipped',
         deals: 'skipped',
         numbers: 'skipped',
+        campaigns: 'skipped',
       });
       continue;
     }
@@ -206,6 +211,9 @@ export async function POST(request: NextRequest) {
       tasksStatus = 'failed';
       log.error('Cron task relay failed', { organizationId: organization.id });
     }
+    // Keep-in-touch cadences that came due since the last run (never throws).
+    const checkIns = await sweepKeepInTouch(store, organization.id);
+    if (checkIns.created.length) tasksStatus += `; check-ins: ${checkIns.created.length} added`;
 
     // The deal-sorter's posts in #deal-relay, plus the Portfolio -> Invested
     // mirror; a backstop to the pull on viewing /deals. Counts only: this
@@ -244,6 +252,20 @@ export async function POST(request: NextRequest) {
       log.error('Cron portfolio numbers refresh failed', { organizationId: organization.id });
     }
 
+    // Campaign replies and bounces, read from the mailbox the sync above just
+    // refreshed. Reads only: no campaign is ever sent from here. Counts only:
+    // public log.
+    let campaignsStatus: string;
+    try {
+      const replies = await checkReplies(store, organization.id);
+      campaignsStatus = replies.ok
+        ? `ok: ${replies.value.replies} replies, ${replies.value.bounces} bounces, ${replies.value.autoReplies} auto-replies, ${replies.value.settled} settled`
+        : `skipped: ${replies.error.code}`;
+    } catch {
+      campaignsStatus = 'failed';
+      log.error('Cron campaign reply check failed', { organizationId: organization.id });
+    }
+
     results.push({
       organization: organization.name,
       sync: syncStatus,
@@ -254,6 +276,7 @@ export async function POST(request: NextRequest) {
       tasks: tasksStatus,
       deals: dealsStatus,
       numbers: numbersStatus,
+      campaigns: campaignsStatus,
     });
   }
 

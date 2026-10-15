@@ -10,6 +10,7 @@ import {
   validateCrmValue,
   type CrmFieldInput,
 } from '@/lib/crm/fields';
+import { compileEntryFilter, type CrmViewCondition } from '@/lib/crm/saved-views';
 import { sortStatusOptions } from '@/lib/crm/view';
 import { isMissingColumnError, isMissingTableError } from '@/lib/db/missing-table';
 import { chunk, listAllPages } from '@/lib/db/paging';
@@ -91,7 +92,7 @@ export async function getCrmSetup(
   return { ready: list.length === 0, missing: list };
 }
 
-async function guard<T>(
+export async function guard<T>(
   mode: 'read' | 'write',
   operation: string,
   run: () => Promise<Result<T>>,
@@ -143,7 +144,7 @@ export function crmGuard<T>(
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** An id from a URL that cannot be a row id is "not found", not a Postgres cast error. */
-function isUuid(value: unknown): value is string {
+export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_RE.test(value);
 }
 
@@ -306,6 +307,8 @@ export interface CrmEntryQuery {
   statusIn?: readonly string[] | null;
   /** Which field `statusIn` applies to; defaults to the list's status field (statusFieldOf). */
   statusKey?: string | null;
+  /** A saved view's filter conditions, all of which must hold (compileEntryFilter). */
+  conditions?: readonly CrmViewCondition[] | null;
   offset?: number | null;
   /** Default 50, at most CRM_ENTRY_PAGE_MAX. */
   limit?: number | null;
@@ -349,17 +352,7 @@ export async function listEntries(
     const limit = clampInt(query.limit, 1, CRM_ENTRY_PAGE_MAX, 50);
     const offset = clampInt(query.offset, 0, Number.MAX_SAFE_INTEGER, 0);
 
-    const filter: Filter = { eq: { list_id: list.id } };
-    const statusField = query.statusKey
-      ? (list.fields.find((f) => f.key === query.statusKey) ?? null)
-      : statusFieldOf(list);
-    const statuses = (query.statusIn ?? []).filter((s) => typeof s === 'string' && s);
-    if (statusField && statuses.length) {
-      filter.in = { [`values->>${statusField.key}`]: statuses };
-    }
-    const text = query.query?.trim();
-    if (text) filter.textSearch = { columns: ['title'], query: text.slice(0, 200) };
-
+    const { filter, statusField } = entryQueryFilter(list, query);
     const { sort, orderBy } = entryOrder(list, query.sortKey, query.sortDir);
 
     const [entries, total] = await Promise.all([
@@ -373,11 +366,48 @@ export async function listEntries(
 }
 
 /**
+ * The filter for a list's entries under a query: the title search, the
+ * status chips (on `statusKey`, else the pipeline field) and a view's
+ * conditions. Shared by the page of entries, the totals and the CSV export,
+ * so all three always agree on which entries a view holds.
+ */
+export function entryQueryFilter(
+  list: CrmList,
+  query: Pick<CrmEntryQuery, 'query' | 'statusIn' | 'statusKey' | 'conditions'>,
+): { filter: Filter; statusField: CrmField | null } {
+  const statusField = query.statusKey
+    ? (list.fields.find((f) => f.key === query.statusKey) ?? null)
+    : statusFieldOf(list);
+  const filter = compileEntryFilter(entriesFilter(list, query.query), list.fields, {
+    statusKey: statusField?.key ?? null,
+    statuses: query.statusIn,
+    conditions: query.conditions,
+  });
+  return { filter, statusField };
+}
+
+/**
+ * `filter` narrowed to entries whose `path` is one of `labels`: intersected
+ * with any list of labels the filter already holds for that path, never
+ * replacing the filter's other `in` lists.
+ */
+function narrowIn(filter: Filter, path: string, labels: readonly string[]): Filter {
+  const before = filter.in?.[path];
+  const values = before ? before.filter((v) => labels.includes(v as string)) : [...labels];
+  return { ...filter, in: { ...filter.in, [path]: values } };
+}
+
+/** `filter` narrowed to entries with no value at `path`. */
+function narrowNull(filter: Filter, path: string): Filter {
+  return { ...filter, isNull: [...(filter.isNull ?? []).filter((p) => p !== path), path] };
+}
+
+/**
  * The order for a page of entries: a known column or a field key of the list
  * (by its jsonb value), else list position. Ties break on position, then id,
  * so pages never overlap.
  */
-function entryOrder(
+export function entryOrder(
   list: CrmList,
   sortKey: string | null | undefined,
   sortDir: 'asc' | 'desc' | null | undefined,
@@ -719,13 +749,20 @@ export async function countEntriesByStatus(
   store: DataStore,
   organizationId: string,
   listId: string,
-  options: { query?: string | null; statusKey?: string | null } = {},
+  options: {
+    query?: string | null;
+    statusKey?: string | null;
+    /** A view's conditions, so the chips count what the view shows. */
+    conditions?: readonly CrmViewCondition[] | null;
+  } = {},
 ): Promise<Result<CrmStatusCounts>> {
   return guard<CrmStatusCounts>('read', 'count CRM entries by status', async () => {
     if (!isUuid(listId)) return err('not_found', 'That list does not exist.');
     const list = await store.get('crm_lists', organizationId, listId);
     if (!list) return err('not_found', 'That list does not exist.');
-    const base = entriesFilter(list, options.query);
+    const base = compileEntryFilter(entriesFilter(list, options.query), list.fields, {
+      conditions: options.conditions,
+    });
     const field = statusFieldFor(list, options.statusKey);
     if (!field) {
       const total = await store.count('crm_list_entries', organizationId, base);
@@ -735,9 +772,9 @@ export async function countEntriesByStatus(
     const labels = field.options ?? [];
     const [total, none, perOption] = await Promise.all([
       store.count('crm_list_entries', organizationId, base),
-      store.count('crm_list_entries', organizationId, { ...base, isNull: [path] }),
+      store.count('crm_list_entries', organizationId, narrowNull(base, path)),
       inBatches(labels, 6, (label) =>
-        store.count('crm_list_entries', organizationId, { ...base, in: { [path]: [label] } }),
+        store.count('crm_list_entries', organizationId, narrowIn(base, path, [label])),
       ),
     ]);
     const counts: Record<string, number> = {};
@@ -782,34 +819,53 @@ export async function listBoard(
   store: DataStore,
   organizationId: string,
   listId: string,
-  query: Pick<CrmEntryQuery, 'query' | 'sortKey' | 'sortDir' | 'statusIn' | 'statusKey'> & {
+  query: Pick<
+    CrmEntryQuery,
+    'query' | 'sortKey' | 'sortDir' | 'statusIn' | 'statusKey' | 'conditions'
+  > & {
     perColumn?: number | null;
+    /**
+     * The status field to make columns of, when not the one `statusIn`
+     * filters (a view grouped by another field). `statusIn` then narrows
+     * the entries rather than choosing columns.
+     */
+    groupKey?: string | null;
   } = {},
 ): Promise<Result<CrmBoard>> {
   return guard('read', 'read a CRM board', async () => {
     if (!isUuid(listId)) return err('not_found', 'That list does not exist.');
     const list = await store.get('crm_lists', organizationId, listId);
     if (!list) return err('not_found', 'That list does not exist.');
-    const field = statusFieldFor(list, query.statusKey);
+    const pipeline = statusFieldFor(list, query.statusKey);
+    const grouped = query.groupKey ? statusFieldFor(list, query.groupKey) : null;
+    const field = grouped ?? pipeline;
     if (!field) {
       return err('invalid_input', `${list.name} has no status field to lay out as a board.`);
     }
     const perColumn = clampInt(query.perColumn, 1, CRM_BOARD_COLUMN_MAX, 25);
-    const base = entriesFilter(list, query.query);
+    const wanted = (query.statusIn ?? []).filter((s) => typeof s === 'string' && s);
+    // Chips on the field the columns are made of pick columns; chips on
+    // another field narrow every column.
+    const chipsPickColumns = field.key === pipeline?.key;
+    const base = compileEntryFilter(entriesFilter(list, query.query), list.fields, {
+      statusKey: chipsPickColumns ? null : (pipeline?.key ?? null),
+      statuses: chipsPickColumns ? null : wanted,
+      conditions: query.conditions,
+    });
     const { sort, orderBy } = entryOrder(list, query.sortKey, query.sortDir);
     const path = `values->>${field.key}`;
 
     const ordered = sortStatusOptions(field.options ?? []);
-    const wanted = (query.statusIn ?? []).filter((s) => typeof s === 'string' && s);
-    const statuses: (string | null)[] = wanted.length
-      ? ordered.filter((s) => wanted.includes(s))
-      : [...ordered, null];
+    const statuses: (string | null)[] =
+      chipsPickColumns && wanted.length
+        ? ordered.filter((s) => wanted.includes(s))
+        : [...ordered, null];
 
     const [total, loaded] = await Promise.all([
       store.count('crm_list_entries', organizationId, base),
       inBatches(statuses, 4, async (status): Promise<CrmBoardColumn> => {
         const filter: Filter =
-          status === null ? { ...base, isNull: [path] } : { ...base, in: { [path]: [status] } };
+          status === null ? narrowNull(base, path) : narrowIn(base, path, [status]);
         const [entries, count] = await Promise.all([
           store.list('crm_list_entries', organizationId, filter, { orderBy, limit: perColumn }),
           store.count('crm_list_entries', organizationId, filter),
@@ -828,7 +884,7 @@ export async function listBoard(
       list,
       statusField: field,
       columns,
-      unplaced: wanted.length ? 0 : Math.max(0, total - placed),
+      unplaced: chipsPickColumns && wanted.length ? 0 : Math.max(0, total - placed),
       sort,
       perColumn,
       records,
@@ -1219,9 +1275,15 @@ export async function updateEntryValues(
       values,
       updated_at: new Date().toISOString(),
     });
+    const before = entry.values ?? {};
     await audit(store, organizationId, actor, 'crm.entry_updated', 'crm_list_entry', entry.id, {
       list_id: list.id,
       fields: Object.keys(checked.values),
+      // The keys whose value actually changed (keys, never values): what the
+      // time-in-status column reads a status change from.
+      changed: Object.keys(checked.values).filter(
+        (k) => !same(before[k] ?? null, values[k] ?? null),
+      ),
     });
     return ok(updated);
   });

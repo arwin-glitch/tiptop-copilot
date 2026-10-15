@@ -239,6 +239,12 @@ describe('nothing sends on its own', () => {
       'app/api/inbox/modify/route.ts',
       'app/api/inbox/compose/route.ts',
       'lib/services/inbox-live.ts',
+      // Campaigns: the one wrapper that builds a Gmail sender. It is reached
+      // only from the campaign routes a person's tap calls (test, confirm,
+      // batch) plus the read-only sender info; see the next test. The
+      // campaign service itself never imports it, so the daily job's reply
+      // check cannot reach a send path.
+      'lib/campaigns/sender.ts',
     ]);
     const files = await walk(SRC);
     const importers: string[] = [];
@@ -250,6 +256,37 @@ describe('nothing sends on its own', () => {
     }
     expect(importers.length).toBeGreaterThan(0);
     for (const file of importers) expect(ALLOWED.has(file), file).toBe(true);
+  });
+
+  it('only the campaign routes a person taps reach the campaign sender', async () => {
+    const ALLOWED = new Set([
+      'app/api/campaigns/[id]/test/route.ts',
+      'app/api/campaigns/[id]/confirm/route.ts',
+      'app/api/campaigns/[id]/batch/route.ts',
+      // Reads the from-address and signatures for the composer; sends nothing.
+      'app/api/campaigns/sender/route.ts',
+    ]);
+    const files = await walk(SRC);
+    const importers: string[] = [];
+    for (const file of files) {
+      const source = await readFile(file, 'utf8');
+      if (/from ['"][^'"]*campaigns\/sender['"]/.test(source)) {
+        importers.push(path.relative(SRC, file).split(path.sep).join('/'));
+      }
+    }
+    expect(importers.sort()).toEqual([...ALLOWED].sort());
+  });
+
+  it('campaigns have no schedule: nothing in a cron job or the service builds a sender', async () => {
+    const service = await readFile(path.join(SRC, 'lib/services/campaigns.ts'), 'utf8');
+    expect(service).not.toMatch(/google\/gmail-send|campaigns\/sender['"]/);
+    const cron = await readFile(path.join(SRC, 'app/api/cron/daily/route.ts'), 'utf8');
+    expect(cron).not.toMatch(/sendBatch|sendTest|campaignSenderFor|confirmCampaign/);
+    const sql = await readFile(
+      path.resolve(import.meta.dirname, '../../supabase/migrations/20261016000000_campaigns.sql'),
+      'utf8',
+    );
+    expect(sql).not.toMatch(/scheduled_at|\bsend_at\b/);
   });
 
   it('the default Google connection is read-only; sending is asked for only on opt-in', async () => {

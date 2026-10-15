@@ -1,4 +1,4 @@
-import 'server-only';
+﻿import 'server-only';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { env } from '@/lib/config/env';
@@ -170,6 +170,31 @@ export class DemoStore implements DataStore {
     return next as unknown as Row<T>;
   }
 
+  async updateWhere<T extends TableName>(
+    table: T,
+    organizationId: string,
+    filter: Filter,
+    patch: Partial<Row<T>>,
+  ): Promise<Row<T>[]> {
+    assertScoped(table, organizationId);
+    const rows = await this.table(table);
+    // Match and write with no await in between, so within this process the
+    // check and the write are one step, as Postgres makes them one statement.
+    const changed: Record<string, unknown>[] = [];
+    rows.forEach((row, index) => {
+      if (!(scopeless(table) || row.organization_id === organizationId)) return;
+      if (!matchesFilter(row, filter)) return;
+      const next = { ...row, ...patch } as Record<string, unknown>;
+      if ('updated_at' in row && !('updated_at' in patch)) {
+        next.updated_at = new Date().toISOString();
+      }
+      rows[index] = next;
+      changed.push(structuredClone(next));
+    });
+    if (changed.length) await this.persist();
+    return changed as unknown as Row<T>[];
+  }
+
   async upsert<T extends TableName>(
     table: T,
     row: Row<T>,
@@ -284,4 +309,4 @@ export class DemoStore implements DataStore {
   }
 }
 
-export const DEMO_STORE_VERSION = 9;
+export const DEMO_STORE_VERSION = 11;

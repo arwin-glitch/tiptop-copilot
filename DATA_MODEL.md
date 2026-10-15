@@ -172,6 +172,7 @@ Inventing a plausible check size would be worse than leaving it empty.
 | `generated_drafts` | `check (sent = false)`. |
 | `ai_usage` | Every model call: operation, model, prompt version, tokens, cost, ok, error code, duration. |
 | `audit_events` | Everything consequential. Client IPs stored hashed. |
+| `mcp_tokens` | One per Claude client of the MCP endpoint (`20261016020000_mcp_tokens.sql`; `lib/services/mcp-tokens.ts`, `docs/MCP.md`): `name`, `hint` (last four characters), `last_used_at`, `revoked_at`. Only the SHA-256 of the token is stored (`token_hash`, unique); the token is shown once. Owners can read; only the server writes. Every call is audited as `mcp.tool_called` (tool and client name, never arguments). |
 | `user_feedback` | Thumbs on a specific output, for prompt iteration. |
 
 ### `generated_drafts`
@@ -201,6 +202,18 @@ or keeps failing to send is moved past, never retried forever: the list or the
 notes restart from page 1, then the notes are read in full, then skipped. The
 watermark only moves when the run saw every changed note, so a skipped notes
 page is read again by the next run. No column or migration is involved.
+
+Today's "At a glance" cards keep each task's short label and card the same
+way, as `task.glance_set` rows (`entity_type = 'task'`, `entity_id` the task):
+metadata `{v: 1, by, source?, short? (≤ 40 characters, ≤ 6 words, one line),
+bucket?: 'now' | 'intro' | 'upcoming', due_precision?: 'day' | 'week'}`. A row
+with no user is the task-suggest routine's (written at ingest when
+`TASK_ADD_V1` carries any of those fields); a row with a user is a person's
+choice. Per field, the newest person's value beats the newest routine value;
+who wrote a row is its `user_id`, never its `by`, and a field that does not
+parse is ignored on its own. `task.glance_set` is not a "person touched it"
+action for the task-closer (D-052), so moving a task between cards never stops
+it closing itself. See D-053.
 
 ### `ai_usage`
 
@@ -285,6 +298,79 @@ company or person record's `fields`, so a list stays a handful of columns.
 Nothing is deleted: a row removed in Affinity stays in Copilot. Its progress
 lives in `audit_events` (above).
 
+**Saved views** (`20261016010000_crm_views.sql`; `lib/crm/saved-views.ts`,
+`lib/services/crm-views.ts`) live on the list row as `crm_lists.views`, a jsonb
+array of `{id, name, view, columns, sort, dir, statuses, conditions, groupBy}`
+— no table of their own: a list has a handful, they are always read with it,
+and the list's row-level security already scopes them. The built-in All view
+is never stored. The array is read and written whole (two simultaneous saves
+on one list can lose one) and is re-validated against the list's fields on
+every read, so a view naming a removed field just loses that column or
+condition. Until the migration runs a list has no saved views and saving one
+returns `not_configured` naming the file. Conditions (status is any of; field
+is / contains / is empty / is not empty; number and date ranges; all must
+hold) compile to one store `Filter` on `values` JSON paths, run in the
+database; `Filter.textContains` (literal, case-insensitive `ILIKE`) was added
+for "contains". Column totals and the CSV export read every matching entry a
+thousand at a time (PostgREST has no aggregates); totals stream into the page
+after the rows and stop at 50,000 entries, saying so. An LP list's amount
+columns are never totalled (`lib/crm/lp-rule.ts`, the rule the MCP server
+applies too). Time in current status comes from the latest `crm.entry_updated`
+audit row whose `changed` keys name the status field (keys only — audit rows
+never carry values), else an imported Affinity "Time in Current Status" column
+counted on from the list's latest `crm.imported` row (shown as an estimate,
+"~36d"), else when a Copilot-made entry was added; the migration indexes those
+audit rows by `metadata->>'list_id'` for whole-list exports. The All view
+hides at first the imported timer (Time in Stage replaces it) or, on an
+Affinity list without one, Time in Stage itself. Exports:
+`/api/crm/lists/[id]/export` (the view on screen, members and above),
+`/api/crm/records/[id]/notes/export` (members and above), and
+`/api/crm/export` (everything as a ZIP of CSVs, owners only); the links show
+only to those roles, and a refused export is a toast, not a saved error file.
+All are audited as `crm.exported` with counts, and text a spreadsheet would
+run as a formula is prefixed with an apostrophe.
+
+## 6b. Campaigns
+
+Tracked bulk email, replacing Affinity's (`20261016000000_campaigns.sql`;
+service `lib/services/campaigns.ts`, template, limits and the person-or-machine
+rules in `lib/campaigns/`).
+
+| Table | Purpose |
+| --- | --- |
+| `campaigns` | A subject, a `body_template` (light Markdown with `{{first_name}}`, `{{name}}`, `{{company}}` and `{{field\|fallback}}`), `from_identity` (`nick` or `arwin`: whose signature; both send from the connected mailbox), `attachments` (jsonb `{id, name, type, size, parts}`, parts in the private bucket), `status` (`draft`, `sending`, `paused`, `sent`, `cancelled`) and `pause_reason` (`manual`, `left`, `capped`, `failures`, `refused`), the switches `track_activity` (pixel and tracked links; default on) and `unsubscribe_link` (the grey line and the List-Unsubscribe headers; default off), `link_allowlist` (the body's links at confirmation: the only places the click redirect goes), `confirmed_at`/`confirmed_by`, `confirmed_through` (the created_at of the last reviewed recipient: anyone added later is never sent) and `last_sent_at` (pacing). No schedule column, deliberately. |
+| `campaign_recipients` | One recipient of one campaign, unique on `(campaign_id, email)`: `merge` values, optional `record_id` (a CRM person), send `status` (`pending`, `sent`, `failed`, `unconfirmed`, `skipped`), Gmail ids, `error`, `attempted_at` (claimed atomically just before each send), and `opened_at`/`open_count`, `clicked_at`/`click_count`, `replied_at`, `bounced_at`, `unsubscribed_at`. `unconfirmed` is a send interrupted after it started: it may have gone out, so it is never resent automatically nor swept up by "retry failed"; a person marks it sent or sends it again, or the reply check settles it when its copy turns up in Sent. |
+| `campaign_events` | Every `open`, `click` (with `url`), `reply`, `bounce`, `unsubscribe` and `resubscribe` (both with the lowercased `email`), and `automated` for an open or click that looked like a machine (kept, never counted). The latest unsubscribe or resubscribe per address is the suppression list, checked when people are added, at confirmation and before each batch; it outlives its campaign (`on delete set null`). |
+| `campaign_send_locks` | One row per organization: the lease (`lease_token`, `lease_expires_at`) a batch takes by compare-and-set before its first email and renews before each, so one batch sends at a time across tabs and server instances; and `last_sent_at`, which paces the organization's next email whichever campaign sends it. |
+
+Nothing sends from a draft, and what was reviewed is what goes. The review
+screen shows the exact recipient count, from-address, subject, attachments,
+switches and a sample; the confirmation echoes those and the campaign's
+`updated_at` back, and moves the draft to `sending` with a compare-and-set on
+that version (`DataStore.updateWhere`). Every draft edit (a save, an attachment
+landing or going, recipients added or removed) is itself a compare-and-set on
+`status = 'draft'`, so an edit racing the tap either lands first and makes the
+tap stale, or is refused. The open page then asks `/api/campaigns/<id>/batch`
+for one short batch after another (at most 10 emails, about one every 2
+seconds, none started after 25 seconds; at most 400 in any 24 hours per
+organization). Sending runs only while that page is open: leaving it (a link,
+which asks first, or closing the tab) pauses the campaign with reason `left`,
+and a "sending" campaign nobody drives reads as stopped after two minutes. At
+the cap it pauses with reason `capped`. Resume is a tap. Sends go through
+`lib/google/gmail-send.ts` via `lib/campaigns/sender.ts`, which only the
+campaign routes import. Tracking is public at `/t/o/<token>` (pixel),
+`/t/c/<token>?u=` (click redirect, allowlist-checked) and `/t/u/<token>`
+(unsubscribe: opening changes nothing; the button or a provider's RFC 8058
+one-click POST does it). The token is the organization and recipient ids plus
+a truncated HMAC under `SESSION_SECRET`; a test send's token names the
+campaign under its own purpose tag and records nothing. A link whose text is
+itself an address is never rewritten. Opens and clicks in the first minute
+after the send, HEAD requests, prefetches, scanner user agents, and a second
+link clicked seconds after the first are kept as `automated` and not counted.
+Replies and bounces are read from the synced mailbox (a message in the sent
+email's thread, from the recipient, not an out-of-office, or from a mail
+server) when a campaign is viewed and by the daily job. Reads degrade to "not
+set up yet" until the migration is applied, as for the CRM.
 ---
 
 ## 7. Row-level security

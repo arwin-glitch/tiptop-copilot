@@ -5,10 +5,14 @@ import { ArrowUpRight } from 'lucide-react';
 import { hasRole, requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
 import { statusFieldOf } from '@/lib/crm/fields';
+import { parseSavedViews, type CrmTotals } from '@/lib/crm/saved-views';
 import {
   CRM_LIST_PAGE_SIZE,
   crmListHref,
+  crmListQuery,
+  crmViewParams,
   parseCrmListParams,
+  resolveListParams,
   sortStatusOptions,
 } from '@/lib/crm/view';
 import {
@@ -22,6 +26,7 @@ import {
 import { CRM_DESTINATION_INFO } from '@/lib/crm/destinations';
 import { destinationForList } from '@/lib/services/crm-destinations';
 import { CrmBreadcrumb } from '@/components/lists/crm-breadcrumb';
+import { summarizeEntries, timeInStatus } from '@/lib/services/crm-views';
 import { ListArchiveButton } from '@/components/lists/list-archive-button';
 import { ListView, type ListBoardData, type ListTableData } from '@/components/lists/list-view';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
@@ -68,7 +73,7 @@ export default async function ListPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const [{ id }, raw] = await Promise.all([params, searchParams]);
-  const view = parseCrmListParams(raw);
+  const asked = parseCrmListParams(raw);
   const auth = await requireAuth();
   const store = getStore();
   const org = auth.organizationId;
@@ -104,19 +109,41 @@ export default async function ListPage({
   }
 
   const list = found.value;
+  // The saved view applied (views live on the list row; none until the
+  // views migration has run). A link to a view deleted since goes to All.
+  const views = parseSavedViews(list.views, list.fields);
+  const resolved = resolveListParams(asked, list.fields, views);
+  if (resolved.missingView) redirect(crmListHref(list.id, crmViewParams(asked, '')));
+  const view = resolved.params;
   const canWrite = hasRole(auth, 'member');
   const statusField = statusFieldOf(list);
   const statusOptions = statusField ? sortStatusOptions(statusField.options ?? []) : [];
+  const groupKey = view.view === 'board' ? ((view.groupBy || statusField?.key) ?? null) : null;
   const query = {
     query: view.q || null,
     sortKey: view.sort || null,
     sortDir: view.dir,
     statusIn: view.statuses,
+    conditions: view.conditions,
   };
 
+  // Totals read every entry the view matches, so they are not awaited here:
+  // the table and board stream them in when they arrive.
+  const totals: Promise<CrmTotals | null> = summarizeEntries(store, org, list.id, {
+    ...query,
+    groupKey,
+  }).then(
+    (r) => (r.ok ? r.value : null),
+    () => null,
+  );
   const [destination, counts, entries, board] = await Promise.all([
     destinationForList(store, org, list),
-    statusField ? countEntriesByStatus(store, org, list.id, { query: view.q || null }) : null,
+    statusField
+      ? countEntriesByStatus(store, org, list.id, {
+          query: view.q || null,
+          conditions: view.conditions,
+        })
+      : null,
     view.view === 'table'
       ? listEntries(store, org, list.id, {
           ...query,
@@ -125,9 +152,20 @@ export default async function ListPage({
         })
       : null,
     view.view === 'board' && statusField
-      ? listBoard(store, org, list.id, { ...query, perColumn: BOARD_PER_COLUMN })
+      ? listBoard(store, org, list.id, {
+          ...query,
+          groupKey,
+          perColumn: BOARD_PER_COLUMN,
+        })
       : null,
   ]);
+  const onPage = entries?.ok
+    ? entries.value.entries
+    : board?.ok
+      ? board.value.columns.flatMap((c) => c.entries)
+      : [];
+  const timers = await timeInStatus(store, org, list, onPage);
+  const renderedAt = new Date();
 
   // Past the last page — a bookmark from before entries were removed, or a
   // hand-edited URL — goes to the last page there is.
@@ -189,6 +227,7 @@ export default async function ListPage({
           id: list.id,
           name: list.name,
           entity_type: list.entity_type,
+          source: list.source,
           fields: list.fields,
         }}
         params={view}
@@ -202,8 +241,18 @@ export default async function ListPage({
             ? `${list.name} has no status field, so there is nothing to lay out as a board.`
             : null
         }
+        views={views}
+        activeView={resolved.active}
+        dirty={resolved.dirty}
+        timers={timers}
+        totals={totals}
+        // New totals stream in under a fresh boundary whenever what they
+        // count changes, rather than holding the page until they arrive.
+        totalsKey={crmListQuery({ ...view, viewId: '', modified: false }, { page: 1 })}
+        now={renderedAt.getTime()}
         timezone={auth.profile.timezone}
         canWrite={canWrite}
+        canExportAll={hasRole(auth, 'owner')}
       />
     </PageShell>
   );

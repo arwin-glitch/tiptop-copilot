@@ -21,6 +21,12 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* The Ask Arwin panel floats above its launcher only where there is room for
+   it, wide and tall. Anywhere else (a phone, a phone on its side, a short
+   window) it is the full-screen sheet, so its composer is never clipped. */
+@custom-variant panel-float (@media (min-width: 40rem) and (min-height: 36rem));
+@custom-variant panel-float-lg (@media (min-width: 64rem) and (min-height: 36rem));
+
 @theme {
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
@@ -178,6 +184,9 @@
   --switch-thumb: #fffdf7;
   --switch-track: #6e8478;
   --scrim: rgb(16 38 31 / 0.32);
+  /* The guided tour dims harder than a dialog's scrim: the one lit element
+     has to be unmistakable at a glance. */
+  --tour-scrim: rgb(16 38 31 / 0.5);
 
   /* Charts, sparklines, progress: green first, gold second. */
   --chart-1: #2b6d56;
@@ -238,6 +247,8 @@
   --z-nav: 40;
   --z-banner: 50;
   --z-overlay: 60;
+  /* The guided tour: over dialogs and the Ask Arwin panel, under toasts. */
+  --z-tour: 65;
   --z-toast: 70;
 
   /* Page rhythm. One gutter and one stack step, so screens agree. */
@@ -360,6 +371,7 @@
   --switch-thumb: #f7f1e1;
   --switch-track: #6a8b7d;
   --scrim: rgb(3 12 9 / 0.62);
+  --tour-scrim: rgb(3 12 9 / 0.66);
 
   --chart-1: #45d6a0;
   --chart-2: #d4af37;

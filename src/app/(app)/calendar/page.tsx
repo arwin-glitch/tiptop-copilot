@@ -62,7 +62,7 @@ async function CalendarContent({ day }: { day: string | null }) {
 
   return (
     <div className="space-y-4">
-      <nav aria-label="Day" className="flex flex-wrap gap-1">
+      <nav aria-label="Day" data-tour="calendar-days" className="flex flex-wrap gap-1">
         {days.map((d, i) => (
           <Link
             key={d}
@@ -90,7 +90,7 @@ async function CalendarContent({ day }: { day: string | null }) {
         </Notice>
       ) : (
         <>
-          <p className="text-sm text-[var(--fg-muted)]">
+          <p className="text-sm text-[var(--fg-muted)]" data-tour="calendar-summary">
             {formatDate(`${dateKey}T12:00:00Z`, 'UTC')} · {meetings}{' '}
             {meetings === 1 ? 'meeting' : 'meetings'} · {result.entries.length - meetings}{' '}
             {result.entries.length - meetings === 1 ? 'block' : 'blocks'}
@@ -100,7 +100,7 @@ async function CalendarContent({ day }: { day: string | null }) {
               Nothing on the calendar.
             </p>
           ) : (
-            <ol className="space-y-2">
+            <ol className="space-y-2" data-tour="calendar-entries">
               {result.entries.map((entry) => (
                 <EntryCard
                   key={`${entry.event.id}-${entry.event.startsAt}`}

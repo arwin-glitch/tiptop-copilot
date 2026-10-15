@@ -714,6 +714,12 @@ export interface CrmList {
   archived: boolean;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
+  /**
+   * Saved views, as stored (jsonb array; 20261016010000_crm_views.sql). Absent
+   * until that migration has run, so read it only through parseSavedViews in
+   * lib/crm/saved-views.ts, which also drops anything malformed.
+   */
+  views?: unknown;
 }
 
 /** A company or a person. */
@@ -789,6 +795,162 @@ export interface CrmNote {
   entity_names: string[];
   injection_flagged: boolean;
   created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+/* ------------------------------------------------------------ campaigns */
+//
+// Tracked bulk email, replacing Affinity's: one personal email per recipient
+// from the connected mailbox, with opens, clicks and replies tracked. Service:
+// lib/services/campaigns.ts. Template and limits: lib/campaigns/.
+
+export type CampaignStatus = 'draft' | 'sending' | 'paused' | 'sent' | 'cancelled';
+
+/**
+ * Why a campaign is paused, so every view can say so: a person tapped Pause,
+ * the sending page was left (sending runs only while it is open), the 24-hour
+ * cap was reached, sends kept failing, or Gmail refused.
+ */
+export type CampaignPauseReason = 'manual' | 'left' | 'capped' | 'failures' | 'refused';
+
+/** Whose signature goes under the email; both send from the connected mailbox. */
+export type CampaignFromIdentity = 'nick' | 'arwin';
+
+/** A file sent with every email of a campaign, kept in the private storage bucket. */
+export interface CampaignAttachment {
+  id: string;
+  name: string;
+  /** MIME type. */
+  type: string;
+  /** Bytes. */
+  size: number;
+  /** Object paths in the storage bucket, in order: a large file is uploaded in pieces. */
+  parts: string[];
+}
+
+export interface Campaign {
+  id: Uuid;
+  organization_id: Uuid;
+  /** What it is called in Copilot. Recipients never see it. */
+  name: string;
+  subject: string;
+  /** Plain text with light Markdown and merge fields (lib/campaigns/template.ts). */
+  body_template: string;
+  from_identity: CampaignFromIdentity;
+  status: CampaignStatus;
+  attachments: CampaignAttachment[];
+  /** The body's links when the campaign was confirmed; the only places a click redirects to. */
+  link_allowlist: string[];
+  confirmed_at: IsoDateTime | null;
+  confirmed_by: Uuid | null;
+  /** The last email it sent, which paces the next. */
+  last_sent_at: IsoDateTime | null;
+  /**
+   * Open pixel and click-tracked links. Off: the email carries no Copilot
+   * link at all and only replies and bounces are tracked.
+   */
+  track_activity: boolean;
+  /**
+   * The grey unsubscribe line and the List-Unsubscribe headers mail
+   * providers turn into their own button. Off by default: an LP update is a
+   * personal email, not a mailing.
+   */
+  unsubscribe_link: boolean;
+  /**
+   * Set on confirmation: the created_at of the last recipient the review
+   * counted. A recipient added after it is never sent.
+   */
+  confirmed_through: IsoDateTime | null;
+  /** Why it is paused; null unless paused. */
+  pause_reason: CampaignPauseReason | null;
+  created_by: Uuid | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+  /** When the last recipient was sent to. */
+  sent_at: IsoDateTime | null;
+}
+
+/**
+ * `unconfirmed`: the send was interrupted after it started, so it may have
+ * gone out. Never sent again automatically and never swept up by "retry
+ * failed": a person checks Gmail Sent and marks it sent or sends it again.
+ */
+export type CampaignRecipientStatus = 'pending' | 'sent' | 'failed' | 'unconfirmed' | 'skipped';
+
+export interface CampaignMerge {
+  first_name?: string;
+  name?: string;
+  company?: string;
+}
+
+export interface CampaignRecipient {
+  id: Uuid;
+  organization_id: Uuid;
+  campaign_id: Uuid;
+  /** Lowercased. */
+  email: string;
+  name: string | null;
+  merge: CampaignMerge;
+  /** The CRM person the recipient came from. */
+  record_id: Uuid | null;
+  status: CampaignRecipientStatus;
+  gmail_message_id: string | null;
+  gmail_thread_id: string | null;
+  /** Why it failed or was skipped. Safe to show. */
+  error: string | null;
+  /** Set just before the send; still pending with this set means interrupted mid-send. */
+  attempted_at: IsoDateTime | null;
+  sent_at: IsoDateTime | null;
+  opened_at: IsoDateTime | null;
+  open_count: number;
+  clicked_at: IsoDateTime | null;
+  click_count: number;
+  replied_at: IsoDateTime | null;
+  bounced_at: IsoDateTime | null;
+  unsubscribed_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+/** `resubscribe` undoes an earlier unsubscribe for that address: the latest of the two wins. */
+export type CampaignEventKind =
+  'open' | 'click' | 'reply' | 'bounce' | 'unsubscribe' | 'resubscribe';
+
+export interface CampaignEvent {
+  id: Uuid;
+  organization_id: Uuid;
+  campaign_id: Uuid | null;
+  recipient_id: Uuid | null;
+  kind: CampaignEventKind;
+  /** The link, for a click. */
+  url: string | null;
+  /** Lowercased, for an unsubscribe: the suppression list. */
+  email: string | null;
+  at: IsoDateTime;
+  user_agent: string | null;
+  /**
+   * An open or click that looked like a machine (a mail scanner checking
+   * links, a prefetch): kept for the record, never counted as the person's.
+   */
+  automated: boolean;
+}
+
+/**
+ * One row per organization: who may send campaign email right now. A batch
+ * takes the lease before its first email and renews it before each one, so
+ * two batches (two tabs, two server instances) never send at once, and the
+ * pace and the 24-hour cap hold across them.
+ */
+export interface CampaignSendLock {
+  organization_id: Uuid;
+  /** The holder's token, swapped atomically to take the lease. */
+  lease_token: string | null;
+  /** Null when released; a lease past this time is free to take. */
+  lease_expires_at: IsoDateTime | null;
+  /** The campaign the holder is sending. */
+  campaign_id: Uuid | null;
+  /** The organization's last campaign email, which paces the next. */
+  last_sent_at: IsoDateTime | null;
   updated_at: IsoDateTime;
 }
 
@@ -1101,6 +1263,26 @@ export interface AiUsageRecord {
   error_code: string | null;
   duration_ms: number;
   created_at: IsoDateTime;
+}
+
+/**
+ * A token a Claude client (a claude.ai custom connector, a Claude Code session,
+ * a cloud routine) uses to read the CRM through the MCP endpoint. Only the
+ * SHA-256 of the token is stored; the token itself is shown once, at creation.
+ */
+export interface McpToken {
+  id: Uuid;
+  organization_id: Uuid;
+  /** What the owner called the client, e.g. "claude.ai" or "Deal-sorter routine". */
+  name: string;
+  /** Hex SHA-256 of the whole token. */
+  token_hash: string;
+  /** The token's last four characters, so the owner can tell tokens apart. */
+  hint: string;
+  created_by: Uuid | null;
+  created_at: IsoDateTime;
+  last_used_at: IsoDateTime | null;
+  revoked_at: IsoDateTime | null;
 }
 
 export interface AuditEvent {

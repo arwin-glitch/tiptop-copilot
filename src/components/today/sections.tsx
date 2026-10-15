@@ -23,6 +23,7 @@ export function ExpandableSection({
   defaultOpen = false,
   emptyLabel,
   action,
+  note,
 }: {
   title: string;
   count: number;
@@ -30,6 +31,8 @@ export function ExpandableSection({
   defaultOpen?: boolean;
   emptyLabel?: string;
   action?: React.ReactNode;
+  /** A short line beside the count, readable while the section is closed. */
+  note?: React.ReactNode;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
   const id = React.useId();
@@ -64,6 +67,7 @@ export function ExpandableSection({
           />
           <h2 className="font-serif text-base font-semibold">{title}</h2>
           <span className="tabular text-sm text-[var(--fg-subtle)]">{count}</span>
+          {note}
         </button>
         {action}
       </div>

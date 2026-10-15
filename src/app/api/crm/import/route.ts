@@ -6,6 +6,7 @@ import { getStore } from '@/lib/runtime';
 import { rateLimit } from '@/lib/security/limits';
 import { crmActor } from '@/lib/services/crm';
 import { importAffinityList, importAffinityNotes } from '@/lib/services/crm-import';
+import { importAffinityIntroductions } from '@/lib/services/introductions';
 import { CRM_FIELD_TYPES } from '@/lib/types/domain';
 import { statusForError, type AppError } from '@/lib/util/result';
 
@@ -84,7 +85,32 @@ const NOTES_BODY = z.object({
     .max(LIMITS.rowsPerRequest),
 });
 
-const BODY = z.discriminatedUnion('kind', [LIST_BODY, NOTES_BODY]);
+const PARTY = z.object({
+  kind: z.enum(['person', 'company']),
+  name: text(500),
+  email: text(320),
+  domain: text(253),
+  organization: z.object({ name: text(500), domain: text(253) }).nullish(),
+});
+
+const INTRODUCTIONS_BODY = z.object({
+  kind: z.literal('introductions'),
+  introductions: z
+    .array(
+      z.object({
+        externalId: z.string().trim().min(1).max(300),
+        section: z.enum(['made_by', 'made_to', 'source_people', 'source_orgs']),
+        introducer: PARTY,
+        introduced: z.array(PARTY).min(1).max(4),
+        date: z.iso.date().nullish(),
+        evidence: z.enum(['email', 'chat']).nullish(),
+      }),
+    )
+    .min(1)
+    .max(LIMITS.rowsPerRequest),
+});
+
+const BODY = z.discriminatedUnion('kind', [LIST_BODY, NOTES_BODY, INTRODUCTIONS_BODY]);
 
 /** Past the page's own 2MB chunks, and short of the proxy's 10MB buffer, where bodies get cut. */
 const MAX_BODY_BYTES = 8_000_000;
@@ -127,7 +153,9 @@ export async function POST(request: NextRequest) {
   const result =
     body.kind === 'list'
       ? await importAffinityList(store, auth.value.organizationId, body, actor)
-      : await importAffinityNotes(store, auth.value.organizationId, body, actor);
+      : body.kind === 'notes'
+        ? await importAffinityNotes(store, auth.value.organizationId, body, actor)
+        : await importAffinityIntroductions(store, auth.value.organizationId, body, actor);
   if (!result.ok) return fail(result.error);
   return NextResponse.json(
     { ok: true, kind: body.kind, ...result.value },

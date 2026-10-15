@@ -160,6 +160,12 @@ export const FUND_II_TABS = define({
       label: 'Passed',
       blurb: 'LPs who passed on Fund II, with any note.',
     },
+    {
+      key: 'campaigns',
+      label: 'Campaigns',
+      blurb:
+        'LP updates and offerings sent one email per person from your mailbox, with who opened, clicked and replied.',
+    },
   ],
 });
 
@@ -201,6 +207,11 @@ export const NETWORK_TABS = define({
       key: 'cold',
       label: 'Going cold',
       blurb: 'Key relationships with no contact for a while, and how long it has been.',
+    },
+    {
+      key: 'keep',
+      label: 'Keep in touch',
+      blurb: 'Everyone with a check-in cadence set on their profile: overdue, due soon, on track.',
     },
     {
       key: 'people',

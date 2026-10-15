@@ -1,0 +1,21 @@
+﻿Introductions Made By:
+Person Name,Person Email,Internal Name,Internal Email,External Name,External Email,Date,Email ID
+Hana Kuroda,hana@riverlight.example,Nick Tippmann,nick@tiptop.demo,Ada Brennan,ada@brindlehealth.example,3/14/2026,90001
+Hana Kuroda,hana@riverlight.example,Nick Tippmann,nick@tiptop.demo,Rafael Quintero,rafael@juniperrobotics.example,6/2/2026,90002
+"Okafor, Bea",bea@lumenhollow.example,Nick Tippmann,nick@tiptop.demo,Wren Halvorsen,wren@tidecrest.example,8/19/2026,90003
+
+Introductions Made To:
+Person Name,Person Email,Introducer Name,Introducer Email,Introducee Name,Introducee Email,Date,Email ID
+Maren Solberg,maren@oakhaven-capital.example,Desmond Achterberg,desmond@pinecrest-fo.example,Nick Tippmann,nick@tiptop.demo,1/9/2026,90004
+Priya Nandakumar,priya@hearthstone-payroll.example,,,Nick Tippmann,nick@tiptop.demo,2/1/2026,90005
+
+Source of Introduction for (People):
+Person Name,Person Email,Person Introduced Name,Person Introduced Email,Date,Email ID,Date,Chat Message ID
+Hana Kuroda,hana@riverlight.example,Ada Brennan,ada@brindlehealth.example,3/14/2026,90001,,
+Hana Kuroda,hana@riverlight.example,Sven Malmberg,sven@kestrel-analytics.example,,,,
+Owen Thistlewood,owen@thistlewood.example,Imani Oduya,imani@quillmark.example,,,5/5/2026,77001
+
+Source of Introduction for (Organizations):
+Person Name,Person Email,Organization Introduced Name,Organization Introduced Domain,Date,Email ID,Date,Chat Message ID
+Hana Kuroda,hana@riverlight.example,Juniper Robotics,juniperrobotics.example,6/2/2026,90002,,
+Owen Thistlewood,owen@thistlewood.example,Saltmarsh Labs,,,,,

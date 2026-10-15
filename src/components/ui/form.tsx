@@ -24,10 +24,10 @@ export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInp
   return <input className={cn(controlBase, 'h-9 py-0', className)} {...props} />;
 }
 
-export function Textarea({
-  className,
-  ...props
-}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+// ComponentProps rather than the HTML attributes alone, so a `ref` passes
+// through (a prop like any other since React 19): the Ask composer focuses it,
+// and the campaign composer inserts merge fields at the cursor.
+export function Textarea({ className, ...props }: React.ComponentProps<'textarea'>) {
   return (
     <textarea
       className={cn(controlBase, 'min-h-24 resize-y leading-relaxed', className)}

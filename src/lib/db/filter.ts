@@ -119,6 +119,14 @@ export function matchesFilter(row: Record<string, unknown>, filter?: Filter): bo
       if (!hit) return false;
     }
   }
+  if (filter.textContains) {
+    for (const [k, text] of Object.entries(filter.textContains)) {
+      const needle = text.toLowerCase();
+      if (!needle) continue;
+      const actual = field(row, k);
+      if (typeof actual !== 'string' || !actual.toLowerCase().includes(needle)) return false;
+    }
+  }
   return true;
 }
 
