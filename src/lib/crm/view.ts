@@ -1,11 +1,23 @@
 import { displayCrmValue } from '@/lib/crm/fields';
+import {
+  DEFAULT_VIEW_STATE,
+  decodeCondition,
+  encodeCondition,
+  isSavedViewId,
+  normalizeViewState,
+  sameViewState,
+  viewStateOf,
+  type CrmSavedView,
+  type CrmViewCondition,
+  type CrmViewState,
+} from '@/lib/crm/saved-views';
 import type { CrmField, CrmFieldType, CrmValue } from '@/lib/types/domain';
 
 /**
  * The shape of a list page: its URL state, its status ordering, and the
  * columns a reader has hidden.
  *
- * Pure, like fields.ts (the only thing it imports), because the server page and the
+ * Pure, like fields.ts and saved-views.ts (all it imports), because the server page and the
  * client table both read it — a runtime value exported from a 'use client'
  * module reaches a server component as a client reference proxy, not the value
  * (the same mistake once crashed `/deals` at request time).
@@ -96,8 +108,16 @@ export const CRM_LIST_PAGE_SIZE = 100;
 
 export type CrmListViewMode = 'table' | 'board';
 
-/** What a list page shows, as its URL says. */
-export interface CrmListParams {
+/**
+ * What a list page shows, as its URL says.
+ *
+ * A saved view is `v=<id>`. On its own that means "the view as saved"; once
+ * anything the view decides is changed the URL carries the whole state and
+ * `mod=1`, so "Save" knows there is something to save and a cleared filter
+ * stays cleared rather than falling back to the view's. On the built-in All
+ * view (no `v`) the URL always carries the whole state.
+ */
+export interface CrmListParams extends CrmViewState {
   q: string;
   /** A sort column (`title`, `position`, …) or field key; '' for list order. */
   sort: string;
@@ -107,7 +127,22 @@ export interface CrmListParams {
   /** 1-based. */
   page: number;
   view: CrmListViewMode;
+  /** The saved view (`v`), '' for All. */
+  viewId: string;
+  /** The state differs from the saved view's (`mod=1`): the URL carries all of it. */
+  modified: boolean;
 }
+
+/** The parts of the page's state a view decides, as CrmListParams keys. */
+const VIEW_STATE_KEYS: readonly (keyof CrmViewState)[] = [
+  'view',
+  'columns',
+  'sort',
+  'dir',
+  'statuses',
+  'conditions',
+  'groupBy',
+];
 
 type RawParams = Record<string, string | string[] | undefined>;
 
@@ -120,10 +155,17 @@ function all(value: string | string[] | undefined): string[] {
   return (Array.isArray(value) ? value : [value]).filter((v) => v.trim() !== '');
 }
 
-/** The list page's state from its search params, every value checked. */
+/**
+ * The list page's state from its search params, every value checked for
+ * shape. Columns, conditions and the grouping are checked against the list's
+ * fields later (resolveListParams), once the list is loaded.
+ */
 export function parseCrmListParams(params: RawParams): CrmListParams {
   const page = Number.parseInt(first(params.page) ?? '', 10);
   const sort = first(params.sort) ?? '';
+  const viewId = first(params.v) ?? '';
+  const cols = first(params.cols);
+  const group = first(params.group) ?? '';
   return {
     q: (first(params.q) ?? '').trim().slice(0, 200),
     sort: /^[a-z][a-z0-9_]{0,59}$/.test(sort) ? sort : '',
@@ -131,6 +173,20 @@ export function parseCrmListParams(params: RawParams): CrmListParams {
     statuses: [...new Set(all(params.status))].slice(0, 50),
     page: Number.isFinite(page) && page > 1 ? Math.min(page, 100_000) : 1,
     view: first(params.view) === 'board' ? 'board' : 'table',
+    viewId: isSavedViewId(viewId) ? viewId : '',
+    modified: first(params.mod) === '1',
+    columns:
+      cols === undefined
+        ? null
+        : [...new Set(cols.split(',').filter((k) => /^_?[a-z][a-z0-9_]{0,59}$/.test(k)))].slice(
+            0,
+            300,
+          ),
+    conditions: all(params.f)
+      .map(decodeCondition)
+      .filter((c): c is CrmViewCondition => c !== null)
+      .slice(0, 40),
+    groupBy: /^[a-z][a-z0-9_]{0,59}$/.test(group) ? group : '',
   };
 }
 
@@ -138,20 +194,94 @@ export function parseCrmListParams(params: RawParams): CrmListParams {
  * The query string for a list page with some state changed, defaults left
  * out so a plain link stays plain. Changing anything but the page goes back
  * to page one — page 37 of a different filter is not a place anyone meant.
+ * Changing what a saved view decides marks it modified (see CrmListParams).
  */
 export function crmListQuery(current: CrmListParams, changes: Partial<CrmListParams>): string {
   const next = { ...current, ...changes };
   if (!('page' in changes)) next.page = 1;
+  if (next.viewId && !('modified' in changes) && VIEW_STATE_KEYS.some((key) => key in changes)) {
+    next.modified = true;
+  }
+  // A saved view as saved is just its id; anything else spells itself out.
+  const full = !next.viewId || next.modified;
   const search = new URLSearchParams();
-  if (next.view === 'board') search.set('view', 'board');
+  if (next.viewId) {
+    search.set('v', next.viewId);
+    if (next.modified) search.set('mod', '1');
+  }
+  if (full && next.view === 'board') search.set('view', 'board');
   if (next.q) search.set('q', next.q);
-  for (const status of next.statuses) search.append('status', status);
-  if (next.sort) {
-    search.set('sort', next.sort);
-    if (next.dir === 'desc') search.set('dir', 'desc');
+  if (full) {
+    for (const status of next.statuses) search.append('status', status);
+    if (next.sort) {
+      search.set('sort', next.sort);
+      if (next.dir === 'desc') search.set('dir', 'desc');
+    }
+    if (next.columns) search.set('cols', next.columns.join(','));
+    for (const condition of next.conditions) search.append('f', encodeCondition(condition));
+    if (next.view === 'board' && next.groupBy) search.set('group', next.groupBy);
   }
   if (next.page > 1) search.set('page', String(next.page));
   return search.toString();
+}
+
+/**
+ * The CSV export of the view on screen: the page's whole state, with the
+ * columns as this browser shows them spelled out (the All view's hidden
+ * columns live in localStorage, which the server cannot see).
+ */
+export function crmViewExportHref(
+  listId: string,
+  current: CrmListParams,
+  visibleColumns: readonly string[],
+): string {
+  const qs = crmListQuery(current, { columns: [...visibleColumns], page: 1 });
+  return `/api/crm/lists/${listId}/export${qs ? `?${qs}` : ''}`;
+}
+
+/** Every note on a company or person, as a CSV. */
+export function crmNotesExportHref(recordId: string): string {
+  return `/api/crm/records/${recordId}/notes/export`;
+}
+
+/** The whole CRM as a ZIP of CSVs (owners only). */
+export const CRM_EXPORT_EVERYTHING_HREF = '/api/crm/export';
+
+/** The parameters of a list page showing a saved view as saved (or All, for ''), keeping the search. */
+export function crmViewParams(current: Pick<CrmListParams, 'q'>, viewId: string): CrmListParams {
+  return {
+    ...viewStateOf(DEFAULT_VIEW_STATE),
+    q: current.q,
+    page: 1,
+    viewId: isSavedViewId(viewId) ? viewId : '',
+    modified: false,
+  };
+}
+
+/**
+ * The page's state with its saved view applied: the view as saved when the
+ * URL names one and has not changed it, else the URL's own state — either
+ * way checked against the list's fields, so a column or condition naming a
+ * field the list no longer has is dropped. A `v` naming no saved view (one
+ * deleted since the link was copied) falls back to All and says so.
+ */
+export function resolveListParams(
+  params: CrmListParams,
+  fields: readonly CrmField[],
+  views: readonly CrmSavedView[],
+): { params: CrmListParams; active: CrmSavedView | null; missingView: boolean; dirty: boolean } {
+  const active = params.viewId ? (views.find((v) => v.id === params.viewId) ?? null) : null;
+  const missingView = Boolean(params.viewId) && !active;
+  const state =
+    active && !params.modified ? viewStateOf(active) : normalizeViewState(params, fields);
+  const resolved: CrmListParams = {
+    ...params,
+    ...state,
+    viewId: active ? active.id : '',
+    modified: active ? params.modified : false,
+  };
+  const dirty = !sameViewState(resolved, active ?? DEFAULT_VIEW_STATE);
+  return { params: resolved, active, missingView, dirty };
 }
 
 export function crmListHref(
@@ -178,12 +308,18 @@ export function crmColumnsKey(listId: string): string {
   return `crm-columns:${listId}`;
 }
 
-/** A stored hidden-column value as keys of fields the list still has. Garbage reads as none hidden. */
+/**
+ * A stored hidden-column value as keys of fields the list still has. Nothing
+ * stored (this browser never chose) is the list's `defaults`; garbage reads
+ * as none hidden.
+ */
 export function parseHiddenColumns(
   raw: string | null | undefined,
   fields: readonly Pick<CrmField, 'key'>[],
+  defaults: readonly string[] = [],
 ): Set<string> {
-  if (!raw) return new Set();
+  const keys = new Set(fields.map((f) => f.key));
+  if (!raw) return new Set(defaults.filter((k) => keys.has(k)));
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -191,7 +327,6 @@ export function parseHiddenColumns(
     return new Set();
   }
   if (!Array.isArray(parsed)) return new Set();
-  const keys = new Set(fields.map((f) => f.key));
   return new Set(parsed.filter((k): k is string => typeof k === 'string' && keys.has(k)));
 }
 
@@ -217,16 +352,16 @@ export function readHiddenColumnsRaw(
 
 /** False when the choice could not be stored; the page still applies it for this visit. */
 export function writeHiddenColumns(
-  storage: () => Pick<Storage, 'setItem' | 'removeItem'> | null | undefined,
+  storage: () => Pick<Storage, 'setItem'> | null | undefined,
   listId: string,
   hidden: Iterable<string>,
 ): boolean {
   try {
     const target = storage();
     if (!target) return false;
-    const value = serializeHiddenColumns(hidden);
-    if (value === '[]') target.removeItem(crmColumnsKey(listId));
-    else target.setItem(crmColumnsKey(listId), value);
+    // "None hidden" is stored too ("[]"), not removed: it is a choice, and it
+    // must outlast a list's default-hidden columns (parseHiddenColumns).
+    target.setItem(crmColumnsKey(listId), serializeHiddenColumns(hidden));
     return true;
   } catch {
     return false;

@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { requireAuth } from '@/lib/auth/session';
-import { envLimits, isDemoMode } from '@/lib/config/env';
+import { hasRole, requireAuth } from '@/lib/auth/session';
+import { env, envLimits, isDemoMode } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
+import { listMcpTokens } from '@/lib/services/mcp-tokens';
+import { err } from '@/lib/util/result';
 import { vapidPublicKey } from '@/lib/services/push-alerts';
 import { configuredCriteria, getActiveThesis } from '@/lib/services/thesis';
 import { googleConfigured } from '@/lib/google/oauth';
@@ -17,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ThesisEditor, TimezoneSetting } from '@/components/settings/settings-client';
 import { IntegrationControls } from '@/components/settings/integration-controls';
 import { PushAlertsSetting } from '@/components/settings/push-alerts';
+import { McpConnectCard } from '@/components/settings/mcp-connect';
 import { formatDateTime } from '@/lib/util/time';
 
 export const metadata: Metadata = { title: 'Settings' };
@@ -32,6 +35,11 @@ export default async function SettingsPage() {
   const limits = envLimits();
   const criteria = configuredCriteria(thesis);
   const demo = isDemoMode();
+  const canManageMcp = hasRole(auth, 'owner');
+  const mcpTokens = canManageMcp
+    ? await listMcpTokens(store, auth.organizationId)
+    : err('forbidden', 'Owners only.');
+  const mcpEndpoint = `${env().appUrl.replace(/\/+$/, '')}/api/mcp`;
 
   return (
     <PageShell>
@@ -189,6 +197,33 @@ export default async function SettingsPage() {
               <Button asChild variant="secondary" size="sm">
                 <Link href="/lists/import">Import from Affinity</Link>
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="mt-4">
+            <CardHeader>
+              <div>
+                <CardTitle as="h2">Connect Claude (MCP)</CardTitle>
+                <p className="mt-1 text-sm text-[var(--fg-muted)]">
+                  Let Claude read the CRM, the deal and LP pipelines, the portfolio and open tasks:
+                  claude.ai as a custom connector, Claude Code and the cloud routines with a token.
+                  Read-only, LP stages without amounts, and each connection has its own token you
+                  can revoke.
+                </p>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <McpConnectCard
+                endpoint={mcpEndpoint}
+                initialTokens={mcpTokens.ok ? mcpTokens.value : []}
+                setupMessage={
+                  !mcpTokens.ok && mcpTokens.error.code !== 'forbidden'
+                    ? mcpTokens.error.message
+                    : null
+                }
+                canManage={canManageMcp}
+                timeZone={auth.profile.timezone}
+              />
             </CardContent>
           </Card>
         </TabsContent>

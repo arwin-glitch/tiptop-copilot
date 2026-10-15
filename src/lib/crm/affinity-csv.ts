@@ -605,7 +605,7 @@ export function defaultListName(filename: string): string {
     /^(.*?)_{2,}(?:notes_|introductions_|people_)?export_[a-z]{3}-\d{1,2}-\d{4}(?:\s*\(\d+\))?$/i,
   );
   if (affinity) {
-    const spaced = affinity[1].replace(/_+/g, ' ').trim();
+    const spaced = (affinity[1] ?? '').replace(/_+/g, ' ').trim();
     name = spaced.replace(/\s+All\b.*$/i, '').trim() || spaced;
   }
   for (let pass = 0; pass < 4; pass++) {

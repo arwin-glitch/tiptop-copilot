@@ -19,6 +19,7 @@ import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { getRecordRelationship, relationshipScope } from '@/lib/services/relationships';
 import { getActiveThesis } from '@/lib/services/thesis';
 import { CrmNoteList } from '@/components/lists/crm-note-list';
+import { ExportNotesLink } from '@/components/lists/export-notes-link';
 import { CrmValueView } from '@/components/lists/crm-value';
 import { RelationshipPanel, WhoCanIntro } from '@/components/network/record-relationship';
 import { KeepInTouchCard } from '@/components/network/keep-in-touch-card';
@@ -230,7 +231,15 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
           </section>
 
           <section aria-labelledby="profile-notes">
-            <SectionHeading count={notes.length}>
+            <SectionHeading
+              count={notes.length}
+              action={
+                // The export route serves members and above.
+                notes.length > 0 && hasRole(auth, 'member') ? (
+                  <ExportNotesLink recordId={record.id} recordName={record.name} />
+                ) : null
+              }
+            >
               <span id="profile-notes">Notes</span>
             </SectionHeading>
             <CrmNoteList

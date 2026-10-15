@@ -54,6 +54,11 @@ const PUBLIC_PATHS = [
   // Same shared-secret contract; the watcher that notices new follow-ups
   // posts them here (add-only) and carries no session cookie either.
   '/api/integrations/tasks/webhook',
+  // The MCP server Claude reads the CRM through. Its clients (claude.ai
+  // connectors, Claude Code, the cloud routines) carry a per-client token —
+  // a Bearer header or the last path segment — never a session cookie; the
+  // route checks the token itself (lib/mcp/http.ts).
+  '/api/mcp',
 ];
 
 /**

@@ -7,6 +7,8 @@ import { ArrowUpRight } from 'lucide-react';
 import { addCrmNoteAction, getCrmEntryAction } from '@/app/actions/crm';
 import { CrmNoteList } from '@/components/lists/crm-note-list';
 import { CrmValueView } from '@/components/lists/crm-value';
+import { ExportNotesLink } from '@/components/lists/export-notes-link';
+import { TimeInStatus } from '@/components/lists/list-table';
 import { StatusSelect } from '@/components/lists/status-select';
 import type { ListViewList } from '@/components/lists/list-view';
 import { DataRow, SectionHeading } from '@/components/shell/page-header';
@@ -14,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, Drawer } from '@/components/ui/dialog';
 import { ErrorState, SkeletonText } from '@/components/ui/feedback';
 import { Textarea } from '@/components/ui/form';
+import { CRM_TIME_IN_STATUS_LABEL, type CrmTimeInStatus } from '@/lib/crm/saved-views';
 import type { CrmEntryDetail, CrmRecordSummary } from '@/lib/services/crm';
 import type { CrmField, CrmListEntry, CrmNote, CrmValue } from '@/lib/types/domain';
 import { formatDate } from '@/lib/util/time';
@@ -42,6 +45,8 @@ export function EntryDrawer({
   statusField,
   statusOptions,
   valuesOf,
+  timer,
+  now,
   timezone,
   canWrite,
   saving,
@@ -54,6 +59,9 @@ export function EntryDrawer({
   statusField: CrmField | null;
   statusOptions: string[];
   valuesOf: (entry: CrmListEntry) => Record<string, CrmValue>;
+  /** How long the entry has been in its current status, when known. */
+  timer?: CrmTimeInStatus;
+  now: number;
   timezone: string;
   canWrite: boolean;
   saving: boolean;
@@ -201,12 +209,24 @@ export function EntryDrawer({
                       <CrmValueView field={field} value={values[field.key]} timezone={timezone} />
                     </DataRow>
                   ))}
+                {statusField ? (
+                  <DataRow label={CRM_TIME_IN_STATUS_LABEL}>
+                    <TimeInStatus timer={timer} now={now} timezone={timezone} detail />
+                  </DataRow>
+                ) : null}
                 <DataRow label="Added">{formatDate(entry.created_at, timezone)}</DataRow>
               </dl>
             </section>
 
             <section aria-labelledby="entry-notes">
-              <SectionHeading count={current?.detail?.notes.length}>
+              <SectionHeading
+                count={current?.detail?.notes.length}
+                action={
+                  canWrite && linked && current?.detail?.notes.length ? (
+                    <ExportNotesLink recordId={linked.id} recordName={linked.name} />
+                  ) : null
+                }
+              >
                 <span id="entry-notes">Notes</span>
               </SectionHeading>
               {canWrite ? (

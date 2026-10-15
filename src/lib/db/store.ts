@@ -24,6 +24,7 @@ import type {
   Integration,
   KnowledgeChunk,
   KnowledgeDocument,
+  McpToken,
   MeetingNote,
   NetworkContact,
   Organization,
@@ -89,6 +90,7 @@ export interface TableMap {
   generated_drafts: GeneratedDraft;
   ai_usage: AiUsageRecord;
   audit_events: AuditEvent;
+  mcp_tokens: McpToken;
   user_feedback: UserFeedback;
   sync_runs: SyncRun;
 }
@@ -158,6 +160,12 @@ export interface Filter {
    * in the value, or with `mode: 'prefix'` at its start.
    */
   textSearch?: { columns: string[]; query: string; mode?: 'contains' | 'prefix' };
+  /**
+   * Case-insensitive substring match on each listed column (AND across
+   * columns, unlike `textSearch`). The text is literal: `%` and `_` match
+   * themselves. A column may be a JSON path (`values->>owners`).
+   */
+  textContains?: Record<string, string>;
 }
 
 export interface QueryOptions {
