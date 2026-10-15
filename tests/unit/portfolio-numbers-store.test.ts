@@ -12,6 +12,7 @@ import {
   NUMBERS_SNAPSHOT_ACTION,
   readNumbersSnapshot,
   refreshPortfolioNumbers,
+  refreshSettled,
   resetPortfolioNumbersRefresh,
   snapshotIsStale,
   type NumbersComputation,
@@ -382,5 +383,196 @@ describe('the stored numbers', () => {
     const ledgerly = loaded.result.companies.find((c) => c.name === 'Ledgerly');
     expect(ledgerly?.revenue?.value.display).toBe('$780K');
     expect((await readNumbersSnapshot(harness.store, org))?.checked).toBe(companies.length);
+  });
+});
+
+describe('a refresh that runs out of time', () => {
+  let harness: Harness;
+  let org: string;
+
+  beforeEach(async () => {
+    resetPortfolioNumbersRefresh();
+    harness = await createHarness({ now: NOW });
+    org = harness.auth.organizationId;
+  });
+  afterEach(async () => {
+    vi.useRealTimers();
+    resetPortfolioNumbersRefresh();
+    await harness.dispose();
+  });
+
+  /** A reader that answers each pass in turn, repeating the last answer. */
+  const passes = (...answers: NumbersComputation['reads'][]) => {
+    let call = 0;
+    return vi.fn<NumbersReader>(async () => ({
+      state: 'ok',
+      reads: answers[Math.min(call++, answers.length - 1)]!,
+    }));
+  };
+
+  const fast = { now: () => NOW, pauseMs: 0 };
+  const acmeOnly = [read(ACME.id, ACME_OCT), read(BRAMBLE.id, null, false)];
+  const both = [read(ACME.id, ACME_OCT), read(BRAMBLE.id, BRAMBLE_OCT)];
+
+  it('carries on by itself until every company is read', async () => {
+    const gmail = passes(acmeOnly, both);
+    const first = await refreshPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], {
+      ...fast,
+      read: gmail,
+    });
+    expect(first.snapshot?.partial).toBe(true);
+    expect(first.next).not.toBeNull();
+
+    const last = await refreshSettled(Promise.resolve(first));
+    expect(gmail).toHaveBeenCalledTimes(2);
+    expect(last.next).toBeNull();
+    const stored = await readNumbersSnapshot(harness.store, org);
+    expect(stored?.partial).toBe(false);
+    expect(stored?.companies.map((c) => c.name)).toEqual(['Acme Widgets', 'Bramble Labs']);
+    expect(
+      await harness.store.list('audit_events', org, { eq: { action: NUMBERS_SNAPSHOT_ACTION } }),
+    ).toHaveLength(1);
+  });
+
+  it('stores each pass as it ends', async () => {
+    let between: NumbersSnapshot | null = null;
+    let call = 0;
+    const gmail = vi.fn<NumbersReader>(async (store, organizationId) => {
+      call += 1;
+      if (call === 1) return { state: 'ok', reads: acmeOnly };
+      between = await readNumbersSnapshot(store, organizationId);
+      return { state: 'ok', reads: both };
+    });
+    await refreshSettled(
+      refreshPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], { ...fast, read: gmail }),
+    );
+    const seen = between as NumbersSnapshot | null;
+    expect(seen?.partial).toBe(true);
+    expect(seen?.companies.map((c) => c.name)).toEqual(['Acme Widgets']);
+  });
+
+  it('stops when a pass reads no company in full that an earlier pass had not', async () => {
+    const gmail = passes(acmeOnly);
+    const last = await refreshSettled(
+      refreshPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], { ...fast, read: gmail }),
+    );
+    // The second pass finished nothing new, so there is no third.
+    expect(gmail).toHaveBeenCalledTimes(2);
+    expect(last.snapshot?.partial).toBe(true);
+    expect(last.next).toBeNull();
+  });
+
+  it('stops after six passes even while each one reads more', async () => {
+    const companies: CompanyLike[] = Array.from({ length: 9 }, (_, i) => ({
+      id: `c-fictional-${i}`,
+      name: `Fictional Co ${i}`,
+      domain: null,
+    }));
+    let call = 0;
+    const gmail = vi.fn<NumbersReader>(async () => {
+      call += 1;
+      return { state: 'ok', reads: companies.map((c, i) => read(c.id, null, i < call)) };
+    });
+    const last = await refreshSettled(
+      refreshPortfolioNumbers(harness.store, org, companies, { ...fast, read: gmail }),
+    );
+    expect(gmail).toHaveBeenCalledTimes(6);
+    expect(last.snapshot?.partial).toBe(true);
+    expect(last.next).toBeNull();
+  });
+
+  it('never lets a later partial pass replace a figure read in full', async () => {
+    const gmail = passes(
+      acmeOnly,
+      // Out of time on Acme this pass: only an older update was read.
+      [read(ACME.id, ACME_SEPT, false), read(BRAMBLE.id, BRAMBLE_OCT)],
+      both,
+    );
+    await refreshSettled(
+      refreshPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], { ...fast, read: gmail }),
+    );
+    const stored = await readNumbersSnapshot(harness.store, org);
+    expect(stored?.companies.find((c) => c.companyId === ACME.id)?.revenue?.value.display).toBe(
+      '$1.5M',
+    );
+    expect(stored?.partial).toBe(false);
+  });
+
+  it('is still one refresh: views and the job join the pass that is running', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let call = 0;
+    const gmail = vi.fn<NumbersReader>(async () => {
+      call += 1;
+      if (call === 1) return { state: 'ok', reads: acmeOnly };
+      await gate;
+      return { state: 'ok', reads: both };
+    });
+    const first = await refreshPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], {
+      ...fast,
+      read: gmail,
+    });
+    await vi.waitFor(() => expect(gmail).toHaveBeenCalledTimes(2));
+
+    const joined = refreshPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], {
+      ...fast,
+      read: gmail,
+    });
+    expect(joined).toBe(first.next);
+    const view = await loadPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], {
+      now: NOW,
+      read: gmail,
+    });
+    expect(view.refreshing).toBe(true);
+    expect(view.pending).toBe(first.next);
+    expect(view.result.state === 'ok' && view.result.partial).toBe(true);
+
+    release();
+    await refreshSettled(joined);
+    expect(gmail).toHaveBeenCalledTimes(2);
+    const done = await loadPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], {
+      now: NOW,
+      read: gmail,
+    });
+    expect(done.pending).toBeNull();
+    expect(done.result.state === 'ok' && done.result.partial).toBe(false);
+  });
+
+  it('stops when Gmail fails part-way, keeping the last pass stored', async () => {
+    let call = 0;
+    const gmail = vi.fn<NumbersReader>(async () => {
+      call += 1;
+      return call === 1 ? { state: 'ok', reads: acmeOnly } : { state: 'error', reads: [] };
+    });
+    const last = await refreshSettled(
+      refreshPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], { ...fast, read: gmail }),
+    );
+    expect(last.state).toBe('error');
+    expect(last.next).toBeNull();
+    const stored = await readNumbersSnapshot(harness.store, org);
+    expect(stored?.companies.map((c) => c.name)).toEqual(['Acme Widgets']);
+    expect(stored?.partial).toBe(true);
+
+    // The usual cooldown applies before a view tries again.
+    const view = await loadPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], {
+      now: new Date(NOW.getTime() + 3 * MINUTE),
+      read: gmail,
+    });
+    expect(view.pending).toBeNull();
+    expect(gmail).toHaveBeenCalledTimes(2);
+  });
+
+  it('pauses between passes to let the Gmail quota refill', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    const gmail = passes(acmeOnly, both);
+    const first = await refreshPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], {
+      now: () => NOW,
+      read: gmail,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(gmail).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await refreshSettled(Promise.resolve(first));
+    expect(gmail).toHaveBeenCalledTimes(2);
   });
 });

@@ -12,7 +12,7 @@ import {
 } from '@/lib/company-updates/metrics';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
-import { loadPortfolioNumbers } from '@/lib/services/portfolio-numbers';
+import { loadPortfolioNumbers, refreshSettled } from '@/lib/services/portfolio-numbers';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { formatDate, formatDateTime } from '@/lib/util/time';
 import { SectionHeading } from '@/components/shell/page-header';
@@ -38,11 +38,11 @@ export async function PortfolioNumbers({
   const loaded = await loadPortfolioNumbers(getStore(), organizationId, companies).catch(
     () => null,
   );
-  // The refresh finishes after the response; `after` keeps it alive.
+  // The refresh finishes after the response, every pass of it; `after` keeps it alive.
   const pending = loaded?.pending;
   if (pending) {
     after(async () => {
-      await pending;
+      await refreshSettled(pending);
     });
   }
   const result = loaded?.result ?? null;

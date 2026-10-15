@@ -10,7 +10,9 @@ import {
 import {
   loadPortfolioNumbers,
   readPortfolioNumbers,
+  readNumbersSnapshot,
   refreshPortfolioNumbers,
+  refreshSettled,
   resetPortfolioNumbersCache,
   resetPortfolioNumbersRefresh,
 } from '@/lib/services/portfolio-numbers';
@@ -47,8 +49,8 @@ const UPDATE = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-/** Gmail with one Ledgerly update whose thread is rate limited on its first read. */
-function fakeGmail() {
+/** Gmail with one Ledgerly update whose thread is rate limited on its first `limited` reads. */
+function fakeGmail(limited = 1) {
   const threadReads: string[] = [];
   vi.stubGlobal(
     'fetch',
@@ -77,7 +79,7 @@ function fakeGmail() {
       }
       if (path === `/threads/${UPDATE.id}`) {
         threadReads.push(UPDATE.id);
-        if (threadReads.length === 1) return json({ error: { code: 429 } }, 429);
+        if (threadReads.length <= limited) return json({ error: { code: 429 } }, 429);
         return json({
           id: UPDATE.id,
           messages: [
@@ -173,7 +175,8 @@ describe('portfolio numbers and a rate-limited Gmail', () => {
       harness.store,
       harness.auth.organizationId,
       companies,
-      { now: NOW },
+      // One pass only here; the pass that follows by itself is the next test.
+      { now: NOW, maxPasses: 1 },
     );
     // One try, no backoff: the page shows what it could read.
     expect(gmail.threadReads).toHaveLength(1);
@@ -191,6 +194,29 @@ describe('portfolio numbers and a rate-limited Gmail', () => {
     expect(
       done.snapshot?.companies.find((c) => c.name === 'Ledgerly')?.revenue?.value.display,
     ).toBe('$910K');
+  });
+
+  it('a first read that comes back partial carries on by itself, and that pass tries again', async () => {
+    // Limited twice: a second pass that failed fast as well would read nothing new.
+    const gmail = fakeGmail(2);
+    const org = harness.auth.organizationId;
+    const loaded = await loadPortfolioNumbers(harness.store, org, companies, {
+      now: NOW,
+      pauseMs: 0,
+    });
+    expect(loaded.result).toMatchObject({ state: 'ok', partial: true });
+    expect(loaded.refreshing).toBe(true);
+    expect(loaded.pending).not.toBeNull();
+
+    const last = await refreshSettled(loaded.pending!);
+    expect(last.next).toBeNull();
+    // The first pass's one try, then the background pass's 429 and its retry.
+    expect(gmail.threadReads).toHaveLength(3);
+    const stored = await readNumbersSnapshot(harness.store, org);
+    expect(stored?.partial).toBe(false);
+    expect(stored?.companies.find((c) => c.name === 'Ledgerly')?.revenue?.value.display).toBe(
+      '$910K',
+    );
   });
 
   it('beside the asks read, never more than four Gmail reads at once, and every body read', async () => {
