@@ -16,10 +16,15 @@ import { getActiveThesis } from '@/lib/services/thesis';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { VersionWatcher } from '@/components/shell/version-watcher';
 import { EmptyState, SkeletonText } from '@/components/ui/feedback';
+import { PageTabs } from '@/components/ui/page-tabs';
+import { AffinityEntries } from '@/components/crm/affinity-entries';
+import { AffinityPipeline } from '@/components/deals/affinity-pipeline';
 import { DealsBrowser } from '@/components/deals/deals-browser';
 import { DealSorterStatus } from '@/components/deals/deal-sorter-status';
 import { chooseColumnMode, type DealRow } from '@/lib/deals/pipeline-view';
 import { describeDealSorterStatus } from '@/lib/deals/sorter-status';
+import { DEALS_TABS, resolvePageTab } from '@/lib/records-tabs';
+import { PAGE_PARAM } from '@/lib/util/page-tabs';
 import { settlesWithin } from '@/lib/util/settle';
 
 export const metadata: Metadata = { title: 'Deals' };
@@ -34,6 +39,7 @@ export default async function DealsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
+  const tab = resolvePageTab(DEALS_TABS, params);
   // Stage, fit and sort are applied in the browser (DealsBrowser); only the
   // search and the archived list change which deals are sent.
   const q = single(params.q) ?? '';
@@ -43,12 +49,69 @@ export default async function DealsPage({
     <PageShell>
       <PageHeader
         title="Deals"
-        subtitle="Everything in the pipeline, with the current recommendation and how much of it rests on real evidence."
+        subtitle="Everything in the pipeline, with the current recommendation and how much of it rests on real evidence. Affinity's pipeline and watch lists sit beside it."
       />
-      <Suspense fallback={<SkeletonText lines={10} />}>
-        <DealsContent q={q} archived={archived} />
+      <PageTabs
+        label={DEALS_TABS.navLabel}
+        path={DEALS_TABS.path}
+        tabs={DEALS_TABS.tabs.map((t) => ({ key: t.key, label: t.label }))}
+        active={tab}
+        defaultKey={DEALS_TABS.defaultKey}
+      />
+      <Suspense key={tab} fallback={<SkeletonText lines={10} />}>
+        {tab === 'pipeline' ? (
+          <PipelineTab q={q} stage={single(params.stage) ?? null} page={params[PAGE_PARAM]} />
+        ) : tab === 'sourcing' ? (
+          <SourcingTab q={q} list={single(params.list) ?? null} page={params[PAGE_PARAM]} />
+        ) : (
+          <DealsContent q={q} archived={archived} />
+        )}
       </Suspense>
     </PageShell>
+  );
+}
+
+/** Copilot's deals and Affinity's deal lists as one pipeline, a row per company. */
+async function PipelineTab({
+  q,
+  stage,
+  page,
+}: {
+  q: string;
+  stage: string | null;
+  page: string | string[] | undefined;
+}) {
+  const auth = await requireAuth();
+  return <AffinityPipeline auth={auth} q={q} stage={stage} page={page} />;
+}
+
+/** The companies Affinity was watching or sourcing: watch lists, feeds, sector lists. */
+async function SourcingTab({
+  q,
+  list,
+  page,
+}: {
+  q: string;
+  list: string | null;
+  page: string | string[] | undefined;
+}) {
+  const auth = await requireAuth();
+  return (
+    <AffinityEntries
+      auth={auth}
+      destinations="sourcing"
+      path={DEALS_TABS.path}
+      tab="sourcing"
+      defaultTab={DEALS_TABS.defaultKey}
+      params={{ q, list, page }}
+      title="Sourcing"
+      searchLabel="Search sourcing lists"
+      searchPlaceholder="Search company name"
+      statusHeader="Priority / stage"
+      preferFields={/industry|sector|source|location|last contact/i}
+      emptyTitle="No sourcing lists yet"
+      emptyDescription="Affinity's watch lists, deal-flow feeds and sector lists land here once they are imported on Knowledge."
+    />
   );
 }
 

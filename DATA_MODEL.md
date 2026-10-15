@@ -191,6 +191,16 @@ their own `action`, so they need no table or migration: the phone-alert
 subscriptions and delivery ledger (`push.subscription`, `push.alerted`), and
 the Portfolio page's stored numbers (`portfolio.numbers_snapshot`, one row per
 organization holding the last read, replaced by each refresh).
+The daily Affinity sync keeps its progress the same way
+(`crm.affinity_sync`, `entity_type = 'affinity_sync'`): the newest row's
+`metadata.state` is the run in progress (which list, the next page URL, how
+often a page has failed), the last finished run's counts, the notes watermark
+and a lease. Each step of the sync appends two rows (taking the lease, then
+its progress). A page Affinity refuses (an expired cursor, a rejected filter)
+or keeps failing to send is moved past, never retried forever: the list or the
+notes restart from page 1, then the notes are read in full, then skipped. The
+watermark only moves when the run saw every changed note, so a skipped notes
+page is read again by the next run. No column or migration is involved.
 
 ### `ai_usage`
 
@@ -225,7 +235,7 @@ returns `not_configured` — the service recognises Postgres `42P01` and
 PostgREST `PGRST205` (`lib/db/missing-table.ts`); a table from an earlier copy
 of the migration (a missing column: `42703`, `PGRST204`) says to run it again.
 
-Affinity's exports arrive through `/lists/import`. The page parses and maps
+Affinity's exports arrive through Knowledge → Affinity import (`/knowledge?tab=import`; the old `/lists/import` redirects there). The page parses and maps
 each CSV in the browser (`lib/crm/affinity-csv.ts`) and posts chunks of up to
 200 rows to `/api/crm/import`, which runs them through
 `lib/services/crm-import.ts`: the list, then its records, then its entries.
@@ -237,6 +247,43 @@ has neither date nor author — computed in the browser so the key is fixed by
 the file itself; rows of the same note union their names and links. The page offers the existing lists to import into, pre-choosing one
 when the file is another saved view of it, and a list imported by mistake can
 be archived from its page.
+
+**Where a list's data goes.** There is no Lists page in the navigation: each
+list feeds the page that uses it. `lib/crm/destinations.ts` (pure) sends a
+list to one of `deals`, `sourcing`, `lps`, `lp_lists`, `angel`,
+`portfolio_people`, `investors`, `providers`, `operators`, `events` or
+`archive` from its name and entity type (ordered rules, first match wins;
+unmatched lists go to `archive`, shown only on Knowledge). Knowledge →
+Affinity lists (`/knowledge?tab=lists`) groups the lists that way and lets a
+member pick another destination. That choice is stored without a migration as
+an `audit_events` row per change — `action = 'crm.list_destination'`,
+`entity_type = 'crm_list'`, `entity_id` the list id, `metadata.destination`
+the choice (`null` = back to automatic) — and the newest row per list wins.
+Not in `crm_lists.fields` (those are the list's columns, rewritten by every
+re-import). If the audit rows cannot be read, every list falls back to its
+rules. Pages read a destination through `lib/services/crm-destinations.ts`
+(`listsFor`, `entriesFor`), never a list by name.
+
+**The daily Affinity sync.** Until the Affinity subscription is cancelled,
+`lib/services/affinity-sync.ts` copies Affinity in every morning through its
+API (`AFFINITY_API_KEY`; the daily GitHub workflow loops
+`POST /api/cron/affinity-sync`, and the owner has "Sync now" on Knowledge →
+Affinity import). It reads every list, its fields and its entries with all
+their field data, then the notes (after the first run, only those created or
+changed since the last one), and writes them through the same upserts as the
+CSV import, under the same keys: a list's `external_id` is its Affinity list
+id (the first sync adopts the CSV-imported list of the same name, also one
+named after a saved view, "List - View"), a record's is its organization or
+person id, a row's is its list entry id (a CSV row keyed `entity:<id>` is
+adopted and re-keyed), a note's is its note id (a CSV note keyed by a hash is
+recognised by its text and date and re-keyed). So it updates what was
+imported instead of duplicating it, a value changed in Copilot is kept, and
+a second run writes nothing. A list's own fields become its columns, and so
+does any field the list already had a column for; the other global, enriched
+and relationship fields (Industry, Description, Last Email…) go on the
+company or person record's `fields`, so a list stays a handful of columns.
+Nothing is deleted: a row removed in Affinity stays in Copilot. Its progress
+lives in `audit_events` (above).
 
 ---
 

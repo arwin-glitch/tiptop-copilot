@@ -8,11 +8,13 @@ import { getStore } from '@/lib/runtime';
 import { listPortfolio, openRequests } from '@/lib/services/portfolio';
 import { pullPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
 import { PORTFOLIO_TABS, SNAPSHOT_WAIT_MS, landsOnSnapshot, openingTab } from '@/lib/records-tabs';
-import { tabHref } from '@/lib/util/page-tabs';
+import { PAGE_PARAM, single, tabHref } from '@/lib/util/page-tabs';
+import { portfolioFounders } from '@/lib/services/crm-pages';
+import { AffinityEntries } from '@/components/crm/affinity-entries';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, FieldLabel } from '@/components/ui/card';
-import { EmptyState, SkeletonText } from '@/components/ui/feedback';
+import { EmptyState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
 import { PortfolioNumbers } from '@/components/portfolio/portfolio-numbers';
 import {
@@ -100,6 +102,20 @@ export default async function PortfolioPage({
           <NumbersTab auth={auth} />
         ) : tab === 'companies' ? (
           <CompaniesTab auth={auth} />
+        ) : tab === 'founders' ? (
+          <FoundersTab
+            auth={auth}
+            q={single(params.q) ?? ''}
+            list={single(params.list) ?? null}
+            page={params[PAGE_PARAM]}
+          />
+        ) : tab === 'angel' ? (
+          <AngelTab
+            auth={auth}
+            q={single(params.q) ?? ''}
+            list={single(params.list) ?? null}
+            page={params[PAGE_PARAM]}
+          />
         ) : (
           <HealthTab auth={auth} />
         )}
@@ -264,8 +280,89 @@ async function NumbersTab({ auth }: { auth: AuthContext }) {
   );
 }
 
+/**
+ * Every row of the lists that feed Portfolio as founders: Affinity's
+ * portfolio founder lists and any list of the portfolio itself, people and
+ * companies alike. Companies shows the founders that match one of its
+ * companies; this is the whole set, so a founder with a personal address or
+ * a company Copilot does not have yet is never lost.
+ */
+function FoundersTab({
+  auth,
+  q,
+  list,
+  page,
+}: {
+  auth: AuthContext;
+  q: string;
+  list: string | null;
+  page: string | string[] | undefined;
+}) {
+  return (
+    <AffinityEntries
+      auth={auth}
+      destinations="portfolio_people"
+      path={PORTFOLIO_TABS.path}
+      tab="founders"
+      defaultTab={PORTFOLIO_TABS.defaultKey}
+      params={{ q, list, page }}
+      title="Founders from Affinity"
+      searchLabel="Search founders"
+      searchPlaceholder="Search name"
+      statusHeader="Status"
+      preferFields={/company|organi[sz]ation|role|title|position|stage|sector/i}
+      emptyTitle="No founder lists from Affinity yet"
+      emptyDescription="Affinity's portfolio founder lists, and any list of the portfolio itself, land here once they are imported on Knowledge."
+    />
+  );
+}
+
+/**
+ * Nick's personal angel investments, from Affinity's angel list. Read-only and
+ * labelled as his own, so they are never read as part of the Fund I
+ * portfolio the other tabs cover.
+ */
+function AngelTab({
+  auth,
+  q,
+  list,
+  page,
+}: {
+  auth: AuthContext;
+  q: string;
+  list: string | null;
+  page: string | string[] | undefined;
+}) {
+  return (
+    <AffinityEntries
+      auth={auth}
+      destinations="angel"
+      path={PORTFOLIO_TABS.path}
+      tab="angel"
+      defaultTab={PORTFOLIO_TABS.defaultKey}
+      params={{ q, list, page }}
+      title="Angel investments"
+      searchLabel="Search angel investments"
+      searchPlaceholder="Search company name"
+      statusHeader="Status"
+      preferFields={/year|date|round|stage|sector|industry/i}
+      above={
+        <Notice>
+          Nick&rsquo;s personal angel investments, carried over from Affinity. Not Fund I: they are
+          not in the portfolio counts, health or numbers. Read-only here.
+        </Notice>
+      }
+      emptyTitle="No angel investments from Affinity yet"
+      emptyDescription="Nick's angel list from Affinity lands here once it is imported on Knowledge."
+    />
+  );
+}
+
 async function CompaniesTab({ auth }: { auth: AuthContext }) {
   const companies = await listPortfolio(auth.organizationId);
+  // Founders from Affinity's portfolio-founder lists, matched by work email
+  // domain or the entry's company column. Never fails: none on a fault.
+  const founders = await portfolioFounders(getStore(), auth.organizationId, companies);
   return (
     <section>
       <SectionHeading count={companies.length}>Companies</SectionHeading>
@@ -299,6 +396,14 @@ async function CompaniesTab({ auth }: { auth: AuthContext }) {
                 ) : null}
                 {company.key_metrics ? (
                   <p className="mt-1 text-sm text-[var(--fg-muted)]">{company.key_metrics}</p>
+                ) : null}
+                {founders[company.id]?.length ? (
+                  <p className="mt-1 text-sm">
+                    <span className="text-[var(--fg-subtle)]">Founders (Affinity): </span>
+                    {founders[company.id]
+                      ?.map((f) => (f.role ? `${f.name}, ${f.role}` : f.name))
+                      .join(' · ')}
+                  </p>
                 ) : null}
                 <p className="mt-1 text-xs text-[var(--fg-subtle)]">
                   {[

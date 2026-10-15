@@ -2,6 +2,13 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
+import {
+  AffinityLpLists,
+  AffinityLps,
+  LpSourceSwitch,
+  affinityLpCount,
+  type LpSource,
+} from '@/components/fund-ii/affinity-lps';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { LpUpdateCard } from '@/components/followups/relay-cards';
@@ -16,7 +23,7 @@ import {
   type LpStage,
 } from '@/lib/services/follow-ups';
 import { FUND_II_TABS, resolvePageTab } from '@/lib/records-tabs';
-import { tabHref } from '@/lib/util/page-tabs';
+import { PAGE_PARAM, single, tabHref } from '@/lib/util/page-tabs';
 import { searchableFirm } from '@/lib/services/warm-paths';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -54,12 +61,17 @@ const STALE_DAYS = 21;
 type Params = Record<string, string | string[] | undefined>;
 
 export default async function FundTwoPage({ searchParams }: { searchParams: Promise<Params> }) {
-  const tab = resolvePageTab(FUND_II_TABS, await searchParams);
+  const params = await searchParams;
+  const tab = resolvePageTab(FUND_II_TABS, params);
+  const q = single(params.q) ?? '';
+  const list = single(params.list) ?? null;
+  const page = params[PAGE_PARAM];
+  const source: LpSource = single(params.source) === 'affinity' ? 'affinity' : 'mail';
   return (
     <PageShell>
       <PageHeader
         title="Fund II"
-        subtitle="Who is reading your DocSend links, and every LP conversation for Fund II and where it stands, read from your mail. Stages only; no amounts."
+        subtitle="Who is reading your DocSend links, and every LP conversation for Fund II and where it stands, read from your mail and carried over from Affinity. Stages only; no amounts."
       />
       <PageTabs
         label={FUND_II_TABS.navLabel}
@@ -70,7 +82,18 @@ export default async function FundTwoPage({ searchParams }: { searchParams: Prom
       />
       <Suspense key={tab} fallback={<SkeletonText lines={10} />}>
         {tab === 'pipeline' ? (
-          <PipelineTab />
+          source === 'affinity' ? (
+            <AffinityPipelineTab
+              q={q}
+              stage={single(params.stage) ?? null}
+              list={list}
+              page={page}
+            />
+          ) : (
+            <PipelineTab />
+          )
+        ) : tab === 'lists' ? (
+          <LpListsTab q={q} list={list} page={page} />
         ) : tab === 'passed' ? (
           <PassedTab />
         ) : (
@@ -111,9 +134,64 @@ function PipelineUnavailable({ state }: { state: FollowUpsState }) {
   );
 }
 
+/** Affinity's LP pipelines, behind the same tab as the mail read. */
+async function AffinityPipelineTab({
+  q,
+  stage,
+  list,
+  page,
+}: {
+  q: string;
+  stage: string | null;
+  list: string | null;
+  page: string | string[] | undefined;
+}) {
+  const auth = await requireAuth();
+  const [loaded, affinityCount] = await Promise.all([loadPipeline(), affinityLpCount(auth)]);
+  const mailCount =
+    loaded.state === 'ok'
+      ? (loaded.pipeline?.lps.filter((lp) => lp.stage !== 'passed').length ?? 0)
+      : null;
+  return (
+    <>
+      <LpSourceSwitch source="affinity" mailCount={mailCount} affinityCount={affinityCount} />
+      <AffinityLps auth={auth} q={q} stage={stage} list={list} page={page} />
+    </>
+  );
+}
+
+/** Affinity's newsletter and SPV lists, with member counts and the people on them. */
+async function LpListsTab({
+  q,
+  list,
+  page,
+}: {
+  q: string;
+  list: string | null;
+  page: string | string[] | undefined;
+}) {
+  const auth = await requireAuth();
+  return <AffinityLpLists auth={auth} q={q} list={list} page={page} />;
+}
+
 async function PipelineTab() {
-  const { tz, now, state, snapshot, pipeline, byStage, count } = await loadPipeline();
-  if (state !== 'ok') return <PipelineUnavailable state={state} />;
+  const auth = await requireAuth();
+  const [{ tz, now, state, snapshot, pipeline, byStage, count }, affinityCount] = await Promise.all(
+    [loadPipeline(), affinityLpCount(auth)],
+  );
+  const mailCount =
+    state === 'ok' ? (pipeline?.lps.filter((lp) => lp.stage !== 'passed').length ?? 0) : null;
+  const sourceSwitch = (
+    <LpSourceSwitch source="mail" mailCount={mailCount} affinityCount={affinityCount} />
+  );
+  if (state !== 'ok') {
+    return (
+      <>
+        {sourceSwitch}
+        <PipelineUnavailable state={state} />
+      </>
+    );
+  }
 
   const lpUpdate = snapshot.lpUpdateDraft ? (
     <LpUpdateCard draft={snapshot.lpUpdateDraft} now={now} />
@@ -121,6 +199,7 @@ async function PipelineTab() {
   if (!pipeline || pipeline.lps.length === 0) {
     return (
       <>
+        {sourceSwitch}
         {lpUpdate}
         <EmptyState
           title="No LP pipeline yet"
@@ -138,6 +217,7 @@ async function PipelineTab() {
 
   return (
     <>
+      {sourceSwitch}
       {lpUpdate}
       <p className="mb-4 text-sm text-[var(--fg-muted)]">
         {pipeline.fund} · checked {relativeTime(pipeline.run_at, now)}

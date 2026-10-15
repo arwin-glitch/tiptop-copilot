@@ -111,6 +111,22 @@ export const DEMO_IDS = {
   crmListDeals: id(1600),
   crmListLps: id(1601),
   crmListPortfolio: id(1602),
+  // One small list per destination the rules know (lib/crm/destinations.ts).
+  crmListWatch: id(1603),
+  crmListAngel: id(1604),
+  crmListFounders: id(1605),
+  crmListCoinvestors: id(1606),
+  crmListProviders: id(1607),
+  crmListOperators: id(1608),
+  crmListSponsors: id(1609),
+  crmListNewsletter: id(1610),
+  crmListMisc: id(1611),
+  // Lists the Records pages read alongside Copilot's own data: a second deal
+  // list matching Copilot deals, an LP pipeline with a likelihood column, and
+  // an event invite list.
+  crmListSeedDeals: id(1612),
+  crmListHnwi: id(1613),
+  crmListInvites: id(1614),
 } as const;
 
 /** CRM fixture ids, by kind and index: records 1700–1799, entries 1800–1899, notes 1900–1999. */

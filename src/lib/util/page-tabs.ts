@@ -72,3 +72,30 @@ export function showMoreHref(
   search.set(SHOW_PARAM, String(shown + step));
   return `${path}?${search.toString()}`;
 }
+
+/** The search param that says which page of a long list is showing. */
+export const PAGE_PARAM = 'page';
+
+/**
+ * The page a `?page=` asks for, counted from 1. Anything that is not a whole
+ * number of at least 1 reads as the first page; `max` caps a hand-typed one.
+ */
+export function pageNumber(raw: string | string[] | undefined, max = 100_000): number {
+  const value = Number(single(raw));
+  if (!Number.isInteger(value) || value < 1) return 1;
+  return Math.min(value, max);
+}
+
+/** Where one page of `size` rows starts, and how many pages `total` rows make. */
+export interface PageWindow {
+  /** The page, counted from 1, moved back to the last one when it is past the end. */
+  page: number;
+  pages: number;
+  offset: number;
+}
+
+export function pageWindow(page: number, size: number, total: number): PageWindow {
+  const pages = Math.max(1, Math.ceil(Math.max(total, 0) / size));
+  const clamped = Math.min(Math.max(1, Math.floor(page)), pages);
+  return { page: clamped, pages, offset: (clamped - 1) * size };
+}

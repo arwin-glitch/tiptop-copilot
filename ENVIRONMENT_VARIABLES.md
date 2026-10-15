@@ -314,6 +314,20 @@ question asked on the Ask page waits for an external Claude session (the
 access) instead of the in-app Anthropic call. Same "assumed public" reasoning
 as `BRIEFING_BRIDGE_TOKEN`.
 
+### `AFFINITY_API_KEY`
+
+Affinity's API key, for the daily Affinity sync that copies every list,
+company, person and note from Affinity into the CRM until the subscription
+is cancelled (`lib/services/affinity-sync.ts`). The daily GitHub workflow
+calls `/api/cron/affinity-sync` (guarded by `CRON_SECRET`) in a loop each
+morning; the owner can also press "Sync now" on Knowledge → Affinity import.
+
+To set it: in Affinity, **Settings → Manage Apps (API) → generate a key**; in
+Render, **tiptop-copilot → Environment → add `AFFINITY_API_KEY`**. Unset, the
+sync reports itself not connected and does nothing; CSV exports can still be
+imported by hand. The key is read only on the server and sent only to
+api.affinity.co. Delete it once Affinity is cancelled.
+
 ### `ASK_ROUTINE_FIRE_URL`, `ASK_ROUTINE_TOKEN`, `ASK_RELAY_SLACK_TOKEN`
 
 Optional. Together they make the Ask bridge instant instead of polled. The

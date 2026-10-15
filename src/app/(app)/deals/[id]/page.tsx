@@ -11,6 +11,8 @@ import { readSidecar, routineOwnsDealStage } from '@/lib/services/deal-ingest';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { gmailThreadUrl, httpUrl, websiteHref } from '@/lib/deals/links';
 import { RoutineCard } from '@/components/deals/routine-card';
+import { CompanyAffinitySection } from '@/components/crm/company-affinity';
+import { affinityForCompany } from '@/lib/services/crm-pages';
 import { MeetingNoteList } from '@/components/meetings/meeting-note-list';
 import { effectiveRecommendation } from '@/lib/services/deal-analysis';
 import { PageHeader, PageShell, DataRow } from '@/components/shell/page-header';
@@ -118,7 +120,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
   )}`;
 
   const store = getStore();
-  const [meetingNotes, routine, integration] = await Promise.all([
+  const [meetingNotes, routine, integration, affinity] = await Promise.all([
     notesForDeal(
       store,
       auth.organizationId,
@@ -127,6 +129,12 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
     ),
     readSidecar(store, auth.organizationId, deal.id),
     getPrimaryIntegration(store, auth.organizationId),
+    // Affinity's side of the same company: its lists, stage there and notes.
+    // Read-only, and never fails: nothing shows when there is nothing.
+    affinityForCompany(store, auth.organizationId, {
+      name: deal.company_name,
+      domain: deal.domain ?? deal.website,
+    }),
   ]);
   const [routineOwned, humanRestores] = await Promise.all([
     routine
@@ -965,6 +973,12 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                   ))}
                 </ul>
               )}
+
+              <CompanyAffinitySection
+                data={affinity}
+                timezone={auth.profile.timezone}
+                className="mt-5"
+              />
             </CardContent>
           </Card>
         </TabsContent>

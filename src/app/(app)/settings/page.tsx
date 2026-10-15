@@ -181,13 +181,14 @@ export default async function SettingsPage() {
                 <p className="mt-1 text-sm text-[var(--fg-muted)]">
                   Bring your Affinity lists into Copilot: export each list (Export → Export view as
                   CSV) and its notes (Export → Export all notes in view), then drop the files in.
-                  Importing a file again updates what is here instead of duplicating it.
+                  Importing a file again updates what is here instead of duplicating it. It lives
+                  under Knowledge, with the imported lists.
                 </p>
               </div>
             </CardHeader>
             <CardContent>
               <Button asChild variant="secondary" size="sm">
-                <Link href="/lists/import">Import from Affinity</Link>
+                <Link href="/knowledge?tab=import">Import from Affinity</Link>
               </Button>
             </CardContent>
           </Card>

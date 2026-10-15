@@ -100,6 +100,13 @@ export interface AppEnv {
   granolaSigningSecret: string | undefined;
   granolaApiKey: string | undefined;
   /**
+   * Affinity's API key, for the daily Affinity sync (lib/services/affinity-sync.ts)
+   * that runs until the subscription is cancelled. Read only on the server and
+   * sent only to api.affinity.co; never logged, never returned to a page. Unset
+   * means the sync reports itself not configured and does nothing.
+   */
+  affinityApiKey: string | undefined;
+  /**
    * Full Pub/Sub topic name for Gmail push, e.g.
    * `projects/tiptop-copilot/topics/gmail-push`. Unset means no push
    * registration is attempted and the mailbox is synced on the daily schedule
@@ -251,6 +258,7 @@ export function env(): AppEnv {
     granolaBridgeToken: str('GRANOLA_BRIDGE_TOKEN'),
     granolaSigningSecret: str('GRANOLA_SIGNING_SECRET'),
     granolaApiKey: str('GRANOLA_API_KEY'),
+    affinityApiKey: str('AFFINITY_API_KEY'),
     gmailPushTopic: str('GMAIL_PUSH_TOPIC'),
     demoDataDir: str('DEMO_DATA_DIR') ?? '.demo-data',
     briefingBridgeToken: str('BRIEFING_BRIDGE_TOKEN'),
@@ -569,6 +577,17 @@ export function capabilityReport(
         ? 'Not set. An external sender would have to hold GRANOLA_WEBHOOK_SECRET, which also opens /backfill — more than posting a note requires.'
         : 'Not set. Nothing can post notes to this app; Granola-native delivery is unaffected.',
     variables: ['GRANOLA_BRIDGE_TOKEN'],
+    required: false,
+  });
+
+  checks.push({
+    key: 'affinity',
+    label: 'Daily Affinity sync',
+    status: has(e.affinityApiKey) ? 'ready' : 'optional-missing',
+    detail: has(e.affinityApiKey)
+      ? 'Set. Every list, record and note in Affinity is copied into the CRM each morning (also "Sync now" on Knowledge → Affinity import).'
+      : 'Not set. Affinity is not synced; CSV exports can still be imported by hand on Knowledge → Affinity import.',
+    variables: ['AFFINITY_API_KEY'],
     required: false,
   });
 

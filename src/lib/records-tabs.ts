@@ -7,7 +7,8 @@ import { resolveTab, single, tabHref, type PageTabDef } from '@/lib/util/page-ta
  *
  * Kept as data, apart from the pages, so anything that explains the app (a
  * help page, a tour) reads the same labels the tab bars show rather than a
- * copy that drifts. `/lists` is not here yet.
+ * copy that drifts. Affinity's lists live under Knowledge (`?tab=lists`, and
+ * the importer at `?tab=import`); `/lists` and `/lists/import` redirect there.
  *
  * Label rules, both from the end-to-end suite:
  * - No label contains a main-navigation name ("Network", "Reports", ...).
@@ -50,6 +51,39 @@ function define<const K extends string>(config: RecordsPageTabs<K>): RecordsPage
 
 const has = (params: Params, ...names: string[]) => names.some((n) => Boolean(single(params[n])));
 
+/**
+ * Deals is a working page, not a Records page, but its Affinity views sit
+ * behind the same kind of bar: Copilot's own screening list first (the bare
+ * URL, unchanged), then the one pipeline merged with Affinity's, then the
+ * companies Affinity was only watching.
+ */
+export const DEALS_TABS = define({
+  path: '/deals',
+  page: 'Deals',
+  navLabel: 'Deals sections',
+  defaultKey: 'screening',
+  tabs: [
+    {
+      key: 'screening',
+      label: 'Screening',
+      blurb:
+        'Every deal Copilot tracks, with its recommendation and how much of it rests on real evidence.',
+    },
+    {
+      key: 'pipeline',
+      label: 'Pipeline',
+      blurb:
+        "One pipeline: Copilot's deals and Affinity's deal lists matched by company, each with its stage, Affinity's own label kept.",
+    },
+    {
+      key: 'sourcing',
+      label: 'Sourcing',
+      blurb:
+        'Companies Affinity was watching or sourcing: the watch list, deals from email, sector and theme lists.',
+    },
+  ],
+});
+
 export const PORTFOLIO_TABS = define({
   path: '/portfolio',
   page: 'Portfolio',
@@ -76,7 +110,20 @@ export const PORTFOLIO_TABS = define({
     {
       key: 'companies',
       label: 'Companies',
-      blurb: 'The full list of portfolio companies. Open one for its contacts, updates and notes.',
+      blurb:
+        'The full list of portfolio companies, with their founders from Affinity. Open one for its contacts, updates and notes.',
+    },
+    {
+      key: 'founders',
+      label: 'Founders',
+      blurb:
+        "Every row of Affinity's portfolio founder and portfolio lists, people and companies, whether or not it matches a company here.",
+    },
+    {
+      key: 'angel',
+      label: 'Angel',
+      blurb:
+        "Nick's personal angel investments from Affinity, read-only and kept apart from the Fund I portfolio.",
     },
   ],
   // Citation links point at one update (`?update=<id>`): those live on Requests.
@@ -100,7 +147,13 @@ export const FUND_II_TABS = define({
       key: 'pipeline',
       label: 'LP pipeline',
       blurb:
-        'Every open LP conversation by stage, the quarterly LP update draft, and who is going quiet.',
+        "Every open LP conversation by stage, the quarterly LP update draft, who is going quiet, and Affinity's LP pipelines. Stages only, no amounts.",
+    },
+    {
+      key: 'lists',
+      label: 'LP lists',
+      blurb:
+        "Fund I's LPs, newsletter recipients and SPV lists from Affinity, with how many people are on each.",
     },
     {
       key: 'passed',
@@ -124,7 +177,8 @@ export const MEETINGS_TABS = define({
     {
       key: 'notes',
       label: 'Notes',
-      blurb: 'Every Granola note, searchable by title, person, company or what was said.',
+      blurb:
+        'Every Granola note, and every note carried over from Affinity, searchable by title, person, company or what was said.',
     },
   ],
   // A search (from the box or the command palette) is a search of the notes.
@@ -152,7 +206,28 @@ export const NETWORK_TABS = define({
       key: 'people',
       label: 'People',
       blurb:
-        'Everyone you have emailed or met, with counts and last contact. Search and sort here.',
+        'Everyone you have emailed or met, with counts and last contact, and the people carried over from Affinity. Search and sort here.',
+    },
+    {
+      key: 'investors',
+      label: 'Investors',
+      blurb:
+        'VC, PE and growth partners, co-investors and intro-round investor lists from Affinity.',
+    },
+    {
+      key: 'providers',
+      label: 'Service providers',
+      blurb: 'Advisors, consultants, service providers, resources and perks from Affinity.',
+    },
+    {
+      key: 'operators',
+      label: 'Operators',
+      blurb: 'CxO and founder networks outside the portfolio, from Affinity.',
+    },
+    {
+      key: 'events',
+      label: 'Events',
+      blurb: 'Event invite lists and sponsors from Affinity, with who said yes.',
     },
   ],
   // Searching and sorting happen on the people list.
@@ -197,8 +272,24 @@ export const KNOWLEDGE_TABS = define({
       blurb:
         'The network contacts you imported, used to suggest who could help a company. Search by name, company or role.',
     },
+    {
+      key: 'lists',
+      label: 'Affinity lists',
+      blurb:
+        'Every list carried over from Affinity, grouped by the page its rows feed (Deals, Fund II, Portfolio, Network), with a menu to send a list elsewhere.',
+    },
+    {
+      key: 'import',
+      label: 'Affinity import',
+      blurb:
+        'Drop Affinity CSV exports (a list view and its notes) to bring them in. Importing a file again updates what is here instead of duplicating it.',
+    },
   ],
 });
+
+/** Knowledge's Affinity tabs, which the old `/lists` URLs redirect to. */
+export const AFFINITY_LISTS_HREF = '/knowledge?tab=lists';
+export const AFFINITY_IMPORT_HREF = '/knowledge?tab=import';
 
 /** Every Records page with subtabs, in navigation order. */
 export const RECORDS_TABS = [

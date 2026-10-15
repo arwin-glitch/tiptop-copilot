@@ -35,7 +35,6 @@ const PAGES = [
   '/today',
   '/inbox',
   '/deals',
-  '/lists',
   '/ask',
   '/updates',
   '/portfolio',
@@ -52,6 +51,20 @@ const PAGES = [
   '/network?tab=people',
   '/meetings?tab=notes',
   '/knowledge?tab=contacts',
+  '/knowledge?tab=lists',
+  '/knowledge?tab=import',
+  // Affinity's data where it is used: tables and chip rows that must not
+  // push the page sideways on a phone.
+  '/deals?tab=pipeline',
+  '/deals?tab=sourcing',
+  '/fund-ii?tab=pipeline&source=affinity',
+  '/fund-ii?tab=lists',
+  '/portfolio?tab=founders',
+  '/portfolio?tab=angel',
+  '/network?tab=investors',
+  '/network?tab=events',
+  '/network?tab=people&source=affinity',
+  '/meetings?tab=notes&source=affinity',
 ];
 
 test.describe('mobile layout', () => {
@@ -85,7 +98,6 @@ test.describe('mobile layout', () => {
       'Deals',
       'Ask',
       'Inbox',
-      'Lists',
       'Portfolio',
       'Fund II',
       'Meetings',

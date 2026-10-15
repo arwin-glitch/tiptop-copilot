@@ -2,8 +2,8 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * The Affinity importer, in demo mode, with two invented exports from
- * tests/fixtures: an opportunity list and its notes.
+ * The Affinity importer (Knowledge → Affinity import), in demo mode, with two
+ * invented exports from tests/fixtures: an opportunity list and its notes.
  *
  * What is worth asserting end to end, beyond the unit and route tests: that a
  * dropped file is read and its columns guessed in the browser, that Import
@@ -34,8 +34,15 @@ test.beforeEach(async ({ page }) => {
 test('reads Affinity exports, imports them, and a second import changes nothing', async ({
   page,
 }) => {
+  // The importer moved to Knowledge; the old address lands on its tab.
   await page.goto('/lists/import');
-  await expect(page.getByRole('heading', { name: 'Import from Affinity', level: 1 })).toBeVisible();
+  await page.waitForURL(/\/knowledge\?tab=import$/);
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Knowledge sections' })
+      .getByRole('link', { name: /^Affinity import/ }),
+  ).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Import from Affinity', level: 2 })).toBeVisible();
 
   await page.getByLabel('Choose CSV files').setInputFiles([LIST_FILE, NOTES_FILE]);
 

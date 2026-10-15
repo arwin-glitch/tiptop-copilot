@@ -14,7 +14,17 @@ import {
   type SortDirection,
 } from '@/lib/network/relationship-view';
 import { NETWORK_TABS, SNAPSHOT_WAIT_MS, landsOnSnapshot, openingTab } from '@/lib/records-tabs';
-import { single, tabHref } from '@/lib/util/page-tabs';
+import { PAGE_PARAM, single, tabHref } from '@/lib/util/page-tabs';
+import type { CrmDestination } from '@/lib/crm/destinations';
+import type { AuthContext } from '@/lib/auth/session';
+import { AffinityEntries } from '@/components/crm/affinity-entries';
+import { pageHref } from '@/components/crm/link-chips';
+import {
+  AffinityPeople,
+  PeopleSourceSwitch,
+  affinityPeopleCount,
+  type PeopleSource,
+} from '@/components/network/affinity-people';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { EmptyState, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
@@ -46,12 +56,15 @@ export default async function NetworkPage({
   const { tab, home } = openingTab(NETWORK_TABS, params, introsShow);
   const sort = asRelationshipSortKey(single(params.sort));
   const direction: SortDirection = single(params.dir) === 'asc' ? 'asc' : 'desc';
+  const source: PeopleSource = single(params.source) === 'affinity' ? 'affinity' : 'mail';
+  const list = single(params.list) ?? null;
+  const page = params[PAGE_PARAM];
 
   return (
     <PageShell>
       <PageHeader
         title="Network"
-        subtitle="Everyone you have actually corresponded or sat down with, counted from your own mail and calendar. No relationship score — the evidence itself."
+        subtitle="Everyone you have actually corresponded or sat down with, counted from your own mail and calendar, plus the investors, providers, operators and events carried over from Affinity. No relationship score — the evidence itself."
       />
       <PageTabs
         label={NETWORK_TABS.navLabel}
@@ -62,7 +75,13 @@ export default async function NetworkPage({
       />
       <Suspense key={tab} fallback={<SkeletonText lines={10} />}>
         {tab === 'people' ? (
-          <PeopleTab q={q} sort={sort} direction={direction} />
+          source === 'affinity' ? (
+            <AffinityPeopleTab q={q} page={page} />
+          ) : (
+            <PeopleTab q={q} sort={sort} direction={direction} />
+          )
+        ) : isAffinityTab(tab) ? (
+          <AffinityTab tab={tab} q={q} list={list} page={page} />
         ) : tab === 'cold' ? (
           <ColdTab />
         ) : (
@@ -71,6 +90,131 @@ export default async function NetworkPage({
       </Suspense>
     </PageShell>
   );
+}
+
+type AffinityTabKey = 'investors' | 'providers' | 'operators' | 'events';
+
+/** The Network tabs that are one Affinity destination each, and how each reads. */
+const AFFINITY_TABS: Record<
+  AffinityTabKey,
+  {
+    destination: CrmDestination;
+    title: string;
+    search: string;
+    statusHeader: string;
+    prefer: RegExp;
+    empty: string;
+  }
+> = {
+  investors: {
+    destination: 'investors',
+    title: 'Investors',
+    search: 'Search investors',
+    statusHeader: 'Relationship',
+    prefer: /firm|fund|organi[sz]ation|company|focus|stage|location/i,
+    empty:
+      "Affinity's VC, PE and growth partner lists, co-investors and intro-round investor lists land here once they are imported on Knowledge.",
+  },
+  providers: {
+    destination: 'providers',
+    title: 'Service providers',
+    search: 'Search service providers',
+    statusHeader: 'Category',
+    prefer: /category|service|type|specialt|contact|perk/i,
+    empty:
+      "Affinity's advisor, consultant, service-provider, resource and perks lists land here once they are imported on Knowledge.",
+  },
+  operators: {
+    destination: 'operators',
+    title: 'Operators',
+    search: 'Search operators',
+    statusHeader: 'Function',
+    prefer: /function|role|title|company|organi[sz]ation|expertise/i,
+    empty:
+      "Affinity's CxO and founder network lists land here once they are imported on Knowledge.",
+  },
+  events: {
+    destination: 'events',
+    title: 'Events',
+    search: 'Search event lists',
+    statusHeader: 'RSVP / tier',
+    prefer: /rsvp|tier|event|company|organi[sz]ation|table/i,
+    empty:
+      "Affinity's event invite lists and sponsor lists land here once they are imported on Knowledge.",
+  },
+};
+
+function isAffinityTab(tab: string): tab is AffinityTabKey {
+  return Object.prototype.hasOwnProperty.call(AFFINITY_TABS, tab);
+}
+
+/** One Affinity destination as a searchable, paged table. */
+async function AffinityTab({
+  tab,
+  q,
+  list,
+  page,
+}: {
+  tab: AffinityTabKey;
+  q: string;
+  list: string | null;
+  page: string | string[] | undefined;
+}) {
+  const auth = await requireAuth();
+  const config = AFFINITY_TABS[tab];
+  return (
+    <AffinityEntries
+      auth={auth}
+      destinations={config.destination}
+      path={NETWORK_TABS.path}
+      tab={tab}
+      defaultTab={NETWORK_TABS.defaultKey}
+      params={{ q, list, page }}
+      title={config.title}
+      searchLabel={config.search}
+      searchPlaceholder="Search name"
+      statusHeader={config.statusHeader}
+      preferFields={config.prefer}
+      // Sponsorship amounts are not something to read on a people page.
+      hideMoney={tab === 'events'}
+      emptyTitle={`No ${config.title.toLowerCase()} from Affinity yet`}
+      emptyDescription={config.empty}
+    />
+  );
+}
+
+/** The people carried over from Affinity, behind the same tab as the mail list. */
+async function AffinityPeopleTab({ q, page }: { q: string; page: string | string[] | undefined }) {
+  const auth = await requireAuth();
+  const [affinityCount, mailCount] = await Promise.all([
+    affinityPeopleCount(auth),
+    mailPeopleCount(auth),
+  ]);
+  return (
+    <>
+      <PeopleSourceSwitch
+        source="affinity"
+        q={q}
+        mailCount={mailCount}
+        affinityCount={affinityCount}
+      />
+      <AffinityPeople auth={auth} q={q} page={page} />
+    </>
+  );
+}
+
+/** How many people the mail-derived list holds, for the source switch. */
+async function mailPeopleCount(auth: AuthContext): Promise<number | null> {
+  try {
+    const store = getStore();
+    const integration = await getPrimaryIntegration(store, auth.organizationId);
+    const ownAddresses = [auth.profile.email, integration?.account_email ?? null].filter(
+      (a): a is string => Boolean(a),
+    );
+    return (await buildRelationshipList(store, auth.organizationId, { ownAddresses })).length;
+  } catch {
+    return null;
+  }
 }
 
 /** The intro tracker's snapshot: who you owe an intro, and how the rest went. */
@@ -148,9 +292,21 @@ async function PeopleTab({
 
   const awaiting = rows.filter((r) => r.awaitingUs).length;
   const met = rows.filter((r) => r.meetingCount > 0).length;
+  // Affinity's people, counted for the switch, and for a search the ones
+  // matching it, so a name only Affinity knows is one click away.
+  const [affinityCount, affinityMatches] = await Promise.all([
+    affinityPeopleCount(auth),
+    q ? affinityPeopleCount(auth, q) : Promise.resolve(null),
+  ]);
 
   return (
     <>
+      <PeopleSourceSwitch
+        source="mail"
+        q={q}
+        mailCount={q ? null : rows.length}
+        affinityCount={affinityCount}
+      />
       <StatGroup className="mb-5" columns={3}>
         <Stat size="sm" label="People" value={rows.length} hint="from mail and calendar" />
         <Stat size="sm" label="Met in person" value={met} hint="at least one meeting" />
@@ -158,6 +314,18 @@ async function PeopleTab({
       </StatGroup>
 
       <NetworkFilterBar q={q} />
+      {q && affinityMatches ? (
+        <p className="mt-2 text-sm text-[var(--fg-muted)]">
+          Affinity also has {affinityMatches.toLocaleString('en-US')}{' '}
+          {affinityMatches === 1 ? 'person' : 'people'} matching “{q}”.{' '}
+          <a
+            href={pageHref(NETWORK_TABS.path, { tab: 'people', source: 'affinity', q })}
+            className="text-[var(--accent)] underline-offset-2 hover:underline"
+          >
+            Show them
+          </a>
+        </p>
+      ) : null}
 
       {rows.length === 0 ? (
         <EmptyState

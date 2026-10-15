@@ -8,6 +8,41 @@ throughout.
 
 ---
 
+## [Unreleased]
+
+- **Affinity's data where it is used.** Each imported list feeds the page that
+  needs it, as a subtab or a one-click switch, never a long scroll:
+  - **Deals:** new subtabs. *Pipeline* lists Copilot's deals and Affinity's
+    deal lists as one row per company, matched by domain and then by name.
+    Affinity's stage is read as Copilot's stage, its own label stays visible,
+    and "Differs from Copilot" marks a disagreement. It never changes a deal.
+    *Sourcing* holds the watch lists, deal feeds and sector lists. The
+    existing list is now the *Screening* tab, and the bare URL still opens it.
+  - **Fund II:** *LP pipeline* gains a "From Affinity" switch. It lists
+    Affinity's LP pipelines grouped by Copilot's LP stages, with likelihood,
+    and never shows an amount: a row shows only who the LP is with, what kind,
+    how likely and when last in touch, so a plain-number column called
+    "Commit" or "Size ($K)" stays off too, here and on the LP's profile. A new
+    *LP lists* tab holds Fund I's LPs (kept out of Fund II's stage counts),
+    newsletter and SPV lists, with member counts.
+  - **Portfolio:** a new *Angel* tab holds Nick's personal angel investments,
+    labelled as not Fund I. Company cards show founders from Affinity, and a
+    new *Founders* tab lists every founder and portfolio row, matched to a
+    company here or not.
+  - **Network:** new *Investors*, *Service providers*, *Operators* and
+    *Events* tabs. *People* gains a "From Affinity" switch, and a search names
+    any Affinity matches.
+  - **Meetings:** *Notes* gains an "Affinity" switch with every Affinity note,
+    newest first, 25 to a page. Deal and portfolio profiles show Affinity's
+    lists, people and notes for the company.
+  - Every Affinity table pages with previous and next, so a list of thousands
+    is browsable end to end without growing into a long scroll.
+- **Daily Affinity sync.** Every morning the app copies every Affinity list,
+  its rows and the notes into Copilot (`AFFINITY_API_KEY`). A page Affinity
+  refuses or keeps failing to send is moved past instead of stopping the sync
+  for good, and a notes page that could not be saved is read again the next
+  morning.
+
 ## [0.11.4] — 2026-10-15
 
 - **Portfolio numbers load at once.** "Numbers from their updates" shows the

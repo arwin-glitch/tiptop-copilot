@@ -12,7 +12,6 @@ import {
   CheckSquare,
   Inbox,
   Landmark,
-  ListChecks,
   MailCheck,
   MessageSquare,
   Newspaper,
@@ -37,6 +36,11 @@ import { FieldLabel } from '@/components/ui/card';
  * and the bottom bar by `aria-label="Main"` and asserts the *last* one is the
  * bottom bar; splitting the sidebar into a nav per group would put three
  * identically-named landmarks in between and change what "last" means.
+ *
+ * There is no Lists entry: Affinity's lists are an import, not a place Nick
+ * works. Their rows feed the pages that use them, and the lists themselves
+ * sit under Knowledge (Affinity lists, Affinity import). A list or record
+ * page under `/lists/` therefore marks Knowledge as the current section.
  */
 export const NAV_ITEMS = [
   { href: '/today', label: 'Today', icon: Sun },
@@ -46,13 +50,12 @@ export const NAV_ITEMS = [
   { href: '/ask', label: 'Ask', icon: MessageSquare },
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/calendar', label: 'Calendar', icon: CalendarClock },
-  { href: '/lists', label: 'Lists', icon: ListChecks },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { href: '/fund-ii', label: 'Fund II', icon: Landmark },
   { href: '/meetings', label: 'Meetings', icon: CalendarDays },
   { href: '/network', label: 'Network', icon: Users },
   { href: '/updates', label: 'Reports', icon: Newspaper },
-  { href: '/knowledge', label: 'Knowledge', icon: BookOpen },
+  { href: '/knowledge', label: 'Knowledge', icon: BookOpen, also: ['/lists'] },
   { href: '/settings', label: 'Settings', icon: Settings },
 ] as const;
 
@@ -65,18 +68,28 @@ const GROUPS: { label: string; hrefs: string[] }[] = [
   },
   {
     label: 'Records',
-    hrefs: ['/lists', '/portfolio', '/fund-ii', '/meetings', '/network', '/updates', '/knowledge'],
+    hrefs: ['/portfolio', '/fund-ii', '/meetings', '/network', '/updates', '/knowledge'],
   },
   { label: 'System', hrefs: ['/settings'] },
 ];
 
-function isActive(pathname: string, href: string): boolean {
+type NavItem = (typeof NAV_ITEMS)[number];
+
+function under(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/** A path is in an item's section at its own href or one of the paths it also covers. */
+export function isActive(
+  pathname: string,
+  item: Pick<NavItem, 'href'> & { also?: readonly string[] },
+): boolean {
+  return under(pathname, item.href) || (item.also ?? []).some((path) => under(pathname, path));
 }
 
 /** The label for the section a path belongs to, for the mobile header. */
 export function sectionLabel(pathname: string): string | null {
-  const match = NAV_ITEMS.find((i) => isActive(pathname, i.href));
+  const match = NAV_ITEMS.find((i) => isActive(pathname, i));
   return match?.label ?? null;
 }
 
@@ -102,7 +115,7 @@ export function SidebarNav() {
               {group.hrefs.map((href) => {
                 const item = NAV_ITEMS.find((i) => i.href === href);
                 if (!item) return null;
-                const active = isActive(pathname, item.href);
+                const active = isActive(pathname, item);
                 const Icon = item.icon;
                 return (
                   <li key={item.href}>
@@ -211,7 +224,7 @@ export function MobileNav() {
         className="flex snap-x [scrollbar-width:none] overflow-x-auto overscroll-x-contain [&::-webkit-scrollbar]:hidden"
       >
         {NAV_ITEMS.map((item) => {
-          const active = isActive(pathname, item.href);
+          const active = isActive(pathname, item);
           const Icon = item.icon;
           return (
             <li key={item.href} className="min-w-[4.75rem] flex-1 shrink-0 snap-start">

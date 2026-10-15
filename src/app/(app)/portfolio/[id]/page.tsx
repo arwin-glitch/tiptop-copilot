@@ -5,6 +5,8 @@ import { requireAuth } from '@/lib/auth/session';
 import { getAI, getStore } from '@/lib/runtime';
 import { notesForCompany } from '@/lib/services/meetings';
 import { getPortfolioDetail } from '@/lib/services/portfolio';
+import { affinityForCompany } from '@/lib/services/crm-pages';
+import { CompanyAffinitySection } from '@/components/crm/company-affinity';
 import { MeetingNoteList } from '@/components/meetings/meeting-note-list';
 import { PageHeader, PageShell, DataRow, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -43,12 +45,19 @@ export default async function PortfolioCompanyPage({
   const openTasks = tasks.filter((t) => isOpenNow(t, new Date()));
   const aiAvailable = getAI().available();
 
-  const meetingNotes = await notesForCompany(
-    getStore(),
-    auth.organizationId,
-    company,
-    contacts.map((c) => c.email).filter((e): e is string => Boolean(e)),
-  );
+  const [meetingNotes, affinity] = await Promise.all([
+    notesForCompany(
+      getStore(),
+      auth.organizationId,
+      company,
+      contacts.map((c) => c.email).filter((e): e is string => Boolean(e)),
+    ),
+    // Affinity's side of the company: lists, people and notes. Never fails.
+    affinityForCompany(getStore(), auth.organizationId, {
+      name: company.name,
+      domain: company.domain ?? company.website,
+    }),
+  ]);
 
   return (
     <PageShell>
@@ -118,6 +127,12 @@ export default async function PortfolioCompanyPage({
             <SectionHeading count={meetingNotes.length}>Meetings</SectionHeading>
             <MeetingNoteList notes={meetingNotes} timezone={auth.profile.timezone} />
           </section>
+
+          <CompanyAffinitySection
+            data={affinity}
+            timezone={auth.profile.timezone}
+            headingLevel="h2"
+          />
 
           <section>
             <SectionHeading count={emails.length}>Related email</SectionHeading>

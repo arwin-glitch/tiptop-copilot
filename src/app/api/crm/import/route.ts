@@ -91,8 +91,9 @@ const MAX_BODY_BYTES = 8_000_000;
 
 /**
  * Signed-in members only: one chunk of an Affinity CSV import, parsed and
- * mapped in the browser (see /lists/import). Idempotent — the same chunk sent
- * twice changes nothing the second time — so the page can retry freely.
+ * mapped in the browser (Knowledge → Affinity import, `/knowledge?tab=import`).
+ * Idempotent — the same chunk sent twice changes nothing the second time — so
+ * the page can retry freely.
  */
 export async function POST(request: NextRequest) {
   const auth = await authOrError();

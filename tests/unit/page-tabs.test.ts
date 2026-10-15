@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { resolveTab, showMoreHref, shownCount, single, tabHref } from '@/lib/util/page-tabs';
 import {
+  pageNumber,
+  pageWindow,
+  resolveTab,
+  showMoreHref,
+  shownCount,
+  single,
+  tabHref,
+} from '@/lib/util/page-tabs';
+import {
+  DEALS_TABS,
   FUND_II_TABS,
   KNOWLEDGE_TABS,
   MEETINGS_TABS,
@@ -54,9 +63,12 @@ describe('tabHref', () => {
   });
 });
 
+/** Every page with a subtab bar: the Records pages, and Deals. */
+const TABBED_PAGES = [DEALS_TABS, ...RECORDS_TABS];
+
 describe('the Records pages', () => {
   it('each open on a default that is one of their tabs', () => {
-    for (const page of RECORDS_TABS) {
+    for (const page of TABBED_PAGES) {
       const keys = page.tabs.map((t) => t.key);
       expect(keys, page.path).toContain(page.defaultKey);
       expect(new Set(keys).size, `${page.path} has a duplicate key`).toBe(keys.length);
@@ -86,7 +98,7 @@ describe('the Records pages', () => {
       'Knowledge',
       'Settings',
     ];
-    for (const page of RECORDS_TABS) {
+    for (const page of TABBED_PAGES) {
       expect(page.navLabel.toLowerCase(), page.path).not.toContain('main');
       for (const tab of page.tabs) {
         for (const name of navNames) {
@@ -215,5 +227,25 @@ describe('long lists a page at a time', () => {
     expect(showMoreHref('/example', { tab: 'notes', q: '' }, 50, 25)).toBe(
       '/example?tab=notes&show=75',
     );
+  });
+});
+
+describe('lists of thousands, paged', () => {
+  it('reads ?page= as a page counted from 1, the first by default', () => {
+    expect(pageNumber(undefined)).toBe(1);
+    expect(pageNumber('3')).toBe(3);
+    expect(pageNumber(['4', '9'])).toBe(4);
+    for (const raw of ['', 'abc', '-2', '0', '1.5', 'Infinity']) {
+      expect(pageNumber(raw), raw).toBe(1);
+    }
+    expect(pageNumber('999999', 500)).toBe(500);
+  });
+
+  it('says where a page starts, and moves a page past the end back to the last', () => {
+    expect(pageWindow(1, 50, 3000)).toEqual({ page: 1, pages: 60, offset: 0 });
+    expect(pageWindow(60, 50, 3000)).toEqual({ page: 60, pages: 60, offset: 2950 });
+    expect(pageWindow(61, 50, 3000)).toEqual({ page: 60, pages: 60, offset: 2950 });
+    expect(pageWindow(3, 50, 101)).toEqual({ page: 3, pages: 3, offset: 100 });
+    expect(pageWindow(2, 25, 0)).toEqual({ page: 1, pages: 1, offset: 0 });
   });
 });

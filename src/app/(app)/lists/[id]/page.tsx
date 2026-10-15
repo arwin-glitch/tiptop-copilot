@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { hasRole, requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
 import { statusFieldOf } from '@/lib/crm/fields';
@@ -19,12 +19,17 @@ import {
   listBoard,
   listEntries,
 } from '@/lib/services/crm';
+import { CRM_DESTINATION_INFO } from '@/lib/crm/destinations';
+import { destinationForList } from '@/lib/services/crm-destinations';
+import { CrmBreadcrumb } from '@/components/lists/crm-breadcrumb';
 import { ListArchiveButton } from '@/components/lists/list-archive-button';
 import { ListView, type ListBoardData, type ListTableData } from '@/components/lists/list-view';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { ErrorState } from '@/components/ui/feedback';
 import { NotConfigured } from '@/components/ui/not-configured';
 import type { CrmEntityType } from '@/lib/types/domain';
+import type { CrmListDestination } from '@/lib/crm/destinations';
+import { AFFINITY_LISTS_HREF } from '@/lib/records-tabs';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,10 +77,10 @@ export default async function ListPage({
   if (isCrmNotSetUp(found)) {
     return (
       <PageShell>
-        <BackLink />
+        <CrmBreadcrumb />
         <PageHeader title="List" />
         <NotConfigured
-          title="Lists are not set up yet"
+          title="Affinity lists are not set up yet"
           description={`The CRM tables have not been created in the database. Run ${CRM_MIGRATION_FILE} in the Supabase SQL editor, then reload this page.`}
           stillWorks="Everything else in Copilot works as before."
           action={null}
@@ -87,12 +92,12 @@ export default async function ListPage({
   if (!found.ok) {
     return (
       <PageShell>
-        <BackLink />
+        <CrmBreadcrumb />
         <PageHeader title="List" />
         <ErrorState
           title="This list could not be loaded"
           message={found.error.message}
-          stillUsable="The other lists, and everything outside Lists."
+          stillUsable="The other Affinity lists, and everything else in Copilot."
         />
       </PageShell>
     );
@@ -109,7 +114,8 @@ export default async function ListPage({
     statusIn: view.statuses,
   };
 
-  const [counts, entries, board] = await Promise.all([
+  const [destination, counts, entries, board] = await Promise.all([
+    destinationForList(store, org, list),
     statusField ? countEntriesByStatus(store, org, list.id, { query: view.q || null }) : null,
     view.view === 'table'
       ? listEntries(store, org, list.id, {
@@ -152,7 +158,7 @@ export default async function ListPage({
 
   return (
     <PageShell className="max-w-7xl">
-      <BackLink />
+      <CrmBreadcrumb />
       <PageHeader
         eyebrow={`${KIND_LABEL[list.entity_type]} · ${list.source === 'affinity' ? 'from Affinity' : 'made in Copilot'}${list.archived ? ' · archived' : ''}`}
         title={list.name}
@@ -161,6 +167,7 @@ export default async function ListPage({
             ? ` · ${list.fields.length} ${list.fields.length === 1 ? 'field' : 'fields'}`
             : ''
         }`}
+        meta={<FeedsLine destination={destination} />}
         actions={
           canWrite ? (
             <ListArchiveButton listId={list.id} listName={list.name} archived={list.archived} />
@@ -173,7 +180,7 @@ export default async function ListPage({
           className="mb-4"
           title="The entries could not be loaded"
           message={problem.error.message}
-          stillUsable="The other lists, and everything outside Lists."
+          stillUsable="The other Affinity lists, and everything else in Copilot."
         />
       ) : null}
 
@@ -202,13 +209,30 @@ export default async function ListPage({
   );
 }
 
-function BackLink() {
+/** Where the list's rows show up in the app, as a link to that page. */
+function FeedsLine({ destination }: { destination: CrmListDestination }) {
+  const info = CRM_DESTINATION_INFO[destination.destination];
   return (
-    <Link
-      href="/lists"
-      className="mb-2 inline-flex items-center gap-1 text-sm text-[var(--fg-muted)] hover:text-[var(--fg)]"
-    >
-      <ArrowLeft className="size-4" aria-hidden /> All lists
-    </Link>
+    <p className="text-sm text-[var(--fg-muted)]">
+      {destination.destination === 'archive' ? (
+        <>Kept under Knowledge for reference; it feeds no other page.</>
+      ) : (
+        <>
+          Feeds{' '}
+          <Link
+            href={info.href}
+            className="inline-flex items-center gap-0.5 font-medium text-[var(--accent)] underline-offset-2 hover:underline"
+          >
+            {info.page}
+            <ArrowUpRight className="size-3" aria-hidden="true" />
+          </Link>{' '}
+          as {info.label.toLowerCase()}
+          {destination.source === 'override' ? ', moved there by hand' : ''}.
+        </>
+      )}{' '}
+      <Link href={AFFINITY_LISTS_HREF} className="underline-offset-2 hover:underline">
+        Change
+      </Link>
+    </p>
   );
 }

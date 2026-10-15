@@ -9,9 +9,9 @@ import { Button } from '@/components/ui/button';
 
 /**
  * Archive a list, or restore it. The way back from a list that should not be
- * on the Lists page — imported from the wrong file, or into a new list by
- * mistake — without losing anything: an archived list keeps every row and
- * sits under "Archived lists" until it is restored.
+ * among the Affinity lists — imported from the wrong file, or into a new list
+ * by mistake — without losing anything: an archived list keeps every row,
+ * feeds no page, and sits under "Archived lists" until it is restored.
  */
 export function ListArchiveButton({
   listId,
@@ -38,8 +38,8 @@ export function ListArchiveButton({
       }
       toast.success(
         archived
-          ? `Restored ${listName} to Lists.`
-          : `Archived ${listName}. It is under “Archived lists” on the Lists page.`,
+          ? `Restored ${listName} to the Affinity lists.`
+          : `Archived ${listName}. It is under “Archived lists” in Knowledge → Affinity lists.`,
       );
       React.startTransition(() => router.refresh());
     });

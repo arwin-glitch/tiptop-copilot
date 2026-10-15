@@ -55,6 +55,8 @@ export type AuditAction =
   | 'crm.entry_removed'
   | 'crm.note_added'
   | 'crm.imported'
+  | 'crm.list_destination'
+  | 'crm.affinity_sync'
   | 'task.created'
   | 'task.updated'
   | 'task.auto_completed'

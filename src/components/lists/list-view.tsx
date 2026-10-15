@@ -278,7 +278,7 @@ export function ListView({
                 action={
                   filtered
                     ? { label: 'Clear filters', href: `/lists/${list.id}` }
-                    : { label: 'Import from Affinity', href: '/lists/import' }
+                    : { label: 'Import from Affinity', href: '/knowledge?tab=import' }
                 }
               />
             ) : (

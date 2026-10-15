@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, ArrowUpRight, Globe, Mail } from 'lucide-react';
+import { ArrowUpRight, Globe, Mail } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
+import { resolveCrmListDestination } from '@/lib/crm/destinations';
 import { statusFieldOf } from '@/lib/crm/fields';
+import { isFundIiField, isMoneyField } from '@/lib/crm/stage-map';
 import { formatCrmValue } from '@/lib/crm/view';
 import { gmailSearchUrl, websiteHref } from '@/lib/deals/links';
 import {
@@ -14,8 +16,10 @@ import {
   isCrmNotSetUp,
   type CrmCopilotLink,
 } from '@/lib/services/crm';
+import { readDestinationOverrides } from '@/lib/services/crm-destinations';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { getActiveThesis } from '@/lib/services/thesis';
+import { CrmBreadcrumb } from '@/components/lists/crm-breadcrumb';
 import { CrmNoteList } from '@/components/lists/crm-note-list';
 import { CrmValueView } from '@/components/lists/crm-value';
 import { DataRow, PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
@@ -55,10 +59,10 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
   if (isCrmNotSetUp(found)) {
     return (
       <PageShell>
-        <BackLink />
+        <CrmBreadcrumb />
         <PageHeader title="Profile" />
         <NotConfigured
-          title="Lists are not set up yet"
+          title="Affinity lists are not set up yet"
           description={`The CRM tables have not been created in the database. Run ${CRM_MIGRATION_FILE} in the Supabase SQL editor, then reload this page.`}
           stillWorks="Everything else in Copilot works as before."
           action={null}
@@ -70,22 +74,33 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
   if (!found.ok) {
     return (
       <PageShell>
-        <BackLink />
+        <CrmBreadcrumb />
         <PageHeader title="Profile" />
         <ErrorState
           title="This profile could not be loaded"
           message={found.error.message}
-          stillUsable="Lists, and everything outside them."
+          stillUsable="The Affinity lists, and everything else in Copilot."
         />
       </PageShell>
     );
   }
 
   const { record, memberships, notes, related } = found.value;
-  const [links, integration] = await Promise.all([
+  const [links, integration, overrides] = await Promise.all([
     findCopilotLinks(store, org, record),
     getPrimaryIntegration(store, org).catch(() => null),
+    readDestinationOverrides(store, org),
   ]);
+  // Rows on lists that feed Fund II follow its rule here too: stages only,
+  // never an amount. Fund II links every LP to this page.
+  const lpLists = new Set(
+    memberships
+      .filter(({ list }) => {
+        const { destination } = resolveCrmListDestination(list, overrides[list.id]);
+        return destination === 'lps' || destination === 'lp_lists';
+      })
+      .map(({ list }) => list.id),
+  );
   const copilot = links.ok ? links.value : [];
   const stageLabels = copilot.some((l) => l.kind === 'deal')
     ? new Map(
@@ -99,11 +114,16 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
     { domain: isCompany ? record.domain : null, emails: record.emails },
     integration?.account_email,
   );
-  const details = Object.entries(record.fields).filter(([, v]) => !isEmpty(v));
+  const details = Object.entries(record.fields).filter(
+    ([label, v]) =>
+      !isEmpty(v) &&
+      // An LP's money (net worth, assets, a commitment) stays off, as on Fund II.
+      !(lpLists.size > 0 && (typeof v === 'number' || isMoneyField({ type: 'text', name: label }))),
+  );
 
   return (
     <PageShell>
-      <BackLink />
+      <CrmBreadcrumb />
       <PageHeader
         eyebrow={`${isCompany ? 'Company' : 'Person'} · ${record.source === 'affinity' ? 'from Affinity' : 'added in Copilot'}`}
         title={record.name}
@@ -180,7 +200,12 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
                   const facts = [
                     entry.title !== record.name ? entry.title : null,
                     ...list.fields
-                      .filter((f) => f.key !== status?.key && !isEmpty(entry.values[f.key]))
+                      .filter(
+                        (f) =>
+                          f.key !== status?.key &&
+                          !isEmpty(entry.values[f.key]) &&
+                          (!lpLists.has(list.id) || isFundIiField(f)),
+                      )
                       .slice(0, 2)
                       .map((f) => `${f.name}: ${formatCrmValue(f, entry.values[f.key], timezone)}`),
                     list.archived ? 'archived list' : null,
@@ -337,17 +362,6 @@ function CopilotLinkCard({
           .filter(Boolean)
           .join(' · ')}
       </span>
-    </Link>
-  );
-}
-
-function BackLink() {
-  return (
-    <Link
-      href="/lists"
-      className="mb-2 inline-flex items-center gap-1 text-sm text-[var(--fg-muted)] hover:text-[var(--fg)]"
-    >
-      <ArrowLeft className="size-4" aria-hidden /> All lists
     </Link>
   );
 }

@@ -254,6 +254,7 @@ describe('Ctrl+K search', () => {
     expect(lists.filter((r) => r.kind === 'crm_list').map((r) => [r.label, r.href])).toEqual([
       ['Deal Pipeline', `/lists/${DEMO_IDS.crmListDeals}`],
       ['LP Pipeline', `/lists/${DEMO_IDS.crmListLps}`],
+      ['Family Office LP Pipeline', `/lists/${DEMO_IDS.crmListHnwi}`],
     ]);
     // The palette draws the CRM's results as one group at the end.
     const firstCrm = results.findIndex((r) => r.kind.startsWith('crm_'));

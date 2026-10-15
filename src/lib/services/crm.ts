@@ -125,6 +125,19 @@ async function guard<T>(
   }
 }
 
+/**
+ * The same guard, for the CRM's sibling services (`crm-destinations.ts`): a
+ * missing CRM table becomes `not_configured`, anything else `internal`, and
+ * nothing throws to the caller.
+ */
+export function crmGuard<T>(
+  mode: 'read' | 'write',
+  operation: string,
+  run: () => Promise<Result<T>>,
+): Promise<Result<T>> {
+  return guard(mode, operation, run);
+}
+
 /* ----------------------------------------------------------------- helpers */
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -389,7 +402,7 @@ function entryOrder(
 }
 
 /** The records some entries point at, by id. */
-async function recordSummaries(
+export async function recordSummaries(
   store: DataStore,
   organizationId: string,
   entries: readonly CrmListEntry[],

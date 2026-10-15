@@ -89,3 +89,83 @@ jobs:
           APP_URL: ${{ vars.APP_URL || 'https://tiptop-copilot.onrender.com' }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           TASKS: ${{ github.event.inputs.tasks || (github.event.schedule == '0 11 * * *' && 'all') || 'sync' }}
+
+      - name: Sync Affinity
+        # Everything in Affinity, copied into Copilot every morning until the
+        # subscription is cancelled (then delete AFFINITY_API_KEY on Render, or
+        # this step). Morning run and manual runs only: once a day is plenty.
+        #
+        # A full pull does not fit in one request, so the endpoint does a
+        # bounded chunk per call and answers done:false until the run is in;
+        # this loops. A run cut short (the loop cap, a failure) resumes from
+        # where it stopped on the next call, here or from "Sync now".
+        #
+        # The repository is public, so this prints counts only: jq picks the
+        # booleans, the phase and the numbers out of the response, and the body
+        # itself is never echoed.
+        # Runs even when the mail job above failed: the two are independent.
+        if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 11 * * *') }}
+        run: |
+          set -euo pipefail
+
+          summary() {
+            jq -c '{
+              configured: (.configured == true),
+              done: (.done == true),
+              busy: (.busy == true),
+              phase: (if (.phase | IN("lists", "notes", "done")) then .phase else null end),
+              lists: [(.listsDone // 0 | numbers), (.listsTotal // 0 | numbers)],
+              rows: (.counts.entries // {} | with_entries(select(.value | type == "number"))),
+              records: (.counts.records // {} | with_entries(select(.value | type == "number"))),
+              notes: (.counts.notes // {} | with_entries(select(.value | type == "number"))),
+              skipped: [(.counts.pagesSkipped // 0 | numbers), (.counts.refused // 0 | numbers)],
+              requests: (.counts.requests // 0 | numbers)
+            }' affinity.json 2>/dev/null || echo '(unreadable response)'
+          }
+
+          # A failed call is tried again twice, 30s apart, before the job gives
+          # up: the sync counts a page that keeps failing across calls and
+          # moves past it on the third, which then happens this morning
+          # rather than over three days.
+          failed=0
+          for call in $(seq 1 80); do
+            status=$(curl -sS -X POST "${APP_URL}/api/cron/affinity-sync" \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              --max-time 150 \
+              -o affinity.json -w '%{http_code}') || status=000
+
+            if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
+              code=$(jq -r '.error.code // "unknown" | select(test("^[a-z_]+$"))' affinity.json 2>/dev/null || echo unknown)
+              rm -f affinity.json
+              failed=$((failed + 1))
+              if [ "${failed}" -lt 3 ]; then
+                echo "call ${call}: HTTP ${status} (${code:-unknown}); trying again in 30s."
+                sleep 30
+                continue
+              fi
+              echo "::error::Affinity sync failed with HTTP ${status} (${code:-unknown}). It resumes from where it stopped on the next run."
+              exit 1
+            fi
+            failed=0
+
+            echo "call ${call}: $(summary)"
+
+            if [ "$(jq -r '.configured == false' affinity.json)" = "true" ]; then
+              echo "AFFINITY_API_KEY is not set on Render; nothing to sync."
+              break
+            fi
+            if [ "$(jq -r '.done == true' affinity.json)" = "true" ]; then
+              break
+            fi
+            if [ "$(jq -r '.busy == true or .rateLimited == true' affinity.json)" = "true" ]; then
+              sleep 20
+            fi
+          done
+
+          if [ "$(jq -r '.done == true' affinity.json 2>/dev/null || echo false)" != "true" ]; then
+            echo "::notice::The Affinity sync is not finished yet; it carries on from here on the next run."
+          fi
+          rm -f affinity.json
+        env:
+          APP_URL: ${{ vars.APP_URL || 'https://tiptop-copilot.onrender.com' }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

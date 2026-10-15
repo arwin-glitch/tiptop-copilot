@@ -1,4 +1,5 @@
 import * as React from 'react';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Notice, PlainText } from '@/components/ui/feedback';
 import type { CrmNote } from '@/lib/types/domain';
@@ -23,24 +24,41 @@ export function CrmNoteList({
   notes,
   timezone,
   empty = 'No notes yet.',
+  about,
+  label = 'Notes',
 }: {
   notes: readonly CrmNote[];
   timezone: string;
   empty?: string;
+  /**
+   * The records each note is about, by note id, linked to their profiles:
+   * for a stream of notes read away from any one record (Meetings).
+   */
+  about?: Readonly<Record<string, readonly { id: string; name: string }[]>>;
+  /** Accessible name of the list. */
+  label?: string;
 }) {
   if (notes.length === 0) {
     return <p className="text-sm text-[var(--fg-subtle)]">{empty}</p>;
   }
   return (
-    <ul className="space-y-2" aria-label="Notes">
+    <ul className="space-y-2" aria-label={label}>
       {notes.map((note) => (
-        <CrmNoteItem key={note.id} note={note} timezone={timezone} />
+        <CrmNoteItem key={note.id} note={note} timezone={timezone} about={about?.[note.id]} />
       ))}
     </ul>
   );
 }
 
-function CrmNoteItem({ note, timezone }: { note: CrmNote; timezone: string }) {
+function CrmNoteItem({
+  note,
+  timezone,
+  about,
+}: {
+  note: CrmNote;
+  timezone: string;
+  about?: readonly { id: string; name: string }[];
+}) {
   // An imported note whose date could not be read has none. It says so,
   // rather than borrowing the import's time and passing a 2019 note off as
   // written today.
@@ -73,6 +91,22 @@ function CrmNoteItem({ note, timezone }: { note: CrmNote; timezone: string }) {
           {note.source === 'affinity' ? 'From Affinity' : 'Copilot'}
         </Badge>
       </p>
+      {about?.length ? (
+        <p className="text-mini mt-0.5 text-[var(--fg-subtle)]">
+          About{' '}
+          {about.map((r, i) => (
+            <React.Fragment key={r.id}>
+              {i > 0 ? ', ' : null}
+              <Link
+                href={`/lists/records/${r.id}`}
+                className="text-[var(--accent)] underline-offset-2 hover:underline"
+              >
+                {r.name}
+              </Link>
+            </React.Fragment>
+          ))}
+        </p>
+      ) : null}
 
       {note.injection_flagged ? (
         <Notice tone="warn" className="mt-2">

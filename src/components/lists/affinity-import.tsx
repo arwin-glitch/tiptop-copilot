@@ -1375,7 +1375,7 @@ function FinalSummary({ files }: { files: ImportFile[] }) {
           ) : null}
         </ul>
         <Button asChild variant="secondary" size="sm">
-          <Link href="/lists">Open Lists</Link>
+          <Link href="/knowledge?tab=lists">Open Affinity lists</Link>
         </Button>
       </CardContent>
     </Card>

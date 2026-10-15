@@ -83,6 +83,20 @@ describe('reading lists', () => {
       ['Deal Pipeline', 'deal', 11],
       ['LP Pipeline', 'person', 5],
       ['Portfolio', 'company', 4],
+      // One small list per destination (lib/crm/destinations.ts).
+      ['Climate Watch List', 'company', 2],
+      ['Angel Investments', 'company', 2],
+      ['Fund I Founders', 'person', 4],
+      ['Co-investor VCs', 'person', 2],
+      ['Service Providers', 'company', 2],
+      ['Operator Circle', 'person', 2],
+      ['Summit Sponsors', 'company', 2],
+      ['Investor Newsletter', 'person', 2],
+      ['Misc Imports', 'company', 2],
+      // Read beside Copilot's own data on Deals, Fund II and Network.
+      ['Seed Opportunities', 'deal', 4],
+      ['Family Office LP Pipeline', 'deal', 4],
+      ['Founder Lunch Invites', 'person', 3],
     ]);
   });
 
@@ -270,7 +284,7 @@ describe('page writes', () => {
         actor,
       ),
     );
-    expect(list.position).toBe(3);
+    expect(list.position).toBe(15);
     expect(list.source).toBe('copilot');
     expect(list.fields).toEqual([
       { key: 'check_size', name: 'Check Size', type: 'money' },

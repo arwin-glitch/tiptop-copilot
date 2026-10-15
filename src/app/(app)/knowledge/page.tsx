@@ -23,6 +23,8 @@ import {
   ImportNetworkButton,
   UploadDocumentButton,
 } from '@/components/knowledge/knowledge-client';
+import { AffinityImportTab } from '@/components/knowledge/affinity-import-tab';
+import { AffinityLists } from '@/components/knowledge/affinity-lists';
 import { formatDate } from '@/lib/util/time';
 
 export const metadata: Metadata = { title: 'Knowledge' };
@@ -45,21 +47,26 @@ export default async function KnowledgePage({
 
   const auth = await requireAuth();
   const store = getStore();
-  // Head counts for the tab badges; a fault only drops the badge.
-  const [documentCount, contactCount] = await Promise.all([
+  // Head counts for the tab badges; a fault only drops the badge. A missing
+  // CRM table can read as zero here (a HEAD request), which is what it holds.
+  const [documentCount, contactCount, listCount] = await Promise.all([
     store.count('knowledge_documents', auth.organizationId).catch(() => undefined),
     store.count('network_contacts', auth.organizationId).catch(() => undefined),
+    store
+      .count('crm_lists', auth.organizationId, { eq: { archived: false } })
+      .catch(() => undefined),
   ]);
   const counts: Partial<Record<string, number>> = {
     documents: documentCount,
     contacts: contactCount,
+    lists: listCount,
   };
 
   return (
     <PageShell>
       <PageHeader
         title="Knowledge"
-        subtitle="Thesis documents, memos, pass notes, market maps and your network. Retrieval is full-text over Postgres, with page-level citations."
+        subtitle="Thesis documents, memos, pass notes, market maps, your network, and everything carried over from Affinity. Retrieval is full-text over Postgres, with page-level citations."
         actions={
           <>
             <ImportNetworkButton />
@@ -81,6 +88,10 @@ export default async function KnowledgePage({
       <Suspense key={tab} fallback={<SkeletonText lines={8} />}>
         {tab === 'contacts' ? (
           <ContactsTab auth={auth} q={q} shownRaw={params[SHOW_PARAM]} />
+        ) : tab === 'lists' ? (
+          <AffinityLists auth={auth} q={q} />
+        ) : tab === 'import' ? (
+          <AffinityImportTab auth={auth} />
         ) : (
           <DocumentsTab auth={auth} q={q} />
         )}

@@ -168,6 +168,18 @@ test('every Records tab renders', async ({ page }) => {
     ['/portfolio?tab=companies', 'Portfolio sections', /^Companies/],
     ['/fund-ii?tab=passed', 'Fund II sections', /^Passed/],
     ['/network?tab=cold', 'Network sections', /^Going cold/],
+    ['/knowledge?tab=lists', 'Knowledge sections', /^Affinity lists/],
+    ['/knowledge?tab=import', 'Knowledge sections', /^Affinity import/],
+    // Affinity's data on the pages that use it.
+    ['/deals?tab=pipeline', 'Deals sections', /^Pipeline/],
+    ['/deals?tab=sourcing', 'Deals sections', /^Sourcing/],
+    ['/portfolio?tab=founders', 'Portfolio sections', /^Founders/],
+    ['/portfolio?tab=angel', 'Portfolio sections', /^Angel/],
+    ['/fund-ii?tab=lists', 'Fund II sections', /^LP lists/],
+    ['/network?tab=investors', 'Network sections', /^Investors/],
+    ['/network?tab=providers', 'Network sections', /^Service providers/],
+    ['/network?tab=operators', 'Network sections', /^Operators/],
+    ['/network?tab=events', 'Network sections', /^Events/],
   ];
   for (const [url, nav, label] of tabs) {
     await page.goto(url);
@@ -186,6 +198,10 @@ test('every Records tab renders', async ({ page }) => {
   );
   await page.goto('/network?tab=cold');
   await expect(page.getByRole('heading', { name: /^Going cold/ })).toBeVisible();
+  await page.goto('/knowledge?tab=lists');
+  await expect(page.getByRole('region', { name: 'Deals', exact: true })).toBeVisible();
+  await page.goto('/knowledge?tab=import');
+  await expect(page.getByRole('heading', { name: 'Import from Affinity' })).toBeVisible();
 });
 
 test('links from elsewhere land on the tab that holds what they point at', async ({ page }) => {

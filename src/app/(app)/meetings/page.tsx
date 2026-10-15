@@ -10,7 +10,14 @@ import {
 } from '@/components/followups/relay-cards';
 import { listMeetingNotes } from '@/lib/services/meetings';
 import { MEETINGS_TABS, SNAPSHOT_WAIT_MS, landsOnSnapshot, openingTab } from '@/lib/records-tabs';
-import { SHOW_PARAM, showMoreHref, shownCount, single, tabHref } from '@/lib/util/page-tabs';
+import {
+  PAGE_PARAM,
+  SHOW_PARAM,
+  showMoreHref,
+  shownCount,
+  single,
+  tabHref,
+} from '@/lib/util/page-tabs';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { EmptyState, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
@@ -18,6 +25,12 @@ import { ShowMore } from '@/components/ui/show-more';
 import { Stat, StatGroup } from '@/components/ui/stat';
 import { MeetingNoteList } from '@/components/meetings/meeting-note-list';
 import { MeetingsFilterBar } from '@/components/meetings/meetings-client';
+import {
+  AffinityNotes,
+  NotesSourceSwitch,
+  affinityNoteCount,
+  type NotesSource,
+} from '@/components/meetings/affinity-notes';
 
 export const metadata: Metadata = { title: 'Meetings' };
 export const dynamic = 'force-dynamic';
@@ -52,12 +65,13 @@ export default async function MeetingsPage({
   }
   const { tab, home } = openingTab(MEETINGS_TABS, params, weekShows);
   const shown = shownCount(params[SHOW_PARAM], NOTES_STEP, NOTES_MAX);
+  const source: NotesSource = single(params.source) === 'affinity' ? 'affinity' : 'granola';
 
   return (
     <PageShell>
       <PageHeader
         title="Meetings"
-        subtitle="Every note Granola has written, whether or not the company is already a deal. The record of what was actually said."
+        subtitle="Every note Granola has written, whether or not the company is already a deal, and every note carried over from Affinity. The record of what was actually said."
       />
       <PageTabs
         label={MEETINGS_TABS.navLabel}
@@ -67,7 +81,15 @@ export default async function MeetingsPage({
         defaultKey={home}
       />
       <Suspense key={tab} fallback={<SkeletonText lines={10} />}>
-        {tab === 'notes' ? <NotesTab q={q} shown={shown} /> : <WeekTab />}
+        {tab === 'notes' ? (
+          source === 'affinity' ? (
+            <AffinityNotesTab q={q} page={params[PAGE_PARAM]} />
+          ) : (
+            <NotesTab q={q} shown={shown} />
+          )
+        ) : (
+          <WeekTab />
+        )}
       </Suspense>
     </PageShell>
   );
@@ -101,6 +123,28 @@ async function WeekTab() {
   );
 }
 
+/** Affinity's notes, newest first, behind the same tab as Granola's. */
+async function AffinityNotesTab({ q, page }: { q: string; page: string | string[] | undefined }) {
+  const auth = await requireAuth();
+  const [granolaCount, affinityCount] = await Promise.all([
+    getStore()
+      .count('meeting_notes', auth.organizationId, { eq: { provider: 'granola' } })
+      .catch(() => null),
+    affinityNoteCount(auth),
+  ]);
+  return (
+    <>
+      <NotesSourceSwitch
+        source="affinity"
+        q={q}
+        granolaCount={granolaCount}
+        affinityCount={affinityCount}
+      />
+      <AffinityNotes auth={auth} q={q} page={page} />
+    </>
+  );
+}
+
 async function NotesTab({ q, shown }: { q: string; shown: number }) {
   const auth = await requireAuth();
   // `notes` is one page, capped by listMeetingNotes. Reading its length as the
@@ -113,6 +157,7 @@ async function NotesTab({ q, shown }: { q: string; shown: number }) {
     }),
     getStore().count('meeting_notes', auth.organizationId, { eq: { provider: 'granola' } }),
   ]);
+  const affinityCount = await affinityNoteCount(auth);
 
   const people = new Set<string>();
   const companies = new Set<string>();
@@ -127,6 +172,12 @@ async function NotesTab({ q, shown }: { q: string; shown: number }) {
 
   return (
     <>
+      <NotesSourceSwitch
+        source="granola"
+        q={q}
+        granolaCount={total}
+        affinityCount={affinityCount}
+      />
       <StatGroup className="mb-5" columns={3}>
         <Stat
           size="sm"

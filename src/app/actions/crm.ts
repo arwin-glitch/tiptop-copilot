@@ -15,12 +15,14 @@ import {
   type CrmRecordSummary,
 } from '@/lib/services/crm';
 import { rateLimit } from '@/lib/security/limits';
+import { setListDestination } from '@/lib/services/crm-destinations';
+import { isCrmDestination, type CrmListDestination } from '@/lib/crm/destinations';
 import type { CrmListEntry, CrmNote, CrmRecordKind } from '@/lib/types/domain';
 import type { AppError } from '@/lib/util/result';
 import type { ActionResult } from './index';
 
 /**
- * Server actions for the Lists pages.
+ * Server actions for the CRM: the Affinity lists, list pages and profiles.
  *
  * A file of their own rather than more of `actions/index.ts`, which is the
  * deal and inbox boundary; the rules are the same. Every action authenticates
@@ -150,8 +152,9 @@ export async function searchCrmRecordsAction(
 }
 
 /**
- * Archive a list, or bring it back. Archiving hides it from Lists and keeps
- * every row, so a list imported by mistake can be put away and restored.
+ * Archive a list, or bring it back. Archiving hides it from the Affinity
+ * lists and every page it fed, and keeps every row, so a list imported by
+ * mistake can be put away and restored.
  */
 export async function setCrmListArchivedAction(
   listId: string,
@@ -189,4 +192,30 @@ export async function setCrmStatusOptionsAction(
   if (!result.ok) return fail(result.error);
   const field = result.value.fields.find((f) => f.key === fieldKey);
   return succeed({ options: field?.options ?? [] });
+}
+
+/**
+ * Send a list's rows to another page (Knowledge → Affinity lists), or with
+ * `null` put it back where its name says. Kept per list as an audit row; see
+ * lib/services/crm-destinations.ts.
+ */
+export async function setCrmListDestinationAction(
+  listId: string,
+  destination: string | null,
+): Promise<ActionResult<{ destination: CrmListDestination }>> {
+  const { auth, denied } = await writer();
+  if (denied) return denied;
+  const chosen = destination === null || destination === '' ? null : destination;
+  if (chosen !== null && !isCrmDestination(chosen)) {
+    return fail({ code: 'invalid_input', message: 'That is not one of the places a list can go.' });
+  }
+  const result = await setListDestination(
+    getStore(),
+    auth.organizationId,
+    String(listId ?? ''),
+    chosen,
+    crmActor(auth),
+  );
+  if (!result.ok) return fail(result.error);
+  return succeed({ destination: result.value });
 }
