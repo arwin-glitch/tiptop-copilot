@@ -172,6 +172,7 @@ Inventing a plausible check size would be worse than leaving it empty.
 | `generated_drafts` | `check (sent = false)`. |
 | `ai_usage` | Every model call: operation, model, prompt version, tokens, cost, ok, error code, duration. |
 | `audit_events` | Everything consequential. Client IPs stored hashed. |
+| `mcp_tokens` | One per Claude client of the MCP endpoint (`20261016020000_mcp_tokens.sql`; `lib/services/mcp-tokens.ts`, `docs/MCP.md`): `name`, `hint` (last four characters), `last_used_at`, `revoked_at`. Only the SHA-256 of the token is stored (`token_hash`, unique); the token is shown once. Owners can read; only the server writes. Every call is audited as `mcp.tool_called` (tool and client name, never arguments). |
 | `user_feedback` | Thumbs on a specific output, for prompt iteration. |
 
 ### `generated_drafts`
@@ -237,6 +238,38 @@ has neither date nor author — computed in the browser so the key is fixed by
 the file itself; rows of the same note union their names and links. The page offers the existing lists to import into, pre-choosing one
 when the file is another saved view of it, and a list imported by mistake can
 be archived from its page.
+
+**Saved views** (`20261016010000_crm_views.sql`; `lib/crm/saved-views.ts`,
+`lib/services/crm-views.ts`) live on the list row as `crm_lists.views`, a jsonb
+array of `{id, name, view, columns, sort, dir, statuses, conditions, groupBy}`
+— no table of their own: a list has a handful, they are always read with it,
+and the list's row-level security already scopes them. The built-in All view
+is never stored. The array is read and written whole (two simultaneous saves
+on one list can lose one) and is re-validated against the list's fields on
+every read, so a view naming a removed field just loses that column or
+condition. Until the migration runs a list has no saved views and saving one
+returns `not_configured` naming the file. Conditions (status is any of; field
+is / contains / is empty / is not empty; number and date ranges; all must
+hold) compile to one store `Filter` on `values` JSON paths, run in the
+database; `Filter.textContains` (literal, case-insensitive `ILIKE`) was added
+for "contains". Column totals and the CSV export read every matching entry a
+thousand at a time (PostgREST has no aggregates); totals stream into the page
+after the rows and stop at 50,000 entries, saying so. An LP list's amount
+columns are never totalled (`lib/crm/lp-rule.ts`, the rule the MCP server
+applies too). Time in current status comes from the latest `crm.entry_updated`
+audit row whose `changed` keys name the status field (keys only — audit rows
+never carry values), else an imported Affinity "Time in Current Status" column
+counted on from the list's latest `crm.imported` row (shown as an estimate,
+"~36d"), else when a Copilot-made entry was added; the migration indexes those
+audit rows by `metadata->>'list_id'` for whole-list exports. The All view
+hides at first the imported timer (Time in Stage replaces it) or, on an
+Affinity list without one, Time in Stage itself. Exports:
+`/api/crm/lists/[id]/export` (the view on screen, members and above),
+`/api/crm/records/[id]/notes/export` (members and above), and
+`/api/crm/export` (everything as a ZIP of CSVs, owners only); the links show
+only to those roles, and a refused export is a toast, not a saved error file.
+All are audited as `crm.exported` with counts, and text a spreadsheet would
+run as a formula is prefixed with an apostrophe.
 
 ---
 

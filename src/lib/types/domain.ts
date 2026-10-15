@@ -714,6 +714,12 @@ export interface CrmList {
   archived: boolean;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
+  /**
+   * Saved views, as stored (jsonb array; 20261016010000_crm_views.sql). Absent
+   * until that migration has run, so read it only through parseSavedViews in
+   * lib/crm/saved-views.ts, which also drops anything malformed.
+   */
+  views?: unknown;
 }
 
 /** A company or a person. */
@@ -1101,6 +1107,26 @@ export interface AiUsageRecord {
   error_code: string | null;
   duration_ms: number;
   created_at: IsoDateTime;
+}
+
+/**
+ * A token a Claude client (a claude.ai custom connector, a Claude Code session,
+ * a cloud routine) uses to read the CRM through the MCP endpoint. Only the
+ * SHA-256 of the token is stored; the token itself is shown once, at creation.
+ */
+export interface McpToken {
+  id: Uuid;
+  organization_id: Uuid;
+  /** What the owner called the client, e.g. "claude.ai" or "Deal-sorter routine". */
+  name: string;
+  /** Hex SHA-256 of the whole token. */
+  token_hash: string;
+  /** The token's last four characters, so the owner can tell tokens apart. */
+  hint: string;
+  created_by: Uuid | null;
+  created_at: IsoDateTime;
+  last_used_at: IsoDateTime | null;
+  revoked_at: IsoDateTime | null;
 }
 
 export interface AuditEvent {

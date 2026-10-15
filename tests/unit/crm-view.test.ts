@@ -112,6 +112,11 @@ describe('list page URL state', () => {
     statuses: [],
     page: 1,
     view: 'table',
+    viewId: '',
+    modified: false,
+    columns: null,
+    conditions: [],
+    groupBy: '',
   };
 
   it('reads and checks every param', () => {
@@ -131,6 +136,11 @@ describe('list page URL state', () => {
       statuses: ['3. First Meeting', '8.2 Passed, revisit later'],
       page: 4,
       view: 'board',
+      viewId: '',
+      modified: false,
+      columns: null,
+      conditions: [],
+      groupBy: '',
     });
   });
 
@@ -211,11 +221,13 @@ describe('hidden columns, per list and per browser', () => {
     expect(readHiddenColumnsRaw(() => storage, 'list-2')).toBeNull();
   });
 
-  it('removes the key when nothing is hidden', () => {
+  it('keeps "nothing hidden" as a choice, so it outlasts the default-hidden columns', () => {
     const storage = memoryStorage();
     writeHiddenColumns(() => storage, 'list-1', ['amount']);
     writeHiddenColumns(() => storage, 'list-1', []);
-    expect(storage.data.has(crmColumnsKey('list-1'))).toBe(false);
+    expect(storage.data.get(crmColumnsKey('list-1'))).toBe('[]');
+    const raw = readHiddenColumnsRaw(() => storage, 'list-1');
+    expect(parseHiddenColumns(raw, fields, ['amount']).size).toBe(0);
   });
 
   it('never throws when storage is blocked, and reports the write as not kept', () => {
@@ -235,6 +247,10 @@ describe('hidden columns, per list and per browser', () => {
     expect(parseHiddenColumns('not json', fields).size).toBe(0);
     expect(parseHiddenColumns('{"amount":true}', fields).size).toBe(0);
     expect([...parseHiddenColumns('["amount", 3, "gone"]', fields)]).toEqual(['amount']);
+    // Nothing stored yet: the list's defaults (those it still has); a stored
+    // choice, even "none hidden", wins over them.
+    expect([...parseHiddenColumns(null, fields, ['amount', 'gone'])]).toEqual(['amount']);
+    expect(parseHiddenColumns('[]', fields, ['amount']).size).toBe(0);
     expect(serializeHiddenColumns(['b', 'a', 'b'])).toBe('["a","b"]');
   });
 });

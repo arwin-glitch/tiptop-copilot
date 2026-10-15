@@ -86,6 +86,16 @@ export class SupabaseStore implements DataStore {
         b = b.or(ors);
       }
     }
+    if (filter.textContains) {
+      for (const [k, text] of Object.entries(filter.textContains)) {
+        if (!text) continue;
+        // Literal text inside ILIKE: `\`, `%` and `_` escaped (backslash is
+        // Postgres's default LIKE escape). PostgREST reads `*` as `%` and has
+        // no escape for it, so a `*` matches any one character instead.
+        const literal = text.replace(/[\\%_]/g, '\\$&').replace(/\*/g, '_');
+        b = b.ilike(k, `%${literal}%`);
+      }
+    }
     return b;
   }
 

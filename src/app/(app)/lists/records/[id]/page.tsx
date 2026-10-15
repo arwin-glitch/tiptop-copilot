@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, ArrowUpRight, Globe, Mail } from 'lucide-react';
-import { requireAuth } from '@/lib/auth/session';
+import { hasRole, requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
 import { statusFieldOf } from '@/lib/crm/fields';
 import { formatCrmValue } from '@/lib/crm/view';
@@ -17,6 +17,7 @@ import {
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { getActiveThesis } from '@/lib/services/thesis';
 import { CrmNoteList } from '@/components/lists/crm-note-list';
+import { ExportNotesLink } from '@/components/lists/export-notes-link';
 import { CrmValueView } from '@/components/lists/crm-value';
 import { DataRow, PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -214,7 +215,15 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
           </section>
 
           <section aria-labelledby="profile-notes">
-            <SectionHeading count={notes.length}>
+            <SectionHeading
+              count={notes.length}
+              action={
+                // The export route serves members and above.
+                notes.length > 0 && hasRole(auth, 'member') ? (
+                  <ExportNotesLink recordId={record.id} recordName={record.name} />
+                ) : null
+              }
+            >
               <span id="profile-notes">Notes</span>
             </SectionHeading>
             <CrmNoteList
