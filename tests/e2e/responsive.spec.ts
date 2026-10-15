@@ -52,6 +52,10 @@ const PAGES = [
   '/network?tab=people',
   '/meetings?tab=notes',
   '/knowledge?tab=contacts',
+  // Campaigns: the list, a report, and the composer of the demo draft.
+  '/fund-ii?tab=campaigns',
+  '/fund-ii/campaigns/00000000-0000-4000-8000-0000000007d0',
+  '/fund-ii/campaigns/00000000-0000-4000-8000-0000000007d1',
 ];
 
 test.describe('mobile layout', () => {

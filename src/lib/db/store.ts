@@ -2,6 +2,10 @@ import type {
   AiUsageRecord,
   AuditEvent,
   CalendarEvent,
+  Campaign,
+  CampaignEvent,
+  CampaignRecipient,
+  CampaignSendLock,
   ChatMessage,
   ChatThread,
   CrmList,
@@ -81,6 +85,10 @@ export interface TableMap {
   crm_records: CrmRecord;
   crm_list_entries: CrmListEntry;
   crm_notes: CrmNote;
+  campaigns: Campaign;
+  campaign_recipients: CampaignRecipient;
+  campaign_events: CampaignEvent;
+  campaign_send_locks: CampaignSendLock;
   thesis_versions: ThesisVersion;
   daily_briefs: DailyBrief;
   routine_briefings: RoutineBriefing;
@@ -208,6 +216,21 @@ export interface DataStore {
     id: string,
     patch: Partial<Row<T>>,
   ): Promise<Row<T>>;
+
+  /**
+   * Update every row matching the filter in one statement, and return the
+   * rows it changed. The filter is checked by the database at the moment of
+   * the write, so this is the compare-and-set primitive: two callers racing
+   * to update a row "where status = 'draft'" or "where attempted_at is null"
+   * get one winner, and the loser gets an empty array. `update` cannot do
+   * that: it writes whatever the row looks like by then.
+   */
+  updateWhere<T extends TableName>(
+    table: T,
+    organizationId: string,
+    filter: Filter,
+    patch: Partial<Row<T>>,
+  ): Promise<Row<T>[]>;
 
   /**
    * Insert or update keyed on `conflictColumns`. Used by every sync path, which

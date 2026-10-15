@@ -54,6 +54,11 @@ const PUBLIC_PATHS = [
   // Same shared-secret contract; the watcher that notices new follow-ups
   // posts them here (add-only) and carries no session cookie either.
   '/api/integrations/tasks/webhook',
+  // Campaign tracking: the open pixel, tracked links and unsubscribe, loaded
+  // by recipients' mail clients with no session. Each route authenticates by
+  // its signed per-recipient token, and the click route redirects only to a
+  // link from that campaign's own body.
+  '/t',
 ];
 
 /**

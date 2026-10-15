@@ -211,8 +211,9 @@ describe('migrations apply in filename order', () => {
   it('finds the migrations', () => {
     expect(files.length).toBeGreaterThan(0);
     // Pinned so an accidentally-deleted migration is caught. Bump it when a
-    // migration legitimately adds a table — most recently the four crm_ tables.
-    expect(tables.size).toBe(40);
+    // migration legitimately adds a table — most recently the four campaign
+    // tables (campaigns, recipients, events and the send lock).
+    expect(tables.size).toBe(44);
   });
 
   it('declares no SQL function before a table it reads', () => {

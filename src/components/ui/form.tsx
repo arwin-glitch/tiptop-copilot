@@ -24,10 +24,8 @@ export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInp
   return <input className={cn(controlBase, 'h-9 py-0', className)} {...props} />;
 }
 
-export function Textarea({
-  className,
-  ...props
-}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+/** `ref` passes straight through (a prop in React 19), for callers that insert at the cursor. */
+export function Textarea({ className, ...props }: React.ComponentProps<'textarea'>) {
   return (
     <textarea
       className={cn(controlBase, 'min-h-24 resize-y leading-relaxed', className)}
