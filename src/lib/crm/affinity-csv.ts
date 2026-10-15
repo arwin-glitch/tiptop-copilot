@@ -597,6 +597,17 @@ export function detectEntityType(filename: string, headers: readonly string[]): 
  */
 export function defaultListName(filename: string): string {
   let name = filename.replace(/^.*[\\/]/, '').replace(/\.(csv|txt)$/i, '');
+  // Affinity's own download names: "<List>_<View>__export_Oct-15-2026", with
+  // "__notes_export_" or "__introductions_export_" for those exports and every
+  // space turned into "_". The list name is everything before the view, which
+  // for the default saved view starts with "All" ("_All_deals").
+  const affinity = name.match(
+    /^(.*?)_{2,}(?:notes_|introductions_|people_)?export_[a-z]{3}-\d{1,2}-\d{4}(?:\s*\(\d+\))?$/i,
+  );
+  if (affinity) {
+    const spaced = affinity[1].replace(/_+/g, ' ').trim();
+    name = spaced.replace(/\s+All\b.*$/i, '').trim() || spaced;
+  }
   for (let pass = 0; pass < 4; pass++) {
     const before = name;
     name = name
