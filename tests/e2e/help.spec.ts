@@ -338,6 +338,6 @@ test.describe('with reduced motion', () => {
     expect(transition.split(',').every((d) => parseFloat(d) < 0.002)).toBe(true);
     await next(page).click();
     await expectStep(page, /2 of 3/, 'Switch sections');
-    await expect(card(page)).toContainText('Intros · Going cold · People');
+    await expect(card(page)).toContainText('Intros · Going cold · Keep in touch · People');
   });
 });
