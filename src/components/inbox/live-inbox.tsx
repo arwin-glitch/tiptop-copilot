@@ -27,6 +27,7 @@ import { Textarea } from '@/components/ui/form';
 import { Notice } from '@/components/ui/feedback';
 import { swapSignOff } from '@/components/followups/email-session-client';
 import { Composer, type ComposeDraft } from '@/components/inbox/composer';
+import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
 import { cn } from '@/lib/util/cn';
 import type {
   InboxTab,
@@ -247,10 +248,13 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
   const selected = index >= 0 ? rows[index]! : null;
 
   // Gmail's keys: j/k move, o/Enter open, e archive, s star, Shift+U unread,
-  // r reply, u back to the list, / search, x select.
+  // r reply, u back to the list, / search, x select. Never while something is
+  // drawn over the list (the Ask Arwin panel, a tour card, a dialog): a key
+  // meant for that must not archive or open the thread underneath.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return;
+      if (keyBelongsToOverlay(e)) return;
       const move = (delta: number) => {
         const next = rows[Math.min(rows.length - 1, Math.max(0, index + delta))];
         if (next) open(next);
@@ -321,13 +325,19 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
+          data-tour="inbox-compose"
           onClick={() =>
             setCompose({ title: 'New email', draft: { to: '', subject: '', body: '\n\nNick' } })
           }
         >
           <PenSquare className="size-4" aria-hidden /> Compose
         </Button>
-        <div role="tablist" aria-label="Mailbox" className="flex flex-wrap gap-1">
+        <div
+          role="tablist"
+          aria-label="Mailbox"
+          data-tour="inbox-tabs"
+          className="flex flex-wrap gap-1"
+        >
           {TABS.map((t) => (
             <Button
               key={t.id}
@@ -341,7 +351,11 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
             </Button>
           ))}
         </div>
-        <form onSubmit={submitSearch} className="flex min-w-0 flex-1 items-center gap-1">
+        <form
+          onSubmit={submitSearch}
+          data-tour="inbox-search"
+          className="flex min-w-0 flex-1 items-center gap-1"
+        >
           <label htmlFor="inbox-search" className="sr-only">
             Search email
           </label>
@@ -398,6 +412,7 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
       <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <section
           aria-label="Conversations"
+          data-tour="inbox-list"
           className={cn('min-w-0', selected && 'hidden lg:block')}
         >
           {checked.size > 0 ? (
@@ -466,6 +481,7 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
 
         <section
           aria-label="Reading pane"
+          data-tour="inbox-reading"
           className={cn(
             'min-w-0 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto',
             !selected && 'hidden lg:block',

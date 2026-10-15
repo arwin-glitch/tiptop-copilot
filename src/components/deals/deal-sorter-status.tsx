@@ -21,6 +21,7 @@ export function DealSorterStatus({
     <div
       role="status"
       aria-label="Deal-sorter status"
+      data-tour="deals-status"
       className={cn(
         'mb-4 flex items-start gap-2.5 rounded-md border px-3 py-2 text-sm',
         view.tone === 'warn'

@@ -192,6 +192,18 @@ subscriptions and delivery ledger (`push.subscription`, `push.alerted`), and
 the Portfolio page's stored numbers (`portfolio.numbers_snapshot`, one row per
 organization holding the last read, replaced by each refresh).
 
+Today's "At a glance" cards keep each task's short label and card the same
+way, as `task.glance_set` rows (`entity_type = 'task'`, `entity_id` the task):
+metadata `{v: 1, by, source?, short? (≤ 40 characters, ≤ 6 words, one line),
+bucket?: 'now' | 'intro' | 'upcoming', due_precision?: 'day' | 'week'}`. A row
+with no user is the task-suggest routine's (written at ingest when
+`TASK_ADD_V1` carries any of those fields); a row with a user is a person's
+choice. Per field, the newest person's value beats the newest routine value;
+who wrote a row is its `user_id`, never its `by`, and a field that does not
+parse is ignored on its own. `task.glance_set` is not a "person touched it"
+action for the task-closer (D-052), so moving a task between cards never stops
+it closing itself. See D-053.
+
 ### `ai_usage`
 
 Recorded for **failed** calls too, with the error code and zero cost. A failed

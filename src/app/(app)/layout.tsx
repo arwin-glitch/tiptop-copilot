@@ -2,14 +2,17 @@ import { redirect } from 'next/navigation';
 import { after } from 'next/server';
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth/session';
-import { isDemoMode } from '@/lib/config/env';
-import { getStore } from '@/lib/runtime';
+import { env, isDemoMode } from '@/lib/config/env';
+import { getAI, getStore } from '@/lib/runtime';
+import { SUGGESTED_QUESTIONS } from '@/lib/services/chat';
 import { recordVisit } from '@/lib/services/presence';
+import { AskWidget } from '@/components/ask/ask-widget';
 import { GoldFiligree } from '@/components/brand/gold-filigree';
 import { Mark, Wordmark } from '@/components/brand/wordmark';
 import { MobileNav, SidebarNav } from '@/components/shell/nav';
 import { CommandPalette } from '@/components/shell/command-palette';
 import { MobileSectionLabel } from '@/components/shell/mobile-header';
+import { TourHost } from '@/components/help/tour-host';
 import { ThemeToggle } from '@/components/shell/theme-toggle';
 import { SignOutButton } from '@/components/shell/sign-out';
 import { TaskActionHost } from '@/components/tasks/task-action-host';
@@ -28,6 +31,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     after(() => recordVisit(getStore(), organizationId, userId));
   }
   const displayName = auth.profile.full_name ?? auth.profile.email;
+  // The Ask page's own rule: an in-app model, or the Ask bridge. Both are
+  // configuration checks, so this costs nothing per page.
+  const askAvailable = getAI().available() || Boolean(env().askBridgeToken);
 
   return (
     <div className={demo ? 'has-demo-banner flex min-h-dvh flex-col' : 'flex min-h-dvh flex-col'}>
@@ -123,13 +129,24 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </div>
           </header>
 
-          <main id="main" className="min-w-0 flex-1 pb-20 lg:pb-0">
+          {/* Bottom padding clears the fixed chrome, so the end of a page can
+              always scroll out from under it: on a phone the tab bar plus the
+              Ask Arwin launcher above it, on a desktop the launcher alone. */}
+          <main id="main" className="min-w-0 flex-1 pb-36 lg:pb-24">
             <TaskActionHost>{children}</TaskActionHost>
           </main>
         </div>
       </div>
 
       <MobileNav />
+      {/* After the page in the DOM, so the skip link stays the first stop. */}
+      <AskWidget
+        aiAvailable={askAvailable}
+        timeZone={auth.profile.timezone}
+        suggestions={SUGGESTED_QUESTIONS}
+      />
+      {/* Guided tours: started from Help, a page's "?" or `?tour=<page>`. */}
+      <TourHost />
     </div>
   );
 }

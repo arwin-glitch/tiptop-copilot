@@ -89,6 +89,7 @@ export function PageTabs({
         // globals.css keys the window's scroll padding to this, so keyboard
         // focus never stops underneath the bar.
         data-page-tabs=""
+        data-tour="subtabs"
         className={cn(
           'sticky top-[max(var(--app-header-h),var(--app-banner-h))] z-[var(--z-subnav)] -mx-[var(--gutter)] mb-5 border-b border-[var(--border)] bg-[var(--bg)]/95 px-[var(--gutter)] backdrop-blur lg:top-[var(--app-banner-h)]',
           className,

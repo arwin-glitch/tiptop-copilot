@@ -58,6 +58,7 @@ export type AuditAction =
   | 'task.created'
   | 'task.updated'
   | 'task.auto_completed'
+  | 'task.glance_set'
   | 'task.autoclose_sweep'
   | 'task.snapshot_posted'
   | 'draft.created'

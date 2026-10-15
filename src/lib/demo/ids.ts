@@ -117,3 +117,8 @@ export const DEMO_IDS = {
 export function demoCrmId(kind: 'record' | 'entry' | 'note', n: number): string {
   return id({ record: 1700, entry: 1800, note: 1900 }[kind] + n);
 }
+
+/** "At a glance" fixture ids, by kind and index: tasks 920–939, their glance rows 940–959. */
+export function demoGlanceId(kind: 'task' | 'audit', n: number): string {
+  return id((kind === 'task' ? 920 : 940) + n);
+}

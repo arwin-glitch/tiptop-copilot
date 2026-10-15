@@ -83,7 +83,7 @@ export function PortfolioHealthCard({
     (a, b) => FLAG_ORDER.indexOf(a.flag) - FLAG_ORDER.indexOf(b.flag),
   );
   return (
-    <Card className="mb-8">
+    <Card className="mb-8" data-tour="portfolio-health">
       <CardHeader>
         <div>
           <CardTitle>Portfolio health</CardTitle>
@@ -150,7 +150,7 @@ export function IntrosCard({
   );
   const owed = intros.intros.filter((i) => i.status === 'owed').length;
   return (
-    <Card className="mb-6">
+    <Card className="mb-6" data-tour="network-intros">
       <CardHeader>
         <div>
           <CardTitle>Intros</CardTitle>
@@ -239,7 +239,7 @@ export function WeekAheadCard({
     days.set(day, [...(days.get(day) ?? []), e]);
   }
   return (
-    <Card className="mb-6">
+    <Card className="mb-6" data-tour="meetings-week">
       <CardHeader>
         <div className="flex items-center gap-2">
           <CalendarDays className="size-4 text-[var(--fg-subtle)]" aria-hidden />

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { LifeBuoy } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { envLimits, isDemoMode } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
@@ -40,8 +41,29 @@ export default async function SettingsPage() {
         subtitle="Your thesis, your thresholds, your integrations. Nothing here is inferred on your behalf."
       />
 
+      {/* One row, above the tabs, so it is there whichever tab is open. */}
+      <Card className="mb-6" data-tour="settings-help">
+        <CardContent className="flex flex-wrap items-center gap-3 py-3.5">
+          <span
+            aria-hidden="true"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)]"
+          >
+            <LifeBuoy className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-title font-serif font-semibold">Help &amp; tours</h2>
+            <p className="text-sm text-[var(--fg-muted)]">
+              What every page holds, where to click, and a short guided tour of each.
+            </p>
+          </div>
+          <Button asChild variant="primary" size="sm">
+            <Link href="/help">Open Help</Link>
+          </Button>
+        </CardContent>
+      </Card>
+
       <Tabs defaultValue="thesis">
-        <TabsList>
+        <TabsList data-tour="settings-tabs">
           <TabsTrigger value="thesis">Thesis &amp; scoring</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
           <TabsTrigger value="preferences">Preferences</TabsTrigger>

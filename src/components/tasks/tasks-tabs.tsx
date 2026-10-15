@@ -82,7 +82,7 @@ export function TasksTabs({
       activationMode="manual"
       onValueChange={(value) => setChosen(readTasksView(value))}
     >
-      <TabsList aria-label="Tasks" onKeyDown={onListKeyDown}>
+      <TabsList aria-label="Tasks" data-tour="tasks-tabs" onKeyDown={onListKeyDown}>
         <TabsTrigger value="todo" onFocus={onTriggerFocus('todo')}>
           To do <span className="tabular ml-0.5 text-[var(--fg-subtle)]">{todoCount}</span>
         </TabsTrigger>

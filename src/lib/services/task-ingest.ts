@@ -7,6 +7,56 @@ import { log } from '@/lib/security/redact';
 import type { OrganizationMember, Task } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { unwrapSlackText } from '@/lib/util/slack-text';
+import { DEFAULT_TIMEZONE, wallTimeToUtc } from '@/lib/util/time';
+import { DUE_PRECISIONS, GLANCE_BUCKETS, GLANCE_SHORT_SCHEMA } from '@/lib/tasks/glance';
+import { recordRoutineGlance } from './task-glance';
+
+const DATE_ONLY_RE = /^(\d{4}-\d{2}-\d{2})$/;
+const NO_OFFSET_RE = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
+/** A routine's date with no time is a working morning: 09:00, as the prompt's week-level dates are. */
+const DATE_ONLY_HOUR = 9;
+
+/**
+ * `due_at` as a routine actually writes it. The prompt asks for ISO with "Z",
+ * and any offset is taken as is. A bare date ("2026-10-26") is 09:00 Central
+ * that day, and a time with no offset ("2026-10-26T09:00") is Central wall
+ * time: Nick's clock, which the prompts already use. Anything else is left
+ * for the schema to reject.
+ */
+export function normalizeDueAt(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const text = value.trim();
+  const dateOnly = DATE_ONLY_RE.exec(text);
+  if (dateOnly) {
+    return wallTimeToUtc(dateOnly[1]!, DATE_ONLY_HOUR, 0, DEFAULT_TIMEZONE)?.toISOString() ?? text;
+  }
+  const noOffset = NO_OFFSET_RE.exec(text);
+  if (noOffset) {
+    const at = wallTimeToUtc(
+      noOffset[1]!,
+      Number(noOffset[2]),
+      Number(noOffset[3]),
+      DEFAULT_TIMEZONE,
+      Number(noOffset[4] ?? 0),
+    );
+    return at?.toISOString() ?? text;
+  }
+  return text;
+}
+
+/** One task in a payload. The relay also checks tasks one by one. */
+const TASK_ITEM_SCHEMA = z.object({
+  title: z.string().trim().min(1).max(300),
+  detail: z.string().trim().max(2000).nullish(),
+  // Any offset, a bare date or a Central wall time; stored as UTC.
+  due_at: z.preprocess(normalizeDueAt, z.string().datetime({ offset: true }).nullish()),
+  urgent: z.boolean().nullish(),
+  // Today's "At a glance" hints. Each falls back to null on its own, so a
+  // bad label never costs the task.
+  short: GLANCE_SHORT_SCHEMA.nullish().catch(null),
+  bucket: z.enum(GLANCE_BUCKETS).nullish().catch(null),
+  due_precision: z.enum(DUE_PRECISIONS).nullish().catch(null),
+});
 
 /**
  * Payload for the task webhook: things a watcher noticed that need a human
@@ -14,21 +64,12 @@ import { unwrapSlackText } from '@/lib/util/slack-text';
  * meeting, a commitment surfaced in Slack. Deliberately narrow, matching
  * `CreateTaskInput`: a title, an optional detail (should say where it came
  * from), an optional due date, and whether it is urgent enough to want
- * attention today.
+ * attention today. Optionally, for Today's "At a glance" cards, a short
+ * label, the card it belongs on and whether its date is a day or a week.
  */
 export const TASK_INGEST_SCHEMA = z.object({
   source: z.string().trim().min(1).max(100),
-  tasks: z
-    .array(
-      z.object({
-        title: z.string().trim().min(1).max(300),
-        detail: z.string().trim().max(2000).nullish(),
-        due_at: z.string().datetime().nullish(),
-        urgent: z.boolean().nullish(),
-      }),
-    )
-    .min(1)
-    .max(20),
+  tasks: z.array(TASK_ITEM_SCHEMA).min(1).max(20),
 });
 
 export type TaskIngestPayload = z.infer<typeof TASK_INGEST_SCHEMA>;
@@ -64,6 +105,12 @@ async function resolveOwnerId(store: DataStore, organizationId: string): Promise
  * same thread every run bring a task back the moment a person finishes it.
  * Nothing here can complete, snooze, or delete a task a person is already
  * working, or has already finished.
+ *
+ * Only the title decides. A short label never does, even for an intro: labels
+ * are first names by design ("Chris → Sam"), so two different intros, or the
+ * same pair introduced twice months apart, share one. Not reposting a pair
+ * under new wording is the routine prompt's rule; a duplicate that slips
+ * through is one tick, a dropped intro is a promise nobody sees.
  */
 export async function ingestTasks(
   store: DataStore,
@@ -98,7 +145,7 @@ export async function ingestTasks(
       title: input.title.trim(),
       detail: input.detail ?? null,
       status: 'open',
-      due_at: input.due_at ?? (input.urgent ? now : null),
+      due_at: input.due_at ? new Date(input.due_at).toISOString() : input.urgent ? now : null,
       snoozed_until: null,
       deal_id: null,
       portfolio_company_id: null,
@@ -120,6 +167,14 @@ export async function ingestTasks(
       entityId: task.id,
       metadata: { source: payload.source, title: task.title },
     });
+    if (input.short || input.bucket || input.due_precision) {
+      await recordRoutineGlance(store, organizationId, task.id, {
+        source: payload.source,
+        short: input.short,
+        bucket: input.bucket,
+        due_precision: input.due_precision,
+      });
+    }
     result.created.push(input.title);
   }
 
@@ -129,22 +184,87 @@ export async function ingestTasks(
 /* ---------------------------------------------------------- Slack relay */
 
 const TASK_MARKER = 'TASK_ADD_V1';
+/** Fields a task can lose and still be the task it was. */
+const OPTIONAL_TASK_FIELDS: ReadonlySet<string> = new Set(['detail', 'due_at', 'urgent']);
+
+/**
+ * The JSON in a relay post. From the first "{" to the last "}", so a backtick
+ * inside a value, or a ```json fence around it, is no obstacle; the first
+ * backtick pair, the original shape, is the fallback.
+ */
+function relayJson(clean: string): unknown {
+  const start = clean.indexOf('{');
+  const end = clean.lastIndexOf('}');
+  const candidates = [
+    start >= 0 && end > start ? clean.slice(start, end + 1) : null,
+    /`([^`]+)`/.exec(clean)?.[1] ?? null,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next shape.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * A payload that does not validate as a whole, task by task: a task that
+ * fails only on optional fields (an odd `due_at`, say) is kept without them,
+ * and only a task with no usable title is left out. Nobody reads the relay's
+ * errors, and the same message is read again every run, so one bad field must
+ * not cost every task in it.
+ */
+function salvageTasks(json: unknown): TaskIngestPayload | null {
+  if (!json || typeof json !== 'object') return null;
+  const { source, tasks } = json as { source?: unknown; tasks?: unknown };
+  const parsedSource = TASK_INGEST_SCHEMA.shape.source.safeParse(source);
+  if (!parsedSource.success || !Array.isArray(tasks)) return null;
+  const kept: TaskIngestPayload['tasks'] = [];
+  for (const raw of tasks.slice(0, 20)) {
+    const whole = TASK_ITEM_SCHEMA.safeParse(raw);
+    if (whole.success) {
+      kept.push(whole.data);
+      continue;
+    }
+    if (!raw || typeof raw !== 'object') continue;
+    const fields = new Set(whole.error.issues.map((issue) => String(issue.path[0] ?? '')));
+    if (![...fields].every((field) => OPTIONAL_TASK_FIELDS.has(field))) continue;
+    const trimmed: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+    for (const field of fields) delete trimmed[field];
+    const retry = TASK_ITEM_SCHEMA.safeParse(trimmed);
+    if (retry.success) kept.push(retry.data);
+  }
+  return kept.length > 0 ? { source: parsedSource.data, tasks: kept } : null;
+}
 
 /** One relay-channel message -> a validated task payload, or null. */
 export function parseTaskRelayMessage(text: unknown): TaskIngestPayload | null {
   if (typeof text !== 'string') return null;
   const clean = unwrapSlackText(text).trim();
   if (!clean.startsWith(TASK_MARKER)) return null;
-  const match = /`([^`]+)`/.exec(clean);
-  if (!match?.[1]) return null;
-  let json: unknown;
-  try {
-    json = JSON.parse(match[1]);
-  } catch {
+  const json = relayJson(clean);
+  if (json === undefined) {
+    log.warn('Task relay message has no readable JSON', { marker: TASK_MARKER });
     return null;
   }
   const parsed = TASK_INGEST_SCHEMA.safeParse(json);
-  return parsed.success ? parsed.data : null;
+  if (parsed.success) return parsed.data;
+  const salvaged = salvageTasks(json);
+  const issues = parsed.error.issues
+    .slice(0, 5)
+    .map((issue) => `${issue.path.join('.')}: ${issue.code}`);
+  if (salvaged) {
+    log.warn('Task relay message partly invalid; kept what validated', {
+      kept: salvaged.tasks.length,
+      issues,
+    });
+    return salvaged;
+  }
+  log.warn('Task relay message failed validation', { issues });
+  return null;
 }
 
 /**

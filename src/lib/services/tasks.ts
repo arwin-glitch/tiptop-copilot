@@ -1,6 +1,7 @@
 import 'server-only';
 import type { AuthContext } from '@/lib/auth/session';
 import { listAllPages } from '@/lib/db/paging';
+import type { DataStore } from '@/lib/db/store';
 import { getStore } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
 import {
@@ -153,9 +154,10 @@ export async function listCompletedTasks(organizationId: string): Promise<Task[]
 export async function listOpenTasks(
   organizationId: string,
   now: Date = new Date(),
+  store: DataStore = getStore(),
 ): Promise<Task[]> {
   const rows = (await listAllPages(
-    getStore(),
+    store,
     'tasks',
     organizationId,
     { in: { status: ['open', 'snoozed'] } },
