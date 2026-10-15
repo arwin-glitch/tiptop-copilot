@@ -649,6 +649,149 @@ export interface MeetingNote {
   updated_at: IsoDateTime;
 }
 
+/* ------------------------------------------------------------------ crm */
+//
+// Copilot's CRM, shaped like Affinity's so an Affinity export maps onto it
+// one-to-one: lists of one entity type with their own custom fields, companies
+// and people as records that can sit on many lists, list entries carrying that
+// list's field values, and notes attached to records and entries. Service:
+// lib/services/crm.ts. Field helpers (keys, coercion): lib/crm/fields.ts.
+
+/** Where a CRM row came from: an Affinity export, or made in Copilot. */
+export type CrmSource = 'affinity' | 'copilot';
+
+/** Affinity's organization, person and opportunity lists. */
+export type CrmEntityType = 'company' | 'person' | 'deal';
+
+export type CrmRecordKind = 'company' | 'person';
+
+export const CRM_FIELD_TYPES = [
+  'text',
+  'number',
+  'date',
+  'status',
+  'multi',
+  'person',
+  'company',
+  'url',
+  'email',
+  'money',
+] as const;
+
+export type CrmFieldType = (typeof CRM_FIELD_TYPES)[number];
+
+/**
+ * One column of a list. `key` is a stable slug (`[a-z0-9_]`, unique within
+ * the list) that entry `values` are keyed by; `name` is the label shown.
+ * `options` are the choices of a 'status' or 'multi' field, in display order —
+ * for a pipeline, the stage order.
+ */
+export interface CrmField {
+  key: string;
+  name: string;
+  type: CrmFieldType;
+  options?: string[];
+}
+
+/**
+ * A stored field value. Scalars for text/number/date/status/url/email/money
+ * (dates as `YYYY-MM-DD` or an ISO date-time, money and numbers as numbers),
+ * string arrays for multi/person/company. A value an import could not parse
+ * as its type is kept as the original string rather than dropped. An empty
+ * value is an absent key, never `''`.
+ */
+export type CrmValue = string | number | string[] | null;
+
+export interface CrmList {
+  id: Uuid;
+  organization_id: Uuid;
+  source: CrmSource;
+  external_id: string | null;
+  name: string;
+  entity_type: CrmEntityType;
+  fields: CrmField[];
+  position: number;
+  archived: boolean;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+/** A company or a person. */
+export interface CrmRecord {
+  id: Uuid;
+  organization_id: Uuid;
+  kind: CrmRecordKind;
+  source: CrmSource;
+  /** Affinity's Organization ID / Person ID; null when made in Copilot or known by name only. */
+  external_id: string | null;
+  name: string;
+  /** `lower(trim(name))`, maintained by the service; what case-insensitive matching uses. */
+  name_key: string;
+  /** Bare domain, companies only. */
+  domain: string | null;
+  /** Lowercased; includes `primary_email`. */
+  emails: string[];
+  primary_email: string | null;
+  /** Extra columns from the export, keyed by display label (records have no schema). */
+  fields: Record<string, CrmValue>;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+/** One row of one list. */
+export interface CrmListEntry {
+  id: Uuid;
+  organization_id: Uuid;
+  list_id: Uuid;
+  /** The company/person the row is about; for a deal list, the company the deal is with. */
+  record_id: Uuid | null;
+  /** The entity or opportunity name as the list shows it. */
+  title: string;
+  /**
+   * What makes an imported row the same row on the next import: Affinity's
+   * row id, `entity:<id>` (the organization/person/opportunity id) or
+   * `name:<name>` (a deal list exported without ids). Null for rows made in
+   * Copilot.
+   */
+  external_id: string | null;
+  /** Keyed by the list's `fields[].key`. */
+  values: Record<string, CrmValue>;
+  /**
+   * The values as the last import left them (what the file said), so the next
+   * import can tell a value someone changed in Copilot since — which it keeps
+   * — from one only Affinity has touched. Null for a row no import has written.
+   */
+  imported_values: Record<string, CrmValue> | null;
+  position: number;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+/**
+ * A note on records and/or list entries. `content` is untrusted text — stored
+ * verbatim, scanned on the way in (`injection_flagged` annotates, never hides)
+ * and only ever rendered as text, like meeting notes.
+ */
+export interface CrmNote {
+  id: Uuid;
+  organization_id: Uuid;
+  source: CrmSource;
+  /** Source id, or for an id-less CSV row a stable hash of entity names + date + content. */
+  external_id: string;
+  title: string | null;
+  content: string;
+  /** Display name of the author as the source gives it. */
+  author: string | null;
+  occurred_at: IsoDateTime | null;
+  record_ids: Uuid[];
+  entry_ids: Uuid[];
+  /** The names the source attached the note to, kept even when no record matched. */
+  entity_names: string[];
+  injection_flagged: boolean;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
 export interface NetworkContact {
   id: Uuid;
   organization_id: Uuid;

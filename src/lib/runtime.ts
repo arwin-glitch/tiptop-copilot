@@ -46,11 +46,25 @@ let aiSingleton: AIProvider | null = null;
 let researchSingleton: ResearchProvider | null = null;
 let storageSingleton: StorageProvider | null = null;
 
+/**
+ * Where the demo store lives: on globalThis, one per process. Next bundles
+ * route handlers apart from pages, each with its own copy of this module, so a
+ * module-level demo store gave /api/crm/import an in-memory database the pages
+ * never read — an Affinity import in demo mode was saved and then invisible
+ * until the server restarted. The demo store is the one singleton that holds
+ * state, so it alone is shared this way.
+ */
+const DEMO_STORE_KEY = Symbol.for('tiptop-copilot.demo-store');
+type DemoStoreHolder = { [DEMO_STORE_KEY]?: DataStore };
+
 export function getStore(): DataStore {
   if (storeSingleton) return storeSingleton;
   const e = env();
   if (e.demoMode) {
-    storeSingleton = new DemoStore(() => buildDemoDb(new Date()) as never);
+    const holder = globalThis as DemoStoreHolder;
+    storeSingleton = holder[DEMO_STORE_KEY] ??= new DemoStore(
+      () => buildDemoDb(new Date()) as never,
+    );
   } else if (!e.supabaseUrl || !e.supabaseServiceRoleKey) {
     // Falling back to fixtures here would serve invented companies as real —
     // and the demo banner is gated on DEMO_MODE, so nothing on screen would
@@ -172,6 +186,7 @@ export function getUpdatesFeed(now: Date = new Date()): UpdatesFeed | null {
 /** Test hook: rebuild every singleton after changing process.env. */
 export function resetRuntime(): void {
   storeSingleton = null;
+  delete (globalThis as DemoStoreHolder)[DEMO_STORE_KEY];
   aiSingleton = null;
   researchSingleton = null;
   storageSingleton = null;

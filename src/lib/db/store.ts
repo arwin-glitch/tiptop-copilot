@@ -4,6 +4,10 @@ import type {
   CalendarEvent,
   ChatMessage,
   ChatThread,
+  CrmList,
+  CrmListEntry,
+  CrmNote,
+  CrmRecord,
   DailyBrief,
   Deal,
   DealAnalysis,
@@ -73,6 +77,10 @@ export interface TableMap {
   knowledge_chunks: KnowledgeChunk;
   network_contacts: NetworkContact;
   meeting_notes: MeetingNote;
+  crm_lists: CrmList;
+  crm_records: CrmRecord;
+  crm_list_entries: CrmListEntry;
+  crm_notes: CrmNote;
   thesis_versions: ThesisVersion;
   daily_briefs: DailyBrief;
   routine_briefings: RoutineBriefing;
@@ -124,6 +132,13 @@ export function assertScoped(table: TableName, organizationId: string): void {
 
 export type Scalar = string | number | boolean | null;
 
+/**
+ * Column names in a Filter or an `orderBy` may also be a JSON path into a
+ * jsonb column, in PostgREST's own syntax: `values->>status` (the value as
+ * text, for comparing) or `values->amount` (the value as jsonb, for ordering —
+ * numbers then sort as numbers). Path keys must be `[a-z0-9_]`. Both stores
+ * evaluate these the same way (see filter.ts).
+ */
 export interface Filter {
   eq?: Record<string, Scalar>;
   neq?: Record<string, Scalar>;
@@ -136,8 +151,13 @@ export interface Filter {
   notNull?: string[];
   /** Array column contains the given value. */
   arrayContains?: Record<string, string>;
-  /** Case-insensitive substring match across the listed columns (OR). */
-  textSearch?: { columns: string[]; query: string };
+  /** Array column shares at least one element with the given values. */
+  arrayOverlaps?: Record<string, string[]>;
+  /**
+   * Case-insensitive match across the listed columns (OR): the text anywhere
+   * in the value, or with `mode: 'prefix'` at its start.
+   */
+  textSearch?: { columns: string[]; query: string; mode?: 'contains' | 'prefix' };
 }
 
 export interface QueryOptions {

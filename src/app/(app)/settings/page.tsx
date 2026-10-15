@@ -173,6 +173,24 @@ export default async function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          <Card className="mt-4">
+            <CardHeader>
+              <div>
+                <CardTitle as="h2">Import from Affinity</CardTitle>
+                <p className="mt-1 text-sm text-[var(--fg-muted)]">
+                  Bring your Affinity lists into Copilot: export each list (Export → Export view as
+                  CSV) and its notes (Export → Export all notes in view), then drop the files in.
+                  Importing a file again updates what is here instead of duplicating it.
+                </p>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Button asChild variant="secondary" size="sm">
+                <Link href="/lists/import">Import from Affinity</Link>
+              </Button>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="preferences">

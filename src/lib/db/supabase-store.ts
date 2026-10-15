@@ -21,6 +21,15 @@ import { assertScoped, scopeless } from './store';
 type Builder = PostgrestFilterBuilder<any, any, any, any, any>;
 
 /**
+ * The error a failed query throws. It keeps PostgREST's code (`42P01`,
+ * `PGRST205`, …) as `code`, so a caller can recognise a table that does not
+ * exist yet — a migration not applied — without parsing the message.
+ */
+function storeError(prefix: string, error: { message: string; code?: string }): Error {
+  return Object.assign(new Error(`${prefix}: ${error.message}`), { code: error.code ?? null });
+}
+
+/**
  * Postgres implementation. Every query passes organization_id explicitly even
  * though row-level security also enforces it — the policy is the security
  * boundary, the parameter is the correctness boundary, and a bug in either one
@@ -37,7 +46,21 @@ export class SupabaseStore implements DataStore {
     if (filter.eq)
       for (const [k, v] of Object.entries(filter.eq)) b = v === null ? b.is(k, null) : b.eq(k, v);
     if (filter.neq) for (const [k, v] of Object.entries(filter.neq)) b = b.neq(k, v as never);
-    if (filter.in) for (const [k, v] of Object.entries(filter.in)) b = b.in(k, v as never[]);
+    if (filter.in) {
+      for (const [k, v] of Object.entries(filter.in)) {
+        // postgrest-js quotes a value only for `,()` and never escapes a quote
+        // inside one, so a value like `Passed - "too early"` would break the
+        // request. Those lists are written out quoted and escaped instead.
+        if (v.some((x) => typeof x === 'string' && /["\\]/.test(x))) {
+          const quoted = v.map((x) =>
+            typeof x === 'string' ? `"${x.replace(/["\\]/g, '\\$&')}"` : String(x),
+          );
+          b = b.filter(k, 'in', `(${quoted.join(',')})`);
+        } else {
+          b = b.in(k, v as never[]);
+        }
+      }
+    }
     if (filter.gte) for (const [k, v] of Object.entries(filter.gte)) b = b.gte(k, v);
     if (filter.lte) for (const [k, v] of Object.entries(filter.lte)) b = b.lte(k, v);
     if (filter.gt) for (const [k, v] of Object.entries(filter.gt)) b = b.gt(k, v);
@@ -47,10 +70,19 @@ export class SupabaseStore implements DataStore {
     if (filter.arrayContains) {
       for (const [k, v] of Object.entries(filter.arrayContains)) b = b.contains(k, [v]);
     }
+    if (filter.arrayOverlaps) {
+      for (const [k, values] of Object.entries(filter.arrayOverlaps)) {
+        // An array literal, each element quoted: postgrest-js joins a JS array
+        // unquoted, which a comma or brace inside a value would break.
+        const literal = values.map((v) => `"${v.replace(/["\\]/g, '\\$&')}"`).join(',');
+        b = b.overlaps(k, `{${literal}}`);
+      }
+    }
     if (filter.textSearch) {
       const escaped = filter.textSearch.query.replace(/[%,()]/g, ' ').trim();
       if (escaped) {
-        const ors = filter.textSearch.columns.map((c) => `${c}.ilike.%${escaped}%`).join(',');
+        const pattern = filter.textSearch.mode === 'prefix' ? `${escaped}%` : `%${escaped}%`;
+        const ors = filter.textSearch.columns.map((c) => `${c}.ilike.${pattern}`).join(',');
         b = b.or(ors);
       }
     }
@@ -87,7 +119,7 @@ export class SupabaseStore implements DataStore {
     b = this.applyFilter(b, filter);
     b = this.applyOptions(b, options);
     const { data, error } = await b;
-    if (error) throw new Error(`[${table}] list failed: ${error.message}`);
+    if (error) throw storeError(`[${table}] list failed`, error);
     return (data ?? []) as Row<T>[];
   }
 
@@ -98,7 +130,7 @@ export class SupabaseStore implements DataStore {
   ): Promise<Row<T> | null> {
     const b = this.scoped(table, organizationId).eq('id', id).limit(1);
     const { data, error } = await b;
-    if (error) throw new Error(`[${table}] get failed: ${error.message}`);
+    if (error) throw storeError(`[${table}] get failed`, error);
     return ((data ?? [])[0] as Row<T>) ?? null;
   }
 
@@ -126,7 +158,7 @@ export class SupabaseStore implements DataStore {
       count: number | null;
       error: { message: string } | null;
     };
-    if (error) throw new Error(`[${table}] count failed: ${error.message}`);
+    if (error) throw storeError(`[${table}] count failed`, error);
     return count ?? 0;
   }
 
@@ -136,7 +168,7 @@ export class SupabaseStore implements DataStore {
       .insert(row as never)
       .select()
       .limit(1);
-    if (error) throw new Error(`[${table}] insert failed: ${error.message}`);
+    if (error) throw storeError(`[${table}] insert failed`, error);
     return ((data ?? [])[0] as Row<T>) ?? row;
   }
 
@@ -146,7 +178,7 @@ export class SupabaseStore implements DataStore {
       .from(table)
       .insert(rows as never)
       .select();
-    if (error) throw new Error(`[${table}] insertMany failed: ${error.message}`);
+    if (error) throw storeError(`[${table}] insertMany failed`, error);
     return (data ?? []) as Row<T>[];
   }
 
@@ -167,7 +199,7 @@ export class SupabaseStore implements DataStore {
         select: () => Promise<{ data: unknown[] | null; error: { message: string } | null }>;
       }
     ).select();
-    if (error) throw new Error(`[${table}] update failed: ${error.message}`);
+    if (error) throw storeError(`[${table}] update failed`, error);
     const updated = (data ?? [])[0] as Row<T> | undefined;
     if (!updated) throw new Error(`[${table}] ${id} not found in organization ${organizationId}`);
     return updated;
@@ -193,7 +225,7 @@ export class SupabaseStore implements DataStore {
       .upsert(row as never, { onConflict: conflictColumns.join(',') })
       .select()
       .limit(1);
-    if (error) throw new Error(`[${table}] upsert failed: ${error.message}`);
+    if (error) throw storeError(`[${table}] upsert failed`, error);
     return {
       row: ((data ?? [])[0] as Row<T>) ?? row,
       created: existing === null,
@@ -205,7 +237,7 @@ export class SupabaseStore implements DataStore {
     assertScoped(table, organizationId);
     if (!scopeless(table)) b = b.eq('organization_id', organizationId);
     const { error } = await b;
-    if (error) throw new Error(`[${table}] delete failed: ${error.message}`);
+    if (error) throw storeError(`[${table}] delete failed`, error);
   }
 
   async removeWhere<T extends TableName>(
@@ -220,7 +252,7 @@ export class SupabaseStore implements DataStore {
     assertScoped(table, organizationId);
     if (!scopeless(table)) b = b.eq('organization_id', organizationId);
     const { error } = await b;
-    if (error) throw new Error(`[${table}] removeWhere failed: ${error.message}`);
+    if (error) throw storeError(`[${table}] removeWhere failed`, error);
     return doomed.length;
   }
 
@@ -263,7 +295,7 @@ export class SupabaseStore implements DataStore {
       .from('organization_members')
       .select('*')
       .eq('user_id', userId);
-    if (error) throw new Error(`membershipsForUser failed: ${error.message}`);
+    if (error) throw storeError('membershipsForUser failed', error);
     return (data ?? []) as OrganizationMember[];
   }
 
@@ -273,7 +305,7 @@ export class SupabaseStore implements DataStore {
       .select('*')
       .eq('id', id)
       .limit(1);
-    if (error) throw new Error(`organizationById failed: ${error.message}`);
+    if (error) throw storeError('organizationById failed', error);
     return ((data ?? [])[0] as Organization) ?? null;
   }
 
@@ -283,7 +315,7 @@ export class SupabaseStore implements DataStore {
       .select('*')
       .eq('id', userId)
       .limit(1);
-    if (error) throw new Error(`userProfileById failed: ${error.message}`);
+    if (error) throw storeError('userProfileById failed', error);
     return ((data ?? [])[0] as UserProfile) ?? null;
   }
 
@@ -293,7 +325,7 @@ export class SupabaseStore implements DataStore {
       .upsert(profile as never, { onConflict: 'id' })
       .select()
       .limit(1);
-    if (error) throw new Error(`upsertUserProfile failed: ${error.message}`);
+    if (error) throw storeError('upsertUserProfile failed', error);
     return ((data ?? [])[0] as UserProfile) ?? profile;
   }
 }

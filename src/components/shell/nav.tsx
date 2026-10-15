@@ -12,6 +12,7 @@ import {
   CheckSquare,
   Inbox,
   Landmark,
+  ListChecks,
   MailCheck,
   MessageSquare,
   Newspaper,
@@ -45,6 +46,7 @@ export const NAV_ITEMS = [
   { href: '/ask', label: 'Ask', icon: MessageSquare },
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/calendar', label: 'Calendar', icon: CalendarClock },
+  { href: '/lists', label: 'Lists', icon: ListChecks },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { href: '/fund-ii', label: 'Fund II', icon: Landmark },
   { href: '/meetings', label: 'Meetings', icon: CalendarDays },
@@ -63,7 +65,7 @@ const GROUPS: { label: string; hrefs: string[] }[] = [
   },
   {
     label: 'Records',
-    hrefs: ['/portfolio', '/fund-ii', '/meetings', '/network', '/updates', '/knowledge'],
+    hrefs: ['/lists', '/portfolio', '/fund-ii', '/meetings', '/network', '/updates', '/knowledge'],
   },
   { label: 'System', hrefs: ['/settings'] },
 ];

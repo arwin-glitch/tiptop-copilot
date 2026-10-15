@@ -24,6 +24,29 @@ export function gmailThreadUrl(
     : `https://mail.google.com/mail/u/0/#all/${threadId}`;
 }
 
+const SEARCH_EMAIL = /^[^\s@<>()":]+@[^\s@<>()":]+\.[a-z]{2,}$/i;
+
+/**
+ * A Gmail search for mail with a company's domain or a person's addresses,
+ * in the mailbox it came from (same `authuser` rule as gmailThreadUrl). The
+ * query is assembled only from a validated hostname and plain addresses, and
+ * encoded whole; null when there is nothing valid to search for.
+ */
+export function gmailSearchUrl(
+  terms: { domain?: string | null; emails?: readonly string[] },
+  accountEmail: string | null | undefined,
+): string | null {
+  const domain = strictDomain(terms.domain);
+  const emails = (terms.emails ?? []).filter((e) => SEARCH_EMAIL.test(e)).slice(0, 5);
+  const targets = domain ? [domain] : emails;
+  if (targets.length === 0) return null;
+  const query = targets.map((t) => `from:${t} OR to:${t}`).join(' OR ');
+  const hash = `#search/${encodeURIComponent(query)}`;
+  return accountEmail
+    ? `https://mail.google.com/mail/?authuser=${encodeURIComponent(accountEmail)}${hash}`
+    : `https://mail.google.com/mail/u/0/${hash}`;
+}
+
 /** A DNS hostname: dot-separated LDH labels and an alphabetic top-level label. */
 const HOSTNAME = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])$/;
 

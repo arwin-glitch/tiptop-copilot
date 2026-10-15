@@ -6,8 +6,29 @@ import type { Filter, QueryOptions, Scalar } from './store';
  * so both stores agree on what a `Filter` means.
  */
 
+/**
+ * A column's value, or a JSON path into a jsonb column in PostgREST's syntax:
+ * `values->amount` is the value as stored (so numbers compare as numbers, as
+ * jsonb ordering does), `values->>status` is it as text — strings as they are,
+ * anything else as JSON — which is what Postgres's `->>` returns.
+ */
 function field(row: Record<string, unknown>, name: string): unknown {
-  return row[name];
+  if (!name.includes('->')) return row[name];
+  const [column, ...rest] = name.split(/(->>?)/);
+  let value: unknown = row[column as string];
+  let asText = false;
+  for (let i = 0; i < rest.length; i += 2) {
+    const op = rest[i];
+    const key = rest[i + 1] as string;
+    value =
+      value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)[key]
+        : undefined;
+    asText = op === '->>';
+  }
+  if (value === undefined || value === null) return null;
+  if (!asText || typeof value === 'string') return value;
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
 }
 
 function looseEq(a: unknown, b: Scalar): boolean {
@@ -80,12 +101,20 @@ export function matchesFilter(row: Record<string, unknown>, filter?: Filter): bo
       if (!Array.isArray(actual) || !actual.includes(v)) return false;
     }
   }
+  if (filter.arrayOverlaps) {
+    for (const [k, values] of Object.entries(filter.arrayOverlaps)) {
+      const actual = field(row, k);
+      if (!Array.isArray(actual) || !values.some((v) => actual.includes(v))) return false;
+    }
+  }
   if (filter.textSearch) {
     const q = filter.textSearch.query.trim().toLowerCase();
+    const prefix = filter.textSearch.mode === 'prefix';
     if (q) {
       const hit = filter.textSearch.columns.some((c) => {
         const v = field(row, c);
-        return typeof v === 'string' && v.toLowerCase().includes(q);
+        if (typeof v !== 'string') return false;
+        return prefix ? v.toLowerCase().startsWith(q) : v.toLowerCase().includes(q);
       });
       if (!hit) return false;
     }
@@ -109,8 +138,8 @@ export function applyOptions<T extends Record<string, unknown>>(
     const orders = options.orderBy;
     out = [...out].sort((x, y) => {
       for (const o of orders) {
-        const av = x[o.field];
-        const bv = y[o.field];
+        const av = field(x, o.field);
+        const bv = field(y, o.field);
         if (av == null && bv == null) continue;
         if (av == null) return o.direction === 'asc' ? -1 : 1;
         if (bv == null) return o.direction === 'asc' ? 1 : -1;

@@ -106,4 +106,14 @@ export const DEMO_IDS = {
 
   // Integrations
   integrationGoogle: id(1400),
+
+  // CRM lists (records, entries and notes are numbered: see demoCrmId)
+  crmListDeals: id(1600),
+  crmListLps: id(1601),
+  crmListPortfolio: id(1602),
 } as const;
+
+/** CRM fixture ids, by kind and index: records 1700–1799, entries 1800–1899, notes 1900–1999. */
+export function demoCrmId(kind: 'record' | 'entry' | 'note', n: number): string {
+  return id({ record: 1700, entry: 1800, note: 1900 }[kind] + n);
+}

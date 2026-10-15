@@ -24,6 +24,8 @@ type Db = { [K in TableName]?: Record<string, unknown>[] };
  * deliberate: Next.js route handlers and server components do not share a
  * single module instance across all requests in every runtime, so an in-memory
  * store would silently lose writes mid-flow and make the demo look broken.
+ * An instance keeps what it read in memory, though, so lib/runtime shares one
+ * instance per process between those module copies (see getStore).
  *
  * Writes are serialised through a promise chain and land via write-then-rename
  * so a crash cannot leave a half-written file.
@@ -282,4 +284,4 @@ export class DemoStore implements DataStore {
   }
 }
 
-export const DEMO_STORE_VERSION = 7;
+export const DEMO_STORE_VERSION = 9;

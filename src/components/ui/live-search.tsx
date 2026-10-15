@@ -43,6 +43,11 @@ export interface LiveSearchProps {
   label: string;
   /** Query-string key. Defaults to `q`. */
   param?: string;
+  /**
+   * Other params a new query clears — a page number, which would otherwise
+   * land a new search on page 12 of a result that may have two.
+   */
+  reset?: readonly string[];
   className?: string;
 }
 
@@ -52,6 +57,7 @@ export function LiveSearch({
   placeholder,
   label,
   param = 'q',
+  reset,
   className,
 }: LiveSearchProps) {
   const router = useRouter();
@@ -79,10 +85,11 @@ export function LiveSearch({
       const trimmed = next.trim();
       if (trimmed) search.set(param, trimmed);
       else search.delete(param);
+      for (const key of reset ?? []) search.delete(key);
       const qs = search.toString();
       startTransition(() => router.replace(qs ? `${path}?${qs}` : path, { scroll: false }));
     },
-    [params, param, path, router],
+    [params, param, path, reset, router],
   );
 
   React.useEffect(() => {

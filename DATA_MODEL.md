@@ -1,6 +1,6 @@
 # Data model
 
-Thirty-four tables in eight migrations, all under row-level security.
+Forty tables, all under row-level security.
 
 Migrations live in `supabase/migrations/` and are applied in filename order.
 Nothing is created by hand; see [SUPABASE_SETUP.md](SUPABASE_SETUP.md).
@@ -198,6 +198,45 @@ Recorded for **failed** calls too, with the error code and zero cost. A failed
 call still consumes a request slot, which is the point of a rate limit. It is
 also the only way to see that a provider is degraded rather than that usage
 dropped.
+
+---
+
+## 6a. CRM
+
+Copilot's replacement for Affinity, in Affinity's own shape so its CSV exports
+map one-to-one (`20261015000000_crm.sql`; service `lib/services/crm.ts`).
+
+| Table | Purpose |
+| --- | --- |
+| `crm_lists` | A list of one `entity_type` (`company`, `person`, `deal`) with its own custom `fields` (jsonb array of `{key, name, type, options?}`). Unique on `(organization_id, source, external_id)`. |
+| `crm_records` | Companies and people (`kind`). `name_key` is the name trimmed and lowercased, written by the service, so imports can match names case-insensitively through PostgREST. Unique on `(organization_id, kind, source, external_id)`; indexed by `name_key`, `domain`, `primary_email`, GIN on `emails` and trigram on `name`. |
+| `crm_list_entries` | One row of one list: `record_id` (nullable, `on delete set null`), `title`, and `"values"` keyed by the list's field keys. `external_id` is Affinity's row id, `entity:<id>` (organization/person/opportunity id) or `name:<name>` (a deal list exported without ids). `imported_values` is what the last import wrote, so a re-import keeps a value someone changed in Copilot since. Unique on `(list_id, external_id)`. |
+| `crm_notes` | Notes on records and entries (`record_ids`, `entry_ids`, both GIN-indexed). Content is untrusted, verbatim, rendered as text only, with `injection_flagged` like meeting notes. An id-less CSV note is keyed by a hash of its date, author and content, not the entity it was exported under, so one note exported from two lists is one note (the names count only when a note has neither date nor author). |
+
+`source` is `'affinity' | 'copilot'` on every table. Imports upsert on these
+natural keys and write only rows that change, so importing the same export
+twice writes nothing. Re-imports never overwrite a list value changed in
+Copilot since the previous import (they report it instead), and a row first
+imported from a view without row ids is found again when a later view has
+them. Records match by name only when no domain or address contradicts it,
+and a name several records share is left unlinked. Until the migration is
+applied, every CRM read degrades to a "not set up yet" state and every write
+returns `not_configured` — the service recognises Postgres `42P01` and
+PostgREST `PGRST205` (`lib/db/missing-table.ts`); a table from an earlier copy
+of the migration (a missing column: `42703`, `PGRST204`) says to run it again.
+
+Affinity's exports arrive through `/lists/import`. The page parses and maps
+each CSV in the browser (`lib/crm/affinity-csv.ts`) and posts chunks of up to
+200 rows to `/api/crm/import`, which runs them through
+`lib/services/crm-import.ts`: the list, then its records, then its entries.
+Notes go after lists and are linked by name to records and deal entries, only
+where exactly one matches; every name stays in `entity_names`. The importer
+keys a note without an Affinity id as `affinity-csv:<hash>` of its date (to the
+minute when it can be read), author and text — its names count only when it
+has neither date nor author — computed in the browser so the key is fixed by
+the file itself; rows of the same note union their names and links. The page offers the existing lists to import into, pre-choosing one
+when the file is another saved view of it, and a list imported by mistake can
+be archived from its page.
 
 ---
 
