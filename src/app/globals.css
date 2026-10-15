@@ -404,24 +404,26 @@
     inset 0 1px 0 rgb(237 230 211 / 0.07), 0 12px 32px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.4);
 }
 
-/* Dark mode proper sits a step deeper than the always-dark islands that light
-   mode borrows (the rail, the page-header band, the phone bars): those keep
+/* Dark mode proper is near-black, not emerald: the always-dark islands that
+   light mode borrows (the rail, the page-header band, the phone bars) keep
    the `.dark` values above so light mode is unchanged, while a dark page and
-   everything inside it, islands included, take these. Same hues, about a
-   fifth less light. */
+   everything inside it, islands included, take these. Green stays on the
+   logo, the primary actions, tags and icons; gold keeps the rules and labels.
+   A slightly lifted black rather than #000, which is harsher behind light
+   type. */
 :root.dark,
 :root.dark .dark {
-  --bg: #0b211a;
-  --bg-raised: #102d24;
-  --bg-sunken: #081a14;
-  --bg-overlay: #143a2f;
-  --bg-sidebar: #103126;
-  --bg-band: #113429;
-  --bg-hover: #173f33;
-  --nav-active: #194739;
+  --bg: #0e0f0f;
+  --bg-raised: #161817;
+  --bg-sunken: #0a0b0b;
+  --bg-overlay: #1d201f;
+  --bg-sidebar: #121413;
+  --bg-band: #141615;
+  --bg-hover: #1f2221;
+  --nav-active: #232726;
 
-  --border: #24493c;
-  --accent-soft: #153f32;
+  --border: #2b2f2d;
+  --accent-soft: #18241f;
 
   /* The bright brand green, a touch deeper; forest-dark type still clears
      6:1 on it. The logo keeps the brand's own green (--brand-mark). */
@@ -429,10 +431,15 @@
   --primary-hover: #1cc285;
 
   --jewel: #1a4c3b;
-  --neutral-soft: #153529;
-  --note-soft: #13342a;
-  --ok-soft: #11353a;
-  --chart-grid: #2a4f40;
+  --neutral-soft: #1c1f1e;
+  --note-soft: #1a1d1c;
+  --ok-soft: #142224;
+  --chart-grid: #303432;
+  --chart-track: #262a28;
+
+  /* No green wash over a black page or its cards. */
+  --page-glow: none;
+  --surface-sheen: none;
 }
 
 @theme inline {

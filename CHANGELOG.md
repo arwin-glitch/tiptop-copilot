@@ -10,6 +10,10 @@ throughout.
 
 ## [Unreleased]
 
+- **Dark mode goes black.** Dark mode's pages, cards, menu and header are a soft
+  near-black instead of emerald, which is easier on the eyes. Green stays on the
+  logo, primary buttons, tags and icons, gold on the rules and labels. Light
+  mode is unchanged.
 - **Top priorities leads Today.** The card opens the page, unchanged. While it
   holds today's list, the glance row under it shows only Intros owed and
   Coming up, and Tasks due opens on overdue tasks; with no list, or only an
