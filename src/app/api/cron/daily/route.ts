@@ -4,6 +4,7 @@ import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
 import { generateDailyBrief } from '@/lib/services/brief';
+import { checkReplies } from '@/lib/services/campaigns';
 import { pullBriefingsFromSlack } from '@/lib/services/briefing';
 import { formatDealCronStatus, pullDealsFromSlack } from '@/lib/services/deal-relay';
 import { ensureGmailWatch } from '@/lib/services/gmail-watch';
@@ -76,6 +77,7 @@ export async function POST(request: NextRequest) {
     tasks: string;
     deals: string;
     numbers: string;
+    campaigns: string;
   }[] = [];
 
   let organizations: Organization[] = [];
@@ -106,6 +108,7 @@ export async function POST(request: NextRequest) {
         tasks: 'skipped',
         deals: 'skipped',
         numbers: 'skipped',
+        campaigns: 'skipped',
       });
       continue;
     }
@@ -122,6 +125,7 @@ export async function POST(request: NextRequest) {
         tasks: 'skipped',
         deals: 'skipped',
         numbers: 'skipped',
+        campaigns: 'skipped',
       });
       continue;
     }
@@ -248,6 +252,20 @@ export async function POST(request: NextRequest) {
       log.error('Cron portfolio numbers refresh failed', { organizationId: organization.id });
     }
 
+    // Campaign replies and bounces, read from the mailbox the sync above just
+    // refreshed. Reads only: no campaign is ever sent from here. Counts only:
+    // public log.
+    let campaignsStatus: string;
+    try {
+      const replies = await checkReplies(store, organization.id);
+      campaignsStatus = replies.ok
+        ? `ok: ${replies.value.replies} replies, ${replies.value.bounces} bounces, ${replies.value.autoReplies} auto-replies, ${replies.value.settled} settled`
+        : `skipped: ${replies.error.code}`;
+    } catch {
+      campaignsStatus = 'failed';
+      log.error('Cron campaign reply check failed', { organizationId: organization.id });
+    }
+
     results.push({
       organization: organization.name,
       sync: syncStatus,
@@ -258,6 +276,7 @@ export async function POST(request: NextRequest) {
       tasks: tasksStatus,
       deals: dealsStatus,
       numbers: numbersStatus,
+      campaigns: campaignsStatus,
     });
   }
 

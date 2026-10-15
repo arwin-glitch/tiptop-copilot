@@ -215,6 +215,28 @@ export class SupabaseStore implements DataStore {
     return updated;
   }
 
+  async updateWhere<T extends TableName>(
+    table: T,
+    organizationId: string,
+    filter: Filter,
+    patch: Partial<Row<T>>,
+  ): Promise<Row<T>[]> {
+    // One UPDATE ... WHERE: Postgres re-checks the WHERE on each row it
+    // locks, so of two concurrent callers only one can match a row whose
+    // condition the other's write just changed.
+    let b = this.client.from(table).update(patch as never) as unknown as Builder;
+    assertScoped(table, organizationId);
+    if (!scopeless(table)) b = b.eq('organization_id', organizationId);
+    b = this.applyFilter(b, filter);
+    const { data, error } = await (
+      b as unknown as {
+        select: () => Promise<{ data: unknown[] | null; error: { message: string } | null }>;
+      }
+    ).select();
+    if (error) throw storeError(`[${table}] updateWhere failed`, error);
+    return (data ?? []) as Row<T>[];
+  }
+
   async upsert<T extends TableName>(
     table: T,
     row: Row<T>,

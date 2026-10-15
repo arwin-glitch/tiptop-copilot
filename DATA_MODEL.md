@@ -283,6 +283,47 @@ only to those roles, and a refused export is a toast, not a saved error file.
 All are audited as `crm.exported` with counts, and text a spreadsheet would
 run as a formula is prefixed with an apostrophe.
 
+## 6b. Campaigns
+
+Tracked bulk email, replacing Affinity's (`20261016000000_campaigns.sql`;
+service `lib/services/campaigns.ts`, template, limits and the person-or-machine
+rules in `lib/campaigns/`).
+
+| Table | Purpose |
+| --- | --- |
+| `campaigns` | A subject, a `body_template` (light Markdown with `{{first_name}}`, `{{name}}`, `{{company}}` and `{{field\|fallback}}`), `from_identity` (`nick` or `arwin`: whose signature; both send from the connected mailbox), `attachments` (jsonb `{id, name, type, size, parts}`, parts in the private bucket), `status` (`draft`, `sending`, `paused`, `sent`, `cancelled`) and `pause_reason` (`manual`, `left`, `capped`, `failures`, `refused`), the switches `track_activity` (pixel and tracked links; default on) and `unsubscribe_link` (the grey line and the List-Unsubscribe headers; default off), `link_allowlist` (the body's links at confirmation: the only places the click redirect goes), `confirmed_at`/`confirmed_by`, `confirmed_through` (the created_at of the last reviewed recipient: anyone added later is never sent) and `last_sent_at` (pacing). No schedule column, deliberately. |
+| `campaign_recipients` | One recipient of one campaign, unique on `(campaign_id, email)`: `merge` values, optional `record_id` (a CRM person), send `status` (`pending`, `sent`, `failed`, `unconfirmed`, `skipped`), Gmail ids, `error`, `attempted_at` (claimed atomically just before each send), and `opened_at`/`open_count`, `clicked_at`/`click_count`, `replied_at`, `bounced_at`, `unsubscribed_at`. `unconfirmed` is a send interrupted after it started: it may have gone out, so it is never resent automatically nor swept up by "retry failed"; a person marks it sent or sends it again, or the reply check settles it when its copy turns up in Sent. |
+| `campaign_events` | Every `open`, `click` (with `url`), `reply`, `bounce`, `unsubscribe` and `resubscribe` (both with the lowercased `email`), and `automated` for an open or click that looked like a machine (kept, never counted). The latest unsubscribe or resubscribe per address is the suppression list, checked when people are added, at confirmation and before each batch; it outlives its campaign (`on delete set null`). |
+| `campaign_send_locks` | One row per organization: the lease (`lease_token`, `lease_expires_at`) a batch takes by compare-and-set before its first email and renews before each, so one batch sends at a time across tabs and server instances; and `last_sent_at`, which paces the organization's next email whichever campaign sends it. |
+
+Nothing sends from a draft, and what was reviewed is what goes. The review
+screen shows the exact recipient count, from-address, subject, attachments,
+switches and a sample; the confirmation echoes those and the campaign's
+`updated_at` back, and moves the draft to `sending` with a compare-and-set on
+that version (`DataStore.updateWhere`). Every draft edit (a save, an attachment
+landing or going, recipients added or removed) is itself a compare-and-set on
+`status = 'draft'`, so an edit racing the tap either lands first and makes the
+tap stale, or is refused. The open page then asks `/api/campaigns/<id>/batch`
+for one short batch after another (at most 10 emails, about one every 2
+seconds, none started after 25 seconds; at most 400 in any 24 hours per
+organization). Sending runs only while that page is open: leaving it (a link,
+which asks first, or closing the tab) pauses the campaign with reason `left`,
+and a "sending" campaign nobody drives reads as stopped after two minutes. At
+the cap it pauses with reason `capped`. Resume is a tap. Sends go through
+`lib/google/gmail-send.ts` via `lib/campaigns/sender.ts`, which only the
+campaign routes import. Tracking is public at `/t/o/<token>` (pixel),
+`/t/c/<token>?u=` (click redirect, allowlist-checked) and `/t/u/<token>`
+(unsubscribe: opening changes nothing; the button or a provider's RFC 8058
+one-click POST does it). The token is the organization and recipient ids plus
+a truncated HMAC under `SESSION_SECRET`; a test send's token names the
+campaign under its own purpose tag and records nothing. A link whose text is
+itself an address is never rewritten. Opens and clicks in the first minute
+after the send, HEAD requests, prefetches, scanner user agents, and a second
+link clicked seconds after the first are kept as `automated` and not counted.
+Replies and bounces are read from the synced mailbox (a message in the sent
+email's thread, from the recipient, not an out-of-office, or from a mail
+server) when a campaign is viewed and by the daily job. Reads degrade to "not
+set up yet" until the migration is applied, as for the CRM.
 ---
 
 ## 7. Row-level security

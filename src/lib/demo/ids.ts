@@ -111,6 +111,10 @@ export const DEMO_IDS = {
   crmListDeals: id(1600),
   crmListLps: id(1601),
   crmListPortfolio: id(1602),
+
+  // Campaigns (recipients and events are numbered: see demoCampaignId)
+  campaignQ3Update: id(2000),
+  campaignDraft: id(2001),
 } as const;
 
 /** CRM fixture ids, by kind and index: records 1700–1799, entries 1800–1899, notes 1900–1999. */
@@ -121,4 +125,9 @@ export function demoCrmId(kind: 'record' | 'entry' | 'note', n: number): string 
 /** "At a glance" fixture ids, by kind and index: tasks 920–939, their glance rows 940–959. */
 export function demoGlanceId(kind: 'task' | 'audit', n: number): string {
   return id((kind === 'task' ? 920 : 940) + n);
+}
+
+/** Campaign fixture ids, by kind and index: recipients 2100–2199, events 2200–2299. */
+export function demoCampaignId(kind: 'recipient' | 'event', n: number): string {
+  return id({ recipient: 2100, event: 2200 }[kind] + n);
 }

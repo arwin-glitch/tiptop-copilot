@@ -59,6 +59,11 @@ const PUBLIC_PATHS = [
   // a Bearer header or the last path segment — never a session cookie; the
   // route checks the token itself (lib/mcp/http.ts).
   '/api/mcp',
+  // Campaign tracking: the open pixel, tracked links and unsubscribe, loaded
+  // by recipients' mail clients with no session. Each route authenticates by
+  // its signed per-recipient token, and the click route redirects only to a
+  // link from that campaign's own body.
+  '/t',
 ];
 
 /**

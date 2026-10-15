@@ -107,6 +107,12 @@ export const FUND_II_TABS = define({
       label: 'Passed',
       blurb: 'LPs who passed on Fund II, with any note.',
     },
+    {
+      key: 'campaigns',
+      label: 'Campaigns',
+      blurb:
+        'LP updates and offerings sent one email per person from your mailbox, with who opened, clicked and replied.',
+    },
   ],
 });
 

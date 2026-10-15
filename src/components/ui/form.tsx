@@ -25,7 +25,8 @@ export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInp
 }
 
 // ComponentProps rather than the HTML attributes alone, so a `ref` passes
-// through (a prop like any other since React 19): the Ask composer focuses it.
+// through (a prop like any other since React 19): the Ask composer focuses it,
+// and the campaign composer inserts merge fields at the cursor.
 export function Textarea({ className, ...props }: React.ComponentProps<'textarea'>) {
   return (
     <textarea

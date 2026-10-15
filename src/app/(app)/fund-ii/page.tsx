@@ -5,6 +5,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { LpUpdateCard } from '@/components/followups/relay-cards';
+import { CampaignList } from '@/components/campaigns/campaign-list';
 import { DocSendReaders } from '@/components/fund-ii/docsend-readers';
 import { WarmPaths } from '@/components/fund-ii/warm-paths';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
@@ -18,10 +19,19 @@ import {
 import { FUND_II_TABS, resolvePageTab } from '@/lib/records-tabs';
 import { tabHref } from '@/lib/util/page-tabs';
 import { searchableFirm } from '@/lib/services/warm-paths';
+import {
+  CAMPAIGNS_MIGRATION_FILE,
+  isCampaignsNotSetUp,
+  listCampaigns,
+  listUnsubscribes,
+} from '@/lib/services/campaigns';
+import { UnsubscribeList } from '@/components/campaigns/unsubscribe-list';
+import { countRecent } from '@/lib/campaigns/status';
+import { NotConfigured } from '@/components/ui/not-configured';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { EmptyState, Notice, SkeletonText } from '@/components/ui/feedback';
+import { EmptyState, ErrorState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
 import { Stat, StatGroup } from '@/components/ui/stat';
 import { formatDate, relativeTime } from '@/lib/util/time';
@@ -59,7 +69,7 @@ export default async function FundTwoPage({ searchParams }: { searchParams: Prom
     <PageShell>
       <PageHeader
         title="Fund II"
-        subtitle="Who is reading your DocSend links, and every LP conversation for Fund II and where it stands, read from your mail. Stages only; no amounts."
+        subtitle="Who is reading your DocSend links, every LP conversation for Fund II and where it stands (stages only; no amounts), and the updates you send LPs."
       />
       <PageTabs
         label={FUND_II_TABS.navLabel}
@@ -73,6 +83,8 @@ export default async function FundTwoPage({ searchParams }: { searchParams: Prom
           <PipelineTab />
         ) : tab === 'passed' ? (
           <PassedTab />
+        ) : tab === 'campaigns' ? (
+          <CampaignsTab />
         ) : (
           <DocSendReaders />
         )}
@@ -221,6 +233,49 @@ async function PassedTab() {
         ))}
       </ul>
     </section>
+  );
+}
+
+/** Tracked bulk email: every campaign with how it landed, and a way to start one. */
+async function CampaignsTab() {
+  const auth = await requireAuth();
+  const result = await listCampaigns(getStore(), auth.organizationId);
+  if (isCampaignsNotSetUp(result)) {
+    return (
+      <NotConfigured
+        title="Campaigns are not set up yet"
+        description={`The campaign tables have not been created in the database. Run ${CAMPAIGNS_MIGRATION_FILE} in the Supabase SQL editor, then reload this page.`}
+        stillWorks="The rest of Fund II, and everything else in Copilot, works as before."
+        action={null}
+      />
+    );
+  }
+  if (!result.ok) {
+    return (
+      <ErrorState
+        title="Campaigns could not be loaded"
+        message={result.error.message}
+        stillUsable="The rest of Fund II."
+      />
+    );
+  }
+  const unsubscribes = await listUnsubscribes(getStore(), auth.organizationId);
+  return (
+    <div className="space-y-8">
+      <CampaignList campaigns={result.value} timezone={auth.profile.timezone} />
+      {unsubscribes.ok ? (
+        <UnsubscribeList
+          recent={countRecent(unsubscribes.value)}
+          rows={unsubscribes.value.map((u) => ({
+            email: u.email,
+            at: u.at,
+            source: u.source,
+            campaignName: u.campaignName,
+          }))}
+          timezone={auth.profile.timezone}
+        />
+      ) : null}
+    </div>
   );
 }
 
