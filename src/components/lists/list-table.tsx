@@ -3,6 +3,11 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { CrmValueView } from '@/components/lists/crm-value';
+import {
+  RelationshipCells,
+  RelationshipHeaderCells,
+  type RelationshipColumnsState,
+} from '@/components/lists/relationship-columns';
 import { StatusSelect } from '@/components/lists/status-select';
 import type { ListTableData, ListViewList } from '@/components/lists/list-view';
 import {
@@ -37,6 +42,7 @@ export function ListTable({
   list,
   data,
   hidden,
+  relationship,
   statusField,
   statusOptions,
   valuesOf,
@@ -50,6 +56,8 @@ export function ListTable({
   list: ListViewList;
   data: ListTableData;
   hidden: ReadonlySet<string>;
+  /** The optional relationship columns, after the list's own. */
+  relationship?: RelationshipColumnsState;
   statusField: CrmField | null;
   statusOptions: string[];
   valuesOf: (entry: CrmListEntry) => Record<string, CrmValue>;
@@ -85,6 +93,7 @@ export function ListTable({
               {field.name}
             </TableHeaderCell>
           ))}
+          {relationship ? <RelationshipHeaderCells state={relationship} /> : null}
         </TableRow>
       </TableHead>
       <TableBody>
@@ -145,6 +154,13 @@ export function ListTable({
                   )}
                 </TableCell>
               ))}
+              {relationship ? (
+                <RelationshipCells
+                  state={relationship}
+                  recordId={entry.record_id}
+                  timezone={timezone}
+                />
+              ) : null}
             </TableRow>
           );
         })}

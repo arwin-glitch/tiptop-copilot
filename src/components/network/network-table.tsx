@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowDownLeft, ArrowUpRight, CalendarDays } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { StrengthBadge } from '@/components/network/strength-badge';
+import type { StrengthBadgeData } from '@/lib/network/strength';
 import { ShowMore } from '@/components/ui/show-more';
 import {
   Table,
@@ -39,16 +41,20 @@ const MOBILE_STEP = 30;
  * spoke six days ago. Same job, and every figure is a count of records the
  * reader can go and open.
  *
- * So the counts are the emphasis and there is no composite score anywhere. A
- * single blended number would be easier to scan and would be exactly the kind
- * of confident guess the rest of this product refuses to make.
+ * So the counts stay the emphasis. The strength badge beside a name is
+ * arithmetic on these same counts (network/strength.ts lists every weight),
+ * and its title carries the evidence, so it is never a number without its
+ * working.
  */
 export function NetworkTable({
   rows,
+  strengths,
   sort,
   direction,
 }: {
   rows: RelationshipRow[];
+  /** Strength by address, where there is evidence for one; its title holds the evidence. */
+  strengths?: Record<string, StrengthBadgeData>;
   sort: RelationshipSortKey;
   direction: SortDirection;
 }) {
@@ -117,6 +123,7 @@ export function NetworkTable({
                       {row.email}
                     </p>
                   ) : null}
+                  <Strength data={strengths?.[row.email]} className="mt-1 mr-1" />
                   {row.awaitingUs ? (
                     <Badge tone="warn" className="mt-1">
                       They wrote last
@@ -168,7 +175,10 @@ export function NetworkTable({
                   <p className="text-mini truncate text-[var(--fg-subtle)]">{row.email}</p>
                 ) : null}
               </div>
-              {row.awaitingUs ? <Badge tone="warn">They wrote last</Badge> : null}
+              <span className="flex shrink-0 flex-wrap justify-end gap-1">
+                <Strength data={strengths?.[row.email]} />
+                {row.awaitingUs ? <Badge tone="warn">They wrote last</Badge> : null}
+              </span>
             </div>
             <div className="mt-1.5">
               <Context row={row} />
@@ -197,6 +207,18 @@ export function NetworkTable({
         onMore={() => setShown((n) => n + MOBILE_STEP)}
       />
     </>
+  );
+}
+
+function Strength({ data, className }: { data?: StrengthBadgeData; className?: string }) {
+  if (!data) return null;
+  return (
+    <StrengthBadge
+      label={data.label}
+      score={data.score}
+      summary={data.summary}
+      className={className}
+    />
   );
 }
 

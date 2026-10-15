@@ -1,5 +1,9 @@
 import Papa from 'papaparse';
 import { coerceCrmValue, crmFieldKey, crmNameKey, splitCrmMulti } from '@/lib/crm/fields';
+import type {
+  AffinityIntroductionsMapping,
+  AffinityIntroductionsRequest,
+} from '@/lib/crm/affinity-introductions';
 import type { CrmEntityType, CrmField, CrmFieldType } from '@/lib/types/domain';
 import { normalizeDomain } from '@/lib/util/text';
 
@@ -8,7 +12,9 @@ import { normalizeDomain } from '@/lib/util/text';
  *
  * Two exports arrive here: a list view ("Export view as CSV"), whose columns
  * are whatever the saved view shows, and a notes export ("Export all notes in
- * view"). Neither has documented headers, so everything is header-driven and
+ * view"). A third, the introductions export, is sections rather than one
+ * table and is read by affinity-introductions.ts; it is only recognised here.
+ * None has documented headers, so everything is header-driven and
  * forgiving — case, spacing and synonyms — and every guess is a default the
  * import page shows and lets a person correct before anything is sent.
  *
@@ -461,7 +467,17 @@ export function affinityDomain(raw: string | null | undefined): string | null {
 
 /* -------------------------------------------------------------- detection */
 
-export type AffinityFileKind = 'list' | 'notes';
+export type AffinityFileKind = 'list' | 'notes' | 'introductions';
+
+/** The kinds that are one header row and rows; introductions come in sections. */
+export type AffinityTableKind = Exclude<AffinityFileKind, 'introductions'>;
+
+/**
+ * The first line of an introductions export ("Introductions Made By:"), or of
+ * one of its other sections. Such a file opens with a section title where a
+ * list or notes export has its header row.
+ */
+export const AFFINITY_INTRODUCTIONS_TITLE = /^(introductions?\b|source of introductions?\b)/i;
 
 /** A list column's type in the mapping, or 'skip' to leave it out of the import. */
 export type AffinityColumnType = CrmFieldType | 'skip';
@@ -516,10 +532,19 @@ export interface AffinityNotesMapping {
   idColumn: string | null;
 }
 
-export type AffinityMapping = AffinityListMapping | AffinityNotesMapping;
+export type AffinityMapping =
+  AffinityListMapping | AffinityNotesMapping | AffinityIntroductionsMapping;
 
-/** Whether a file is a list export or a notes export, from its headers (and name, to break a tie). */
+/**
+ * Whether a file is a list export or a notes export, from its headers (and
+ * name, to break a tie) — or an introductions export, whose "header" is a
+ * lone section title (the page reads those with readAffinityIntroductions).
+ */
 export function detectAffinityKind(filename: string, headers: readonly string[]): AffinityFileKind {
+  const [first, ...rest] = headers;
+  if (first && AFFINITY_INTRODUCTIONS_TITLE.test(first.trim()) && rest.every((h) => !h.trim())) {
+    return 'introductions';
+  }
   const has = (patterns: readonly RegExp[]) => findHeader(headers, patterns) !== null;
   let notes = 0;
   let list = 0;
@@ -718,12 +743,19 @@ export function detectNotesMapping(csv: AffinityCsv): AffinityNotesMapping {
   };
 }
 
-/** The mapping a file suggests, as a list or notes export. `kind` overrides the detected one. */
+/**
+ * The mapping a file suggests, as a list or notes export. `kind` overrides
+ * the detected one. An introductions export is not read from a table — the
+ * page reads it with readAffinityIntroductions before this — so it never
+ * reaches here, and a table that only looks like one is read as a list.
+ */
 export function detectAffinityMapping(
   filename: string,
   csv: AffinityCsv,
-  kind: AffinityFileKind = detectAffinityKind(filename, csv.headers),
-): AffinityMapping {
+  kind: AffinityTableKind = detectAffinityKind(filename, csv.headers) === 'notes'
+    ? 'notes'
+    : 'list',
+): AffinityListMapping | AffinityNotesMapping {
   return kind === 'notes' ? detectNotesMapping(csv) : detectListMapping(filename, csv);
 }
 
@@ -823,6 +855,9 @@ export function listFields(mapping: AffinityListMapping, csv: AffinityCsv): Affi
 
 /** What stops a file from importing, in words for the person fixing it. Empty when it can go. */
 export function mappingProblems(mapping: AffinityMapping, csv: AffinityCsv): string[] {
+  if (mapping.kind === 'introductions') {
+    return mapping.unrecognised ? [mapping.unrecognised] : [];
+  }
   const problems: string[] = [];
   if (!csv.headers.length)
     problems.push('This file has no header row, so its columns cannot be read.');
@@ -868,6 +903,26 @@ function unreadableDates(csv: AffinityCsv, header: string): { count: number; exa
 export function mappingWarnings(mapping: AffinityMapping, csv: AffinityCsv): string[] {
   const warnings: string[] = [];
   if (!csv.rows.length) return warnings;
+  if (mapping.kind === 'introductions') {
+    const skipped = new Set(mapping.skipped.map((p) => p.line)).size;
+    const unread = mapping.sections.filter((s) => s.unrecognised && s.rows > 0);
+    if (unread.length) {
+      warnings.push(
+        `${unread.map((s) => `“${s.title}”`).join(', ')} ${unread.length === 1 ? 'is' : 'are'} not ${unread.length === 1 ? 'a section' : 'sections'} Copilot recognises, so ${unread.length === 1 ? 'its' : 'their'} rows will be left out. The other sections import as usual.`,
+      );
+    }
+    if (skipped) {
+      warnings.push(
+        `${skipped.toLocaleString('en-US')} ${skipped === 1 ? 'row has' : 'rows have'} no name or email for one side of the introduction and will be left out.`,
+      );
+    }
+    if (mapping.notices.length) {
+      warnings.push(
+        `${mapping.notices.length.toLocaleString('en-US')} ${mapping.notices.length === 1 ? 'date' : 'dates'} could not be read; those introductions will be imported without a date.`,
+      );
+    }
+    return warnings;
+  }
   if (mapping.kind === 'notes') {
     if (!mapping.dateColumn) {
       warnings.push('No date column is chosen, so the notes will be imported without dates.');
@@ -950,7 +1005,8 @@ export interface AffinityNotesRequest {
   notes: AffinityNotePayload[];
 }
 
-export type AffinityImportRequest = AffinityListRequest | AffinityNotesRequest;
+export type AffinityImportRequest =
+  AffinityListRequest | AffinityNotesRequest | AffinityIntroductionsRequest;
 
 /** A row the page reports against its spreadsheet row number. */
 export interface AffinityRowProblem {
@@ -1169,6 +1225,11 @@ function cyrb53(str: string, seed: number): string {
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
   h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0');
+}
+
+/** A 106-bit hex digest of `key`, the same in every engine: identities fixed by a file's content. */
+export function affinityHash(key: string): string {
+  return `${cyrb53(key, 1)}${cyrb53(key, 2)}`;
 }
 
 /**

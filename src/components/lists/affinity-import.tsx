@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { CheckCircle2, FileSpreadsheet, StickyNote, Upload, X } from 'lucide-react';
+import { CheckCircle2, FileSpreadsheet, Handshake, StickyNote, Upload, X } from 'lucide-react';
 import {
   addCounts,
   buildListImport,
@@ -28,7 +28,15 @@ import {
   type AffinityNotesImportResult,
   type AffinityNotesMapping,
   type AffinityRowProblem,
+  type AffinityTableKind,
 } from '@/lib/crm/affinity-csv';
+import {
+  buildIntroductionsImport,
+  readAffinityIntroductions,
+  SECTION_LABELS,
+  type AffinityIntroductionsImportResult,
+  type AffinityIntroductionsMapping,
+} from '@/lib/crm/affinity-introductions';
 import { crmNameKey } from '@/lib/crm/fields';
 import type { CrmEntityType } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
@@ -104,6 +112,15 @@ const TYPE_OPTIONS: { value: AffinityColumnType; label: string }[] = [
   { value: 'skip', label: 'Leave out' },
 ];
 
+const KIND_LABEL: Record<AffinityFileKind, string> = {
+  list: 'List',
+  notes: 'Notes',
+  introductions: 'Introductions',
+};
+
+/** Lists first, notes next (they link to the lists' rows), introductions last. */
+const KIND_ORDER: Record<AffinityFileKind, number> = { list: 0, notes: 1, introductions: 2 };
+
 const MAX_FILE_BYTES = 60 * 1024 * 1024;
 const PREVIEW_ROWS = 5;
 
@@ -115,7 +132,7 @@ interface FileOutcome {
   /** The list's rows, or the notes. */
   rows: AffinityCounts;
   records: AffinityCounts;
-  /** Notes linked to at least one company, person or deal. */
+  /** Notes (or introductions) linked to at least one company, person or deal. */
   linked: number;
   ambiguousNames: number;
   /** Values changed in Copilot since the last import, kept rather than overwritten. */
@@ -260,7 +277,14 @@ export function AffinityImport({
           return;
         }
         try {
-          const csv = parseAffinityCsv(await file.text());
+          const text = await file.text();
+          // Introductions come in sections, not as one table: read apart.
+          const introductions = readAffinityIntroductions(text);
+          if (introductions) {
+            update(id, { status: 'ready', ...introductions });
+            return;
+          }
+          const csv = parseAffinityCsv(text);
           if (!csv.headers.length) {
             update(id, {
               status: 'unreadable',
@@ -292,7 +316,11 @@ export function AffinityImport({
     const { csv, mapping } = file;
     if (!csv || !mapping) return null;
     const plan =
-      mapping.kind === 'list' ? buildListImport(mapping, csv) : buildNotesImport(mapping, csv);
+      mapping.kind === 'list'
+        ? buildListImport(mapping, csv)
+        : mapping.kind === 'notes'
+          ? buildNotesImport(mapping, csv)
+          : buildIntroductionsImport(mapping);
     let outcome: FileOutcome = {
       kind: mapping.kind,
       list: null,
@@ -310,7 +338,9 @@ export function AffinityImport({
     for (let i = 0; i < plan.requests.length; i++) {
       const request = plan.requests[i] as AffinityImportRequest;
       const lines = plan.lines[i] ?? [];
-      const result = await sendChunk<AffinityListImportResult | AffinityNotesImportResult>(request);
+      const result = await sendChunk<
+        AffinityListImportResult | AffinityNotesImportResult | AffinityIntroductionsImportResult
+      >(request);
       if (!result.ok) {
         outcome = { ...outcome, stopped: result.message };
         update(file.id, { status: 'failed', outcome });
@@ -333,13 +363,21 @@ export function AffinityImport({
           keptEdits: outcome.keptEdits + (r.keptEdits ?? 0),
           problems: [...outcome.problems, ...problems],
         };
-      } else {
+      } else if ('notes' in result.value) {
         const r = result.value;
         outcome = {
           ...outcome,
           rows: addCounts(outcome.rows, r.notes),
           linked: outcome.linked + r.linked,
           ambiguousNames: outcome.ambiguousNames + r.ambiguousNames,
+          problems: [...outcome.problems, ...problems],
+        };
+      } else {
+        const r = result.value;
+        outcome = {
+          ...outcome,
+          rows: addCounts(outcome.rows, r.introductions),
+          linked: outcome.linked + r.linked,
           problems: [...outcome.problems, ...problems],
         };
       }
@@ -358,7 +396,7 @@ export function AffinityImport({
     const fresh = files.filter((f) => importable(f) && !f.outcome);
     // Lists first: notes are linked to the records and deals the lists bring in.
     const queue = (fresh.length ? fresh : files.filter(importable)).sort(
-      (a, b) => Number(a.mapping?.kind === 'notes') - Number(b.mapping?.kind === 'notes'),
+      (a, b) => KIND_ORDER[a.mapping?.kind ?? 'list'] - KIND_ORDER[b.mapping?.kind ?? 'list'],
     );
     for (const file of queue) {
       const stop = await importFile(file);
@@ -391,7 +429,8 @@ export function AffinityImport({
               In Affinity, open a list and choose <strong>Export → Export view as CSV</strong>.
             </li>
             <li>
-              For its notes, choose <strong>Export → Export all notes in view</strong>.
+              For its notes, choose <strong>Export → Export all notes in view</strong>. For who
+              introduced whom, <strong>Export → Export all introductions in view</strong>.
             </li>
             <li>
               Drop the files below, check how each one was read, then import. Lists go in first and
@@ -500,7 +539,7 @@ function DropZone({ disabled, onFiles }: { disabled: boolean; onFiles: (files: F
       <div>
         <p className="font-medium">Drop Affinity CSV files here</p>
         <p className="mt-1 text-sm text-[var(--fg-muted)]">
-          List exports and notes exports together, as many as you like.
+          List, notes and introductions exports together, as many as you like.
         </p>
       </div>
       <label
@@ -568,7 +607,12 @@ function FileCard({
       ? { label: 'Needs a choice', tone: 'warn' as const }
       : STATUS_BADGE[file.status];
   const locked = busy || file.status === 'importing';
-  const Icon = mapping?.kind === 'notes' ? StickyNote : FileSpreadsheet;
+  const Icon =
+    mapping?.kind === 'notes'
+      ? StickyNote
+      : mapping?.kind === 'introductions'
+        ? Handshake
+        : FileSpreadsheet;
 
   return (
     <Card>
@@ -581,9 +625,7 @@ function FileCard({
             </CardTitle>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <Badge tone={status.tone}>{status.label}</Badge>
-              {mapping ? (
-                <Badge tone="outline">{mapping.kind === 'notes' ? 'Notes' : 'List'}</Badge>
-              ) : null}
+              {mapping ? <Badge tone="outline">{KIND_LABEL[mapping.kind]}</Badge> : null}
               {mapping?.kind === 'list' ? (
                 <Badge tone="outline">{ENTITY_LABEL[mapping.entityType]}</Badge>
               ) : null}
@@ -622,55 +664,70 @@ function FileCard({
               </Notice>
             ) : null}
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Field label="This file is" htmlFor={`${uid}-kind`}>
-                <Select
-                  id={`${uid}-kind`}
-                  value={mapping.kind}
-                  disabled={locked}
-                  onChange={(e) =>
-                    onMapping(
-                      withTarget(
-                        detectAffinityMapping(file.name, csv, e.target.value as AffinityFileKind),
-                        file.name,
-                        lists,
-                      ),
-                    )
-                  }
-                >
-                  <option value="list">A list (Export view as CSV)</option>
-                  <option value="notes">Notes (Export all notes in view)</option>
-                </Select>
-              </Field>
-              {mapping.kind === 'list' ? (
-                <ListBasics
-                  fileName={file.name}
-                  csv={csv}
-                  mapping={mapping}
-                  lists={lists}
-                  disabled={locked}
-                  onChange={onMapping}
-                />
-              ) : (
-                <NotesColumns csv={csv} mapping={mapping} disabled={locked} onChange={onMapping} />
-              )}
-            </div>
-
-            {mapping.kind === 'list' ? (
-              <ListColumns
-                fileName={file.name}
-                csv={csv}
-                mapping={mapping}
-                disabled={locked}
-                onChange={onMapping}
-              />
+            {mapping.kind === 'introductions' ? (
+              <IntroductionSections mapping={mapping} />
             ) : (
-              <LinkedNameColumns
-                csv={csv}
-                mapping={mapping}
-                disabled={locked}
-                onChange={onMapping}
-              />
+              <>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <Field label="This file is" htmlFor={`${uid}-kind`}>
+                    <Select
+                      id={`${uid}-kind`}
+                      value={mapping.kind}
+                      disabled={locked}
+                      onChange={(e) =>
+                        onMapping(
+                          withTarget(
+                            detectAffinityMapping(
+                              file.name,
+                              csv,
+                              e.target.value as AffinityTableKind,
+                            ),
+                            file.name,
+                            lists,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="list">A list (Export view as CSV)</option>
+                      <option value="notes">Notes (Export all notes in view)</option>
+                    </Select>
+                  </Field>
+                  {mapping.kind === 'list' ? (
+                    <ListBasics
+                      fileName={file.name}
+                      csv={csv}
+                      mapping={mapping}
+                      lists={lists}
+                      disabled={locked}
+                      onChange={onMapping}
+                    />
+                  ) : (
+                    <NotesColumns
+                      csv={csv}
+                      mapping={mapping}
+                      disabled={locked}
+                      onChange={onMapping}
+                    />
+                  )}
+                </div>
+
+                {mapping.kind === 'list' ? (
+                  <ListColumns
+                    fileName={file.name}
+                    csv={csv}
+                    mapping={mapping}
+                    disabled={locked}
+                    onChange={onMapping}
+                  />
+                ) : (
+                  <LinkedNameColumns
+                    csv={csv}
+                    mapping={mapping}
+                    disabled={locked}
+                    onChange={onMapping}
+                  />
+                )}
+              </>
             )}
 
             {problems.length ? (
@@ -1222,7 +1279,41 @@ function Progress({ label, done, total }: { label: string; done: number; total: 
   );
 }
 
+/** What an introductions export was read as: each section, and any left out. */
+function IntroductionSections({ mapping }: { mapping: AffinityIntroductionsMapping }) {
+  return (
+    <section>
+      <FieldLabel as="h3">Sections</FieldLabel>
+      <ul className="mt-2 space-y-1 text-sm">
+        {mapping.sections.map((s) => (
+          <li key={s.line} className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-medium">{s.title}</span>
+            <span className="tabular text-[var(--fg-muted)]">
+              {s.rows.toLocaleString()} {s.rows === 1 ? 'row' : 'rows'}
+            </span>
+            {s.section && !s.unrecognised ? (
+              <Badge tone="ok">{SECTION_LABELS[s.section]}</Badge>
+            ) : (
+              <Badge tone="warn">Not recognised</Badge>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-sm text-[var(--fg-muted)]">
+        Each introduction shows on the profiles of the companies and people it names, as “Introduced
+        by” and “Introduced”.
+      </p>
+    </section>
+  );
+}
+
 /* --------------------------------------------------------------- results */
+
+const ROWS_LABEL: Record<AffinityFileKind, string> = {
+  list: 'Rows',
+  notes: 'Notes',
+  introductions: 'Introductions',
+};
 
 function countLine(counts: AffinityCounts): string {
   const parts = [`${counts.inserted.toLocaleString()} added`];
@@ -1251,7 +1342,7 @@ function Outcome({ outcome, mapping }: { outcome: FileOutcome; mapping: Affinity
       ) : (
         <p className="flex items-center gap-2 font-medium">
           <CheckCircle2 className="size-4 text-[var(--ok)]" aria-hidden="true" />
-          {outcome.kind === 'list' ? 'List imported' : 'Notes imported'}
+          {KIND_LABEL[outcome.kind]} imported
         </p>
       )}
       {outcome.list ? (
@@ -1272,8 +1363,7 @@ function Outcome({ outcome, mapping }: { outcome: FileOutcome; mapping: Affinity
         </p>
       ) : null}
       <p>
-        <span className="font-medium">{outcome.kind === 'list' ? 'Rows' : 'Notes'}:</span>{' '}
-        {countLine(rows)}
+        <span className="font-medium">{ROWS_LABEL[outcome.kind]}:</span> {countLine(rows)}
       </p>
       {entityType && records.inserted + records.updated + records.unchanged > 0 ? (
         <p>
@@ -1291,14 +1381,21 @@ function Outcome({ outcome, mapping }: { outcome: FileOutcome; mapping: Affinity
           .
         </p>
       ) : null}
+      {outcome.kind === 'introductions' && stored > 0 ? (
+        <p className="text-[var(--fg-muted)]">
+          {outcome.linked.toLocaleString()} of {stored.toLocaleString()} introductions name a
+          company or person already in Copilot and show on their profiles. The rest appear on a
+          profile as soon as that company or person is imported.
+        </p>
+      ) : null}
       {nothingChanged ? (
         <p className="text-[var(--fg-muted)]">
           Everything in this file was already in Copilot, so nothing changed.
         </p>
       ) : rows.unchanged > 0 ? (
         <p className="text-[var(--fg-muted)]">
-          {rows.unchanged.toLocaleString()} {outcome.kind === 'list' ? 'rows' : 'notes'} were
-          already in Copilot and were left as they were.
+          {rows.unchanged.toLocaleString()} {ROWS_LABEL[outcome.kind].toLowerCase()} were already in
+          Copilot and were left as they were.
         </p>
       ) : null}
       {outcome.keptEdits > 0 ? (
@@ -1335,8 +1432,10 @@ function FinalSummary({ files }: { files: ImportFile[] }) {
   if (!outcomes.length) return null;
   const lists = outcomes.filter((o) => o.kind === 'list');
   const notes = outcomes.filter((o) => o.kind === 'notes');
+  const intros = outcomes.filter((o) => o.kind === 'introductions');
   const listRows = lists.reduce((sum, o) => addCounts(sum, o.rows), NO_COUNTS);
   const noteRows = notes.reduce((sum, o) => addCounts(sum, o.rows), NO_COUNTS);
+  const introRows = intros.reduce((sum, o) => addCounts(sum, o.rows), NO_COUNTS);
   const problems = outcomes.reduce((n, o) => n + o.problems.length, 0);
   const stopped = outcomes.filter((o) => o.stopped).length;
   return (
@@ -1365,6 +1464,11 @@ function FinalSummary({ files }: { files: ImportFile[] }) {
           {notes.length ? (
             <li>
               <span className="font-medium">Notes:</span> {countLine(noteRows)}
+            </li>
+          ) : null}
+          {intros.length ? (
+            <li>
+              <span className="font-medium">Introductions:</span> {countLine(introRows)}
             </li>
           ) : null}
           {problems ? (

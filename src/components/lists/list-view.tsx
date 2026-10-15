@@ -11,6 +11,10 @@ import { ColumnPicker, useHiddenColumns } from '@/components/lists/column-picker
 import { EntryDrawer } from '@/components/lists/entry-drawer';
 import { ListBoard } from '@/components/lists/list-board';
 import { ListTable } from '@/components/lists/list-table';
+import {
+  RelationshipColumnsPicker,
+  useRelationshipColumns,
+} from '@/components/lists/relationship-columns';
 import { StageEditor } from '@/components/lists/stage-editor';
 import { Button } from '@/components/ui/button';
 import { EmptyState, Notice } from '@/components/ui/feedback';
@@ -100,6 +104,10 @@ export function ListView({
   const router = useRouter();
   const [navigating, startNavigation] = React.useTransition();
   const [hidden, setHidden] = useHiddenColumns(list.id, list.fields);
+  const relationship = useRelationshipColumns(
+    list.id,
+    table?.entries.map((e) => e.record_id) ?? [],
+  );
   const [pending, setPending] = React.useState<Record<string, Pending>>({});
   const [openEntry, setOpenEntry] = React.useState<CrmListEntry | null>(null);
   const [announcement, setAnnouncement] = React.useState('');
@@ -199,6 +207,7 @@ export function ListView({
         />
         <ToolbarSpacer />
         <ColumnPicker fields={list.fields} hidden={hidden} onChange={setHidden} />
+        {params.view === 'table' ? <RelationshipColumnsPicker state={relationship} /> : null}
         {canWrite && statusField ? (
           <StageEditor
             listId={list.id}
@@ -287,6 +296,7 @@ export function ListView({
                   list={list}
                   data={table}
                   hidden={hidden}
+                  relationship={relationship}
                   statusField={statusField}
                   statusOptions={statusOptions}
                   valuesOf={valuesOf}

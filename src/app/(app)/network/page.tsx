@@ -5,6 +5,16 @@ import { getStore } from '@/lib/runtime';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { buildRelationshipList } from '@/lib/services/network';
 import { readFollowUps, readFollowUpsWithin } from '@/lib/services/follow-ups';
+import {
+  fundAddresses,
+  getRelationshipIndex,
+  goingCold,
+  networkStrengths,
+  relationshipScope,
+  withGoingCold,
+} from '@/lib/services/relationships';
+import { goingColdDays } from '@/lib/network/strength';
+import { GoingColdWindow } from '@/components/network/going-cold-window';
 import { RelationshipAlerts } from '@/components/network/relationship-alerts';
 import { IntrosCard, snapshotUnavailable } from '@/components/followups/relay-cards';
 import {
@@ -16,11 +26,12 @@ import {
 import { NETWORK_TABS, SNAPSHOT_WAIT_MS, landsOnSnapshot, openingTab } from '@/lib/records-tabs';
 import { single, tabHref } from '@/lib/util/page-tabs';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
-import { EmptyState, SkeletonText } from '@/components/ui/feedback';
+import { EmptyState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
 import { Stat, StatGroup } from '@/components/ui/stat';
 import { NetworkTable } from '@/components/network/network-table';
 import { NetworkFilterBar } from '@/components/network/network-client';
+import { KeepInTouchTab } from '@/components/network/keep-in-touch-tab';
 
 export const metadata: Metadata = { title: 'Network' };
 export const dynamic = 'force-dynamic';
@@ -51,7 +62,7 @@ export default async function NetworkPage({
     <PageShell>
       <PageHeader
         title="Network"
-        subtitle="Everyone you have actually corresponded or sat down with, counted from your own mail and calendar. No relationship score — the evidence itself."
+        subtitle="Everyone you have actually corresponded or sat down with, counted from your own mail and calendar. Every strength shows the evidence it was counted from."
       />
       <PageTabs
         label={NETWORK_TABS.navLabel}
@@ -64,7 +75,9 @@ export default async function NetworkPage({
         {tab === 'people' ? (
           <PeopleTab q={q} sort={sort} direction={direction} />
         ) : tab === 'cold' ? (
-          <ColdTab />
+          <ColdTab days={goingColdDays(single(params.days))} />
+        ) : tab === 'keep' ? (
+          <KeepInTouchTab />
         ) : (
           <IntrosTab />
         )}
@@ -91,10 +104,16 @@ async function IntrosTab() {
   return <IntrosCard intros={intros} now={new Date()} empty={none} />;
 }
 
-/** The relationship radar's "going cold" list. */
-async function ColdTab() {
+/** The relationship radar's "going cold" list, with Copilot's own from mail and calendar. */
+async function ColdTab({ days }: { days: number }) {
   const auth = await requireAuth();
-  const followUps = await readFollowUps(getStore(), auth.organizationId).catch(() => null);
+  const store = getStore();
+  const integration = await getPrimaryIntegration(store, auth.organizationId).catch(() => null);
+  const scope = relationshipScope(auth.profile.email, integration);
+  const [followUps, derived] = await Promise.all([
+    readFollowUps(store, auth.organizationId).catch(() => null),
+    goingCold(store, auth.organizationId, { ...scope, timeZone: auth.profile.timezone }, days),
+  ]);
   const empty = (title: string, description: string) => (
     <EmptyState
       title={title}
@@ -102,23 +121,38 @@ async function ColdTab() {
       action={{ label: 'See people', href: PEOPLE_HREF }}
     />
   );
-  if (followUps?.state !== 'ok') {
-    return empty('Nothing to show', snapshotUnavailable(followUps?.state));
-  }
-  const relationships = followUps.snapshot.relationships;
-  if (!relationships) {
-    return empty('Nothing to show', 'Shows here once the relationship routine has posted.');
-  }
-  return (
-    <RelationshipAlerts
-      relationships={relationships}
-      now={new Date()}
-      showWaiting={false}
-      empty={empty(
+  const snapshot = followUps?.state === 'ok' ? followUps.snapshot.relationships : null;
+  const relationships = withGoingCold(snapshot, derived.ok ? derived.value : []);
+  // Copilot's own check failing is never an all-clear: say it did not run.
+  const unchecked = derived.ok
+    ? null
+    : `Copilot could not check mail and calendar for relationships going quiet: ${derived.error.message}`;
+  const allClear = unchecked
+    ? empty('Not checked just now', unchecked)
+    : empty(
         'Nothing going cold',
         'No key relationship has gone quiet. The full list is under People.',
-      )}
-    />
+      );
+  if (!relationships) {
+    return followUps?.state !== 'ok' && !unchecked
+      ? empty('Nothing to show', snapshotUnavailable(followUps?.state))
+      : allClear;
+  }
+  return (
+    <>
+      {unchecked && relationships.cold.length > 0 ? (
+        <Notice tone="warn" className="mb-4">
+          {unchecked} Only the relationship routine&apos;s list is shown.
+        </Notice>
+      ) : null}
+      <RelationshipAlerts
+        relationships={relationships}
+        now={new Date()}
+        showWaiting={false}
+        empty={allClear}
+      />
+      <GoingColdWindow days={days} />
+    </>
   );
 }
 
@@ -135,16 +169,29 @@ async function PeopleTab({
   const store = getStore();
   const integration = await getPrimaryIntegration(store, auth.organizationId);
 
-  // Every address the fund itself sends from. Without this the mailbox owner
-  // turns up as their own most frequent contact.
-  const ownAddresses = [auth.profile.email, integration?.account_email ?? null].filter(
-    (a): a is string => Boolean(a),
+  const scope = {
+    ...relationshipScope(auth.profile.email, integration),
+    timeZone: auth.profile.timezone,
+  };
+  // Every address the fund itself sends from (each member, each mailbox,
+  // Nick's aliases), as the strengths count them. Without this the mailbox
+  // owner, or a colleague, turns up as a contact.
+  const ownAddresses = [
+    ...new Set([
+      ...scope.ownAddresses,
+      ...(await fundAddresses(store, auth.organizationId).catch(() => [])),
+    ]),
+  ];
+  const [rows] = await Promise.all([
+    buildRelationshipList(store, auth.organizationId, { ownAddresses, search: q || undefined }),
+    getRelationshipIndex(store, auth.organizationId, scope), // built alongside, read below
+  ]);
+  const strengths = await networkStrengths(
+    store,
+    auth.organizationId,
+    rows.map((r) => r.email),
+    scope,
   );
-
-  const rows = await buildRelationshipList(store, auth.organizationId, {
-    ownAddresses,
-    search: q || undefined,
-  });
 
   const awaiting = rows.filter((r) => r.awaitingUs).length;
   const met = rows.filter((r) => r.meetingCount > 0).length;
@@ -158,6 +205,12 @@ async function PeopleTab({
       </StatGroup>
 
       <NetworkFilterBar q={q} />
+
+      {strengths.ok ? null : (
+        <Notice tone="warn" className="mt-4">
+          Strength badges are missing: {strengths.error.message}
+        </Notice>
+      )}
 
       {rows.length === 0 ? (
         <EmptyState
@@ -176,6 +229,7 @@ async function PeopleTab({
       ) : (
         <NetworkTable
           rows={sortRelationships(rows, sort, direction)}
+          strengths={strengths.ok ? strengths.value : undefined}
           sort={sort}
           direction={direction}
         />

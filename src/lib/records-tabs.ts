@@ -149,6 +149,11 @@ export const NETWORK_TABS = define({
       blurb: 'Key relationships with no contact for a while, and how long it has been.',
     },
     {
+      key: 'keep',
+      label: 'Keep in touch',
+      blurb: 'Everyone with a check-in cadence set on their profile: overdue, due soon, on track.',
+    },
+    {
       key: 'people',
       label: 'People',
       blurb:

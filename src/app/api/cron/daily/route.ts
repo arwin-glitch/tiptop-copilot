@@ -12,6 +12,7 @@ import { listPortfolio } from '@/lib/services/portfolio';
 import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
 import { refreshPortfolioNumbers } from '@/lib/services/portfolio-numbers';
 import { formatTaskCronStatus, pullTaskRelays } from '@/lib/services/task-relay';
+import { sweepKeepInTouch } from '@/lib/services/keep-in-touch';
 import { settlesWithin } from '@/lib/util/settle';
 import type { AuthContext } from '@/lib/auth/session';
 import type { Organization, OrganizationMember, UserProfile } from '@/lib/types/domain';
@@ -206,6 +207,9 @@ export async function POST(request: NextRequest) {
       tasksStatus = 'failed';
       log.error('Cron task relay failed', { organizationId: organization.id });
     }
+    // Keep-in-touch cadences that came due since the last run (never throws).
+    const checkIns = await sweepKeepInTouch(store, organization.id);
+    if (checkIns.created.length) tasksStatus += `; check-ins: ${checkIns.created.length} added`;
 
     // The deal-sorter's posts in #deal-relay, plus the Portfolio -> Invested
     // mirror; a backstop to the pull on viewing /deals. Counts only: this

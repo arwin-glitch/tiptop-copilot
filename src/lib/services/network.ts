@@ -1,10 +1,14 @@
 import 'server-only';
+import { isDemoMode } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
+import { DEMO_IDS } from '@/lib/demo/ids';
+import { demoRelationshipHistory } from '@/lib/demo/relationship-fixtures';
 import type {
   CalendarEvent,
   Deal,
   DealPerson,
   EmailMessage,
+  EmailThread,
   NetworkContact,
   PortfolioCompany,
   PortfolioContact,
@@ -74,7 +78,7 @@ function normalise(address: string): string {
 }
 
 /** Pulls a bare address out of `Name <a@b.c>` when the provider left it wrapped. */
-function addressOf(raw: string): string | null {
+export function addressOf(raw: string): string | null {
   const angled = /<([^>]+)>/.exec(raw);
   const candidate = normalise(angled ? (angled[1] ?? '') : raw);
   return candidate.includes('@') ? candidate : null;
@@ -173,6 +177,57 @@ function bestName(entry: Accumulator): string | null {
   return best;
 }
 
+/** The mail and calendar every relationship figure is counted from. */
+export interface Correspondence {
+  messages: EmailMessage[];
+  events: CalendarEvent[];
+  /** Thread rows (subjects, Gmail ids), only when asked for. */
+  threads: EmailThread[];
+}
+
+/**
+ * The newest `limit` messages and events, as Network and the relationship
+ * strengths both read them, so the two can never count different mail. The
+ * demo workspace adds its older relationship history (see
+ * relationship-fixtures.ts) here, for its own organization only.
+ */
+export async function loadCorrespondence(
+  store: DataStore,
+  organizationId: string,
+  options: { limit?: number; now?: Date; threads?: boolean } = {},
+): Promise<Correspondence> {
+  const limit = options.limit ?? 2000;
+  const [messages, events, threads] = await Promise.all([
+    store.list(
+      'email_messages',
+      organizationId,
+      {},
+      { orderBy: [{ field: 'sent_at', direction: 'desc' }], limit },
+    ) as Promise<EmailMessage[]>,
+    store.list(
+      'calendar_events',
+      organizationId,
+      {},
+      { orderBy: [{ field: 'starts_at', direction: 'desc' }], limit },
+    ) as Promise<CalendarEvent[]>,
+    options.threads
+      ? (store.list(
+          'email_threads',
+          organizationId,
+          {},
+          { orderBy: [{ field: 'last_message_at', direction: 'desc' }], limit },
+        ) as Promise<EmailThread[]>)
+      : [],
+  ]);
+  if (!isDemoMode() || organizationId !== DEMO_IDS.org) return { messages, events, threads };
+  const history = demoRelationshipHistory(options.now ?? new Date());
+  return {
+    messages: [...messages, ...history.email_messages],
+    events: [...events, ...history.calendar_events],
+    threads: options.threads ? [...threads, ...history.email_threads] : threads,
+  };
+}
+
 export async function buildRelationshipList(
   store: DataStore,
   organizationId: string,
@@ -182,20 +237,9 @@ export async function buildRelationshipList(
   const limit = options.messageLimit ?? 2000;
   const now = (options.now ?? new Date()).getTime();
 
-  const [messages, events, deals, portfolio, portfolioContacts, dealPeople, imported] =
+  const [{ messages, events }, deals, portfolio, portfolioContacts, dealPeople, imported] =
     await Promise.all([
-      store.list(
-        'email_messages',
-        organizationId,
-        {},
-        { orderBy: [{ field: 'sent_at', direction: 'desc' }], limit },
-      ) as Promise<EmailMessage[]>,
-      store.list(
-        'calendar_events',
-        organizationId,
-        {},
-        { orderBy: [{ field: 'starts_at', direction: 'desc' }], limit },
-      ) as Promise<CalendarEvent[]>,
+      loadCorrespondence(store, organizationId, { limit, now: new Date(now) }),
       store.list('deals', organizationId, {}) as Promise<Deal[]>,
       store.list('portfolio_companies', organizationId, {}) as Promise<PortfolioCompany[]>,
       store.list('portfolio_contacts', organizationId, {}) as Promise<PortfolioContact[]>,

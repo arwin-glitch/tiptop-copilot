@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, ArrowUpRight, Globe, Mail } from 'lucide-react';
-import { requireAuth } from '@/lib/auth/session';
+import { hasRole, requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
 import { statusFieldOf } from '@/lib/crm/fields';
 import { formatCrmValue } from '@/lib/crm/view';
@@ -15,13 +16,17 @@ import {
   type CrmCopilotLink,
 } from '@/lib/services/crm';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
+import { getRecordRelationship, relationshipScope } from '@/lib/services/relationships';
 import { getActiveThesis } from '@/lib/services/thesis';
 import { CrmNoteList } from '@/components/lists/crm-note-list';
 import { CrmValueView } from '@/components/lists/crm-value';
+import { RelationshipPanel, WhoCanIntro } from '@/components/network/record-relationship';
+import { KeepInTouchCard } from '@/components/network/keep-in-touch-card';
+import { RecordIntroductions } from '@/components/network/record-introductions';
 import { DataRow, PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { ErrorState } from '@/components/ui/feedback';
+import { ErrorState, SkeletonText } from '@/components/ui/feedback';
 import { NotConfigured } from '@/components/ui/not-configured';
 import type { CrmValue } from '@/lib/types/domain';
 
@@ -87,6 +92,13 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
     getPrimaryIntegration(store, org).catch(() => null),
   ]);
   const copilot = links.ok ? links.value : [];
+  // Started once, awaited by the Relationship and "Who can intro" panels as they stream in.
+  const relationship = getRecordRelationship(
+    store,
+    org,
+    { record, memberships, related, timeZone: timezone },
+    relationshipScope(auth.profile.email, integration),
+  );
   const stageLabels = copilot.some((l) => l.kind === 'deal')
     ? new Map(
         (await getActiveThesis(store, org, auth.userId)).deal_stages.map((s) => [s.key, s.label]),
@@ -161,6 +173,10 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
         <div className="min-w-0 space-y-8">
+          <Suspense fallback={<SkeletonText lines={6} />}>
+            <RelationshipPanel relationship={relationship} kind={record.kind} timezone={timezone} />
+          </Suspense>
+
           <section aria-labelledby="profile-lists">
             <SectionHeading count={memberships.length}>
               <span id="profile-lists">Lists</span>
@@ -226,6 +242,15 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
         </div>
 
         <aside className="min-w-0 space-y-6">
+          <Suspense fallback={<SkeletonText lines={4} />}>
+            <KeepInTouchCard
+              record={record}
+              organizationId={org}
+              timezone={timezone}
+              canEdit={hasRole(auth, 'member')}
+            />
+          </Suspense>
+
           {isCompany ? (
             <section aria-labelledby="profile-copilot">
               <SectionHeading>
@@ -248,6 +273,14 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
               )}
             </section>
           ) : null}
+
+          <Suspense fallback={<SkeletonText lines={4} />}>
+            <WhoCanIntro relationship={relationship} record={record} />
+          </Suspense>
+
+          <Suspense fallback={null}>
+            <RecordIntroductions record={record} organizationId={org} timezone={timezone} />
+          </Suspense>
 
           {related.length > 0 ? (
             <section aria-labelledby="profile-related">
