@@ -19,6 +19,10 @@ describe('the main navigation', () => {
     expect(sectionLabel('/lists')).toBe('Knowledge');
   });
 
+  it('names the full Ask page after Arwin in the phone header', () => {
+    expect(sectionLabel('/ask')).toBe('Ask Arwin');
+  });
+
   it('matches whole path segments only', () => {
     expect(sectionLabel('/listsx')).toBeNull();
     expect(sectionLabel('/deals/abc')).toBe('Deals');

@@ -9,7 +9,14 @@ import { placeCard, type Box, type Size } from '@/lib/help/placement';
 import { TOUR_ATTR, TOUR_PARAM } from '@/lib/help/tour-ids';
 import { cn } from '@/lib/util/cn';
 import { ASK_PANEL_EVENT, type AskPanelDetail } from '@/components/ask/ask-events';
-import { readStoredTour, startTour, TOUR_START_EVENT, writeStoredTour } from './tour-events';
+import {
+  readStoredTour,
+  startTour,
+  TOUR_START_EVENT,
+  TOUR_STATE_EVENT,
+  writeStoredTour,
+  type TourStateDetail,
+} from './tour-events';
 
 /**
  * The guided-tour engine, mounted once in the app layout.
@@ -34,7 +41,8 @@ import { readStoredTour, startTour, TOUR_START_EVENT, writeStoredTour } from './
  * The tour waits while the Ask Arwin panel is open (a step may invite a tap
  * on its launcher): the panel is modal, so a tour card and scrim over it
  * would only grey it out and steal its clicks. The tour comes back, at the
- * same step, when the panel closes.
+ * same step, when the panel closes. The other way round, the panel's "Arwin
+ * replied" pop-up waits for a running tour to end.
  */
 
 /** How long a page that just opened gets to render a target: it may still be streaming. */
@@ -114,6 +122,10 @@ function prefersReducedMotion(): boolean {
   } catch {
     return false;
   }
+}
+
+function sendTourState(active: boolean) {
+  window.dispatchEvent(new CustomEvent<TourStateDetail>(TOUR_STATE_EVENT, { detail: { active } }));
 }
 
 function isVisible(el: Element): boolean {
@@ -289,6 +301,17 @@ function TourEngine() {
     if (!t || t.index === 0) return;
     update({ ...t, index: t.index - 1, dir: -1 });
   }, [update]);
+
+  // Whether a tour is running, for the Ask Arwin reply pop-up, which waits
+  // for it to end (see TOUR_STATE_EVENT). The end is sent from the cleanup,
+  // so a tour that stops by unmounting (one that threw, caught by
+  // TourBoundary) still says so, and the pop-up is not held back for good.
+  const tourActive = tour !== null;
+  React.useEffect(() => {
+    if (!tourActive) return;
+    sendTourState(true);
+    return () => sendTourState(false);
+  }, [tourActive]);
 
   // The Ask Arwin panel opening pauses the tour; closing it brings it back.
   React.useEffect(() => {

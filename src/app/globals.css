@@ -68,6 +68,10 @@
 
   --animate-fade-in: fade-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-rise: rise 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  /* The way out of `rise`, for something that leaves by itself. */
+  --animate-sink: sink 200ms cubic-bezier(0.4, 0, 1, 1) both;
+  /* A countdown line emptying left to right; set its duration where it is used. */
+  --animate-drain: drain 3500ms linear both;
 
   @keyframes fade-in {
     from {
@@ -86,6 +90,26 @@
     to {
       opacity: 1;
       transform: none;
+    }
+  }
+
+  @keyframes sink {
+    from {
+      opacity: 1;
+      transform: none;
+    }
+    to {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+
+  @keyframes drain {
+    from {
+      transform: scaleX(1);
+    }
+    to {
+      transform: scaleX(0);
     }
   }
 

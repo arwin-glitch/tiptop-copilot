@@ -197,7 +197,7 @@ test('11 — a hard red flag caps the recommendation without erasing the score',
 
 test('12 — Ask answers from the records and shows what it used', async ({ page }) => {
   await page.goto('/ask');
-  await expect(page.getByRole('heading', { name: 'Ask TipTop' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Ask Arwin' })).toBeVisible();
 
   await page.getByLabel('Your question').fill('What follow-ups are overdue?');
   await page.getByRole('button', { name: 'Ask', exact: true }).click();

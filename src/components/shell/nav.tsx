@@ -92,7 +92,7 @@ export function isActive(
 }
 
 /** Real sections that are not in the navigation, still named in the phone header. */
-const OFF_NAV_SECTIONS = [{ href: '/ask', label: 'Ask' }] as const;
+const OFF_NAV_SECTIONS = [{ href: '/ask', label: 'Ask Arwin' }] as const;
 
 /** The label for the section a path belongs to, for the mobile header. */
 export function sectionLabel(pathname: string): string | null {

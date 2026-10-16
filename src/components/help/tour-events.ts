@@ -41,3 +41,14 @@ export function startTour(id: string): void {
   writeStoredTour({ id, index: 0 });
   window.dispatchEvent(new CustomEvent<{ id: string }>(TOUR_START_EVENT, { detail: { id } }));
 }
+
+/**
+ * Sent by the tour host whenever a tour starts or ends, with `{ active }`. The
+ * Ask Arwin reply pop-up waits while a tour runs: a pop-up in the corner
+ * would talk over the step being explained.
+ */
+export const TOUR_STATE_EVENT = 'tiptop:tour-state';
+
+export interface TourStateDetail {
+  active: boolean;
+}

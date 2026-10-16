@@ -19,7 +19,7 @@ import { threadHistoryBefore } from './ask-bridge';
 import { getActiveThesis } from './thesis';
 
 /**
- * Ask TipTop.
+ * Ask Arwin.
  *
  * The model reaches data only through the allowlisted tool layer, and its final
  * answer is a schema-validated object whose first field is the direct answer.

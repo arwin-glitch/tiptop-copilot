@@ -48,7 +48,7 @@ test('the launcher is on every page; Ask is no longer a navigation tab', async (
 
   // The full page still works, and has no launcher over its own composer.
   await page.goto('/ask');
-  await expect(page.getByRole('heading', { name: 'Ask TipTop' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Ask Arwin' })).toBeVisible();
   await expect(launcher(page)).toHaveCount(0);
 });
 
@@ -115,7 +115,7 @@ test('opens on history, starts a new conversation and shows the answer', async (
   // The full page takes over from the panel.
   await dialog.getByRole('link', { name: 'Open full page' }).click();
   await page.waitForURL(/\/ask\?thread=/);
-  await expect(page.getByRole('heading', { name: 'Ask TipTop' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Ask Arwin' })).toBeVisible();
   await expect(page.getByText('What follow-ups are overdue?').first()).toBeVisible();
 });
 

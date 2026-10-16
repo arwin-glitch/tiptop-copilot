@@ -11,7 +11,7 @@ import { Card, CardContent, FieldLabel } from '@/components/ui/card';
 import type { ChatMessage, Deal } from '@/lib/types/domain';
 import { relativeTime } from '@/lib/util/time';
 
-export const metadata: Metadata = { title: 'Ask TipTop' };
+export const metadata: Metadata = { title: 'Ask Arwin' };
 export const dynamic = 'force-dynamic';
 
 export default async function AskPage({
@@ -54,7 +54,7 @@ export default async function AskPage({
   return (
     <PageShell className="max-w-4xl">
       <PageHeader
-        title="Ask TipTop"
+        title="Ask Arwin"
         subtitle={
           aiAvailable
             ? 'One question, one direct answer, with the record it came from.'

@@ -18,6 +18,7 @@ import {
   askRequestFromParam,
   type AskRequest,
 } from '@/lib/chat/ask-link';
+import { replyAnnouncement, replyArrival } from '@/lib/chat/reply-notice';
 import {
   THREAD_STATUS_LABEL,
   historyLine,
@@ -28,7 +29,16 @@ import {
 import type { ChatMessage } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
 import { snippet } from '@/lib/util/text';
-import { ASK_OPEN_EVENT, ASK_PANEL_EVENT, openAskWidget, type AskPanelDetail } from './ask-events';
+import {
+  ASK_OPEN_EVENT,
+  ASK_PANEL_EVENT,
+  ASK_WATCH_EVENT,
+  openAskWidget,
+  type AskPanelDetail,
+  type AskWatchDetail,
+} from './ask-events';
+import { ReplyNoticeCard } from './reply-notice';
+import { useReplyNotices } from './use-reply-notices';
 
 /**
  * Ask Arwin: the assistant as a floating chat on every signed-in page.
@@ -41,8 +51,11 @@ import { ASK_OPEN_EVENT, ASK_PANEL_EVENT, openAskWidget, type AskPanelDetail } f
  * In production an answer arrives asynchronously (a cloud routine answers via
  * Slack, usually within a couple of minutes), so a conversation with an answer
  * on its way polls until it lands, exactly as the Ask page does. The poll
- * carries on with the panel closed; an answer that lands then marks the
- * launcher.
+ * carries on with the panel closed, and for a conversation left for another
+ * one (or a question left waiting on the full Ask page). An answer that lands
+ * out of sight marks the launcher with a gold dot and pops up "Arwin replied"
+ * above it for a few seconds (components/ask/reply-notice.tsx; the rules are
+ * in lib/chat/reply-notice.ts).
  *
  * `/ask` links anywhere in the app ("Ask about today", a deal's "IC memo")
  * open the widget instead of navigating, and any page opens it with
@@ -65,6 +78,15 @@ const DEAL_SUGGESTIONS = [
 const PENDING_HINT = 'Answers usually take a minute or two. You can close this; it keeps checking.';
 /** How long an "Arwin answered" announcement stays in its live region. */
 const ANNOUNCE_MS = 10_000;
+/** A conversation not on screen is checked this often while its answer is on the way. */
+const BACKGROUND_POLL_MS = 8_000;
+/**
+ * With the tab hidden every check slows to this rather than stopping, so an
+ * answer that lands still puts "(1)" in the tab's title.
+ */
+const HIDDEN_POLL_MS = 30_000;
+/** An answer later than this is left to the history list. */
+const WATCH_MAX_MS = 30 * 60_000;
 
 interface DealScope {
   id: string;
@@ -93,6 +115,9 @@ interface ThreadPayload {
   messages: ChatMessage[];
   deal: { id: string; name: string } | null;
 }
+
+/** A conversation with an answer on its way, and since when (ms). */
+type Watched = Map<string, number>;
 
 function emptyConversation(key: number, deal: DealScope | null = null): Conversation {
   return { key, threadId: null, deal, messages: [], loading: false, error: null };
@@ -126,6 +151,7 @@ export function AskWidget({
   suggestions: readonly string[];
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   // The full page is already the conversation there; a launcher over its
   // composer would only cover the Ask button.
   const onAskPage = pathname === '/ask' || pathname.startsWith('/ask/');
@@ -140,8 +166,12 @@ export function AskWidget({
   const [conv, setConv] = React.useState<Conversation>(() => emptyConversation(0));
   const [question, setQuestion] = React.useState('');
   const [sending, startSending] = React.useTransition();
-  const [unread, setUnread] = React.useState(false);
+  /** The conversation whose answer landed unseen: the launcher's gold dot. */
+  const [unreadThread, setUnreadThread] = React.useState<string | null>(null);
+  const unread = unreadThread !== null;
   const [announcement, setAnnouncement] = React.useState('');
+  /** How many conversations are being checked for an answer; see `watchRef`. */
+  const [watching, setWatching] = React.useState(0);
   const greetingHidden = React.useSyncExternalStore(
     subscribeGreeting,
     readGreetingDismissed,
@@ -153,11 +183,23 @@ export function AskWidget({
   const convKey = React.useRef(0);
   const openRef = React.useRef(false);
   const waitingRef = React.useRef(false);
+  const viewRef = React.useRef(view);
+  const convThreadRef = React.useRef<string | null>(null);
+  const onAskPageRef = React.useRef(onAskPage);
+  /** Every conversation with an answer on its way, shown or not. */
+  const watchRef = React.useRef<Watched>(new Map());
+  const launcherRef = React.useRef<HTMLButtonElement>(null);
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
   const newButtonRef = React.useRef<HTMLButtonElement>(null);
   const closeRef = React.useRef<HTMLButtonElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
+  /**
+   * A half-typed follow-up per conversation, kept while another one is on
+   * screen (the "Arwin replied" card can switch conversations mid-sentence),
+   * and put back when Nick returns to it.
+   */
+  const draftsRef = React.useRef(new Map<string, string>());
 
   const hasPending = conv.messages.some(isPendingAnswer);
 
@@ -167,6 +209,96 @@ export function AskWidget({
   React.useEffect(() => {
     waitingRef.current = hasPending;
   }, [hasPending]);
+  React.useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
+  React.useEffect(() => {
+    convThreadRef.current = conv.threadId;
+  }, [conv.threadId]);
+  React.useEffect(() => {
+    onAskPageRef.current = onAskPage;
+  }, [onAskPage]);
+
+  /* ------------------------------------------------------ answers landing */
+
+  /**
+   * The conversation in front of Nick: the one open in the panel, or with the
+   * panel closed the one the full Ask page shows.
+   */
+  const onScreenThreadId = React.useCallback((): string | null => {
+    if (openRef.current) return viewRef.current === 'thread' ? convThreadRef.current : null;
+    if (!onAskPageRef.current) return null;
+    try {
+      return new URLSearchParams(window.location.search).get('thread');
+    } catch {
+      return null;
+    }
+  }, []);
+  const {
+    notice: replyNotice,
+    arrive: arriveReply,
+    dismiss: dismissReply,
+    viewed: viewedReply,
+  } = useReplyNotices(onScreenThreadId);
+
+  /** Start (`since`) or stop (null) checking a conversation for its answer. */
+  const setWatch = React.useCallback((threadId: string, since: number | null) => {
+    const map = watchRef.current;
+    if (since !== null) {
+      if (map.has(threadId)) return;
+      map.set(threadId, since);
+    } else if (!map.delete(threadId)) {
+      return;
+    }
+    writeWatched(map);
+    setWatching(map.size);
+  }, []);
+
+  // A read, up here because an answer landing refreshes the history too.
+  const loadHistory = React.useCallback(async (quiet = false) => {
+    if (!quiet) setHistory((h) => ({ ...h, loading: true, error: null }));
+    const result = await getJson<{ threads: ThreadSummary[] }>('/api/ask/threads');
+    setHistory((h) => {
+      if (result.ok) return { threads: result.data.threads, loading: false, error: null };
+      // A failed background poll keeps what is on screen.
+      return quiet ? h : { threads: h.threads, loading: false, error: result.message };
+    });
+  }, []);
+
+  /**
+   * A conversation's answer is in. Announced in place when it is on screen;
+   * anywhere else it marks the launcher and gets the "Arwin replied" pop-up.
+   */
+  const noteLanded = React.useCallback(
+    (threadId: string, messages: readonly ChatMessage[], onScreen = false) => {
+      setWatch(threadId, null);
+      const arrival = replyArrival(threadId, messages, Date.now());
+      if (!arrival) return;
+      const outcome = arriveReply(arrival, { onScreen });
+      if (outcome === 'on-screen') {
+        const said = answerAnnouncement(messages);
+        if (said) setAnnouncement(said);
+      } else if (outcome !== 'seen') {
+        setUnreadThread(threadId);
+        // Seen from the history list: it catches up, so the conversation the
+        // pop-up names is there to open too.
+        if (openRef.current && viewRef.current === 'home') void loadHistory(true);
+      }
+    },
+    [arriveReply, loadHistory, setWatch],
+  );
+
+  /**
+   * A conversation was opened on the full Ask page (from the pop-up, or its
+   * Recent list): the launcher's dot no longer points at it.
+   */
+  const markThreadSeen = React.useCallback(
+    (threadId: string) => {
+      viewedReply(threadId);
+      setUnreadThread((u) => (u === threadId ? null : u));
+    },
+    [viewedReply],
+  );
 
   // The guided tour waits while the panel is open (see ASK_PANEL_EVENT).
   React.useEffect(() => {
@@ -189,45 +321,34 @@ export function AskWidget({
 
   /* ---------------------------------------------------------------- reads */
 
-  const loadHistory = React.useCallback(async (quiet = false) => {
-    if (!quiet) setHistory((h) => ({ ...h, loading: true, error: null }));
-    const result = await getJson<{ threads: ThreadSummary[] }>('/api/ask/threads');
-    setHistory((h) => {
-      if (result.ok) return { threads: result.data.threads, loading: false, error: null };
-      // A failed background poll keeps what is on screen.
-      return quiet ? h : { threads: h.threads, loading: false, error: result.message };
-    });
-  }, []);
-
-  const loadThread = React.useCallback(async (threadId: string, key: number, quiet = false) => {
-    const result = await getJson<ThreadPayload>(
-      `/api/ask/thread?id=${encodeURIComponent(threadId)}`,
-    );
-    if (convKey.current !== key) return;
-    if (!result.ok) {
-      if (!quiet) setConv((c) => ({ ...c, loading: false, error: result.message }));
-      return;
-    }
-    const data = result.data;
-    const landed = waitingRef.current && !data.messages.some(isPendingAnswer);
-    if (landed) {
-      if (!openRef.current) setUnread(true);
-      const said = answerAnnouncement(data.messages);
-      if (said) setAnnouncement(said);
-    }
-    setConv((c) =>
-      c.key !== key
-        ? c
-        : {
-            ...c,
-            threadId,
-            deal: data.deal ?? c.deal,
-            messages: data.messages,
-            loading: false,
-            error: null,
-          },
-    );
-  }, []);
+  const loadThread = React.useCallback(
+    async (threadId: string, key: number, quiet = false) => {
+      const result = await getJson<ThreadPayload>(
+        `/api/ask/thread?id=${encodeURIComponent(threadId)}`,
+      );
+      if (convKey.current !== key) return;
+      if (!result.ok) {
+        if (!quiet) setConv((c) => ({ ...c, loading: false, error: result.message }));
+        return;
+      }
+      const data = result.data;
+      if (data.messages.some(isPendingAnswer)) setWatch(threadId, Date.now());
+      else if (watchRef.current.has(threadId)) noteLanded(threadId, data.messages);
+      setConv((c) =>
+        c.key !== key
+          ? c
+          : {
+              ...c,
+              threadId,
+              deal: data.deal ?? c.deal,
+              messages: data.messages,
+              loading: false,
+              error: null,
+            },
+      );
+    },
+    [noteLanded, setWatch],
+  );
 
   const loadDeal = React.useCallback(async (dealId: string, key: number) => {
     const result = await getJson<ThreadPayload>(
@@ -240,7 +361,16 @@ export function AskWidget({
 
   /* ------------------------------------------------------------- actions */
 
+  /** The conversation on screen is being swapped out: its draft is kept. */
+  function keepDraft() {
+    const threadId = conv.threadId;
+    if (!threadId) return;
+    if (question.trim()) draftsRef.current.set(threadId, question);
+    else draftsRef.current.delete(threadId);
+  }
+
   function startConversation(dealId: string | null): number {
+    keepDraft();
     const key = ++convKey.current;
     setConv(emptyConversation(key, dealId ? { id: dealId, name: null } : null));
     setQuestion('');
@@ -250,10 +380,14 @@ export function AskWidget({
   }
 
   function showThread(threadId: string) {
+    keepDraft();
     const key = ++convKey.current;
     setConv({ ...emptyConversation(key), threadId, loading: true });
-    setQuestion('');
+    setQuestion(draftsRef.current.get(threadId) ?? '');
+    draftsRef.current.delete(threadId);
     setView('thread');
+    viewedReply(threadId);
+    setUnreadThread((u) => (u === threadId ? null : u));
     void loadThread(threadId, key);
   }
 
@@ -338,9 +472,14 @@ export function AskWidget({
       const stillShown = convKey.current === key;
       if (result.ok && result.data) {
         const data = result.data;
-        // The demo and an in-app model answer within the request.
-        const said = answerAnnouncement(data.messages);
-        if (said) setAnnouncement(said);
+        if (data.messages.some(isPendingAnswer)) {
+          setWatch(data.threadId, Date.now());
+        } else {
+          // The demo and an in-app model answer within the request, which
+          // may have outlasted the panel: Nick can close it while it runs.
+          const onScreen = stillShown && openRef.current && viewRef.current === 'thread';
+          noteLanded(data.threadId, data.messages, onScreen);
+        }
         if (stillShown) {
           setConv((c) =>
             c.key !== key
@@ -370,7 +509,8 @@ export function AskWidget({
 
   function openPanel(request?: AskRequest) {
     setOpen(true);
-    setUnread(false);
+    const unseen = unreadThread;
+    setUnreadThread(null);
     dismissGreeting();
 
     if (request?.threadId) {
@@ -386,14 +526,54 @@ export function AskWidget({
       return;
     }
     // An answer that landed while closed is shown, not just flagged.
-    if (unread && conv.threadId) {
+    if (unseen && unseen === conv.threadId && !conv.error) {
       setView('thread');
+      viewedReply(unseen);
+      return;
+    }
+    if (unseen) {
+      showThread(unseen);
       return;
     }
     // Reopened as it was left: the history refreshed, or the conversation
     // brought up to date (its poll may have stopped when the answer landed).
     if (view === 'home') void loadHistory(history.threads !== null);
     else if (conv.threadId && !hasPending) void loadThread(conv.threadId, conv.key, true);
+  }
+
+  /** The "Arwin replied" pop-up was clicked: its conversation, on screen. */
+  function openFromNotice(threadId: string) {
+    dismissReply();
+    if (onAskPage) {
+      // The full page shows conversations itself; opened there, it is read
+      // (see AskPageThreadListener).
+      markThreadSeen(threadId);
+      router.push(`/ask?thread=${encodeURIComponent(threadId)}`, { scroll: false });
+      return;
+    }
+    const ready = conv.threadId === threadId && !conv.loading && !conv.error;
+    if (!open) {
+      if (!ready) {
+        openPanel({ threadId });
+        return;
+      }
+      setOpen(true);
+      setUnreadThread(null);
+      dismissGreeting();
+    }
+    if (ready) {
+      setView('thread');
+      viewedReply(threadId);
+      setUnreadThread((u) => (u === threadId ? null : u));
+    } else {
+      showThread(threadId);
+    }
+  }
+
+  /** Where focus goes when the pop-up is closed from under it. */
+  function focusAfterNotice() {
+    if (open) focusForView();
+    else launcherRef.current?.focus();
   }
 
   /* ------------------------------------------------------- outside entry */
@@ -418,6 +598,25 @@ export function AskWidget({
     openPanel(request);
   });
 
+  // The full Ask page hands over a question it is waiting on.
+  React.useEffect(() => {
+    const handleWatch = (event: Event) => {
+      const detail = (event as CustomEvent<AskWatchDetail | undefined>).detail;
+      if (!detail?.threadId) return;
+      setWatch(detail.threadId, detail.watching ? Date.now() : null);
+    };
+    window.addEventListener(ASK_WATCH_EVENT, handleWatch);
+    // Conversations still waiting before a reload. Deferred a tick: picking
+    // them up is a change like any other, not part of mounting.
+    const timer = window.setTimeout(() => {
+      for (const [threadId, since] of readWatched(Date.now())) setWatch(threadId, since);
+    }, 0);
+    return () => {
+      window.removeEventListener(ASK_WATCH_EVENT, handleWatch);
+      window.clearTimeout(timer);
+    };
+  }, [setWatch]);
+
   React.useEffect(() => {
     const handleOpen = (event: Event) =>
       onOpenRequest((event as CustomEvent<AskRequest | undefined>).detail ?? {});
@@ -436,12 +635,55 @@ export function AskWidget({
     if (!hasPending || !conv.threadId) return;
     const threadId = conv.threadId;
     const key = conv.key;
+    let last = Date.now();
     const interval = window.setInterval(() => {
-      if (document.visibilityState === 'hidden') return;
+      const now = Date.now();
+      if (document.visibilityState === 'hidden' && now - last < HIDDEN_POLL_MS) return;
+      last = now;
       void loadThread(threadId, key, true);
     }, POLL_MS);
     return () => window.clearInterval(interval);
   }, [hasPending, conv.threadId, conv.key, loadThread]);
+
+  /** One check of a watched conversation that is not the one being polled. */
+  const checkThread = React.useCallback(
+    async (threadId: string) => {
+      if (threadId === convThreadRef.current) {
+        // In the panel, just not polling: brought up to date there.
+        void loadThread(threadId, convKey.current, true);
+        return;
+      }
+      const result = await getJson<ThreadPayload>(
+        `/api/ask/thread?id=${encodeURIComponent(threadId)}`,
+      );
+      if (!result.ok || !watchRef.current.has(threadId)) return;
+      if (!result.data.messages.some(isPendingAnswer)) noteLanded(threadId, result.data.messages);
+    },
+    [loadThread, noteLanded],
+  );
+
+  // Every other conversation with an answer on its way: one asked before
+  // starting another, or left waiting on the full Ask page.
+  React.useEffect(() => {
+    if (watching === 0) return;
+    let last = 0;
+    const interval = window.setInterval(() => {
+      const now = Date.now();
+      const hidden = document.visibilityState === 'hidden';
+      if (now - last < (hidden ? HIDDEN_POLL_MS : BACKGROUND_POLL_MS)) return;
+      last = now;
+      for (const [threadId, since] of watchRef.current) {
+        if (now - since > WATCH_MAX_MS) {
+          setWatch(threadId, null);
+          continue;
+        }
+        // The conversation on screen with its answer on the way polls itself.
+        if (threadId === convThreadRef.current && waitingRef.current) continue;
+        void checkThread(threadId);
+      }
+    }, POLL_MS);
+    return () => window.clearInterval(interval);
+  }, [watching, checkThread, setWatch]);
 
   const historyWaiting = history.threads?.some((t) => t.status === 'waiting') ?? false;
   React.useEffect(() => {
@@ -497,7 +739,20 @@ export function AskWidget({
         // It steps aside while any other dialog is open: the inbox composer
         // docks into this same corner, with Send at its bottom right.
         <div className="pointer-events-none fixed right-4 bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.75rem)] z-[var(--z-nav)] flex items-center gap-2 lg:right-6 lg:bottom-6 [:root:has([role=dialog]:not([data-ask-panel]):not([data-tour-card]))_&]:hidden">
-          {!greetingHidden && !open ? (
+          {/* Above the launcher, its right edge on the launcher's: never over
+              the launcher itself, and above the phone tab bar with it. */}
+          {replyNotice && !open ? (
+            <ReplyNoticeCard
+              notice={replyNotice}
+              placement="launcher"
+              onOpen={openFromNotice}
+              onDismiss={dismissReply}
+              onFocusOut={focusAfterNotice}
+              className="absolute right-0 bottom-full mb-3"
+            />
+          ) : null}
+
+          {!greetingHidden && !open && !replyNotice ? (
             <div className="motion-safe:animate-rise pointer-events-auto flex items-center gap-2 motion-safe:[animation-delay:500ms]">
               <button
                 type="button"
@@ -521,6 +776,7 @@ export function AskWidget({
 
           <DialogPrimitive.Trigger asChild>
             <button
+              ref={launcherRef}
               type="button"
               aria-label={unread ? 'Ask Arwin, new answer' : 'Ask Arwin'}
               title="Ask Arwin"
@@ -558,6 +814,14 @@ export function AskWidget({
             event.preventDefault();
             focusForView();
           }}
+          // Esc on the "Arwin replied" card dismisses the card, not the panel.
+          // The dialog hears Esc first (on the document, in the capture phase),
+          // so it is told to leave this one to the card's own handler.
+          onEscapeKeyDown={(event) => {
+            if (event.target instanceof Element && event.target.closest('[data-ask-reply]')) {
+              event.preventDefault();
+            }
+          }}
           // Keys typed here are the panel's: none reaches a page shortcut on
           // `window` (Esc and Tab are handled by the dialog itself).
           onKeyDown={(event) => event.stopPropagation()}
@@ -576,6 +840,9 @@ export function AskWidget({
           {/* Announces an answer that lands while the panel is open. */}
           <div role="status" aria-live="polite" data-ask-announcer="" className="sr-only">
             {open ? announcement : ''}
+          </div>
+          <div role="status" aria-live="polite" data-ask-reply-announcer="" className="sr-only">
+            {open && replyNotice ? replyAnnouncement(replyNotice) : ''}
           </div>
           <header className="dark relative flex shrink-0 items-center gap-3 bg-[var(--bg-sidebar)] px-4 py-3 text-[var(--fg)] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-[linear-gradient(90deg,transparent,var(--gold)_25%,var(--gold)_75%,transparent)]">
             <ArwinAvatar online={aiAvailable} />
@@ -611,6 +878,24 @@ export function AskWidget({
               <X className="size-5" aria-hidden="true" />
             </DialogPrimitive.Close>
           </header>
+
+          {/* An answer to another conversation, while this one is open: the
+              panel covers the launcher, so the pop-up shows in here. It
+              floats over the top of the conversation rather than taking a
+              place in it, so nothing under it jumps as it comes and goes. */}
+          {replyNotice && open ? (
+            <div className="relative z-10 h-0 shrink-0">
+              <div className="absolute inset-x-3 top-3">
+                <ReplyNoticeCard
+                  notice={replyNotice}
+                  placement="panel"
+                  onOpen={openFromNotice}
+                  onDismiss={dismissReply}
+                  onFocusOut={focusAfterNotice}
+                />
+              </div>
+            </div>
+          ) : null}
 
           {view === 'home' ? (
             <>
@@ -739,12 +1024,26 @@ export function AskWidget({
       <div role="status" aria-live="polite" data-ask-announcer="" className="sr-only">
         {open ? '' : announcement}
       </div>
+      <div role="status" aria-live="polite" data-ask-reply-announcer="" className="sr-only">
+        {!open && replyNotice ? replyAnnouncement(replyNotice) : ''}
+      </div>
 
-      {onAskPage ? null : (
-        <React.Suspense fallback={null}>
-          <AskParamListener />
-        </React.Suspense>
-      )}
+      {/* The full Ask page has no launcher; the pop-up sits under its header,
+          clear of the composer at the bottom. */}
+      {onAskPage && replyNotice && !open ? (
+        <div className="pointer-events-none fixed top-[calc(var(--app-header-h)+var(--app-banner-h)+0.75rem)] right-4 z-[var(--z-nav)] lg:top-[calc(var(--app-banner-h)+1rem)] lg:right-6">
+          <ReplyNoticeCard
+            notice={replyNotice}
+            placement="page"
+            onOpen={openFromNotice}
+            onDismiss={dismissReply}
+          />
+        </div>
+      ) : null}
+
+      <React.Suspense fallback={null}>
+        {onAskPage ? <AskPageThreadListener onShown={markThreadSeen} /> : <AskParamListener />}
+      </React.Suspense>
     </DialogPrimitive.Root>
   );
 }
@@ -978,6 +1277,22 @@ function AskParamListener() {
   return null;
 }
 
+/**
+ * On the full Ask page, the conversation it shows (`?thread=`) has been seen,
+ * however it was opened: the "Arwin replied" pop-up, the page's Recent list,
+ * or a link. Its own component for the Suspense boundary `useSearchParams`
+ * wants.
+ */
+function AskPageThreadListener({ onShown }: { onShown: (threadId: string) => void }) {
+  const threadId = useSearchParams().get('thread');
+
+  React.useEffect(() => {
+    if (threadId) onShown(threadId);
+  }, [threadId, onShown]);
+
+  return null;
+}
+
 /* ------------------------------------------------------------ the greeting */
 
 /**
@@ -1034,5 +1349,39 @@ async function getJson<T>(
     return { ok: true, data: body };
   } catch {
     return { ok: false, message: 'That could not be loaded. Check the connection and try again.' };
+  }
+}
+
+/* ------------------------------------------------------------- watch list */
+
+/**
+ * The conversations still waiting on an answer, kept for the tab's session so
+ * a reload carries on checking them. Session storage, like the guided tour:
+ * nothing here outlives the tab.
+ */
+const WATCH_KEY = 'tiptop-ask-watching';
+const WATCH_ID = /^[A-Za-z0-9-]{1,64}$/;
+
+function readWatched(now: number): Watched {
+  const watched: Watched = new Map();
+  try {
+    const value: unknown = JSON.parse(window.sessionStorage.getItem(WATCH_KEY) ?? '{}');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return watched;
+    for (const [threadId, since] of Object.entries(value)) {
+      if (!WATCH_ID.test(threadId) || typeof since !== 'number') continue;
+      if (now - since <= WATCH_MAX_MS) watched.set(threadId, since);
+    }
+  } catch {
+    // Unreadable: nothing was waiting.
+  }
+  return watched;
+}
+
+function writeWatched(watched: Watched) {
+  try {
+    if (watched.size === 0) window.sessionStorage.removeItem(WATCH_KEY);
+    else window.sessionStorage.setItem(WATCH_KEY, JSON.stringify(Object.fromEntries(watched)));
+  } catch {
+    // Blocked storage: checking still carries on until the page reloads.
   }
 }

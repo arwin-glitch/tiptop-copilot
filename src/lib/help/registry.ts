@@ -747,7 +747,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'ask-launcher',
         title: 'Gold dot means news',
-        body: 'Close the chat anytime. A gold dot appears when an answer lands.',
+        body: 'Close the chat anytime. When an answer lands, "Arwin replied" pops up here and a gold dot stays.',
         placement: 'left',
       },
     ],

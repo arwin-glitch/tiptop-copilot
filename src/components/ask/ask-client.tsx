@@ -6,11 +6,12 @@ import { toast } from 'sonner';
 import { askAction } from '@/app/actions';
 import { Badge } from '@/components/ui/badge';
 import { NotConfigured } from '@/components/ui/not-configured';
+import { watchAskReply, type AskWatchDetail } from '@/components/ask/ask-events';
 import { AskComposer, ConversationMessage, WorkingMessage } from '@/components/ask/message-parts';
 import type { ChatMessage } from '@/lib/types/domain';
 
 /**
- * Ask TipTop.
+ * Ask Arwin, as a full page.
  *
  * The full-page form of Ask. Day to day, questions go through the Ask Arwin
  * widget (components/ask/ask-widget.tsx) on every page; this page stays for
@@ -140,6 +141,29 @@ export function AskClient({
     return () => clearInterval(interval);
   }, [hasOutstandingBridgeAnswer, router]);
 
+  // The Ask Arwin widget keeps checking once Nick leaves this page, so an
+  // answer that lands later still pops up wherever he is. One that lands
+  // here was seen here.
+  const watchedThread = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    let detail: AskWatchDetail | null = null;
+    if (hasOutstandingBridgeAnswer && activeThread) {
+      watchedThread.current = activeThread;
+      detail = { threadId: activeThread, watching: true };
+    } else if (!hasOutstandingBridgeAnswer && watchedThread.current) {
+      detail = { threadId: watchedThread.current, watching: false };
+      watchedThread.current = null;
+    }
+    if (!detail) return;
+    // Sent a tick later. On a hard load (a bookmarked /ask?thread=) this page
+    // and the widget hydrate together, and this page's effects run first: the
+    // widget, later in the layout, would not be listening yet. Never
+    // cancelled, so a hand-over decided here is not lost to a quick unmount;
+    // the widget ignores a repeat.
+    const send = detail;
+    window.setTimeout(() => watchAskReply(send), 0);
+  }, [hasOutstandingBridgeAnswer, activeThread]);
+
   return (
     <div className="flex flex-col">
       {dealName ? (
@@ -201,7 +225,7 @@ export function AskClient({
           onChange={setQuestion}
           onSubmit={submit}
           pending={pending}
-          placeholder={dealName ? `Ask about ${dealName}…` : 'Ask about anything in TipTop…'}
+          placeholder={dealName ? `Ask about ${dealName}…` : 'Ask Arwin anything…'}
           hint="Answers cite their sources. Unknowns are stated, not filled in."
         />
       ) : null}

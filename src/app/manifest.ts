@@ -25,7 +25,7 @@ export default function manifest(): MetadataRoute.Manifest {
     shortcuts: [
       { name: 'Today', short_name: 'Today', url: '/today' },
       { name: 'Inbox', short_name: 'Inbox', url: '/inbox' },
-      { name: 'Ask TipTop', short_name: 'Ask', url: '/ask' },
+      { name: 'Ask Arwin', short_name: 'Ask', url: '/ask' },
     ],
   };
 }

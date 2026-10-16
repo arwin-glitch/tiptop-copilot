@@ -10,6 +10,12 @@ throughout.
 
 ## [Unreleased]
 
+- **"Arwin replied" pop-up.** An answer that lands while the chat is closed
+  (or open on another conversation) previews itself above the green button for
+  about 3.5 seconds; click it to open that conversation. The gold dot still
+  stays until it is opened. Answers landing together share one pop-up, it
+  waits out a running tour, and a hidden tab gets "(1)" in its title and the
+  pop-up on return. The full Ask page is now called Ask Arwin.
 - **Dark mode goes black.** Dark mode's pages, cards, menu and header are a soft
   near-black instead of emerald, which is easier on the eyes. Green stays on the
   logo, primary buttons, tags and icons, gold on the rules and labels. Light
