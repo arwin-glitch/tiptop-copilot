@@ -10,6 +10,11 @@ throughout.
 
 ## [Unreleased]
 
+- **Campaign receipts.** A finished campaign opens with Affinity-style tiles
+  (Sent date, Delivered "106 / 106", Issues, which shows who needs a look),
+  the finish toast and the campaign list carry the same numbers, and the phone
+  gets a "Campaign sent" alert with only the name and counts (one that
+  finishes overnight alerts the next morning).
 - **"Arwin replied" pop-up.** An answer that lands while the chat is closed
   (or open on another conversation) previews itself above the green button for
   about 3.5 seconds; click it to open that conversation. The gold dot still

@@ -7,6 +7,8 @@ import type { AuditEvent, Organization, OrganizationMember, UserProfile } from '
 import { newId, sha256 } from '@/lib/util/hash';
 import { localClock } from '@/lib/util/time';
 import { dueMeetingAlerts, listMeetingEvents } from '@/lib/calendar/meetings';
+import { receiptLine } from '@/lib/campaigns/receipt';
+import { finishedCampaignsSince, type FinishedCampaign } from './campaigns';
 import { buildReaders, readDocSendViews, type DocSendReader } from './docsend';
 import { getPrimaryIntegration } from './inbox';
 import { readFollowUps, type FollowUpsSnapshot } from './follow-ups';
@@ -29,8 +31,9 @@ import { readFollowUps, type FollowUpsSnapshot } from './follow-ups';
  * subscription keys.
  *
  * Alerts come only from the relay snapshots the app already reads
- * (readFollowUps), each item alerts once, and nothing is sent outside 8am-8pm
- * in the owner's timezone.
+ * (readFollowUps), DocSend views, and campaigns that just finished sending;
+ * each item alerts once, and nothing is sent outside 8am-8pm in the owner's
+ * timezone.
  */
 
 /** Public half of the VAPID pair; not a secret. The private half is a GitHub secret. */
@@ -47,6 +50,10 @@ const QUIET_BEFORE_HOUR = 8;
 const QUIET_FROM_HOUR = 20;
 const LEDGER_DAYS = 60;
 const BODY_MAX = 180;
+/** A campaign alerts only this soon after it finished, so turning alerts on never pings old ones. */
+export const CAMPAIGN_ALERT_WINDOW_MS = 2 * 60 * 60 * 1000;
+/** 8pm to 8am: the hours that do not count toward a campaign's two. */
+const QUIET_NIGHT_MS = (24 - QUIET_FROM_HOUR + QUIET_BEFORE_HOUR) * 60 * 60 * 1000;
 
 /** Push services a subscription may point at. Anything else is refused. */
 const PUSH_HOSTS = [
@@ -173,6 +180,27 @@ function listBody(lines: string[]): string {
   return clip(rest.length ? `${first} (+${rest.length} more)` : first);
 }
 
+/** Outside 8am-8pm in the owner's timezone, when only meeting alerts go out. */
+function quietHours(now: Date, timeZone: string): boolean {
+  const { hour } = localClock(now, timeZone);
+  return hour < QUIET_BEFORE_HOUR || hour >= QUIET_FROM_HOUR;
+}
+
+/**
+ * How far back a finished campaign still alerts at `now`: two hours of
+ * daytime. Quiet hours do not count, so one that finished at 7:40pm or 2am,
+ * when nothing but meetings goes out, alerts on the first pass after 8am
+ * instead of never; one that finished at 5pm alerted that evening. In the
+ * morning's first two hours the window reaches back over the night (to 6pm);
+ * the rest of the day it is the plain two hours.
+ */
+export function campaignAlertWindowMs(now: Date, timeZone: string): number {
+  const { hour } = localClock(now, timeZone);
+  const morning =
+    hour >= QUIET_BEFORE_HOUR && hour < QUIET_BEFORE_HOUR + CAMPAIGN_ALERT_WINDOW_MS / 3_600_000;
+  return morning ? CAMPAIGN_ALERT_WINDOW_MS + QUIET_NIGHT_MS : CAMPAIGN_ALERT_WINDOW_MS;
+}
+
 /**
  * The alerts due now, from the relay snapshot and the ledger of keys already
  * sent. Pure, for tests. One notification per kind, so a first run with many
@@ -185,8 +213,8 @@ export function computeDueAlerts(
   timeZone: string,
   docsend: readonly DocSendReader[] = [],
 ): PushAlert[] {
+  if (quietHours(now, timeZone)) return [];
   const clock = localClock(now, timeZone);
-  if (clock.hour < QUIET_BEFORE_HOUR || clock.hour >= QUIET_FROM_HOUR) return [];
   const alerts: PushAlert[] = [];
 
   // Someone outside TipTop opened fundraising material in the last day.
@@ -283,6 +311,48 @@ export function computeDueAlerts(
   }
 
   return alerts;
+}
+
+/**
+ * A campaign finished sending: "Q3 update · 106/106 · no issues". Pure, for
+ * tests. Each campaign alerts once (ledger key `campaign:<id>`), only within
+ * two daytime hours of finishing (campaignAlertWindowMs: one that finished
+ * at night alerts the next morning) and inside 8am-8pm, and the alert carries the
+ * campaign's name and counts only, never a recipient. One notification for
+ * the kind, like the others; a tap opens the campaign (or, for several, the
+ * Campaigns tab).
+ */
+export function computeCampaignAlerts(
+  campaigns: readonly FinishedCampaign[],
+  alreadySent: ReadonlySet<string>,
+  now: Date,
+  timeZone: string,
+): PushAlert[] {
+  if (quietHours(now, timeZone)) return [];
+  const windowMs = campaignAlertWindowMs(now, timeZone);
+  const due = campaigns
+    .filter((c) => {
+      if (c.status !== 'sent' || !c.sentAt) return false;
+      const age = now.getTime() - Date.parse(c.sentAt);
+      // A minute of clock skew either way still counts as just now.
+      return age >= -60_000 && age <= windowMs;
+    })
+    .map((c) => ({ key: `campaign:${c.id}`, c }))
+    .filter(({ key }) => !alreadySent.has(key));
+  if (!due.length) return [];
+  const [only] = due;
+  return [
+    {
+      keys: due.map((d) => d.key),
+      title: due.length === 1 ? 'Campaign sent' : `${due.length} campaigns sent`,
+      body: listBody(due.map(({ c }) => receiptLine(c.name, c.counts))),
+      url:
+        due.length === 1 && only
+          ? `/fund-ii/campaigns/${encodeURIComponent(only.c.id)}`
+          : '/fund-ii?tab=campaigns',
+      tag: 'campaign',
+    },
+  ];
 }
 
 async function alertedKeys(
@@ -386,6 +456,12 @@ export async function buildOutbox(
       ]);
       const alerts: PushAlert[] = await meetingAlerts(store, org.id, sent, now, tz).catch(() => []);
       if (scope === 'all') {
+        const finished = await finishedCampaignsSince(
+          store,
+          org.id,
+          new Date(now.getTime() - campaignAlertWindowMs(now, tz)),
+        ).catch(() => null);
+        if (finished?.ok) alerts.push(...computeCampaignAlerts(finished.value, sent, now, tz));
         const followUps = await readFollowUps(store, org.id, { now, force: true });
         if (followUps.state === 'ok') {
           const docsend = await readDocSendViews(store, org.id, { now }).catch(() => null);

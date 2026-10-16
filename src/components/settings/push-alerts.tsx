@@ -37,7 +37,8 @@ async function registration(): Promise<ServiceWorkerRegistration | null> {
 /**
  * Settings > Preferences: turn phone alerts on for this device. Alerts are for
  * money or legal items going stale, the morning top 3, LPs and founders waiting
- * on you, and portfolio companies newly at risk; 8am-8pm only.
+ * on you, portfolio companies newly at risk, and a campaign that finished
+ * sending; 8am-8pm only.
  */
 export function PushAlertsSetting({ publicKey }: { publicKey: string }) {
   const [state, setState] = React.useState<State>('loading');
@@ -133,9 +134,9 @@ export function PushAlertsSetting({ publicKey }: { publicKey: string }) {
       <p className="mt-1 text-sm text-[var(--fg-muted)]">
         A ping 5 minutes before each real meeting (calendar blocks like Focus, Hold or Lunch never
         ping; the Calendar tab shows which is which), plus money or legal items going stale, your
-        morning top 3, LPs and founders waiting on you, portfolio companies newly at risk, and
-        someone outside TipTop opening your fund materials on DocSend. Each item alerts once;
-        everything but meetings stays within 8am to 8pm.
+        morning top 3, LPs and founders waiting on you, portfolio companies newly at risk, someone
+        outside TipTop opening your fund materials on DocSend, and a campaign finishing sending (its
+        name and counts). Each item alerts once; everything but meetings stays within 8am to 8pm.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {state === 'loading' ? (

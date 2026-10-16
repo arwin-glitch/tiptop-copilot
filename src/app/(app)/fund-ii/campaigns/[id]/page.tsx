@@ -158,6 +158,15 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
     campaign.status === 'paused' ||
     counts.failed > 0 ||
     counts.unconfirmed > 0;
+  // The receipt is for a send that is over: finished, or cancelled after some
+  // went out. A paused one can still resume, so its live card says where it is.
+  const now = new Date().toISOString();
+  const receipt =
+    campaign.status === 'sent'
+      ? { variant: 'sent' as const, at: campaign.sent_at ?? campaign.last_sent_at, now }
+      : campaign.status === 'cancelled' && counts.sent > 0
+        ? { variant: 'stopped' as const, at: campaign.last_sent_at, now }
+        : null;
 
   return (
     <PageShell>
@@ -168,34 +177,36 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         subtitle={`${campaign.subject}${when ? ` · ${campaign.status === 'sent' ? 'sent' : 'started'} ${formatDateTime(when, tz)}` : ''}`}
         meta={<Badge tone={PHASE_TONE[phase]}>{PHASE_LABEL[phase]}</Badge>}
       />
-      <div className="space-y-6">
-        {showProgress ? (
-          <CampaignProgress
-            campaignId={campaign.id}
-            initialStatus={campaign.status}
-            initialPauseReason={campaign.pause_reason}
-            initialStalled={phase === 'stalled'}
-            initialCapResetsAt={cap?.ok ? cap.value.resetsAt : null}
-            unconfirmedRecipients={recipients
-              .filter((r) => r.status === 'unconfirmed')
-              .map((r) => ({ id: r.id, name: r.name, email: r.email }))}
-            initialCounts={{
-              total: counts.total,
-              pending: counts.pending,
-              sent: counts.sent,
-              failed: counts.failed,
-              unconfirmed: counts.unconfirmed,
-              skipped: counts.skipped,
-            }}
-          />
-        ) : null}
-        <CampaignReport
-          counts={counts}
-          rows={rows}
-          timezone={tz}
-          tracking={campaign.track_activity}
-        />
-      </div>
+      <CampaignReport
+        counts={counts}
+        rows={rows}
+        timezone={tz}
+        tracking={campaign.track_activity}
+        receipt={receipt}
+        progress={
+          showProgress ? (
+            <CampaignProgress
+              campaignId={campaign.id}
+              initialStatus={campaign.status}
+              initialPauseReason={campaign.pause_reason}
+              initialStalled={phase === 'stalled'}
+              initialCapResetsAt={cap?.ok ? cap.value.resetsAt : null}
+              unconfirmedRecipients={recipients
+                .filter((r) => r.status === 'unconfirmed')
+                .map((r) => ({ id: r.id, name: r.name, email: r.email }))}
+              initialCounts={{
+                total: counts.total,
+                pending: counts.pending,
+                sent: counts.sent,
+                failed: counts.failed,
+                unconfirmed: counts.unconfirmed,
+                skipped: counts.skipped,
+                bounced: counts.bounced,
+              }}
+            />
+          ) : null
+        }
+      />
     </PageShell>
   );
 }

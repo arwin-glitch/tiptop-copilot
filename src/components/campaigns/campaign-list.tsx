@@ -11,9 +11,10 @@ import {
   TableRow,
   TableRowHeader,
 } from '@/components/ui/table';
+import { campaignReceipt, issuesPhrase } from '@/lib/campaigns/receipt';
 import { PHASE_LABEL, campaignPhase, type CampaignPhase } from '@/lib/campaigns/status';
 import type { CampaignSummary } from '@/lib/services/campaigns';
-import { formatDate } from '@/lib/util/time';
+import { formatDate, formatMonthDay } from '@/lib/util/time';
 import { NewCampaignButton } from './new-campaign-button';
 
 export const PHASE_TONE: Record<CampaignPhase, NonNullable<BadgeProps['tone']>> = {
@@ -28,6 +29,9 @@ export const PHASE_TONE: Record<CampaignPhase, NonNullable<BadgeProps['tone']>> 
 
 const pct = (part: number, sent: number) =>
   sent > 0 ? `${Math.round((part / sent) * 100)}%` : '–';
+
+const yearOf = (date: Date | string, timeZone: string) =>
+  new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric' }).format(new Date(date));
 
 /** Every campaign, newest first: how many it went to and how they responded. */
 export function CampaignList({
@@ -74,6 +78,9 @@ export function CampaignList({
             const { sent, opened, clicked, replied, total, unconfirmed } = c.counts;
             const when = c.sent_at ?? c.confirmed_at ?? c.created_at;
             const phase = campaignPhase(c, now);
+            // A finished one reads like its receipt: "Sent Oct 16 · 106/106".
+            const receipt = c.status === 'sent' ? campaignReceipt(c.counts) : null;
+            const sameYear = yearOf(when, timezone) === yearOf(now, timezone);
             return (
               <TableRow key={c.id} interactive>
                 <TableRowHeader className="min-w-44">
@@ -85,13 +92,30 @@ export function CampaignList({
                   </Link>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-normal text-[var(--fg-subtle)]">
                     <Badge tone={PHASE_TONE[phase]}>{PHASE_LABEL[phase]}</Badge>
-                    <span>{formatDate(when, timezone)}</span>
+                    {receipt ? (
+                      <>
+                        <span>
+                          {sameYear ? formatMonthDay(when, timezone) : formatDate(when, timezone)}
+                        </span>
+                        <span
+                          className="tabular"
+                          title={`${receipt.delivered} of ${receipt.total} delivered`}
+                        >
+                          · {receipt.delivered}/{receipt.total}
+                        </span>
+                        {receipt.issues ? (
+                          <Badge tone="warn">{issuesPhrase(receipt.issues)}</Badge>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span>{formatDate(when, timezone)}</span>
+                    )}
                     {c.status === 'draft' ? (
                       <span>
                         · {total} {total === 1 ? 'person' : 'people'}
                       </span>
                     ) : null}
-                    {unconfirmed ? <span>· {unconfirmed} to check</span> : null}
+                    {unconfirmed && !receipt ? <span>· {unconfirmed} to check</span> : null}
                   </div>
                 </TableRowHeader>
                 <TableCell numeric>{c.status === 'draft' ? '–' : sent}</TableCell>

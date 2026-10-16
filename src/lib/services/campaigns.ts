@@ -415,6 +415,41 @@ export async function getCampaign(
   });
 }
 
+/** A campaign that finished sending: its name and counts, never who it went to. */
+export interface FinishedCampaign {
+  id: string;
+  name: string;
+  status: CampaignStatus;
+  sentAt: string | null;
+  counts: CampaignCounts;
+}
+
+/**
+ * Campaigns that finished sending since `since`, newest first, as name and
+ * counts only: what the phone alert says when one is done. Reads only.
+ */
+export async function finishedCampaignsSince(
+  store: DataStore,
+  organizationId: string,
+  since: Date,
+): Promise<Result<FinishedCampaign[]>> {
+  return guard('read', 'list finished campaigns', async () => {
+    const campaigns = await listAllPages(
+      store,
+      'campaigns',
+      organizationId,
+      { eq: { status: 'sent' }, gte: { sent_at: since.toISOString() } },
+      [{ field: 'sent_at', direction: 'desc' }],
+    );
+    const out: FinishedCampaign[] = [];
+    for (const c of campaigns) {
+      const counts = countRecipients(await recipientsOf(store, organizationId, c.id));
+      out.push({ id: c.id, name: c.name, status: c.status, sentAt: c.sent_at, counts });
+    }
+    return ok(out);
+  });
+}
+
 /** The organization's 24-hour cap right now, for a page to say when the next slot opens. */
 export async function dailyCapNow(
   store: DataStore,

@@ -7,6 +7,7 @@ import { Check, Pause, Play, RotateCcw, Send, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Notice } from '@/components/ui/feedback';
+import { campaignReceipt, finishToast } from '@/lib/campaigns/receipt';
 import { PAUSE_REASON_TEXT } from '@/lib/campaigns/status';
 import type { CampaignPauseReason, CampaignStatus } from '@/lib/types/domain';
 
@@ -17,6 +18,8 @@ export interface ProgressCounts {
   failed: number;
   unconfirmed: number;
   skipped: number;
+  /** Read from the inbox after sending; the batch answer carries it, for the finish toast. */
+  bounced?: number;
 }
 
 interface BatchProgress {
@@ -112,7 +115,8 @@ export function CampaignProgress({
     setRunning(true);
     setMessage(null);
     let busyTries = 0;
-    let finished = false;
+    /** The last batch's counts once it says done: the finish toast's numbers. */
+    let finished: ProgressCounts | null = null;
     while (current()) {
       // This page is the sender from the moment it asks, unless the last
       // answer said another window or campaign holds the mailbox.
@@ -149,14 +153,16 @@ export function CampaignProgress({
       }
       busyTries = 0;
       driving.current = p.state === 'sending';
-      if (p.state === 'done') finished = true;
+      if (p.state === 'done') finished = p.counts;
       if (p.state !== 'sending') break;
     }
     if (runId.current === mine) driving.current = false;
     if (alive.current && runId.current === mine) {
       setRunning(false);
       if (finished) {
-        toast.success('Campaign sent.');
+        const text = finishToast(finished);
+        if (campaignReceipt(finished).issues) toast.warning(text);
+        else toast.success(text);
         router.refresh();
       }
     }

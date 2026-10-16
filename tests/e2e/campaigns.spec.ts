@@ -73,6 +73,42 @@ test.describe('signed in', () => {
     await expect(results).toContainText('Bounced');
   });
 
+  test('a sent campaign opens with its receipt, and Issues shows who needs a look', async ({
+    page,
+  }) => {
+    await page.goto('/fund-ii?tab=campaigns');
+    const row = page
+      .getByRole('region', { name: 'Campaigns' })
+      .getByRole('row', { name: /Q3 LP update/ });
+    // The list reads like the receipt: 8 people, 1 bounced.
+    await expect(row).toContainText('7/8');
+    await expect(row).toContainText('1 issue');
+
+    await row.getByRole('link', { name: 'Q3 LP update' }).click();
+    const receipt = page.getByRole('region', { name: 'Campaign receipt' });
+    await expect(receipt.getByRole('heading', { name: 'Sent, 1 needs a look' })).toBeVisible();
+    // Three tiles: when, how many reached people, how many need a look.
+    await expect(receipt.getByText('Sent', { exact: true })).toBeVisible();
+    await expect(receipt.locator('time')).toHaveAttribute('title', /\d{4}(,| at) \d{1,2}:\d{2}/);
+    await expect(receipt.getByText('Delivered', { exact: true })).toBeVisible();
+    await expect(receipt.getByText('7 / 8')).toBeVisible();
+    const issues = receipt.getByRole('button', { name: /^Issues/ });
+    await expect(issues).toContainText('1 bounced');
+    // The opens, clicks and replies stay below it.
+    await expect(page.getByText('Opened', { exact: true }).first()).toBeVisible();
+
+    await issues.click();
+    await expect(
+      page
+        .getByRole('group', { name: 'Show recipients' })
+        .getByRole('button', { name: /^Bounced or failed/ }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    const results = page.getByRole('list', { name: 'Recipient results' });
+    await expect(results.getByRole('listitem')).toHaveCount(1);
+    await expect(results).toContainText('Wren Halloway');
+    await expect(page.getByRole('heading', { level: 2, name: 'Recipients' })).toBeInViewport();
+  });
+
   test('a new campaign goes from a list to a confirmed, paced send and its report', async ({
     page,
   }) => {
@@ -125,10 +161,18 @@ test.describe('signed in', () => {
 
     // Sending: paced batches while the page is open, then the report.
     await expect(page.getByRole('progressbar', { name: 'Campaign progress' })).toBeVisible();
-    await expect(page.getByText('Campaign sent.')).toBeVisible({ timeout: 60_000 });
+    // The toast has the real numbers, and the page opens on its receipt.
+    await expect(page.getByText('Campaign sent: 4 of 4, no issues.')).toBeVisible({
+      timeout: 60_000,
+    });
     await expect(
       page.getByRole('heading', { level: 1, name: 'Fund II update (e2e)' }),
     ).toBeVisible();
+    const receipt = page.getByRole('region', { name: 'Campaign receipt' });
+    await expect(receipt.getByRole('heading', { name: 'Sent to everyone' })).toBeVisible();
+    await expect(receipt.getByText('4 / 4')).toBeVisible();
+    await expect(receipt.getByRole('button', { name: /^Issues/ })).toHaveCount(0);
+    await expect(receipt).toContainText('Nothing bounced or failed');
     await expect(page.getByText('Sent', { exact: true }).first()).toBeVisible();
     const results = page.getByRole('list', { name: 'Recipient results' });
     await expect(results.getByRole('listitem')).toHaveCount(4);

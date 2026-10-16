@@ -5,7 +5,9 @@ import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Stat, StatGroup } from '@/components/ui/stat';
 import { FilterChip, FilterChipRow } from '@/components/ui/toolbar';
+import { campaignReceipt, issuesFilter, type ReceiptVariant } from '@/lib/campaigns/receipt';
 import type { CampaignCounts, RecipientState } from '@/lib/services/campaigns';
+import { CampaignReceipt } from './campaign-receipt';
 
 export interface ReportRow {
   id: string;
@@ -45,7 +47,8 @@ const STATE_TONE: Record<RecipientState, NonNullable<BadgeProps['tone']>> = {
   pending: 'outline',
 };
 
-type Filter = 'all' | 'opened' | 'clicked' | 'replied' | 'unopened' | 'problems' | 'unconfirmed';
+type Filter =
+  'all' | 'opened' | 'clicked' | 'replied' | 'unopened' | 'problems' | 'unconfirmed' | 'issues';
 
 const FILTERS: { key: Filter; label: string; test: (r: ReportRow) => boolean; tracked?: true }[] = [
   { key: 'all', label: 'Everyone', test: () => true },
@@ -64,29 +67,53 @@ const FILTERS: { key: Filter; label: string; test: (r: ReportRow) => boolean; tr
     test: (r) => r.state === 'bounced' || r.state === 'failed',
   },
   { key: 'unconfirmed', label: 'May have gone out', test: (r) => r.state === 'unconfirmed' },
+  // The receipt's Issues tile, when it counts both kinds: everyone it counts.
+  {
+    key: 'issues',
+    label: 'Needs a look',
+    test: (r) => r.state === 'bounced' || r.state === 'failed' || r.state === 'unconfirmed',
+  },
 ];
 
 const PAGE = 100;
 
 const pct = (part: number, sent: number) => (sent > 0 ? Math.round((part / sent) * 100) : null);
 
-/** How a campaign landed: the rates up top, then everyone and where they stand. */
+/**
+ * How a campaign landed: the receipt (once it finished), the rates, then
+ * everyone and where they stand.
+ */
 export function CampaignReport({
   counts,
   rows,
   timezone,
   tracking = true,
+  receipt = null,
+  progress = null,
 }: {
   counts: CampaignCounts;
   rows: ReportRow[];
   timezone: string;
   /** Whether opens and clicks were tracked for this campaign. */
   tracking?: boolean;
+  /** Finished (or stopped after some went out): the receipt up top, and when. */
+  receipt?: { variant: ReceiptVariant; at: string | null; now: string } | null;
+  /** The sending card, between the receipt and the rates. */
+  progress?: React.ReactNode;
 }) {
   const [filter, setFilter] = React.useState<Filter>('all');
   const [shown, setShown] = React.useState(PAGE);
+  const peopleRef = React.useRef<HTMLElement>(null);
+  const summary = campaignReceipt(counts);
+  // Which chip the Issues tile opens. "Needs a look" is a chip only when the
+  // issues are of both kinds; otherwise one of the two chips already is
+  // exactly who the tile counts.
+  const issuesKey = issuesFilter(summary);
   const filters = FILTERS.filter(
-    (f) => (tracking || !f.tracked) && (f.key !== 'unconfirmed' || counts.unconfirmed > 0),
+    (f) =>
+      (tracking || !f.tracked) &&
+      (f.key !== 'unconfirmed' || counts.unconfirmed > 0) &&
+      (f.key !== 'issues' || (receipt !== null && issuesKey === 'issues')),
   );
   const test = filters.find((f) => f.key === filter)?.test ?? (() => true);
   const visible = rows.filter(test);
@@ -102,8 +129,28 @@ export function CampaignReport({
       minute: '2-digit',
     });
 
+  /** The receipt's Issues tile: the list below, filtered to everyone it counts. */
+  const showIssues = () => {
+    if (!issuesKey) return;
+    setFilter(issuesKey);
+    setShown(PAGE);
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    peopleRef.current?.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
+  };
+
   return (
     <div className="space-y-5">
+      {receipt ? (
+        <CampaignReceipt
+          receipt={summary}
+          variant={receipt.variant}
+          at={receipt.at}
+          now={receipt.now}
+          timezone={timezone}
+          onShowIssues={showIssues}
+        />
+      ) : null}
+      {progress}
       <StatGroup columns={4}>
         <Stat size="sm" label="Sent" value={counts.sent} hint={`of ${counts.total}`} />
         <Stat
@@ -135,7 +182,7 @@ export function CampaignReport({
         Replies and bounces are read from the synced inbox; out-of-office replies are not counted.
       </p>
 
-      <section aria-labelledby="report-people" className="space-y-3">
+      <section ref={peopleRef} aria-labelledby="report-people" className="scroll-mt-20 space-y-3">
         <h2 id="report-people" className="font-serif text-lg font-semibold">
           Recipients
         </h2>
