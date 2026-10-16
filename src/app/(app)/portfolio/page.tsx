@@ -28,7 +28,6 @@ import {
   single,
   tabHref,
 } from '@/lib/util/page-tabs';
-import { settlesWithin } from '@/lib/util/settle';
 import { AffinityEntries } from '@/components/crm/affinity-entries';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -80,18 +79,12 @@ export default async function PortfolioPage({
 
   // Asks in the companies' own update emails become open requests: read when
   // Requests is viewed (at most every 30 minutes) and by the daily job. A
-  // Gmail read finishes after the response (the next view shows it); only a
-  // demo read this view started, from memory, is waited on, briefly.
+  // Gmail read starts after the response (the next view shows what it found);
+  // only a demo read, from memory, is waited on, briefly.
   if (tab === 'requests') {
-    const asks = refreshPortfolioAsksOnView(store, auth.organizationId);
-    if (asks) {
-      const settled = asks.waitMs > 0 && (await settlesWithin(asks.run, asks.waitMs));
-      if (!settled) {
-        after(async () => {
-          await asks.run;
-        });
-      }
-    }
+    await refreshPortfolioAsksOnView(store, auth.organizationId, {
+      schedule: (task) => after(task),
+    });
   }
 
   // Head counts for the tab badges; a fault only drops the badge. Requests

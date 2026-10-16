@@ -69,15 +69,36 @@ export function corporateEmailDomain(address: string | null | undefined): string
   return d;
 }
 
-/** Convert an HTML email body into readable plain text, server-side. */
+/** A numeric entity's character; nothing for one that names no character ("&#x110000;"), which would throw. */
+function fromCodePoint(code: number): string {
+  return Number.isInteger(code) && code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff)
+    ? String.fromCodePoint(code)
+    : '';
+}
+
+/**
+ * Convert an HTML email body into readable plain text, server-side. A list
+ * nested in a list item starts on its own lines, indented two spaces a level,
+ * so "Hiring" over its roles does not read as one run-on line or as four
+ * more items of the outer list.
+ */
 export function htmlToPlainText(html: string): string {
+  let depth = 0;
   return (
     html
       .replace(/<!--[\s\S]*?-->/g, ' ')
       .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+      .replace(/<(\/?)(ul|ol|li)\b[^>]*>/gi, (_, close: string, tag: string) => {
+        if (tag.toLowerCase() === 'li') {
+          if (close) return '\n';
+          // U+0001 stands in for the indent until the whitespace is tidied below.
+          return depth > 1 ? `\n${'\u0001'.repeat(2 * (depth - 1))}• ` : '• ';
+        }
+        depth = close ? Math.max(0, depth - 1) : depth + 1;
+        return ' ';
+      })
       .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
-      .replace(/<li[^>]*>/gi, '• ')
+      .replace(/<\/(p|div|tr|h[1-6])>/gi, '\n')
       .replace(/<[^>]+>/g, ' ')
       .replace(/&nbsp;/gi, ' ')
       .replace(/&amp;/gi, '&')
@@ -85,13 +106,21 @@ export function htmlToPlainText(html: string): string {
       .replace(/&gt;/gi, '>')
       .replace(/&quot;/gi, '"')
       .replace(/&#39;|&apos;/gi, "'")
-      .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
+      .replace(/&rsquo;|&lsquo;/gi, '’')
+      .replace(/&rdquo;|&ldquo;/gi, '"')
+      .replace(/&mdash;/gi, '—')
+      .replace(/&ndash;/gi, '–')
+      .replace(/&#(\d+);/g, (_, code: string) => fromCodePoint(Number(code)))
+      .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => fromCodePoint(parseInt(code, 16)))
+      // A nested item follows the line above it directly.
+      .replace(/\n\s*(?=\u0001)/g, '\n')
       .replace(/[ \t ]+/g, ' ')
       // An opening block tag collapses to a space, so without this every line
       // would start with one and a blank line would not read as blank.
       .replace(/[ \t]*\n[ \t]*/g, '\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim()
+      .replace(/\u0001/g, ' ')
   );
 }
 

@@ -13,6 +13,7 @@ import { log } from '@/lib/security/redact';
 import type { Citation, PortfolioCompany, PortfolioUpdate } from '@/lib/types/domain';
 import { sha256 } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
+import { settlesWithin } from '@/lib/util/settle';
 import { buildUpdatesQuery, ownAddresses, readCompanyUpdates, readMetas } from './company-updates';
 import { getPrimaryIntegration } from './inbox';
 import { readUpdateBody } from './portfolio-numbers';
@@ -25,8 +26,9 @@ import { DEFAULT_MAILBOX } from './task-close';
  * same classifier, `services/company-updates.ts`), kept to updates from a
  * portfolio company itself over the last 45 days. Each one's body is read
  * (shared with the numbers, `portfolio-numbers.ts`) and only its explicit asks
- * are taken: the bullet lines under an "Asks" / "How you can help" heading
- * (`lib/company-updates/asks.ts`). No model, nothing guessed from prose.
+ * are taken: what it wrote under an "Asks" / "My ask" / "How you can help"
+ * heading, as a list, title lines or asking sentences
+ * (`lib/company-updates/asks.ts`). No model, nothing read outside that section.
  *
  * Where they go, and why there: each ask is one `portfolio_updates` row, the
  * table a hand classification writes (`classifyPortfolioEmail`), so it is an
@@ -50,7 +52,9 @@ import { DEFAULT_MAILBOX } from './task-close';
  *  - No migration: every column it uses has been there since the first one.
  *
  * Runs from the daily job and, throttled, when Portfolio > Requests is
- * viewed; never blocks the page. Gmail is only read (read scope).
+ * viewed (started after the response, so it never blocks the page). Every
+ * run writes one `portfolio.asks_read` audit row with its counts, found
+ * nothing or failed included. Gmail is only read (read scope).
  */
 
 export { AUTO_ASK_VERSION, isAutoAsk };
@@ -151,8 +155,14 @@ export interface AsksRecorded {
   updates: number;
   /** Asks found in them. */
   asks: number;
-  /** New open requests; the rest already existed (in any status). */
+  /** New open requests. */
   added: number;
+  /** Asks already recorded (in any status), by id or by what they ask, or inserted meanwhile by another read. */
+  skipped: number;
+  /** Asks that could not be inserted and are not there either: a store fault, never a duplicate. */
+  failed: number;
+  /** Update bodies the extractor could not read; the other updates' asks are still recorded. */
+  unreadable: number;
 }
 
 /**
@@ -214,14 +224,26 @@ export async function recordAutoAsks(
   const newestFirst = [...sources].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
   const rows = new Map<string, PortfolioUpdate>();
   const asked = new Set<string>();
+  let unreadable = 0;
   for (const source of newestFirst) {
     const emailMessageId = synced.get(source.messageId) ?? null;
     if (emailMessageId && classified.has(emailMessageId)) continue;
-    for (const row of autoAskRows(organizationId, source, {
-      emailMessageId,
-      accountEmail: options.accountEmail,
-      now,
-    })) {
+    let found: PortfolioUpdate[];
+    try {
+      found = autoAskRows(organizationId, source, {
+        emailMessageId,
+        accountEmail: options.accountEmail,
+        now,
+      });
+    } catch (error) {
+      // One body the extractor cannot read never costs the other companies their asks.
+      unreadable += 1;
+      log.warn('Portfolio asks: an update could not be read', {
+        reason: (error as Error)?.name ?? 'Error',
+      });
+      continue;
+    }
+    for (const row of found) {
       const key = askKey(row.portfolio_company_id, row.summary);
       if (rows.has(row.id) || asked.has(key)) continue;
       asked.add(key);
@@ -232,34 +254,31 @@ export async function recordAutoAsks(
   const fresh = [...rows.values()].filter(
     (r) => !existingIds.has(r.id) && !existingAsks.has(askKey(r.portfolio_company_id, r.summary)),
   );
+  let skipped = rows.size - fresh.length;
   let added = 0;
+  let failed = 0;
   for (const group of chunk(fresh, 100)) {
     try {
       await store.insertMany('portfolio_updates', group);
       added += group.length;
     } catch {
-      // Another read inserted some meanwhile: one at a time, skipping those.
+      // Another read may have inserted some meanwhile: one at a time, and a
+      // row that fails is a duplicate only when it is there now.
       for (const row of group) {
         try {
           await store.insert('portfolio_updates', row);
           added += 1;
         } catch {
-          // Already there.
+          const there = await store
+            .get('portfolio_updates', organizationId, row.id)
+            .catch(() => null);
+          if (there) skipped += 1;
+          else failed += 1;
         }
       }
     }
   }
-  if (added > 0) {
-    await recordAudit(store, {
-      organizationId,
-      userId: null,
-      action: 'portfolio.asks_read',
-      entityType: 'portfolio_update',
-      entityId: null,
-      metadata: { added, asks: rows.size, updates: sources.length },
-    });
-  }
-  return { updates: sources.length, asks: rows.size, added };
+  return { updates: sources.length, asks: rows.size, added, skipped, failed, unreadable };
 }
 
 /* ------------------------------------------------------------- sources */
@@ -271,6 +290,11 @@ export interface AskSourcesRead {
   sources: AskSource[];
   /** The mailbox account, for the Gmail links. */
   accountEmail: string | null;
+  /** Messages the Gmail search listed, and how many were a portfolio company's own update. */
+  listed?: number;
+  matched?: number;
+  /** Why the read failed, as a code from `lib/util/result.ts` ("provider_unavailable"); never a message. */
+  error?: string;
 }
 
 export type AskSourceReader = (
@@ -310,19 +334,20 @@ const gmailSources: AskSourceReader = async (store, organizationId, now) => {
     buildUpdatesQuery(companies, { lookbackDays: LOOKBACK_DAYS }),
     MAX_MESSAGES,
   );
-  if (!ids.ok) return { state: 'error', sources: [], accountEmail };
+  if (!ids.ok) return { state: 'error', sources: [], accountEmail, error: ids.error.code };
   const deadline = Date.now() + READ_DEADLINE_MS;
   const metas = await readMetas(store, integration, ids.value, deadline);
   const own = ownAddresses(integration);
   const since = now.getTime() - LOOKBACK_DAYS * 86_400_000;
   // No Sent-mail lookups: only a solid portfolio match counts here.
-  const updates = fromPortfolio(
+  const matched = fromPortfolio(
     metas.map((m) => {
       const screened = screenCandidate(m, { own, companies });
       return screened ? decideUpdate(screened, false) : null;
     }),
     since,
-  ).slice(0, MAX_BODIES);
+  );
+  const updates = matched.slice(0, MAX_BODIES);
 
   const sources: AskSource[] = [];
   for (const group of chunk(updates, BODY_BATCH)) {
@@ -337,7 +362,13 @@ const gmailSources: AskSourceReader = async (store, organizationId, now) => {
       if (body) sources.push(toSource(u, body));
     });
   }
-  return { state: 'ok', sources, accountEmail };
+  return {
+    state: 'ok',
+    sources,
+    accountEmail,
+    listed: ids.value.length,
+    matched: matched.length,
+  };
 };
 
 function toSource(u: CompanyUpdate, body: string): AskSource {
@@ -398,17 +429,35 @@ const DEMO_BODIES: Record<string, string> = {
 const demoSources: AskSourceReader = async (store, organizationId, now) => {
   const read = await readCompanyUpdates(store, organizationId, { now });
   const since = now.getTime() - LOOKBACK_DAYS * 86_400_000;
-  const sources = fromPortfolio(read.updates, since)
+  const matched = fromPortfolio(read.updates, since);
+  const sources = matched
     .filter((u) => DEMO_BODIES[u.messageId])
     .map((u) => toSource(u, DEMO_BODIES[u.messageId] as string));
-  return { state: read.state, sources, accountEmail: DEFAULT_MAILBOX };
+  return {
+    state: read.state,
+    sources,
+    accountEmail: DEFAULT_MAILBOX,
+    listed: read.updates.length,
+    matched: matched.length,
+  };
 };
 
 /* ------------------------------------------------------------ refresh */
 
+/** What started a read: the daily job, or a view of Portfolio > Requests. */
+export type AsksTrigger = 'daily' | 'view';
+
 export interface AsksRefresh extends AsksRecorded {
   state: AsksReadState;
   checkedAt: string;
+  /**
+   * Why a read that was not `ok` stopped, as a code safe for a public log:
+   * the reader's own (`not_connected`, `provider_unavailable`, …),
+   * `read_failed` when reading the mail threw, `store_failed` when recording
+   * the asks did, `insert_failed` when some asks could not be inserted (and
+   * are not there either), the rest recorded.
+   */
+  error?: string;
 }
 
 const refreshState = processWide('portfolio-asks', () => ({
@@ -425,15 +474,26 @@ export function resetPortfolioAsks(): void {
   refreshState.retryAt.clear();
 }
 
+/** A code from a reader, kept only when it looks like one (never free text from a provider). */
+function safeCode(code: string | undefined, fallback: string): string {
+  return code && /^[a-z][a-z_]{1,39}$/.test(code) ? code : fallback;
+}
+
 /**
  * Read the portfolio's update emails and record their asks. One read per
  * organization at a time: a second call while one runs gets the same
  * promise. Never throws.
+ *
+ * Every run, whatever it found and however it ended, writes one
+ * `portfolio.asks_read` audit row with its counts (update emails scanned,
+ * asks found, inserted, skipped as already there) and, when it failed, a
+ * safe error code, so a read that finds nothing is told apart from one that
+ * never ran.
  */
 export function refreshPortfolioAsks(
   store: DataStore,
   organizationId: string,
-  options: { now?: () => Date; read?: AskSourceReader } = {},
+  options: { now?: () => Date; read?: AskSourceReader; trigger?: AsksTrigger } = {},
 ): Promise<AsksRefresh> {
   const running = refreshState.inFlight.get(organizationId);
   if (running) return running;
@@ -446,26 +506,76 @@ export function refreshPortfolioAsks(
   };
   const run = (async (): Promise<AsksRefresh> => {
     const at = clock();
-    const none = { updates: 0, asks: 0, added: 0, checkedAt: at.toISOString() };
+    const startedAt = Date.now();
+    const none = {
+      updates: 0,
+      asks: 0,
+      added: 0,
+      skipped: 0,
+      failed: 0,
+      unreadable: 0,
+      checkedAt: at.toISOString(),
+    };
+    let sources: AskSourcesRead | null = null;
+    let result: AsksRefresh;
     try {
-      const sources = await read(store, organizationId, at);
+      sources = await read(store, organizationId, at);
       if (sources.state !== 'ok') {
-        failed();
-        return { state: sources.state, ...none };
+        result = { state: sources.state, ...none, error: safeCode(sources.error, sources.state) };
+      } else {
+        try {
+          const recorded = await recordAutoAsks(store, organizationId, sources.sources, {
+            accountEmail: sources.accountEmail,
+            now: at,
+          });
+          result =
+            recorded.failed > 0
+              ? { state: 'error', ...recorded, checkedAt: at.toISOString(), error: 'insert_failed' }
+              : { state: 'ok', ...recorded, checkedAt: at.toISOString() };
+        } catch (error) {
+          log.warn('Portfolio asks could not be recorded', { reason: (error as Error)?.message });
+          result = {
+            state: 'error',
+            ...none,
+            updates: sources.sources.length,
+            error: 'store_failed',
+          };
+        }
       }
-      const recorded = await recordAutoAsks(store, organizationId, sources.sources, {
-        accountEmail: sources.accountEmail,
-        now: at,
-      });
-      refreshState.retryAt.delete(organizationId);
-      return { state: 'ok', ...recorded, checkedAt: at.toISOString() };
     } catch (error) {
       log.warn('Portfolio asks read failed', { reason: (error as Error)?.message });
-      failed();
-      return { state: 'error', ...none };
+      result = { state: 'error', ...none, error: 'read_failed' };
+    }
+    if (result.state === 'ok') refreshState.retryAt.delete(organizationId);
+    else failed();
+    try {
+      await recordAudit(store, {
+        organizationId,
+        userId: null,
+        action: 'portfolio.asks_read',
+        entityType: 'portfolio_update',
+        entityId: null,
+        metadata: {
+          trigger: options.trigger ?? 'daily',
+          state: result.state,
+          emails_scanned: result.updates,
+          asks_found: result.asks,
+          inserted: result.added,
+          skipped: result.skipped,
+          insert_failed: result.failed,
+          bodies_unreadable: result.unreadable,
+          messages_listed: sources?.listed ?? null,
+          updates_matched: sources?.matched ?? null,
+          error: result.error ?? null,
+          duration_ms: Date.now() - startedAt,
+        },
+      });
+    } catch {
+      // recordAudit logs its own failures; the read's result stands.
     } finally {
       refreshState.inFlight.delete(organizationId);
     }
+    return result;
   })();
   refreshState.inFlight.set(organizationId, run);
   return run;
@@ -474,37 +584,69 @@ export function refreshPortfolioAsks(
 /** How long a view may wait on a demo read it started, which comes from memory. */
 const DEMO_VIEW_WAIT_MS = 1_500;
 
-export interface AsksViewRead {
-  run: Promise<AsksRefresh>;
-  /**
-   * How long the view may wait on it before rendering. Zero for a Gmail read,
-   * which never finishes in a moment (the next view shows what it found), and
-   * for a read already running (the daily job's, or another view's).
-   */
-  waitMs: number;
-}
+/** What a view did about the read. */
+export type AsksViewStart =
+  /** A read was handed to `schedule`, to start once the response is sent. */
+  | 'scheduled'
+  /** A demo read was started and waited on briefly. */
+  | 'waited'
+  /** A read (the daily job's, or another view's) is already running. */
+  | 'running'
+  /** Read too recently: every 30 minutes per organization, 5 after a failure. */
+  | 'throttled';
 
 /**
- * The read a view of Portfolio > Requests starts: at most one every 30
- * minutes per organization (5 after a failure), and the running one if there
- * is one. Null when it is not time. The caller keeps it alive past the
- * response (`after`) and waits on it only for `waitMs`.
+ * What a view of Portfolio > Requests does about the read: start one at most
+ * every 30 minutes per organization (5 after a failure), never while one
+ * runs. A Gmail read is handed to `schedule` (the page passes `after`), so it
+ * starts once the response is sent and the page never waits on it; the next
+ * view shows what it found. A demo read comes from memory, so the view starts
+ * it and waits up to 1.5 s, handing whatever is left to `schedule`. Every
+ * read started here records its own audit row (`trigger: 'view'`). Never
+ * throws.
  */
-export function refreshPortfolioAsksOnView(
+export async function refreshPortfolioAsksOnView(
   store: DataStore,
   organizationId: string,
-  options: { now?: Date; read?: AskSourceReader } = {},
-): AsksViewRead | null {
-  const running = refreshState.inFlight.get(organizationId);
-  if (running) return { run: running, waitMs: 0 };
-  const now = (options.now ?? new Date()).getTime();
-  if ((refreshState.retryAt.get(organizationId) ?? 0) > now) return null;
+  options: {
+    schedule: (task: () => Promise<unknown>) => void;
+    now?: Date;
+    read?: AskSourceReader;
+  },
+): Promise<AsksViewStart> {
+  if (refreshState.inFlight.has(organizationId)) return 'running';
+  const at = options.now ?? new Date();
+  const now = at.getTime();
+  if ((refreshState.retryAt.get(organizationId) ?? 0) > now) return 'throttled';
   const last = refreshState.viewedAt.get(organizationId);
-  if (last !== undefined && now - last < VIEW_THROTTLE_MS) return null;
+  if (last !== undefined && now - last < VIEW_THROTTLE_MS) return 'throttled';
   refreshState.viewedAt.set(organizationId, now);
-  const run = refreshPortfolioAsks(store, organizationId, {
-    read: options.read,
-    now: options.now ? () => options.now as Date : undefined,
-  });
-  return { run, waitMs: !options.read && isDemoMode() ? DEMO_VIEW_WAIT_MS : 0 };
+  const start = () =>
+    refreshPortfolioAsks(store, organizationId, {
+      read: options.read,
+      now: options.now ? () => at : undefined,
+      trigger: 'view',
+    });
+
+  if (options.read || !isDemoMode()) {
+    try {
+      options.schedule(start);
+    } catch (error) {
+      // No request to attach it to: start it now rather than not at all.
+      log.warn('Portfolio asks read could not be scheduled', {
+        reason: (error as Error)?.message,
+      });
+      void start();
+    }
+    return 'scheduled';
+  }
+  const run = start();
+  if (!(await settlesWithin(run, DEMO_VIEW_WAIT_MS))) {
+    try {
+      options.schedule(() => run);
+    } catch {
+      // The read carries on by itself.
+    }
+  }
+  return 'waited';
 }

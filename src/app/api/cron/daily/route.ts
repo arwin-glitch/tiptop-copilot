@@ -260,17 +260,20 @@ export async function POST(request: NextRequest) {
 
     // Asks in the portfolio's own update emails become open requests on
     // Portfolio > Requests, each once and never reopened once handled. Reads
-    // Gmail only; a long read finishes after the response. Counts only:
-    // public log.
+    // Gmail only; a long read finishes after the response, and every run
+    // leaves a `portfolio.asks_read` audit row, one that found nothing
+    // included. Counts and error codes only: public log.
     let asksStatus: string;
     try {
-      const run = refreshPortfolioAsks(store, organization.id);
+      const run = refreshPortfolioAsks(store, organization.id, { trigger: 'daily' });
       if (await settlesWithin(run, ASKS_BUDGET_MS)) {
         const done = await run;
         asksStatus =
           done.state === 'ok'
             ? `ok: ${done.added} new of ${done.asks} asks in ${done.updates} updates`
-            : `skipped: ${done.state}`;
+            : done.state === 'not_connected'
+              ? 'skipped: not_connected'
+              : `failed: ${done.error ?? done.state}`;
       } else {
         after(async () => {
           await run;

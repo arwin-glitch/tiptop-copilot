@@ -160,8 +160,16 @@ organization, the Gmail message id and the ask's normalized text, so a re-run
 inserts only ids that do not exist yet and never touches one that does: a
 request someone marked handled or ignored stays that way. An ask the same
 company already has (in any status, by its normalized text) and every ask of
-an email someone classified by hand are not added again. Who could help is
-worked out when the page is read (`lib/network/helpers.ts`), not stored.
+an email someone classified by hand are not added again. Every read, from the
+daily job or a view of Portfolio > Requests, writes one `audit_events` row
+with action `portfolio.asks_read` and counts only in `metadata`: `trigger`
+(`daily` or `view`), `state`, `emails_scanned`, `asks_found`, `inserted`,
+`skipped` (asks already there, or inserted meanwhile by another read),
+`insert_failed` (asks the store refused that are not there either),
+`bodies_unreadable`, `messages_listed`, `updates_matched`, `error` (a code
+such as `provider_unavailable`, `read_failed`, `store_failed` or
+`insert_failed`, else null) and `duration_ms`. Who could help is worked out when the page is read
+(`lib/network/helpers.ts`), not stored.
 Portfolio company contacts beyond `portfolio_contacts` (from Affinity and the
 mail) are derived on read as well (`lib/portfolio/contacts.ts`).
 

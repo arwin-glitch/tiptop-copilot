@@ -10,6 +10,33 @@ throughout.
 
 ## [Unreleased]
 
+- **Asks are read the way founders write them, and every read leaves a
+  record.** Real updates rarely put their asks in bullets under "Asks": they
+  write "My ask" over short titles of one sentence each, "Top asks for this
+  month" over "None right now", "How you can help:" or a bold "One ask." with
+  the ask on the same line, a paragraph whose one asking sentence sits among
+  news and numbers, Gmail's plain-text lists, lists a mailer flattened onto
+  one line, or HTML from investor-update platforms. Each is now read: a title
+  line becomes "Title: sentence", only a paragraph's sentences with asking
+  words are kept (never a line of numbers, news, a thank-you for past help or
+  "would love to catch up"), and a bare "Hiring" takes the roles under it.
+  "None"-style answers, lines about the asks ("same asks as last month"),
+  "Thanks for the help!" lists and the thank-yous under "Asks & thank yous",
+  "reply to me" sentences, sign-offs, signatures, rules and the next heading
+  give nothing; under a bare "Requests" heading only items that read as asks
+  count. At most six asks of 300 characters an email, and an ask that reads
+  as instructions to a model is still left out. Checked offline against 38
+  real update emails from the last 60 days (strict count-and-match grading):
+  the asks under each asks heading are caught and nothing else is taken; an
+  ask written only in an email's opening paragraph, with no asks heading, is
+  still not read, by design. Opening Requests now hands the Gmail read to run
+  after the response, and every read, daily or from a view, writes a
+  `portfolio.asks_read` audit row with emails scanned, asks found, inserted,
+  skipped, inserts the store refused and an error code when it fails. Before,
+  a row was written only when something new was inserted, so a read that
+  found nothing or failed left no trace. One unreadable email no longer stops
+  the read for every company, and an HTML entity that names no character no
+  longer throws. A list nested in an HTML email keeps its nesting as text.
 - **Portfolio companies show their people.** Each company card lists up to
   three contacts, strongest and most recent first, each marked "from Affinity"
   or "from your mail": founders on Affinity's portfolio and angel lists and
