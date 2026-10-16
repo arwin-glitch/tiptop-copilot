@@ -642,7 +642,7 @@ export function capabilityReport(
   const replyCheck = closer
     ? ` "Reply to" check: ${closer.reply}.`
     : e.taskReplyAutoclose
-      ? ` The app's own "Reply to" check runs once a day after 4 PM Central.`
+      ? ` The app's own "Reply to" check runs once a day after 3 PM Central.`
       : ` The app's own "Reply to" check is off.`;
   checks.push({
     key: 'task-closer',

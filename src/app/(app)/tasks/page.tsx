@@ -46,7 +46,7 @@ export default async function TasksPage() {
   const store = getStore();
   const orgId = auth.organizationId;
 
-  // New suggested tasks, closes the task-closer posted, the 4pm "Reply to"
+  // New suggested tasks, closes the task-closer posted, the 3pm "Reply to"
   // check and the snapshot, before listing. Bounded: if Slack is slow the page
   // lists what is stored and the pull finishes after the response, for the
   // open-tab watcher to pick up.

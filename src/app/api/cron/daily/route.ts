@@ -200,7 +200,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Follow-ups a cloud routine added or found done arrive through the relay
-    // channels, for the same egress-block reason, and the 4pm "Reply to" check
+    // channels, for the same egress-block reason, and the 3pm "Reply to" check
     // runs here too. Counts only: this response lands in a public log.
     let tasksStatus: string;
     try {

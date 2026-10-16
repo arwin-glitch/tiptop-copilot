@@ -26,12 +26,12 @@ const PART_MAX_CHARS = 3_500;
 const MAX_PARTS = 10;
 const SUBJECT_MAX = 120;
 /**
- * The routine reads the list once, at 4pm Central, and every post is several
+ * The routine reads the list once, at 3pm Central, and every post is several
  * messages in a channel read by message count, so a changed list is posted
  * only in the two hours before the check, at most every 30 minutes.
  */
-const CHANGE_WINDOW_START_HOUR = 14;
-const CHANGE_WINDOW_END_HOUR = 16;
+const CHANGE_WINDOW_START_HOUR = 13;
+const CHANGE_WINDOW_END_HOUR = 15;
 const MIN_GAP_MS = 30 * 60_000;
 /** Any list is re-posted this often, so the routine always has one under 36 hours old. */
 const MAX_AGE_MS = 20 * 3_600_000;
@@ -290,7 +290,7 @@ async function lastPost(
 
 /**
  * Posts a snapshot when there is none, when the last is 20 hours old, or when
- * the list changed, it is between 2pm and 4pm Central and the last post is at
+ * the list changed, it is between 1pm and 3pm Central and the last post is at
  * least 30 minutes old. Never throws.
  */
 export async function maybePostSnapshot(

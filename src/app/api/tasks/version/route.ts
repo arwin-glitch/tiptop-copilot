@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * The Tasks page's open-tab watcher polls this to learn whether what it shows
- * is stale. It runs the throttled task pull first (additions, closes, the 4pm
+ * is stale. It runs the throttled task pull first (additions, closes, the 3pm
  * reply check), so a tab left open picks them up without a reload, and
  * returns a fingerprint only — never task content.
  */

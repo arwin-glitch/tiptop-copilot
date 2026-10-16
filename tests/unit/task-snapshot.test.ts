@@ -146,7 +146,7 @@ describe('maybePostSnapshot', () => {
     expect(await posts()).toEqual([]);
   });
 
-  it('posts the list, a changed one only from 2 to 4 PM Central every 30 minutes, any after 20 hours', async () => {
+  it('posts the list, a changed one only from 1 to 3 PM Central every 30 minutes, any after 20 hours', async () => {
     const { impl, calls } = slack(() => ({ ok: true }));
     const first = await post(impl);
     expect(first.state).toBe('posted');
@@ -166,33 +166,68 @@ describe('maybePostSnapshot', () => {
     await createTask(harness.auth, { title: 'ZZ A new follow-up' });
     clock('2026-09-25T17:00:00.000Z'); // noon in Chicago: changed, but not yet the window
     expect((await post(impl)).state).toBe('posted');
+    clock('2026-09-25T17:59:00.000Z'); // 12:59 PM
+    await post(impl);
     expect(calls).toHaveLength(count);
-    clock('2026-09-25T19:05:00.000Z'); // 2:05 PM
+    clock('2026-09-25T18:05:00.000Z'); // 1:05 PM
     await post(impl);
     expect(calls.length).toBeGreaterThan(count);
 
     count = calls.length;
-    clock('2026-09-25T19:10:00.000Z');
+    clock('2026-09-25T18:10:00.000Z');
     await createTask(harness.auth, { title: 'ZZ Another follow-up' });
-    clock('2026-09-25T19:34:00.000Z');
+    clock('2026-09-25T18:34:00.000Z');
     await post(impl);
     expect(calls).toHaveLength(count);
-    clock('2026-09-25T19:35:00.000Z');
+    clock('2026-09-25T18:35:00.000Z');
     await post(impl);
     expect(calls.length).toBeGreaterThan(count);
 
     count = calls.length;
-    clock('2026-09-25T21:05:00.000Z'); // 4:05 PM: the check has read it
+    clock('2026-09-25T20:00:00.000Z'); // 3:00 PM: the check reads it now
     await createTask(harness.auth, { title: 'ZZ A late follow-up' });
-    clock('2026-09-25T22:00:00.000Z');
     await post(impl);
-    clock('2026-09-26T15:34:00.000Z');
+    clock('2026-09-25T21:00:00.000Z');
+    await post(impl);
+    clock('2026-09-26T14:34:00.000Z');
     await post(impl);
     expect(calls).toHaveLength(count);
-    clock('2026-09-26T15:35:00.000Z');
+    clock('2026-09-26T14:35:00.000Z');
     await post(impl);
     expect(calls.length).toBeGreaterThan(count);
     expect(await posts()).toHaveLength(4);
+  });
+
+  it('keeps the 1 to 3 PM window on Central time across daylight saving', async () => {
+    // Nov 2 is standard time (UTC-6): the window is 19:00 to 21:00 UTC, not 18:00 to 20:00.
+    const { impl, calls } = slack(() => ({ ok: true }));
+    clock('2026-11-02T18:00:00.000Z'); // noon CST
+    expect((await post(impl)).state).toBe('posted');
+
+    let count = calls.length;
+    clock('2026-11-02T18:05:00.000Z');
+    await createTask(harness.auth, { title: 'ZZ A winter follow-up' });
+    clock('2026-11-02T18:59:00.000Z'); // 12:59 PM CST
+    await post(impl);
+    expect(calls).toHaveLength(count);
+    clock('2026-11-02T19:00:00.000Z'); // 1:00 PM CST
+    await post(impl);
+    expect(calls.length).toBeGreaterThan(count);
+
+    count = calls.length;
+    clock('2026-11-02T20:30:00.000Z');
+    await createTask(harness.auth, { title: 'ZZ Another winter follow-up' });
+    clock('2026-11-02T20:59:00.000Z'); // 2:59 PM CST
+    await post(impl);
+    expect(calls.length).toBeGreaterThan(count);
+
+    count = calls.length;
+    clock('2026-11-02T21:00:00.000Z'); // 3:00 PM CST: the check reads it now
+    await createTask(harness.auth, { title: 'ZZ A late winter follow-up' });
+    clock('2026-11-02T21:30:00.000Z');
+    await post(impl);
+    expect(calls).toHaveLength(count);
+    expect(await posts()).toHaveLength(3);
   });
 
   it('does not post again when the record of a post could not be saved', async () => {

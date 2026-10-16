@@ -200,15 +200,16 @@ describe('the task-closer settings', () => {
     const report = capabilityReport({
       taskCloser: {
         relay: 'readable',
-        lastRun: 'Sep 25, 4:08 PM: 10 checked, 2 closed',
+        lastRun: 'Sep 25, 3:08 PM: 10 checked, 2 closed',
         snapshot: 'needs chat:write (tried again every 6 hours)',
-        reply: 'on; runs once a day after 4 PM Central',
+        reply: 'on; runs once a day after 3 PM Central',
       },
     });
     const closer = report.find((c) => c.key === 'task-closer');
     expect(closer?.status).toBe('ready');
-    expect(closer?.detail).toContain('Last run: Sep 25, 4:08 PM: 10 checked, 2 closed.');
+    expect(closer?.detail).toContain('Last run: Sep 25, 3:08 PM: 10 checked, 2 closed.');
     expect(closer?.detail).toContain('Snapshot feed: needs chat:write');
+    expect(closer?.detail).toContain('"Reply to" check: on; runs once a day after 3 PM Central.');
     expect(closer?.variables).toEqual(
       expect.arrayContaining([
         'TASK_RELAY_POSTER_IDS',
@@ -217,6 +218,13 @@ describe('the task-closer settings', () => {
       ]),
     );
     expect(JSON.stringify(report)).not.toContain('xoxb-secret-slack-value');
+
+    // Before this instance has pulled anything, the default schedule is stated.
+    delete process.env.TASK_REPLY_AUTOCLOSE;
+    resetEnvCache();
+    expect(capabilityReport().find((c) => c.key === 'task-closer')?.detail).toContain(
+      `The app's own "Reply to" check runs once a day after 3 PM Central.`,
+    );
   });
 });
 

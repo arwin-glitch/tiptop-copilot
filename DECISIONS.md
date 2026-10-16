@@ -776,6 +776,15 @@ list errs toward leaving tasks open. The AI tools' task list still reads open
 tasks only (it runs only with an AI key). The status line reflects pulls on
 the instance that served the page.
 
+**Amended 2026-10-16, on Arwin's request that day.** The check moves an hour
+earlier, to 3pm Central clock time (CDT or CST alike). The task-closer
+routine is rescheduled to match outside this repository. In the app, the
+"Reply to" check runs in the first pull at or after 15:00 Central, the
+snapshot's change window is 1pm to 3pm Central, and the line on To do says
+"Today's 3 PM Central auto-check hasn't reported yet" from 4:30pm Central.
+The daily job's 21:30 and 22:30 UTC runs are unchanged: both still follow
+3pm Central in daylight and standard time.
+
 ### D-053 — Today's "At a glance": every line is a task, labels live beside it, no migration
 
 **Context.** Arwin asked on 2026-10-15 for a Today Nick can read in one

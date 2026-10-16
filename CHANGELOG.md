@@ -10,6 +10,9 @@ throughout.
 
 ## [Unreleased]
 
+- **The daily auto-check now runs at 3 PM Central**, an hour earlier, and the
+  app's own "Reply to" check, the snapshot's 1 to 3 PM change window and the
+  "hasn't reported yet" line (from 4:30 PM) moved with it.
 - **Campaign receipts.** A finished campaign opens with Affinity-style tiles
   (Sent date, Delivered "106 / 106", Issues, which shows who needs a look),
   the finish toast and the campaign list carry the same numbers, and the phone

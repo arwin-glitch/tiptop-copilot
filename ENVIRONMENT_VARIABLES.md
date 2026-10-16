@@ -385,7 +385,7 @@ deployment is still the simpler setup (see [DECISIONS.md](DECISIONS.md) D-051).
 ### `TASK_RELAY_POSTER_IDS`, `TASK_REPLY_AUTOCLOSE`, `TASK_SNAPSHOT_FEED`
 
 Optional; nothing needs setting on Render. The `task-closer` cloud routine
-checks Nick's mailbox and calendar at 4pm Central and posts what it found done
+checks Nick's mailbox and calendar at 3pm Central and posts what it found done
 to the private `#deal-relay` as `TASK_CLOSE_V1` messages, plus one
 `TASK_CLOSER_RUN_V1` run record a day. The Tasks page, an open Tasks tab, the
 Today page and the daily job read them and complete the matching task, unless
@@ -397,7 +397,7 @@ a person has touched it since the evidence (see
   `TASK_CLOSE_V1`, `TASK_CLOSER_RUN_V1` and `TASK_ADD_V1` posts are read.
   Unset, it defaults in code to the one account the routines post as. It is
   never "anyone": a forged close would hide a real obligation.
-- `TASK_REPLY_AUTOCLOSE` — the app's own check, once a day at or after 4pm
+- `TASK_REPLY_AUTOCLOSE` — the app's own check, once a day at or after 3pm
   Central, that closes an Inbox "Reply to …" task when a real reply (not a
   holding reply, a hand-off or a question back) went out in the same Gmail
   thread. On unless set to `off` (or `false`, `0`, `no`). It
@@ -410,7 +410,7 @@ a person has touched it since the evidence (see
   Adding `chat:write` to the Slack app (and reinstalling it; if Slack issues a
   new token, update `ASK_RELAY_SLACK_TOKEN`) switches it on. `off` never posts.
   It posts when there is no snapshot, every 20 hours, and, when the list
-  changed, between 2pm and 4pm Central at most every 30 minutes. Tasks
+  changed, between 1pm and 3pm Central at most every 30 minutes. Tasks
   involving a counterparty kept Nick-only are left out.
 
 ---

@@ -107,7 +107,7 @@ async function TodayContent({
   aiAvailable: boolean;
 }) {
   const data = await gatherTodayData(auth, now);
-  // Task additions and closes waiting in Slack (and the 4pm reply check), after
+  // Task additions and closes waiting in Slack (and the 3pm reply check), after
   // the response: Today only lists due tasks, and the next view shows the result.
   after(async () => {
     await pullTaskRelays(getStore(), auth.organizationId).catch(() => null);
@@ -142,7 +142,7 @@ async function TodayContent({
       getTaskRelayStatus(auth.organizationId).lastRun,
       now,
       auth.profile.timezone,
-    ) ?? 'Unticked items are checked against mail and calendar at 4 PM Central.';
+    ) ?? 'Unticked items are checked against mail and calendar at 3 PM Central.';
 
   // Generate on first view of the day so the page is never empty on arrival;
   // an explicit refresh regenerates it.

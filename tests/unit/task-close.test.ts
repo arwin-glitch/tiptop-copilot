@@ -797,7 +797,7 @@ describe('what the Completed tab shows', () => {
 describe('the status line on To do', () => {
   const run = (over: Partial<TaskCloserRun> = {}): { run: TaskCloserRun; ts: string } => ({
     run: {
-      run_at: '2026-09-25T21:08:03Z',
+      run_at: '2026-09-25T20:08:03Z',
       local_date: '2026-09-25',
       list: 'suggested',
       snapshot_batch: null,
@@ -808,27 +808,38 @@ describe('the status line on To do', () => {
       unchecked: 0,
       ...over,
     },
-    ts: '2026-09-25T21:08:30.000Z',
+    ts: '2026-09-25T20:08:30.000Z',
   });
 
   it('says when today’s check ran and what it closed', () => {
-    expect(autoCheckStatusLine(run(), new Date('2026-09-25T21:30:00Z'), CHICAGO)).toBe(
-      "Auto-check ran today at 4:08 PM · closed 2 · only suggested and 'Reply to' tasks are checked",
+    expect(autoCheckStatusLine(run(), new Date('2026-09-25T20:30:00Z'), CHICAGO)).toBe(
+      "Auto-check ran today at 3:08 PM · closed 2 · only suggested and 'Reply to' tasks are checked",
     );
     expect(
-      autoCheckStatusLine(run({ list: 'snapshot' }), new Date('2026-09-25T21:30:00Z'), CHICAGO),
-    ).toBe('Auto-check ran today at 4:08 PM · closed 2');
+      autoCheckStatusLine(run({ list: 'snapshot' }), new Date('2026-09-25T20:30:00Z'), CHICAGO),
+    ).toBe('Auto-check ran today at 3:08 PM · closed 2');
   });
 
-  it('says so after 5:30 PM Central with no run today, and shows the last run before then', () => {
-    const yesterday = run({ run_at: '2026-09-24T21:08:03Z', local_date: '2026-09-24', closed: 1 });
-    expect(autoCheckStatusLine(yesterday, new Date('2026-09-25T22:29:00Z'), CHICAGO)).toBe(
-      "Auto-check last ran Sep 24 at 4:08 PM · closed 1 · only suggested and 'Reply to' tasks are checked",
+  it('says so after 4:30 PM Central with no run today, and shows the last run before then', () => {
+    const yesterday = run({ run_at: '2026-09-24T20:08:03Z', local_date: '2026-09-24', closed: 1 });
+    expect(autoCheckStatusLine(yesterday, new Date('2026-09-25T21:29:00Z'), CHICAGO)).toBe(
+      "Auto-check last ran Sep 24 at 3:08 PM · closed 1 · only suggested and 'Reply to' tasks are checked",
     );
-    expect(autoCheckStatusLine(yesterday, new Date('2026-09-25T22:30:00Z'), CHICAGO)).toBe(
-      "Today's 4 PM Central auto-check hasn't reported yet · only suggested and 'Reply to' tasks are checked",
+    expect(autoCheckStatusLine(yesterday, new Date('2026-09-25T21:30:00Z'), CHICAGO)).toBe(
+      "Today's 3 PM Central auto-check hasn't reported yet · only suggested and 'Reply to' tasks are checked",
     );
     expect(autoCheckStatusLine(null, new Date('2026-09-25T23:00:00Z'), CHICAGO)).toBeNull();
+  });
+
+  it('keeps to 4:30 PM Central across daylight saving', () => {
+    // Nov 1 and 2 are standard time (UTC-6): 3:08 PM is 21:08 UTC, 4:30 PM is 22:30 UTC.
+    const sunday = run({ run_at: '2026-11-01T21:08:03Z', local_date: '2026-11-01', closed: 1 });
+    expect(autoCheckStatusLine(sunday, new Date('2026-11-02T22:29:00Z'), CHICAGO)).toBe(
+      "Auto-check last ran Nov 1 at 3:08 PM · closed 1 · only suggested and 'Reply to' tasks are checked",
+    );
+    expect(autoCheckStatusLine(sunday, new Date('2026-11-02T22:30:00Z'), CHICAGO)).toBe(
+      "Today's 3 PM Central auto-check hasn't reported yet · only suggested and 'Reply to' tasks are checked",
+    );
   });
 });
 
@@ -964,13 +975,13 @@ describe('the app’s own "Reply to" check', () => {
     });
   });
 
-  it('runs at 4:00 PM Central, not 3:59, and once a day', async () => {
+  it('runs at 3:00 PM Central, not 2:59, and once a day', async () => {
     const task = await inboxTask('Zed', 'zed@zz-reply.example', {});
     const check = (iso: string) =>
       runReplyCheck(harness.store, org, { now: new Date(iso), enabled: true });
-    expect((await check('2026-09-25T20:59:00Z')).state).toBe('not_yet');
+    expect((await check('2026-09-25T19:59:00Z')).state).toBe('not_yet');
     expect((await taskById(task.id)).status).toBe('open');
-    expect((await check('2026-09-25T21:00:00Z')).state).toBe('ran');
+    expect((await check('2026-09-25T20:00:00Z')).state).toBe('ran');
     expect((await taskById(task.id)).status).toBe('complete');
 
     await updateTaskStatus(harness.auth, task.id, 'open');
@@ -983,11 +994,12 @@ describe('the app’s own "Reply to" check', () => {
     expect(sweeps[0]).toMatchObject({ user_id: null, entity_type: 'organization', entity_id: org });
   });
 
-  it('keeps to 4pm Central across daylight saving', () => {
-    expect(replyCheckClock(new Date('2026-11-01T21:30:00Z')).due).toBe(false); // 15:30 CST
-    expect(replyCheckClock(new Date('2026-11-01T22:05:00Z')).due).toBe(true); // 16:05 CST
-    expect(replyCheckClock(new Date('2027-03-14T21:05:00Z')).due).toBe(true); // 16:05 CDT
-    expect(replyCheckClock(new Date('2027-03-14T21:05:00Z')).localDate).toBe('2027-03-14');
+  it('keeps to 3pm Central across daylight saving', () => {
+    expect(replyCheckClock(new Date('2026-11-01T20:30:00Z')).due).toBe(false); // 14:30 CST
+    expect(replyCheckClock(new Date('2026-11-01T21:05:00Z')).due).toBe(true); // 15:05 CST
+    expect(replyCheckClock(new Date('2027-03-14T19:59:00Z')).due).toBe(false); // 14:59 CDT
+    expect(replyCheckClock(new Date('2027-03-14T20:05:00Z')).due).toBe(true); // 15:05 CDT
+    expect(replyCheckClock(new Date('2027-03-14T20:05:00Z')).localDate).toBe('2027-03-14');
   });
 
   it('does nothing when switched off, or when another mailbox is connected', async () => {

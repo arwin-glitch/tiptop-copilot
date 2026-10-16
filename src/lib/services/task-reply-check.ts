@@ -16,7 +16,7 @@ import { normalizeTitle } from './task-ingest';
 
 /**
  * The app's own check for "Reply to …" tasks made from the Inbox: once a day,
- * at or after 4pm Central, a task whose email thread now holds a real reply
+ * at or after 3pm Central, a task whose email thread now holds a real reply
  * from the mailbox is closed. Real means sent (not a draft), to the person
  * who wrote in, after the task was last touched, and not the out-of-office
  * auto-reply, a holding reply, a hand-off or a question back. A miss leaves
@@ -27,7 +27,7 @@ import { normalizeTitle } from './task-ingest';
 
 /** Only this mailbox's replies count; with another account connected the check does nothing. */
 export const REPLY_CHECK_MAILBOX = DEFAULT_MAILBOX;
-const CHECK_HOUR = 16;
+const CHECK_HOUR = 15;
 
 const AUTO_REPLY_SUBJECT = 'slow to respond';
 const OUT_OF_OFFICE_SNIPPET = "thank you for your email. i'm currently out of the office";
@@ -72,7 +72,7 @@ function ownText(body: string | null | undefined): string {
   return plain(quoted ? text.slice(0, quoted.index) : text);
 }
 
-/** The Central date, and whether it is 4pm or later there. */
+/** The Central date, and whether it is 3pm or later there. */
 export function replyCheckClock(now: Date): { localDate: string; due: boolean } {
   const clock = localClock(now, CENTRAL_TIMEZONE);
   return { localDate: clock.dateKey, due: clock.hour >= CHECK_HOUR };
@@ -156,7 +156,7 @@ async function connectedMailbox(store: DataStore, organizationId: string): Promi
 
 /**
  * Runs the check at most once per Central day, in the first call at or after
- * 4pm Central. `enabled` is `TASK_REPLY_AUTOCLOSE` (on unless set to off).
+ * 3pm Central. `enabled` is `TASK_REPLY_AUTOCLOSE` (on unless set to off).
  */
 export async function runReplyCheck(
   store: DataStore,

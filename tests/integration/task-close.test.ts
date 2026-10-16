@@ -32,8 +32,8 @@ let harness: Harness;
 
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
-  // 15:00 in Chicago: the reply check waits for 4pm, so it stays out of the way.
-  vi.setSystemTime(new Date('2026-09-25T20:00:00.000Z'));
+  // 14:00 in Chicago: the reply check waits for 3pm, so it stays out of the way.
+  vi.setSystemTime(new Date('2026-09-25T19:00:00.000Z'));
   harness = await createHarness();
   process.env.ASK_RELAY_SLACK_TOKEN = 'xoxb-test';
   process.env.CRON_SECRET = SECRET;
@@ -64,7 +64,7 @@ const ts = (iso: string) => `${Math.floor(Date.parse(iso) / 1000)}.000100`;
 function addPost() {
   const body = { source: 'task-auto-suggest', tasks: [{ title: TITLE, detail: 'From a call.' }] };
   return {
-    ts: ts('2026-09-25T19:30:00Z'),
+    ts: ts('2026-09-25T18:30:00Z'),
     user: POSTER,
     text: `TASK_ADD_V1\n${TICK}${JSON.stringify(body)}${TICK}`,
   };
@@ -74,21 +74,21 @@ function closePost() {
   const body = {
     v: 1,
     source: 'task-closer',
-    batch: '2026-09-25T19:50:00Z',
+    batch: '2026-09-25T18:50:00Z',
     part: 1,
     parts: 1,
     closes: [
       {
         title: TITLE,
         kind: 'send_doc',
-        evidence_at: '2026-09-25T19:40:00Z',
+        evidence_at: '2026-09-25T18:40:00Z',
         evidence: { type: 'gmail_sent', id: 'abc0000000000071', thread_id: 'abc0000000000070' },
         reason: 'Sent Kit the list of eight firms.',
       },
     ],
   };
   return {
-    ts: ts('2026-09-25T19:50:00Z'),
+    ts: ts('2026-09-25T18:50:00Z'),
     user: POSTER,
     text: `TASK_CLOSE_V1\n${TICK}${JSON.stringify(body)}${TICK}`,
   };
@@ -98,7 +98,7 @@ function runPost() {
   const body = {
     v: 1,
     source: 'task-closer',
-    run_at: '2026-09-25T19:51:00Z',
+    run_at: '2026-09-25T18:51:00Z',
     local_date: '2026-09-25',
     list: 'suggested',
     snapshot_batch: null,
@@ -109,7 +109,7 @@ function runPost() {
     unchecked: 0,
   };
   return {
-    ts: ts('2026-09-25T19:51:00Z'),
+    ts: ts('2026-09-25T18:51:00Z'),
     user: POSTER,
     text: `TASK_CLOSER_RUN_V1\n${TICK}${JSON.stringify(body)}${TICK}`,
   };
@@ -175,6 +175,7 @@ describe('pullTaskRelays', () => {
     expect(taskCloserRuntime(org, 'America/Chicago')).toMatchObject({
       relay: 'readable',
       snapshot: 'needs chat:write (tried again every 6 hours)',
+      reply: 'on; runs once a day after 3 PM Central',
     });
   });
 
@@ -189,7 +190,7 @@ describe('pullTaskRelays', () => {
     const count = calls.length;
     await pullTaskRelays(harness.store, org, { fetchImpl: impl });
     expect(calls).toHaveLength(count);
-    vi.setSystemTime(new Date('2026-09-25T20:01:01.000Z'));
+    vi.setSystemTime(new Date('2026-09-25T19:01:01.000Z'));
     await pullTaskRelays(harness.store, org, { fetchImpl: impl });
     expect(calls.length).toBeGreaterThan(count);
     expect(getTaskRelayStatus(org).relay).toBe('ok');

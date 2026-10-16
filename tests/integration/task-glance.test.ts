@@ -79,7 +79,7 @@ function renderGlance(glance: Glance, cards: readonly GlanceBucket[]): string {
       createElement(
         TaskActionHost,
         null,
-        createElement(TodayGlance, { glance, cards, footnote: 'Checked at 4 PM.' }),
+        createElement(TodayGlance, { glance, cards, footnote: 'Checked at 3 PM.' }),
       ),
     ),
   );

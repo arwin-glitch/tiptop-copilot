@@ -22,7 +22,7 @@ import { maybePostSnapshot, type SnapshotStatus } from './task-snapshot';
 
 /**
  * Everything the Tasks page pulls, in order: new suggested tasks from the
- * relay channel, closes from #deal-relay, the app's own 4pm "Reply to" check,
+ * relay channel, closes from #deal-relay, the app's own 3pm "Reply to" check,
  * and the open-task snapshot. Runs on viewing /tasks, from an open tab's
  * version watcher, after /today renders, and from the daily job. Concurrent
  * callers share one run; each step runs at most once a minute (the daily job
@@ -307,7 +307,7 @@ export function taskCloserRuntime(organizationId: string, timeZone: string): Tas
   } else if (check?.state === 'no_mailbox') reply = 'skipped: no Google account is connected';
   else if (check?.state === 'ran') {
     reply = `ran for ${check.localDate}: ${check.checked} checked, ${check.closed} closed`;
-  } else reply = 'on; runs once a day after 4 PM Central';
+  } else reply = 'on; runs once a day after 3 PM Central';
 
   return {
     relay:

@@ -23,7 +23,7 @@ on:
     # 05:00 outside it. GitHub's scheduler is UTC only and does not follow DST.
     - cron: '0 11 * * *'
     # 21:30 and 22:30 UTC every day, weekends included: one of them is about 16:30 in
-    # America/Chicago in daylight saving and standard time alike, after the 4pm task-closer.
+    # America/Chicago in daylight saving and standard time alike, after the 3pm task-closer.
     # These runs are mail sync plus the Slack-relay pickup only (tasks=sync below), so a
     # company the portfolio-auto-add routine spots at its ~15:30 run reaches the Portfolio
     # page the same day. GitHub often starts them late; page views are the main path.

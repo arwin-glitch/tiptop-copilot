@@ -12,7 +12,7 @@ import { normalizeTitle } from './task-ingest';
 /**
  * Closing tasks that are already done, from evidence.
  *
- * The task-closer cloud routine checks Nick's mailbox and calendar at 4pm
+ * The task-closer cloud routine checks Nick's mailbox and calendar at 3pm
  * Central and posts what it found done to the private #deal-relay channel,
  * because its sandbox cannot reach this app. This module reads those posts
  * (`TASK_CLOSE_V1`, one `TASK_CLOSER_RUN_V1` per run), matches each close to a
@@ -619,11 +619,11 @@ export function autoCloseView(
 
 /* ------------------------------------------------------------- status line */
 
-const LATE_MINUTES = 17 * 60 + 30;
+const LATE_MINUTES = 16 * 60 + 30;
 
 /**
  * The muted line at the top of To do, from the newest run record: when it
- * ran and what it closed, or, after 5:30pm Central with no run today, that it
+ * ran and what it closed, or, after 4:30pm Central with no run today, that it
  * has not reported. Null before any run record exists.
  */
 export function autoCheckStatusLine(
@@ -642,7 +642,7 @@ export function autoCheckStatusLine(
     return `Auto-check ran today at ${formatTime(at, timeZone)} · closed ${run.closed}${scope}`;
   }
   if (central.hour * 60 + central.minute >= LATE_MINUTES) {
-    return `Today's 4 PM Central auto-check hasn't reported yet${scope}`;
+    return `Today's 3 PM Central auto-check hasn't reported yet${scope}`;
   }
   return `Auto-check last ran ${formatMonthDay(at, timeZone)} at ${formatTime(at, timeZone)} · closed ${run.closed}${scope}`;
 }

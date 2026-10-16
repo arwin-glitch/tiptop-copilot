@@ -95,7 +95,7 @@ test('two cards, each titled with its count, one short line per task', async ({ 
 
   // The demo's two overdue tasks were Do now's; none of these is overdue.
   await expect(glance.getByRole('img', { name: 'overdue' })).toHaveCount(0);
-  await expect(glance.getByText(/4 PM Central|Auto-check/)).toBeVisible();
+  await expect(glance.getByText(/3 PM Central|Auto-check/)).toBeVisible();
 
   // Four lines a card at most; two columns side by side on a desktop.
   await expect(glance.getByRole('checkbox')).toHaveCount(8);
