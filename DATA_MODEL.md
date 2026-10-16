@@ -152,6 +152,19 @@ if one were introduced by mistake the database would reject the insert.
 `portfolio_updates.suggested_network_contact_ids` is filtered against
 `network_contacts` before it is written. The database holds only ids that exist.
 
+Asks read from a portfolio company's update email (`lib/services/portfolio-asks.ts`)
+are `portfolio_updates` rows too, one per ask: `prompt_version = 'auto-asks/1'`,
+`model` null, `summary` the ask as written, `citations[0]` the email (Gmail
+link, and the heading in `section`). The row id is a uuid derived from the
+organization, the Gmail message id and the ask's normalized text, so a re-run
+inserts only ids that do not exist yet and never touches one that does: a
+request someone marked handled or ignored stays that way. An ask the same
+company already has (in any status, by its normalized text) and every ask of
+an email someone classified by hand are not added again. Who could help is
+worked out when the page is read (`lib/network/helpers.ts`), not stored.
+Portfolio company contacts beyond `portfolio_contacts` (from Affinity and the
+mail) are derived on read as well (`lib/portfolio/contacts.ts`).
+
 `thesis_versions` is versioned rather than mutable so an analysis can point at
 the exact thesis it was scored against. Changing the thesis does not silently
 rewrite the history of past decisions.

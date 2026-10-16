@@ -51,9 +51,10 @@ test('a deal shows its meeting notes under Sources', async ({ page }) => {
 
 test('a company with no notes says so instead of showing a blank', async ({ page }) => {
   // Stonebridge has no fixture note.
-  // The request card's company link (named just the company) is on Requests.
+  // The request card's company link (named just the company) is on Requests;
+  // Stonebridge has several requests, its asks read from its update among them.
   await page.goto('/portfolio?tab=requests');
-  await page.getByRole('link', { name: 'Stonebridge Ops', exact: true }).click();
+  await page.getByRole('link', { name: 'Stonebridge Ops', exact: true }).first().click();
   await page.waitForURL(/\/portfolio\//);
 
   await expect(page.getByText('No meeting notes yet')).toBeVisible();

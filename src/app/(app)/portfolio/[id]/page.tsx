@@ -6,6 +6,9 @@ import { getAI, getStore } from '@/lib/runtime';
 import { notesForCompany } from '@/lib/services/meetings';
 import { getPortfolioDetail } from '@/lib/services/portfolio';
 import { affinityForCompany } from '@/lib/services/crm-pages';
+import { isAutoAsk, requestLabel } from '@/lib/portfolio/requests';
+import { loadPortfolioContacts } from '@/lib/services/portfolio-contacts';
+import { PROFILE_CONTACTS, provenanceLabel } from '@/lib/portfolio/contacts';
 import { CompanyAffinitySection } from '@/components/crm/company-affinity';
 import { MeetingNoteList } from '@/components/meetings/meeting-note-list';
 import { PageHeader, PageShell, DataRow, SectionHeading } from '@/components/shell/page-header';
@@ -14,7 +17,6 @@ import { Card, CardContent, FieldLabel } from '@/components/ui/card';
 import { EmptyState, PlainText } from '@/components/ui/feedback';
 import { ClassifyEmailButton, RequestActions } from '@/components/portfolio/portfolio-client';
 import { CreateFollowUpButton, TaskControls } from '@/components/today/today-actions';
-import { PORTFOLIO_REQUEST_LABELS } from '@/lib/types/domain';
 import { formatDate, relativeTime } from '@/lib/util/time';
 import { isOpenNow } from '@/lib/tasks/tasks-view';
 
@@ -45,7 +47,7 @@ export default async function PortfolioCompanyPage({
   const openTasks = tasks.filter((t) => isOpenNow(t, new Date()));
   const aiAvailable = getAI().available();
 
-  const [meetingNotes, affinity] = await Promise.all([
+  const [meetingNotes, affinity, people] = await Promise.all([
     notesForCompany(
       getStore(),
       auth.organizationId,
@@ -57,7 +59,11 @@ export default async function PortfolioCompanyPage({
       name: company.name,
       domain: company.domain ?? company.website,
     }),
+    // Its people from every source, and the last contact. Never fails.
+    loadPortfolioContacts(getStore(), auth.organizationId, [company]),
   ]);
+  const derived = people[company.id]?.contacts ?? [];
+  const lastContactAt = people[company.id]?.lastContactAt ?? company.last_contact_at;
 
   return (
     <PageShell>
@@ -75,7 +81,7 @@ export default async function PortfolioCompanyPage({
             {updates.length === 0 ? (
               <EmptyState
                 title="No updates recorded"
-                description="Open an email from this company in the Inbox and classify it to record an update here."
+                description="Asks in this company's update emails are added here on their own. To record anything else, open one of its emails in the Inbox and classify it."
                 action={{ label: 'Go to Inbox', href: '/inbox?category=portfolio_company' }}
               />
             ) : (
@@ -88,12 +94,15 @@ export default async function PortfolioCompanyPage({
                           <div className="flex flex-wrap items-center gap-2">
                             {update.request_type ? (
                               <Badge tone={update.urgency === 'high' ? 'danger' : 'warn'}>
-                                {PORTFOLIO_REQUEST_LABELS[update.request_type]}
+                                {requestLabel(update)}
                               </Badge>
                             ) : null}
                             <Badge tone={update.status === 'open' ? 'info' : 'neutral'}>
                               {update.status}
                             </Badge>
+                            {isAutoAsk(update) ? (
+                              <Badge tone="outline">Read from their update</Badge>
+                            ) : null}
                           </div>
                           <span className="text-xs text-[var(--fg-subtle)]">
                             {formatDate(update.occurred_at, auth.profile.timezone)}
@@ -190,9 +199,7 @@ export default async function PortfolioCompanyPage({
                 <DataRow label="GTM needs">{company.gtm_needs ?? unknown()}</DataRow>
                 <DataRow label="Risks">{company.risks ?? unknown()}</DataRow>
                 <DataRow label="Last contact">
-                  {company.last_contact_at
-                    ? formatDate(company.last_contact_at, auth.profile.timezone)
-                    : unknown()}
+                  {lastContactAt ? formatDate(lastContactAt, auth.profile.timezone) : unknown()}
                 </DataRow>
                 <DataRow label="Next follow-up">
                   {company.next_follow_up_at
@@ -206,21 +213,47 @@ export default async function PortfolioCompanyPage({
           <Card>
             <CardContent className="pt-4">
               <FieldLabel as="h2">Contacts</FieldLabel>
-              {contacts.length === 0 ? (
+              {derived.length === 0 ? (
                 <p className="mt-2 text-sm text-[var(--fg-subtle)]">None recorded.</p>
               ) : (
-                <ul className="mt-2 space-y-1.5">
-                  {contacts.map((c) => (
-                    <li key={c.id} className="text-sm">
-                      <span className="font-medium">{c.name}</span>
-                      {c.role ? <span className="text-[var(--fg-muted)]"> — {c.role}</span> : null}
-                      {c.email ? (
-                        <p className="text-xs text-[var(--fg-subtle)]">{c.email}</p>
-                      ) : null}
-                    </li>
-                  ))}
+                <ul className="mt-2 space-y-1.5" aria-label="Contacts">
+                  {derived.slice(0, PROFILE_CONTACTS).map((c, i) => {
+                    const from = provenanceLabel(c.sources);
+                    const detail = [
+                      c.email,
+                      from,
+                      c.lastContactAt ? `last contact ${relativeTime(c.lastContactAt)}` : null,
+                    ].filter(Boolean);
+                    return (
+                      <li key={`${c.email ?? c.name}-${i}`} className="text-sm">
+                        {c.recordId ? (
+                          <Link
+                            href={`/lists/records/${c.recordId}`}
+                            className="font-medium underline-offset-2 hover:underline"
+                          >
+                            {c.name}
+                          </Link>
+                        ) : (
+                          <span className="font-medium">{c.name}</span>
+                        )}
+                        {c.role ? (
+                          <span className="text-[var(--fg-muted)]"> — {c.role}</span>
+                        ) : null}
+                        {detail.length > 0 ? (
+                          <p className="text-xs break-words text-[var(--fg-subtle)]">
+                            {detail.join(' · ')}
+                          </p>
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
+              {derived.length > PROFILE_CONTACTS ? (
+                <p className="mt-2 text-xs text-[var(--fg-subtle)]">
+                  {derived.length - PROFILE_CONTACTS} more in the mail and Affinity.
+                </p>
+              ) : null}
             </CardContent>
           </Card>
 

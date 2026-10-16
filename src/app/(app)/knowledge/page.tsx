@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
+import { after } from 'next/server';
 import { Suspense } from 'react';
 import { FileText } from 'lucide-react';
 import { requireAuth, type AuthContext } from '@/lib/auth/session';
@@ -9,7 +11,12 @@ import {
   listNetworkContacts,
   searchKnowledge,
 } from '@/lib/services/knowledge';
-import { KNOWLEDGE_TABS, resolvePageTab } from '@/lib/records-tabs';
+import {
+  cachedAffinityPoolSize,
+  loadHelperCandidates,
+  networkSummary,
+} from '@/lib/services/network-helpers';
+import { KNOWLEDGE_TABS, NETWORK_TABS, resolvePageTab } from '@/lib/records-tabs';
 import { SHOW_PARAM, showMoreHref, shownCount, single } from '@/lib/util/page-tabs';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +25,8 @@ import { EmptyState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { LiveSearch } from '@/components/ui/live-search';
 import { PageTabs } from '@/components/ui/page-tabs';
 import { ShowMore } from '@/components/ui/show-more';
+import { filterChipClassName } from '@/components/ui/toolbar';
+import { pageHref } from '@/components/crm/link-chips';
 import {
   DeleteDocumentButton,
   ImportNetworkButton,
@@ -56,9 +65,20 @@ export default async function KnowledgePage({
       .count('crm_lists', auth.organizationId, { eq: { archived: false } })
       .catch(() => undefined),
   ]);
+  // The network is the imported contacts and the people from Affinity that
+  // introductions draw on (never the LP lists). That pool is a read of
+  // thousands of rows, cached for minutes: the badge uses it when it is in
+  // memory and is left off until it is, and a view of another tab reads it
+  // after the response so the next view has it.
+  const pooled = cachedAffinityPoolSize(auth.organizationId);
+  if (pooled === null && tab !== 'contacts') {
+    after(async () => {
+      await loadHelperCandidates(store, auth.organizationId);
+    });
+  }
   const counts: Partial<Record<string, number>> = {
     documents: documentCount,
-    contacts: contactCount,
+    contacts: contactCount === undefined || pooled === null ? undefined : contactCount + pooled,
     lists: listCount,
   };
 
@@ -202,13 +222,80 @@ async function ContactsTab({
   q: string;
   shownRaw: string | string[] | undefined;
 }) {
-  const contacts = await listNetworkContacts(auth.organizationId, q || undefined);
+  // Both halves of the network introductions draw on: the contacts imported
+  // here, listed below as before, and the people carried over from Affinity
+  // on the lists that feed introductions, counted from the same pool "who
+  // could help" reads and linked to where they are listed (Network) rather
+  // than listed twice. A search covers the imported contacts and counts the
+  // pool's matches.
+  const [contacts, summary] = await Promise.all([
+    listNetworkContacts(auth.organizationId, q || undefined),
+    networkSummary(getStore(), auth.organizationId, { query: q || null }),
+  ]);
   const shown = shownCount(shownRaw, CONTACTS_STEP, Math.max(contacts.length, CONTACTS_STEP));
+  const affinity = summary.affinityPeople;
+  const firms = summary.affinityFirms;
+  const imported = q ? contacts.length : (summary.imported ?? contacts.length);
+  const affinityHref = pageHref(NETWORK_TABS.path, {
+    tab: 'people',
+    source: 'affinity',
+    q: q || null,
+  });
   return (
     <section>
-      <SectionHeading count={contacts.length}>
+      <SectionHeading count={imported + affinity}>
         {q ? `Contacts matching “${q}”` : 'Network'}
       </SectionHeading>
+      {!q && imported + affinity > 0 ? (
+        <Card className="mb-4">
+          <CardContent className="pt-4">
+            <p className="text-sm">
+              <span className="tabular font-semibold">
+                {(imported + affinity).toLocaleString('en-US')}
+              </span>{' '}
+              {imported + affinity === 1 ? 'person' : 'people'} for introductions:{' '}
+              {imported.toLocaleString('en-US')} you imported and {affinity.toLocaleString('en-US')}{' '}
+              from Affinity, on the lists below
+              {firms > 0
+                ? `, plus ${firms.toLocaleString('en-US')} service-provider ${firms === 1 ? 'firm' : 'firms'}`
+                : ''}
+              . &ldquo;Who could help&rdquo; on Portfolio requests names only people from these,
+              with the reason the data gives. LP lists are never part of it.
+            </p>
+            {summary.destinations.length > 0 ? (
+              <ul
+                className="mt-3 flex flex-wrap gap-1.5"
+                aria-label="Affinity lists that feed introductions"
+              >
+                {summary.destinations.map((d) => (
+                  <li key={d.destination}>
+                    <Link href={d.href} prefetch={false} className={filterChipClassName(false)}>
+                      {d.label}
+                      <span className="tabular ml-1.5 text-[var(--fg-subtle)]">
+                        {d.count.toLocaleString('en-US')}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {affinity > 0 ? (
+              <p className="mt-3 text-sm">
+                <Link
+                  href={affinityHref}
+                  className="text-[var(--accent)] underline-offset-2 hover:underline"
+                >
+                  Browse the people from Affinity
+                </Link>
+                <span className="text-[var(--fg-subtle)]">
+                  {' '}
+                  on Network, searchable and 50 to a page
+                </span>
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
       <LiveSearch
         path="/knowledge"
         keep={CONTACTS_KEEP}
@@ -218,64 +305,86 @@ async function ContactsTab({
         label="Search contacts"
         className="mb-4 max-w-sm"
       />
+      {q && affinity > 0 ? (
+        <p className="-mt-2 mb-4 text-sm text-[var(--fg-muted)]">
+          {affinity.toLocaleString('en-US')} {affinity === 1 ? 'person' : 'people'} from Affinity in
+          your introductions network {affinity === 1 ? 'matches' : 'match'} &ldquo;{q}&rdquo;.{' '}
+          <Link
+            href={affinityHref}
+            className="text-[var(--accent)] underline-offset-2 hover:underline"
+          >
+            Show them
+          </Link>
+        </p>
+      ) : null}
       {contacts.length === 0 && q ? (
         <EmptyState
-          title="No contact matches"
-          description="Clear the search, or try part of a name, a company or a role."
+          title="No imported contact matches"
+          description={
+            affinity > 0
+              ? 'None of the contacts you imported match. The people from Affinity who do are one click away above.'
+              : 'Clear the search, or try part of a name, a company or a role.'
+          }
           action={{ label: 'Clear search', href: '/knowledge?tab=contacts' }}
         />
       ) : contacts.length === 0 ? (
         <Notice>
-          No network contacts imported. Introduction suggestions will stay empty rather than naming
-          someone the data does not show.
+          {affinity > 0
+            ? `No contacts imported by hand yet. Introduction suggestions use the ${affinity.toLocaleString('en-US')} people from Affinity above; import a network CSV to add your own.`
+            : 'No network contacts imported, and no people from Affinity yet. Introduction suggestions will stay empty rather than naming someone the data does not show.'}
         </Notice>
       ) : (
-        <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
-          <table className="w-full min-w-[640px] text-sm">
-            <caption className="sr-only">Network contacts</caption>
-            <thead>
-              <tr className="border-b border-[var(--border)] text-left">
-                <th scope="col" className="px-4 py-2.5 font-medium">
-                  Name
-                </th>
-                <th scope="col" className="px-4 py-2.5 font-medium">
-                  Company
-                </th>
-                <th scope="col" className="px-4 py-2.5 font-medium">
-                  Relationship
-                </th>
-                <th scope="col" className="px-4 py-2.5 font-medium">
-                  Expertise
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {contacts.slice(0, shown).map((c) => (
-                <tr key={c.id} className="border-b border-[var(--border)] last:border-b-0">
-                  <td className="px-4 py-2.5">
-                    <span className="font-medium">{c.full_name}</span>
-                    {c.title ? <p className="text-xs text-[var(--fg-subtle)]">{c.title}</p> : null}
-                  </td>
-                  <td className="px-4 py-2.5 text-[var(--fg-muted)]">{c.company ?? '—'}</td>
-                  <td className="px-4 py-2.5 text-[var(--fg-muted)]">{c.relationship ?? '—'}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex flex-wrap gap-1">
-                      {c.expertise.length === 0 ? (
-                        <span className="text-[var(--fg-subtle)]">—</span>
-                      ) : (
-                        c.expertise.map((e) => (
-                          <Badge key={e} tone="neutral">
-                            {e}
-                          </Badge>
-                        ))
-                      )}
-                    </div>
-                  </td>
+        <>
+          <h3 className="mb-2 text-sm font-semibold">Contacts you imported</h3>
+          <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
+            <table className="w-full min-w-[640px] text-sm">
+              <caption className="sr-only">Network contacts</caption>
+              <thead>
+                <tr className="border-b border-[var(--border)] text-left">
+                  <th scope="col" className="px-4 py-2.5 font-medium">
+                    Name
+                  </th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">
+                    Company
+                  </th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">
+                    Relationship
+                  </th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">
+                    Expertise
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {contacts.slice(0, shown).map((c) => (
+                  <tr key={c.id} className="border-b border-[var(--border)] last:border-b-0">
+                    <td className="px-4 py-2.5">
+                      <span className="font-medium">{c.full_name}</span>
+                      {c.title ? (
+                        <p className="text-xs text-[var(--fg-subtle)]">{c.title}</p>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-2.5 text-[var(--fg-muted)]">{c.company ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-[var(--fg-muted)]">{c.relationship ?? '—'}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-wrap gap-1">
+                        {c.expertise.length === 0 ? (
+                          <span className="text-[var(--fg-subtle)]">—</span>
+                        ) : (
+                          c.expertise.map((e) => (
+                            <Badge key={e} tone="neutral">
+                              {e}
+                            </Badge>
+                          ))
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
       <ShowMore
         shown={shown}

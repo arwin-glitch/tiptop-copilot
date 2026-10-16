@@ -19,6 +19,7 @@ import { classifyMeeting, meetingFromStoredEvent } from '@/lib/calendar/meetings
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { autoCheckStatusLine, DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { todayGlanceCards } from '@/lib/tasks/glance';
+import { isAutoAsk, requestLabel } from '@/lib/portfolio/requests';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Card, CardContent, CardHeader, CardTitle, FieldLabel } from '@/components/ui/card';
 import { Badge, RecommendationBadge } from '@/components/ui/badge';
@@ -546,7 +547,7 @@ async function TodayContent({
           emptyLabel="No open requests"
         >
           <ul>
-            {data.portfolioRequests.map(({ update, company }) => (
+            {data.portfolioRequests.map(({ update, updates, company }) => (
               <li
                 key={update.id}
                 className="border-b border-[var(--border)] py-2.5 last:border-b-0"
@@ -562,15 +563,39 @@ async function TodayContent({
                   ) : (
                     'Portfolio company'
                   )}
-                  {update.request_type ? (
+                  {requestLabel(update) ? (
                     <Badge tone={update.urgency === 'high' ? 'danger' : 'warn'}>
-                      {update.request_type.replace(/_/g, ' ')}
+                      {requestLabel(update)}
+                    </Badge>
+                  ) : null}
+                  {updates.some(isAutoAsk) ? (
+                    <Badge tone="outline">
+                      Read from their update
+                      {updates.length > 1 ? ` · ${updates.length} asks` : ''}
                     </Badge>
                   ) : null}
                 </p>
-                <p className="mt-1 text-sm text-[var(--fg-muted)]">
-                  {update.request_detail ?? update.summary}
-                </p>
+                {updates.length > 1 ? (
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-[var(--fg-muted)]">
+                    {updates.slice(0, 3).map((u) => (
+                      <li key={u.id}>{u.request_detail ?? u.summary}</li>
+                    ))}
+                    {updates.length > 3 ? (
+                      <li className="list-none text-xs text-[var(--fg-subtle)]">
+                        <Link
+                          href="/portfolio?tab=requests"
+                          className="underline-offset-2 hover:underline"
+                        >
+                          {updates.length - 3} more on Portfolio
+                        </Link>
+                      </li>
+                    ) : null}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-sm text-[var(--fg-muted)]">
+                    {update.request_detail ?? update.summary}
+                  </p>
+                )}
                 {update.suggested_action ? (
                   <p className="mt-1.5 text-sm">
                     <span className="text-[var(--fg-subtle)]">Suggested: </span>

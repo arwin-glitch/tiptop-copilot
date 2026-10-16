@@ -5,6 +5,7 @@ import { dailyOutlookSchema } from '@/lib/ai/schemas';
 import type { AuthContext } from '@/lib/auth/session';
 import { getAI, getCalendarProvider, getResearchProvider, getStore } from '@/lib/runtime';
 import { listAllPages } from '@/lib/db/paging';
+import { groupRequests, requestLabel } from '@/lib/portfolio/requests';
 import { recordAudit } from '@/lib/security/audit';
 import { checkAiBudget, recordAiUsage } from '@/lib/security/limits';
 import type {
@@ -59,7 +60,16 @@ export interface TodayData {
   awaitingDecision: { deal: Deal; analysis: DealAnalysis | null }[];
   overdueTasks: Task[];
   dueTodayTasks: Task[];
-  portfolioRequests: { update: PortfolioUpdate; company: PortfolioCompany | null }[];
+  /**
+   * The newest open requests, one per email: `update` leads (a person's
+   * classification, else the first ask) and `updates` is everything from that
+   * email, so an update's four asks take one row, not four.
+   */
+  portfolioRequests: {
+    update: PortfolioUpdate;
+    updates: PortfolioUpdate[];
+    company: PortfolioCompany | null;
+  }[];
   lpItems: EmailMessage[];
   researchAvailable: boolean;
   researchUnavailableReason: string | null;
@@ -131,7 +141,8 @@ export async function gatherTodayData(
       'portfolio_updates',
       auth.organizationId,
       { eq: { status: 'open' }, notNull: ['request_type'] },
-      { orderBy: [{ field: 'occurred_at', direction: 'desc' }], limit: 10 },
+      // Enough rows for ten emails' worth, however many asks each had.
+      { orderBy: [{ field: 'occurred_at', direction: 'desc' }], limit: 60 },
     ) as Promise<PortfolioUpdate[]>,
     store.list('portfolio_companies', auth.organizationId, {
       eq: { is_archived: false },
@@ -203,10 +214,13 @@ export async function gatherTodayData(
     awaitingDecision,
     overdueTasks: tasksSplit.overdue,
     dueTodayTasks: tasksSplit.dueToday,
-    portfolioRequests: portfolioUpdates.map((update) => ({
-      update,
-      company: portfolioCompanies.find((c) => c.id === update.portfolio_company_id) ?? null,
-    })),
+    portfolioRequests: groupRequests(portfolioUpdates)
+      .slice(0, 10)
+      .map((group) => ({
+        update: group.updates[0] as PortfolioUpdate,
+        updates: group.updates,
+        company: portfolioCompanies.find((c) => c.id === group.portfolioCompanyId) ?? null,
+      })),
     lpItems,
     researchAvailable: research.available(),
     researchUnavailableReason: research.unavailableReason(),
@@ -431,25 +445,27 @@ export async function generateDailyBrief(
     });
   }
 
-  for (const { update, company } of data.portfolioRequests) {
+  for (const { update, updates, company } of data.portfolioRequests) {
     const id = `portfolio_update:${update.id}`;
+    const label = requestLabel(update) ?? 'update';
+    const asked = updates.map((u) => u.request_detail ?? u.summary).join('; ');
     registry.add({
       id,
       kind: 'portfolio_update',
       ref_id: update.id,
-      label: `${company?.name ?? 'Portfolio'} — ${update.request_type ?? 'update'}`,
+      label: `${company?.name ?? 'Portfolio'} — ${label}`,
       page: null,
       section: null,
       url: null,
       occurred_at: update.occurred_at,
       retrieved_at: null,
       publisher: null,
-      excerpt: truncate(update.summary, 200),
+      excerpt: truncate(updates.length > 1 ? asked : update.summary, 200),
     });
     items.push({
       kind: 'portfolio_request',
-      title: `${company?.name ?? 'Portfolio company'}: ${(update.request_type ?? 'update').replace(/_/g, ' ')}`,
-      detail: truncate(update.request_detail ?? update.summary, 280),
+      title: `${company?.name ?? 'Portfolio company'}: ${label}${updates.length > 1 ? ` (${updates.length} asks)` : ''}`,
+      detail: truncate(updates.length > 1 ? asked : (update.request_detail ?? update.summary), 280),
       source_id: id,
       href: `/portfolio/${update.portfolio_company_id}`,
       occurred_at: update.occurred_at,

@@ -125,8 +125,12 @@ export function screenForCompany(
   return true;
 }
 
-/** The text of one message, from memory or from its thread. */
-async function bodyOf(
+/**
+ * The text of one message, from memory or from its thread. Shared with the
+ * asks read (`portfolio-asks.ts`), so an update's body is fetched once for
+ * both.
+ */
+export async function readUpdateBody(
   store: DataStore,
   integration: Integration,
   messageId: string,
@@ -198,7 +202,7 @@ async function readCompany(
       complete = false;
       return null;
     }
-    const body = await bodyOf(store, integration, m.id, m.threadId);
+    const body = await readUpdateBody(store, integration, m.id, m.threadId);
     if (body === null) {
       complete = false;
       return null;

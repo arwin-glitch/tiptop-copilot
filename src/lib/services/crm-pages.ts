@@ -1,6 +1,13 @@
 import 'server-only';
-import { foundersByCompany, companyNamesOf, roleOf, type FounderMatch } from '@/lib/crm/founders';
+import {
+  foundersByCompany,
+  companyNamesOf,
+  roleOf,
+  type FounderInput,
+  type FounderMatch,
+} from '@/lib/crm/founders';
 import type { PipelineEntryInput } from '@/lib/crm/pipeline-merge';
+import { isRoleInbox } from '@/lib/portfolio/contacts';
 import { affinityLpStage } from '@/lib/crm/stage-map';
 import { crmNameKey, statusFieldOf } from '@/lib/crm/fields';
 import type { CrmDestination } from '@/lib/crm/destinations';
@@ -47,15 +54,23 @@ const NEWEST_FIRST: NonNullable<QueryOptions['orderBy']> = [
   { field: 'id', direction: 'asc' },
 ];
 
+const RECORD_READS_AT_ONCE = 4;
+
 async function recordsById(
   store: DataStore,
   organizationId: string,
   ids: readonly string[],
 ): Promise<Record<string, CrmRecord>> {
   const out: Record<string, CrmRecord> = {};
-  for (const group of chunk([...new Set(ids)], 100)) {
-    const rows = await store.list('crm_records', organizationId, { in: { id: group } });
-    for (const r of rows) out[r.id] = r;
+  // A few chunks at a time: a whole destination can name thousands of records.
+  const groups = chunk([...new Set(ids)], 100);
+  for (let i = 0; i < groups.length; i += RECORD_READS_AT_ONCE) {
+    const pages = await Promise.all(
+      groups
+        .slice(i, i + RECORD_READS_AT_ONCE)
+        .map((group) => store.list('crm_records', organizationId, { in: { id: group } })),
+    );
+    for (const r of pages.flat()) out[r.id] = r;
   }
   return out;
 }
@@ -166,6 +181,26 @@ export async function affinityDealRows(
 
 /* --------------------------------------------------------------- portfolio */
 
+/** The founder-matching input for each entry of a read of founder lists. */
+function founderInputs(rows: DestinationRows): FounderInput[] {
+  const { lists, entries, records } = rows;
+  const fieldsByList = new Map<string, CrmField[]>(lists.map((l) => [l.id, l.fields]));
+  return entries.map(({ entry, list }) => {
+    const fields = fieldsByList.get(list.id) ?? [];
+    const record = entry.record_id ? records[entry.record_id] : undefined;
+    const jobTitle = record?.fields['Job Title'];
+    return {
+      entryId: entry.id,
+      recordId: record?.id ?? null,
+      name: record?.name ?? entry.title,
+      kind: record?.kind ?? (list.entity_type === 'company' ? 'company' : null),
+      emails: record?.emails ?? [],
+      companyNames: companyNamesOf(fields, entry.values),
+      role: roleOf(fields, entry.values) ?? (typeof jobTitle === 'string' ? jobTitle : null),
+    };
+  });
+}
+
 /**
  * Affinity's portfolio founders per portfolio company id. Never fails: when
  * the CRM is not set up or cannot be read, the cards simply show no founders.
@@ -185,25 +220,133 @@ export async function portfolioFounders(
     }
     return {};
   }
-  const { lists, entries, records } = read.value;
-  const fieldsByList = new Map<string, CrmField[]>(lists.map((l) => [l.id, l.fields]));
-  return foundersByCompany(
-    companies,
-    entries.map(({ entry, list }) => {
-      const fields = fieldsByList.get(list.id) ?? [];
-      const record = entry.record_id ? records[entry.record_id] : undefined;
-      const jobTitle = record?.fields['Job Title'];
-      return {
-        entryId: entry.id,
-        recordId: record?.id ?? null,
-        name: record?.name ?? entry.title,
-        kind: record?.kind ?? (list.entity_type === 'company' ? 'company' : null),
-        emails: record?.emails ?? [],
-        companyNames: companyNamesOf(fields, entry.values),
-        role: roleOf(fields, entry.values) ?? (typeof jobTitle === 'string' ? jobTitle : null),
-      };
-    }),
+  return foundersByCompany(companies, founderInputs(read.value));
+}
+
+/** One person Affinity ties to a portfolio company. */
+export interface CompanyCrmPerson {
+  recordId: string | null;
+  name: string;
+  role: string | null;
+  /** Their address at the company's domain when they have one, else their first. */
+  email: string | null;
+  /** On a portfolio founder list, rather than a person record found at the domain. */
+  founder: boolean;
+  matchedBy: 'domain' | 'name';
+}
+
+/** People records looked up per company domain, at most this many at once. */
+const DOMAIN_LOOKUPS_AT_ONCE = 6;
+const PEOPLE_PER_DOMAIN = 25;
+
+/**
+ * The people Affinity ties to each portfolio company, by company id: rows of
+ * the lists that feed Portfolio (founder lists and the angel list) matched by
+ * work email domain or the entry's company column, then any person record
+ * whose email is at the company's domain. Domain first, exact normalized
+ * name second, never fuzzy (`foundersByCompany`). Never fails: none on a
+ * fault or when the CRM is not set up.
+ */
+export async function portfolioCrmPeople(
+  store: DataStore,
+  organizationId: string,
+  companies: readonly { id: string; name: string; domain: string | null }[],
+): Promise<Record<string, CompanyCrmPerson[]>> {
+  if (companies.length === 0) return {};
+  const out: Record<string, CompanyCrmPerson[]> = {};
+  const add = (companyId: string, person: CompanyCrmPerson) => {
+    const list = (out[companyId] ??= []);
+    const same = list.find(
+      (p) =>
+        (person.recordId && p.recordId === person.recordId) ||
+        (person.email && p.email === person.email),
+    );
+    if (same) {
+      same.founder ||= person.founder;
+      same.role ??= person.role;
+      return;
+    }
+    list.push(person);
+  };
+  const domainOf = new Map(companies.map((c) => [c.id, normalizeDomain(c.domain)]));
+  const emailAt = (emails: readonly string[], domain: string | null): string | null => {
+    const lower = emails.map((e) => e.trim().toLowerCase()).filter((e) => e.includes('@'));
+    return (domain && lower.find((e) => e.endsWith(`@${domain}`))) || lower[0] || null;
+  };
+
+  const read = await readDestinationRows(store, organizationId, ['portfolio_people', 'angel'], {
+    cap: 2000,
+  });
+  if (!read.ok) {
+    if (!isCrmNotSetUp(read)) {
+      log.warn('Portfolio people could not be read', { reason: read.error.message });
+    }
+    return {};
+  }
+  const founderListIds = new Set(
+    read.value.lists
+      .filter((l) => l.destination.destination === 'portfolio_people')
+      .map((l) => l.id),
   );
+  const inputs = founderInputs(read.value);
+  const entryList = new Map(read.value.entries.map((e) => [e.entry.id, e.list.id]));
+  const emailsByEntry = new Map(inputs.map((i) => [i.entryId, i.emails]));
+  for (const [companyId, matches] of Object.entries(foundersByCompany(companies, inputs))) {
+    for (const m of matches) {
+      add(companyId, {
+        recordId: m.recordId,
+        name: m.name,
+        role: m.role,
+        email: emailAt(emailsByEntry.get(m.entryId) ?? [], domainOf.get(companyId) ?? null),
+        founder: founderListIds.has(entryList.get(m.entryId) ?? ''),
+        matchedBy: m.matchedBy,
+      });
+    }
+  }
+
+  // Person records at each company's domain, the way a profile finds them.
+  const withDomain = companies.filter((c) => domainOf.get(c.id));
+  const looked = await crmGuard('read', 'read people at portfolio domains', async () => {
+    for (const group of chunk(withDomain, DOMAIN_LOOKUPS_AT_ONCE)) {
+      const found = await Promise.all(
+        group.map(async (c) => {
+          const domain = domainOf.get(c.id) as string;
+          const rows = await store.list(
+            'crm_records',
+            organizationId,
+            {
+              eq: { kind: 'person' },
+              textSearch: { columns: ['primary_email'], query: `@${domain}` },
+            },
+            { orderBy: [{ field: 'name', direction: 'asc' }], limit: PEOPLE_PER_DOMAIN },
+          );
+          return { c, domain, rows };
+        }),
+      );
+      for (const { c, domain, rows } of found) {
+        for (const r of rows) {
+          if (!r.primary_email?.toLowerCase().endsWith(`@${domain}`)) continue;
+          // Affinity makes a person record for every address that writes
+          // ("Ledgerly Support" at support@): a role inbox is nobody.
+          if (isRoleInbox(r.primary_email)) continue;
+          const title = r.fields['Job Title'];
+          add(c.id, {
+            recordId: r.id,
+            name: r.name,
+            role: typeof title === 'string' && title.trim() ? title.trim() : null,
+            email: emailAt(r.emails.length ? r.emails : [r.primary_email], domain),
+            founder: false,
+            matchedBy: 'domain',
+          });
+        }
+      }
+    }
+    return ok(true);
+  });
+  if (!looked.ok && !isCrmNotSetUp(looked)) {
+    log.warn('People at portfolio domains could not be read', { reason: looked.error.message });
+  }
+  return out;
 }
 
 /* --------------------------------------------------------------------- LPs */

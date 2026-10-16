@@ -11,6 +11,7 @@ import { ensureGmailWatch } from '@/lib/services/gmail-watch';
 import { syncMailbox } from '@/lib/services/inbox';
 import { listPortfolio } from '@/lib/services/portfolio';
 import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
+import { refreshPortfolioAsks } from '@/lib/services/portfolio-asks';
 import { refreshPortfolioNumbers } from '@/lib/services/portfolio-numbers';
 import { formatTaskCronStatus, pullTaskRelays } from '@/lib/services/task-relay';
 import { sweepKeepInTouch } from '@/lib/services/keep-in-touch';
@@ -23,6 +24,8 @@ export const maxDuration = 300;
 
 /** How long the job waits on the numbers refresh before letting it finish in the background. */
 const NUMBERS_BUDGET_MS = 60_000;
+/** The same for reading the asks in portfolio updates. */
+const ASKS_BUDGET_MS = 60_000;
 
 /**
  * Scheduled job: sync mailboxes and pre-generate the daily outlook.
@@ -77,6 +80,7 @@ export async function POST(request: NextRequest) {
     tasks: string;
     deals: string;
     numbers: string;
+    asks: string;
     campaigns: string;
   }[] = [];
 
@@ -108,6 +112,7 @@ export async function POST(request: NextRequest) {
         tasks: 'skipped',
         deals: 'skipped',
         numbers: 'skipped',
+        asks: 'skipped',
         campaigns: 'skipped',
       });
       continue;
@@ -125,6 +130,7 @@ export async function POST(request: NextRequest) {
         tasks: 'skipped',
         deals: 'skipped',
         numbers: 'skipped',
+        asks: 'skipped',
         campaigns: 'skipped',
       });
       continue;
@@ -252,6 +258,30 @@ export async function POST(request: NextRequest) {
       log.error('Cron portfolio numbers refresh failed', { organizationId: organization.id });
     }
 
+    // Asks in the portfolio's own update emails become open requests on
+    // Portfolio > Requests, each once and never reopened once handled. Reads
+    // Gmail only; a long read finishes after the response. Counts only:
+    // public log.
+    let asksStatus: string;
+    try {
+      const run = refreshPortfolioAsks(store, organization.id);
+      if (await settlesWithin(run, ASKS_BUDGET_MS)) {
+        const done = await run;
+        asksStatus =
+          done.state === 'ok'
+            ? `ok: ${done.added} new of ${done.asks} asks in ${done.updates} updates`
+            : `skipped: ${done.state}`;
+      } else {
+        after(async () => {
+          await run;
+        });
+        asksStatus = 'running';
+      }
+    } catch {
+      asksStatus = 'failed';
+      log.error('Cron portfolio asks read failed', { organizationId: organization.id });
+    }
+
     // Campaign replies and bounces, read from the mailbox the sync above just
     // refreshed. Reads only: no campaign is ever sent from here. Counts only:
     // public log.
@@ -276,6 +306,7 @@ export async function POST(request: NextRequest) {
       tasks: tasksStatus,
       deals: dealsStatus,
       numbers: numbersStatus,
+      asks: asksStatus,
       campaigns: campaignsStatus,
     });
   }

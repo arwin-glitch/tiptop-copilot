@@ -7,6 +7,7 @@ import { toModelJsonSchema } from '@/lib/ai/schemas';
 import { getResearchProvider, getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
 import { truncate } from '@/lib/util/text';
+import { isAutoAsk } from '@/lib/portfolio/requests';
 import type {
   CalendarEvent,
   Citation,
@@ -147,6 +148,8 @@ const getDailyOutlook: ToolSpec<z.ZodObject<Record<string, never>>> = {
           company: r.company?.name ?? null,
           request_type: r.update.request_type,
           detail: r.update.request_detail,
+          // The asks read from the same update email, word for word.
+          asks: r.updates.filter(isAutoAsk).map((u) => u.summary),
         })),
         research_available: data.researchAvailable,
         citations,

@@ -119,7 +119,10 @@ function plainDomain(domain: string | null | undefined): string | null {
  * TipTop staff, DocSend, newsletter hosts and calendar invites are left out
  * before anything is read. The classifier makes the real decision.
  */
-export function buildUpdatesQuery(companies: readonly CompanyLike[]): string {
+export function buildUpdatesQuery(
+  companies: readonly CompanyLike[],
+  options: { lookbackDays?: number } = {},
+): string {
   const subjectTerms =
     'subject:(update OR updates OR Q1 OR Q2 OR Q3 OR Q4 OR ARR OR MRR OR fundraise OR fundraising OR newsletter OR "investor letter" OR "shareholder letter" OR "seed round")';
   const names = companies
@@ -144,7 +147,8 @@ export function buildUpdatesQuery(companies: readonly CompanyLike[]): string {
     '-from:calendar-notification@google.com',
     '-subject:"updated invitation"',
   ];
-  return `newer_than:${LOOKBACK_DAYS}d -in:sent -in:chats ${skip.join(' ')} (${parts.join(' OR ')})`;
+  const days = Math.max(1, Math.round(options.lookbackDays ?? LOOKBACK_DAYS));
+  return `newer_than:${days}d -in:sent -in:chats ${skip.join(' ')} (${parts.join(' OR ')})`;
 }
 
 async function emailedBefore(

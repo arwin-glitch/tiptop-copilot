@@ -109,6 +109,20 @@ export interface WarmPaths {
   /** People on the LP's thread to look up instead, when it was not clear who the LP is. */
   choices: Participant[];
   checkedAt: string;
+  /**
+   * The people Affinity holds at the target (its domain, or its exact
+   * addresses), with the lists they are on. Added by the API route
+   * (`services/network-helpers.ts`), never by the mail read.
+   */
+  affinity?: AffinityAtTarget[];
+}
+
+/** A person from Affinity at a warm-paths target: who they are and which lists they are on. */
+export interface AffinityAtTarget {
+  recordId: string;
+  name: string;
+  title: string | null;
+  lists: string[];
 }
 
 export interface WarmContext {

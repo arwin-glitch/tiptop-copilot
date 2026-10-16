@@ -1,9 +1,14 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { ExternalLink, Loader2, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { WarmPaths as WarmPathsResult, WarmPerson } from '@/lib/services/warm-paths';
+import type {
+  AffinityAtTarget,
+  WarmPaths as WarmPathsResult,
+  WarmPerson,
+} from '@/lib/services/warm-paths';
 import { relativeTime } from '@/lib/util/time';
 
 type State =
@@ -155,19 +160,26 @@ function Answer({ result, onPick }: { result: WarmPathsResult; onPick: (email: s
   const { target } = result;
   const atFirm = target.kind === 'domain';
   const who = atFirm ? `anyone at ${target.label}` : target.label;
+  const affinity = (
+    <InAffinity people={result.affinity ?? []} label={atFirm ? target.label : null} />
+  );
   if (result.known.length === 0 && result.introducers.length === 0) {
     const skipped = result.groupThreadsSkipped;
     return (
-      <p className="break-words">
-        {skipped > 0
-          ? `You haven't emailed with ${who} in the last 3 years, apart from ${skipped} large group ${plural(skipped, 'email')}.`
-          : `You haven't emailed with ${who} in the last 3 years.`}
-      </p>
+      <div className="space-y-3">
+        <p className="break-words">
+          {skipped > 0
+            ? `You haven't emailed with ${who} in the last 3 years, apart from ${skipped} large group ${plural(skipped, 'email')}.`
+            : `You haven't emailed with ${who} in the last 3 years.`}
+        </p>
+        {affinity}
+      </div>
     );
   }
 
   return (
     <div className="space-y-3">
+      {affinity}
       {result.known.length === 0 ? (
         <p className="break-words">You haven&apos;t emailed with {who} directly.</p>
       ) : (
@@ -205,6 +217,34 @@ function Answer({ result, onPick }: { result: WarmPathsResult; onPick: (email: s
           ? ` Left out ${result.groupThreadsSkipped} large group ${plural(result.groupThreadsSkipped, 'email')}.`
           : ''}
       </p>
+    </div>
+  );
+}
+
+/** The people Affinity holds at the firm (or with the address), with their lists; nothing when none. */
+function InAffinity({ people, label }: { people: AffinityAtTarget[]; label: string | null }) {
+  if (people.length === 0) return null;
+  return (
+    <div>
+      <p className="text-xs font-semibold tracking-wide text-[var(--fg-muted)] uppercase">
+        {label ? `In Affinity at ${label}` : 'In Affinity'}
+      </p>
+      <ul className="mt-1 space-y-1">
+        {people.map((p) => (
+          <li key={p.recordId} className="min-w-0 break-words">
+            <Link
+              href={`/lists/records/${p.recordId}`}
+              className="font-medium underline-offset-2 hover:underline"
+            >
+              {p.name}
+            </Link>
+            {p.title ? <span className="text-[var(--fg-muted)]">, {p.title}</span> : null}
+            {p.lists.length > 0 ? (
+              <span className="text-xs text-[var(--fg-subtle)]"> · on {p.lists.join(', ')}</span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

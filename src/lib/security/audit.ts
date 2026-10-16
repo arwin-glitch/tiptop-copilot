@@ -48,6 +48,7 @@ export type AuditAction =
   | 'portfolio.created'
   | 'portfolio.imported'
   | 'portfolio.request_handled'
+  | 'portfolio.asks_read'
   | 'crm.list_created'
   | 'crm.list_updated'
   | 'crm.entry_added'

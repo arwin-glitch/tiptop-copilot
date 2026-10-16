@@ -174,7 +174,7 @@ test("Portfolio keeps Nick's angel investments apart and shows founders", async 
 
   await page.goto('/portfolio?tab=companies');
   const ledgerly = page.getByRole('link', { name: /^Ledgerly/ });
-  await expect(ledgerly).toContainText('Founders (Affinity): Maya Chen, CEO');
+  await expect(ledgerly).toContainText('Contacts: Maya Chen, CEO (from Affinity and your mail)');
   await expect(page.getByRole('link', { name: /^Stonebridge Ops/ })).toContainText('Dev Sharma');
 
   await ledgerly.click();

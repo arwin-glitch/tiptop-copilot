@@ -199,18 +199,40 @@ export function ImportPortfolioButton() {
   );
 }
 
+/** Mark requests handled or dismissed; the first failure is the result. */
+async function setStatuses(
+  ids: readonly string[],
+  status: 'handled' | 'ignored',
+): Promise<{ ok: boolean; message?: string }> {
+  for (const id of ids) {
+    const result = await setPortfolioUpdateStatusAction(id, status);
+    if (!result.ok) return { ok: false, message: result.error?.message };
+  }
+  return { ok: true };
+}
+
+/**
+ * Draft reply, Handled and Dismiss for one request, or for every request
+ * from one email at once (the asks of one update share a card): one reply to
+ * the thread, and one click closes them all.
+ */
 export function RequestActions({
   updateId,
+  updateIds,
   portfolioCompanyId,
   emailMessageId,
 }: {
-  updateId: string;
+  updateId?: string;
+  /** Every request on the card; takes the place of `updateId`. */
+  updateIds?: readonly string[];
   portfolioCompanyId: string;
   emailMessageId: string | null;
 }) {
   const [pending, startTransition] = React.useTransition();
   const [draft, setDraft] = React.useState<{ subject: string; body: string } | null>(null);
   const router = useRouter();
+  const ids = updateIds ?? (updateId ? [updateId] : []);
+  const all = ids.length > 1;
 
   return (
     <div>
@@ -243,18 +265,18 @@ export function RequestActions({
           loading={pending}
           onClick={() =>
             startTransition(async () => {
-              const result = await setPortfolioUpdateStatusAction(updateId, 'handled');
+              const result = await setStatuses(ids, 'handled');
               if (result.ok) {
-                toast.success('Marked handled');
+                toast.success(all ? `Marked ${ids.length} handled` : 'Marked handled');
                 router.refresh();
               } else {
-                toast.error(result.error?.message ?? 'Could not update');
+                toast.error(result.message ?? 'Could not update');
               }
             })
           }
         >
           <Check aria-hidden="true" />
-          Handled
+          {all ? 'All handled' : 'Handled'}
         </Button>
         <Button
           size="sm"
@@ -262,18 +284,18 @@ export function RequestActions({
           loading={pending}
           onClick={() =>
             startTransition(async () => {
-              const result = await setPortfolioUpdateStatusAction(updateId, 'ignored');
+              const result = await setStatuses(ids, 'ignored');
               if (result.ok) {
-                toast.success('Dismissed');
+                toast.success(all ? `Dismissed ${ids.length}` : 'Dismissed');
                 router.refresh();
               } else {
-                toast.error(result.error?.message ?? 'Could not update');
+                toast.error(result.message ?? 'Could not update');
               }
             })
           }
         >
           <X aria-hidden="true" />
-          Dismiss
+          {all ? 'Dismiss all' : 'Dismiss'}
         </Button>
       </div>
 
@@ -285,6 +307,34 @@ export function RequestActions({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Dismiss one ask of several on a card, leaving the others open. */
+export function DismissAskButton({ updateId, label }: { updateId: string; label: string }) {
+  const [pending, startTransition] = React.useTransition();
+  const router = useRouter();
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      loading={pending}
+      aria-label={label}
+      title="Dismiss this ask"
+      onClick={() =>
+        startTransition(async () => {
+          const result = await setPortfolioUpdateStatusAction(updateId, 'ignored');
+          if (result.ok) {
+            toast.success('Dismissed');
+            router.refresh();
+          } else {
+            toast.error(result.error?.message ?? 'Could not update');
+          }
+        })
+      }
+    >
+      <X aria-hidden="true" />
+    </Button>
   );
 }
 

@@ -34,6 +34,11 @@ const DESMOND = { name: 'Desmond Achterberg', email: 'desmond@pinecrest-fo.examp
 const PRIYA = { name: 'Priya Nandakumar', email: 'priya@hearthstone-payroll.example' };
 const TOMAS = { name: 'Tomas Okoye', email: 'tomas@cobaltline.example' };
 const SVEN = { name: 'Sven Malmberg', email: 'sven@kestrel-analytics.example' };
+// People at the demo portfolio companies' own domains, so Portfolio > Companies
+// shows contacts read from the mail; the role inbox is one it must leave out.
+const LENA = { name: 'Lena Ortiz', email: 'lena@ledgerly.demo' };
+const LEDGERLY_NEWS = { name: 'Ledgerly', email: 'hello@ledgerly.demo' };
+const JONAS = { name: 'Jonas Reyes', email: 'jonas@stonebridgeops.demo' };
 
 /** One message: `from` wrote it to `to` (and `cc`), `day` days ago (negative is the past). */
 type Step = { day: number; from: Who; to: Who[]; cc?: Who[]; text: string };
@@ -185,6 +190,37 @@ const CONVERSATIONS: { n: number; subject: string; steps: Step[] }[] = [
     steps: [
       { day: -35, from: SVEN, to: [NICK], text: 'The pilot results are in.' },
       { day: -35, from: NICK, to: [SVEN], text: 'Congratulations. Free tomorrow?' },
+    ],
+  },
+  {
+    n: 71,
+    subject: 'Ledgerly: September close',
+    steps: [
+      { day: -30, from: LENA, to: [NICK], text: 'September close numbers, as promised.' },
+      { day: -29, from: NICK, to: [LENA], text: 'Thanks Lena, very clear.' },
+    ],
+  },
+  {
+    n: 72,
+    subject: 'Ledgerly: audit timeline',
+    steps: [{ day: -8, from: LENA, to: [NICK], text: 'The auditors start on the 20th.' }],
+  },
+  {
+    n: 73,
+    subject: 'Ledgerly product news',
+    steps: [{ day: -6, from: LEDGERLY_NEWS, to: [NICK], text: 'What shipped this month.' }],
+  },
+  {
+    n: 74,
+    subject: 'Stonebridge Ops: warehouse pilot',
+    steps: [
+      { day: -15, from: JONAS, to: [NICK], text: 'The warehouse pilot went live this week.' },
+      {
+        day: -14,
+        from: NICK,
+        to: [JONAS],
+        text: 'Great news. Send the numbers when you have them.',
+      },
     ],
   },
 ];

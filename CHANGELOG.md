@@ -10,6 +10,50 @@ throughout.
 
 ## [Unreleased]
 
+- **Portfolio companies show their people.** Each company card lists up to
+  three contacts, strongest and most recent first, each marked "from Affinity"
+  or "from your mail": founders on Affinity's portfolio and angel lists and
+  person records at the company's domain (domain first, exact name second,
+  never a guess), and the people at its domain who actually write to Nick in
+  the synced mailbox (no no-reply, notification or shared inboxes such as
+  info@, hello@, founders@, investors@, ir@ or careers@, from the mail or from
+  Affinity, and nobody at TipTop). Someone saved without an address is matched
+  to the same exact name in the mail, not listed twice. "Last contact" now reads the mail too, so it no
+  longer says "No contact recorded" for a company Nick emails. The profile
+  lists every contact with its source. Contacts saved by hand lead and are
+  never changed. Worked out on read: nothing is stored.
+- **Asks in update emails become requests on their own.** When a portfolio
+  company's update (the mail Reports > Fresh updates lists, last 45 days) has
+  an asks section ("Asks", "Our asks", "How you can help", "Ways to help",
+  "Help wanted", "Where we need help", "Requests"), each bullet or numbered
+  line under it becomes an open request on Portfolio > Requests, marked "Read
+  from their update" with a link to the email. Prose, quoted replies and
+  signatures are never read, a heading with no bullets gives nothing, and no
+  model is involved. It runs with the daily job and when Requests is opened
+  (at most every 30 minutes, never holding the page). Each ask is written
+  once, so a re-run never duplicates one, a request marked handled or
+  dismissed is never reopened, the same ask repeated in next month's update
+  is the request already there, and an email someone already classified in
+  the Inbox is left to their request. Requests shows one card per email (an
+  update's asks together, ten cards to a page), with one Draft reply, one
+  Handled / Dismiss for the card and a dismiss for each ask; Today's brief
+  groups them the same way.
+- **Who could help draws on Affinity.** Every open request shows up to three
+  people who could help, from the contacts you imported and the people
+  Affinity carried over on the Investors, Service providers, Operators,
+  Events and portfolio founder lists, each with the reason the data gives
+  ("On “Co-investor VCs” (Investors) in Affinity", "Relationship: Warm",
+  last in touch). A request nobody fits still names nobody, and a list's
+  name, a seniority word in a title or a fitting kind with recent mail is
+  never enough on its own to name someone for a customer intro, advice,
+  go-to-market or product feedback. Fund II's LP lists are never used. "Who can intro?" on Fund II and profiles adds the
+  people Affinity holds at the same firm, with their lists.
+- **Knowledge > Contacts counts the whole network.** The tab counts the
+  imported contacts and the Affinity people introductions draw on (the same
+  pool as Who could help, so never the LP lists), shows how many sit on each
+  list that feeds introductions (linked to its Network tab), and links to
+  Network > People > From Affinity; a search counts the pool's matches. The
+  imported contacts are listed as before.
 - **The daily auto-check now runs at 3 PM Central**, an hour earlier, and the
   app's own "Reply to" check, the snapshot's 1 to 3 PM change window and the
   "hasn't reported yet" line (from 4:30 PM) moved with it.

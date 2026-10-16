@@ -1,35 +1,58 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { after } from 'next/server';
 import { Suspense } from 'react';
+import { ExternalLink } from 'lucide-react';
 import { requireAuth, type AuthContext } from '@/lib/auth/session';
 import { readFollowUps, readFollowUpsWithin } from '@/lib/services/follow-ups';
 import { PortfolioHealthCard, snapshotUnavailable } from '@/components/followups/relay-cards';
 import { getStore } from '@/lib/runtime';
 import { listPortfolio, openRequests } from '@/lib/services/portfolio';
+import { refreshPortfolioAsksOnView } from '@/lib/services/portfolio-asks';
+import { loadPortfolioContacts } from '@/lib/services/portfolio-contacts';
 import { pullPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
+import { helpersForRequests, type RequestHelper } from '@/lib/services/network-helpers';
 import { PORTFOLIO_TABS, SNAPSHOT_WAIT_MS, landsOnSnapshot, openingTab } from '@/lib/records-tabs';
-import { PAGE_PARAM, single, tabHref } from '@/lib/util/page-tabs';
-import { portfolioFounders } from '@/lib/services/crm-pages';
+import { CARD_CONTACTS, provenanceLabel } from '@/lib/portfolio/contacts';
+import {
+  groupRequests,
+  isAutoAsk,
+  requestLabel,
+  type RequestGroup,
+} from '@/lib/portfolio/requests';
+import {
+  PAGE_PARAM,
+  SHOW_PARAM,
+  showMoreHref,
+  shownCount,
+  single,
+  tabHref,
+} from '@/lib/util/page-tabs';
+import { settlesWithin } from '@/lib/util/settle';
 import { AffinityEntries } from '@/components/crm/affinity-entries';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, FieldLabel } from '@/components/ui/card';
 import { EmptyState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
+import { ShowMore } from '@/components/ui/show-more';
 import { PortfolioNumbers } from '@/components/portfolio/portfolio-numbers';
 import {
   AddPortfolioButton,
+  DismissAskButton,
   ImportPortfolioButton,
   RequestActions,
 } from '@/components/portfolio/portfolio-client';
 import { CitationList } from '@/components/evidence/source-drawer';
-import { PORTFOLIO_REQUEST_LABELS, type NetworkContact } from '@/lib/types/domain';
+import type { PortfolioCompany, PortfolioUpdate } from '@/lib/types/domain';
 import { relativeTime } from '@/lib/util/time';
 
 export const metadata: Metadata = { title: 'Portfolio' };
 export const dynamic = 'force-dynamic';
 
 const COMPANIES_HREF = tabHref(PORTFOLIO_TABS.path, 'companies', PORTFOLIO_TABS.defaultKey);
+/** Request cards per page: one per email, however many asks it had. */
+const REQUESTS_STEP = 10;
 
 export default async function PortfolioPage({
   searchParams,
@@ -55,20 +78,33 @@ export default async function PortfolioPage({
   // opened. Best effort, throttled. Health reads only the routine's snapshot.
   if (tab !== 'health') await pullPortfolioFromSlack(store, auth.organizationId).catch(() => null);
 
-  // Head counts for the tab badges; a fault only drops the badge.
-  const [openCount, companyCount] = await Promise.all([
-    store
-      .count('portfolio_updates', auth.organizationId, {
-        eq: { status: 'open' },
-        notNull: ['request_type'],
-      })
-      .catch(() => undefined),
+  // Asks in the companies' own update emails become open requests: read when
+  // Requests is viewed (at most every 30 minutes) and by the daily job. A
+  // Gmail read finishes after the response (the next view shows it); only a
+  // demo read this view started, from memory, is waited on, briefly.
+  if (tab === 'requests') {
+    const asks = refreshPortfolioAsksOnView(store, auth.organizationId);
+    if (asks) {
+      const settled = asks.waitMs > 0 && (await settlesWithin(asks.run, asks.waitMs));
+      if (!settled) {
+        after(async () => {
+          await asks.run;
+        });
+      }
+    }
+  }
+
+  // Head counts for the tab badges; a fault only drops the badge. Requests
+  // counts cards, one per email: an update with four asks is one.
+  const [open, companyCount] = await Promise.all([
+    openRequests(auth.organizationId).catch(() => null),
     store
       .count('portfolio_companies', auth.organizationId, { eq: { is_archived: false } })
       .catch(() => undefined),
   ]);
+  const groups = open ? groupRequests(open) : null;
   const counts: Partial<Record<string, number>> = {
-    requests: openCount ? openCount : undefined,
+    requests: groups?.length ? groups.length : undefined,
     companies: companyCount,
   };
 
@@ -97,7 +133,7 @@ export default async function PortfolioPage({
       />
       <Suspense key={tab} fallback={<SkeletonText lines={8} />}>
         {tab === 'requests' ? (
-          <RequestsTab auth={auth} />
+          <RequestsTab auth={auth} groups={groups} shownRaw={params[SHOW_PARAM]} />
         ) : tab === 'numbers' ? (
           <NumbersTab auth={auth} />
         ) : tab === 'companies' ? (
@@ -142,115 +178,288 @@ async function HealthTab({ auth }: { auth: AuthContext }) {
   return <PortfolioHealthCard health={health} now={now} tz={auth.profile.timezone} empty={none} />;
 }
 
-async function RequestsTab({ auth }: { auth: AuthContext }) {
-  const [companies, requests, contacts] = await Promise.all([
+async function RequestsTab({
+  auth,
+  groups: read,
+  shownRaw,
+}: {
+  auth: AuthContext;
+  /** The open requests by email, as the badge counted them; read here when that read failed. */
+  groups: RequestGroup[] | null;
+  shownRaw: string | string[] | undefined;
+}) {
+  const store = getStore();
+  const [companies, groups] = await Promise.all([
     listPortfolio(auth.organizationId),
-    openRequests(auth.organizationId),
-    getStore().list('network_contacts', auth.organizationId, {}) as Promise<NetworkContact[]>,
+    read ?? openRequests(auth.organizationId).then(groupRequests),
   ]);
+  const shown = shownCount(shownRaw, REQUESTS_STEP, Math.max(groups.length, REQUESTS_STEP));
+  const visible = groups.slice(0, shown);
+  // Who could help, for the cards on screen only: the imported contacts and
+  // the people from Affinity, with the reason each is named. Never fails.
+  const helpers = await helpersForRequests(
+    store,
+    auth.organizationId,
+    visible.flatMap((g) => g.updates),
+    companies,
+  );
+  const readFromUpdates = visible.some((g) => g.updates.some(isAutoAsk));
 
   return (
     <section className="mb-8">
-      <SectionHeading count={requests.length}>Open requests</SectionHeading>
-      {requests.length === 0 ? (
+      <SectionHeading count={groups.length}>Open requests</SectionHeading>
+      {groups.length === 0 ? (
         <EmptyState
           title="No open requests"
-          description="Portfolio requests appear here when an update from a portfolio company is classified. Open a portfolio email in the Inbox and classify it."
+          description="Requests appear here on their own when a portfolio company's update email has an asks section (read every day), and when you classify a portfolio email in the Inbox."
           action={{ label: 'Go to Inbox', href: '/inbox?category=portfolio_company' }}
         />
       ) : (
-        <ul className="space-y-3">
-          {requests.map((update) => {
-            const company = companies.find((c) => c.id === update.portfolio_company_id);
-            const suggested = contacts.filter((c) =>
-              update.suggested_network_contact_ids.includes(c.id),
-            );
-            return (
-              <li key={update.id}>
-                <Card>
-                  <CardContent className="pt-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
-                        {company ? (
-                          <Link
-                            href={`/portfolio/${company.id}`}
-                            className="font-serif text-base underline-offset-2 hover:underline"
-                          >
-                            {company.name}
-                          </Link>
-                        ) : (
-                          'Portfolio company'
-                        )}
-                        {update.request_type ? (
-                          <Badge tone={update.urgency === 'high' ? 'danger' : 'warn'}>
-                            {PORTFOLIO_REQUEST_LABELS[update.request_type]}
-                          </Badge>
-                        ) : null}
-                        {update.urgency ? (
-                          <Badge tone="neutral">{update.urgency} urgency</Badge>
-                        ) : null}
-                      </p>
-                      <span className="text-xs text-[var(--fg-subtle)]">
-                        {relativeTime(update.occurred_at)}
-                      </span>
-                    </div>
-
-                    <p className="mt-2 text-sm">{update.summary}</p>
-                    {update.request_detail ? (
-                      <p className="mt-1.5 text-sm text-[var(--fg-muted)]">
-                        <span className="text-[var(--fg-subtle)]">Asked for: </span>
-                        {update.request_detail}
-                      </p>
-                    ) : null}
-
-                    {update.suggested_action ? (
-                      <div className="mt-3 rounded-md bg-[var(--bg-sunken)] p-3">
-                        <FieldLabel as="p">Suggested action</FieldLabel>
-                        <p className="mt-1 text-sm">{update.suggested_action}</p>
-                        {suggested.length > 0 ? (
-                          <ul className="mt-2 space-y-1">
-                            {suggested.map((c) => (
-                              <li key={c.id} className="text-[13px] text-[var(--fg-muted)]">
-                                <span className="font-medium text-[var(--fg)]">{c.full_name}</span>
-                                {c.title ? ` — ${c.title}` : ''}
-                                {c.company ? `, ${c.company}` : ''}
-                                {c.relationship ? ` · ${c.relationship}` : ''}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="mt-2 text-xs text-[var(--fg-subtle)]">
-                            No one in your uploaded network data matches this request. Nobody is
-                            suggested rather than inventing a name.
-                          </p>
-                        )}
-                      </div>
-                    ) : null}
-
-                    {update.citations.length > 0 ? (
-                      <div className="mt-3">
-                        <CitationList
-                          ids={update.citations.map((c) => c.id)}
-                          citations={update.citations}
-                        />
-                      </div>
-                    ) : null}
-
-                    <div className="mt-3">
-                      <RequestActions
-                        updateId={update.id}
-                        portfolioCompanyId={update.portfolio_company_id}
-                        emailMessageId={update.email_message_id}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
+        <>
+          {readFromUpdates ? (
+            <p className="-mt-1 mb-3 text-sm text-[var(--fg-muted)]">
+              &ldquo;Read from their update&rdquo; asks are the lines under an asks heading in a
+              company&rsquo;s own update email, word for word. Who could help names only people in
+              your network data, with why; where nobody is named, nobody fits.
+            </p>
+          ) : null}
+          <ul className="space-y-3">
+            {visible.map((group) => (
+              <li key={group.key}>
+                <RequestCard
+                  group={group}
+                  company={companies.find((c) => c.id === group.portfolioCompanyId) ?? null}
+                  helpers={helpers}
+                />
               </li>
-            );
-          })}
-        </ul>
+            ))}
+          </ul>
+          <ShowMore
+            shown={visible.length}
+            total={groups.length}
+            step={REQUESTS_STEP}
+            href={showMoreHref(PORTFOLIO_TABS.path, { tab: 'requests' }, shown, REQUESTS_STEP)}
+          />
+        </>
       )}
     </section>
+  );
+}
+
+/**
+ * One email's requests on one card: a person's classification of it (with
+ * its suggested action), and the asks read from it, each with who could
+ * help. One Draft reply for the thread; Handled and Dismiss close them all,
+ * and each of several asks can be dismissed on its own.
+ */
+function RequestCard({
+  group,
+  company,
+  helpers,
+}: {
+  group: RequestGroup;
+  company: PortfolioCompany | null;
+  helpers: Record<string, RequestHelper[]>;
+}) {
+  const classified = group.updates.filter((u) => !isAutoAsk(u));
+  const asks = group.updates.filter(isAutoAsk);
+  const lead = group.updates[0] as PortfolioUpdate;
+  const source = asks[0]?.citations[0] ?? null;
+  const companyName = company?.name ?? 'this company';
+  const emailMessageId = group.updates.find((u) => u.email_message_id)?.email_message_id ?? null;
+  const occurredAt = group.updates.reduce(
+    (latest, u) => (u.occurred_at > latest ? u.occurred_at : latest),
+    lead.occurred_at,
+  );
+  const leadLabel = classified[0] ? requestLabel(classified[0]) : null;
+  const nobodyForAsks = asks.length > 0 && asks.every((a) => !helpers[a.id]?.length);
+
+  return (
+    <Card>
+      <CardContent className="pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+            {company ? (
+              <Link
+                href={`/portfolio/${company.id}`}
+                className="font-serif text-base underline-offset-2 hover:underline"
+              >
+                {company.name}
+              </Link>
+            ) : (
+              'Portfolio company'
+            )}
+            {leadLabel ? (
+              <Badge tone={classified[0]?.urgency === 'high' ? 'danger' : 'warn'}>
+                {leadLabel}
+              </Badge>
+            ) : null}
+            {classified[0]?.urgency ? (
+              <Badge tone="neutral">{classified[0].urgency} urgency</Badge>
+            ) : null}
+            {asks.length > 0 ? (
+              <Badge tone="outline">
+                Read from their update{asks.length > 1 ? ` · ${asks.length} asks` : ''}
+              </Badge>
+            ) : null}
+          </p>
+          <span className="text-xs text-[var(--fg-subtle)]">{relativeTime(occurredAt)}</span>
+        </div>
+
+        {classified.map((update) => {
+          const people = helpers[update.id] ?? [];
+          return (
+            <div key={update.id}>
+              <p className="mt-2 text-sm">{update.summary}</p>
+              {update.request_detail ? (
+                <p className="mt-1.5 text-sm text-[var(--fg-muted)]">
+                  <span className="text-[var(--fg-subtle)]">Asked for: </span>
+                  {update.request_detail}
+                </p>
+              ) : null}
+              {update.suggested_action || people.length > 0 ? (
+                <div className="mt-3 rounded-md bg-[var(--bg-sunken)] p-3">
+                  {update.suggested_action ? (
+                    <>
+                      <FieldLabel as="p">Suggested action</FieldLabel>
+                      <p className="mt-1 text-sm">{update.suggested_action}</p>
+                    </>
+                  ) : null}
+                  {people.length > 0 ? (
+                    <>
+                      <FieldLabel as="p" className={update.suggested_action ? 'mt-3' : undefined}>
+                        Who could help
+                      </FieldLabel>
+                      <HelperList helpers={people} label={`Who could help ${companyName}`} />
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs text-[var(--fg-subtle)]">
+                      Nobody in your network data fits this one.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+              {update.citations.length > 0 ? (
+                <div className="mt-3">
+                  <CitationList
+                    ids={update.citations.map((c) => c.id)}
+                    citations={update.citations}
+                  />
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+
+        {asks.length > 0 ? (
+          <>
+            {source ? (
+              <p className="mt-2 text-xs text-[var(--fg-subtle)]">
+                Under &ldquo;{source.section ?? 'Asks'}&rdquo; in{' '}
+                {source.url ? (
+                  <a
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline"
+                  >
+                    {source.label}
+                    <ExternalLink className="size-3" aria-hidden="true" />
+                  </a>
+                ) : (
+                  <>&ldquo;{source.label}&rdquo;</>
+                )}
+                {source.publisher ? ` from ${source.publisher}` : ''}
+              </p>
+            ) : null}
+            <ul className="mt-2 space-y-2" aria-label={`Asks from ${companyName}`}>
+              {asks.map((ask) => {
+                const label = requestLabel(ask);
+                const people = helpers[ask.id] ?? [];
+                return (
+                  <li key={ask.id} className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm">
+                        {ask.summary}
+                        {label && label !== 'Ask' ? (
+                          <Badge tone="warn" className="ml-2 align-middle">
+                            {label}
+                          </Badge>
+                        ) : null}
+                      </p>
+                      {people.length > 0 ? (
+                        <div className="mt-1 border-l-2 border-[var(--border)] pl-3">
+                          <HelperList helpers={people} label={`Who could help ${companyName}`} />
+                        </div>
+                      ) : null}
+                    </div>
+                    {asks.length > 1 ? (
+                      <DismissAskButton
+                        updateId={ask.id}
+                        label={`Dismiss the ask: ${ask.summary.slice(0, 80)}`}
+                      />
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+            {nobodyForAsks ? (
+              <p className="mt-2 text-xs text-[var(--fg-subtle)]">
+                Nobody in your network data fits {asks.length > 1 ? 'these asks' : 'this ask'}.
+              </p>
+            ) : null}
+          </>
+        ) : null}
+
+        <div className="mt-3">
+          <RequestActions
+            updateIds={group.updates.map((u) => u.id)}
+            portfolioCompanyId={group.portfolioCompanyId}
+            emailMessageId={emailMessageId}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** The people who could help with one request, each with why. */
+function HelperList({ helpers, label }: { helpers: RequestHelper[]; label: string }) {
+  return (
+    <ul className="mt-1 space-y-1.5" aria-label={label}>
+      {helpers.map((p) => {
+        const who = [p.title, p.company].filter(Boolean).join(', ');
+        const why = [
+          ...p.reasons,
+          p.lastContactAt ? `last in touch ${relativeTime(p.lastContactAt)}` : null,
+        ].filter(Boolean);
+        return (
+          <li key={p.key} className="text-[13px] text-[var(--fg-muted)]">
+            {p.recordId ? (
+              <Link
+                href={`/lists/records/${p.recordId}`}
+                className="font-medium text-[var(--fg)] underline-offset-2 hover:underline"
+              >
+                {p.name}
+              </Link>
+            ) : (
+              <span className="font-medium text-[var(--fg)]">{p.name}</span>
+            )}
+            {who ? ` — ${who}` : ''}
+            <span className="ml-1.5 text-[11px] text-[var(--fg-subtle)]">
+              {p.source === 'affinity'
+                ? p.kind === 'firm'
+                  ? 'firm, from Affinity'
+                  : 'from Affinity'
+                : 'imported contact'}
+            </span>
+            {why.length > 0 ? (
+              <span className="block text-xs text-[var(--fg-subtle)]">{why.join(' · ')}</span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -360,9 +569,9 @@ function AngelTab({
 
 async function CompaniesTab({ auth }: { auth: AuthContext }) {
   const companies = await listPortfolio(auth.organizationId);
-  // Founders from Affinity's portfolio-founder lists, matched by work email
-  // domain or the entry's company column. Never fails: none on a fault.
-  const founders = await portfolioFounders(getStore(), auth.organizationId, companies);
+  // Each company's people (saved here, from Affinity, from the mail) and when
+  // the fund was last in touch. Derived on read, never written; never fails.
+  const people = await loadPortfolioContacts(getStore(), auth.organizationId, companies);
   return (
     <section>
       <SectionHeading count={companies.length}>Companies</SectionHeading>
@@ -373,51 +582,64 @@ async function CompaniesTab({ auth }: { auth: AuthContext }) {
         />
       ) : (
         <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
-          {companies.map((company) => (
-            <li key={company.id}>
-              <Link
-                href={`/portfolio/${company.id}`}
-                className="block px-4 py-3.5 transition-colors hover:bg-[var(--bg-hover)]"
-              >
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="font-serif text-base font-semibold">{company.name}</span>
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    {company.sector ? <Badge tone="neutral">{company.sector}</Badge> : null}
-                    {company.current_stage ? (
-                      <Badge tone="outline">{company.current_stage}</Badge>
-                    ) : null}
-                  </span>
-                </div>
-                {company.geography ? (
-                  <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">{company.geography}</p>
-                ) : null}
-                {company.description ? (
-                  <p className="mt-1 text-sm text-[var(--fg-muted)]">{company.description}</p>
-                ) : null}
-                {company.key_metrics ? (
-                  <p className="mt-1 text-sm text-[var(--fg-muted)]">{company.key_metrics}</p>
-                ) : null}
-                {founders[company.id]?.length ? (
-                  <p className="mt-1 text-sm">
-                    <span className="text-[var(--fg-subtle)]">Founders (Affinity): </span>
-                    {founders[company.id]
-                      ?.map((f) => (f.role ? `${f.name}, ${f.role}` : f.name))
+          {companies.map((company) => {
+            const contacts = (people[company.id]?.contacts ?? []).slice(0, CARD_CONTACTS);
+            const lastContactAt = people[company.id]?.lastContactAt ?? company.last_contact_at;
+            return (
+              <li key={company.id}>
+                <Link
+                  href={`/portfolio/${company.id}`}
+                  className="block px-4 py-3.5 transition-colors hover:bg-[var(--bg-hover)]"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="font-serif text-base font-semibold">{company.name}</span>
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      {company.sector ? <Badge tone="neutral">{company.sector}</Badge> : null}
+                      {company.current_stage ? (
+                        <Badge tone="outline">{company.current_stage}</Badge>
+                      ) : null}
+                    </span>
+                  </div>
+                  {company.geography ? (
+                    <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">{company.geography}</p>
+                  ) : null}
+                  {company.description ? (
+                    <p className="mt-1 text-sm text-[var(--fg-muted)]">{company.description}</p>
+                  ) : null}
+                  {company.key_metrics ? (
+                    <p className="mt-1 text-sm text-[var(--fg-muted)]">{company.key_metrics}</p>
+                  ) : null}
+                  {contacts.length > 0 ? (
+                    <p className="mt-1 text-sm">
+                      <span className="text-[var(--fg-subtle)]">Contacts: </span>
+                      {contacts.map((c, i) => {
+                        const from = provenanceLabel(c.sources);
+                        return (
+                          <span key={`${c.email ?? c.name}-${i}`}>
+                            {i > 0 ? ' · ' : ''}
+                            {c.role ? `${c.name}, ${c.role}` : c.name}
+                            {from ? (
+                              <span className="text-[11px] text-[var(--fg-subtle)]"> ({from})</span>
+                            ) : null}
+                          </span>
+                        );
+                      })}
+                    </p>
+                  ) : null}
+                  <p className="mt-1 text-xs text-[var(--fg-subtle)]">
+                    {[
+                      company.current_priorities ? `Priority: ${company.current_priorities}` : null,
+                      lastContactAt
+                        ? `Last contact ${relativeTime(lastContactAt)}`
+                        : 'No contact recorded',
+                    ]
+                      .filter(Boolean)
                       .join(' · ')}
                   </p>
-                ) : null}
-                <p className="mt-1 text-xs text-[var(--fg-subtle)]">
-                  {[
-                    company.current_priorities ? `Priority: ${company.current_priorities}` : null,
-                    company.last_contact_at
-                      ? `Last contact ${relativeTime(company.last_contact_at)}`
-                      : 'No contact recorded',
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </p>
-              </Link>
-            </li>
-          ))}
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

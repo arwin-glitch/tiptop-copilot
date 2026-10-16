@@ -99,7 +99,7 @@ export const PORTFOLIO_TABS = define({
       key: 'requests',
       label: 'Requests',
       blurb:
-        'What portfolio companies asked for, with a suggested action and who in your network could help.',
+        'What portfolio companies asked for, one card per email, including the asks read from their own update emails, and who in your network could help, with why.',
     },
     {
       key: 'numbers',
@@ -111,7 +111,7 @@ export const PORTFOLIO_TABS = define({
       key: 'companies',
       label: 'Companies',
       blurb:
-        'The full list of portfolio companies, with their founders from Affinity. Open one for its contacts, updates and notes.',
+        'The full list of portfolio companies, with up to three contacts each from Affinity and your mail and when you were last in touch. Open one for all its contacts, updates and notes.',
     },
     {
       key: 'founders',
@@ -281,7 +281,7 @@ export const KNOWLEDGE_TABS = define({
       key: 'contacts',
       label: 'Contacts',
       blurb:
-        'The network contacts you imported, used to suggest who could help a company. Search by name, company or role.',
+        'Your network for introductions: the contacts you imported and the people on the Affinity lists that feed introductions (never the LP lists). Search by name, company or role.',
     },
     {
       key: 'lists',
