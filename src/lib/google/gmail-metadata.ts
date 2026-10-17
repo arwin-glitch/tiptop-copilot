@@ -1,35 +1,16 @@
 import 'server-only';
 import type { DataStore } from '@/lib/db/store';
-import { getAccessToken } from '@/lib/google/oauth';
+import { gmailGet, type GmailReadOptions } from '@/lib/google/gmail-get';
 import type { Integration } from '@/lib/types/domain';
-import { err, ok, type Result } from '@/lib/util/result';
+import { ok, type Result } from '@/lib/util/result';
 
 /**
  * One message's headers and Gmail's own snippet, no body. Read scope only.
  * Used to sort company updates from everything else before any body is read:
  * who sent it, who it went to (to tell a bcc), and whether it came from a
- * mailing list.
+ * mailing list. Fails fast unless a background caller passes `retry`
+ * (`gmail-get.ts`).
  */
-
-const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
-
-async function get<T>(
-  store: DataStore,
-  integration: Integration,
-  path: string,
-): Promise<Result<T>> {
-  const token = await getAccessToken(store, integration);
-  if (!token.ok) return token;
-  try {
-    const res = await fetch(`${BASE}${path}`, {
-      headers: { Authorization: `Bearer ${token.value}` },
-    });
-    if (!res.ok) return err('provider_unavailable', `Gmail returned ${res.status}.`);
-    return ok((await res.json()) as T);
-  } catch {
-    return err('provider_unavailable', 'Could not reach Gmail.');
-  }
-}
 
 export interface MessageMeta {
   id: string;
@@ -73,12 +54,14 @@ export async function readMessageMeta(
   store: DataStore,
   integration: Integration,
   id: string,
+  options: GmailReadOptions = {},
 ): Promise<Result<MessageMeta>> {
   const params = HEADERS.map((h) => `metadataHeaders=${encodeURIComponent(h)}`).join('&');
-  const res = await get<RawMessage>(
+  const res = await gmailGet<RawMessage>(
     store,
     integration,
     `/messages/${encodeURIComponent(id)}?format=metadata&${params}`,
+    options,
   );
   if (!res.ok) return res;
   const m = res.value;

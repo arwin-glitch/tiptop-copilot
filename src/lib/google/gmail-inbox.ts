@@ -1,6 +1,6 @@
 import 'server-only';
 import type { DataStore } from '@/lib/db/store';
-import { getAccessToken } from '@/lib/google/oauth';
+import { gmailGet, type GmailReadOptions } from '@/lib/google/gmail-get';
 import type { Integration } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
 import { htmlToPlainText } from '@/lib/util/text';
@@ -9,28 +9,12 @@ import { htmlToPlainText } from '@/lib/util/text';
  * Read-only view of Nick's Gmail inbox for the email session: which threads
  * are in the inbox right now, and who/what each one is. Uses the read scope
  * only. Kept apart from gmail-send.ts, which is the only module that writes.
+ *
+ * Every read fails fast unless its caller passes `GmailReadOptions.retry`,
+ * which only background reads do (`gmail-get.ts`).
  */
 
-const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const MAX_PAGES = 3;
-
-async function get<T>(
-  store: DataStore,
-  integration: Integration,
-  path: string,
-): Promise<Result<T>> {
-  const token = await getAccessToken(store, integration);
-  if (!token.ok) return token;
-  try {
-    const res = await fetch(`${BASE}${path}`, {
-      headers: { Authorization: `Bearer ${token.value}` },
-    });
-    if (!res.ok) return err('provider_unavailable', `Gmail returned ${res.status}.`);
-    return ok((await res.json()) as T);
-  } catch {
-    return err('provider_unavailable', 'Could not reach Gmail.');
-  }
-}
 
 /**
  * Thread ids in the inbox now, newest first (up to 300). `query` narrows it,
@@ -44,7 +28,7 @@ export async function listInboxThreadIds(
   const ids: string[] = [];
   let pageToken = '';
   for (let page = 0; page < MAX_PAGES; page++) {
-    const res = await get<{ threads?: { id: string }[]; nextPageToken?: string }>(
+    const res = await gmailGet<{ threads?: { id: string }[]; nextPageToken?: string }>(
       store,
       integration,
       `/threads?labelIds=INBOX&maxResults=100${query ? `&q=${encodeURIComponent(query)}` : ''}${
@@ -64,7 +48,11 @@ export async function readLabelNames(
   store: DataStore,
   integration: Integration,
 ): Promise<Map<string, string>> {
-  const res = await get<{ labels?: { id: string; name: string }[] }>(store, integration, '/labels');
+  const res = await gmailGet<{ labels?: { id: string; name: string }[] }>(
+    store,
+    integration,
+    '/labels',
+  );
   return new Map((res.ok ? (res.value.labels ?? []) : []).map((l) => [l.id, l.name]));
 }
 
@@ -100,7 +88,7 @@ export async function readThreadMeta(
   integration: Integration,
   id: string,
 ): Promise<InboxThreadMeta | null> {
-  const res = await get<{ messages?: Msg[] }>(
+  const res = await gmailGet<{ messages?: Msg[] }>(
     store,
     integration,
     `/threads/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`,
@@ -135,16 +123,18 @@ export async function listMessageIds(
   integration: Integration,
   query: string,
   max = 300,
+  options: GmailReadOptions = {},
 ): Promise<Result<string[]>> {
   const ids: string[] = [];
   let pageToken = '';
   while (ids.length < max) {
-    const res = await get<{ messages?: { id: string }[]; nextPageToken?: string }>(
+    const res = await gmailGet<{ messages?: { id: string }[]; nextPageToken?: string }>(
       store,
       integration,
       `/messages?maxResults=${Math.min(100, max - ids.length)}&q=${encodeURIComponent(query)}${
         pageToken ? `&pageToken=${pageToken}` : ''
       }`,
+      options,
     );
     if (!res.ok) return res;
     for (const m of res.value.messages ?? []) ids.push(m.id);
@@ -160,7 +150,7 @@ export async function readMessageHeadline(
   integration: Integration,
   id: string,
 ): Promise<MessageHeadline | null> {
-  const res = await get<Msg & { id: string; threadId: string }>(
+  const res = await gmailGet<Msg & { id: string; threadId: string }>(
     store,
     integration,
     `/messages/${id}?format=metadata&metadataHeaders=Subject`,
@@ -192,7 +182,7 @@ export async function listThreadPage(
   for (const label of options.labelIds ?? []) params.append('labelIds', label);
   if (options.q) params.set('q', options.q);
   if (options.pageToken) params.set('pageToken', options.pageToken);
-  const res = await get<{ threads?: ThreadStub[]; nextPageToken?: string }>(
+  const res = await gmailGet<{ threads?: ThreadStub[]; nextPageToken?: string }>(
     store,
     integration,
     `/threads?${params.toString()}`,
@@ -250,7 +240,7 @@ export async function readAttachment(
   messageId: string,
   attachmentId: string,
 ): Promise<Result<Buffer>> {
-  const res = await get<{ data?: string }>(
+  const res = await gmailGet<{ data?: string }>(
     store,
     integration,
     `/messages/${messageId}/attachments/${attachmentId}`,
@@ -284,11 +274,12 @@ export async function readThreadFull(
   store: DataStore,
   integration: Integration,
   id: string,
+  options: GmailReadOptions = {},
 ): Promise<Result<FullThread>> {
-  const res = await get<{
+  const res = await gmailGet<{
     id: string;
     messages?: (Msg & { id: string; payload?: FullPart })[];
-  }>(store, integration, `/threads/${id}?format=full`);
+  }>(store, integration, `/threads/${id}?format=full`, options);
   if (!res.ok) return res;
   const messages = (res.value.messages ?? [])
     .filter((m) => !m.labelIds?.includes('DRAFT'))

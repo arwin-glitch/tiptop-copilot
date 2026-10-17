@@ -5,6 +5,12 @@ import { isDemoMode } from '@/lib/config/env';
 import { chunk, listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
 import { gmailThreadUrl } from '@/lib/deals/links';
+import {
+  GMAIL_FAIL_CODES,
+  gmailPause,
+  type GmailFailCode,
+  type GmailReadOptions,
+} from '@/lib/google/gmail-get';
 import { listMessageIds } from '@/lib/google/gmail-inbox';
 import { recordAudit } from '@/lib/security/audit';
 import { scanForInjection } from '@/lib/security/injection';
@@ -16,7 +22,7 @@ import { processWide } from '@/lib/util/process-state';
 import { settlesWithin } from '@/lib/util/settle';
 import { buildUpdatesQuery, ownAddresses, readCompanyUpdates, readMetas } from './company-updates';
 import { getPrimaryIntegration } from './inbox';
-import { readUpdateBody } from './portfolio-numbers';
+import { readUpdateBodyWithReason, type UpdateBodyRead } from './portfolio-numbers';
 import { DEFAULT_MAILBOX } from './task-close';
 
 /**
@@ -54,7 +60,11 @@ import { DEFAULT_MAILBOX } from './task-close';
  * Runs from the daily job and, throttled, when Portfolio > Requests is
  * viewed (started after the response, so it never blocks the page). Every
  * run writes one `portfolio.asks_read` audit row with its counts, found
- * nothing or failed included. Gmail is only read (read scope).
+ * nothing or failed included, and why any matched update's body was not
+ * read, as safe codes. Gmail is only read (read scope), gently: nobody waits
+ * on the read, so a rate-limited or failing Gmail read is tried again within
+ * its deadline (`gmail-get.ts`), and bodies are read two at a time with a
+ * pause between.
  */
 
 export { AUTO_ASK_VERSION, isAutoAsk };
@@ -63,9 +73,16 @@ const LOOKBACK_DAYS = 45;
 const MAX_MESSAGES = 300;
 /** Updates whose bodies one read takes, newest first. */
 const MAX_BODIES = 60;
-const BODY_BATCH = 4;
+/**
+ * Bodies read at once, with a pause between: the header reads just before
+ * used much of Gmail's per-user rate, and a full thread costs twice a header.
+ */
+const BODY_BATCH = 2;
+const BODY_GAP_MS = 250;
 /** Nobody waits on the read (the page shows what is stored), so it may take its time. */
 const READ_DEADLINE_MS = 120_000;
+/** The headers may take this much of it, so a rate-limited Gmail still leaves time for the bodies. */
+const HEADERS_BUDGET_MS = 75_000;
 /** A view starts a read at most this often per organization. */
 const VIEW_THROTTLE_MS = 30 * 60_000;
 /** After a read that could not reach Gmail, views wait this long. */
@@ -285,6 +302,22 @@ export async function recordAutoAsks(
 
 export type AsksReadState = 'ok' | 'not_connected' | 'error';
 
+/**
+ * Why a matched update's body was not read: Gmail's failure (`gmailFailCode`:
+ * `rate_limited`, `gmail_5xx`, `gmail_4xx`, `not_found`, `timeout`,
+ * `provider_unavailable`), `deadline` when the read ran out of time first,
+ * or `empty` when Gmail gave the message but no text came out of it (no
+ * text part found, say), so a body with nothing in it is never counted as
+ * read.
+ */
+export const BODY_FAIL_CODES = [...GMAIL_FAIL_CODES, 'empty'] as const;
+export type BodyFailCode = GmailFailCode | 'empty';
+
+/** Every code at zero, so each audit row has the same shape. */
+export function noBodyFailures(): Record<BodyFailCode, number> {
+  return Object.fromEntries(BODY_FAIL_CODES.map((c) => [c, 0])) as Record<BodyFailCode, number>;
+}
+
 export interface AskSourcesRead {
   state: AsksReadState;
   sources: AskSource[];
@@ -293,6 +326,11 @@ export interface AskSourcesRead {
   /** Messages the Gmail search listed, and how many were a portfolio company's own update. */
   listed?: number;
   matched?: number;
+  /** Of the listed messages, how many had their headers read (the rest could not be, in time). */
+  metadataRead?: number;
+  /** Matched updates (up to the cap) whose bodies were not read or came back empty, and why, by code. */
+  bodiesFailed?: number;
+  bodyFailCodes?: Record<BodyFailCode, number>;
   /** Why the read failed, as a code from `lib/util/result.ts` ("provider_unavailable"); never a message. */
   error?: string;
 }
@@ -320,7 +358,14 @@ function fromPortfolio(updates: readonly (CompanyUpdate | null)[], since: number
     .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
 }
 
-const gmailSources: AskSourceReader = async (store, organizationId, now) => {
+/**
+ * The portfolio's update emails from Gmail, with their bodies. Every Gmail
+ * read here is a background one (`retry`, paced with the mailbox's other
+ * background reads), within READ_DEADLINE_MS, the headers within
+ * HEADERS_BUDGET_MS of it; each matched update whose body is still not read,
+ * or came back empty, is counted by why.
+ */
+export const gmailAskSources: AskSourceReader = async (store, organizationId, now) => {
   const integration = await getPrimaryIntegration(store, organizationId).catch(() => null);
   if (!integration || integration.status === 'disconnected') {
     return { state: 'not_connected', sources: [], accountEmail: null };
@@ -328,15 +373,20 @@ const gmailSources: AskSourceReader = async (store, organizationId, now) => {
   const accountEmail = integration.account_email ?? null;
   const companies = await portfolioCompanies(store, organizationId);
   if (companies.length === 0) return { state: 'ok', sources: [], accountEmail };
+  const deadline = Date.now() + READ_DEADLINE_MS;
+  const gmail: GmailReadOptions = { retry: { deadline } };
   const ids = await listMessageIds(
     store,
     integration,
     buildUpdatesQuery(companies, { lookbackDays: LOOKBACK_DAYS }),
     MAX_MESSAGES,
+    gmail,
   );
   if (!ids.ok) return { state: 'error', sources: [], accountEmail, error: ids.error.code };
-  const deadline = Date.now() + READ_DEADLINE_MS;
-  const metas = await readMetas(store, integration, ids.value, deadline);
+  const headersBy = Math.min(deadline, Date.now() + HEADERS_BUDGET_MS);
+  const metas = await readMetas(store, integration, ids.value, headersBy, {
+    retry: { deadline: headersBy },
+  });
   const own = ownAddresses(integration);
   const since = now.getTime() - LOOKBACK_DAYS * 86_400_000;
   // No Sent-mail lookups: only a solid portfolio match counts here.
@@ -350,16 +400,25 @@ const gmailSources: AskSourceReader = async (store, organizationId, now) => {
   const updates = matched.slice(0, MAX_BODIES);
 
   const sources: AskSource[] = [];
-  for (const group of chunk(updates, BODY_BATCH)) {
-    if (Date.now() > deadline) break;
-    const bodies = await Promise.all(
+  const failures = noBodyFailures();
+  for (let i = 0; i < updates.length; i += BODY_BATCH) {
+    if (i > 0) await gmailPause(BODY_GAP_MS);
+    if (Date.now() > deadline) {
+      failures.deadline += updates.length - i;
+      break;
+    }
+    const group = updates.slice(i, i + BODY_BATCH);
+    const reads = await Promise.all(
       group.map((u) =>
-        readUpdateBody(store, integration, u.messageId, u.threadId).catch(() => null),
+        readUpdateBodyWithReason(store, integration, u.messageId, u.threadId, gmail).catch(
+          (): UpdateBodyRead => ({ ok: false, code: 'provider_unavailable' }),
+        ),
       ),
     );
-    group.forEach((u, i) => {
-      const body = bodies[i];
-      if (body) sources.push(toSource(u, body));
+    group.forEach((u, k) => {
+      const read = reads[k];
+      if (read?.ok && read.text.trim()) sources.push(toSource(u, read.text));
+      else failures[read?.ok ? 'empty' : (read?.code ?? 'provider_unavailable')] += 1;
     });
   }
   return {
@@ -368,6 +427,9 @@ const gmailSources: AskSourceReader = async (store, organizationId, now) => {
     accountEmail,
     listed: ids.value.length,
     matched: matched.length,
+    metadataRead: metas.length,
+    bodiesFailed: updates.length - sources.length,
+    bodyFailCodes: failures,
   };
 };
 
@@ -485,10 +547,12 @@ function safeCode(code: string | undefined, fallback: string): string {
  * promise. Never throws.
  *
  * Every run, whatever it found and however it ended, writes one
- * `portfolio.asks_read` audit row with its counts (update emails scanned,
- * asks found, inserted, skipped as already there) and, when it failed, a
- * safe error code, so a read that finds nothing is told apart from one that
- * never ran.
+ * `portfolio.asks_read` audit row with its counts (messages listed and
+ * headers read, updates matched, update bodies read as `emails_scanned`,
+ * asks found, inserted, skipped as already there), the matched bodies not
+ * read with why (`bodies_failed`, and `body_fail_codes` by `BodyFailCode`)
+ * and, when it failed, a safe error code, so a read that finds nothing is
+ * told apart from one that never ran or could not read the mail.
  */
 export function refreshPortfolioAsks(
   store: DataStore,
@@ -498,7 +562,7 @@ export function refreshPortfolioAsks(
   const running = refreshState.inFlight.get(organizationId);
   if (running) return running;
   const clock = options.now ?? (() => new Date());
-  const read = options.read ?? (isDemoMode() ? demoSources : gmailSources);
+  const read = options.read ?? (isDemoMode() ? demoSources : gmailAskSources);
   // After a failed read a view may try again in five minutes, not thirty.
   const failed = () => {
     refreshState.retryAt.set(organizationId, clock().getTime() + RETRY_MS);
@@ -565,7 +629,10 @@ export function refreshPortfolioAsks(
           insert_failed: result.failed,
           bodies_unreadable: result.unreadable,
           messages_listed: sources?.listed ?? null,
+          metadata_read: sources?.metadataRead ?? null,
           updates_matched: sources?.matched ?? null,
+          bodies_failed: sources?.bodiesFailed ?? null,
+          body_fail_codes: sources?.bodyFailCodes ?? null,
           error: result.error ?? null,
           duration_ms: Date.now() - startedAt,
         },

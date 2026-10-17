@@ -10,6 +10,7 @@ import {
   type CandidateMessage,
   type CompanyLike,
 } from '@/lib/company-updates/classify';
+import { looksLikeHtml, withoutQuotedReply } from '@/lib/company-updates/asks';
 import {
   buildCompanyNumbers,
   extractMetrics,
@@ -19,11 +20,13 @@ import {
 import { z } from 'zod';
 import { isDemoMode } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
-import { listMessageIds, readThreadFull } from '@/lib/google/gmail-inbox';
+import { gmailFailCode, type GmailFailCode, type GmailReadOptions } from '@/lib/google/gmail-get';
+import { listMessageIds, readThreadFull, type FullThread } from '@/lib/google/gmail-inbox';
 import { log } from '@/lib/security/redact';
 import type { AuditEvent, Integration } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
-import { normalizeCompanyName } from '@/lib/util/text';
+import type { Result } from '@/lib/util/result';
+import { headAndTail, htmlToPlainText, normalizeCompanyName } from '@/lib/util/text';
 import { processWide } from '@/lib/util/process-state';
 import { settlesWithin } from '@/lib/util/settle';
 import { ownAddresses, readMetas } from './company-updates';
@@ -47,7 +50,10 @@ const DEADLINE_MS = 20_000;
 const COMPANY_CONCURRENCY = 4;
 const BODY_CONCURRENCY = 4;
 const BODY_CACHE_MAX = 4_000;
+/** A message's text is kept to this many characters: its start, and its last TAIL_TEXT. */
 const MAX_TEXT = 20_000;
+/** An update's asks come last, so the end of a long one is kept too (`headAndTail`). */
+const TAIL_TEXT = 6_000;
 
 export type PortfolioNumbersState = 'ok' | 'not_connected' | 'error';
 
@@ -125,29 +131,70 @@ export function screenForCompany(
   return true;
 }
 
+/** One message's text, or why it could not be read, as a safe code (`gmailFailCode`). */
+export type UpdateBodyRead = { ok: true; text: string } | { ok: false; code: GmailFailCode };
+
 /**
- * The text of one message, from memory or from its thread. Shared with the
- * asks read (`portfolio-asks.ts`), so an update's body is fetched once for
- * both.
+ * A message's text as it is kept. Within MAX_TEXT it is left exactly as it
+ * is. A longer one is cut to the sender's own words first (the quoted
+ * history under a reply, by the asks reader's rules, read as text when it is
+ * HTML), so the end kept is the company's latest update and not an older one
+ * it quotes; then, still too long, its start and its last TAIL_TEXT
+ * (`headAndTail`).
  */
-export async function readUpdateBody(
+export function keptText(text: string): string {
+  if (text.length <= MAX_TEXT) return text;
+  return headAndTail(
+    withoutQuotedReply(looksLikeHtml(text) ? htmlToPlainText(text) : text),
+    MAX_TEXT,
+    TAIL_TEXT,
+  );
+}
+
+/**
+ * The text of one message, from memory or from its thread, or why it could
+ * not be read. Shared with the asks read (`portfolio-asks.ts`), so an
+ * update's body is fetched once for both. Every message of the thread is
+ * kept (`keptText`). `options.retry` is for background reads only.
+ */
+export async function readUpdateBodyWithReason(
   store: DataStore,
   integration: Integration,
   messageId: string,
   threadId: string,
-): Promise<string | null> {
+  options: GmailReadOptions = {},
+): Promise<UpdateBodyRead> {
   const hit = cache.bodies.get(messageId);
-  if (hit !== undefined) return hit;
-  const thread = await readThreadFull(store, integration, threadId).catch(() => null);
-  if (!thread?.ok) return null;
+  if (hit !== undefined) return { ok: true, text: hit };
+  let thread: Result<FullThread>;
+  try {
+    thread = await readThreadFull(store, integration, threadId, options);
+  } catch {
+    return { ok: false, code: 'provider_unavailable' };
+  }
+  if (!thread.ok) return { ok: false, code: gmailFailCode(thread.error) };
   for (const m of thread.value.messages) {
     if (cache.bodies.size >= BODY_CACHE_MAX) {
       const oldest = cache.bodies.keys().next().value;
       if (oldest !== undefined) cache.bodies.delete(oldest);
     }
-    cache.bodies.set(m.id, m.text.slice(0, MAX_TEXT));
+    cache.bodies.set(m.id, keptText(m.text));
   }
-  return cache.bodies.get(messageId) ?? null;
+  const text = cache.bodies.get(messageId);
+  // The thread was read but the message is not in it (deleted, or a draft).
+  return text === undefined ? { ok: false, code: 'not_found' } : { ok: true, text };
+}
+
+/** The text of one message, or null when it could not be read (`readUpdateBodyWithReason`). */
+export async function readUpdateBody(
+  store: DataStore,
+  integration: Integration,
+  messageId: string,
+  threadId: string,
+  options: GmailReadOptions = {},
+): Promise<string | null> {
+  const read = await readUpdateBodyWithReason(store, integration, messageId, threadId, options);
+  return read.ok ? read.text : null;
 }
 
 async function mapLimit<T, R>(
@@ -179,13 +226,16 @@ async function readCompany(
   companies: readonly CompanyLike[],
   own: readonly string[],
   deadline: number,
+  gmail: GmailReadOptions,
 ): Promise<CompanyRead> {
   const q = companySearchQuery(company);
   if (!q) return { numbers: null, complete: true };
   if (Date.now() > deadline) return { numbers: null, complete: false };
-  const ids = await listMessageIds(store, integration, q, MAX_IDS_PER_COMPANY).catch(() => null);
+  const ids = await listMessageIds(store, integration, q, MAX_IDS_PER_COMPANY, gmail).catch(
+    () => null,
+  );
   if (!ids?.ok) return { numbers: null, complete: false };
-  const metas = await readMetas(store, integration, ids.value, deadline);
+  const metas = await readMetas(store, integration, ids.value, deadline, gmail);
   const seenThreads = new Set<string>();
   const updates = metas
     .filter((m) => m.date && screenForCompany(m, company, companies, own))
@@ -202,7 +252,7 @@ async function readCompany(
       complete = false;
       return null;
     }
-    const body = await readUpdateBody(store, integration, m.id, m.threadId);
+    const body = await readUpdateBody(store, integration, m.id, m.threadId, gmail);
     if (body === null) {
       complete = false;
       return null;
@@ -309,13 +359,20 @@ export interface NumbersComputation {
   reads: CompanyReadResult[];
 }
 
-/** Read every company's update mail within the time budget; never throws. */
+/**
+ * Read every company's update mail within the time budget; never throws. A
+ * `background` read (the stored numbers' refresh, which nobody waits on)
+ * tries a rate-limited or failing Gmail read again within the deadline,
+ * paced with the mailbox's other background reads; a read a page waits on
+ * (the live read, and the first read with nothing stored) fails fast.
+ */
 async function computeReads(
   store: DataStore,
   organizationId: string,
   companies: readonly CompanyLike[],
   now: Date,
   deadlineMs: number,
+  options: { background?: boolean } = {},
 ): Promise<NumbersComputation> {
   try {
     if (isDemoMode()) {
@@ -335,8 +392,9 @@ async function computeReads(
     }
     const own = ownAddresses(integration);
     const deadline = Date.now() + deadlineMs;
+    const gmail: GmailReadOptions = options.background ? { retry: { deadline } } : {};
     const reads = await mapLimit(companies, COMPANY_CONCURRENCY, async (c) => {
-      const read = await readCompany(store, integration, c, companies, own, deadline).catch(
+      const read = await readCompany(store, integration, c, companies, own, deadline, gmail).catch(
         (): CompanyRead => ({ numbers: null, complete: false }),
       );
       return { companyId: c.id, ...read };
@@ -572,6 +630,16 @@ export type NumbersReader = (
 ) => Promise<NumbersComputation>;
 
 const gmailReader: NumbersReader = (store, organizationId, companies, now) =>
+  computeReads(store, organizationId, companies, now, REFRESH_DEADLINE_MS, { background: true });
+
+/**
+ * The first read, the one the page waits on while nothing is stored: like a
+ * page's own read it fails fast instead of waiting out Gmail's rate limit, so
+ * the page shows what it could read within its budget. What it missed leaves
+ * the snapshot partial, and the background refresh a view then starts reads
+ * it with `gmailReader`.
+ */
+const gmailFirstReader: NumbersReader = (store, organizationId, companies, now) =>
   computeReads(store, organizationId, companies, now, REFRESH_DEADLINE_MS);
 
 const refreshState = processWide('portfolio-numbers-refresh', () => ({
@@ -670,8 +738,8 @@ export interface StoredNumbers {
 /**
  * The Portfolio page's numbers, from the database. Stored numbers come back at
  * once, with a background refresh started when they are stale. With nothing
- * stored yet, the first read is waited on for up to the old live-read budget.
- * Never throws.
+ * stored yet, the first read is waited on for up to the old live-read budget,
+ * and fails fast as a page's read does (`gmailFirstReader`). Never throws.
  */
 export async function loadPortfolioNumbers(
   store: DataStore,
@@ -680,9 +748,9 @@ export async function loadPortfolioNumbers(
   options: { now?: Date; read?: NumbersReader; budgetMs?: number } = {},
 ): Promise<StoredNumbers> {
   const now = options.now ?? new Date();
-  const start = () =>
+  const start = (read?: NumbersReader) =>
     refreshPortfolioNumbers(store, organizationId, companies, {
-      read: options.read,
+      read: options.read ?? read,
       now: options.now ? () => now : undefined,
     });
   const stored = await readNumbersSnapshot(store, organizationId).catch(() => null);
@@ -695,7 +763,7 @@ export async function loadPortfolioNumbers(
     return { result: snapshotView(stored, companies), refreshing: pending !== null, pending };
   }
 
-  const run = start();
+  const run = start(gmailFirstReader);
   if (await settlesWithin(run, options.budgetMs ?? FIRST_READ_BUDGET_MS)) {
     const done = await run;
     const result: PortfolioNumbersResult = done.snapshot

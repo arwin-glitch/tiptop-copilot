@@ -1,5 +1,5 @@
 import type { PortfolioRequestType } from '@/lib/types/domain';
-import { htmlToPlainText } from '@/lib/util/text';
+import { htmlToPlainText, LEFT_OUT_LINE } from '@/lib/util/text';
 
 /**
  * The explicit asks in a portfolio company's update email.
@@ -330,36 +330,58 @@ export function asksHeading(line: string): string | null {
 const QUOTE_HEADER =
   /^(?:on|am|le|el|il|op)\s.{4,}\b(?:wrote|schrieb|a écrit|escribió|ha scritto|schreef)\b/i;
 
+/** Whether line `i` starts quoted history: a reply's "On … wrote:", "Original Message", or an Outlook header. */
+function startsQuotedReply(lines: readonly string[], i: number): boolean {
+  const t = (lines[i] ?? '').trim();
+  const next = (lines[i + 1] ?? '').trim();
+  // "On Mon, Oct 5, 2026 at 9:00 AM Jane <jane@x.com> wrote:", sometimes over two lines.
+  if (/^on\s.{4,}/i.test(t) && (/wrote:\s*$/i.test(t) || /wrote:\s*$/i.test(next))) return true;
+  if (QUOTE_HEADER.test(t) && (/:\s*$/.test(t) || /:\s*$/.test(next))) return true;
+  if (/^-{2,}\s*original message\s*-{2,}$/i.test(t)) return true;
+  if (/^_{10,}$/.test(t)) return true;
+  // An Outlook reply header ("From: … / Sent: …"), unless it heads a forward.
+  if (/^from:\s+\S/i.test(t) && /^(?:sent|date):\s/i.test(next)) {
+    const before = lines
+      .slice(Math.max(0, i - 2), i)
+      .join(' ')
+      .toLowerCase();
+    if (!/forwarded message|begin forwarded/.test(before)) return true;
+  }
+  return false;
+}
+
 /** Where the company's own words stop: a quoted reply, an Outlook header, a signature. */
 function ownLines(body: string): string[] {
   const lines = body.replace(/\r\n?/g, '\n').split('\n');
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? '';
-    const t = line.trim();
-    const next = (lines[i + 1] ?? '').trim();
-    // "On Mon, Oct 5, 2026 at 9:00 AM Jane <jane@x.com> wrote:", sometimes over two lines.
-    if (/^on\s.{4,}/i.test(t) && (/wrote:\s*$/i.test(t) || /wrote:\s*$/i.test(next))) break;
-    if (QUOTE_HEADER.test(t) && (/:\s*$/.test(t) || /:\s*$/.test(next))) break;
-    if (/^-{2,}\s*original message\s*-{2,}$/i.test(t)) break;
-    if (/^_{10,}$/.test(t)) break;
-    // An Outlook reply header ("From: … / Sent: …"), unless it heads a forward.
-    if (/^from:\s+\S/i.test(t) && /^(?:sent|date):\s/i.test(next)) {
-      const before = lines
-        .slice(Math.max(0, i - 2), i)
-        .join(' ')
-        .toLowerCase();
-      if (!/forwarded message|begin forwarded/.test(before)) break;
-    }
+    if (startsQuotedReply(lines, i)) break;
     // The signature delimiter ("-- ") and phone sign-offs end the letter.
-    if (/^--\s?$/.test(line) || /^sent from my /i.test(t)) break;
+    if (/^--\s?$/.test(line) || /^sent from my /i.test(line.trim())) break;
     out.push(line);
   }
   return out;
 }
 
+/**
+ * The text up to the quoted history under a reply, by the same rules the
+ * asks are read with. For a caller that keeps only part of a long message
+ * (`headAndTail`): cut first, so the end it keeps is the sender's own and
+ * not the end of an older, quoted update, with the header that marked it as
+ * quoted left out with the middle. A text with no quoted history comes back
+ * as it is.
+ */
+export function withoutQuotedReply(text: string): string {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (startsQuotedReply(lines, i)) return lines.slice(0, i).join('\n').trimEnd();
+  }
+  return text;
+}
+
 /** An HTML body, or a "plain text" part that is really HTML (some update platforms send that). */
-function looksLikeHtml(body: string): boolean {
+export function looksLikeHtml(body: string): boolean {
   return (body.match(/<(?:p|div|br|li|ul|ol|table|td|h[1-6])\b[^>]*>/gi) ?? []).length >= 2;
 }
 
@@ -367,10 +389,18 @@ function looksLikeHtml(body: string): boolean {
  * The body as lines of the company's own words: HTML read as text, quoted
  * replies and the signature cut, and Gmail's plain-text lists ("-" alone on a
  * line, the item's text below it) put back on one line, at the text's indent,
- * which is the one that tells an item from its sub-item.
+ * which is the one that tells an item from its sub-item. A long body kept as
+ * its start and end (`headAndTail`) is read as its two parts with a rule
+ * between, in place of the line that marks the cut: never part of an ask, and
+ * no section runs across it.
  */
 function bodyLines(body: string): string[] {
-  const lines = ownLines(looksLikeHtml(body) ? htmlToPlainText(body) : body);
+  const html = looksLikeHtml(body);
+  const text = body
+    .split(LEFT_OUT_LINE)
+    .map((part) => (html ? htmlToPlainText(part) : part))
+    .join('\n\n---\n\n');
+  const lines = ownLines(text);
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? '';

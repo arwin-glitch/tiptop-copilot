@@ -12,6 +12,7 @@ import {
 } from '@/lib/company-updates/classify';
 import { isDemoMode } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
+import type { GmailReadOptions } from '@/lib/google/gmail-get';
 import { listMessageIds } from '@/lib/google/gmail-inbox';
 import { readMessageMeta, type MessageMeta } from '@/lib/google/gmail-metadata';
 import type { Integration, PortfolioCompany } from '@/lib/types/domain';
@@ -68,19 +69,24 @@ export function ownAddresses(integration: Pick<Integration, 'account_email'> | n
   return [...own];
 }
 
-/** Headers for these ids, from memory where possible; a failed read is retried next time. */
+/**
+ * Headers for these ids, from memory where possible; a failed read is retried
+ * next time. A background caller passes `options.retry` so a rate-limited read
+ * is tried again within its deadline; a page leaves it out and fails fast.
+ */
 export async function readMetas(
   store: DataStore,
   integration: Integration,
   ids: readonly string[],
   deadline = Number.POSITIVE_INFINITY,
+  options: GmailReadOptions = {},
 ): Promise<MessageMeta[]> {
   const missing = ids.filter((id) => !metaCache.has(id));
   for (let i = 0; i < missing.length; i += FETCH_BATCH) {
     if (Date.now() > deadline) break;
     const batch = missing.slice(i, i + FETCH_BATCH);
     const metas = await Promise.all(
-      batch.map((id) => readMessageMeta(store, integration, id).catch(() => null)),
+      batch.map((id) => readMessageMeta(store, integration, id, options).catch(() => null)),
     );
     for (const m of metas) {
       if (!m?.ok) continue;

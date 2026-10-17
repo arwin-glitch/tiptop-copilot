@@ -10,6 +10,29 @@ throughout.
 
 ## [Unreleased]
 
+- **The asks read gets through Gmail's rate limit, and says why when it
+  cannot.** It matched 20 portfolio updates but read one body: every other
+  thread read was refused (most likely Gmail's per-user rate limit, after
+  300 header reads, with the numbers refresh reading the same mailbox) and
+  each refusal was dropped without a word. Background reads (the asks read,
+  and the stored numbers' refresh, which shares the bodies) now try a 429, a
+  403 rate limit and Gmail's 500/502/503/504 again, up to four tries, after
+  Retry-After or a backoff from about a second, and no request or wait runs
+  past the read's deadline; 400, 401 and 404 are never tried again. They
+  share one gate per mailbox, whichever reader asks: four at once, the rest
+  queued, and after a rate limit none starts until its wait is over, so the
+  numbers refresh and the asks read pace each other when the daily job or a
+  Portfolio view runs both. Pages (Inbox, Ask, Reports, and the numbers' first
+  read when nothing is stored) still fail at once. The asks read takes bodies
+  two at a time with a short pause, and its `portfolio.asks_read` row adds
+  `metadata_read`, `bodies_failed` and `body_fail_codes` (`rate_limited`,
+  `gmail_5xx`, `gmail_4xx`, `not_found`, `timeout`, `deadline`,
+  `provider_unavailable`, `empty`; codes only, no mail); a body that came back
+  with no text counts as `empty`, not as read. A long update now keeps its
+  last 6,000 characters as well as its first 14,000, so an asks section at
+  the end is no longer cut off; the quoted history under a long reply is cut
+  first, so an older update's asks and numbers are never read as the new
+  one's, and the cut is never read into an ask.
 - **Asks are read the way founders write them, and every read leaves a
   record.** Real updates rarely put their asks in bullets under "Asks": they
   write "My ask" over short titles of one sentence each, "Top asks for this

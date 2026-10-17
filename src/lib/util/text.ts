@@ -129,6 +129,30 @@ export function truncate(text: string, max: number, suffix = '…'): string {
   return text.slice(0, Math.max(0, max - suffix.length)).trimEnd() + suffix;
 }
 
+/** The line, a paragraph of its own, that stands where `headAndTail` left the middle out. */
+export const LEFT_OUT_LINE = '[… the middle of this long email is left out …]';
+
+/**
+ * A long text kept to about `max` characters as its start and its end, not
+ * its start alone: an update's asks and sign-off come last. The last
+ * `tailChars` are kept and the start fills the rest; each cut falls at a line
+ * end when one is near, and `LEFT_OUT_LINE` stands between them, a paragraph
+ * of its own. A text within `max` comes back as it is.
+ */
+export function headAndTail(text: string, max: number, tailChars = Math.round(max * 0.3)): string {
+  if (text.length <= max) return text;
+  const tailLen = Math.max(0, Math.min(tailChars, max));
+  const headLen = max - tailLen;
+  let head = text.slice(0, headLen);
+  const headEnd = head.lastIndexOf('\n');
+  if (headEnd > headLen / 2) head = head.slice(0, headEnd);
+  let tail = tailLen > 0 ? text.slice(text.length - tailLen) : '';
+  const tailStart = tail.indexOf('\n');
+  if (tailStart !== -1 && tailStart < tailLen / 2) tail = tail.slice(tailStart + 1);
+  // Only blank lines go from the tail's start: its first line's indent may mark a sub-item.
+  return `${head.trimEnd()}\n\n${LEFT_OUT_LINE}\n\n${tail.replace(/^(?:[ \t]*\n)+/, '')}`;
+}
+
 /** Snippet used in list views; collapses newlines. */
 export function snippet(text: string, max = 220): string {
   return truncate(text.replace(/\s+/g, ' ').trim(), max);

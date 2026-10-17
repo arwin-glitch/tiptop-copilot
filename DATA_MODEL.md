@@ -166,7 +166,12 @@ with action `portfolio.asks_read` and counts only in `metadata`: `trigger`
 (`daily` or `view`), `state`, `emails_scanned`, `asks_found`, `inserted`,
 `skipped` (asks already there, or inserted meanwhile by another read),
 `insert_failed` (asks the store refused that are not there either),
-`bodies_unreadable`, `messages_listed`, `updates_matched`, `error` (a code
+`bodies_unreadable`, `messages_listed`, `metadata_read` (of those, headers
+read), `updates_matched`, `bodies_failed` (matched updates whose body was not
+read; `emails_scanned` counts those that were), `body_fail_codes` (that count
+by code, every code present: `rate_limited`, `gmail_5xx`, `gmail_4xx`,
+`not_found`, `timeout`, `deadline`, `provider_unavailable`, and `empty` for a
+body that came back with no text), `error` (a code
 such as `provider_unavailable`, `read_failed`, `store_failed` or
 `insert_failed`, else null) and `duration_ms`. Who could help is worked out when the page is read
 (`lib/network/helpers.ts`), not stored.
