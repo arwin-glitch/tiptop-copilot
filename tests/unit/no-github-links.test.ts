@@ -5,8 +5,10 @@ import { describe, expect, it } from 'vitest';
 /**
  * Nothing in the app sends a person to where the code or the desktop
  * installers are hosted. Installers download through Copilot's own
- * /api/desktop/download route, which streams the file; lib/desktop/
- * releases.ts is the one module that talks to the host, server-side.
+ * /api/desktop/download route, which streams the file, and the desktop
+ * app's updater through /api/desktop/update and /api/desktop/update-file;
+ * lib/desktop/releases.ts is the one module that talks to the host,
+ * server-side.
  */
 
 const SRC = path.resolve(import.meta.dirname, '../../src');

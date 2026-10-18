@@ -16,8 +16,9 @@ import { expect, test, type Browser, type BrowserContext, type Page } from '@pla
 const EMPTY = { cookies: [], origins: [] };
 const SIGNED_IN = resolve('test-results', 'desktop-app-state.json');
 
-function markAsDesktopApp() {
-  Object.defineProperty(window, '__TIPTOP_DESKTOP__', { value: '0.1.0' });
+/** The shell's flag, as an init script; its argument is the app's version. */
+function markAsDesktopApp(version: string) {
+  Object.defineProperty(window, '__TIPTOP_DESKTOP__', { value: version });
 }
 
 async function openApp(browser: Browser, baseURL: string | undefined) {
@@ -28,7 +29,7 @@ async function openApp(browser: Browser, baseURL: string | undefined) {
     storageState: EMPTY,
     serviceWorkers: 'block',
   });
-  await context.addInitScript(markAsDesktopApp);
+  await context.addInitScript(markAsDesktopApp, '0.1.0');
   const page = await context.newPage();
   let captured = '';
   await page.route('**/desktop/callback**', (route) => {
@@ -212,6 +213,9 @@ test.describe('the download page', () => {
     await expect(
       page.getByRole('heading', { name: 'Rather skip the security steps?' }),
     ).toBeVisible();
+    // The version on offer is not known here, so the claim carries its version.
+    await expect(page.getByText(/From version 0\.2\.0 the app updates itself:/)).toBeVisible();
+    await expect(mac.getByText(/^From version 0\.2\.0 you do this once:/)).toBeVisible();
     await expect(page.locator('a[href*="github.com"]')).toHaveCount(0);
 
     // The demo has no installers: the route comes back with a plain notice.
@@ -223,7 +227,7 @@ test.describe('the download page', () => {
   test('inside the desktop app, it shows the version and no browser-only options', async ({
     page,
   }) => {
-    await page.addInitScript(markAsDesktopApp);
+    await page.addInitScript(markAsDesktopApp, '0.1.0');
     await page.goto('/download');
     await expect(page.getByText('You’re using the desktop app, version 0.1.0.')).toBeVisible();
     // The app is what Download offers, so neither menu lists it.
@@ -246,6 +250,37 @@ test.describe('the download page', () => {
     );
   });
 
+  test('an app too old to update itself is told it updates itself from 0.2.0', async ({ page }) => {
+    await page.addInitScript(markAsDesktopApp, '0.1.0');
+    await page.goto('/download');
+    await expect(page.getByText(/From version 0\.2\.0 the app updates itself\./)).toBeVisible();
+    await page.goto('/settings');
+    await page.getByRole('tab', { name: 'Preferences' }).click();
+    await expect(page.getByText('From version 0.2.0 the app updates itself.')).toBeVisible();
+  });
+
+  test('from 0.2.0 the app installs its own updates, with no download link', async ({ page }) => {
+    await page.addInitScript(markAsDesktopApp, '0.2.0');
+    await page.goto('/download');
+    await expect(page.getByText('You’re using the desktop app, version 0.2.0.')).toBeVisible();
+    await expect(
+      page.getByText(/installs its own updates: when a new version is ready/),
+    ).toBeVisible();
+    await expect(page.getByText(/quit the app first/)).toHaveCount(0);
+
+    await page.goto('/settings');
+    await page.getByRole('tab', { name: 'Preferences' }).click();
+    await expect(
+      page.getByText(
+        'You’re using the desktop app, version 0.2.0. It installs its own updates: when a new version is ready, it asks to restart.',
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/use Check for Updates… in the File menu on Windows/),
+    ).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Check for a new version' })).toHaveCount(0);
+  });
+
   test('in a browser, Settings points to the desktop app', async ({ page }) => {
     await page.goto('/settings');
     // Both menus list Download in a browser (the sidebar under System).
@@ -255,5 +290,29 @@ test.describe('the download page', () => {
       'href',
       '/download',
     );
+  });
+});
+
+test.describe('the desktop app’s updater', () => {
+  // A plain HTTP client inside the app: no session and no cookies.
+  test.use({ storageState: EMPTY });
+
+  test('checks and downloads without signing in, while installers stay signed in', async ({
+    request,
+  }) => {
+    const nothingNew = await request.get('/api/desktop/update/darwin/aarch64/0.2.0');
+    expect(nothingNew.status()).toBe(204);
+    expect(nothingNew.headers()['cache-control']).toBe('no-store');
+
+    const unknown = await request.get('/api/desktop/update/linux/x86_64/0.2.0');
+    expect(unknown.status()).toBe(400);
+
+    // The demo publishes nothing: not found, rather than "sign in".
+    const file = await request.get('/api/desktop/update-file/mac/0.2.1');
+    expect(file.status()).toBe(404);
+    expect(await file.json()).toMatchObject({ ok: false, error: { code: 'not_found' } });
+
+    const installer = await request.get('/api/desktop/download/mac', { maxRedirects: 0 });
+    expect(installer.status()).toBe(401);
   });
 });

@@ -37,6 +37,13 @@ const PUBLIC_PATHS = [
   // accident.
   '/desktop/callback',
   '/desktop/done',
+  // The desktop app's updater checks and downloads with no session: it is a
+  // plain HTTP client inside the app, apart from its window. Both routes serve
+  // only what every release already holds, the app checks each file's
+  // signature before installing, and each route brakes per address. Listed
+  // one by one: /api/desktop/download stays signed in.
+  '/api/desktop/update',
+  '/api/desktop/update-file',
   '/api/cron',
   // Cloud Pub/Sub delivers Gmail notifications here and carries no session
   // cookie. Listed individually rather than opening /api/integrations, which

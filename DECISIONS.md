@@ -937,7 +937,8 @@ for a web change.
   `/api/desktop/download/<platform>` stream them through Copilot; no page
   links to where they are hosted. When the release lookup is refused, both
   downloads stay offered and go by the installers' fixed names.
-- **No auto-updater.** One would need signing keys kept as secrets. The app
+- **No auto-updater.** *Superseded by D-055: from 0.2.0 the app updates
+  itself.* One would need signing keys kept as secrets. The app
   shows the live site, so most changes need nothing; a new shell version
   means downloading it again from `/download`, which says when one is out.
 - **window.confirm is gone.** The Mac window answers every confirm with
@@ -952,6 +953,84 @@ session.
 
 **Known limits.** No phone alerts in the desktop app (neither webview has a
 push service); connecting Google stays a browser task; each new shell version
-repeats Open Anyway on a Mac and SmartScreen's Run anyway on Windows; the
+repeats Open Anyway on a Mac and SmartScreen's Run anyway on Windows (until
+0.2.0, D-055); the
 first load after Render has idled can take up to a minute, which the bundled
 page says.
+
+### D-055 — The desktop app updates itself: signed updates through our own domain
+
+**Context.** D-054 shipped the shell with no updater, so every new shell
+version meant downloading it again and repeating the security steps. From
+0.2.0 the app installs its own updates, still with nothing paid.
+
+**Decision.**
+
+- **Tauri's updater, driven from Rust only.** About 15 seconds after launch
+  and every 6 hours (30 minutes after a check that failed) the shell asks
+  `/api/desktop/update/<os>/<arch>/<version>`, downloads a newer version in
+  the background and asks once whether to restart. Later is the default
+  button, so an Enter meant for the page never restarts the app. Check for
+  Updates… (the File menu on Windows, after About on a Mac) does the same and
+  also says when nothing is new. The page still gets no command and no
+  injected script.
+- **Native dialogs from rfd, not tauri-plugin-dialog.** The dialog plugin adds
+  a script to every page, copilot.tiptop.vc included, that replaces `alert`
+  and `confirm` with calls the remote page may not make: `alert` would show
+  nothing and `confirm` would always say yes. rfd is the engine that plugin
+  uses, without the script.
+- **Every update is signed, and checked twice.** Each file carries a minisign
+  signature whose trusted comment names its version. The app checks it
+  against the public key built into it, refuses a version other than the one
+  announced (`requireSignedVersion`) and never downgrades. CI checks every
+  signature against the same public key before anything is published, and
+  publishes nothing if one fails.
+- **One job sees the key.** The build jobs sign with a throwaway key made for
+  that run, so no crate's build code ever sees the real one and a branch
+  build's files are worthless as updates. A job that runs for release tags
+  alone, the only place the `TAURI_SIGNING_PRIVATE_KEY` secret is read,
+  re-signs the update files, verifies them and hands them to the release job,
+  which writes `latest.json`. The key has no password; it lives in that
+  secret and the owner's offline copies.
+- **Two public routes on our own domain.** The updater is a plain HTTP client
+  with no session, so `/api/desktop/update/...` and
+  `/api/desktop/update-file/<platform>/<version>` are public, listed one by
+  one in the proxy; `/api/desktop/download` stays signed in. The check reads
+  the newest release's `latest.json`, requires its version to be the tag's
+  and each signature to be made for that version, and answers for one
+  platform with a URL it builds itself; the file's own URLs and notes are
+  ignored. The file route streams only the version on offer, so a release
+  that lands between a check and its download gives a 404 and a later check,
+  never a file its signature does not match. Neither route names where
+  releases are hosted, in a body, a header or an error.
+- **Brakes.** Per address (IPv6 by /64, hashed): 30 checks and 10 file
+  requests an hour. Ceilings for everyone: 1,200 checks and 30 files an
+  hour, charged only by requests within their own address's limit. The file
+  ceiling counts only files that will stream: a version not on offer is a
+  404 from the cached manifest and spends only its caller's own limit. A
+  file is tens of megabytes, so the low file ceiling caps what the routes
+  can be made to stream. A manifest that cannot be read is a 503, never a
+  204, so a manual check never says "up to date" when nobody looked.
+- **Accepted:** the shell can be downloaded from these routes without signing
+  in. It holds nothing but the site's address. A request carries the OS, CPU
+  architecture and app version; nothing about the caller is stored, and the
+  logs hold only the platform and versions of an update offered or served.
+
+**Why.** A shell that cannot update itself leaves people on old versions, and
+each new one costs a download and the security steps again. Signing keeps the
+trust where it was: a compromise of the host, the routes or the release
+storage can stop or delay updates, never install a build that did not come
+through the release signing job.
+
+**Known limits.** The 0.1.0 app has no updater, so its users download 0.2.0
+once more; /download and Settings say so. If the signing key is lost,
+installed apps can never update again, and a new key costs everyone one more
+manual download; if it leaks, one release signed with the old key must carry
+the new public key. Anyone who can change the workflow can reach the secret;
+limiting it to a GitHub Environment for release tags is the next hardening
+step. A Mac copy run from the disk image or from Downloads cannot replace
+itself, and says so once per launch. The limiter is in-process, so it resets
+on deploy. The ceilings can still be used up on purpose, by downloading the
+real file from 3 addresses or checking from 40: updates then wait for the
+next hour, the apps try again every 30 minutes, and the signatures are
+untouched, so the worst outcome is a delay.

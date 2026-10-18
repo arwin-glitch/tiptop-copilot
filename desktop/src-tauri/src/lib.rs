@@ -3,11 +3,12 @@
 //! A bundled fallback page hands over to the live site once it answers, so
 //! every web update reaches the app with no new build. The shell registers no
 //! commands and ships no capabilities, so the remote page has no native access;
-//! the only native behaviour is here and in the menus (`menu.rs`), driven from
-//! Rust.
+//! the only native behaviour is here, in the menus (`menu.rs`) and in the
+//! in-app updates (`updates.rs`), driven from Rust.
 
 mod menu;
 mod nav;
+mod updates;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -208,6 +209,8 @@ pub fn run() {
         // Its default script would intercept _blank links and call a command the
         // remote page is not allowed to use, leaving the links dead.
         .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
+        // Used from Rust only (updates.rs). With no capabilities the page cannot call it.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| match event {
             // Closing the main window hides it (tray on Windows, Dock on a Mac).
             WindowEvent::CloseRequested { api, .. } if window.label() == MAIN => {
@@ -221,6 +224,8 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
+            // Before the menus, so Check for Updates… always finds its state.
+            updates::init(&handle);
             // Before any window: on Windows each window takes the app's menu
             // when it is built. A Mac keeps its default menus if this fails.
             if menu::install(&handle).is_err() {

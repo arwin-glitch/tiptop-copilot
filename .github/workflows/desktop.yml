@@ -2,30 +2,44 @@
 #
 # A push to any branch that touches desktop/ or this file builds both
 # installers and keeps them on the run as artifacts for 14 days, for trying on
-# a real machine. Pushing a tag desktop-vX.Y.Z builds the same way, then
-# publishes one release holding the versioned installers plus two copies with
-# fixed names, TipTop-Copilot-mac.dmg and TipTop-Copilot-windows-setup.exe.
-# Those two are what the web app's /api/desktop/download route streams to
-# people, so never rename them.
+# a real machine. Pushing a tag desktop-vX.Y.Z builds the same way, signs the
+# update files, then publishes one release holding the versioned installers
+# plus files with fixed names: TipTop-Copilot-mac.dmg and
+# TipTop-Copilot-windows-setup.exe, which the web app's /api/desktop/download
+# route streams to people; TipTop-Copilot-mac.app.tar.gz, the Mac app's own
+# update (Windows updates with its installer); a .sig for each update file;
+# and latest.json. The web app's /api/desktop/update routes answer the
+# installed apps from those, so never rename any of them.
 #
-# No secrets and no paid certificates: the installers are unsigned. The Mac app
-# is ad-hoc signed, which Apple Silicon needs before it will run downloaded
-# code at all; people still click Open Anyway once per version (see
-# desktop/README.md). Icons are generated here from public/icon.svg, so none
-# are committed.
+# No paid certificates: Apple and Microsoft sign nothing here. The Mac app is
+# ad-hoc signed, which Apple Silicon needs before it will run downloaded code
+# at all, and the first install needs Open Anyway (see desktop/README.md).
+# From 0.2.0 the app updates itself, and installs only files signed with the
+# minisign key in the TAURI_SIGNING_PRIVATE_KEY secret, checked against
+# plugins.updater.pubkey in tauri.conf.json. That key never reaches a build:
+# each build signs its update files with a throwaway key made for the run, so
+# nothing a branch build makes can be installed as an update. The tag-only
+# sign job is the one place the secret appears. It signs the update files,
+# checks every signature against the public key (failing if any check does
+# not pass or does not run), and only then does the release job publish.
+# Icons are generated here from public/icon.svg, so none are committed.
 #
-# The build jobs can only read the repository. Only the release job can write,
-# and it runs nothing but gh on the files the build jobs produced. The
+# The build jobs can only read the repository. Only the lock and release jobs
+# can write: the lock job commits Cargo.lock to a branch, and the release job
+# runs nothing but jq and gh on the files the other jobs produced. The
 # third-party actions in the build jobs are pinned to commit SHAs because what
 # they do ends up inside the installers, and a tag build never restores a
 # cache saved by a branch build.
 #
-# Crates: once desktop/src-tauri/Cargo.lock is committed, every build uses
+# Crates: while desktop/src-tauri/Cargo.lock fits Cargo.toml, every build uses
 # exactly the versions in it (--locked) and fails rather than quietly picking
-# newer ones. A tag build refuses to run without it, so a release is never
-# built from freshly resolved crates. A branch build that finds no lock file
-# commits the one it resolved back to the branch (the lock job), so the next
-# build and every release use exactly the crates that were built and tested.
+# newer ones. A tag build always does, and refuses to run without a lock that
+# fits, so a release is never built from freshly resolved crates. On a branch,
+# a lock that no longer fits (a crate was added, or the version changed) is
+# updated as little as possible: cargo keeps every pinned crate and resolves
+# only what changed. The lock job then commits the result to the branch, as
+# it does when no lock was committed at all, so the next build and every
+# release use exactly the crates that were built and tested.
 #
 # When a build fails, the compiler's errors are repeated as annotations on the
 # run, so they can be read from the run's summary.
@@ -68,6 +82,35 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME does not match version $conf."
             exit 1
           fi
+      - name: Updater settings
+        run: |
+          node -e '
+            const conf = require("./desktop/src-tauri/tauri.conf.json");
+            const u = (conf.plugins || {}).updater || {};
+            const ok =
+              conf.bundle.createUpdaterArtifacts === true &&
+              typeof u.pubkey === "string" && u.pubkey.length > 100 &&
+              Array.isArray(u.endpoints) && u.endpoints.length === 1 &&
+              u.endpoints[0].startsWith("https://copilot.tiptop.vc/api/desktop/update/") &&
+              u.requireSignedVersion === true;
+            if (!ok) {
+              console.log("::error::tauri.conf.json must keep bundle.createUpdaterArtifacts and plugins.updater: the pubkey, the copilot.tiptop.vc endpoint and requireSignedVersion.");
+              process.exit(1);
+            }'
+      - name: Lock file version
+        run: |
+          conf=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+          lock=desktop/src-tauri/Cargo.lock
+          [ -f "$lock" ] || exit 0
+          locked=$(awk '/^name = "tiptop-copilot-desktop"$/{getline; gsub(/version = |"/,""); print; exit}' "$lock")
+          if [ "$locked" = "$conf" ]; then
+            exit 0
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "::error::Cargo.lock names tiptop-copilot-desktop $locked, not $conf. Set that entry to $conf (or let a branch build commit it), then tag again."
+            exit 1
+          fi
+          echo "::warning::Cargo.lock names tiptop-copilot-desktop $locked, not $conf. This build updates that entry and the lock job commits it."
 
   build:
     needs: versions
@@ -107,35 +150,61 @@ jobs:
           workspaces: desktop/src-tauri -> target
       - name: Lock file
         run: |
-          if [ -f desktop/src-tauri/Cargo.lock ]; then
-            echo "CARGO_LOCKED=--locked" >> "$GITHUB_ENV"
-          elif [ "$GITHUB_REF_TYPE" = tag ]; then
-            echo "::error::Commit desktop/src-tauri/Cargo.lock (Cargo-mac.lock from a branch build's artifact) before tagging a release."
-            exit 1
-          else
+          lock=desktop/src-tauri/Cargo.lock
+          if [ ! -f "$lock" ]; then
+            if [ "$GITHUB_REF_TYPE" = tag ]; then
+              echo "::error::Commit desktop/src-tauri/Cargo.lock (Cargo-mac.lock from a branch build's artifact) before tagging a release."
+              exit 1
+            fi
             echo "::warning::No Cargo.lock committed yet, so crates were resolved fresh. The lock job commits this build's lock file to the branch."
+            exit 0
+          fi
+          # Resolves against the lock without changing it, and downloads only
+          # this runner's crates.
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          if cargo metadata --manifest-path desktop/src-tauri/Cargo.toml --format-version 1 \
+            --filter-platform "$host" --locked > /dev/null 2> "$RUNNER_TEMP/lock-check.log"; then
+            echo "CARGO_LOCKED=--locked" >> "$GITHUB_ENV"
+          elif grep -Eq 'needs to be updated|was passed to prevent this' "$RUNNER_TEMP/lock-check.log"; then
+            if [ "$GITHUB_REF_TYPE" = tag ]; then
+              echo "::error::Cargo.lock no longer fits Cargo.toml. Push the change to a branch first: its build updates the lock and the lock job commits it."
+              exit 1
+            fi
+            echo "::warning::Cargo.lock no longer fits Cargo.toml (a crate or the version changed), so this build updates it, keeping every other pinned crate. The lock job commits the result to the branch."
+          else
+            cat "$RUNNER_TEMP/lock-check.log"
+            echo "::error::Could not check Cargo.lock against Cargo.toml."
+            exit 1
           fi
       - name: Icons
         working-directory: desktop
         run: npx --yes @tauri-apps/cli@2.12.3 icon ../public/icon.svg --output src-tauri/icons
-      - name: Test the navigation rules
+      - name: Unit tests
         if: matrix.platform == 'mac'
         run: |
           set -o pipefail
           cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib ${CARGO_LOCKED:-} 2>&1 \
             | tee "$RUNNER_TEMP/cargo-test.log"
+      - name: Throwaway update key
+        # The Tauri CLI signs the update files right after bundling. Here it
+        # signs them with a key made for this run alone, which no installed
+        # app trusts, so a build never sees the real key (the CLI only warns
+        # that the two differ). A tag's sign job signs again with the real one.
+        run: |
+          npx --yes @tauri-apps/cli@2.12.3 signer generate --ci \
+            --write-keys "$RUNNER_TEMP/throwaway.key" > /dev/null
       - name: Build
         working-directory: desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ runner.temp }}/throwaway.key
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         run: |
           set -o pipefail
+          # Never --no-sign: it would also skip the Mac's ad-hoc signature.
+          args=(build --ci ${{ matrix.build-args }})
           # Anything after -- goes to cargo build.
-          if [ -n "${CARGO_LOCKED:-}" ]; then
-            npx --yes @tauri-apps/cli@2.12.3 build --ci ${{ matrix.build-args }} -- --locked 2>&1 \
-              | tee "$RUNNER_TEMP/build.log"
-          else
-            npx --yes @tauri-apps/cli@2.12.3 build --ci ${{ matrix.build-args }} 2>&1 \
-              | tee "$RUNNER_TEMP/build.log"
-          fi
+          if [ -n "${CARGO_LOCKED:-}" ]; then args+=(-- --locked); fi
+          npx --yes @tauri-apps/cli@2.12.3 "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/build.log"
       - name: Show compiler errors
         if: failure()
         run: |
@@ -157,6 +226,8 @@ jobs:
           bundle='${{ matrix.bundle-dir }}'
           mkdir -p out
           copy() { cp "$1" "out/$(basename "$1" | tr ' ' '-')"; }
+          # The update files' throwaway signatures stay behind; only a tag's
+          # sign job makes the ones that are published.
           if [ '${{ matrix.platform }}' = mac ]; then
             dmg=("$bundle"/dmg/*_"$version"_*.dmg)
             if [ ${#dmg[@]} -ne 1 ]; then
@@ -165,10 +236,23 @@ jobs:
             fi
             copy "${dmg[0]}"
             cp "${dmg[0]}" out/TipTop-Copilot-mac.dmg
+            # The Mac app's update: the signed app, packed by the CLI.
+            tarball="$bundle/macos/TipTop Copilot.app.tar.gz"
+            if [ ! -s "$tarball" ]; then
+              echo "::error::Expected the update file $tarball."
+              exit 1
+            fi
+            cp "$tarball" out/TipTop-Copilot-mac.app.tar.gz
           else
             exe=("$bundle"/nsis/*_"$version"_*-setup.exe)
             if [ ${#exe[@]} -ne 1 ]; then
               echo "::error::Expected one $version setup .exe in $bundle/nsis."
+              exit 1
+            fi
+            # Windows updates with the installer itself. Its signature shows
+            # the CLI treated it as an update file.
+            if [ ! -s "${exe[0]}.sig" ]; then
+              echo "::error::Expected ${exe[0]}.sig: is bundle.createUpdaterArtifacts on?"
               exit 1
             fi
             copy "${exe[0]}"
@@ -185,8 +269,9 @@ jobs:
           retention-days: 14
 
   lock:
-    # A branch build that found no Cargo.lock commits the Mac build's copy to
-    # the branch. Pushes made with the workflow token start no new run.
+    # On a branch, commits the Mac build's Cargo.lock when none is committed
+    # or the committed one no longer fitted (see the header). Pushes made with
+    # the workflow token start no new run.
     needs: build
     if: github.event_name == 'push' && github.ref_type == 'branch'
     runs-on: ubuntu-latest
@@ -205,21 +290,107 @@ jobs:
           BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if [ -f desktop/src-tauri/Cargo.lock ]; then
-            echo "Cargo.lock is already committed."
+          lock=desktop/src-tauri/Cargo.lock
+          if [ -f "$lock" ] && cmp -s built/Cargo-mac.lock "$lock"; then
+            echo "Cargo.lock is up to date."
             exit 0
           fi
-          cp built/Cargo-mac.lock desktop/src-tauri/Cargo.lock
+          cp built/Cargo-mac.lock "$lock"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add desktop/src-tauri/Cargo.lock
+          git add "$lock"
           git commit -m "desktop: commit the Cargo.lock from run $GITHUB_RUN_ID"
           git pull --rebase origin "$BRANCH"
           git push origin "HEAD:$BRANCH"
 
-  release:
-    # Runs only when both builds succeeded, so a release always has both installers.
+  sign:
+    # Tags only, after both builds. The one place the update signing key
+    # appears, and only in the step that signs.
     needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      # For the signature check and the public key it checks against.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tiptop-copilot-*
+          merge-multiple: true
+          path: out
+      - name: Tauri CLI
+        # Installed before the key is in reach, so the signing step fetches
+        # nothing.
+        run: |
+          mkdir -p "$RUNNER_TEMP/cli"
+          npm install --prefix "$RUNNER_TEMP/cli" --no-save --no-audit --no-fund @tauri-apps/cli@2.12.3
+          "$RUNNER_TEMP/cli/node_modules/.bin/tauri" --version
+      - name: Sign the update files
+        env:
+          SECRET: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#desktop-v}"
+          # The secret may have been pasted with a line break or spaces at the
+          # end; the key is base64 on one line, which has neither.
+          key=$(printf '%s' "$SECRET" | tr -d '\r\n ')
+          unset SECRET
+          if [ -z "$key" ]; then
+            echo "::error::Add the TAURI_SIGNING_PRIVATE_KEY secret, then re-run the failed jobs. Nothing is published without signed update files, which every installed app needs to update."
+            exit 1
+          fi
+          echo "::add-mask::$key"
+          for f in out/TipTop-Copilot-mac.app.tar.gz out/TipTop-Copilot-windows-setup.exe; do
+            if [ ! -s "$f" ]; then
+              echo "::error::$f is missing."
+              exit 1
+            fi
+            rm -f "$f.sig"
+            # The key has no password. --app-version binds each signature to
+            # this version (plugins.updater.requireSignedVersion).
+            TAURI_SIGNING_PRIVATE_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD='' \
+              "$RUNNER_TEMP/cli/node_modules/.bin/tauri" signer sign --app-version "$version" "$f" \
+              > /dev/null
+          done
+      - name: Check the signatures
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#desktop-v}"
+          # The way the installed app checks them, against the public key in
+          # tauri.conf.json. Fails closed: each file must print exactly its
+          # "signature verified" line.
+          for f in out/TipTop-Copilot-mac.app.tar.gz out/TipTop-Copilot-windows-setup.exe; do
+            if [ ! -s "$f.sig" ]; then
+              echo "::error::$f was not signed."
+              exit 1
+            fi
+            if result=$(node desktop/scripts/verify-update-signature.mjs "$f" "$f.sig" "$version"); then
+              status=0
+            else
+              status=$?
+            fi
+            echo "$result"
+            if [ "$status" -ne 0 ] || [ "$result" != "$f: signature verified for $version" ]; then
+              echo "::error::$f: the signature check did not pass."
+              exit 1
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tiptop-copilot-signatures
+          path: out/*.sig
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    # Runs only when both builds and the signing succeeded, so a release always
+    # has both installers and both signed update files.
+    needs: [build, sign]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
@@ -236,13 +407,41 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          files=(out/*.dmg out/*.exe)
-          ls -l "${files[@]}"
+          version="${TAG#desktop-v}"
+          mac=out/TipTop-Copilot-mac.app.tar.gz
+          win=out/TipTop-Copilot-windows-setup.exe
+          for f in out/TipTop-Copilot-mac.dmg "$win" "$mac" "$mac.sig" "$win.sig"; do
+            if [ ! -s "$f" ]; then
+              echo "::error::$f is missing, so nothing is published."
+              exit 1
+            fi
+          done
+          # What Copilot's /api/desktop/update route answers from. The links
+          # are Copilot's own route, which streams each file from this release
+          # and only while it is the newest.
+          base=https://copilot.tiptop.vc/api/desktop/update-file
+          jq -n --arg version "$version" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg base "$base" --rawfile macsig "$mac.sig" --rawfile winsig "$win.sig" '
+            ($macsig | gsub("\\s"; "")) as $m | ($winsig | gsub("\\s"; "")) as $w | {
+              version: $version,
+              notes: ("TipTop Copilot " + $version),
+              pub_date: $date,
+              platforms: {
+                "darwin-aarch64": { signature: $m, url: "\($base)/mac/\($version)" },
+                "darwin-x86_64": { signature: $m, url: "\($base)/mac/\($version)" },
+                "windows-x86_64": { signature: $w, url: "\($base)/windows/\($version)" }
+              }
+            }' > out/latest.json
+          cat out/latest.json
+          files=(out/*.dmg out/*.exe "$mac" out/*.sig)
+          ls -l "${files[@]}" out/latest.json
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber -R "$GITHUB_REPOSITORY"
+            # Last, so latest.json never names files that are not there yet.
+            gh release upload "$TAG" out/latest.json --clobber -R "$GITHUB_REPOSITORY"
             gh release edit "$TAG" --draft=false --prerelease=false --latest -R "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG" "${files[@]}" -R "$GITHUB_REPOSITORY" --verify-tag --latest \
-              --title "TipTop Copilot ${TAG#desktop-v}" \
-              --notes "Desktop app for Mac and Windows. Install it from the Download page in Copilot."
+            gh release create "$TAG" "${files[@]}" out/latest.json -R "$GITHUB_REPOSITORY" \
+              --verify-tag --latest --title "TipTop Copilot ${TAG#desktop-v}" \
+              --notes "Desktop app for Mac and Windows. Install it from the Download page in Copilot; installed apps update themselves."
           fi

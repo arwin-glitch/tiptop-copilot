@@ -415,13 +415,18 @@ a person has touched it since the evidence (see
 
 ---
 
-## Desktop app downloads
+## Desktop app downloads and updates
 
 The desktop app (`desktop/`) is built by `.github/workflows/desktop.yml`, which
-publishes each version as a release with two installers under fixed names.
-`/download` shows the newest one and `/api/desktop/download/<platform>`
-streams the installer through this server, so a page never links anywhere
-else. See [DECISIONS.md](DECISIONS.md) D-054.
+publishes each version as a release with two installers under fixed names and,
+from 0.2.0, the app's own update files and `latest.json`. `/download` shows the
+newest one and `/api/desktop/download/<platform>` streams the installer through
+this server, so a page never links anywhere else. The app's updater asks
+`/api/desktop/update/<os>/<arch>/<version>` and downloads from
+`/api/desktop/update-file/<platform>/<version>`, which streams the file the
+same way. Both are public, since the updater has no session, and brake per
+address. None of this needs a variable of its own. See
+[DECISIONS.md](DECISIONS.md) D-054 and D-055.
 
 ### `DESKTOP_RELEASE_REPO`
 
@@ -430,12 +435,17 @@ malformed, the code default is used.
 
 ### `DESKTOP_RELEASE_TOKEN` — recommended
 
-Optional. Lets the server look up and fetch installers with its own API quota
-instead of the shared anonymous one; read access to releases is enough.
-Without it the lookup is often refused (the anonymous quota is per outbound
-address, and the host shares those between services). Downloads still work
-then, by each installer's fixed name, but the page cannot show file sizes, and
-says a new version is out only when it can read the version some other way.
+Optional. Lets the server look up and fetch installers, update files and
+`latest.json` with its own API quota instead of the shared anonymous one; read
+access to releases is enough. Without it the lookup is often refused (the
+anonymous quota is per outbound address, and the host shares those between
+services). Downloads and updates still work then, by each file's fixed name,
+but the page cannot show file sizes, and says a new version is out only when
+it can read the version some other way.
+
+A fine-grained token expires, a year after it is made at most. Note the date
+and replace it before then: an expired token is refused, and downloads and
+in-app updates can stop until a new one is set.
 
 ---
 

@@ -17,6 +17,10 @@ tauri = { version = "=2.12.4", features = ["tray-icon"] }
 tauri-plugin-opener = "=2.7.2"
 tauri-plugin-single-instance = "=2.5.4"
 tauri-plugin-window-state = "=2.5.0"
+tauri-plugin-updater = "=2.14.0"
+# The native dialogs tauri-plugin-dialog uses, without the script it adds to
+# every page (src/updates.rs). Its default features only matter on Linux.
+rfd = { version = "=0.16.0", default-features = false, features = ["common-controls-v6"] }
 
 [profile.release]
 codegen-units = 1

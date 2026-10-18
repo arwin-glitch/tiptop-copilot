@@ -7,6 +7,7 @@ import {
   MATCH_CODE_RE,
   normalizeMatchCode,
   parseDesktopVersion,
+  updatesItself,
 } from '@/lib/desktop/shared';
 
 /**
@@ -46,6 +47,20 @@ describe('compareVersions', () => {
     expect(compareVersions('0.1.10', '0.1.9')).toBe(1);
     expect(compareVersions('1.0.0', '0.99.99')).toBe(1);
     expect(compareVersions('0.1.0', '0.1.1')).toBe(-1);
+  });
+});
+
+describe('updatesItself', () => {
+  it('is true from 0.2.0, the first version with its own updater', () => {
+    expect(updatesItself('0.1.0')).toBe(false);
+    expect(updatesItself('0.1.99')).toBe(false);
+    expect(updatesItself('0.2.0')).toBe(true);
+    expect(updatesItself('0.10.0')).toBe(true);
+    expect(updatesItself('1.0.0')).toBe(true);
+  });
+
+  it('is false outside the desktop app', () => {
+    expect(updatesItself(null)).toBe(false);
   });
 });
 

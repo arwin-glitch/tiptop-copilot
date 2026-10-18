@@ -9,7 +9,9 @@ import { Notice } from '@/components/ui/feedback';
 import {
   compareVersions,
   DESKTOP_INSTALLERS,
+  FIRST_SELF_UPDATING_VERSION,
   formatInstallerSize,
+  updatesItself,
   type DesktopRelease,
   type InstallerPlatform,
 } from '@/lib/desktop/shared';
@@ -153,6 +155,13 @@ export function DownloadCards({
         ? release.version
         : null;
   const newer = appVersion && latest && compareVersions(latest, appVersion) > 0 ? latest : null;
+  // From 0.2.0 the app installs its own updates; an older one needs one more download.
+  const selfUpdating = updatesItself(appVersion);
+  const oldApp = appVersion !== null && !selfUpdating;
+  const firstSelfUpdating = newer && oldApp && updatesItself(newer) ? newer : null;
+  // In a browser, the version on offer decides: until a self-updating one is
+  // published (or when it is not known), the claim carries its version.
+  const offersSelfUpdating = selfUpdating || updatesItself(latest);
 
   return (
     <div className="space-y-6">
@@ -200,20 +209,46 @@ export function DownloadCards({
             <h2 id="download-updates" className="text-sm font-semibold">
               Updates
             </h2>
-            {newer ? (
+            {firstSelfUpdating ? (
+              <Notice className="mt-2">
+                Download {firstSelfUpdating} once - after that it updates itself.
+              </Notice>
+            ) : newer && oldApp ? (
               <Notice className="mt-2">
                 Version {newer} is ready. Download it again to update.
+              </Notice>
+            ) : newer ? (
+              <Notice className="mt-2">
+                Version {newer} is out. The app installs it by itself, or use Check for Updates… to
+                get it now.
               </Notice>
             ) : appVersion ? (
               <p className="mt-1 text-[var(--fg)]">
                 You’re using the desktop app, version {appVersion}.
               </p>
             ) : null}
-            <p className="mt-1 text-[var(--fg-muted)]">
-              The app always shows the latest Copilot, so most updates need nothing from you. When
-              this page shows a newer app version, quit the app first (Mac: ⌘Q; Windows: right-click
-              the tray icon, then Quit), then download it again and install it over the old one.
-            </p>
+            {oldApp ? (
+              <p className="mt-1 text-[var(--fg-muted)]">
+                The app always shows the latest Copilot, so most updates need nothing from you. To
+                install a new app version, quit the app first (Mac: ⌘Q; Windows: right-click the
+                tray icon, then Quit), then download it again and install it over the old one. From
+                version {FIRST_SELF_UPDATING_VERSION} the app updates itself.
+              </p>
+            ) : offersSelfUpdating ? (
+              <p className="mt-1 text-[var(--fg-muted)]">
+                The app always shows the latest Copilot and installs its own updates: when a new
+                version is ready, it asks to restart, which takes about 10 to 20 seconds. To look
+                now, use Check for Updates… in the File menu on Windows or the TipTop Copilot menu
+                on a Mac.
+              </p>
+            ) : (
+              <p className="mt-1 text-[var(--fg-muted)]">
+                The app always shows the latest Copilot, so most updates need nothing from you. From
+                version {FIRST_SELF_UPDATING_VERSION} the app updates itself: when a new version is
+                ready, it asks to restart, which takes about 10 to 20 seconds. To look now, use
+                Check for Updates… in the File menu on Windows or the TipTop Copilot menu on a Mac.
+              </p>
+            )}
           </section>
         </CardContent>
       </Card>

@@ -22,7 +22,9 @@ import { IntegrationControls } from '@/components/settings/integration-controls'
 import { PushAlertsSetting } from '@/components/settings/push-alerts';
 import { DesktopAppSetting } from '@/components/settings/desktop-app';
 import { WebOnly } from '@/components/desktop/desktop-only';
+import { latestDesktopRelease } from '@/lib/desktop/releases';
 import { desktopVersionHint } from '@/lib/desktop/server';
+import { updatesItself } from '@/lib/desktop/shared';
 import { McpConnectCard } from '@/components/settings/mcp-connect';
 import { formatDateTime } from '@/lib/util/time';
 
@@ -45,6 +47,12 @@ export default async function SettingsPage() {
     : err('forbidden', 'Owners only.');
   const mcpEndpoint = `${env().appUrl.replace(/\/+$/, '')}/api/mcp`;
   const desktopVersion = await desktopVersionHint();
+  // Only an app too old to update itself is told the newest version, so a
+  // browser or a self-updating app never waits on the release lookup.
+  const newestDesktop =
+    desktopVersion && !updatesItself(desktopVersion) ? await latestDesktopRelease() : null;
+  const newestDesktopVersion =
+    newestDesktop && newestDesktop.state !== 'none' ? newestDesktop.version : null;
 
   return (
     <PageShell>
@@ -271,7 +279,10 @@ export default async function SettingsPage() {
             <CardContent className="space-y-5 pt-4">
               <TimezoneSetting current={auth.profile.timezone} />
               <PushAlertsSetting publicKey={vapidPublicKey()} />
-              <DesktopAppSetting serverVersion={desktopVersion} />
+              <DesktopAppSetting
+                serverVersion={desktopVersion}
+                newestVersion={newestDesktopVersion}
+              />
               <div>
                 <p className="text-sm font-medium">Account</p>
                 <dl className="mt-2 divide-y divide-[var(--border)]">

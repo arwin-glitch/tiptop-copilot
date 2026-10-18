@@ -22,6 +22,20 @@ export const DESKTOP_INSTALLERS: Record<InstallerPlatform, string> = {
   windows: 'TipTop-Copilot-windows-setup.exe',
 };
 
+/**
+ * The files the app's own updater installs, in every release from 0.2.0 on
+ * (desktop.yml). Windows updates with the same installer /download serves.
+ */
+export const DESKTOP_UPDATE_FILES: Record<InstallerPlatform, string> = {
+  mac: 'TipTop-Copilot-mac.app.tar.gz',
+  windows: 'TipTop-Copilot-windows-setup.exe',
+};
+/** Each release's update manifest: the version and each file's signature. */
+export const DESKTOP_UPDATE_MANIFEST = 'latest.json';
+
+/** The first desktop version that installs its own updates; older ones need one more download. */
+export const FIRST_SELF_UPDATING_VERSION = '0.2.0';
+
 export interface InstallerAsset {
   assetId: number;
   bytes: number | null;
@@ -33,6 +47,9 @@ export type DesktopRelease =
       state: 'ready';
       version: string;
       installers: Partial<Record<InstallerPlatform, InstallerAsset>>;
+      /** Absent from releases made before the app updated itself. */
+      updateFiles: Partial<Record<InstallerPlatform, InstallerAsset>>;
+      updateManifest: InstallerAsset | null;
     }
   /** The repository answered, and has no desktop release yet. */
   | { state: 'none' }
@@ -59,6 +76,11 @@ export function compareVersions(a: string, b: string): number {
     if (diff !== 0) return diff < 0 ? -1 : 1;
   }
   return 0;
+}
+
+/** Whether a desktop app of this version installs its own updates (null: not inside the app). */
+export function updatesItself(version: string | null): boolean {
+  return version !== null && compareVersions(version, FIRST_SELF_UPDATING_VERSION) >= 0;
 }
 
 /** The desktop app's version when this page is open inside it; null elsewhere and on the server. */

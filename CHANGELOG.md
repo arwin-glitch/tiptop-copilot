@@ -10,6 +10,20 @@ throughout.
 
 ## [Unreleased]
 
+- **The desktop app updates itself, from 0.2.0.** About 15 seconds after
+  launch and every 6 hours (30 minutes after a check that failed) it asks
+  Copilot for a newer version, downloads it in the background and asks once
+  to restart: Later is the default button and asks again at the next check;
+  Restart now takes about 10 to 20 seconds. Check for Updates… is in the File
+  menu on Windows and after About on a Mac. Every update file is signed by a
+  release-only CI job (the build jobs never see the key) and checked against
+  the public key built into the app, and the version it was signed for,
+  before it installs. Two new public, rate-limited routes serve it with no
+  session: `/api/desktop/update/<os>/<arch>/<version>` answers 204 or the
+  version, signature and download URL, and
+  `/api/desktop/update-file/<platform>/<version>` streams that file through
+  Copilot, for the version on offer only. People on 0.1.0 download 0.2.0 once
+  more; /download and Settings say so (see D-055).
 - **Desktop app 0.2.0: File, Edit and View menus** on Mac and Windows.
   Settings, Close Window and Quit; Undo through Select All, including Paste
   and Match Style and Delete; Reload, Force Reload, Full Screen and zoom (per
@@ -21,15 +35,14 @@ throughout.
 - **A desktop app for Mac and Windows.** Settings › Preferences links to a new
   Download page with an installer for each, streamed through Copilot itself
   (no page links anywhere else). The app is a window onto the live site, so
-  every web update shows up in it at once; a new app version means
-  downloading it again, and the page says when one is out. The installers
-  are unsigned, so the first launch of each version takes one extra step,
-  shown with a picture on the page: Open Anyway in the Mac's Privacy &
-  Security settings, or More info, then Run anyway on Windows. Installing
-  Copilot from Chrome's address bar is offered as the option with no
-  warnings. Built by a new GitHub Actions workflow on standard runners;
-  `DESKTOP_RELEASE_TOKEN` is recommended so the page can read release
-  details with its own quota (see D-054).
+  every web update shows up in it at once, and from 0.2.0 it installs new
+  app versions itself. The installers are unsigned, so the first install
+  takes one extra step, shown with a picture on the page: Open Anyway in the
+  Mac's Privacy & Security settings, or More info, then Run anyway on
+  Windows. Installing Copilot from Chrome's address bar is offered as the
+  option with no warnings. Built by a new GitHub Actions workflow on
+  standard runners; `DESKTOP_RELEASE_TOKEN` is recommended so the page can
+  read release details with its own quota (see D-054).
 - **Signing in to the desktop app goes through the browser.** Google will
   not sign anyone in inside an app's window, so Sign in with Google opens the
   web browser, which shows a 4-character code after Google; typing it into

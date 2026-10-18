@@ -1,4 +1,5 @@
-//! The menu bar: File, Edit and View, plus the app menu on a Mac.
+//! The menu bar: File, Edit and View, plus the app menu on a Mac. Check for
+//! Updates… is placed here and answered in updates.rs.
 //!
 //! Undo through Select All (except Paste and Match Style and Delete) are the
 //! system's own items: they act on whatever has focus in the page, exactly as
@@ -87,6 +88,7 @@ fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         true,
         &[
             &PredefinedMenuItem::about(app, None, Some(about))?,
+            &crate::updates::menu_item(app)?,
             &MenuItem::with_id(app, SETTINGS, "Settings…", true, Some("CmdOrCtrl+,"))?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, None)?,
@@ -154,6 +156,7 @@ fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         true,
         &[
             &MenuItem::with_id(app, SETTINGS, "&Settings…", true, None::<&str>)?,
+            &crate::updates::menu_item(app)?,
             &PredefinedMenuItem::separator(app)?,
             // Closes the window whose menu was used (Alt+F4).
             &PredefinedMenuItem::close_window(app, Some("&Close Window"))?,
@@ -224,8 +227,9 @@ pub fn destroyed(label: &str) {
 
 /// The window a menu command acts on: the one in front, else the main one,
 /// but never a hidden one (a closed main window is only hidden, and may still
-/// hold an unsent reply). With none, the command does nothing.
-fn front_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
+/// hold an unsent reply). With none, the command does nothing. The update
+/// dialogs (updates.rs) open on it too.
+pub fn front_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
     let front = FRONT.lock().ok().and_then(|front| front.clone());
     front
         .and_then(|label| app.get_webview_window(&label))

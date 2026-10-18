@@ -34,8 +34,9 @@ shell does is all in Rust (`src-tauri/src/`):
 - **Menus** (`menu.rs`). File, Edit and View, in the menu bar on a Mac and
   under the title bar of every window on Windows (dark when Windows is in
   dark mode). Commands act on the window in front.
-  - **File:** Settings… (opens Settings in the main window), Close Window
-    (hides the main window, closes any other), Quit TipTop Copilot. On a Mac,
+  - **File:** Settings… (opens Settings in the main window), Check for
+    Updates… (see "How updates work"), Close Window (hides the main window,
+    closes any other), Quit TipTop Copilot. On a Mac, Check for Updates…,
     Settings… ⌘, and Quit ⌘Q sit in the TipTop Copilot menu with About,
     Hide, Hide Others and Show All, and File holds Close Window ⌘W.
   - **Edit:** Undo, Redo, Cut, Copy, Paste, Paste and Match Style, Delete,
@@ -51,6 +52,8 @@ shell does is all in Rust (`src-tauri/src/`):
     nothing, as in 0.1.0.
 - **Mac downloads.** Files are saved to Downloads and Finder opens with the
   file selected. Windows keeps WebView2's own download bar.
+- **Updates** (`updates.rs`, unit-tested). From 0.2.0 the app installs new
+  versions of itself; see "How updates work" below.
 
 The fallback page checks the site is up by loading `/icon-192.png` from it,
 so keep that file served by the web app.
@@ -66,48 +69,64 @@ both installers on GitHub's Mac and Windows runners:
   `tiptop-copilot-windows` (Actions tab, open the run, Artifacts at the
   bottom) and kept for 14 days. Use them to test on a real machine before a
   release.
-- **A tag `desktop-vX.Y.Z`** builds the same way and then publishes a release
-  with the versioned installers plus `TipTop-Copilot-mac.dmg` and
-  `TipTop-Copilot-windows-setup.exe`. The web app's `/download` page serves
-  those two through our own domain, so people never visit GitHub.
+- **A tag `desktop-vX.Y.Z`** builds the same way, signs the update files
+  (the `sign` job) and then publishes a release with the versioned
+  installers plus files with fixed names: `TipTop-Copilot-mac.dmg` and
+  `TipTop-Copilot-windows-setup.exe`, which the web app's `/download` page
+  serves through our own domain, so people never visit GitHub; and the
+  update files (`TipTop-Copilot-mac.app.tar.gz`, a `.sig` for it and for
+  the Windows installer, and `latest.json`), which installed apps fetch
+  through Copilot's update routes. Never rename any of them.
+
+Every build signs its update files with a throwaway key made for that run,
+which no installed app trusts, so a branch build can never be installed as
+an update. Only a tag's `sign` job uses the real key (see "The update
+signing key").
 
 The icons are generated during the build from `public/icon.svg`, so none are
-committed. The Mac build runs `cargo test` on the navigation rules and the
-zoom steps first.
+committed. The Mac build runs `cargo test` on the navigation rules, the zoom
+steps and the update timing first.
 
 ## Releasing a new version
 
 1. Set the same new `version` in **both** `src-tauri/tauri.conf.json` and
    `src-tauri/Cargo.toml`. The workflow stops if they differ. Also set it on
-   the `tiptop-copilot-desktop` entry in `src-tauri/Cargo.lock`: builds use
-   `--locked`, so a lock file still naming the old version fails the build.
-2. Merge to `master`, with `src-tauri/Cargo.lock` committed (see below; a
-   tag build stops without it).
+   the `tiptop-copilot-desktop` entry in `src-tauri/Cargo.lock` (a branch
+   build that finds the old version there updates that entry and commits
+   it; a tag build stops). Never delete `Cargo.lock` for a version change.
+2. Merge to `master`, with `src-tauri/Cargo.lock` committed and up to date
+   (see below; a tag build stops without it).
 3. Tag the merged commit and push the tag:
    ```sh
-   git tag desktop-v0.1.0
-   git push origin desktop-v0.1.0
+   git tag desktop-v0.2.1
+   git push origin desktop-v0.2.1
    ```
 4. Wait for the desktop workflow to finish. The release is published only if
-   both installers built. The Download page shows the new version within
-   about ten minutes.
-5. People update by downloading again from `/download` and installing over
-   the old copy (see "Updating" below).
+   both installers built and both update files were signed and their
+   signatures checked. The Download page shows the new version within about
+   ten minutes.
+5. Installed apps from 0.2.0 on find it within about six hours, or at once
+   from Check for Updates…, download it and ask to restart. People on 0.1.0
+   download the new version once from `/download` (see "How updates
+   work").
 
 Most changes need none of this: anything in the web app shows up in the
 desktop app on its next page load. A new desktop version is only needed when
 something in `desktop/` changes.
 
-### Before the first release: Cargo.lock
+### Cargo.lock
 
-A tag build refuses to run until `desktop/src-tauri/Cargo.lock` is committed,
-so a release is always built from the exact crate versions that were tested.
-The first successful branch build commits it for you: its `lock` job adds the
-Mac build's lock file to the branch (pull before pushing again). From then on
-every build passes `--locked`: a lock file that no longer matches `Cargo.toml`
-fails the build instead of being quietly updated. After changing a dependency
-in `Cargo.toml`, delete `src-tauri/Cargo.lock` in the same commit and the next
-branch build commits a fresh one.
+A tag build refuses to run unless `desktop/src-tauri/Cargo.lock` is committed
+and fits `Cargo.toml`, so a release is always built from the exact crate
+versions that were tested. Every build whose lock fits passes `--locked`.
+
+After adding or changing a dependency in `Cargo.toml` (or the version), push
+to a branch. Its build sees that the lock no longer fits and updates it as
+little as possible: every crate already pinned stays at its version and only
+what changed is resolved. The branch's `lock` job then commits the Mac build's
+lock file (pull before pushing again). Never delete the lock to do this: that
+would re-resolve every crate to whatever is newest that day. With no lock
+committed at all, the first branch build commits a fresh one the same way.
 
 ### If a Mac build crashes at launch
 
@@ -118,7 +137,8 @@ release again.
 ## Installing for the first time
 
 The installers are not signed with a paid certificate, so each computer asks
-once for every new version.
+once, at the first install. From 0.2.0, later versions install from inside
+the app with none of these steps.
 
 **Mac** (macOS 13 or newer):
 
@@ -149,22 +169,75 @@ xattr -dr com.apple.quarantine "/Applications/TipTop Copilot.app"
 The first time, the app opens the web browser to sign in with Google. After
 that it stays signed in.
 
-## Updating
+## How updates work
 
-The app always shows the latest Copilot, so most updates need nothing. When
-the Download page shows a newer app version: quit the app first (Mac: ⌘Q;
-Windows: File › Quit TipTop Copilot, or right-click the tray icon, then Quit,
-because closing the window only hides it), download again and install over
-the old copy. The Mac and Windows security steps above come back once for
-each new version.
+The app always shows the latest Copilot, so most changes need no new app
+version at all. When `desktop/` changes and a new version is released, apps
+from 0.2.0 on install it themselves:
 
-## Why there is no auto-updater
+- **When it looks.** About 15 seconds after launch, then every 6 hours (by
+  the clock, so a laptop that slept catches up soon after waking), and after
+  a check that failed, again in about 30 minutes. Check for Updates… (File
+  menu on Windows; TipTop Copilot menu on a Mac, after About) looks at once;
+  the item reads "Checking for Updates…" while it does. A development build
+  never looks by itself.
+- **What it asks.** `https://copilot.tiptop.vc/api/desktop/update/<os>/<arch>/<version>`.
+  Copilot answers from the newest release's `latest.json`: nothing (204)
+  when the app is up to date, else the new version, its signature and a link
+  to `/api/desktop/update-file/<platform>/<version>`, which streams that
+  file from the release. The link carries the version and answers only
+  while that version is the newest release. Both routes are public (the app
+  has no session) and rate-limited.
+- **What it trusts.** Nothing but the signature. Every download is checked
+  against the public key built into the app (`plugins.updater.pubkey` in
+  `tauri.conf.json`), and against the version it was signed for, before
+  anything is installed. A file that fails is thrown away.
+- **What the person sees.** Nothing while it downloads. Then one question:
+  "TipTop Copilot X.Y.Z is ready", with **Later** (the default, so Enter
+  never restarts by accident) and **Restart now**. Later asks again at the
+  next check. Restart now takes about 10 to 20 seconds: Windows shows the
+  installer's progress bar and reopens the app; a Mac swaps the app in
+  Applications and reopens it. A manual check also says when the app is up
+  to date, or when the check or the download failed.
+- **No going back.** An app only installs a version newer than its own, so
+  a bad release is fixed by releasing a newer one. A release that is
+  withdrawn before an app installed it is dropped at that app's next check.
+- **Mac: run it from Applications.** A copy opened straight from the disk
+  image, or still in Downloads, runs from a read-only place and cannot
+  replace itself. It says so once per launch (and at every Check for
+  Updates…) and asks to be dragged into Applications. A copy on any other
+  writable disk updates normally.
+- **0.1.0 has no updater.** People on 0.1.0 download 0.2.0 once from
+  `/download` and install it over the old copy (quit first: Mac ⌘Q;
+  Windows: right-click the tray icon, then Quit). The Download page and
+  Settings say so. After that it updates itself.
 
-Tauri's updater only installs updates signed with a private key, which would
-have to be created and stored as a CI secret, and a self-updating app that
-isn't signed by Apple or Microsoft still triggers the same security warnings
-on every update. Because the web content is live anyway, re-downloading for
-the rare shell change is simpler.
+**First self-update: a canary.** After 0.2.0 is installed by hand, release
+0.2.1 as a version-only change (`tauri.conf.json`, `Cargo.toml` and the
+`Cargo.lock` root entry, nothing else; never delete the lock) and watch it
+update on Windows first, then on a Mac (see the checklist), before anyone
+relies on in-app updates.
+
+## The update signing key
+
+Updates are signed with a minisign key made with `tauri signer generate`. It
+has no password. Its public half is `plugins.updater.pubkey` in
+`tauri.conf.json`, and every installed app trusts only that key. The private
+half lives in exactly two places: the `TAURI_SIGNING_PRIVATE_KEY` repository
+secret, which only the tag-only `sign` job can read, and the owner's offline
+copy. Keep a second offline backup somewhere else, and never commit the key
+or paste it anywhere else. Set the secret straight from the key file, for
+example `gh secret set TAURI_SIGNING_PRIVATE_KEY < <key file>`; the `sign`
+job strips stray line breaks and spaces anyway.
+
+- **If the key is lost,** installed apps can never update again. Make a new
+  key, put its public half in `tauri.conf.json`, release, and everyone
+  downloads that version once by hand.
+- **If the key leaks,** release one version signed with the old key that
+  carries a new public key, then sign everything after it with the new key.
+- Anyone who can change the workflow on a branch could read the secret. For
+  tighter custody, move it into a GitHub environment that only `desktop-v*`
+  tags can use; branch builds never need it.
 
 ## Known limitations
 
@@ -190,6 +263,11 @@ the rare shell change is simpler.
   app is open, reload (⌘R or F5).
 - Timers in a hidden window can be slowed by the system, so keep the window
   open while a campaign is sending.
+- A downloaded update waits in memory: after Later, quitting means the next
+  launch downloads it again. Release notes are not shown.
+- On a Mac, the "access your Downloads folder" question may come back after
+  an update, because the app is only ad-hoc signed. A Mac user who is not an
+  administrator is asked for an administrator's password to update.
 
 ## Checklist on a real Mac and PC
 
@@ -233,3 +311,20 @@ the rare shell change is simpler.
 11. Campaign Cancel, Pause and Delete still ask for confirmation on a Mac.
 12. The briefing's Save as PDF button works on a Mac (the Mac webview may
     ignore print requests).
+13. Updates (with the 0.2.1 canary installed over 0.2.0):
+    - The question appears about 15 seconds after launch, or at once from
+      Check for Updates… (which reads "Checking for Updates…" meanwhile).
+      Enter chooses Later.
+    - Later, then quit and reopen: it asks again.
+    - Restart now on Windows: a progress bar, then the app reopens on 0.2.1
+      with the window in the same place and one tray icon.
+    - Restart now on a Mac: it reopens on 0.2.1 with no Open Anyway step,
+      and `xattr -l "/Applications/TipTop Copilot.app"` lists no
+      `com.apple.quarantine`. Note any "prevented from modifying apps"
+      notice (allow it under Privacy & Security → App Management) and any
+      Downloads-folder prompt.
+    - No SmartScreen prompt on Windows.
+    - Settings shows 0.2.1, and Check for Updates… then says "You're up to
+      date".
+    - Opened straight from the disk image, a Mac copy says once that it
+      must be moved to Applications.

@@ -740,7 +740,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'download-more',
         title: 'Signing in and updates',
-        body: 'The app signs in through your browser once, then always shows the latest Copilot.',
+        body: 'The app signs in through your browser once and always shows the latest Copilot. From 0.2.0 it updates itself.',
         placement: 'top',
       },
     ],

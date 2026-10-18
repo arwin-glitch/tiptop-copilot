@@ -1,10 +1,13 @@
-import type { InstallerPlatform } from '@/lib/desktop/shared';
+import { FIRST_SELF_UPDATING_VERSION, type InstallerPlatform } from '@/lib/desktop/shared';
 
 /**
  * The one-time steps an unsigned app needs, with a small drawing of the
  * screen each platform shows. The drawings are decoration (aria-hidden); the
  * steps themselves are text, so a screen reader gets everything.
  */
+
+/** Older versions repeat the steps with each new download. */
+const ONCE = `From version ${FIRST_SELF_UPDATING_VERSION} you do this once: later versions install from inside the app, with no extra steps.`;
 
 const STEPS: Record<InstallerPlatform, { title: string; steps: string[]; note: string }> = {
   mac: {
@@ -14,7 +17,7 @@ const STEPS: Record<InstallerPlatform, { title: string; steps: string[]; note: s
       'Open TipTop Copilot from your Applications folder. Your Mac says “TipTop Copilot” Not Opened: Apple could not verify it is free of malware. That’s expected for an app from outside the App Store. Click Done (or Cancel), never Move to Trash.',
       'Within an hour, open System Settings, then Privacy & Security. Scroll down, click Open Anyway, and enter your Mac password.',
     ],
-    note: 'You do this once for each new version, because the app isn’t from the App Store.',
+    note: ONCE,
   },
   windows: {
     title: 'First time on Windows',
@@ -23,7 +26,7 @@ const STEPS: Record<InstallerPlatform, { title: string; steps: string[]; note: s
       'If a blue box says Windows protected your PC, click More info, then Run anyway.',
       'It installs in a few seconds and opens. Find it later in the Start menu.',
     ],
-    note: 'You do this once for each new version, because the app isn’t from the Microsoft Store.',
+    note: ONCE,
   },
 };
 
