@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { after } from 'next/server';
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth/session';
+import { desktopVersionHint } from '@/lib/desktop/server';
 import { env, isDemoMode } from '@/lib/config/env';
 import { getAI, getStore } from '@/lib/runtime';
 import { SUGGESTED_QUESTIONS } from '@/lib/services/chat';
@@ -34,6 +35,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // The Ask page's own rule: an in-app model, or the Ask bridge. Both are
   // configuration checks, so this costs nothing per page.
   const askAvailable = getAI().available() || Boolean(env().askBridgeToken);
+  // Inside the desktop app the navigation leaves out Download from the first
+  // paint; the client confirms it (useDesktopApp).
+  const desktopVersion = await desktopVersionHint();
 
   return (
     <div className={demo ? 'has-demo-banner flex min-h-dvh flex-col' : 'flex min-h-dvh flex-col'}>
@@ -68,7 +72,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <CommandPalette className="mb-4 w-full" />
 
           <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto">
-            <SidebarNav />
+            <SidebarNav desktopVersion={desktopVersion} />
           </div>
 
           {/* Account controls. A block rather than a menu: everything here is
@@ -138,7 +142,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </div>
 
-      <MobileNav />
+      <MobileNav desktopVersion={desktopVersion} />
       {/* After the page in the DOM, so the skip link stays the first stop. */}
       <AskWidget
         aiAvailable={askAvailable}

@@ -226,6 +226,8 @@ test.describe('the download page', () => {
     await page.addInitScript(markAsDesktopApp);
     await page.goto('/download');
     await expect(page.getByText('You’re using the desktop app, version 0.1.0.')).toBeVisible();
+    // The app is what Download offers, so neither menu lists it.
+    await expect(page.locator('nav[aria-label="Main"] a[href="/download"]')).toHaveCount(0);
     await expect(
       page.getByRole('heading', { name: 'Rather skip the security steps?' }),
     ).toHaveCount(0);
@@ -246,6 +248,8 @@ test.describe('the download page', () => {
 
   test('in a browser, Settings points to the desktop app', async ({ page }) => {
     await page.goto('/settings');
+    // Both menus list Download in a browser (the sidebar under System).
+    await expect(page.locator('nav[aria-label="Main"] a[href="/download"]')).toHaveCount(2);
     await page.getByRole('tab', { name: 'Preferences' }).click();
     await expect(page.getByRole('link', { name: 'Get the desktop app' })).toHaveAttribute(
       'href',

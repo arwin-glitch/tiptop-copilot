@@ -23,6 +23,7 @@ import {
 import { cn } from '@/lib/util/cn';
 import { FieldLabel } from '@/components/ui/card';
 import { navTourId } from '@/lib/help/tour-ids';
+import { useDesktopApp } from '@/lib/desktop/use-desktop-app';
 
 /**
  * Navigation.
@@ -64,8 +65,9 @@ export const NAV_ITEMS = [
   { href: '/settings', label: 'Settings', icon: Settings },
   // What every page holds, and a guided tour of each (lib/help/registry.ts).
   { href: '/help', label: 'Help', icon: LifeBuoy },
-  // The desktop app for Mac and Windows (app/(app)/download).
-  { href: '/download', label: 'Download', icon: Download },
+  // The desktop app for Mac and Windows (app/(app)/download). In a browser
+  // only: inside an installed app it would offer what is already open.
+  { href: '/download', label: 'Download', icon: Download, webOnly: true },
 ] as const;
 
 // Diagnostics is an operator page: it stays a real route, linked from
@@ -94,6 +96,16 @@ export function isActive(
   return under(pathname, item.href) || (item.also ?? []).some((path) => under(pathname, path));
 }
 
+/**
+ * Whether an entry is shown. A web-only entry is left out inside the desktop
+ * app, which says so through useDesktopApp; inside a home-screen app it is
+ * rendered but hidden by the `standalone:` variant (globals.css), since only
+ * CSS can tell that window from a browser tab before the page paints.
+ */
+function webOnly(item: (typeof NAV_ITEMS)[number]): boolean {
+  return 'webOnly' in item && item.webOnly;
+}
+
 /** Real sections that are not in the navigation, still named in the phone header. */
 const OFF_NAV_SECTIONS = [{ href: '/ask', label: 'Ask Arwin' }] as const;
 
@@ -103,8 +115,9 @@ export function sectionLabel(pathname: string): string | null {
   return match?.label ?? null;
 }
 
-export function SidebarNav() {
+export function SidebarNav({ desktopVersion = null }: { desktopVersion?: string | null }) {
   const pathname = usePathname();
+  const inDesktopApp = Boolean(useDesktopApp(desktopVersion));
 
   return (
     <nav aria-label="Main" data-tour="main-nav" className="flex flex-col gap-5">
@@ -124,11 +137,11 @@ export function SidebarNav() {
             <ul aria-labelledby={headingId} className="flex flex-col gap-0.5">
               {group.hrefs.map((href) => {
                 const item = NAV_ITEMS.find((i) => i.href === href);
-                if (!item) return null;
+                if (!item || (inDesktopApp && webOnly(item))) return null;
                 const active = isActive(pathname, item);
                 const Icon = item.icon;
                 return (
-                  <li key={item.href}>
+                  <li key={item.href} className={webOnly(item) ? 'standalone:hidden' : undefined}>
                     <Link
                       href={item.href}
                       aria-current={active ? 'page' : undefined}
@@ -172,8 +185,9 @@ export function SidebarNav() {
  * width so the bar scrolls instead of squeezing, the edges fade while there
  * is more to scroll to, and the current page is scrolled into view.
  */
-export function MobileNav() {
+export function MobileNav({ desktopVersion = null }: { desktopVersion?: string | null }) {
   const pathname = usePathname();
+  const inDesktopApp = Boolean(useDesktopApp(desktopVersion));
   const listRef = React.useRef<HTMLUListElement>(null);
   const [more, setMore] = React.useState({ left: false, right: false });
 
@@ -236,10 +250,17 @@ export function MobileNav() {
         className="flex snap-x [scrollbar-width:none] overflow-x-auto overscroll-x-contain [&::-webkit-scrollbar]:hidden"
       >
         {NAV_ITEMS.map((item) => {
+          if (inDesktopApp && webOnly(item)) return null;
           const active = isActive(pathname, item);
           const Icon = item.icon;
           return (
-            <li key={item.href} className="min-w-[4.75rem] flex-1 shrink-0 snap-start">
+            <li
+              key={item.href}
+              className={cn(
+                'min-w-[4.75rem] flex-1 shrink-0 snap-start',
+                webOnly(item) && 'standalone:hidden',
+              )}
+            >
               <Link
                 href={item.href}
                 aria-current={active ? 'page' : undefined}

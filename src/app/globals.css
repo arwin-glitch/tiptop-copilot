@@ -27,6 +27,14 @@
 @custom-variant panel-float (@media (min-width: 40rem) and (min-height: 36rem));
 @custom-variant panel-float-lg (@media (min-width: 64rem) and (min-height: 36rem));
 
+/* An installed web app's own window (added to a phone's home screen, or
+   installed from Chrome or Safari) rather than a browser tab. */
+@custom-variant standalone {
+  @media (display-mode: standalone), (display-mode: window-controls-overlay) {
+    @slot;
+  }
+}
+
 @theme {
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,

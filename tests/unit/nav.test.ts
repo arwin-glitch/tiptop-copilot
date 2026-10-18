@@ -19,6 +19,12 @@ describe('the main navigation', () => {
     expect(sectionLabel('/lists')).toBe('Knowledge');
   });
 
+  it('offers Download in a browser only', () => {
+    const download = NAV_ITEMS.find((i) => i.href === '/download');
+    expect(download && 'webOnly' in download && download.webOnly).toBe(true);
+    expect(NAV_ITEMS.filter((i) => 'webOnly' in i).map((i) => i.href)).toEqual(['/download']);
+  });
+
   it('names the full Ask page after Arwin in the phone header', () => {
     expect(sectionLabel('/ask')).toBe('Ask Arwin');
   });
