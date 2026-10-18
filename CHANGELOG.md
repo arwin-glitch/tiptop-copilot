@@ -10,6 +10,9 @@ throughout.
 
 ## [Unreleased]
 
+- Desktop app 0.2.1: no changes beyond the version, released to prove that 0.2.0
+  updates itself from inside the app.
+
 - **The desktop app updates itself, from 0.2.0.** About 15 seconds after
   launch and every 6 hours (30 minutes after a check that failed) it asks
   Copilot for a newer version, downloads it in the background and asks once
