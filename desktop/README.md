@@ -31,8 +31,24 @@ shell does is all in Rust (`src-tauri/src/`):
   brings it back (left-click, or right-click for Open and Quit); on a Mac,
   click the Dock icon and quit with ⌘Q. Opening the app a second time focuses
   the running one. The main window's size and position are remembered.
-- **Mac Go menu.** Back ⌘[, Forward ⌘], Today ⇧⌘H, Reload ⌘R. Windows has
-  WebView2's own Alt+←, Alt+→ and F5.
+- **Menus** (`menu.rs`). File, Edit and View, in the menu bar on a Mac and
+  under the title bar of every window on Windows (dark when Windows is in
+  dark mode). Commands act on the window in front.
+  - **File:** Settings… (opens Settings in the main window), Close Window
+    (hides the main window, closes any other), Quit TipTop Copilot. On a Mac,
+    Settings… ⌘, and Quit ⌘Q sit in the TipTop Copilot menu with About,
+    Hide, Hide Others and Show All, and File holds Close Window ⌘W.
+  - **Edit:** Undo, Redo, Cut, Copy, Paste, Paste and Match Style, Delete,
+    Select All. They act on the focused field in the page, the same as the
+    keys. Undo through Paste and Select All are the system's own items;
+    Paste and Match Style is the Mac's own action (⌥⇧⌘V) or Chromium's
+    Ctrl+Shift+V on Windows; Delete removes the selection.
+  - **View:** Reload (⌘R / Ctrl+R), Force Reload (⇧⌘R / Ctrl+Shift+R; skips
+    the cache), Toggle Full Screen (⌃⌘F on a Mac), Actual Size, Zoom In and
+    Zoom Out (⌘0 ⌘= ⌘- on a Mac). The zoom is per window and stays through
+    reloads, and the main window's is remembered for the next launch. On
+    Windows only the menu zooms: Ctrl+=, Ctrl+-, Ctrl+wheel and pinch do
+    nothing, as in 0.1.0.
 - **Mac downloads.** Files are saved to Downloads and Finder opens with the
   file selected. Windows keeps WebView2's own download bar.
 
@@ -56,12 +72,15 @@ both installers on GitHub's Mac and Windows runners:
   those two through our own domain, so people never visit GitHub.
 
 The icons are generated during the build from `public/icon.svg`, so none are
-committed. The Mac build runs `cargo test` on the navigation rules first.
+committed. The Mac build runs `cargo test` on the navigation rules and the
+zoom steps first.
 
 ## Releasing a new version
 
 1. Set the same new `version` in **both** `src-tauri/tauri.conf.json` and
-   `src-tauri/Cargo.toml`. The workflow stops if they differ.
+   `src-tauri/Cargo.toml`. The workflow stops if they differ. Also set it on
+   the `tiptop-copilot-desktop` entry in `src-tauri/Cargo.lock`: builds use
+   `--locked`, so a lock file still naming the old version fails the build.
 2. Merge to `master`, with `src-tauri/Cargo.lock` committed (see below; a
    tag build stops without it).
 3. Tag the merged commit and push the tag:
@@ -134,9 +153,10 @@ that it stays signed in.
 
 The app always shows the latest Copilot, so most updates need nothing. When
 the Download page shows a newer app version: quit the app first (Mac: ⌘Q;
-Windows: right-click the tray icon, then Quit, because closing the window only
-hides it), download again and install over the old copy. The Mac and Windows
-security steps above come back once for each new version.
+Windows: File › Quit TipTop Copilot, or right-click the tray icon, then Quit,
+because closing the window only hides it), download again and install over
+the old copy. The Mac and Windows security steps above come back once for
+each new version.
 
 ## Why there is no auto-updater
 
@@ -152,8 +172,19 @@ the rare shell change is simpler.
   The Settings page says to turn them on from a phone.
 - Connecting Google, or turning on sending, is done in a web browser; the
   desktop app says so where those buttons would be.
-- No address bar or back button: use the Go menu on a Mac and Alt+← on
-  Windows.
+- No address bar or back button. Windows has WebView2's own Alt+← and Alt+→;
+  a Mac has no back shortcut (the Go menu was removed in 0.2.0).
+- On Windows the page gets every key before the menu bar does, so the menus'
+  shortcuts work only where WebView2 handles the same keys itself (editing,
+  reload, Alt+F4). Settings, Quit, Toggle Full Screen and the zoom items have
+  no shortcut there (Ctrl+comma, Ctrl+Q, F11, Ctrl+0, Ctrl+= and Ctrl+- do
+  nothing), and Alt or F10 may not open the menus while the page has focus;
+  the mouse always works. The menus' Paste and Match Style and Force Reload
+  items press those keys for the page.
+- On a Mac the Window and Help menus went with the Go menu, so ⌘M no longer
+  minimizes (use the yellow button). Zoom In is ⌘=, not ⌘+ (⇧⌘=).
+- macOS adds its own AutoFill, Dictation and Emoji & Symbols items to the
+  Edit menu.
 - After about 15 idle minutes the server sleeps, so the first load can take up
   to a minute. The opening screen says so. If the connection drops while the
   app is open, reload (⌘R or F5).
@@ -176,7 +207,25 @@ the rare shell change is simpler.
 6. Closing the main window hides it; the tray (Windows) or Dock (Mac) brings
    it back; opening the app again focuses the running one.
 7. Size and position survive quitting and reopening.
-8. The Go menu (Mac) and Alt+← (Windows) go back.
+8. The menus, on both (and in a second window, where they act on that
+   window):
+   - Every Edit item in a reply box: Undo, Redo, Cut, Copy, Paste, Paste and
+     Match Style (formatting is dropped), Delete (removes the selection only)
+     and Select All. The keys still work too: ⌘/Ctrl C, V, X, Z, A, Redo
+     (⇧⌘Z / Ctrl+Y) and ⌥⇧⌘V / Ctrl+Shift+V.
+   - Reload and Force Reload reload the page.
+   - Actual Size, Zoom In and Zoom Out by menu (and ⌘0, ⌘= and ⌘- on a
+     Mac): Actual Size returns to 100%, the zoom stays through Reload, and
+     the main window's comes back after a restart. On Windows, Ctrl+=,
+     Ctrl+wheel and pinch do not zoom.
+   - Toggle Full Screen; on Windows the menu bar stays visible and the same
+     item leaves full screen. Quitting while in full screen and reopening
+     gives the normal window size.
+   - Settings… opens Settings in the main window, bringing it back if hidden.
+   - Close Window hides the main window and closes a second window; with the
+     main window hidden, Reload and the zoom items do nothing. Quit quits.
+   - Windows: the menu bar is dark in Windows dark mode, light otherwise.
+   - Mac: About, Hide, Hide Others and Show All.
 9. Starting offline shows "Can't reach TipTop Copilot", then recovers when
    the connection returns.
 10. Links that redirect on the server stay in the app when they lead to

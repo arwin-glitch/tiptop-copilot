@@ -10,6 +10,14 @@ throughout.
 
 ## [Unreleased]
 
+- **Desktop app 0.2.0: File, Edit and View menus** on Mac and Windows.
+  Settings, Close Window and Quit; Undo through Select All, including Paste
+  and Match Style and Delete; Reload, Force Reload, Full Screen and zoom (per
+  window; the main window's is remembered). On a Mac the Go menu (Back,
+  Forward, Today) and the Window menu are removed, so ⌘M no longer
+  minimizes, and Zoom In is ⌘=, not ⌘+. Windows shows the menu bar under the
+  title bar of each window, dark in Windows dark mode; zoom there is from the
+  View menu only.
 - **A desktop app for Mac and Windows.** Settings › Preferences links to a new
   Download page with an installer for each, streamed through Copilot itself
   (no page links anywhere else). The app is a window onto the live site, so

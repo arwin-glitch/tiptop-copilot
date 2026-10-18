@@ -3,8 +3,10 @@
 //! A bundled fallback page hands over to the live site once it answers, so
 //! every web update reaches the app with no new build. The shell registers no
 //! commands and ships no capabilities, so the remote page has no native access;
-//! the only native behaviour is here, driven from Rust.
+//! the only native behaviour is here and in the menus (`menu.rs`), driven from
+//! Rust.
 
+mod menu;
 mod nav;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -191,61 +193,6 @@ fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     Ok(())
 }
 
-/// The window a Go command acts on: the one in front, else the main one.
-#[cfg(target_os = "macos")]
-fn active_window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
-    app.webview_windows()
-        .into_values()
-        .find(|window| window.is_focused().unwrap_or(false))
-        .or_else(|| app.get_webview_window(MAIN))
-}
-
-/// Back, Forward, Today and Reload: the window has no browser controls.
-#[cfg(target_os = "macos")]
-fn install_mac_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-    let back = MenuItem::with_id(app, "go-back", "Back", true, Some("CmdOrCtrl+["))?;
-    let forward = MenuItem::with_id(app, "go-forward", "Forward", true, Some("CmdOrCtrl+]"))?;
-    let today = MenuItem::with_id(app, "go-today", "Today", true, Some("CmdOrCtrl+Shift+H"))?;
-    let reload = MenuItem::with_id(app, "go-reload", "Reload", true, Some("CmdOrCtrl+R"))?;
-    let separator = PredefinedMenuItem::separator(app)?;
-    let go = Submenu::with_items(
-        app,
-        "Go",
-        true,
-        &[&back, &forward, &today, &separator, &reload],
-    )?;
-    let menu = Menu::default(app)?;
-    // App, File, Edit, View, Go, Window, Help.
-    menu.insert(&go, 4)?;
-    app.set_menu(menu)?;
-    app.on_menu_event(|app, event| {
-        let Some(window) = active_window(app) else {
-            return;
-        };
-        match event.id.as_ref() {
-            "go-back" => {
-                let _ = window.eval("history.back()");
-            }
-            "go-forward" => {
-                let _ = window.eval("history.forward()");
-            }
-            "go-reload" => {
-                let _ = window.reload();
-            }
-            "go-today" => {
-                if let Ok(url) = Url::parse("https://copilot.tiptop.vc/today") {
-                    let _ = window.navigate(url);
-                }
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-            _ => {}
-        }
-    });
-    Ok(())
-}
-
 pub fn run() {
     tauri::Builder::default()
         // First, as its docs require: a second launch focuses this one and exits.
@@ -261,17 +208,24 @@ pub fn run() {
         // Its default script would intercept _blank links and call a command the
         // remote page is not allowed to use, leaving the links dead.
         .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
-        .on_window_event(|window, event| {
+        .on_window_event(|window, event| match event {
             // Closing the main window hides it (tray on Windows, Dock on a Mac).
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == MAIN {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+            WindowEvent::CloseRequested { api, .. } if window.label() == MAIN => {
+                api.prevent_close();
+                let _ = window.hide();
             }
+            // Menu commands act on the window in front.
+            WindowEvent::Focused(true) => menu::focused(window.label()),
+            WindowEvent::Destroyed => menu::destroyed(window.label()),
+            _ => {}
         })
         .setup(|app| {
             let handle = app.handle().clone();
+            // Before any window: on Windows each window takes the app's menu
+            // when it is built. A Mac keeps its default menus if this fails.
+            if menu::install(&handle).is_err() {
+                eprintln!("could not add the menus");
+            }
             let window = window_builder(&handle, MAIN, WebviewUrl::App("index.html".into()))
                 .title("TipTop Copilot")
                 .inner_size(1280.0, 820.0)
@@ -282,29 +236,22 @@ pub fn run() {
                 .build()?;
             // Restored here, before show, so the window never jumps.
             let _ = window.restore_state(state_flags());
+            menu::restore_zoom(&window);
             window.show()?;
             let _ = window.set_focus();
             #[cfg(windows)]
             {
                 build_tray(&handle)?;
             }
-            #[cfg(target_os = "macos")]
-            {
-                if install_mac_menu(&handle).is_err() {
-                    eprintln!("could not add the Go menu");
-                }
-            }
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while starting TipTop Copilot")
-        .run(|_app, _event| {
+        .run(|app, event| match event {
             // A Dock click while the window is hidden.
             #[cfg(target_os = "macos")]
-            {
-                if let tauri::RunEvent::Reopen { .. } = _event {
-                    show_main(_app);
-                }
-            }
+            tauri::RunEvent::Reopen { .. } => show_main(app),
+            tauri::RunEvent::ExitRequested { .. } => menu::leave_full_screen(app),
+            _ => {}
         });
 }
