@@ -166,12 +166,12 @@ export function DownloadCards({
         <Notice>Open this page on your Mac or PC to download the app.</Notice>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div data-tour="download-apps" className="grid gap-4 lg:grid-cols-2">
         <DownloadCard platform="mac" release={release} thisComputer={device === 'mac'} />
         <DownloadCard platform="windows" release={release} thisComputer={device === 'windows'} />
       </div>
 
-      <Card>
+      <Card data-tour="download-more">
         <CardContent className="space-y-4 pt-4 text-sm">
           <section aria-labelledby="download-sign-in">
             <h2 id="download-sign-in" className="text-sm font-semibold">

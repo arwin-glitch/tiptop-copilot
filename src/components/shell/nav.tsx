@@ -10,6 +10,7 @@ import {
   CalendarClock,
   CalendarDays,
   CheckSquare,
+  Download,
   Inbox,
   Landmark,
   LifeBuoy,
@@ -63,6 +64,8 @@ export const NAV_ITEMS = [
   { href: '/settings', label: 'Settings', icon: Settings },
   // What every page holds, and a guided tour of each (lib/help/registry.ts).
   { href: '/help', label: 'Help', icon: LifeBuoy },
+  // The desktop app for Mac and Windows (app/(app)/download).
+  { href: '/download', label: 'Download', icon: Download },
 ] as const;
 
 // Diagnostics is an operator page: it stays a real route, linked from
@@ -76,7 +79,7 @@ const GROUPS: { label: string; hrefs: string[] }[] = [
     label: 'Records',
     hrefs: ['/portfolio', '/fund-ii', '/meetings', '/network', '/updates', '/knowledge'],
   },
-  { label: 'System', hrefs: ['/settings', '/help'] },
+  { label: 'System', hrefs: ['/settings', '/help', '/download'] },
 ];
 
 function under(pathname: string, href: string): boolean {

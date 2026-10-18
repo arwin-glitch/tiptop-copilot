@@ -4,6 +4,7 @@ import {
   CalendarClock,
   CalendarDays,
   CheckSquare,
+  Download,
   Inbox,
   Landmark,
   ListChecks,
@@ -38,5 +39,6 @@ export const HELP_ICONS: Record<string, LucideIcon> = {
   reports: Newspaper,
   knowledge: BookOpen,
   settings: Settings,
+  download: Download,
   ask: MessageCircleMore,
 };

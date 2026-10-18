@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 /**
  * Download the desktop app: Copilot in its own window. The installers come
  * through /api/desktop/download, never a link to where they are published.
- * Reached from Settings > Preferences; not a navigation item.
+ * In the navigation under System, and linked from Settings > Preferences.
  */
 export default async function DownloadPage({
   searchParams,

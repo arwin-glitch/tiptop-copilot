@@ -85,8 +85,8 @@ describe('the help registry covers the app', () => {
     expect(ask?.href).toBeNull();
   });
 
-  it('puts Help in the System group of the navigation', () => {
-    expect(NAV_SOURCE).toMatch(/label: 'System', hrefs: \['\/settings', '\/help'\]/);
+  it('puts Help and Download in the System group of the navigation', () => {
+    expect(NAV_SOURCE).toMatch(/label: 'System', hrefs: \['\/settings', '\/help', '\/download'\]/);
   });
 });
 
