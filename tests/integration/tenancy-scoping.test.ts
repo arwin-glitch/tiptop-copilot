@@ -66,6 +66,8 @@ describe('the empty-organization guard', () => {
     expect(scopeless('organizations')).toBe(true);
     expect(scopeless('organization_members')).toBe(true);
     expect(scopeless('user_profiles')).toBe(true);
+    // A desktop sign-in hand-off happens before anyone is signed in.
+    expect(scopeless('desktop_handoffs')).toBe(true);
     expect(scopeless('integrations')).toBe(false);
     expect(scopeless('meeting_notes')).toBe(false);
 

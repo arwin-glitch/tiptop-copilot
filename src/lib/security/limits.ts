@@ -138,6 +138,26 @@ interface Bucket {
 }
 
 const buckets = processWide('limits-buckets', () => new Map<string, Bucket>());
+const pruned = processWide('limits-buckets-pruned', () => ({ at: 0 }));
+
+/** Above this many buckets, spent ones are dropped before a new one is added. */
+const PRUNE_ABOVE = 5_000;
+
+/**
+ * Drop the buckets whose window is over.
+ *
+ * Nothing else ever deletes one, which was harmless while every key was a
+ * user or an organization. The desktop sign-in routes are reached before
+ * anyone signs in, so their keys are addresses an outsider chooses, and each
+ * new one would otherwise stay in memory for the life of the process. At most
+ * once a second, so a flood of new keys cannot turn this into a scan per
+ * request.
+ */
+function pruneSpentBuckets(now: number): void {
+  if (buckets.size <= PRUNE_ABOVE || now - pruned.at < 1_000) return;
+  pruned.at = now;
+  for (const [key, bucket] of buckets) if (bucket.resetAt <= now) buckets.delete(key);
+}
 
 /**
  * Fixed-window limiter for non-AI endpoints (sync triggers, uploads, auth).
@@ -152,6 +172,7 @@ export function rateLimit(
 ): Result<{ remaining: number; resetAt: number }> {
   const existing = buckets.get(key);
   if (!existing || existing.resetAt <= now) {
+    if (!existing) pruneSpentBuckets(now);
     const bucket = { count: 1, resetAt: now + windowMs };
     buckets.set(key, bucket);
     return ok({ remaining: max - 1, resetAt: bucket.resetAt });
@@ -167,8 +188,24 @@ export function rateLimit(
   return ok({ remaining: max - existing.count, resetAt: existing.resetAt });
 }
 
+/**
+ * Whether `key` has room for one more request, without counting one. For a
+ * shared ceiling that only requests passing a narrower limit should use up:
+ * check it first with this, then the narrow limit, then charge the ceiling.
+ */
+export function rateLimitHasRoom(key: string, max: number, now: number = Date.now()): boolean {
+  const existing = buckets.get(key);
+  return !existing || existing.resetAt <= now || existing.count < max;
+}
+
 /** Test hook. */
 export function resetLimiters(): void {
   buckets.clear();
+  pruned.at = 0;
   denyCache.clear();
+}
+
+/** Test hook: how many limiter buckets are held in memory. */
+export function limiterBucketCount(): number {
+  return buckets.size;
 }

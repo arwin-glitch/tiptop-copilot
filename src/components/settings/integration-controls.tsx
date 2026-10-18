@@ -7,6 +7,7 @@ import { Link2, Trash2, Unlink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/form';
+import { useDesktopApp } from '@/lib/desktop/use-desktop-app';
 
 /**
  * Connect, disconnect and delete-data controls.
@@ -14,16 +15,23 @@ import { Input } from '@/components/ui/form';
  * Disconnect and delete are consequential and irreversible, so both require an
  * explicit confirmation — deletion requires typing the word, which is the level
  * of friction the action deserves.
+ *
+ * Connecting goes through Google's consent screen, which refuses to open in
+ * the desktop app's window, so there it points to the browser instead.
  */
 export function IntegrationControls({
   connected,
   canConnect,
   showDataDeletion = false,
+  desktopVersion = null,
 }: {
   connected: boolean;
   canConnect: boolean;
   showDataDeletion?: boolean;
+  /** The desktop app's version hint from the server render (desktopVersionHint). */
+  desktopVersion?: string | null;
 }) {
+  const inDesktopApp = Boolean(useDesktopApp(desktopVersion));
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
   const [confirmText, setConfirmText] = React.useState('');
@@ -52,12 +60,18 @@ export function IntegrationControls({
   return (
     <div className="flex flex-wrap gap-2">
       {!connected && canConnect ? (
-        <Button asChild variant="primary" size="sm">
-          <a href="/api/integrations/google/start">
-            <Link2 aria-hidden="true" />
-            Connect Google Workspace
-          </a>
-        </Button>
+        inDesktopApp ? (
+          <p className="text-sm text-[var(--fg-muted)]">
+            Connect Google from Copilot in your web browser.
+          </p>
+        ) : (
+          <Button asChild variant="primary" size="sm">
+            <a href="/api/integrations/google/start">
+              <Link2 aria-hidden="true" />
+              Connect Google Workspace
+            </a>
+          </Button>
+        )
       ) : null}
 
       {connected ? (

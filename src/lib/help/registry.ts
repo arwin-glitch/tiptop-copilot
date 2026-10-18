@@ -685,7 +685,11 @@ export const HELP_PAGES: readonly HelpPage[] = [
         blurb: 'What you invest in, and how deals score.',
       },
       { key: 'integrations', label: 'Integrations', blurb: 'Google, and importing from Affinity.' },
-      { key: 'preferences', label: 'Preferences', blurb: 'Time zone and phone alerts.' },
+      {
+        key: 'preferences',
+        label: 'Preferences',
+        blurb: 'Time zone, phone alerts and the desktop app.',
+      },
       { key: 'limits', label: 'Limits & cost', blurb: 'Usage ceilings and spend.' },
       { key: 'data', label: 'Data & privacy', blurb: 'What is stored, and deleting it.' },
     ],

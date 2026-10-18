@@ -20,6 +20,7 @@ import type {
   DealNote,
   DealPerson,
   DealSource,
+  DesktopHandoff,
   EmailAttachment,
   EmailMessage,
   EmailThread,
@@ -99,6 +100,7 @@ export interface TableMap {
   ai_usage: AiUsageRecord;
   audit_events: AuditEvent;
   mcp_tokens: McpToken;
+  desktop_handoffs: DesktopHandoff;
   user_feedback: UserFeedback;
   sync_runs: SyncRun;
 }
@@ -114,7 +116,14 @@ export type Row<T extends TableName> = TableMap[T];
  * be silently scoped in Supabase and unscoped in demo, or the reverse.
  */
 export function scopeless(table: TableName): boolean {
-  return table === 'organizations' || table === 'organization_members' || table === 'user_profiles';
+  return (
+    table === 'organizations' ||
+    table === 'organization_members' ||
+    table === 'user_profiles' ||
+    // A desktop sign-in hand-off happens before anyone is signed in, so it
+    // belongs to no tenant.
+    table === 'desktop_handoffs'
+  );
 }
 
 /**

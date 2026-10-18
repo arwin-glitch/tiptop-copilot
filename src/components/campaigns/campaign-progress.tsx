@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Check, Pause, Play, RotateCcw, Send, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { useConfirm } from '@/components/ui/confirm';
 import { Notice } from '@/components/ui/feedback';
 import { campaignReceipt, finishToast } from '@/lib/campaigns/receipt';
 import { PAUSE_REASON_TEXT } from '@/lib/campaigns/status';
@@ -88,6 +89,7 @@ export function CampaignProgress({
   autoStart?: boolean;
 }) {
   const router = useRouter();
+  const [confirm, confirmDialog] = useConfirm();
   const [toCheck, setToCheck] = React.useState<UnconfirmedRecipient[]>(unconfirmedRecipients);
   const [status, setStatus] = React.useState<CampaignStatus>(initialStatus);
   const [pauseReason, setPauseReason] = React.useState<CampaignPauseReason | null>(
@@ -223,13 +225,18 @@ export function CampaignProgress({
       if (to.origin !== window.location.origin) return; // beforeunload asks
       if (to.pathname === window.location.pathname && to.search === window.location.search) return;
       const left = pendingRef.current;
-      const ok = window.confirm(
-        `Leave while sending? Sending runs only on this page, so the campaign pauses${left ? ` with ${left} not sent yet` : ''}. You can resume it later.`,
-      );
-      if (!ok) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
+      // Held first, always: the answer comes from the app's own dialog, after
+      // this handler has returned, and the link is followed only on a yes.
+      event.preventDefault();
+      event.stopPropagation();
+      void confirm({
+        title: 'Leave while sending?',
+        description: `Sending runs only on this page, so the campaign pauses${left ? ` with ${left} not sent yet` : ''}. You can resume it later.`,
+        confirmLabel: 'Leave and pause',
+        cancelLabel: 'Stay',
+      }).then((leave) => {
+        if (leave) router.push(`${to.pathname}${to.search}${to.hash}`);
+      });
     };
     window.addEventListener('beforeunload', warn);
     document.addEventListener('click', onClick, true);
@@ -237,7 +244,7 @@ export function CampaignProgress({
       window.removeEventListener('beforeunload', warn);
       document.removeEventListener('click', onClick, true);
     };
-  }, [running]);
+  }, [running, confirm, router]);
 
   const control = async (action: Action, recipientIds?: string[]) => {
     setActing(true);
@@ -378,14 +385,13 @@ export function CampaignProgress({
                       variant="secondary"
                       size="sm"
                       disabled={acting}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Mark the email to ${r.name ?? r.email} as sent? Only if it is in Sent in Gmail.`,
-                          )
-                        ) {
-                          void control('mark_sent', [r.id]);
-                        }
+                      onClick={async () => {
+                        const yes = await confirm({
+                          title: `Mark the email to ${r.name ?? r.email} as sent?`,
+                          description: 'Only if it is in Sent in Gmail.',
+                          confirmLabel: 'Mark sent',
+                        });
+                        if (yes) void control('mark_sent', [r.id]);
                       }}
                     >
                       It went
@@ -394,14 +400,13 @@ export function CampaignProgress({
                       variant="ghost"
                       size="sm"
                       disabled={acting}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Send it again to ${r.name ?? r.email}? Only if it is not in Sent in Gmail, or they get it twice.`,
-                          )
-                        ) {
-                          void control('resend', [r.id]);
-                        }
+                      onClick={async () => {
+                        const yes = await confirm({
+                          title: `Send it again to ${r.name ?? r.email}?`,
+                          description: 'Only if it is not in Sent in Gmail, or they get it twice.',
+                          confirmLabel: 'Send again',
+                        });
+                        if (yes) void control('resend', [r.id]);
                       }}
                     >
                       Send again
@@ -415,14 +420,13 @@ export function CampaignProgress({
                     variant="secondary"
                     size="sm"
                     loading={acting}
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          `Mark all ${toCheck.length} as sent? Only if you found every one in Sent in Gmail.`,
-                        )
-                      ) {
-                        void control('mark_sent');
-                      }
+                    onClick={async () => {
+                      const yes = await confirm({
+                        title: `Mark all ${toCheck.length} as sent?`,
+                        description: 'Only if you found every one in Sent in Gmail.',
+                        confirmLabel: 'Mark all sent',
+                      });
+                      if (yes) void control('mark_sent');
                     }}
                   >
                     {acting ? null : <Check aria-hidden="true" />}
@@ -432,14 +436,13 @@ export function CampaignProgress({
                     variant="ghost"
                     size="sm"
                     disabled={acting}
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          `Send again to all ${toCheck.length}? Only if none is in Sent in Gmail, or they get it twice.`,
-                        )
-                      ) {
-                        void control('resend');
-                      }
+                    onClick={async () => {
+                      const yes = await confirm({
+                        title: `Send again to all ${toCheck.length}?`,
+                        description: 'Only if none is in Sent in Gmail, or they get it twice.',
+                        confirmLabel: 'Send again',
+                      });
+                      if (yes) void control('resend');
                     }}
                   >
                     <Send aria-hidden="true" />
@@ -474,14 +477,13 @@ export function CampaignProgress({
             <Button
               variant="secondary"
               loading={acting}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Send again to the ${counts.failed} that failed? Gmail did not take them, so they did not go out.`,
-                  )
-                ) {
-                  void control('retry_failed');
-                }
+              onClick={async () => {
+                const yes = await confirm({
+                  title: `Send again to the ${counts.failed} that failed?`,
+                  description: 'Gmail did not take them, so they did not go out.',
+                  confirmLabel: 'Retry',
+                });
+                if (yes) void control('retry_failed');
               }}
             >
               {acting ? null : <RotateCcw aria-hidden="true" />}
@@ -492,10 +494,15 @@ export function CampaignProgress({
             <Button
               variant="ghost"
               disabled={acting}
-              onClick={() => {
-                if (window.confirm(`Cancel? The ${counts.pending} not sent yet will not get it.`)) {
-                  void control('cancel');
-                }
+              onClick={async () => {
+                const yes = await confirm({
+                  title: 'Cancel this campaign?',
+                  description: `The ${counts.pending} not sent yet will not get it.`,
+                  confirmLabel: 'Cancel campaign',
+                  cancelLabel: 'Keep it',
+                  tone: 'danger',
+                });
+                if (yes) void control('cancel');
               }}
             >
               <XCircle aria-hidden="true" />
@@ -503,6 +510,7 @@ export function CampaignProgress({
             </Button>
           ) : null}
         </div>
+        {confirmDialog}
       </CardContent>
     </Card>
   );

@@ -875,3 +875,83 @@ three cards show as before, so Today always has a live to-do list. The row is
 left out when every card it would show is empty, and Tasks due starts open on
 overdue tasks whenever Do now is not on the page. The 2-minute tour stops on
 Top priorities, and on the glance cards (`grandStandIn`) when there is none.
+
+### D-054 — The desktop app: a window onto the live site, signed in through the browser
+
+**Context.** Asked for on 2026-10-17: a real downloadable Copilot for Mac
+and Windows, "like Discord", at no cost: no Apple developer account, no
+Windows signing certificate, nothing paid. It should never need a new build
+for a web change.
+
+**Decision.**
+
+- **A Tauri shell with no bridge to the page.** `desktop/` opens one window
+  that shows a small bundled page until https://copilot.tiptop.vc answers,
+  then loads the live site, so every web deploy reaches the app at once. The
+  remote page gets no native access: no capabilities, no commands, the
+  opener plugin's link hook off. All native behaviour (which links open in
+  the system browser, downloads, the tray, the Mac Go menu) is in the
+  shell's own Rust. The shell marks its window with a read-only
+  `__TIPTOP_DESKTOP__` global and a `tiptop_desktop` cookie, both its
+  version; the web app uses them for layout only (hiding phone alerts and
+  Google's consent links, which cannot work there), never to grant anything.
+- **Sign-in through the system browser, with the code carried to the app.**
+  Google refuses sign-in inside an app's window. The app asks
+  `/api/auth/desktop/start` for a Google URL; the server starts Supabase's
+  PKCE flow there, so the verifier lands in the app's own cookies, and binds
+  the hand-off to the app with an httpOnly, path-scoped poll cookie. The shell
+  opens the URL in the system browser, which lands on `/desktop/callback`.
+  That page seals Google's code and only then mints a 4-character code and
+  shows it; the person types it into the app (`/api/auth/desktop/verify`).
+  Every code typed first takes one of three tries with a compare-and-set, and
+  only a code holding a try is compared, so no burst of guesses from any
+  number of addresses gets more than three looks; the third wrong code ends
+  the hand-off, and a right one claims it once. Only then does the app
+  exchange Google's code, exactly
+  once (Supabase deletes the verifier even on failure), and re-check the
+  allowed domains, as `/api/auth/callback` does.
+- **Why the code goes from the browser to the app.** Anyone can start a
+  hand-off, and whoever starts one sees everything the app is shown. A code
+  shown in the app and confirmed in the browser would let a phisher mail the
+  sign-in link, tell the victim the code, and collect the victim's session
+  when they signed in. With the code first appearing in the victim's browser,
+  the starter never has it unless the victim reads it out, which the page
+  warns against. Accepted residual risk: a phisher who talks the victim into
+  reading the code out in real time.
+- **`desktop_handoffs` is scopeless.** A hand-off happens before anyone is
+  signed in, so it belongs to no organization. `soleOrganizationId` would have
+  broken desktop sign-in on any deployment with two organizations. Only hashes
+  of the hand-off id and poll secret are stored; Google's code is sealed with
+  `APP_ENCRYPTION_KEY` and cleared when claimed; rows are swept a day after
+  they expire, by the start route.
+- **Abuse brakes that cannot exhaust memory.** These routes are reached before
+  sign-in, so their limiter keys are addresses an outsider chooses: IPv6 is
+  keyed by /64; the start route looks at a global ceiling before creating a
+  per-address entry, but charges it only for requests within their address's
+  limit, so one caller cannot spend it for everyone; and the limiter now drops
+  spent windows once it holds 5,000 keys.
+- **Unsigned installers through our own domain.** CI (`desktop.yml`, standard
+  runners) builds a universal Mac `.dmg`, ad-hoc
+  signed so Apple Silicon runs it after a one-time Open Anyway, and a
+  per-user Windows setup `.exe`. `/download` and
+  `/api/desktop/download/<platform>` stream them through Copilot; no page
+  links to where they are hosted. When the release lookup is refused, both
+  downloads stay offered and go by the installers' fixed names.
+- **No auto-updater.** One would need signing keys kept as secrets. The app
+  shows the live site, so most changes need nothing; a new shell version
+  means downloading it again from `/download`, which says when one is out.
+- **window.confirm is gone.** The Mac window answers every confirm with
+  Cancel and shows nothing, which would have made a campaign impossible to
+  cancel from a Mac. The ten campaign confirms, including the leave-while-
+  sending guard, now use the app's own dialog (`useConfirm`).
+
+**Why.** Free, nothing to keep signed or renewed, and the web app stays the
+only thing that changes week to week. The hand-off keeps the web flow's
+guarantee that nobody but the person signing in can end up with their
+session.
+
+**Known limits.** No phone alerts in the desktop app (neither webview has a
+push service); connecting Google stays a browser task; each new shell version
+repeats Open Anyway on a Mac and SmartScreen's Run anyway on Windows; the
+first load after Render has idled can take up to a minute, which the bundled
+page says.

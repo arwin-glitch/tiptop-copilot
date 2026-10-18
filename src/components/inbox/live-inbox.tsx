@@ -28,6 +28,7 @@ import { Notice } from '@/components/ui/feedback';
 import { swapSignOff } from '@/components/followups/email-session-client';
 import { Composer, type ComposeDraft } from '@/components/inbox/composer';
 import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
+import { opensInline } from '@/lib/email/attachment-types';
 import { cn } from '@/lib/util/cn';
 import type {
   InboxTab,
@@ -885,8 +886,12 @@ function MessageItem({ message: m, startOpen }: { message: LiveMessage; startOpe
                     name: a.name,
                     type: a.mimeType,
                   }).toString()}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  // A file the browser can show opens in a new tab; anything
+                  // else downloads in place, so a half-written reply stays put
+                  // and the desktop app leaves no blank window behind.
+                  {...(opensInline(a.mimeType)
+                    ? { target: '_blank', rel: 'noopener noreferrer' }
+                    : { download: a.name })}
                   className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 text-xs hover:bg-[var(--bg-hover)]"
                 >
                   <Paperclip className="size-3" aria-hidden /> {a.name}

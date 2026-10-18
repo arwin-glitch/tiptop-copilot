@@ -20,6 +20,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ThesisEditor, TimezoneSetting } from '@/components/settings/settings-client';
 import { IntegrationControls } from '@/components/settings/integration-controls';
 import { PushAlertsSetting } from '@/components/settings/push-alerts';
+import { DesktopAppSetting } from '@/components/settings/desktop-app';
+import { WebOnly } from '@/components/desktop/desktop-only';
+import { desktopVersionHint } from '@/lib/desktop/server';
 import { McpConnectCard } from '@/components/settings/mcp-connect';
 import { formatDateTime } from '@/lib/util/time';
 
@@ -41,6 +44,7 @@ export default async function SettingsPage() {
     ? await listMcpTokens(store, auth.organizationId)
     : err('forbidden', 'Owners only.');
   const mcpEndpoint = `${env().appUrl.replace(/\/+$/, '')}/api/mcp`;
+  const desktopVersion = await desktopVersionHint();
 
   return (
     <PageShell>
@@ -149,12 +153,22 @@ export default async function SettingsPage() {
                   {canSend(integration) ? (
                     <Badge tone="ok">On</Badge>
                   ) : (
-                    <a
-                      href="/api/integrations/google/start?send=1"
-                      className="inline-flex h-9 items-center rounded-md bg-[var(--primary)] px-3.5 text-sm font-medium text-[var(--primary-fg)] hover:bg-[var(--primary-hover)]"
+                    // Google's consent screen will not open in the desktop app.
+                    <WebOnly
+                      serverVersion={desktopVersion}
+                      fallback={
+                        <span className="text-sm text-[var(--fg-muted)]">
+                          Turn this on from Copilot in your web browser.
+                        </span>
+                      }
                     >
-                      Turn on sending
-                    </a>
+                      <a
+                        href="/api/integrations/google/start?send=1"
+                        className="inline-flex h-9 items-center rounded-md bg-[var(--primary)] px-3.5 text-sm font-medium text-[var(--primary-fg)] hover:bg-[var(--primary-hover)]"
+                      >
+                        Turn on sending
+                      </a>
+                    </WebOnly>
                   )}
                 </div>
               ) : null}
@@ -199,6 +213,7 @@ export default async function SettingsPage() {
                 <IntegrationControls
                   connected={Boolean(integration && integration.status !== 'disconnected')}
                   canConnect={!demo && googleConfigured()}
+                  desktopVersion={desktopVersion}
                 />
               </div>
             </CardContent>
@@ -256,6 +271,7 @@ export default async function SettingsPage() {
             <CardContent className="space-y-5 pt-4">
               <TimezoneSetting current={auth.profile.timezone} />
               <PushAlertsSetting publicKey={vapidPublicKey()} />
+              <DesktopAppSetting serverVersion={desktopVersion} />
               <div>
                 <p className="text-sm font-medium">Account</p>
                 <dl className="mt-2 divide-y divide-[var(--border)]">
@@ -341,6 +357,7 @@ export default async function SettingsPage() {
                 connected={Boolean(integration && integration.status !== 'disconnected')}
                 canConnect={!demo && googleConfigured()}
                 showDataDeletion
+                desktopVersion={desktopVersion}
               />
             </CardContent>
           </Card>

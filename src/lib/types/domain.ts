@@ -1285,6 +1285,39 @@ export interface McpToken {
   revoked_at: IsoDateTime | null;
 }
 
+/**
+ * A desktop app sign-in in progress (lib/auth/desktop-handoff.ts). The app
+ * starts it, the system browser does Google and shows a code, and the person
+ * types that code into the app, which then finishes the sign-in itself.
+ */
+export type DesktopHandoffStatus = 'pending' | 'code_received' | 'claimed' | 'signed_in' | 'failed';
+export type DesktopHandoffFailure =
+  'cancelled' | 'no_code' | 'wrong_code' | 'rejected' | 'superseded' | 'exchange' | 'domain';
+export type DesktopPlatform = 'mac' | 'windows' | 'other';
+
+export interface DesktopHandoff {
+  id: Uuid;
+  /** Hex SHA-256 of the hand-off id that rides in the browser's URL. */
+  handoff_hash: string;
+  /** Hex SHA-256 of the app's poll secret (an httpOnly cookie in the app). */
+  poll_secret_hash: string;
+  /** Minted when the browser receives Google's code; shown there, typed in the app. */
+  match_code: string | null;
+  /** Wrong codes typed so far; the third ends the hand-off. */
+  attempts: number;
+  /** Supabase's PKCE flow id, so the exchange finds this flow's verifier. Not a secret. */
+  flow_id: string | null;
+  platform: DesktopPlatform;
+  status: DesktopHandoffStatus;
+  failure_reason: DesktopHandoffFailure | null;
+  /** sealToken output (lib/security/crypto.ts); null except between code_received and claimed. */
+  auth_code_sealed: { ciphertext: string; iv: string; authTag: string; keyVersion: number } | null;
+  created_at: IsoDateTime;
+  expires_at: IsoDateTime;
+  code_received_at: IsoDateTime | null;
+  consumed_at: IsoDateTime | null;
+}
+
 export interface AuditEvent {
   id: Uuid;
   organization_id: Uuid;

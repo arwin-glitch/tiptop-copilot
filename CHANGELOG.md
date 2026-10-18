@@ -10,6 +10,43 @@ throughout.
 
 ## [Unreleased]
 
+- **A desktop app for Mac and Windows.** Settings › Preferences links to a new
+  Download page with an installer for each, streamed through Copilot itself
+  (no page links anywhere else). The app is a window onto the live site, so
+  every web update shows up in it at once; a new app version means
+  downloading it again, and the page says when one is out. The installers
+  are unsigned, so the first launch of each version takes one extra step,
+  shown with a picture on the page: Open Anyway in the Mac's Privacy &
+  Security settings, or More info, then Run anyway on Windows. Installing
+  Copilot from Chrome's address bar is offered as the option with no
+  warnings. Built by a new GitHub Actions workflow on standard runners;
+  `DESKTOP_RELEASE_TOKEN` is recommended so the page can read release
+  details with its own quota (see D-054).
+- **Signing in to the desktop app goes through the browser.** Google will
+  not sign anyone in inside an app's window, so Sign in with Google opens the
+  web browser, which shows a 4-character code after Google; typing it into
+  the app signs the app in. A sign-in lasts 10 minutes, three wrong codes
+  end it, the browser page can stop it ("I didn't start this"), and it works
+  once. It needs `20261017000000_desktop_handoffs.sql` applied in the
+  Supabase SQL editor first; until then the app says sign-in is not
+  available, and nothing else changes.
+- **Inside the desktop app, phone alerts and connecting Google point
+  elsewhere.** Alerts cannot show there, so Settings says to turn them on
+  from a phone; connecting Google and turning on sending say to use a web
+  browser, since Google's consent screen will not open in the app.
+- **Campaign confirmations use Copilot's own dialog.** Cancelling a
+  campaign, retrying failed sends, settling "may have gone out" emails,
+  deleting a draft, removing all recipients, putting an address back on and
+  the "Leave while sending?" question no longer use the browser's confirm
+  box, which the Mac desktop app silently answers with Cancel. Each asks the
+  same question as before, in a dialog with named buttons.
+- **Sign-in brakes for routes reached before sign-in.** The rate limiter now
+  drops spent windows once it holds many keys, and per-address limits on the
+  new sign-in routes treat an IPv6 /64 as one caller.
+- **Inbox attachments the browser cannot show download in place.** PDFs and
+  images still open in a new tab; a Word, Excel or zip file now downloads
+  without opening one, so the page (and any half-written reply) stays put and
+  the desktop app leaves no blank window behind.
 - **The asks read gets through Gmail's rate limit, and says why when it
   cannot.** It matched 20 portfolio updates but read one body: every other
   thread read was refused (most likely Gmail's per-user rate limit, after

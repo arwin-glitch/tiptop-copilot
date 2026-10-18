@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TipTop Copilot",
+  "version": "0.1.0",
+  "identifier": "vc.tiptop.copilot",
+  "build": { "frontendDist": "../fallback" },
+  "app": { "windows": [], "withGlobalTauri": false, "security": { "csp": null } },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg", "nsis"],
+    "publisher": "TipTop Ventures",
+    "copyright": "TipTop Ventures",
+    "category": "Productivity",
+    "shortDescription": "TipTop Copilot",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": { "signingIdentity": "-", "minimumSystemVersion": "13.0" },
+    "windows": {
+      "nsis": { "installMode": "currentUser" },
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true }
+    }
+  }
+}

@@ -1,0 +1,248 @@
+# Builds the TipTop Copilot desktop app (desktop/) for Mac and Windows.
+#
+# A push to any branch that touches desktop/ or this file builds both
+# installers and keeps them on the run as artifacts for 14 days, for trying on
+# a real machine. Pushing a tag desktop-vX.Y.Z builds the same way, then
+# publishes one release holding the versioned installers plus two copies with
+# fixed names, TipTop-Copilot-mac.dmg and TipTop-Copilot-windows-setup.exe.
+# Those two are what the web app's /api/desktop/download route streams to
+# people, so never rename them.
+#
+# No secrets and no paid certificates: the installers are unsigned. The Mac app
+# is ad-hoc signed, which Apple Silicon needs before it will run downloaded
+# code at all; people still click Open Anyway once per version (see
+# desktop/README.md). Icons are generated here from public/icon.svg, so none
+# are committed.
+#
+# The build jobs can only read the repository. Only the release job can write,
+# and it runs nothing but gh on the files the build jobs produced. The
+# third-party actions in the build jobs are pinned to commit SHAs because what
+# they do ends up inside the installers, and a tag build never restores a
+# cache saved by a branch build.
+#
+# Crates: once desktop/src-tauri/Cargo.lock is committed, every build uses
+# exactly the versions in it (--locked) and fails rather than quietly picking
+# newer ones. A tag build refuses to run without it, so a release is never
+# built from freshly resolved crates. A branch build that finds no lock file
+# commits the one it resolved back to the branch (the lock job), so the next
+# build and every release use exactly the crates that were built and tested.
+#
+# When a build fails, the compiler's errors are repeated as annotations on the
+# run, so they can be read from the run's summary.
+
+name: desktop
+
+on:
+  push:
+    branches: ['**']
+    # Path filters apply to branch pushes only; a tag push always runs.
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop.yml'
+    tags: ['desktop-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  # A newer push to a branch replaces its build; a release always finishes.
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versions agree
+        run: |
+          conf=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+          crate=$(sed -n 's/^version = "\(.*\)"$/\1/p' desktop/src-tauri/Cargo.toml | head -n 1)
+          echo "tauri.conf.json: $conf, Cargo.toml: $crate"
+          if [ "$conf" != "$crate" ]; then
+            echo "::error::Set the same version in desktop/src-tauri/tauri.conf.json and Cargo.toml."
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "${GITHUB_REF_NAME#desktop-v}" != "$conf" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $conf."
+            exit 1
+          fi
+
+  build:
+    needs: versions
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: mac
+            os: macos-latest
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            build-args: --target universal-apple-darwin
+            bundle-dir: desktop/src-tauri/target/universal-apple-darwin/release/bundle
+          - platform: windows
+            os: windows-latest
+            rust-targets: ''
+            build-args: ''
+            bundle-dir: desktop/src-tauri/target/release/bundle
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        # Bash on Windows too, so every step reads the same.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      # v1 (master). Pinned by SHA, so the toolchain input is required.
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust-targets }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: github.ref_type != 'tag'
+        with:
+          workspaces: desktop/src-tauri -> target
+      - name: Lock file
+        run: |
+          if [ -f desktop/src-tauri/Cargo.lock ]; then
+            echo "CARGO_LOCKED=--locked" >> "$GITHUB_ENV"
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "::error::Commit desktop/src-tauri/Cargo.lock (Cargo-mac.lock from a branch build's artifact) before tagging a release."
+            exit 1
+          else
+            echo "::warning::No Cargo.lock committed yet, so crates were resolved fresh. Commit Cargo-mac.lock from this run's artifact as desktop/src-tauri/Cargo.lock."
+          fi
+      - name: Icons
+        working-directory: desktop
+        run: npx --yes @tauri-apps/cli@2.12.3 icon ../public/icon.svg --output src-tauri/icons
+      - name: Test the navigation rules
+        if: matrix.platform == 'mac'
+        run: |
+          set -o pipefail
+          cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib ${CARGO_LOCKED:-} 2>&1 \
+            | tee "$RUNNER_TEMP/cargo-test.log"
+      - name: Build
+        working-directory: desktop
+        run: |
+          set -o pipefail
+          # Anything after -- goes to cargo build.
+          if [ -n "${CARGO_LOCKED:-}" ]; then
+            npx --yes @tauri-apps/cli@2.12.3 build --ci ${{ matrix.build-args }} -- --locked 2>&1 \
+              | tee "$RUNNER_TEMP/build.log"
+          else
+            npx --yes @tauri-apps/cli@2.12.3 build --ci ${{ matrix.build-args }} 2>&1 \
+              | tee "$RUNNER_TEMP/build.log"
+          fi
+      - name: Show compiler errors
+        if: failure()
+        run: |
+          # Repeats each log's errors as an annotation on the run.
+          for log in "$RUNNER_TEMP"/cargo-test.log "$RUNNER_TEMP"/build.log; do
+            [ -f "$log" ] || continue
+            msg=$(grep -E -A14 '^(error(\[E[0-9]+\])?:|failed to|Error )' "$log" | head -c 30000 || true)
+            [ -n "$msg" ] || msg=$(tail -n 80 "$log")
+            msg=${msg//'%'/'%25'}
+            msg=${msg//$'\r'/}
+            msg=${msg//$'\n'/'%0A'}
+            echo "::error title=${{ matrix.platform }} $(basename "$log")::$msg"
+          done
+      - name: Collect installers
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          version=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+          bundle='${{ matrix.bundle-dir }}'
+          mkdir -p out
+          copy() { cp "$1" "out/$(basename "$1" | tr ' ' '-')"; }
+          if [ '${{ matrix.platform }}' = mac ]; then
+            dmg=("$bundle"/dmg/*_"$version"_*.dmg)
+            if [ ${#dmg[@]} -ne 1 ]; then
+              echo "::error::Expected one $version .dmg in $bundle/dmg."
+              exit 1
+            fi
+            copy "${dmg[0]}"
+            cp "${dmg[0]}" out/TipTop-Copilot-mac.dmg
+          else
+            exe=("$bundle"/nsis/*_"$version"_*-setup.exe)
+            if [ ${#exe[@]} -ne 1 ]; then
+              echo "::error::Expected one $version setup .exe in $bundle/nsis."
+              exit 1
+            fi
+            copy "${exe[0]}"
+            cp "${exe[0]}" out/TipTop-Copilot-windows-setup.exe
+          fi
+          # Commit one of these as desktop/src-tauri/Cargo.lock (see desktop/README.md).
+          cp desktop/src-tauri/Cargo.lock 'out/Cargo-${{ matrix.platform }}.lock'
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tiptop-copilot-${{ matrix.platform }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
+
+  lock:
+    # A branch build that found no Cargo.lock commits the Mac build's copy to
+    # the branch. Pushes made with the workflow token start no new run.
+    needs: build
+    if: github.event_name == 'push' && github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: tiptop-copilot-mac
+          path: built
+      - name: Commit Cargo.lock
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -f desktop/src-tauri/Cargo.lock ]; then
+            echo "Cargo.lock is already committed."
+            exit 0
+          fi
+          cp built/Cargo-mac.lock desktop/src-tauri/Cargo.lock
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add desktop/src-tauri/Cargo.lock
+          git commit -m "desktop: commit the Cargo.lock from run $GITHUB_RUN_ID"
+          git pull --rebase origin "$BRANCH"
+          git push origin "HEAD:$BRANCH"
+
+  release:
+    # Runs only when both builds succeeded, so a release always has both installers.
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tiptop-copilot-*
+          merge-multiple: true
+          path: out
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          files=(out/*.dmg out/*.exe)
+          ls -l "${files[@]}"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber -R "$GITHUB_REPOSITORY"
+            gh release edit "$TAG" --draft=false --prerelease=false --latest -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "${files[@]}" -R "$GITHUB_REPOSITORY" --verify-tag --latest \
+              --title "TipTop Copilot ${TAG#desktop-v}" \
+              --notes "Desktop app for Mac and Windows. Install it from the Download page in Copilot."
+          fi

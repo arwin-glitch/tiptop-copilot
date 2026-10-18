@@ -61,3 +61,8 @@ next-env.d.ts
 # Scratch payload files written by the local Ask/briefing bridge relay tasks
 # (see C:\Users\TFIVE\.claude\scheduled-tasks\) — not source, never committed.
 /.scratch/
+
+# desktop app (Tauri): build output, generated icons and schemas; built in CI
+/desktop/src-tauri/target/
+/desktop/src-tauri/gen/
+/desktop/src-tauri/icons/

@@ -2,6 +2,7 @@ import 'server-only';
 import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
+import { clientAddress } from '@/lib/security/client-address';
 import { rateLimit } from '@/lib/security/limits';
 import { log } from '@/lib/security/redact';
 import { authenticateMcpToken, parseMcpToken, type McpCaller } from '@/lib/services/mcp-tokens';
@@ -122,27 +123,6 @@ export function resetMcpLimiters(): void {
 /* ---------------------------------------------------------------- request */
 
 /**
- * The caller's address, for the failed-token brake and the audit trail.
- *
- * Render serves through Cloudflare, which sets CF-Connecting-IP to the
- * address that reached its edge (overwriting whatever a client sent), so that
- * is preferred. Otherwise the last X-Forwarded-For hop: the first is whatever
- * the client wrote, while the last was added by the nearest proxy — though on
- * a host whose own proxy appends itself it is that proxy's address, shared by
- * every caller. Either way a wrong or shared key costs little, because the
- * brake never refuses a token that validates (see handleMcpPost).
- */
-function clientAddress(request: Request): string {
-  const edge = request.headers.get('cf-connecting-ip')?.trim();
-  if (edge) return edge;
-  const hops = (request.headers.get('x-forwarded-for') ?? '')
-    .split(',')
-    .map((h) => h.trim())
-    .filter(Boolean);
-  return hops.at(-1) || request.headers.get('x-real-ip')?.trim() || 'unknown';
-}
-
-/**
  * The token the request presents: the path segment when the URL carries one,
  * else the Authorization header. The URL wins because it is the one a person
  * pasted on purpose; a client that adds an Authorization header of its own
@@ -191,7 +171,7 @@ export async function handleMcpPost(
   pathToken: string | null,
   now: () => Date = () => new Date(),
 ): Promise<Response> {
-  const address = clientAddress(request);
+  const address = clientAddress(request.headers);
   const startedAt = now().getTime();
   // The brake answers only for tokens that fail; it is checked after the
   // token, never instead of it (see the note at the top of this file).

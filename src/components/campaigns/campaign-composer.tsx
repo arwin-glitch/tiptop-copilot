@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Check, Paperclip, Send, Trash2, Users, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/confirm';
 import { Card, CardContent } from '@/components/ui/card';
 import { Notice } from '@/components/ui/feedback';
 import { Field, Input, Select, Switch, Textarea } from '@/components/ui/form';
@@ -397,6 +398,7 @@ function RecipientsStep({
     onBusy(what ? 'the recipients change' : null);
   };
   const [showAll, setShowAll] = React.useState(false);
+  const [confirm, confirmDialog] = useConfirm();
   const list = lists.find((l) => l.id === listId) ?? null;
   const pasted = React.useMemo(() => parsePastedRecipients(paste), [paste]);
 
@@ -545,10 +547,13 @@ function RecipientsStep({
                 variant="ghost"
                 size="sm"
                 disabled={busy !== null}
-                onClick={() => {
-                  if (window.confirm(`Remove all ${recipients.length} recipients?`)) {
-                    void remove({ all: true });
-                  }
+                onClick={async () => {
+                  const yes = await confirm({
+                    title: `Remove all ${recipients.length} recipients?`,
+                    confirmLabel: 'Remove all',
+                    tone: 'danger',
+                  });
+                  if (yes) void remove({ all: true });
                 }}
               >
                 Remove all
@@ -608,6 +613,7 @@ function RecipientsStep({
           Next: the message
         </Button>
       </div>
+      {confirmDialog}
     </div>
   );
 }

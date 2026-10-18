@@ -31,6 +31,12 @@ const PUBLIC_PATHS = [
   '/privacy',
   '/api/live',
   '/api/auth',
+  // The system browser lands on these during a desktop app sign-in, before
+  // anyone is signed in (lib/auth/desktop-handoff.ts). Listed one by one
+  // rather than opening /desktop, so nothing added there later is public by
+  // accident.
+  '/desktop/callback',
+  '/desktop/done',
   '/api/cron',
   // Cloud Pub/Sub delivers Gmail notifications here and carries no session
   // cookie. Listed individually rather than opening /api/integrations, which
@@ -153,7 +159,15 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // by this app and need no refresh, and an anonymous visitor has nothing to
   // rotate — calling out to Supabase for either would add a network round trip
   // to every static asset request for no reason.
-  const response = supabaseSession ? await refreshSession(request) : NextResponse.next();
+  //
+  // Never on the desktop sign-in routes, which need no session. A stale
+  // session cookie in the app's window would fail to refresh, and auth-js
+  // then clears every PKCE verifier in the request too: the very verifier the
+  // sign-in is about to use, which would burn Google's single-use code.
+  const response =
+    supabaseSession && !pathname.startsWith('/api/auth/desktop/')
+      ? await refreshSession(request)
+      : NextResponse.next();
 
   // The relayed briefing page sets its own, stricter, sandboxing CSP; a second
   // policy added here would be intersected with it and block its print button.

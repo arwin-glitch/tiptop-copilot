@@ -41,7 +41,7 @@ dashboard immediately.
 
 ## 3. Apply the migrations
 
-Eight files in `supabase/migrations/`, applied in filename order.
+Twenty-two files in `supabase/migrations/`, applied in filename order.
 
 ### With the Supabase CLI (recommended)
 
@@ -65,6 +65,20 @@ Open **SQL Editor** in the dashboard and run each file's contents in order:
 20260101000500_briefs_chat_ops.sql
 20260101000600_row_level_security.sql
 20260101000700_storage_and_bootstrap.sql
+20260101000800_gmail_push.sql
+20260817000000_draft_kind_scheduling.sql
+20260818000000_meeting_notes.sql
+20260915000000_routine_briefings.sql
+20260916120000_routine_briefings_slots.sql
+20260917150000_chat_messages_bridge_status.sql
+20260921120000_portfolio_description_sector.sql
+20260921130000_portfolio_geography_co_investors.sql
+20260921140000_portfolio_deal_source.sql
+20261015000000_crm.sql
+20261016000000_campaigns.sql
+20261016010000_crm_views.sql
+20261016020000_mcp_tokens.sql
+20261017000000_desktop_handoffs.sql
 ```
 
 Order matters — later files reference objects created earlier. Every statement is
@@ -82,6 +96,12 @@ What they create:
 | `…000500` | Daily briefs, chat, drafts, AI usage, audit events, feedback |
 | `…000600` | Row-level security on every table |
 | `…000700` | The private storage bucket and its policies |
+
+Each later file adds one feature's tables or columns, and opens with a comment
+saying what it adds and what the app does until it is applied. The newest,
+`20261017000000_desktop_handoffs.sql`, holds the desktop app's sign-in
+hand-offs; until it is applied, Sign in inside the desktop app says it is not
+available, and nothing else changes.
 
 ---
 
@@ -138,6 +158,8 @@ client you create in [GOOGLE_OAUTH_SETUP.md](GOOGLE_OAUTH_SETUP.md).
 The app's own callback is `${APP_URL}/api/auth/callback`, which `${APP_URL}/**`
 covers. Sign-in is served by `/api/auth/google`; the Gmail and Calendar
 integration is a separate consent at `/api/integrations/google/callback`.
+The desktop app's sign-in returns to `${APP_URL}/desktop/callback`, covered by
+`${APP_URL}/**`.
 
 Since this is an internal tool for one organization, restrict who can sign in.
 Do it in **both** places, because they fail differently:

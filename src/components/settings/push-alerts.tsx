@@ -4,8 +4,9 @@ import * as React from 'react';
 import { toast } from 'sonner';
 import { Bell, BellOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { desktopAppVersion } from '@/lib/desktop/shared';
 
-type State = 'loading' | 'unsupported' | 'install' | 'denied' | 'off' | 'on';
+type State = 'loading' | 'desktop' | 'unsupported' | 'install' | 'denied' | 'off' | 'on';
 
 function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
   const padded = (value + '='.repeat((4 - (value.length % 4)) % 4))
@@ -48,7 +49,11 @@ export function PushAlertsSetting({ publicKey }: { publicKey: string }) {
     let cancelled = false;
     void (async () => {
       let next: State;
-      if (
+      if (desktopAppVersion()) {
+        // Checked first: the Windows app's webview has every API this tests
+        // for and still has no push service, so subscribing would only fail.
+        next = 'desktop';
+      } else if (
         !('Notification' in window) ||
         !('serviceWorker' in navigator) ||
         !('PushManager' in window)
@@ -168,6 +173,11 @@ export function PushAlertsSetting({ publicKey }: { publicKey: string }) {
           <span className="text-sm text-[var(--fg-muted)]">
             Notifications are blocked for this app. Allow them in your phone&apos;s settings, then
             reload.
+          </span>
+        ) : null}
+        {state === 'desktop' ? (
+          <span className="text-sm text-[var(--fg-muted)]">
+            Alerts can’t show in the desktop app. Turn them on from Copilot on your phone.
           </span>
         ) : null}
         {state === 'unsupported' ? (

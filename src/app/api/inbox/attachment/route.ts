@@ -1,12 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getStore } from '@/lib/runtime';
+import { opensInline } from '@/lib/email/attachment-types';
 import { readAttachment } from '@/lib/google/gmail-inbox';
 import { fail, sessionAuth } from '@/lib/services/email-session-auth';
 
 export const dynamic = 'force-dynamic';
-
-/** Types a browser may show in a tab. Everything else downloads, so no mail-borne HTML runs here. */
-const INLINE = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
 /** One attachment from Nick's mail, read-only. */
 export async function GET(request: NextRequest) {
@@ -25,7 +23,8 @@ export async function GET(request: NextRequest) {
   }
   const file = await readAttachment(getStore(), s.integration, messageId, attachmentId);
   if (!file.ok) return fail(file.error);
-  const inline = INLINE.has(type);
+  // Types a browser may show in a tab; everything else downloads.
+  const inline = opensInline(type);
   return new NextResponse(new Uint8Array(file.value), {
     headers: {
       'Content-Type': inline ? type : 'application/octet-stream',

@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/confirm';
 import { Notice } from '@/components/ui/feedback';
 import { Field, Input } from '@/components/ui/form';
 import { SectionHeading } from '@/components/shell/page-header';
@@ -51,6 +52,7 @@ export function UnsubscribeList({
   timezone: string;
 }) {
   const router = useRouter();
+  const [confirm, confirmDialog] = useConfirm();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [email, setEmail] = React.useState('');
   const [showAll, setShowAll] = React.useState(false);
@@ -64,13 +66,12 @@ export function UnsubscribeList({
     });
 
   const resubscribe = async (address: string) => {
-    if (
-      !window.confirm(
-        `Put ${address} back on? Only do this if they asked to get these emails again.`,
-      )
-    ) {
-      return;
-    }
+    const yes = await confirm({
+      title: `Put ${address} back on?`,
+      description: 'Only do this if they asked to get these emails again.',
+      confirmLabel: 'Put back on',
+    });
+    if (!yes) return;
     setBusy(address);
     const r = await post({ action: 'resubscribe', email: address });
     setBusy(null);
@@ -172,6 +173,7 @@ export function UnsubscribeList({
           Leave out
         </Button>
       </form>
+      {confirmDialog}
     </section>
   );
 }

@@ -199,7 +199,23 @@ export interface AppEnv {
    * quietly while the Slack app lacks `chat:write`; `off` never posts.
    */
   taskSnapshotFeed: 'auto' | 'off';
+
+  /**
+   * Where the desktop app's installers are published, as `owner/name`. The
+   * server looks the newest one up and streams it from /api/desktop/download,
+   * so no page links anywhere else.
+   */
+  desktopReleaseRepo: string;
+  /**
+   * Optional. Lets the server look up and fetch installers with its own API
+   * quota instead of the shared anonymous one; read access to releases is
+   * enough.
+   */
+  desktopReleaseToken: string | undefined;
 }
+
+/** The desktop app's release repository when DESKTOP_RELEASE_REPO is unset or malformed. */
+export const DEFAULT_DESKTOP_RELEASE_REPO = 'arwin-glitch/tiptop-copilot';
 
 /** The account the task routines post as, so nothing has to be set on Render. */
 export const DEFAULT_TASK_RELAY_POSTER_IDS: readonly string[] = ['U0AKEG0Q389'];
@@ -283,6 +299,11 @@ export function env(): AppEnv {
     })(),
     taskReplyAutoclose: !switchedOff(str('TASK_REPLY_AUTOCLOSE')),
     taskSnapshotFeed: switchedOff(str('TASK_SNAPSHOT_FEED')) ? 'off' : 'auto',
+    desktopReleaseRepo: ((): string => {
+      const repo = str('DESKTOP_RELEASE_REPO');
+      return repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? repo : DEFAULT_DESKTOP_RELEASE_REPO;
+    })(),
+    desktopReleaseToken: str('DESKTOP_RELEASE_TOKEN'),
   };
   return cached;
 }

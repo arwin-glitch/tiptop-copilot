@@ -1,0 +1,25 @@
+[package]
+name = "tiptop-copilot-desktop"
+version = "0.1.0"
+description = "TipTop Copilot for Mac and Windows"
+edition = "2024"
+rust-version = "1.90"
+publish = false
+
+[lib]
+name = "tiptop_copilot_desktop_lib"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.3", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.4", features = ["tray-icon"] }
+tauri-plugin-opener = "=2.7.2"
+tauri-plugin-single-instance = "=2.5.4"
+tauri-plugin-window-state = "=2.5.0"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

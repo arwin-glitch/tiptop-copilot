@@ -205,16 +205,20 @@ test.describe('signed in', () => {
     await page.getByRole('button', { name: 'Send to 8 people' }).click();
     await expect(page.getByRole('heading', { name: /^Sending/ })).toBeVisible();
 
-    // An in-app link asks first; staying keeps it sending.
+    // An in-app link asks first, in the app's own dialog (window.confirm
+    // shows nothing in the desktop app's Mac window); staying keeps it sending.
     const back = page.getByRole('link', { name: 'Campaigns', exact: true });
-    page.once('dialog', (dialog) => void dialog.dismiss());
+    const leave = page.getByRole('dialog', { name: 'Leave while sending?' });
     await back.click();
+    await expect(leave).toBeVisible();
+    await leave.getByRole('button', { name: 'Stay' }).click();
+    await expect(leave).toBeHidden();
     await expect(page.getByRole('heading', { name: /^Sending/ })).toBeVisible();
     expect(page.url()).toBe(url);
 
     // Leaving anyway pauses it, and the list says so rather than "Sending".
-    page.once('dialog', (dialog) => void dialog.accept());
     await back.click();
+    await leave.getByRole('button', { name: 'Leave and pause' }).click();
     await page.waitForURL(/\/fund-ii\?tab=campaigns/);
     const row = page
       .getByRole('region', { name: 'Campaigns' })

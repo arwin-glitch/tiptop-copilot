@@ -17,6 +17,8 @@ import { redact, log } from './redact';
 export type AuditAction =
   | 'auth.demo_session_started'
   | 'auth.signed_out'
+  | 'auth.desktop_signed_in'
+  | 'desktop.installer_downloaded'
   | 'integration.connected'
   | 'integration.disconnected'
   | 'integration.data_deleted'

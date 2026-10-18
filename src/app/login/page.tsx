@@ -3,11 +3,14 @@ import type { Metadata } from 'next';
 import { enterDemoAction } from '@/app/actions/session';
 import { GoldFiligree } from '@/components/brand/gold-filigree';
 import { Wordmark } from '@/components/brand/wordmark';
+import { DesktopOnly, WebOnly } from '@/components/desktop/desktop-only';
+import { DesktopSignIn } from '@/components/desktop/desktop-sign-in';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Notice } from '@/components/ui/feedback';
 import { getAuthContext } from '@/lib/auth/session';
 import { capabilityReport, isDemoMode } from '@/lib/config/env';
+import { desktopVersionHint } from '@/lib/desktop/server';
 
 export const metadata: Metadata = { title: 'Sign in' };
 
@@ -65,6 +68,7 @@ export default async function LoginPage({
   const busy = params.busy === '1';
   const authError = typeof params.error === 'string' ? params.error : null;
   const demo = isDemoMode();
+  const desktopVersion = await desktopVersionHint();
 
   // Both halves, not just the anon key. Signing in against a project with no
   // service-role key would succeed and then fail on the first data read, which
@@ -139,13 +143,29 @@ export default async function LoginPage({
                   Signed in as Nick Tippmann (demo). Every company, person, email and number in this
                   workspace is invented for demonstration.
                 </p>
+                {/* The desktop app's browser sign-in, against the demo's own
+                    stand-in for Google, so the hand-off can be exercised. */}
+                <DesktopOnly serverVersion={desktopVersion}>
+                  <div className="mt-6 border-t border-[var(--border)] pt-5">
+                    <DesktopSignIn />
+                  </div>
+                </DesktopOnly>
               </>
             ) : (
               <div className="mt-6 space-y-4">
                 {supabaseReady ? (
-                  <Button asChild variant="primary" size="lg" className="w-full">
-                    <a href="/api/auth/google">Continue with Google</a>
-                  </Button>
+                  <>
+                    {/* Google refuses sign-in inside the desktop app's window,
+                        so there the browser does it (DesktopSignIn). */}
+                    <WebOnly serverVersion={desktopVersion}>
+                      <Button asChild variant="primary" size="lg" className="w-full">
+                        <a href="/api/auth/google">Continue with Google</a>
+                      </Button>
+                    </WebOnly>
+                    <DesktopOnly serverVersion={desktopVersion}>
+                      <DesktopSignIn />
+                    </DesktopOnly>
+                  </>
                 ) : (
                   <Notice tone="warn">
                     <p className="font-medium">Authentication is not configured.</p>
