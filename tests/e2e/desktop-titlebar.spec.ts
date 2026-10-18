@@ -438,7 +438,11 @@ test.describe('the Windows app (0.3.0)', () => {
     await openInApp(page, '/updates');
     const tabs = page.getByRole('navigation', { name: 'Reports sections' });
     await expect(tabs).toBeVisible();
-    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    // Long enough to scroll whatever the demo store holds by now.
+    await page.evaluate(() => {
+      document.querySelector('main')!.style.minHeight = '3000px';
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    });
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(200);
     const bannerBottom = await demoBannerBottom(page);
     expect(bannerBottom).toBeGreaterThan(40);
@@ -455,7 +459,12 @@ test.describe('the Windows app (0.3.0)', () => {
       await expect(header.getByRole('button', { name: /^Search/ })).toBeHidden();
       await expect(header).toHaveCSS('top', '40px');
 
-      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      // Long enough to scroll whatever the demo store holds by now: earlier
+      // specs change how many reports there are.
+      await page.evaluate(() => {
+        document.querySelector('main')!.style.minHeight = '3000px';
+        window.scrollTo(0, document.documentElement.scrollHeight);
+      });
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(200);
       expect(Math.round((await box(header)).y)).toBe(40);
       // Under the phone header (52px) or the demo banner, whichever is taller.
