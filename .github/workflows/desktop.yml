@@ -113,7 +113,7 @@ jobs:
             echo "::error::Commit desktop/src-tauri/Cargo.lock (Cargo-mac.lock from a branch build's artifact) before tagging a release."
             exit 1
           else
-            echo "::warning::No Cargo.lock committed yet, so crates were resolved fresh. Commit Cargo-mac.lock from this run's artifact as desktop/src-tauri/Cargo.lock."
+            echo "::warning::No Cargo.lock committed yet, so crates were resolved fresh. The lock job commits this build's lock file to the branch."
           fi
       - name: Icons
         working-directory: desktop
