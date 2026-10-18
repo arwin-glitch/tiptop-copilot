@@ -183,11 +183,22 @@ test.describe('mobile layout', () => {
     const field = page.getByLabel('Your question');
     await expect(field).toBeVisible();
 
-    const box = await field.boundingBox();
+    // Measured from the top of the page, not the viewport. Once it hydrates the
+    // page scrolls smoothly to the end of the conversation, so a viewport
+    // reading depends on how far that scroll has got: on CI it had not
+    // started, and with fifteen conversations listed above it the field was a
+    // screen below the fold, while the same check passed on a faster machine.
+    const bottom = await field.evaluate((el) => el.getBoundingClientRect().bottom + window.scrollY);
     const viewport = page.viewportSize();
-    expect(box).not.toBeNull();
-    // The field must be inside the viewport, not underneath the nav bar.
-    expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual((viewport?.height ?? 0) + 1);
+    // The field must be on the first screen, not underneath the nav bar.
+    expect(bottom).toBeLessThanOrEqual((viewport?.height ?? 0) + 1);
+
+    // However many conversations there are, the Recent list is below the
+    // composer, so it can never push it off the screen.
+    const recentTop = await page
+      .getByRole('heading', { name: 'Recent', exact: true })
+      .evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
+    expect(recentTop).toBeGreaterThan(bottom);
   });
 });
 

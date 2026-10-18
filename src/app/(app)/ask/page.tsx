@@ -73,7 +73,11 @@ export default async function AskPage({
           aiAvailable={aiAvailable}
         />
 
-        <aside className="order-first lg:order-last">
+        {/* After the composer on a phone, beside it from lg. It used to come
+            first on a phone, and fifteen conversations put the composer a
+            screen below the top: it was on screen only once the scroll to the
+            end of the conversation finished, and not at all before. */}
+        <aside>
           <Card>
             <CardContent className="pt-4">
               <FieldLabel as="h2">Recent</FieldLabel>

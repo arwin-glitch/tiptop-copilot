@@ -10,6 +10,11 @@ throughout.
 
 ## [Unreleased]
 
+- **On a phone, the Ask Arwin page puts the question box before Recent.**
+  Recent came first, so with a long history the box was a screen down and
+  appeared only once the page had scrolled to it. From lg up, Recent stays
+  beside the conversation.
+
 - Desktop app 0.2.1: no changes beyond the version, released to prove that 0.2.0
   updates itself from inside the app.
 
