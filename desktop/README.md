@@ -11,9 +11,20 @@ and hands over to the live site as soon as the site answers. Everything after
 that is the web app, so every web update reaches the desktop app with no new
 build.
 
-The shell gives the web page no native access at all: there is no
-`capabilities/` folder, no commands, and no `window.__TAURI__` object. What the
-shell does is all in Rust (`src-tauri/src/`):
+The shell gives the web page one narrow bridge, for the main window's top
+bar and nothing else: `src-tauri/capabilities/` lets the main window, on the
+live site (`https://copilot.tiptop.vc:443/*`) or the bundled page, drag
+itself and double-click to maximise (`core:window:allow-start-dragging`,
+`core:window:allow-internal-toggle-maximize`, used by Tauri's own drag
+script), and call three of the app's own commands, declared in
+`src-tauri/permissions/title-strip.toml`: `window_control` (minimise,
+maximise or restore, close, leave full screen), `window_frame` (maximised,
+full screen, zoom) and, on Windows, `show_app_menu`. These three act only on
+the window that calls them; Tauri's drag commands accept another window's
+name, so a page could also drag or maximise a second window. Second windows
+themselves get nothing, there is no `window.__TAURI__` object, and no plugin
+(links, updates, window state) is reachable from a page. Everything else the
+shell does is in Rust (`src-tauri/src/`):
 
 - **Where links go** (`nav.rs`, unit-tested). The live site loads in the
   window. Any other web address, `mailto:` and `tel:` open in the default
@@ -27,16 +38,40 @@ shell does is all in Rust (`src-tauri/src/`):
 - **The desktop flag.** Every page on the live host gets
   `window.__TIPTOP_DESKTOP__` (the app version) and a `tiptop_desktop` cookie.
   The web app uses them for layout only, never for access.
+- **The top bar** (`frame.rs`, from 0.3.0). The main window has no grey title
+  bar and no menu bar on Windows. The web app draws one bar across the top in
+  the emerald of the sidebar and page header under it, Slack style: ☰ (File,
+  Edit and View as a native menu; Alt or F10 opens it too), Back and Forward,
+  a Search Copilot field (Ctrl K) and minimise, maximise and close. The menu
+  opens only for a click on ☰ whose press Windows saw, or a tap of Alt or F10
+  on its own, so no script on the page can open it while someone types. Drag
+  the bar to move the window, double-click it to maximise, right-click it for
+  the window menu; snapping, resizing from the edges, Alt+F4 and the window
+  shadow (with rounded corners on Windows 11) work as before. On a Mac the
+  title bar is transparent and the traffic lights sit in the same bar, with
+  Back, Forward and search; the menu bar stays at the top of the screen. The
+  page draws the bar only when the main window's
+  `window.__TIPTOP_DESKTOP_FRAME__` (`windows` or `mac`) is set and the app is
+  0.3.0 or newer, so an older app never shows two bars. Second windows
+  (attachments, the full briefing) keep a normal title bar and, on Windows, a
+  menu bar of their own, because those pages cannot draw one. So that a
+  frameless window can always be moved and closed, the bundled page has a
+  plain bar of its own, and any live page that has not shown the real bar
+  after about 4 seconds (a host error page, the offline page, an older web
+  deploy) gets a plain safety-net bar until it does.
 - **Windows.** Closing the main window hides it. On Windows the tray icon
   brings it back (left-click, or right-click for Open and Quit); on a Mac,
   click the Dock icon and quit with ⌘Q. Opening the app a second time focuses
   the running one. The main window's size and position are remembered.
-- **Menus** (`menu.rs`). File, Edit and View, in the menu bar on a Mac and
-  under the title bar of every window on Windows (dark when Windows is in
-  dark mode). Commands act on the window in front.
+- **Menus** (`menu.rs`). File, Edit and View, in the menu bar on a Mac. On
+  Windows they open from ☰ at the top left of the main window, as a native
+  menu that is dark like the bar (Windows 10 1903 or newer; older versions
+  follow the system), and sit in the menu bar of second windows (dark when
+  Windows is in dark mode). Commands act on the window in front.
   - **File:** Settings… (opens Settings in the main window), Check for
-    Updates… (see "How updates work"), Close Window (hides the main window,
-    closes any other), Quit TipTop Copilot. On a Mac, Check for Updates…,
+    Updates… (see "How updates work"; on Windows under ☰ only, not in second
+    windows), Close Window (hides the main window, closes any other), Quit
+    TipTop Copilot. On a Mac, Check for Updates…,
     Settings… ⌘, and Quit ⌘Q sit in the TipTop Copilot menu with About,
     Hide, Hide Others and Show All, and File holds Close Window ⌘W.
   - **Edit:** Undo, Redo, Cut, Copy, Paste, Paste and Match Style, Delete,
@@ -85,7 +120,8 @@ signing key").
 
 The icons are generated during the build from `public/icon.svg`, so none are
 committed. The Mac build runs `cargo test` on the navigation rules, the zoom
-steps and the update timing first.
+steps, the update timing, the top bar commands' input checks and the
+capability files first.
 
 ## Releasing a new version
 
@@ -177,9 +213,9 @@ from 0.2.0 on install it themselves:
 
 - **When it looks.** About 15 seconds after launch, then every 6 hours (by
   the clock, so a laptop that slept catches up soon after waking), and after
-  a check that failed, again in about 30 minutes. Check for Updates… (File
-  menu on Windows; TipTop Copilot menu on a Mac, after About) looks at once;
-  the item reads "Checking for Updates…" while it does. A development build
+  a check that failed, again in about 30 minutes. Check for Updates… (☰,
+  then File, on Windows; TipTop Copilot menu on a Mac, after About) looks at
+  once; the item reads "Checking for Updates…" while it does. A development build
   never looks by itself.
 - **What it asks.** `https://copilot.tiptop.vc/api/desktop/update/<os>/<arch>/<version>`.
   Copilot answers from the newest release's `latest.json`: nothing (204)
@@ -245,15 +281,23 @@ job strips stray line breaks and spaces anyway.
   The Settings page says to turn them on from a phone.
 - Connecting Google, or turning on sending, is done in a web browser; the
   desktop app says so where those buttons would be.
-- No address bar or back button. Windows has WebView2's own Alt+← and Alt+→;
-  a Mac has no back shortcut (the Go menu was removed in 0.2.0).
-- On Windows the page gets every key before the menu bar does, so the menus'
+- No address bar. Back and Forward are in the top bar; Windows also has
+  WebView2's own Alt+← and Alt+→, and a Mac ⌘[ and ⌘] (from the web app).
+- On Windows the page gets every key before the menus do, so the menus'
   shortcuts work only where WebView2 handles the same keys itself (editing,
   reload, Alt+F4). Settings, Quit, Toggle Full Screen and the zoom items have
   no shortcut there (Ctrl+comma, Ctrl+Q, F11, Ctrl+0, Ctrl+= and Ctrl+- do
-  nothing), and Alt or F10 may not open the menus while the page has focus;
-  the mouse always works. The menus' Paste and Match Style and Force Reload
-  items press those keys for the page.
+  nothing). Alt or F10 opens the ☰ menu through the web app, so not on a
+  page that has not drawn the bar; the mouse always works. ☰ is not a Tab
+  stop, as a menu bar is not; Alt or F10 is the keyboard's way to it. The menus' Paste
+  and Match Style and Force Reload items press those keys for the page.
+- The top bar (0.3.0), on Windows: hovering maximise does not show Windows
+  11's Snap Layouts (Win+Z does); when the window is not maximised, the top
+  4 pixels of the bar resize it, as in other apps; Windows 10 shows its thin
+  window border and no rounded corners. Scrollbars in the app are Windows'
+  thin overlay ones (a WebView2 setting the whole app shares), so none sits
+  beside the close button. A PDF or image opened in the main window itself,
+  rather than in a second window, has no bar: use Alt+F4 or the tray.
 - On a Mac the Window and Help menus went with the Go menu, so ⌘M no longer
   minimizes (use the yellow button). Zoom In is ⌘=, not ⌘+ (⇧⌘=).
 - macOS adds its own AutoFill, Dictation and Emoji & Symbols items to the
@@ -296,13 +340,15 @@ job strips stray line breaks and spaces anyway.
      Mac): Actual Size returns to 100%, the zoom stays through Reload, and
      the main window's comes back after a restart. On Windows, Ctrl+=,
      Ctrl+wheel and pinch do not zoom.
-   - Toggle Full Screen; on Windows the menu bar stays visible and the same
-     item leaves full screen. Quitting while in full screen and reopening
-     gives the normal window size.
+   - Toggle Full Screen; on Windows the top bar (main window) or menu bar
+     (second window) stays visible and the same item leaves full screen.
+     Quitting while in full screen and reopening gives the normal window
+     size.
    - Settings… opens Settings in the main window, bringing it back if hidden.
    - Close Window hides the main window and closes a second window; with the
      main window hidden, Reload and the zoom items do nothing. Quit quits.
-   - Windows: the menu bar is dark in Windows dark mode, light otherwise.
+   - Windows: a second window's menu bar is dark in Windows dark mode,
+     light otherwise; the ☰ menu is dark either way.
    - Mac: About, Hide, Hide Others and Show All.
 9. Starting offline shows "Can't reach TipTop Copilot", then recovers when
    the connection returns.
@@ -328,3 +374,71 @@ job strips stray line breaks and spaces anyway.
       date".
     - Opened straight from the disk image, a Mac copy says once that it
       must be moved to Applications.
+14. The top bar (0.3.0):
+    - Windows: one emerald bar, no grey title bar or menu bar. Drag it to
+      move the window; double-click maximises and restores; right-click
+      shows the window menu; dragging to the top or sides snaps; Win+arrows
+      and Alt+F4 work (Alt+F4 hides the window). If dragging does nothing,
+      note the WebView2 Runtime version (Settings > Apps): the bar's CSS
+      `app-region` would then have to go, leaving Tauri's drag script,
+      which the bar also carries.
+    - Edges resize, including the top few pixels when not maximised.
+      Maximised, the window leaves the taskbar visible and the close
+      button's top-right pixel still closes it. The scrollbar never covers
+      the close button.
+    - Windows 10 (the main target): note any white or coloured line on any
+      edge, whether the shadow shows, and that all four edges resize. If the
+      line looks wrong, the fallback is `.shadow(false)` on Windows 10 only
+      (no shadow and no line; the edges still resize). Windows 11: shadow,
+      rounded corners and the thin border.
+    - ☰ opens File, Edit and View right under the button at 100%, 125% and
+      150% display scaling and at View zoom 80% and 125%; it is dark in both
+      Windows light and dark mode, and the tray menu still follows Windows;
+      clicking ☰ again closes it; arrows, Enter, Esc and the underlined
+      letters work in it.
+    - Copy, Paste, Undo, Paste and Match Style and Delete from ☰ act on the
+      reply box that had the cursor.
+    - Alt alone and F10 open ☰ when let go, and the next key after closing
+      it types normally (Alt does not leave the window menu armed). Alt+←,
+      Alt+Tab, Alt+F4 and AltGr (on a keyboard layout that has it) never
+      open it.
+    - A click on ☰ opens the menu on the first try, also a quick one and at
+      150% display scaling; holding the button down for more than a second
+      and a half before letting go does not.
+    - Typing quickly in a reply box never opens the ☰ menu by itself (the
+      menu opens only for a click on ☰ or a tap of Alt or F10).
+    - Minimise, maximise (the icon becomes "restore" when maximised) and
+      close (red on hover; it hides the window) work, also while a dialog
+      such as Search is open. In full screen the maximise button leaves full
+      screen and the bar does not drag. Hover colours clear when the pointer
+      moves from a button onto the empty bar.
+    - Back, Forward and Search Copilot (opens search, hanging just under
+      the field) work; the bar follows Copilot's light and dark theme at
+      once and keeps its size at every zoom.
+    - Scrolling a page in a wide window, its column's top corners round off
+      under the bar; in a narrow window the bar and the phone header stay
+      one colour while the page scrolls under them.
+    - Windows 10: close turns Windows 10's brighter red on hover and the
+      maximise and restore glyphs are square; Windows 11: its darker red
+      and slightly rounded glyphs.
+    - Open and close two PDF attachments in a row: the second window still
+      has a menu bar, and afterwards ☰ > File > Check for Updates… still
+      reads "Checking for Updates…" while it checks.
+    - A PDF attachment and "Open full briefing" open with a normal title bar
+      and menu bar; zoom works there.
+    - With the site down (offline, or a host error page) the bundled page's
+      bar, or within about 4 seconds the safety-net bar (a little later on a
+      slow start, while the real bar is still loading), can move, minimise,
+      maximise and close the window and open ☰ (Reload is there); on the
+      `/offline` page too. It goes away once the real bar is ready.
+    - Scrollers with thin scrollbars (lists, the inbox) and sticky table
+      headers still look right with the overlay scrollbars.
+    - Updating 0.2.1 to 0.3.0 with Restart now: the app starts (no failure
+      from the changed scrollbar setting), keeps its size and place and
+      shows exactly one bar.
+    - Mac: the traffic lights sit centred on the bar (tune `TRAFFIC_LIGHTS`
+      in `frame.rs` if not); Back, Forward and search can be clicked under
+      the transparent title area; the bar drags and a double-click zooms
+      once; in full screen the space for the traffic lights goes; at zoom
+      80% and 125% the bar keeps its size and the lights stay centred. The
+      menu bar is unchanged.

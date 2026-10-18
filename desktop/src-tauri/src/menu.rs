@@ -1,11 +1,13 @@
-//! The menu bar: File, Edit and View, plus the app menu on a Mac. Check for
+//! The menus: File, Edit and View, plus the app menu on a Mac. Check for
 //! Updates… is placed here and answered in updates.rs.
 //!
 //! Undo through Select All (except Paste and Match Style and Delete) are the
 //! system's own items: they act on whatever has focus in the page, exactly as
 //! the keys do. Everything else is handled here, on the window in front.
-//! Windows gets one menu bar per window; every window inherits the app's menu
-//! as long as it is set before the window is built.
+//! A Mac keeps the menu bar at the top of the screen. On Windows the main
+//! window has no menu bar: the same menu opens from the ☰ button in its top
+//! bar (`frame::show_app_menu`), and each second window gets a menu bar of
+//! its own.
 
 use std::{collections::BTreeMap, sync::Mutex};
 
@@ -60,13 +62,38 @@ const DELETE_SELECTION: &str = concat!(
     "})();"
 );
 
-/// Sets the menus and starts handling them. Call it before building any
-/// window, so each window gets the menu bar when it is created.
+/// Builds the menus and starts handling them. Call it before building any
+/// window. On a Mac it is the menu bar. On Windows it is kept for the ☰
+/// button and set on no window: tauri gives a Windows window a menu bar only
+/// when the app has one.
 pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
     app.set_menu(build(app)?)?;
+    #[cfg(windows)]
+    app.manage(AppMenu(build(app)?));
     // Tray and menu events reach every handler, so the ids never overlap.
     app.on_menu_event(|app, event| on_event(app, event.id.as_ref()));
     Ok(())
+}
+
+/// The menu the ☰ button opens. Never a window's menu bar: Windows destroys
+/// a window's menu bar with the window, and a menu's submenus are the same
+/// ones in its bar and its popup, so closing that window would break this
+/// menu too. Second windows get menus of their own (`window_bar`).
+#[cfg(windows)]
+pub struct AppMenu<R: Runtime>(pub Menu<R>);
+
+#[cfg(windows)]
+pub fn app_menu<R: Runtime>(app: &AppHandle<R>) -> Option<Menu<R>> {
+    app.try_state::<AppMenu<R>>().map(|menu| menu.0.clone())
+}
+
+/// A second window's menu bar, built for it alone (see `AppMenu`). The same
+/// menus without Check for Updates…, which lives in the main window's ☰
+/// menu: updates.rs keeps one item up to date.
+#[cfg(windows)]
+pub fn window_bar<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    windows_menu(app, false)
 }
 
 /// The app menu, File, Edit and View. Items with a selector of their own
@@ -144,25 +171,32 @@ fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     Menu::with_items(app, &[&app_menu, &file, &edit, &view])
 }
 
-/// File, Edit and View. While the page has focus WebView2 gets every key
-/// before the menu bar does, so a shortcut WebView2 already handles is shown
-/// but never registered, and items that have no such shortcut show none
-/// (zoom included: WebView2's zoom keys stay off, see `zoom`).
 #[cfg(windows)]
 fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    let file = Submenu::with_items(
-        app,
-        "&File",
-        true,
-        &[
-            &MenuItem::with_id(app, SETTINGS, "&Settings…", true, None::<&str>)?,
-            &crate::updates::menu_item(app)?,
-            &PredefinedMenuItem::separator(app)?,
-            // Closes the window whose menu was used (Alt+F4).
-            &PredefinedMenuItem::close_window(app, Some("&Close Window"))?,
-            &MenuItem::with_id(app, QUIT, "&Quit TipTop Copilot", true, None::<&str>)?,
-        ],
-    )?;
+    windows_menu(app, true)
+}
+
+/// File, Edit and View. While the page has focus WebView2 gets every key
+/// before the menus do, so a shortcut WebView2 already handles is shown but
+/// never registered, and items that have no such shortcut show none (zoom
+/// included: WebView2's zoom keys stay off, see `zoom`).
+#[cfg(windows)]
+fn windows_menu<R: Runtime>(app: &AppHandle<R>, with_updates: bool) -> tauri::Result<Menu<R>> {
+    let settings = MenuItem::with_id(app, SETTINGS, "&Settings…", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    // Closes the window whose menu was used (Alt+F4); the main one hides.
+    let close = PredefinedMenuItem::close_window(app, Some("&Close Window"))?;
+    let quit = MenuItem::with_id(app, QUIT, "&Quit TipTop Copilot", true, None::<&str>)?;
+    let file = if with_updates {
+        Submenu::with_items(
+            app,
+            "&File",
+            true,
+            &[&settings, &crate::updates::menu_item(app)?, &separator, &close, &quit],
+        )?
+    } else {
+        Submenu::with_items(app, "&File", true, &[&settings, &separator, &close, &quit])?
+    };
     let edit = Submenu::with_items(
         app,
         "&Edit",
@@ -206,6 +240,14 @@ fn shown<R: Runtime>(
     shortcut: &str,
 ) -> tauri::Result<MenuItem<R>> {
     MenuItem::with_id(app, id, format!("{text}\t{shortcut}"), true, None::<&str>)
+}
+
+/// A window's View zoom: 1 until it was changed.
+pub fn zoom_of(label: &str) -> f64 {
+    ZOOM.lock()
+        .ok()
+        .and_then(|zooms| zooms.get(label).copied())
+        .unwrap_or(1.0)
 }
 
 pub fn focused(label: &str) {
@@ -295,7 +337,9 @@ fn paste_plain<R: Runtime>(_window: &WebviewWindow<R>) {
     {
         mac::send_action(c"pasteAsPlainText:");
     }
-    // Chromium's own plain-text paste. A page cannot paste by script.
+    // Chromium's own plain-text paste. A page cannot paste by script, nor
+    // open the ☰ menu by itself to reach this item (frame::show_app_menu
+    // opens it only for a click on ☰ or a tap of Alt or F10).
     #[cfg(windows)]
     {
         keys::press(&[keys::CONTROL, keys::SHIFT], keys::KEY_V);
@@ -332,8 +376,9 @@ fn force_reload<R: Runtime>(window: &WebviewWindow<R>) {
     }
 }
 
-/// Windows only: a Mac uses the system's own Full Screen item. The menu bar
-/// stays at the top in full screen, so the same item brings the window back.
+/// Windows only: a Mac uses the system's own Full Screen item. The main
+/// window's top bar and a second window's menu bar stay in full screen, so
+/// the same item brings the window back.
 fn toggle_full_screen<R: Runtime>(window: &WebviewWindow<R>) {
     let full = window.is_fullscreen().unwrap_or(false);
     let _ = window.set_fullscreen(!full);
@@ -367,11 +412,7 @@ enum Zoom {
 /// page load, and turning those keys on turns on pinch-zoom too, so they stay
 /// off.
 fn zoom<R: Runtime>(window: &WebviewWindow<R>, step: Zoom) {
-    let current = ZOOM
-        .lock()
-        .ok()
-        .and_then(|zooms| zooms.get(window.label()).copied())
-        .unwrap_or(1.0);
+    let current = zoom_of(window.label());
     let level = match step {
         Zoom::Reset => 1.0,
         Zoom::In => levels::bigger(current),

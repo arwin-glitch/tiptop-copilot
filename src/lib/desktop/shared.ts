@@ -118,3 +118,48 @@ export function formatInstallerSize(bytes: number): string {
   if (bytes < 1_048_576) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${Math.round(bytes / 1_048_576)} MB`;
 }
+
+/**
+ * From 0.3.0 the shell's main window has no native title bar on Windows, and
+ * a transparent one on a Mac: this page draws the top bar itself
+ * (components/desktop/desktop-title-bar.tsx). The shell says which with a
+ * second read-only global, set in the main window only, so the second
+ * windows (attachments, the briefing) and every older app keep their native
+ * frame and never show two title bars. A layout hint, like the version.
+ */
+export const DESKTOP_FRAME_GLOBAL = '__TIPTOP_DESKTOP_FRAME__';
+/** The first desktop version whose main window has no native title bar: the page draws it. */
+export const FIRST_FRAMELESS_VERSION = '0.3.0';
+
+export type DesktopFrame = 'windows' | 'mac';
+
+export function isDesktopFrame(value: unknown): value is DesktopFrame {
+  return value === 'windows' || value === 'mac';
+}
+
+/** Whether a desktop app of this version leaves its title bar to the page (null: not inside the app). */
+export function framelessShell(version: string | null): boolean {
+  return version !== null && compareVersions(version, FIRST_FRAMELESS_VERSION) >= 0;
+}
+
+/**
+ * The main window's frame when this page draws the title bar; null elsewhere,
+ * on the server, in second windows and in apps before 0.3.0. The pre-paint
+ * script in lib/desktop/frame-boot.ts makes the same call before React runs.
+ */
+export function desktopFrame(): DesktopFrame | null {
+  if (typeof window === 'undefined') return null;
+  const frame = (window as unknown as Record<string, unknown>)[DESKTOP_FRAME_GLOBAL];
+  return isDesktopFrame(frame) && framelessShell(desktopAppVersion()) ? frame : null;
+}
+
+/**
+ * Where Check for Updates… lives for this app version (or, in a browser, the
+ * newest release): under File in the top-left menu from 0.3.0 on Windows, in
+ * the File menu bar before that, and after About in the app menu on a Mac.
+ */
+export function whereToCheckForUpdates(version: string | null): string {
+  return framelessShell(version)
+    ? 'in the menu at the top left on Windows (under File) or the TipTop Copilot menu on a Mac'
+    : 'in the File menu on Windows or the TipTop Copilot menu on a Mac';
+}

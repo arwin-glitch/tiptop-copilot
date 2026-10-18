@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/util/cn';
+import { announceSearchState, SEARCH_OPEN_EVENT } from './search-events';
 
 interface Result {
   kind:
@@ -44,14 +45,20 @@ function inListsGroup(result: Result): boolean {
 /**
  * Ctrl+K / Cmd+K search across the whole app. The button sits in the sidebar
  * and mobile header; the shortcut works anywhere except while typing in a
- * field. Results come from /api/search and are in-app links only.
+ * field. In the desktop app the top bar's "Search Copilot" field opens it
+ * instead (openSearch, ./search-events), and both buttons here are hidden;
+ * there it hangs just under that field, like Slack's, rather than mid-window.
+ * Results come from /api/search and are in-app links only.
  */
 export function CommandPalette({
   className,
   shortcut = true,
 }: {
   className?: string;
-  /** Only one mounted palette listens for Ctrl+K, or two would toggle each other. */
+  /**
+   * Only one mounted palette listens for Ctrl+K, or two would toggle each
+   * other; the same one answers openSearch().
+   */
   shortcut?: boolean;
 }) {
   const router = useRouter();
@@ -69,9 +76,21 @@ export function CommandPalette({
         setOpen((o) => !o);
       }
     };
+    const onOpen = () => setOpen(true);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener(SEARCH_OPEN_EVENT, onOpen);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener(SEARCH_OPEN_EVENT, onOpen);
+    };
   }, [shortcut]);
+
+  // The desktop app's top bar shows its Search field pressed while this is open.
+  React.useEffect(() => {
+    if (!open) return;
+    announceSearchState(true);
+    return () => announceSearchState(false);
+  }, [open]);
 
   React.useEffect(() => {
     if (q.trim().length < 2) return;
@@ -129,6 +148,9 @@ export function CommandPalette({
         <DialogContent
           title="Search"
           description="Deals, portfolio, Fund II LPs, people, meetings, tasks, documents and lists."
+          // In the desktop app: under the bar's Search field, which it opened
+          // (both are centred on the window). Anywhere else, unchanged.
+          className="[:root[data-desktop-frame]_&]:top-[calc(var(--titlebar-h)+0.375rem)] [:root[data-desktop-frame]_&]:translate-y-0"
         >
           <input
             autoFocus

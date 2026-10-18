@@ -27,7 +27,7 @@ export function Toolbar({
       className={cn(
         'flex flex-wrap items-center gap-x-3 gap-y-2.5',
         sticky &&
-          'sticky top-0 z-[var(--z-sticky)] -mx-[var(--gutter)] border-b border-[var(--border)] bg-[var(--bg)]/95 px-[var(--gutter)] py-2.5 backdrop-blur',
+          'sticky top-[var(--titlebar-h)] z-[var(--z-sticky)] -mx-[var(--gutter)] border-b border-[var(--border)] bg-[var(--bg)]/95 px-[var(--gutter)] py-2.5 backdrop-blur',
         className,
       )}
       {...props}

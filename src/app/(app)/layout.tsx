@@ -19,6 +19,7 @@ import { SignOutButton } from '@/components/shell/sign-out';
 import { TaskActionHost } from '@/components/tasks/task-action-host';
 import { Badge } from '@/components/ui/badge';
 import { FieldLabel } from '@/components/ui/card';
+import { cn } from '@/lib/util/cn';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const auth = await getAuthContext();
@@ -40,11 +41,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const desktopVersion = await desktopVersionHint();
 
   return (
-    <div className={demo ? 'has-demo-banner flex min-h-dvh flex-col' : 'flex min-h-dvh flex-col'}>
+    // `data-app-shell` tells the desktop app's top bar (in the root layout)
+    // that this is an app page: it shows Search and carries the rail up.
+    // Every height and sticky top here leaves room for that bar, which is 0px
+    // high outside the app (--titlebar-h).
+    <div
+      data-app-shell=""
+      className={cn(
+        'flex min-h-[calc(100dvh-var(--titlebar-h))] flex-col',
+        demo && 'has-demo-banner',
+      )}
+    >
       {demo ? (
         <div
           role="status"
-          className="text-mini sticky top-0 z-[var(--z-banner)] flex items-center justify-center gap-2 border-b border-[var(--border-strong)] bg-[var(--accent-soft)] px-3 py-1.5 text-center text-[var(--fg)]"
+          className="text-mini sticky top-[var(--titlebar-h)] z-[var(--z-banner)] flex items-center justify-center gap-2 border-b border-[var(--border-strong)] bg-[var(--accent-soft)] px-3 py-1.5 text-center text-[var(--fg)]"
         >
           <strong className="font-semibold">Demo mode</strong>
           <span className="text-[var(--fg-muted)]">
@@ -60,7 +71,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             Remove the class to give light mode a parchment rail instead. Its
             right edge is a gold hairline rather than a border, the line the
             reference draws between two emerald panels. */}
-        <aside className="dark sticky top-0 isolate hidden h-dvh w-64 shrink-0 flex-col bg-[var(--bg-sidebar)] bg-[linear-gradient(180deg,rgb(31_90_70/0.25),transparent_40%,transparent_70%,rgb(0_0_0/0.18))] px-3 py-4 text-[var(--fg)] after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-[linear-gradient(180deg,rgb(212_175_55/0.25),var(--gold)_18%,var(--gold)_82%,rgb(212_175_55/0.25))] lg:flex">
+        <aside className="dark sticky top-[var(--titlebar-h)] isolate hidden h-[calc(100dvh-var(--titlebar-h))] w-64 shrink-0 flex-col bg-[var(--bg-sidebar)] bg-[linear-gradient(180deg,rgb(31_90_70/0.25),transparent_40%,transparent_70%,rgb(0_0_0/0.18))] px-3 py-4 text-[var(--fg)] after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-[linear-gradient(180deg,rgb(212_175_55/0.25),var(--gold)_18%,var(--gold)_82%,rgb(212_175_55/0.25))] lg:flex">
           <GoldFiligree variant="sidebar" />
           <Link
             href="/today"
@@ -69,7 +80,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <Wordmark />
           </Link>
 
-          <CommandPalette className="mb-4 w-full" />
+          {/* In the desktop app the top bar holds Search, so this button
+              hides there; the palette stays mounted, since it owns Ctrl+K,
+              the dialog and the bar's openSearch(). */}
+          <CommandPalette className="mb-4 w-full [:root[data-desktop-frame]_&]:hidden" />
 
           <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto">
             <SidebarNav desktopVersion={desktopVersion} />
@@ -115,7 +129,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               content still sits inside emerald chrome with a gold edge. A
               fixed height rather than padding: a page's subtab bar sticks
               just below it, at --app-header-h. */}
-          <header className="dark sticky top-0 z-[var(--z-header)] flex h-[var(--app-header-h)] items-center justify-between gap-3 bg-[var(--bg-sidebar)]/95 px-4 text-[var(--fg)] backdrop-blur after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-[linear-gradient(90deg,rgb(212_175_55/0.3),var(--gold)_30%,var(--gold)_70%,rgb(212_175_55/0.3))] lg:hidden">
+          <header className="dark sticky top-[var(--titlebar-h)] z-[var(--z-header)] flex h-[var(--app-header-h)] items-center justify-between gap-3 bg-[var(--bg-sidebar)]/95 px-4 text-[var(--fg)] backdrop-blur after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-[linear-gradient(90deg,rgb(212_175_55/0.3),var(--gold)_30%,var(--gold)_70%,rgb(212_175_55/0.3))] lg:hidden">
             <div className="flex min-w-0 items-center gap-2">
               {/* Named just "TipTop Copilot", not "… — Today": Playwright
                   matches accessible names by substring unless told otherwise,
@@ -128,7 +142,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {demo ? <Badge tone="accent">Demo</Badge> : null}
-              <CommandPalette shortcut={false} className="px-2 py-1" />
+              <CommandPalette
+                shortcut={false}
+                className="px-2 py-1 [:root[data-desktop-frame]_&]:hidden"
+              />
               <ThemeToggle />
             </div>
           </header>

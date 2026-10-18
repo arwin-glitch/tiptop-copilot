@@ -19,6 +19,11 @@
         --accent-hover: #235a47;
         --accent-fg: #ffffff;
         --track: rgba(43, 109, 86, 0.18);
+        /* The window's top bar: keep in step with --bg-sidebar in
+           src/app/globals.css (.dark, and :root.dark .dark below). */
+        --bar: #153e31;
+        --bar-fg: #eee8d6;
+        --bar-hover: rgba(255, 255, 255, 0.08);
       }
       @media (prefers-color-scheme: dark) {
         :root {
@@ -29,6 +34,7 @@
           --accent-hover: #63ad91;
           --accent-fg: #0c1411;
           --track: rgba(79, 154, 127, 0.28);
+          --bar: #121413;
         }
       }
       * {
@@ -116,9 +122,181 @@
       [hidden] {
         display: none !important;
       }
+      /* The desktop app's main window has no title bar of its own (0.3.0),
+         so this page draws a plain one: it moves the window (Tauri's drag
+         script) and, on Windows, has the menu and the window buttons. */
+      .titlebar {
+        position: fixed;
+        inset: 0 0 auto 0;
+        z-index: 1;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        background: var(--bar);
+        color: var(--bar-fg);
+      }
+      html[data-os] body {
+        padding-top: 64px;
+      }
+      .titlebar .spacer {
+        flex: 1 1 auto;
+        align-self: stretch;
+      }
+      /* Not the page's own buttons below. */
+      .titlebar button {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        width: 46px;
+        height: 100%;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-weight: 400;
+        cursor: default;
+      }
+      .titlebar button:hover {
+        background: var(--bar-hover);
+      }
+      .titlebar .menu {
+        width: 36px;
+        height: 28px;
+        margin-left: 6px;
+        border-radius: 6px;
+      }
+      .titlebar .close:hover {
+        background: #c42b1c;
+        color: #ffffff;
+      }
+      [data-os='mac'] .titlebar .win {
+        display: none;
+      }
     </style>
   </head>
   <body>
+    <div class="titlebar" data-tauri-drag-region="deep" hidden>
+      <button
+        class="win menu"
+        type="button"
+        tabindex="-1"
+        aria-label="Menu"
+        title="Menu"
+        aria-haspopup="menu"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          width="16"
+          height="16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1"
+          shape-rendering="crispEdges"
+          aria-hidden="true"
+        >
+          <path d="M2 3.5h12M2 7.5h12M2 11.5h12" />
+        </svg>
+      </button>
+      <div class="spacer"></div>
+      <!-- The glyphs of src/components/desktop/window-glyphs.tsx. -->
+      <button
+        class="win"
+        type="button"
+        tabindex="-1"
+        aria-label="Minimise"
+        title="Minimise"
+        data-action="minimize"
+      >
+        <svg
+          viewBox="0 0 10 10"
+          width="10"
+          height="10"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1"
+          shape-rendering="crispEdges"
+          aria-hidden="true"
+        >
+          <path d="M0 5.5h10" />
+        </svg>
+      </button>
+      <button
+        class="win"
+        type="button"
+        tabindex="-1"
+        aria-label="Maximise"
+        title="Maximise"
+        data-action="toggle-maximize"
+      >
+        <svg
+          data-glyph="maximise"
+          viewBox="0 0 10 10"
+          width="10"
+          height="10"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1"
+          shape-rendering="crispEdges"
+          aria-hidden="true"
+        >
+          <rect x="0.5" y="0.5" width="9" height="9" rx="1" />
+        </svg>
+        <svg
+          data-glyph="restore"
+          viewBox="0 0 10 10"
+          width="10"
+          height="10"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1"
+          shape-rendering="crispEdges"
+          aria-hidden="true"
+          hidden
+        >
+          <rect x="0.5" y="2.5" width="7" height="7" rx="1" />
+          <path d="M2.5 2.5V0.5h7v7h-2" />
+        </svg>
+        <svg
+          data-glyph="exit"
+          viewBox="0 0 10 10"
+          width="10"
+          height="10"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1"
+          shape-rendering="crispEdges"
+          aria-hidden="true"
+          hidden
+        >
+          <path d="M3.5 0.5v3h-3M6.5 0.5v3h3M3.5 9.5v-3h-3M6.5 9.5v-3h3" />
+        </svg>
+      </button>
+      <button
+        class="win close"
+        type="button"
+        tabindex="-1"
+        aria-label="Close window"
+        title="Close"
+        data-action="close"
+      >
+        <svg
+          viewBox="0 0 10 10"
+          width="10"
+          height="10"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1"
+          aria-hidden="true"
+        >
+          <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" />
+        </svg>
+      </button>
+    </div>
+
     <main>
       <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
         <rect width="32" height="32" rx="8" fill="#2b6d56" />
@@ -146,6 +324,67 @@
     </main>
 
     <script>
+      // The top bar, only inside the desktop app (Tauri's bridge is there).
+      // A Mac keeps its traffic lights and menu bar, so it gets the drag area
+      // alone. The app's own commands, allowed for this page and the main
+      // window only (src-tauri/capabilities/).
+      (function () {
+        const agent = navigator.userAgent;
+        const os = /Windows/.test(agent) ? 'windows' : /Mac/.test(agent) ? 'mac' : '';
+        const tauri = window.__TAURI_INTERNALS__;
+        if (!os || !tauri || typeof tauri.invoke !== 'function') return;
+        const bar = document.querySelector('.titlebar');
+        const maximise = bar.querySelector('[data-action="toggle-maximize"]');
+        const invoke = (cmd, args) => {
+          try {
+            return Promise.resolve(tauri.invoke(cmd, args)).catch(() => null);
+          } catch {
+            return Promise.resolve(null);
+          }
+        };
+        // In full screen the bar never drags (nor maximises on a
+        // double-click), and its maximise button leaves full screen; a
+        // maximised window's restores, as on the live page.
+        const refresh = () =>
+          invoke('window_frame', {}).then((frame) => {
+            const full = !!frame && frame.fullscreen === true;
+            const maximised = !full && !!frame && frame.maximized === true;
+            const glyph = full ? 'exit' : maximised ? 'restore' : 'maximise';
+            bar.dataset.tauriDragRegion = full ? 'false' : 'deep';
+            maximise.dataset.action = full ? 'exit-full-screen' : 'toggle-maximize';
+            maximise.title = full ? 'Exit full screen' : maximised ? 'Restore' : 'Maximise';
+            maximise.setAttribute('aria-label', maximise.title);
+            for (const svg of maximise.querySelectorAll('[data-glyph]')) {
+              svg.toggleAttribute('hidden', svg.dataset.glyph !== glyph);
+            }
+          });
+        document.documentElement.dataset.os = os;
+        bar.hidden = false;
+        for (const button of bar.querySelectorAll('button')) {
+          // Keeps the keyboard where it was, as the system's buttons do.
+          button.addEventListener('mousedown', (event) => event.preventDefault());
+        }
+        // Told on the press and asked for on the click: the shell opens the
+        // menu for a click only if it saw the press on ☰ while Windows still
+        // reported the mouse button down, which a script cannot fake.
+        const askForMenu = (event) => {
+          if (event.button !== 0) return;
+          invoke('show_app_menu', {
+            x: Math.round(event.currentTarget.getBoundingClientRect().left),
+            y: Math.round(bar.getBoundingClientRect().bottom),
+          });
+        };
+        bar.querySelector('.menu').addEventListener('mousedown', askForMenu);
+        bar.querySelector('.menu').addEventListener('click', askForMenu);
+        for (const button of bar.querySelectorAll('[data-action]')) {
+          button.addEventListener('click', () =>
+            invoke('window_control', { action: button.dataset.action }).then(refresh),
+          );
+        }
+        addEventListener('resize', refresh);
+        refresh();
+      })();
+
       const LIVE = 'https://copilot.tiptop.vc';
       const opening = document.getElementById('opening');
       const slow = document.getElementById('slow');

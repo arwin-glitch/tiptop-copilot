@@ -8,7 +8,7 @@ export default function OfflinePage() {
   return (
     <main
       id="main"
-      className="relative isolate flex min-h-dvh items-center justify-center overflow-hidden px-4"
+      className="relative isolate flex min-h-[calc(100dvh-var(--titlebar-h))] items-center justify-center overflow-hidden px-4"
     >
       <GoldFiligree variant="login" />
       <div className="max-w-sm text-center">

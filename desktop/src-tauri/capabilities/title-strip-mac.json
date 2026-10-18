@@ -1,0 +1,13 @@
+{
+  "identifier": "title-strip-mac",
+  "description": "The main window's top bar on a Mac, on the live site and the bundled fallback page: drag, double-click to zoom and read the window's state. The traffic lights and the menu bar stay native. Nothing else.",
+  "local": true,
+  "remote": { "urls": ["https://copilot.tiptop.vc:443/*"] },
+  "windows": ["main"],
+  "platforms": ["macOS"],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "allow-window-frame"
+  ]
+}

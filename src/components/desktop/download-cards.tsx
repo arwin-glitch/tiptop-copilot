@@ -12,6 +12,7 @@ import {
   FIRST_SELF_UPDATING_VERSION,
   formatInstallerSize,
   updatesItself,
+  whereToCheckForUpdates,
   type DesktopRelease,
   type InstallerPlatform,
 } from '@/lib/desktop/shared';
@@ -238,15 +239,14 @@ export function DownloadCards({
               <p className="mt-1 text-[var(--fg-muted)]">
                 The app always shows the latest Copilot and installs its own updates: when a new
                 version is ready, it asks to restart, which takes about 10 to 20 seconds. To look
-                now, use Check for Updates… in the File menu on Windows or the TipTop Copilot menu
-                on a Mac.
+                now, use Check for Updates… {whereToCheckForUpdates(appVersion ?? latest)}.
               </p>
             ) : (
               <p className="mt-1 text-[var(--fg-muted)]">
                 The app always shows the latest Copilot, so most updates need nothing from you. From
                 version {FIRST_SELF_UPDATING_VERSION} the app updates itself: when a new version is
                 ready, it asks to restart, which takes about 10 to 20 seconds. To look now, use
-                Check for Updates… in the File menu on Windows or the TipTop Copilot menu on a Mac.
+                Check for Updates… {whereToCheckForUpdates(appVersion ?? latest)}.
               </p>
             )}
           </section>

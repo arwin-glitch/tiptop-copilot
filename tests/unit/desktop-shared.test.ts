@@ -1,13 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   compareVersions,
+  desktopFrame,
   formatInstallerSize,
+  framelessShell,
+  isDesktopFrame,
   isInstallerPlatform,
   MATCH_ALPHABET,
   MATCH_CODE_RE,
   normalizeMatchCode,
   parseDesktopVersion,
   updatesItself,
+  whereToCheckForUpdates,
 } from '@/lib/desktop/shared';
 
 /**
@@ -61,6 +65,66 @@ describe('updatesItself', () => {
 
   it('is false outside the desktop app', () => {
     expect(updatesItself(null)).toBe(false);
+  });
+});
+
+describe('the frameless window (0.3.0)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('is from 0.3.0, the first version whose page draws the title bar', () => {
+    expect(framelessShell('0.2.9')).toBe(false);
+    expect(framelessShell('0.2.1')).toBe(false);
+    expect(framelessShell('0.3.0')).toBe(true);
+    expect(framelessShell('0.10.0')).toBe(true);
+    expect(framelessShell('1.0.0')).toBe(true);
+    expect(framelessShell(null)).toBe(false);
+  });
+
+  it('knows the two frames and nothing else', () => {
+    expect(isDesktopFrame('windows')).toBe(true);
+    expect(isDesktopFrame('mac')).toBe(true);
+    for (const value of ['Windows', 'linux', '', null, undefined, 1, {}]) {
+      expect(isDesktopFrame(value)).toBe(false);
+    }
+  });
+
+  it('needs both globals, and a 0.3.0 or newer version, to draw the bar', () => {
+    const cases: [unknown, unknown, ReturnType<typeof desktopFrame>][] = [
+      ['windows', '0.3.0', 'windows'],
+      ['mac', '0.3.0', 'mac'],
+      ['windows', '0.4.2', 'windows'],
+      ['mac', '1.0.0', 'mac'],
+      // An older app never sets the frame global; if one somehow did, still no bar.
+      ['windows', '0.2.1', null],
+      ['mac', '0.1.0', null],
+      // A 0.3.0 second window (attachments, the briefing) has no frame global.
+      [undefined, '0.3.0', null],
+      ['linux', '0.3.0', null],
+      ['windows', undefined, null],
+      ['windows', 'v0.3.0', null],
+    ];
+    for (const [frame, version, expected] of cases) {
+      vi.stubGlobal('window', { __TIPTOP_DESKTOP_FRAME__: frame, __TIPTOP_DESKTOP__: version });
+      expect(desktopFrame(), `${String(frame)} ${String(version)}`).toBe(expected);
+    }
+  });
+
+  it('is null on the server', () => {
+    expect(desktopFrame()).toBeNull();
+  });
+
+  it('says where Check for Updates… is for each version', () => {
+    expect(whereToCheckForUpdates(null)).toBe(
+      'in the File menu on Windows or the TipTop Copilot menu on a Mac',
+    );
+    expect(whereToCheckForUpdates('0.2.1')).toBe(
+      'in the File menu on Windows or the TipTop Copilot menu on a Mac',
+    );
+    expect(whereToCheckForUpdates('0.3.0')).toBe(
+      'in the menu at the top left on Windows (under File) or the TipTop Copilot menu on a Mac',
+    );
   });
 });
 

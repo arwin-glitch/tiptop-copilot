@@ -1,0 +1,17 @@
+# The commands of the main window's top bar (src/frame.rs). Each acts only on
+# the window that calls it. capabilities/ says which pages may use them.
+
+[[permission]]
+identifier = "allow-window-control"
+description = "Minimise, maximise or restore, close, or leave full screen: the calling window only."
+commands.allow = ["window_control"]
+
+[[permission]]
+identifier = "allow-window-frame"
+description = "Whether the calling window is maximised or full screen, and its zoom."
+commands.allow = ["window_frame"]
+
+[[permission]]
+identifier = "allow-show-app-menu"
+description = "Open the File, Edit and View menu under the top bar's menu button, in the calling window. The person still picks the item."
+commands.allow = ["show_app_menu"]

@@ -81,7 +81,7 @@ export default async function LoginPage({
   return (
     <main
       id="main"
-      className="relative isolate flex min-h-dvh items-center justify-center overflow-hidden bg-[var(--bg)] bg-[image:var(--spotlight)] px-4 py-10"
+      className="relative isolate flex min-h-[calc(100dvh-var(--titlebar-h))] items-center justify-center overflow-hidden bg-[var(--bg)] bg-[image:var(--spotlight)] px-4 py-10"
     >
       {/* A forest-green band across the top in both themes, with the gold
           line art in it and a gold hairline for an edge, like the page-header

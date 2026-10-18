@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import { Toaster } from 'sonner';
+import { DesktopTitleBar } from '@/components/desktop/desktop-title-bar';
 import { ServiceWorkerRegistrar } from '@/components/shell/service-worker';
+import { FRAME_BOOT_SCRIPT } from '@/lib/desktop/frame-boot';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -49,11 +51,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* eslint-disable-next-line no-restricted-syntax -- a static,
-            self-authored constant with no external input. This is the standard
-            no-flash theme bootstrap; it cannot carry untrusted content. Every
-            other surface in the app renders text through <PlainText>. */}
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        {/* eslint-disable-next-line no-restricted-syntax -- two static,
+            self-authored constants with no external input: the standard
+            no-flash theme bootstrap, and the desktop app's top-bar flag
+            (lib/desktop/frame-boot.ts). Neither can carry untrusted content.
+            Every other surface in the app renders text through <PlainText>. */}
+        <script dangerouslySetInnerHTML={{ __html: themeScript + FRAME_BOOT_SCRIPT }} />
       </head>
       <body className="min-h-dvh antialiased">
         {/* The skip link outranks the demo banner deliberately. Both used to sit
@@ -61,10 +64,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             thing a keyboard user reached could be painted underneath it. */}
         <a
           href="#main"
-          className="focus:shadow-lifted sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[var(--z-toast)] focus:rounded-md focus:bg-[var(--primary)] focus:px-3 focus:py-2 focus:text-sm focus:text-[var(--primary-fg)]"
+          className="focus:shadow-lifted sr-only focus:not-sr-only focus:absolute focus:top-[calc(var(--titlebar-h)+0.5rem)] focus:left-2 focus:z-[var(--z-toast)] focus:rounded-md focus:bg-[var(--primary)] focus:px-3 focus:py-2 focus:text-sm focus:text-[var(--primary-fg)]"
         >
           Skip to content
         </a>
+        {/* The desktop app's own title bar, on every page (login and offline
+            too, so the window can always be moved and closed). Shown only in
+            the app's main window from 0.3.0; after the skip link, so that
+            stays the first Tab stop. */}
+        <DesktopTitleBar />
         {children}
         <ServiceWorkerRegistrar />
         <Toaster

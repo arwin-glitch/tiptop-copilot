@@ -1,6 +1,6 @@
 [package]
 name = "tiptop-copilot-desktop"
-version = "0.2.1"
+version = "0.3.0"
 description = "TipTop Copilot for Mac and Windows"
 edition = "2024"
 rust-version = "1.90"

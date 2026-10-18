@@ -26,6 +26,7 @@ import {
   type ThreadStatus,
   type ThreadSummary,
 } from '@/lib/chat/thread-summary';
+import { ignoreTitleBarPointer } from '@/lib/desktop/title-bar';
 import type { ChatMessage } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
 import { snippet } from '@/lib/util/text';
@@ -825,16 +826,19 @@ export function AskWidget({
           // Keys typed here are the panel's: none reaches a page shortcut on
           // `window` (Esc and Tab are handled by the dialog itself).
           onKeyDown={(event) => event.stopPropagation()}
+          // Minimising or moving the desktop app's window leaves it open.
+          onPointerDownOutside={ignoreTitleBarPointer}
           className={cn(
             'shadow-overlay motion-safe:animate-rise fixed z-[var(--z-overlay)] flex flex-col overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border-strong)] bg-[var(--bg-overlay)] text-[var(--fg)]',
             // Phone, a phone on its side, or any short window: a sheet over
             // everything, inside the safe areas, never wider than a column.
-            'inset-x-2 top-[max(0.5rem,env(safe-area-inset-top))] bottom-[max(0.5rem,env(safe-area-inset-bottom))] mx-auto max-w-[40rem]',
+            // (Below the desktop app's top bar, which is 0px high elsewhere.)
+            'inset-x-2 top-[calc(max(0.5rem,env(safe-area-inset-top))+var(--titlebar-h))] bottom-[max(0.5rem,env(safe-area-inset-bottom))] mx-auto max-w-[40rem]',
             // Wide and tall enough: a panel above the launcher, which sits
             // above the tab bar.
-            'panel-float:top-auto panel-float:right-4 panel-float:bottom-[calc(8.25rem+env(safe-area-inset-bottom))] panel-float:left-auto panel-float:h-[min(38rem,calc(100dvh-12.5rem))] panel-float:w-[24rem]',
+            'panel-float:top-auto panel-float:right-4 panel-float:bottom-[calc(8.25rem+env(safe-area-inset-bottom))] panel-float:left-auto panel-float:h-[min(38rem,calc(100dvh-12.5rem-var(--titlebar-h)))] panel-float:w-[24rem]',
             // Desktop: above the corner launcher.
-            'panel-float-lg:right-6 panel-float-lg:bottom-[6.25rem] panel-float-lg:h-[min(40rem,calc(100dvh-8.5rem))] panel-float-lg:w-[25rem]',
+            'panel-float-lg:right-6 panel-float-lg:bottom-[6.25rem] panel-float-lg:h-[min(40rem,calc(100dvh-8.5rem-var(--titlebar-h)))] panel-float-lg:w-[25rem]',
           )}
         >
           {/* Announces an answer that lands while the panel is open. */}
@@ -1031,7 +1035,7 @@ export function AskWidget({
       {/* The full Ask page has no launcher; the pop-up sits under its header,
           clear of the composer at the bottom. */}
       {onAskPage && replyNotice && !open ? (
-        <div className="pointer-events-none fixed top-[calc(var(--app-header-h)+var(--app-banner-h)+0.75rem)] right-4 z-[var(--z-nav)] lg:top-[calc(var(--app-banner-h)+1rem)] lg:right-6">
+        <div className="pointer-events-none fixed top-[calc(var(--app-header-h)+var(--app-banner-h)+0.75rem+var(--titlebar-h))] right-4 z-[var(--z-nav)] lg:top-[calc(var(--app-banner-h)+1rem+var(--titlebar-h))] lg:right-6">
           <ReplyNoticeCard
             notice={replyNotice}
             placement="page"

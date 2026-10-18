@@ -282,6 +282,9 @@
   /* The guided tour: over dialogs and the Ask Arwin panel, under toasts. */
   --z-tour: 65;
   --z-toast: 70;
+  /* The desktop app's top bar: above toasts, so the window controls are
+     never covered or dimmed. */
+  --z-titlebar: 80;
 
   /* Page rhythm. One gutter and one stack step, so screens agree. */
   --gutter: 1rem;
@@ -294,6 +297,12 @@
   --app-banner-h: 0px;
   /* A page's subtab bar (PageTabs): its 44px touch targets, 40px from lg. */
   --page-tabs-h: 2.75rem;
+  /* The desktop app's top bar (DesktopTitleBar), above all of these: 0px in
+     a browser, so every offset that adds it is unchanged there. */
+  --titlebar-h: 0px;
+  /* Windows 11's close-button red: a platform convention, not a theme colour. */
+  --titlebar-close: #c42b1c;
+  --titlebar-close-pressed: rgb(196 43 28 / 0.9);
 }
 
 /* The demo banner's height on one line: a 12px line, 6px padding top and
@@ -305,13 +314,113 @@
   --app-banner-h: calc(var(--text-mini) * var(--text-mini--line-height) + 0.75rem + 1px);
 }
 
+/* The desktop app's top bar (components/desktop/desktop-title-bar.tsx).
+   From 0.3.0 the app's main window has no native title bar, and the page
+   draws one; html[data-desktop-frame] is set before first paint in that
+   window only (lib/desktop/frame-boot.ts). Nothing here applies anywhere
+   else. The bar is fixed, and the page moves down by its height: body padding
+   rather than an inner scroller, so window scrolling, scroll padding and
+   Next's scroll-to-top all work as before.
+
+   It keeps its size on screen at any View > Zoom: zoomed back by the app's
+   zoom (--desktop-zoom, set on <html> from the shell), so caption buttons
+   stay at Windows' size and a Mac's traffic lights stay centred on it. The
+   space reserved for it shrinks in CSS px to match. Placed before the scroll
+   padding rules below, which win (same specificity, later) on pages with
+   subtabs and add --titlebar-h themselves. */
+:root[data-desktop-frame] {
+  --titlebar-h: 2.5rem;
+  scroll-padding-top: var(--titlebar-h);
+}
+
+/* The shell turns on overlay scrollbars on Windows, which take no room.
+   Where it could not (an old WebView2), room for a classic one on every
+   page, so the close button never moves between pages that scroll and pages
+   that do not. Not on a Mac: nothing sits at the bar's right end there, and
+   a Mac set to always show scrollbars would get a page-coloured notch. */
+:root[data-desktop-frame='windows']:not([data-overlay-scrollbars]) {
+  scrollbar-gutter: stable;
+}
+
+@supports (zoom: calc(1 / 2)) {
+  :root[data-desktop-frame] {
+    --titlebar-h: calc(2.5rem / var(--desktop-zoom, 1));
+  }
+
+  :root[data-desktop-frame] [data-titlebar] {
+    zoom: calc(1 / var(--desktop-zoom, 1));
+    /* Inside the zoomed bar, a length that has to line up with the page
+       below it (the rail's width) is scaled back up by this. */
+    --zoom-comp: var(--desktop-zoom, 1);
+  }
+}
+
+/* (0,2,1): outranks react-remove-scroll's body[data-scroll-locked] rule,
+   which zeroes body padding while a dialog is open and would drop every page
+   under the bar. */
+:root[data-desktop-frame] body {
+  padding-top: var(--titlebar-h);
+}
+
+/* Windows moves the window from these regions natively (WebView2's
+   non-client regions); a Mac uses the shell's drag script instead. */
+:root[data-desktop-frame] [data-titlebar] {
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+:root[data-desktop-frame] [data-titlebar] :is(button, a, input, [data-no-drag]),
+:root[data-desktop-frame] [data-titlebar][data-fullscreen] {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+/* An overlay scrollbar would appear over the close button's right edge, and
+   catch its clicks, while the pointer is on the bar. It takes no room, so
+   hiding it there moves nothing. */
+:root[data-desktop-frame='windows'][data-overlay-scrollbars]:has([data-titlebar]:hover) {
+  scrollbar-width: none;
+}
+
+/* Windows 10's own caption buttons: a brighter close red, and square
+   maximise and restore glyphs (DesktopTitleBar sets data-win10 from the
+   client hints). */
+:root[data-desktop-frame='windows'][data-win10] {
+  --titlebar-close: #e81123;
+  --titlebar-close-pressed: rgb(232 17 35 / 0.9);
+}
+
+:root[data-desktop-frame='windows'][data-win10] [data-titlebar] rect {
+  rx: 0;
+}
+
+/* The gold line art at the top of the page grows out from under the bar
+   rather than stopping dead on its lower edge, which would draw a ruled
+   line under it. On the art itself, so it multiplies with each variant's
+   own mask. */
+:root[data-desktop-frame]
+  :is(.filigree-header, .filigree-band, .filigree-login, .filigree-sidebar)
+  > svg {
+  mask-image: linear-gradient(to bottom, transparent, #000 2.5rem);
+}
+
+@media print {
+  :root[data-desktop-frame] {
+    --titlebar-h: 0px;
+  }
+
+  :root[data-desktop-frame] [data-titlebar] {
+    display: none;
+  }
+}
+
 /* Focus never lands under what is stuck to the top (WCAG 2.4.11). When Tab or
    Shift+Tab, or a jump to an anchor, scrolls something into view, it stops
    below the mobile header or demo banner and a page's subtab bar, rather than
    at the very top of the window where the bar covers it. */
 :root:has([data-page-tabs]) {
   scroll-padding-top: calc(
-    max(var(--app-header-h), var(--app-banner-h)) + var(--page-tabs-h) + 0.5rem
+    max(var(--app-header-h), var(--app-banner-h)) + var(--page-tabs-h) + 0.5rem + var(--titlebar-h)
   );
 }
 
@@ -322,7 +431,7 @@
 
   /* No mobile header from lg: only the banner, in demo mode, sits above the bar. */
   :root:has([data-page-tabs]) {
-    scroll-padding-top: calc(var(--app-banner-h) + var(--page-tabs-h) + 0.5rem);
+    scroll-padding-top: calc(var(--app-banner-h) + var(--page-tabs-h) + 0.5rem + var(--titlebar-h));
   }
 }
 

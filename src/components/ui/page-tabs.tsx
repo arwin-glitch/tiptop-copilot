@@ -91,7 +91,8 @@ export function PageTabs({
         data-page-tabs=""
         data-tour="subtabs"
         className={cn(
-          'sticky top-[max(var(--app-header-h),var(--app-banner-h))] z-[var(--z-subnav)] -mx-[var(--gutter)] mb-5 border-b border-[var(--border)] bg-[var(--bg)]/95 px-[var(--gutter)] backdrop-blur lg:top-[var(--app-banner-h)]',
+          // Under whatever is stuck above it, the desktop app's top bar included.
+          'sticky top-[calc(max(var(--app-header-h),var(--app-banner-h))+var(--titlebar-h))] z-[var(--z-subnav)] -mx-[var(--gutter)] mb-5 border-b border-[var(--border)] bg-[var(--bg)]/95 px-[var(--gutter)] backdrop-blur lg:top-[calc(var(--app-banner-h)+var(--titlebar-h))]',
           className,
         )}
       >

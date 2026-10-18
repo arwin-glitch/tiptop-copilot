@@ -3,6 +3,7 @@
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
+import { ignoreTitleBarPointer } from '@/lib/desktop/title-bar';
 import { cn } from '@/lib/util/cn';
 
 export const Dialog = DialogPrimitive.Root;
@@ -16,7 +17,10 @@ function Overlay({
   return (
     <DialogPrimitive.Overlay
       className={cn(
-        'fixed inset-0 z-[var(--z-overlay)] bg-[var(--scrim)] backdrop-blur-[2px]',
+        // From under the desktop app's top bar (0px high anywhere else): its
+        // blur would otherwise draw what is behind the bar into a light line
+        // along the bar's lower edge.
+        'fixed inset-x-0 top-[var(--titlebar-h)] bottom-0 z-[var(--z-overlay)] bg-[var(--scrim)] backdrop-blur-[2px]',
         className,
       )}
       {...props}
@@ -24,11 +28,26 @@ function Overlay({
   );
 }
 
+/**
+ * A press on the desktop app's top bar (minimise, the menu, search, moving
+ * the window) is not a click outside: the dialog stays open. The bar stays
+ * clear of the scrim, so dialogs are centred, and drawers start, below it.
+ */
+function keepOpenForTitleBar(
+  handler: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>['onPointerDownOutside'],
+) {
+  return (event: Parameters<NonNullable<typeof handler>>[0]) => {
+    ignoreTitleBarPointer(event);
+    handler?.(event);
+  };
+}
+
 export function DialogContent({
   className,
   children,
   title,
   description,
+  onPointerDownOutside,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   title: string;
@@ -38,8 +57,9 @@ export function DialogContent({
     <DialogPrimitive.Portal>
       <Overlay />
       <DialogPrimitive.Content
+        onPointerDownOutside={keepOpenForTitleBar(onPointerDownOutside)}
         className={cn(
-          'shadow-overlay fixed top-1/2 left-1/2 z-[var(--z-overlay)] flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border-strong)] bg-[var(--bg-overlay)]',
+          'shadow-overlay fixed top-[calc(50%+var(--titlebar-h)/2)] left-1/2 z-[var(--z-overlay)] flex max-h-[calc(90dvh-var(--titlebar-h))] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border-strong)] bg-[var(--bg-overlay)]',
           className,
         )}
         {...props}
@@ -88,6 +108,7 @@ export function Drawer({
   children,
   title,
   description,
+  onPointerDownOutside,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   title: string;
@@ -97,8 +118,9 @@ export function Drawer({
     <DialogPrimitive.Portal>
       <Overlay />
       <DialogPrimitive.Content
+        onPointerDownOutside={keepOpenForTitleBar(onPointerDownOutside)}
         className={cn(
-          'shadow-overlay fixed inset-y-0 right-0 z-[var(--z-overlay)] flex w-full max-w-xl flex-col border-l border-[var(--border-strong)] bg-[var(--bg-overlay)]',
+          'shadow-overlay fixed top-[var(--titlebar-h)] right-0 bottom-0 z-[var(--z-overlay)] flex w-full max-w-xl flex-col border-l border-[var(--border-strong)] bg-[var(--bg-overlay)]',
           className,
         )}
         {...props}

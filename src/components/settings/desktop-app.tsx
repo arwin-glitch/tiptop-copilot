@@ -2,7 +2,11 @@
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { FIRST_SELF_UPDATING_VERSION, updatesItself } from '@/lib/desktop/shared';
+import {
+  FIRST_SELF_UPDATING_VERSION,
+  updatesItself,
+  whereToCheckForUpdates,
+} from '@/lib/desktop/shared';
 import { useDesktopApp } from '@/lib/desktop/use-desktop-app';
 
 /**
@@ -28,8 +32,7 @@ export function DesktopAppSetting({
           version is ready, it asks to restart.
         </p>
         <p className="mt-1 text-xs text-[var(--fg-subtle)]">
-          To look now, use Check for Updates… in the File menu on Windows or the TipTop Copilot menu
-          on a Mac.
+          To look now, use Check for Updates… {whereToCheckForUpdates(version)}.
         </p>
       </div>
     );

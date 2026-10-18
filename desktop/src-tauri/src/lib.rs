@@ -1,11 +1,14 @@
 //! TipTop Copilot for Mac and Windows: a window onto https://copilot.tiptop.vc.
 //!
 //! A bundled fallback page hands over to the live site once it answers, so
-//! every web update reaches the app with no new build. The shell registers no
-//! commands and ships no capabilities, so the remote page has no native access;
-//! the only native behaviour is here, in the menus (`menu.rs`) and in the
-//! in-app updates (`updates.rs`), driven from Rust.
+//! every web update reaches the app with no new build. The page gets one
+//! narrow bridge: in the main window only, the live site and the fallback page
+//! may move, minimise, maximise and close that window, read its state, and
+//! open the menu under its top bar's ☰ button (`frame.rs`, `capabilities/`,
+//! `permissions/`). Everything else native is here, driven from Rust: the
+//! menus (`menu.rs`), the in-app updates (`updates.rs`), links and downloads.
 
+mod frame;
 mod menu;
 mod nav;
 mod updates;
@@ -62,7 +65,7 @@ fn open_in_browser<R: Runtime>(app: &AppHandle<R>, url: &Url) {
 }
 
 /// Every window starts here, so each gets the same rules: the desktop flag,
-/// where links may go, and (on a Mac) downloads.
+/// where links may go, the scrollbars and (on a Mac) downloads.
 fn window_builder<'a, R: Runtime>(
     app: &'a AppHandle<R>,
     label: &str,
@@ -96,6 +99,13 @@ fn window_builder<'a, R: Runtime>(
             }
             Route::Block => NewWindowResponse::Deny,
         });
+
+    // Thin scrollbars that overlay the page and take no width, so the main
+    // window's top bar reaches the right edge and its close button never
+    // moves. WebView2 needs the same value for every webview on one data
+    // directory, so every window gets it; runtimes older than 125 ignore it.
+    #[cfg(windows)]
+    let builder = builder.scroll_bar_style(tauri::webview::ScrollBarStyle::FluentOverlay);
 
     // WKWebView cancels every download unless a handler is set; wry fills in
     // ~/Downloads/<name> (with " (n)" on clashes), and Finished has no path on
@@ -138,14 +148,16 @@ fn window_builder<'a, R: Runtime>(
 
 /// A same-site link meant for a new tab (an attachment, the full briefing)
 /// opens in a window of its own, so the page it came from keeps any unsent
-/// work. Closing one of these really closes it.
+/// work. Closing one of these really closes it. These keep a normal title bar
+/// and, on Windows, a menu bar: an attachment or the briefing cannot draw the
+/// main window's top bar.
 fn open_view<R: Runtime>(
     app: &AppHandle<R>,
     features: NewWindowFeatures,
 ) -> tauri::Result<WebviewWindow<R>> {
     let label = format!("view-{}", NEXT_VIEW.fetch_add(1, Ordering::Relaxed));
     let blank = Url::parse("about:blank").map_err(tauri::Error::InvalidUrl)?;
-    window_builder(app, &label, WebviewUrl::External(blank))
+    let builder = window_builder(app, &label, WebviewUrl::External(blank))
         .title("TipTop Copilot")
         .inner_size(1100.0, 780.0)
         .min_inner_size(480.0, 360.0)
@@ -155,8 +167,17 @@ fn open_view<R: Runtime>(
         .window_features(features)
         .on_document_title_changed(|window, title| {
             let _ = window.set_title(&title);
-        })
-        .build()
+        });
+    // A menu of its own: Windows destroys a window's menu bar with it.
+    #[cfg(windows)]
+    let builder = match menu::window_bar(app) {
+        Ok(bar) => builder.menu(bar),
+        Err(_) => {
+            eprintln!("could not add a second window's menus");
+            builder
+        }
+    };
+    builder.build()
 }
 
 #[cfg(windows)]
@@ -209,8 +230,15 @@ pub fn run() {
         // Its default script would intercept _blank links and call a command the
         // remote page is not allowed to use, leaving the links dead.
         .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
-        // Used from Rust only (updates.rs). With no capabilities the page cannot call it.
+        // Used from Rust only (updates.rs); no capability grants it to the page.
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // The top bar's commands (frame.rs). Only capabilities/ lets a page
+        // call them: the main window, on the live site or the fallback page.
+        .invoke_handler(tauri::generate_handler![
+            frame::show_app_menu,
+            frame::window_control,
+            frame::window_frame
+        ])
         .on_window_event(|window, event| match event {
             // Closing the main window hides it (tray on Windows, Dock on a Mac).
             WindowEvent::CloseRequested { api, .. } if window.label() == MAIN => {
@@ -226,19 +254,23 @@ pub fn run() {
             let handle = app.handle().clone();
             // Before the menus, so Check for Updates… always finds its state.
             updates::init(&handle);
-            // Before any window: on Windows each window takes the app's menu
-            // when it is built. A Mac keeps its default menus if this fails.
+            // Before any window, so the menu is there when the page first asks
+            // for it. A Mac keeps its default menus if this fails.
             if menu::install(&handle).is_err() {
                 eprintln!("could not add the menus");
             }
-            let window = window_builder(&handle, MAIN, WebviewUrl::App("index.html".into()))
-                .title("TipTop Copilot")
-                .inner_size(1280.0, 820.0)
-                .min_inner_size(800.0, 560.0)
-                .center()
-                .prevent_overflow()
-                .visible(false)
-                .build()?;
+            let window = frame::main_window(window_builder(
+                &handle,
+                MAIN,
+                WebviewUrl::App("index.html".into()),
+            ))
+            .title("TipTop Copilot")
+            .inner_size(1280.0, 820.0)
+            .min_inner_size(800.0, 560.0)
+            .center()
+            .prevent_overflow()
+            .visible(false)
+            .build()?;
             // Restored here, before show, so the window never jumps.
             let _ = window.restore_state(state_flags());
             menu::restore_zoom(&window);

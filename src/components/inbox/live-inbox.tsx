@@ -484,7 +484,7 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
           aria-label="Reading pane"
           data-tour="inbox-reading"
           className={cn(
-            'min-w-0 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto',
+            'min-w-0 lg:sticky lg:top-[calc(var(--titlebar-h)+1rem)] lg:max-h-[calc(100dvh-2rem-var(--titlebar-h))] lg:self-start lg:overflow-y-auto',
             !selected && 'hidden lg:block',
           )}
         >

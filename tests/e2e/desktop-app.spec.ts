@@ -281,6 +281,26 @@ test.describe('the download page', () => {
     await expect(page.getByRole('link', { name: 'Check for a new version' })).toHaveCount(0);
   });
 
+  test('from 0.3.0 Check for Updates… is under the menu at the top left', async ({ page }) => {
+    // The main window's menu bar became the top bar's menu button on Windows.
+    await page.addInitScript(markAsDesktopApp, '0.3.0');
+    await page.goto('/download');
+    await expect(
+      page.getByText(
+        /use Check for Updates… in the menu at the top left on Windows \(under File\)/,
+      ),
+    ).toBeVisible();
+
+    await page.goto('/settings');
+    await page.getByRole('tab', { name: 'Preferences' }).click();
+    await expect(
+      page.getByText(
+        'To look now, use Check for Updates… in the menu at the top left on Windows (under File) or the TipTop Copilot menu on a Mac.',
+      ),
+    ).toBeVisible();
+    await expect(page.getByText(/in the File menu on Windows/)).toHaveCount(0);
+  });
+
   test('in a browser, Settings points to the desktop app', async ({ page }) => {
     await page.goto('/settings');
     // Both menus list Download in a browser (the sidebar under System).

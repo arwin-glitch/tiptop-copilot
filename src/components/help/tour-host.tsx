@@ -4,8 +4,9 @@ import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { X } from 'lucide-react';
-import { tourSteps, type ResolvedStep } from '@/lib/help/registry';
-import { placeCard, type Box, type Size } from '@/lib/help/placement';
+import { tourSteps, type ResolvedStep, type TourPlacement } from '@/lib/help/registry';
+import { placeCard, type Box, type CardPosition, type Size } from '@/lib/help/placement';
+import { titleBarInset } from '@/lib/desktop/title-bar';
 import { TOUR_ATTR, TOUR_PARAM } from '@/lib/help/tour-ids';
 import { cn } from '@/lib/util/cn';
 import { ASK_PANEL_EVENT, type AskPanelDetail } from '@/components/ask/ask-events';
@@ -174,6 +175,26 @@ function shownRect(el: Element): Box {
   return { top, left, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 
+/**
+ * placeCard, in the part of the window below the desktop app's top bar (0px
+ * high anywhere else): a floating card never rises under the bar.
+ */
+function placeBelowTitleBar(
+  layout: { rect: Box; viewport: Size },
+  card: Size,
+  placement: TourPlacement,
+): CardPosition {
+  const inset = titleBarInset();
+  if (inset <= 0) return placeCard(layout.rect, card, layout.viewport, placement);
+  const pos = placeCard(
+    { ...layout.rect, top: layout.rect.top - inset },
+    card,
+    { width: layout.viewport.width, height: layout.viewport.height - inset },
+    placement,
+  );
+  return pos.mode === 'float' ? { ...pos, top: pos.top + inset } : pos;
+}
+
 /** Scroll the target into view unless it already is (clear of the fixed bars at either end). */
 function reveal(el: Element) {
   try {
@@ -181,7 +202,8 @@ function reveal(el: Element) {
     const shown = shownRect(el);
     const vh = window.innerHeight;
     const vw = window.innerWidth;
-    const topClear = 64;
+    // Clear of the sticky banner and header, and the desktop app's top bar.
+    const topClear = 64 + titleBarInset();
     const bottomClear = vw < 1024 ? 96 : 24;
     const clipped = shown.height < rect.height - 1 || shown.width < rect.width - 1;
     if (clipped && rect.height <= vh * 0.55) {
@@ -501,7 +523,7 @@ function TourEngine() {
   // The stand-in's own words and placement, when it is what was found.
   const shown = found?.key === stepKey && found.standIn && step.standIn ? step.standIn : step;
   const position =
-    showCard && layout ? placeCard(layout.rect, cardSize, layout.viewport, shown.placement) : null;
+    showCard && layout ? placeBelowTitleBar(layout, cardSize, shown.placement) : null;
   const spot =
     layout && phase !== 'navigating'
       ? {
@@ -543,7 +565,7 @@ function TourEngine() {
             'before:pointer-events-none before:absolute before:inset-x-5 before:top-0 before:h-px before:bg-[var(--gold)]',
             position.mode === 'float' ? 'w-[22rem]' : 'inset-x-3',
             position.mode === 'dock' && position.edge === 'top'
-              ? 'top-[calc(env(safe-area-inset-top)+0.75rem)]'
+              ? 'top-[calc(env(safe-area-inset-top)+0.75rem+var(--titlebar-h))]'
               : null,
             position.mode === 'dock' && position.edge === 'bottom'
               ? 'bottom-[calc(env(safe-area-inset-bottom)+4.75rem)]'

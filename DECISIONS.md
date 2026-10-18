@@ -885,7 +885,9 @@ for a web change.
 
 **Decision.**
 
-- **A Tauri shell with no bridge to the page.** `desktop/` opens one window
+- **A Tauri shell with no bridge to the page.** *Narrowed by D-056: from
+  0.3.0 the main window's top bar may move, minimise, maximise and close
+  that window and open its menu.* `desktop/` opens one window
   that shows a small bundled page until https://copilot.tiptop.vc answers,
   then loads the live site, so every web deploy reaches the app at once. The
   remote page gets no native access: no capabilities, no commands, the
@@ -1034,3 +1036,132 @@ on deploy. The ceilings can still be used up on purpose, by downloading the
 real file from 3 addresses or checking from 40: updates then wait for the
 next hour, the apps try again every 30 minutes, and the signatures are
 untouched, so the worst outcome is a delay.
+
+### D-056 — The desktop app's top bar is drawn by the web app
+
+**Context.** Asked for on 2026-10-18: the desktop app's grey Windows title
+bar and its File/Edit/View strip looked bolted on. The reference was Slack's
+desktop app: one top bar that belongs to the sidebar under it, a menu button
+at the top left that drops down File, Edit and View, Back and Forward,
+search in the middle, and the window buttons on the right, with no separate
+grey strip.
+
+**Decision.**
+
+- **Frameless on Windows, transparent on a Mac.** From desktop 0.3.0 the
+  main window is undecorated on Windows (`decorations(false)`,
+  `shadow(true)`): tao keeps the window's caption, system-menu and sizing
+  styles, so Alt+F4, snapping, Win+arrows, resizing from every edge and the
+  system shadow stay native, with rounded corners on Windows 11. On a Mac it
+  keeps its frame with an overlay title bar, so the traffic lights sit in
+  the page's bar and the menu bar stays at the top of the screen.
+- **The web app draws the bar.** It has the real theme tokens, so the bar
+  is the emerald of the sidebar and page-header band beneath it, in both
+  themes, and follows a theme change at once; a separate local strip could
+  not. It is rendered once in the root layout and shown only when the main
+  window of a 0.3.0 or newer app sets `window.__TIPTOP_DESKTOP_FRAME__`
+  (`windows` or `mac`). Older apps and second windows never set it, so there
+  are never two bars, and in a browser nothing moves: every offset adds
+  `--titlebar-h`, which is 0px there.
+- **A native menu under ☰.** The File/Edit/View menu is built as before but
+  set on no window on Windows (tauri then adds no menu bar); ☰, Alt and F10
+  call `show_app_menu`, which opens it with `popup_menu_at` right under the
+  button, but only when the person is asking for it, as Windows itself
+  reports: a click on ☰ (the page tells the shell about the press as it
+  happens, while Windows still reports a mouse button down with the pointer on
+  ☰, and asks again on the click, which opens the menu if that press was
+  within 1.5 seconds and the pointer is still on ☰), or Alt or F10 tapped on
+  its own (the page asks as the key goes down; the shell waits for it to be
+  let go and gives up if any other key or button joins it: Alt+←, AltGr,
+  Alt+Tab). Like a native menu bar, ☰ is not a Tab stop; Alt or F10 is the
+  keyboard's way. Windows draws it dark for the time it is open (uxtheme's
+  SetPreferredAppMode, looked up by number as tao does, from Windows 10 1903),
+  so it matches the always-dark bar; the tray menu and second windows keep
+  following the system. Second windows each get a menu bar built for them
+  alone: Windows destroys a window's menu bar with the window, and the popup's
+  submenus are the same ones as the bar's, so sharing one menu would break ☰
+  the first time an attachment window closed. Check for Updates… stays in ☰
+  only.
+- **A narrow bridge, not none.** Until now the live page had no IPC at all.
+  One capability per platform, for window `main` only, covers
+  `https://copilot.tiptop.vc:443/*` and the bundled fallback page. It grants
+  Tauri's `start_dragging` and `internal_toggle_maximize` (its drag script
+  needs them) and three app commands in `permissions/title-strip.toml`:
+  `window_control` (minimise, maximise or restore, close, leave full
+  screen), `window_frame` (maximised, full screen, zoom) and, on Windows,
+  `show_app_menu`. The three act on the calling window only. No event
+  listening (a page listening for close requests would make Tauri cancel
+  them), no `*:default` set, no plugin. The port is written out for
+  clarity: urlpattern reads a host with no port, or with :443, as exactly
+  the standard port, and the shell never loads another port or a URL with a
+  user name.
+- **What an XSS on the site could add.** Minimise, maximise, hide or drag the
+  main window, read its state, and drag or maximise an attachment window
+  (Tauri's drag commands accept another window's name). It cannot open the
+  menu by itself: a page can neither press a mouse button on ☰ nor tap Alt or
+  F10. That matters because an open menu reads the next letters typed as
+  picks, so a menu a script could open while someone types would turn E, then
+  P, into Edit > Paste: a real paste, into a field the script chose, of
+  whatever another app left on the clipboard, which the page could not
+  otherwise read without a permission prompt. Once the person opens it, only
+  they pick: the menu is modal, opens only for the window in front, only in
+  the top-left corner where its first level holds just File, Edit and View,
+  never twice at once and not within 300 ms of closing. It cannot open links
+  or files, install updates, create windows or run script elsewhere. An XSS
+  already holds the whole session, so this is nuisance, not escalation.
+- **Rejected: no IPC, by navigating to special URLs.** A navigation the page
+  starts runs `beforeunload` first, so on a campaign page (which warns
+  before leaving) every minimise, close or menu click would ask "Leave
+  site?". Opening special URLs in new windows instead depends on popup
+  rules a keypress may not satisfy, any script could do it just as well,
+  and a Mac still needs IPC to drag.
+- **Always movable and closable.** The bundled fallback page has a plain bar
+  of its own. Any live page in the main window that has not shown the ready
+  bar 4 seconds in (a host error page, the cached offline page whose scripts
+  are gone, a web deploy older than the app) gets a plain injected safety-net
+  bar that drags and has the menu and window buttons, until the real one is
+  ready. A real bar that is on screen but still waiting for its scripts gets
+  until 3 seconds after the page has loaded (15 at most), so the plain bar
+  does not flash over a slow start, and the plain bar steps aside the moment
+  the real one says it is ready. Both drag with Tauri's script, not CSS, so
+  they do not depend on WebView2's non-client regions; the real bar uses CSS
+  `app-region` on Windows for native dragging, snapping and the window menu.
+- **Overlay scrollbars on Windows.** The one visible change outside the bar:
+  every window uses WebView2's thin overlay scrollbars, so the page's
+  scrollbar never sits beside the close button or moves it. WebView2 needs
+  one value for every webview on the app's data folder, so all windows get
+  it.
+- **Second windows stay native.** Attachments (the engine's PDF and image
+  viewers) and the sandboxed briefing cannot draw a bar, so a frameless
+  window there could not be moved or closed. They get no frame flag and no
+  capability.
+- **Slack's inset corners, drawn by the bar.** Two 10px corners hang from the
+  bar at the page column's top corners (wide windows, app pages, not under the
+  demo banner), in the band's emerald. At rest every app page's header band
+  runs up behind the bar in that colour, so they cannot be seen; once the page
+  scrolls up under the bar they round it off, so the bar and rail frame the
+  page like Slack's panel instead of slicing across it. In a narrow window the
+  bar takes the phone header's see-through emerald and blur, so the two stay
+  one colour whatever scrolls under them; the gold line art at the top of the
+  page fades in from under the bar rather than stopping on its edge; and
+  search hangs just under the bar's Search field rather than mid-window.
+- **Windows 10's caption style.** The page tells Windows 10 from 11 by the
+  client hints (the user agent says "Windows NT 10.0" on both) and draws
+  Windows 10's brighter close red and square maximise and restore glyphs
+  there.
+
+**Why.** It is what was asked for, and the bar matches the app exactly,
+theme included, because it is the app. The bridge is the smallest that does
+the job, scoped to one window and one origin, and each command checks its
+own input.
+
+**Known limits.** This narrows D-054's "no capabilities, no commands" to the
+bridge above. Windows 11's Snap Layouts flyout does not appear over our
+maximise button (Win+Z still works); when the window is not maximised the top
+4 pixels of the bar resize it; Windows 10 shows its thin window border and
+square corners. A tap of Alt or F10 quicker than the page's message to the
+shell (a few milliseconds) is missed, and whether a finger or pen on ☰ counts
+as a held button is untested. The dark ☰ menu relies on an undocumented
+Windows call and falls back to the system's colours where it is missing. Where
+the traffic lights sit on a Mac, and whether an old WebView2 drags with CSS,
+can only be checked on real machines (desktop/README.md, checklist item 14).

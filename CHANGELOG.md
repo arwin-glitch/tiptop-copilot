@@ -14,6 +14,40 @@ throughout.
   Recent came first, so with a long history the box was a screen down and
   appeared only once the page had scrolled to it. From lg up, Recent stays
   beside the conversation.
+- **Desktop app 0.3.0: a Slack-style top bar.** On Windows the grey title bar
+  and the File/Edit/View bar are gone. One bar in the emerald of the sidebar
+  and page header beneath it runs across the top of the main window, with a
+  menu button at the top left (File, Edit and View as a native menu, dark like
+  the bar; Alt or F10 opens it too), Back and Forward, a Search Copilot field
+  that opens search just under it (Ctrl K), and minimise, maximise and close,
+  in Windows 10's or 11's own style. Scrolled, the page column's top corners
+  round off under the bar, so bar and sidebar frame the page. Drag the bar to
+  move the window and double-click it to maximise; edges, snapping, Alt+F4 and
+  the window shadow work as before (rounded corners on Windows 11 only). On a
+  Mac the menu bar stays at the top of the screen and the traffic lights sit
+  in the same bar, with Back, Forward and search. The bar follows Copilot's
+  light and dark theme and keeps its size at any zoom. Attachment and briefing
+  windows keep a normal title bar and menus. The one visible change outside
+  the bar: scrollbars on Windows become the thin overlay kind, so none sits
+  beside the close button. The live page can now ask the main window to move,
+  minimise, maximise, close or open the menu, and read whether it is
+  maximised; dragging and double-click maximise can also reach the attachment
+  windows. The menu opens only for a real click on the menu button or a tap of
+  Alt or F10, which no script can fake. Nothing else (D-056). 0.2.x apps get
+  it through the in-app updater; the web side ships first and shows nothing
+  until a 0.3.0 app opens it.
+- **Web side of the desktop app's top bar (desktop 0.3.0).** The page now
+  draws the desktop app's title bar itself, from the root layout, but only in
+  the main window of a 0.3.0 or newer app, which says so with a second
+  read-only global (`__TIPTOP_DESKTOP_FRAME__`) read before first paint: a
+  menu button (Windows), Back and Forward, a Search Copilot field that opens
+  search, and minimise, maximise and close (Windows), in the colour of the
+  page-header band or rail below it. The page, sticky bars, dialogs, drawers,
+  the Ask Arwin panel and tour cards all leave room for it (`--titlebar-h`,
+  0px everywhere else), and it keeps its size at any View > Zoom. In a
+  browser, an older app or an attachment window nothing changes. Settings and
+  Download say Check for Updates… is under the menu at the top left from
+  0.3.0.
 
 - Desktop app 0.2.1: no changes beyond the version, released to prove that 0.2.0
   updates itself from inside the app.
