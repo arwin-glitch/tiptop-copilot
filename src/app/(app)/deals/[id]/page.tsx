@@ -253,6 +253,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                 model={analysis.model}
                 promptVersion={analysis.prompt_version}
                 generatedAt={analysis.generated_at}
+                timeZone={auth.profile.timezone}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -1007,6 +1008,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                         model={a.model}
                         promptVersion={a.prompt_version}
                         generatedAt={a.generated_at}
+                        timeZone={auth.profile.timezone}
                       />
                     </li>
                   ))}

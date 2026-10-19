@@ -238,6 +238,7 @@ async function TodayContent({
                 model={brief.model}
                 promptVersion={brief.prompt_version}
                 generatedAt={brief.generated_at}
+                timeZone={auth.profile.timezone}
               />
             </div>
             <OpenSourcesButton citations={citations} />

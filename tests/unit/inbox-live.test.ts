@@ -101,3 +101,47 @@ describe('reading plain-text mail', () => {
     );
   });
 });
+
+describe('row and message times', () => {
+  // The server renders the list and the browser hydrates it, so the text must
+  // not depend on which zone the process runs in: Render is UTC, a browser is
+  // wherever its reader is.
+  const ZONE = 'America/Chicago';
+  // 11:35 PM Central on Oct 18, already Oct 19 in UTC and further east.
+  const NOW = new Date('2026-10-19T04:35:00Z');
+
+  async function underProcessZone<T>(tz: string, run: () => Promise<T>): Promise<T> {
+    const before = process.env.TZ;
+    process.env.TZ = tz;
+    try {
+      return await run();
+    } finally {
+      if (before === undefined) delete process.env.TZ;
+      else process.env.TZ = before;
+    }
+  }
+
+  async function times() {
+    const { shortTime, longTime } = await import('@/components/inbox/live-inbox');
+    return [
+      shortTime('2026-10-19T01:05:00Z', ZONE, NOW),
+      shortTime('2026-10-18T03:00:00Z', ZONE, NOW),
+      shortTime('2025-12-31T18:00:00Z', ZONE, NOW),
+      longTime('2026-10-19T01:05:00Z', ZONE),
+    ];
+  }
+
+  it('reads the profile timezone, whatever zone the process is in', async () => {
+    const expected = ['8:05 PM', 'Oct 17', 'Dec 31, 2025', 'Sun, Oct 18, 8:05 PM'];
+    for (const tz of ['UTC', 'America/Chicago', 'Pacific/Kiritimati', 'Pacific/Pago_Pago']) {
+      expect(await underProcessZone(tz, times)).toEqual(expected);
+    }
+  });
+
+  it('leaves a missing or unreadable time blank', async () => {
+    const { shortTime, longTime } = await import('@/components/inbox/live-inbox');
+    expect(shortTime(null, ZONE, NOW)).toBe('');
+    expect(shortTime('not a date', ZONE, NOW)).toBe('');
+    expect(longTime('not a date', ZONE)).toBe('');
+  });
+});

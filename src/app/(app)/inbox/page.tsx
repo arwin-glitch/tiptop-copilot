@@ -27,5 +27,5 @@ export default function InboxPage() {
 async function InboxContent() {
   const auth = await requireAuth();
   const initial = await listLiveThreads(getStore(), auth.organizationId, { tab: 'primary' });
-  return <LiveInbox initial={initial} />;
+  return <LiveInbox initial={initial} timeZone={auth.profile.timezone} />;
 }

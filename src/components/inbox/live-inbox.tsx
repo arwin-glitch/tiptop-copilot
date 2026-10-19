@@ -28,6 +28,7 @@ import { Composer, type ComposeDraft } from '@/components/inbox/composer';
 import { MessageItem, longTime } from '@/components/inbox/message-view';
 import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
 import { cn } from '@/lib/util/cn';
+import { formatDate, formatMonthDay, formatTime, localDateKey } from '@/lib/util/time';
 import type {
   InboxTab,
   LiveThread,
@@ -70,25 +71,32 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
   return j?.error?.message ?? fallback;
 }
 
-function shortTime(iso: string | null): string {
+/*
+ * Times here are in the reader's profile timezone and in en-US, never the
+ * process's own zone or locale: the server renders the first page of rows and
+ * the browser hydrates it, and the two can sit in different zones (Render runs
+ * in UTC, a browser in its reader's). Text read from each one's own clock would
+ * not match, and React would throw the page away and draw it again.
+ */
+
+/** A row's time: the clock today, the day earlier this year, the date before that. */
+export function shortTime(iso: string | null, timeZone: string, now: Date = new Date()): string {
   if (!iso) return '';
   const d = new Date(iso);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) {
-    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  }
-  return d.toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric',
-    ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
-  });
+  if (Number.isNaN(d.getTime())) return '';
+  const day = localDateKey(d, timeZone);
+  const today = localDateKey(now, timeZone);
+  if (day === today) return formatTime(d, timeZone);
+  return day.slice(0, 4) === today.slice(0, 4)
+    ? formatMonthDay(d, timeZone)
+    : formatDate(d, timeZone);
 }
 
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
   (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
-export function LiveInbox({ initial }: { initial: LiveThreadList }) {
+export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; timeZone: string }) {
   const [tab, setTab] = React.useState<InboxTab>('primary');
   const [query, setQuery] = React.useState('');
   const [searched, setSearched] = React.useState('');
@@ -446,6 +454,7 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
                 <ThreadRow
                   key={row.id}
                   row={row}
+                  timeZone={timeZone}
                   active={row.id === selectedId}
                   checked={checked.has(row.id)}
                   onOpen={() => open(row)}
@@ -482,6 +491,7 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
             <ThreadView
               key={selected.id}
               row={selected}
+              timeZone={timeZone}
               canAct={canAct}
               mailbox={mailbox}
               replyOpen={replyOpen}
@@ -517,6 +527,7 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
 
 function ThreadRow({
   row,
+  timeZone,
   active,
   checked,
   onOpen,
@@ -525,6 +536,7 @@ function ThreadRow({
   onArchive,
 }: {
   row: LiveThreadRow;
+  timeZone: string;
   active: boolean;
   checked: boolean;
   onOpen: () => void;
@@ -577,7 +589,7 @@ function ThreadRow({
               row.unread ? 'font-semibold' : 'text-[var(--fg-muted)]',
             )}
           >
-            {shortTime(row.at)}
+            {shortTime(row.at, timeZone)}
           </span>
         </div>
         <p className={cn('truncate text-sm', row.unread ? 'font-medium' : 'text-[var(--fg)]')}>
@@ -615,6 +627,7 @@ function ThreadRow({
 
 function ThreadView({
   row,
+  timeZone,
   canAct,
   mailbox,
   replyOpen,
@@ -625,6 +638,7 @@ function ThreadView({
   onForward,
 }: {
   row: LiveThreadRow;
+  timeZone: string;
   canAct: boolean;
   mailbox: string | null;
   replyOpen: boolean;
@@ -701,7 +715,7 @@ function ThreadView({
           variant="ghost"
           aria-label="Forward"
           disabled={!thread}
-          onClick={() => thread && onForward(forwardDraft(thread))}
+          onClick={() => thread && onForward(forwardDraft(thread, timeZone))}
         >
           <Forward className="size-4" aria-hidden />
         </Button>
@@ -737,7 +751,12 @@ function ThreadView({
         {thread ? (
           <ol className="space-y-2">
             {thread.messages.map((m, i) => (
-              <MessageItem key={m.id} message={m} startOpen={i === thread.messages.length - 1} />
+              <MessageItem
+                key={m.id}
+                message={m}
+                timeZone={timeZone}
+                startOpen={i === thread.messages.length - 1}
+              />
             ))}
           </ol>
         ) : null}
@@ -957,12 +976,12 @@ function ReplyBox({
 }
 
 /** Gmail's forward: the newest message quoted under a header, its attachments carried along. */
-export function forwardDraft(thread: LiveThread): ComposeDraft {
+export function forwardDraft(thread: LiveThread, timeZone: string): ComposeDraft {
   const last = thread.messages.at(-1)!;
   const header = [
     '---------- Forwarded message ---------',
     `From: ${last.from}`,
-    `Date: ${longTime(last.at)}`,
+    `Date: ${longTime(last.at, timeZone)}`,
     `Subject: ${thread.subject}`,
     `To: ${last.to}`,
     last.cc ? `Cc: ${last.cc}` : '',
