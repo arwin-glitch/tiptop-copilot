@@ -125,14 +125,29 @@ fi
 
 # Proves the URL scheme is registered (simctl fails if no app claims it). The
 # address has no sign-in code, so the page ignores it.
-if xcrun simctl openurl "$udid" "$bundle://smoke-test" && wait_for 30 'TipTopShell: opened by a link to the app'; then
+opened=0
+link_started=$(date '+%Y-%m-%d %H:%M:%S')
+if xcrun simctl openurl "$udid" "$bundle://smoke-test" 2> "$out/openurl.err"; then
+  if wait_for 30 'TipTopShell: opened by a link to the app'; then opened=1; fi
+else
+  echo "simctl openurl failed: $(tr '\n' ' ' < "$out/openurl.err")"
+fi
+sleep 2
+xcrun simctl io "$udid" screenshot "$out/2-after-link.png" > /dev/null
+if [ "$opened" = 1 ]; then
   echo "The app opens from a $bundle:// link."
 else
   echo "::error::The app did not open from a $bundle:// link."
   failed=1
+  # What iOS knows about the scheme, and what the system did with the link,
+  # so a failure says why without opening the screenshots.
+  echo "--- URL schemes the installed app declares:"
+  xcrun simctl appinfo "$udid" "$bundle" 2>&1 | grep -A8 -i 'CFBundleURLTypes' || echo "(none found by simctl appinfo)"
+  echo "--- System log about the link since $link_started:"
+  xcrun simctl spawn "$udid" log show --style compact --start "$link_started" \
+    --predicate "eventMessage CONTAINS \"$bundle://\" OR eventMessage CONTAINS[c] \"openURL\" OR (process == \"SpringBoard\" AND eventMessage CONTAINS[c] \"open\")" \
+    2>/dev/null | tail -n 40 || true
 fi
-sleep 2
-xcrun simctl io "$udid" screenshot "$out/2-after-link.png" > /dev/null
 
 xcrun simctl ui "$udid" appearance dark
 sleep 4
