@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>TipTop Copilot</title>
+    <!--
+      Bundled with the iPhone app (server.errorPath in capacitor.config.json)
+      and shown only when copilot.tiptop.vc cannot be reached. It hands back
+      to the live site as soon as the site answers, so it must stay
+      self-contained: no external fonts, styles or scripts. The colours are
+      the page colours in src/app/globals.css (light, and :root.dark).
+    -->
+    <style>
+      :root {
+        --bg: #f6f1e4;
+        --fg: #10261f;
+        --fg-muted: #44564d;
+        --accent: #2b6d56;
+        --accent-fg: #ffffff;
+        --track: rgba(43, 109, 86, 0.18);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0e0f0f;
+          --fg: #f1ebdc;
+          --fg-muted: #a7b3ab;
+          --accent: #4f9a7f;
+          --accent-fg: #0c1411;
+          --track: rgba(79, 154, 127, 0.28);
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          16px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          system-ui,
+          sans-serif;
+        display: grid;
+        place-items: center;
+        padding: calc(24px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      main {
+        max-width: 26rem;
+        text-align: center;
+      }
+      .mark {
+        width: 64px;
+        height: 64px;
+        margin: 0 auto 20px;
+        display: block;
+      }
+      h1 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 0 0 8px;
+      }
+      p {
+        color: var(--fg-muted);
+        margin: 0;
+      }
+      .spinner {
+        width: 28px;
+        height: 28px;
+        margin: 20px auto 0;
+        border-radius: 50%;
+        border: 3px solid var(--track);
+        border-top-color: var(--accent);
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .spinner {
+          animation-duration: 3s;
+        }
+      }
+      button {
+        margin-top: 20px;
+        font: inherit;
+        font-weight: 600;
+        color: var(--accent-fg);
+        background: var(--accent);
+        border: 0;
+        border-radius: 999px;
+        padding: 10px 22px;
+      }
+      button:focus-visible {
+        outline: 3px solid var(--track);
+        outline-offset: 2px;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="8" fill="#2b6d56" />
+        <g transform="translate(5 9.35) scale(0.15863)" fill="#ffffff">
+          <path
+            d="M66.2955 26.3643L42.7802 83.8142L20.8093 83.8148L47.122 19.2074H6.98452L0 0H54.6497L66.2955 26.3643Z"
+          />
+          <path
+            d="M72.3906 26.3643L95.9059 83.8142L117.877 83.8148L91.564 19.2074H131.702L138.686 0H84.0363L72.3906 26.3643Z"
+          />
+        </g>
+      </svg>
+
+      <section id="offline" aria-live="polite">
+        <h1>Can't reach TipTop Copilot</h1>
+        <p>Check your internet connection. The app tries again on its own.</p>
+        <button id="retry" type="button">Try again</button>
+      </section>
+
+      <section id="opening" aria-live="polite" hidden>
+        <h1>Opening TipTop Copilot…</h1>
+        <div class="spinner" aria-hidden="true"></div>
+        <p id="slow" hidden>Waking up the server. This can take up to a minute.</p>
+      </section>
+    </main>
+
+    <script>
+      // The app's start address (server.url). Only that site's pages load in
+      // the app, so this page goes back there rather than to the page that
+      // failed, which the shell does not pass along.
+      const LIVE = 'https://copilot.tiptop.vc';
+      const opening = document.getElementById('opening');
+      const slow = document.getElementById('slow');
+      const offline = document.getElementById('offline');
+      const retry = document.getElementById('retry');
+      let attempt = 0;
+      let retryTimer = 0;
+
+      // Resolves once the live site serves its app icon, which only happens
+      // when the web app itself is up (a host error page fails it). An image,
+      // not fetch(): a cross-origin image needs no CORS.
+      function siteAnswers(timeoutMs) {
+        return new Promise((resolve, reject) => {
+          const probe = new Image();
+          const giveUp = setTimeout(() => {
+            probe.onload = probe.onerror = null;
+            probe.src = '';
+            reject(new Error('timed out'));
+          }, timeoutMs);
+          probe.onload = () => {
+            clearTimeout(giveUp);
+            resolve();
+          };
+          probe.onerror = () => {
+            clearTimeout(giveUp);
+            reject(new Error('no answer'));
+          };
+          probe.src = LIVE + '/icon-192.png?wake=' + Date.now();
+        });
+      }
+
+      async function connect() {
+        const mine = ++attempt;
+        clearTimeout(retryTimer);
+        opening.hidden = false;
+        offline.hidden = true;
+        slow.hidden = true;
+        const slowTimer = setTimeout(() => (slow.hidden = false), 4000);
+        try {
+          // 90 seconds: the server sleeps when idle and can take a minute to wake.
+          await siteAnswers(90000);
+          if (mine === attempt) location.replace(LIVE + '/');
+        } catch {
+          if (mine !== attempt) return;
+          opening.hidden = true;
+          offline.hidden = false;
+          retryTimer = setTimeout(connect, 15000);
+        } finally {
+          clearTimeout(slowTimer);
+        }
+      }
+
+      retry.addEventListener('click', connect);
+      addEventListener('online', connect);
+      // The first try waits a moment: this page appears straight after a load
+      // failed, so trying again at once would usually fail the same way.
+      retryTimer = setTimeout(connect, 3000);
+    </script>
+  </body>
+</html>

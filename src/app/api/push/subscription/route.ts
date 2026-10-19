@@ -6,6 +6,7 @@ import {
   removeSubscription,
   saveSubscription,
   SUBSCRIPTION_SCHEMA,
+  subscriptionPlatform,
 } from '@/lib/services/push-alerts';
 import { statusForError } from '@/lib/util/result';
 
@@ -14,7 +15,11 @@ export const dynamic = 'force-dynamic';
 const bad = (message: string) =>
   NextResponse.json({ ok: false, error: { code: 'invalid_input', message } }, { status: 400 });
 
-/** Turn phone alerts on for this device (Settings > Preferences). */
+/**
+ * Turn phone alerts on for this device (Settings > Preferences). Keeps
+ * whether the browser was an iPhone, so its web push can be held back while
+ * the iPhone app has the alerts (lib/services/ios-push.ts).
+ */
 export async function POST(request: NextRequest) {
   const auth = await authOrError();
   if (!auth.ok) {
@@ -25,7 +30,13 @@ export async function POST(request: NextRequest) {
   }
   const parsed = SUBSCRIPTION_SCHEMA.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return bad('Not a valid push subscription.');
-  await saveSubscription(getStore(), auth.value.organizationId, auth.value.userId, parsed.data);
+  await saveSubscription(
+    getStore(),
+    auth.value.organizationId,
+    auth.value.userId,
+    parsed.data,
+    subscriptionPlatform(request.headers.get('user-agent')),
+  );
   return NextResponse.json({ ok: true });
 }
 

@@ -4,10 +4,13 @@ import * as React from 'react';
 import { toast } from 'sonner';
 import { Bell, BellOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Notice } from '@/components/ui/feedback';
 import { desktopAppVersion } from '@/lib/desktop/shared';
+import { iosAppVersion, type AlertsPreference, type IosAlertsStatus } from '@/lib/ios/shared';
 import { AlertsSummary } from './alerts-summary';
 
-type State = 'loading' | 'desktop' | 'unsupported' | 'install' | 'denied' | 'off' | 'on';
+type State =
+  'loading' | 'desktop' | 'ios-app' | 'unsupported' | 'install' | 'denied' | 'off' | 'on';
 
 function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
   const padded = (value + '='.repeat((4 - (value.length % 4)) % 4))
@@ -44,17 +47,29 @@ async function registration(): Promise<ServiceWorkerRegistration | null> {
  *
  * Inside the desktop app this renders nothing: the Desktop alerts card
  * (desktop-alerts.tsx) takes its place. `desktopHint` is the app's version
- * from its cookie, so the server render already leaves it out there.
+ * from its cookie, so the server render already leaves it out there. Inside
+ * the iPhone app likewise (no web push there; ios-alerts.tsx instead), with
+ * `iosHint` from its user agent.
+ *
+ * On an iPhone whose person also has the iPhone app (`ios`, the server's
+ * view), this home-screen app says whether the app has their alerts, which
+ * holds web push back here, and offers "Send alerts here instead" (and the
+ * way back).
  */
 export function PushAlertsSetting({
   publicKey,
   desktopHint = null,
+  iosHint = null,
+  ios = null,
 }: {
   publicKey: string;
   desktopHint?: string | null;
+  iosHint?: string | null;
+  ios?: IosAlertsStatus | null;
 }) {
   const [state, setState] = React.useState<State>('loading');
   const [busy, setBusy] = React.useState(false);
+  const [preference, setPreference] = React.useState<AlertsPreference>(ios?.preference ?? 'app');
 
   React.useEffect(() => {
     let cancelled = false;
@@ -65,6 +80,9 @@ export function PushAlertsSetting({
         // for and still has no push service, so subscribing would only fail.
         // The Desktop alerts card covers this computer instead.
         next = 'desktop';
+      } else if (iosAppVersion()) {
+        // The iPhone app's web view has no web push; its own card covers it.
+        next = 'ios-app';
       } else if (
         !('Notification' in window) ||
         !('serviceWorker' in navigator) ||
@@ -77,6 +95,15 @@ export function PushAlertsSetting({
         const reg = await registration();
         const sub = await reg?.pushManager.getSubscription();
         next = sub ? 'on' : 'off';
+        // A subscription from before Copilot kept which phone made it: saved
+        // again, quietly, so an iPhone's is known as one (lib/services/ios-push.ts).
+        if (sub && isIos()) {
+          void fetch('/api/push/subscription', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sub.toJSON()),
+          }).catch(() => null);
+        }
       }
       if (!cancelled) setState(next);
     })();
@@ -145,7 +172,31 @@ export function PushAlertsSetting({
     });
   };
 
+  const choose = async (to: AlertsPreference) => {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/push/preference', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setPreference(to);
+      toast.success(
+        to === 'web' ? 'Alerts come here instead.' : 'Alerts go to the iPhone app again.',
+      );
+    } catch {
+      toast.error('Couldn’t change that just now. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (state === 'desktop' || (state === 'loading' && desktopHint)) return null;
+  if (state === 'ios-app' || (state === 'loading' && iosHint)) return null;
+
+  // Only on an iPhone with alerts on here, when the same person has the app.
+  const iphoneWithApp = state === 'on' && ios !== null && ios.devices > 0 && isIos();
 
   return (
     <div>
@@ -189,6 +240,40 @@ export function PushAlertsSetting({
           </span>
         ) : null}
       </div>
+      {iphoneWithApp && preference === 'web' ? (
+        <Notice className="mt-3">
+          <div>
+            <p>Your alerts come here instead of the TipTop Copilot iPhone app.</p>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="mt-2"
+              onClick={() => void choose('app')}
+              disabled={busy}
+            >
+              Send them to the iPhone app
+            </Button>
+          </div>
+        </Notice>
+      ) : iphoneWithApp && ios.active && ios.senderReady ? (
+        <Notice className="mt-3">
+          <div>
+            <p>
+              Alerts now go to the TipTop Copilot iPhone app, so this home-screen app stays quiet.
+              If the app stops checking in, they come back here by themselves.
+            </p>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="mt-2"
+              onClick={() => void choose('web')}
+              disabled={busy}
+            >
+              Send alerts here instead
+            </Button>
+          </div>
+        </Notice>
+      ) : null}
     </div>
   );
 }

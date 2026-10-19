@@ -160,7 +160,7 @@ describe('subscriptions', () => {
 
     await saveSubscription(store, auth.organizationId, auth.userId, SUB);
     const result = await recordDelivery(store, auth.organizationId, ['risk:boost'], [SUB.endpoint]);
-    expect(result).toEqual({ recorded: 1, removed: 1 });
+    expect(result).toEqual({ recorded: 1, removed: 1, removedIphones: 0 });
   });
 });
 

@@ -1,0 +1,26 @@
+{
+  "appId": "vc.tiptop.copilot",
+  "appName": "TipTop Copilot",
+  "webDir": "www",
+  "server": {
+    "url": "https://copilot.tiptop.vc/",
+    "errorPath": "offline.html"
+  },
+  "ios": {
+    "contentInset": "never",
+    "allowsLinkPreview": false,
+    "webContentsDebuggingEnabled": false,
+    "appendUserAgent": "TipTopCopilotiOS/1.0.0"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": false
+    },
+    "CapacitorCookies": {
+      "enabled": false
+    },
+    "PushNotifications": {
+      "presentationOptions": ["banner", "list", "sound"]
+    }
+  }
+}

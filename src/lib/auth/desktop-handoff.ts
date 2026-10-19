@@ -152,8 +152,16 @@ export function mintMatchCode(): string {
   return code;
 }
 
+/**
+ * The column allows mac, windows and other only (no migration for iPhones,
+ * which sign in the same way from the iPhone app): an iPhone, iPad or iPod
+ * says "like Mac OS X", so it is checked first and stored as other. The
+ * sign-in audit names the iPhone app from its own request instead
+ * (/api/auth/desktop/verify).
+ */
 export function platformFromUserAgent(userAgent: string | null | undefined): DesktopPlatform {
   if (!userAgent) return 'other';
+  if (/\b(iPhone|iPad|iPod)\b/.test(userAgent)) return 'other';
   if (/Macintosh|Mac OS X/.test(userAgent)) return 'mac';
   if (/Windows/.test(userAgent)) return 'windows';
   return 'other';

@@ -24,9 +24,13 @@ export default defineConfig({
     {
       name: 'desktop',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /responsive\.spec\.ts/,
+      testIgnore: /(responsive|ios-app)\.spec\.ts/,
     },
     { name: 'mobile', use: { ...devices['Pixel 7'] }, testMatch: /responsive\.spec\.ts/ },
+    // The iPhone app (ios-app/): WebKit at an iPhone's size. The spec gives
+    // pages the app's user agent and a stand-in for its native plugins
+    // (tests/helpers/ios-app.ts).
+    { name: 'ios', use: { ...devices['iPhone 15'] }, testMatch: /ios-app\.spec\.ts/ },
   ],
   webServer: {
     command: `npm run start:demo -- --port ${PORT}`,
@@ -58,6 +62,8 @@ export default defineConfig({
       // Cloudflare (lib/security/client-address.ts, D-075); this server
       // stands in for that edge.
       TRUST_CF_CONNECTING_IP: 'true',
+      // So ios-app.spec.ts can ask for the outbox as the alert job does.
+      CRON_SECRET: 'e2e-cron-secret-not-a-production-value-000000000',
     },
   },
 });

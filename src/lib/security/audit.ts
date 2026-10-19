@@ -174,6 +174,8 @@ export type AuditAction =
   | 'push.desktop_disabled'
   | 'feeds.notices_on'
   | 'feeds.notices_off'
+  | 'push.ios_enabled'
+  | 'push.ios_disabled'
   | 'thesis.updated'
   | 'account.data_deleted'
   | 'security.injection_flagged'

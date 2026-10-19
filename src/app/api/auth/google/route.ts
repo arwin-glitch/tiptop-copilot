@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabaseServerClient } from '@/lib/auth/session';
 import { env, isDemoMode } from '@/lib/config/env';
+import { signInHerePage } from '@/lib/ios/computer-only';
+import { isIosAppRequest } from '@/lib/ios/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +21,13 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: Request) {
   const origin = env().appUrl;
+
+  // Google will not sign anyone in inside the iPhone app; its login page
+  // signs in through Safari instead (DesktopSignIn), so this says to go back
+  // there.
+  if (isIosAppRequest(request)) {
+    return signInHerePage({ href: '/login', label: 'Back to sign-in' });
+  }
 
   // Demo mode has its own entry and no real identity provider behind it.
   if (isDemoMode()) {

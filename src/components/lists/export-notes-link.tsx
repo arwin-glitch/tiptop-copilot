@@ -9,6 +9,7 @@ import { cn } from '@/lib/util/cn';
  * members and above only, the roles the export route serves. Free of hooks
  * itself, so a server page (a profile) and the client side panel can both
  * render it; the download, and a refusal shown as a toast, are DownloadLink's.
+ * Not in an iPhone app that cannot save a download.
  */
 export function ExportNotesLink({
   recordId,
@@ -24,7 +25,7 @@ export function ExportNotesLink({
       href={crmNotesExportHref(recordId)}
       aria-label={`Export notes on ${recordName} as CSV`}
       className={cn(
-        'text-mini inline-flex items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline data-[busy]:cursor-progress data-[busy]:opacity-60',
+        'text-mini ios-no-downloads:hidden inline-flex items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline data-[busy]:cursor-progress data-[busy]:opacity-60',
         className,
       )}
     >
