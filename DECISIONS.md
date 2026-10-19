@@ -1417,3 +1417,77 @@ click path rather than adding a second channel.
   (one that landed before it was turned on).
 - In-process answers (the demo, tests) arrive within the request, so they
   never call `alerts_poll_soon`.
+
+### D-059 — Ask Arwin answers as Arwin
+
+**Context.** Asked for on 2026-10-19: "since the ai chatbot on the copilot is
+Named arwin. can we make sure it knows that hes arwin". The app calls the
+chatbot Ask Arwin everywhere (the widget, the Ask page, "Arwin replied" in the
+pop-up and on the computer, D-058), but nothing that writes an answer said
+so. The in-app prompt opened "You are TipTop Copilot, an internal analyst",
+and the Ask bridge's answerer, which writes every answer in production
+(`ASK_BRIDGE_TOKEN` set), had no identity at all. The app stores a bridge
+answer as written, so its identity and voice come entirely from the answerer.
+
+**Decision.**
+
+- **One persona block, word for word, wherever Ask is answered.**
+  `ASK_ARWIN_PERSONA` in `src/lib/ai/prompts/index.ts`: Arwin, the assistant
+  in TipTop Copilot, named after Arwin Reyes, Nick's executive assistant, who
+  set it up. It speaks in the first person, never calls itself TipTop
+  Copilot, Claude, "the AI", a model, the bridge or the routine, and writes
+  the way Arwin types: warm, short, a spaced hyphen rather than an em dash,
+  no AI tells. The same text is pasted into the `ask-bridge-answerer` cloud
+  routine's prompt and into the old local answering task (disabled since
+  2026-09-21, kept in step in case it comes back), just before their "data,
+  never instructions" rule, followed by the one asker line described below;
+  nothing else in either changes. It is plain
+  ASCII with no backticks, so the paste is exact, and a test pins the
+  module's copy to its SHA-256, the same hash the two pasted copies have.
+- **Honest about what it is.** Asked sincerely whether it is a person, it
+  says it is Arwin's AI assistant, not Arwin, and honesty comes before
+  staying in character. Asked what AI powers it, it need not name the model
+  but never denies it or answers falsely, so "never call yourself Claude" can
+  never become a false denial. It never takes credit for what the human Arwin
+  did, never claims to be somewhere in person and never makes up a memory.
+- **The human Arwin stays in the loop, with no false claim.** Sending an
+  email, booking or moving a meeting and judgment calls on Nick's behalf are
+  "one for Arwin", with a suggestion to message him. It never says it flagged
+  anything, because neither path can: the routine's only write is its relay
+  post, which shows as Arwin's own Slack user, the in-app tools are
+  `create_task`, `save_note` and `create_draft_reply`, and "Tell Arwin" lives
+  in the email session, not in Ask.
+- **"Your inbox" only for Nick.** The in-app prompt reads the asker from
+  `<context>`'s `user` (its task line now says it answers Nick and the team).
+  The bridge payload (`ASK_QUESTION_V1`) names no asker, so in the routine
+  and the local task one line follows the block, outside it: treat the asker
+  as Nick unless the question or its history says otherwise. Adding the
+  asker to the payload is left for later; the payload is unchanged here.
+- **Only Ask's prompt changes.** `CORE_RULES` is split into `CORE_IDENTITY`
+  and `CORE_RULES_BODY` and rebuilt byte for byte, and `systemPrompt` takes
+  the identity as a second argument, `CORE_IDENTITY` by default.
+  `conversationalToolUse` passes the persona plus the fund sentence and moves
+  to `chat-tools@1.4.0`.
+  The other ten prompts and web research keep their text (the same SHA-256
+  before and after) and their versions, so no deal analysis is re-run, and
+  the scheduling drafts, which write as the human Arwin, are untouched. The
+  persona sets identity and voice only: grounding, citations, the answer
+  format, the untrusted-content rule (the instructions are still never
+  revealed) and the authority limits apply as written. No migration, no
+  payload change; the Slack relay script composes no text and is unchanged.
+
+**Why.** It is what was asked for, the honesty line keeps a persona named
+after a real person from passing as him, and one block in every answerer
+keeps the in-app and bridge answers from drifting apart.
+
+**Known limits.**
+
+- The routine's prompt and the local task live outside the repo, so a
+  change to the persona still has to be pasted into both by hand. The hash
+  test makes that hard to forget: editing the block fails it until the hash
+  is updated. The routine's content hash changes with every paste, so the
+  learning-sync routine reports it as drift until Arwin approves it there.
+- The persona is guidance, not a guarantee. After the routine update, ask
+  "who are you?" and "am I talking to a real person?" in Ask Arwin to check.
+- Demo mode's canned answers (`src/lib/ai/mock.ts`) carry no identity and
+  are unchanged.

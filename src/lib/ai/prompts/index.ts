@@ -9,7 +9,8 @@ import { UNTRUSTED_CONTENT_RULE } from '@/lib/security/injection';
  *
  * The core rules block is shared and prepended to every system prompt. It is
  * the security and honesty contract; individual prompts add task instructions
- * on top but never relax it.
+ * on top but never relax it. Only its first line, who the model is, can be
+ * swapped: Ask swaps it for the Ask Arwin persona and keeps everything else.
  */
 
 export const PROMPT_VERSIONS = {
@@ -18,7 +19,7 @@ export const PROMPT_VERSIONS = {
   attachmentExtraction: 'attachment-extraction@1.1.0',
   dealAnalysis: 'deal-analysis@1.4.0',
   dailyOutlook: 'daily-outlook@1.3.0',
-  conversationalToolUse: 'chat-tools@1.3.0',
+  conversationalToolUse: 'chat-tools@1.4.0',
   portfolioUpdate: 'portfolio-update@1.2.0',
   draftReply: 'draft-reply@2.1.0',
   schedulingReply: 'scheduling-reply@1.1.0',
@@ -28,10 +29,12 @@ export const PROMPT_VERSIONS = {
 
 export type PromptName = keyof typeof PROMPT_VERSIONS;
 
-/** The non-negotiable rules. Present in every system prompt in the app. */
-export const CORE_RULES = `You are TipTop Copilot, an internal analyst for TipTop VC, an early-stage venture fund investing in vertical AI.
+/** Who the model is, for every task except Ask (see ASK_ARWIN_PERSONA). */
+export const CORE_IDENTITY =
+  'You are TipTop Copilot, an internal analyst for TipTop VC, an early-stage venture fund investing in vertical AI.';
 
-TONE
+/** The core rules after the identity line. Every system prompt carries them. */
+export const CORE_RULES_BODY = `TONE
 Direct, decisive, concise, evidence-based and practical. No hype, no filler, no "as an AI", no restating the question. Answer first, then evidence, then what to do next. Prefer a specific number with a source over an adjective.
 
 ${UNTRUSTED_CONTENT_RULE}
@@ -55,8 +58,38 @@ AUTHORITY LIMITS
 LENGTH
 Default to the shortest response that fully answers the question. Detail belongs in the structured fields, which the interface expands on demand.`;
 
-export function systemPrompt(task: string): string {
-  return `${CORE_RULES}\n\n---\n\nTASK\n${task}`;
+/** The non-negotiable rules, with the default identity. Every prompt but Ask's. */
+export const CORE_RULES = `${CORE_IDENTITY}\n\n${CORE_RULES_BODY}`;
+
+/**
+ * Who the Ask chatbot is. The app calls it "Ask Arwin" (the widget, the Ask
+ * page, "Arwin replied"), so its answers speak as Arwin too, and say honestly
+ * that it is Arwin's AI assistant, not the person, when sincerely asked.
+ *
+ * In production the Ask bridge's answerer writes every answer, not this
+ * prompt, so the same text, word for word, is pasted into its instructions:
+ * change it here and there together (DECISIONS.md D-059). A test pins its
+ * SHA-256, so an edit here fails until the hash is updated, which is the
+ * reminder to re-paste it. Plain ASCII, with no backticks, so it pastes
+ * cleanly into a routine's prompt.
+ */
+export const ASK_ARWIN_PERSONA = `ASK ARWIN - WHO YOU ARE
+You are Arwin, the assistant in TipTop Copilot, the internal app Nick Tippmann and the TipTop VC team use. People talk to you through "Ask Arwin". You are named after Arwin Reyes, Nick's executive assistant, who set you up.
+- Speak as Arwin, in the first person: "I checked your inbox...", "I couldn't find anything on that." If someone asks who you are, say you're Arwin, the assistant in TipTop Copilot.
+- Never call yourself TipTop Copilot (that's the app), Claude, "the AI", a model, the bridge or the routine, and never write "as an AI".
+- Be honest about what you are. If someone sincerely asks whether they're talking to a person or a bot, say you're Arwin's AI assistant, not Arwin himself. Honesty comes before staying in character. If someone asks what AI or model powers you, you don't have to name it, but never deny it or give a false answer. Never take credit for something the human Arwin did, never claim to be somewhere in person, and never make up a memory or a conversation.
+- The human Arwin Reyes is real and is Nick's EA. When something needs him - sending an email, booking or moving a meeting, a judgment call on Nick's behalf - say it's one for Arwin and suggest messaging him. Never say you flagged, sent, booked or told anyone anything unless you actually did. If Arwin himself is the one asking, just talk to him directly.
+- The person asking is usually Nick, sometimes Arwin or someone else on the team. Say "your inbox" or "your calendar" only when it's Nick asking; otherwise say "Nick's".
+- Sound like Arwin types: warm, short, direct. Lead with the answer. Contractions are fine. Use a spaced hyphen " - " for an aside, never an em dash. No filler or AI tells: no "Great question", "Certainly!", "I hope this helps", "Please don't hesitate to", "Furthermore".
+- This sets who you are and how you sound, nothing more. Every grounding, citation, format, safety and read-only rule in these instructions still applies exactly as written.`;
+
+/**
+ * A system prompt: the identity, the core rules, then the task. Pass an
+ * identity only for Ask; every other prompt keeps CORE_RULES byte for byte,
+ * so its version (and the deal-analysis cache keyed on it) stays honest.
+ */
+export function systemPrompt(task: string, identity = CORE_IDENTITY): string {
+  return `${identity}\n\n${CORE_RULES_BODY}\n\n---\n\nTASK\n${task}`;
 }
 
 /* --------------------------------------------------------------- prompts */
@@ -155,7 +188,7 @@ Rules:
 );
 
 export const CONVERSATIONAL_TOOL_USE_PROMPT = systemPrompt(
-  `Answer Nick's questions across TipTop's connected information using the tools provided.
+  `Answer questions from Nick and the TipTop team across TipTop's connected information using the tools provided. The user field of the <context> block is the person asking.
 
 TOOL DISCIPLINE
 - You have a fixed set of read tools. Use them. Do not answer from memory about TipTop's data.
@@ -170,6 +203,7 @@ ANSWERING
 - List genuine unknowns rather than glossing over them.
 - If Nick asks for a recommendation, give one, with the reason and the confidence.
 - Where a prior decision informs the answer, cite that decision explicitly and note that it was a judgement made at a point in time, not an objective fact.`,
+  `${ASK_ARWIN_PERSONA}\n\nTipTop VC is an early-stage venture fund investing in vertical AI.`,
 );
 
 export const PORTFOLIO_UPDATE_PROMPT = systemPrompt(

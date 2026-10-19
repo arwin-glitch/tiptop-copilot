@@ -41,10 +41,10 @@ export const PROMPT_VERSIONS = {
   attachmentExtraction:  'attachment-extraction@1.1.0',
   dealAnalysis:          'deal-analysis@1.4.0',
   dailyOutlook:          'daily-outlook@1.3.0',
-  conversationalToolUse: 'chat-tools@1.3.0',
+  conversationalToolUse: 'chat-tools@1.4.0',
   portfolioUpdate:       'portfolio-update@1.2.0',
   draftReply:            'draft-reply@2.1.0',
-  schedulingReply:       'scheduling-reply@1.0.0',
+  schedulingReply:       'scheduling-reply@1.1.0',
   injectionDetection:    'injection-detection@1.1.0',
   dealComparison:        'deal-comparison@1.1.0',
 } as const;
@@ -67,6 +67,14 @@ or the meaning of a field changes.
 ## 3. `CORE_RULES` â€” present in every system prompt
 
 Four blocks, each earning its place.
+
+They open with one line saying who the model is: "You are TipTop Copilot, an
+internal analyst for TipTop VC" (`CORE_IDENTITY`). Ask is the one prompt that
+swaps that line: `conversationalToolUse` opens with `ASK_ARWIN_PERSONA`
+instead, since the app calls the chatbot "Ask Arwin" (§4, D-059), and keeps
+the four blocks word for word. `systemPrompt(task, identity)` takes the
+identity; every other prompt uses the default, so its text and its version
+are unchanged.
 
 ### Tone
 Direct, concise, evidence-based. Answer first, then evidence, then what to do
@@ -116,7 +124,7 @@ prompt is guidance and a constraint is a guarantee.
 | `attachmentExtraction` | fast | â€” | Page-aware reading of a deck or document. |
 | `dealAnalysis` | deep | `dealAnalysisSchema` | Per-category score and rationale with citations, red flags, upside and downside, diligence questions. |
 | `dailyOutlook` | deep | `dailyOutlookSchema` | Narrows and phrases a candidate set already assembled from records. |
-| `conversationalToolUse` | deep | `chatAnswerSchema` | Ask. Reaches data only through the allowlisted tools. |
+| `conversationalToolUse` | deep | `chatAnswerSchema` | Ask Arwin. Speaks as Arwin, the assistant in TipTop Copilot (`ASK_ARWIN_PERSONA`, the same block the Ask bridge's answerer carries), and says it is Arwin's AI assistant, not the person, when sincerely asked. Reaches data only through the allowlisted tools. |
 | `portfolioUpdate` | fast | `portfolioUpdateSchema` | Typed ask, urgency, and suggested contacts **from the supplied list only**. |
 | `draftReply` | deep | `draftReplySchema` | A draft in Nick's observed voice, plus the facts it asserts so they can be checked before sending. Answers factual/administrative asks from the supplied sources rather than deferring (wire and banking details never). Never commits money or terms; LinkedIn links only in outbound intros, on formal full names, from supplied sources. |
 | `schedulingReply` | deep | `draftReplySchema` | Meeting logistics drafted in the EA's voice (introduction + signature), checked against a supplied snapshot of the synced calendar: no overlaps, 8am–6pm CT, hour + travel buffers for in-person, reschedules free the moving slot, cancellations get a warm rebook offer, never initiates moving Nick's commitments. |

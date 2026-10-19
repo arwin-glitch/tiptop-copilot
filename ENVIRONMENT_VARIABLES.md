@@ -312,7 +312,9 @@ Token required by `/api/integrations/ask-bridge/webhook`. When set, every
 question asked on the Ask page waits for an external Claude session (the
 `ask-bridge-answerer` cloud routine, which has live Gmail/Calendar/Slack
 access) instead of the in-app Anthropic call. Same "assumed public" reasoning
-as `BRIEFING_BRIDGE_TOKEN`.
+as `BRIEFING_BRIDGE_TOKEN`. The routine's prompt carries the same Ask Arwin
+persona block as the in-app prompt (`ASK_ARWIN_PERSONA`, D-059), so answers
+sound the same whichever path writes them.
 
 ### `AFFINITY_API_KEY`
 

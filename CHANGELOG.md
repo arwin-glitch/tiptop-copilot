@@ -10,6 +10,20 @@ throughout.
 
 ## [Unreleased]
 
+- **Ask Arwin knows it is Arwin.** Answers speak as Arwin, the assistant in
+  TipTop Copilot, in the first person and the way Arwin writes (warm, short,
+  spaced hyphens, no AI tells), instead of "TipTop Copilot, an internal
+  analyst" or no identity at all. Asked sincerely whether it is a real
+  person, it says it is Arwin's AI assistant, not Arwin, and it never denies
+  being an AI or answers falsely about what powers it. Anything that needs
+  the human (sending, booking, a judgment call on Nick's behalf) is "one for
+  Arwin", with a suggestion to message him, never a claim that it flagged
+  him. One persona block, word for word, in the in-app Ask prompt (now
+  `chat-tools@1.4.0`) and in the Ask bridge's answerer, which writes the
+  answers in production; a test pins the block's hash so the copies can't
+  quietly drift. Grounding, citations and the read-only rules are unchanged,
+  and so is every other prompt and its version (D-059).
+
 - **Follow-ups and the email session show the full email.** Each Follow-ups
   row with a Gmail thread gets "Show email" under its Open in Gmail link (one
   row open at a time, with a second Hide email at the foot of the email); the
