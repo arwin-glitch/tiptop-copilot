@@ -134,8 +134,22 @@ else
 fi
 sleep 2
 xcrun simctl io "$udid" screenshot "$out/2-after-link.png" > /dev/null
+# A link opened from outside the app makes iOS ask "Open in “TipTop”?"
+# first, on a simulator as on a real iPhone (the person taps Open after
+# signing in in Safari). The check cannot tap it, so iOS routing the link to
+# this app and asking counts as the scheme working.
+xcrun simctl spawn "$udid" log show --style compact --start "$link_started" \
+  --predicate "eventMessage CONTAINS \"$bundle://smoke-test\" OR (process == \"SpringBoard\" AND eventMessage CONTAINS \"Open in\")" \
+  > "$out/link-system.log" 2>/dev/null || true
+routed=0
+if grep -q "Opening URL ($bundle://smoke-test) with $bundle" "$out/link-system.log" &&
+  grep -q 'title: Open in' "$out/link-system.log"; then
+  routed=1
+fi
 if [ "$opened" = 1 ]; then
   echo "The app opens from a $bundle:// link."
+elif [ "$routed" = 1 ]; then
+  echo "iOS sends $bundle:// links to the app and asks \"Open in …?\" first, as it does on an iPhone."
 else
   echo "::error::The app did not open from a $bundle:// link."
   failed=1
