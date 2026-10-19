@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Mobile layout and accessibility.
@@ -69,7 +69,19 @@ const PAGES = [
   '/fund-ii?tab=campaigns',
   '/fund-ii/campaigns/00000000-0000-4000-8000-0000000007d0',
   '/fund-ii/campaigns/00000000-0000-4000-8000-0000000007d1',
+  // Follow-ups and the email session, whose full email is checked open below.
+  '/follow-ups',
+  '/follow-ups/session',
 ];
+
+/** No sideways scroll beyond a few pixels of rounding. */
+async function expectNoSidewaysScroll(page: Page) {
+  const overflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 2);
+}
 
 test.describe('mobile layout', () => {
   for (const path of PAGES) {
@@ -87,6 +99,35 @@ test.describe('mobile layout', () => {
       expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 2);
     });
   }
+
+  // The full email arrives after the page has drawn, so the check above ran
+  // before it was there: open everything in it, then look again.
+  test("the session's full email, opened all the way, never scrolls sideways", async ({ page }) => {
+    await page.goto('/follow-ups/session');
+    const email = page.getByRole('region', { name: /^Email: / });
+    await expect(email).toBeVisible();
+    await email.getByRole('button', { name: 'Show full email' }).click();
+    await email.getByRole('button', { name: /^Show earlier messages/ }).click();
+    // Every earlier message open too (each click turns one closed header open).
+    const closed = email.locator('ol > li > button[aria-expanded="false"]');
+    while ((await closed.count()) > 0) await closed.first().click();
+    await email.getByRole('button', { name: 'Show quoted text' }).click();
+    await expectNoSidewaysScroll(page);
+  });
+
+  test('a Follow-ups row with its email open never scrolls sideways', async ({ page }) => {
+    await page.goto('/follow-ups');
+    const priya = page
+      .getByRole('region', { name: "You're waiting on" })
+      .locator(':scope > ul > li')
+      .filter({ hasText: 'Priya Natarajan' });
+    await priya.getByRole('button', { name: /^Show email/ }).click();
+    const email = priya.getByRole('region', { name: /^Email: / });
+    await email.getByRole('button', { name: 'Show full email' }).click();
+    await email.getByRole('button', { name: /^Show earlier messages/ }).click();
+    await email.locator('ol > li > button[aria-expanded="false"]').first().click();
+    await expectNoSidewaysScroll(page);
+  });
 
   test('the bottom navigation is present and thumb-sized', async ({ page }) => {
     await page.goto('/today');

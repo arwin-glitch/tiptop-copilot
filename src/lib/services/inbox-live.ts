@@ -1,6 +1,7 @@
 import 'server-only';
 import { isDemoMode } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
+import { isFromMailbox } from '@/lib/email/addresses';
 import {
   displayName,
   listThreadPage,
@@ -210,7 +211,6 @@ export function toLiveThread(
   names: Map<string, string>,
   mailbox: string,
 ): LiveThread {
-  const own = mailbox.toLowerCase();
   return {
     id: thread.id,
     subject: thread.subject,
@@ -227,7 +227,8 @@ export function toLiveThread(
       at: m.date,
       text: m.text,
       attachments: m.attachments,
-      fromUs: Boolean(own) && m.from.toLowerCase().includes(own),
+      // The address itself, never a substring of the header: a lookalike is not us.
+      fromUs: isFromMailbox(m.from, mailbox),
       flagged: scanForInjection(m.text).flagged,
     })),
   };

@@ -50,6 +50,7 @@ export default async function EmailSessionPage() {
           canSend={canSend(integration) && !auth.isDemo}
           mailbox={integration?.account_email ?? DEFAULT_MAILBOX}
           isDemo={auth.isDemo}
+          timeZone={auth.profile.timezone}
         />
       ) : (
         <Notice>

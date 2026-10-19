@@ -12,7 +12,6 @@ import {
   Loader2,
   MailOpen,
   Mail,
-  Paperclip,
   RefreshCw,
   Reply,
   Search,
@@ -24,19 +23,21 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/form';
-import { Notice } from '@/components/ui/feedback';
 import { swapSignOff } from '@/components/followups/email-session-client';
 import { Composer, type ComposeDraft } from '@/components/inbox/composer';
+import { MessageItem, longTime } from '@/components/inbox/message-view';
 import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
-import { opensInline } from '@/lib/email/attachment-types';
 import { cn } from '@/lib/util/cn';
 import type {
   InboxTab,
-  LiveMessage,
   LiveThread,
   LiveThreadList,
   LiveThreadRow,
 } from '@/lib/services/inbox-live';
+
+// The message pieces live in message-view.tsx (Follow-ups shows the full email
+// with them too); these stay importable from here.
+export { longTime, reflow } from '@/components/inbox/message-view';
 
 type Signature = 'nick' | 'arwin';
 type Action = 'archive' | 'inbox' | 'read' | 'unread' | 'star' | 'unstar';
@@ -80,17 +81,6 @@ function shortTime(iso: string | null): string {
     month: 'short',
     day: 'numeric',
     ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
-  });
-}
-
-function longTime(iso: string | null): string {
-  if (!iso) return '';
-  return new Date(iso).toLocaleString([], {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
   });
 }
 
@@ -769,145 +759,6 @@ function ThreadView({
   );
 }
 
-const QUOTE_START = /^(On .+wrote:|-{2,} ?Forwarded message|From: .+)$/;
-
-function splitQuoted(text: string): { main: string; quoted: string } {
-  const lines = text.split('\n');
-  const at = lines.findIndex(
-    (l, i) =>
-      i > 0 && (QUOTE_START.test(l.trim()) || (l.startsWith('>') && lines[i + 1]?.startsWith('>'))),
-  );
-  if (at < 0) return { main: text, quoted: '' };
-  return { main: lines.slice(0, at).join('\n').trimEnd(), quoted: lines.slice(at).join('\n') };
-}
-
-/**
- * Plain-text mail is often hard-wrapped at ~72 characters. Rejoin a long line
- * with the next one when the next starts mid-sentence (lowercase), so text
- * reads as paragraphs; blank lines and lists are left alone.
- */
-export function reflow(text: string): string {
-  const lines = text.split('\n');
-  const out: string[] = [];
-  for (const line of lines) {
-    const prev = out.at(-1);
-    if (prev !== undefined && prev.length >= 60 && /^[a-z(]/.test(line) && !/[.!?:]$/.test(prev)) {
-      out[out.length - 1] = `${prev.trimEnd()} ${line}`;
-    } else out.push(line);
-  }
-  return out.join('\n');
-}
-
-const URL_RE = /(https?:\/\/[^\s<>()"]+)/g;
-
-function Linkified({ text }: { text: string }) {
-  const parts = text.split(URL_RE);
-  return (
-    <>
-      {parts.map((part, i) =>
-        i % 2 === 1 ? (
-          <a
-            key={i}
-            href={part}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="break-all text-[var(--accent)] underline"
-          >
-            {part.length > 60 ? `${part.slice(0, 57)}…` : part}
-          </a>
-        ) : (
-          <React.Fragment key={i}>{part}</React.Fragment>
-        ),
-      )}
-    </>
-  );
-}
-
-function MessageItem({ message: m, startOpen }: { message: LiveMessage; startOpen: boolean }) {
-  const [open, setOpen] = React.useState(startOpen);
-  const [showQuoted, setShowQuoted] = React.useState(false);
-  const { main, quoted } = React.useMemo(() => splitQuoted(reflow(m.text)), [m.text]);
-  return (
-    <li className="rounded-md border border-[var(--border)] bg-[var(--bg)]">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-baseline gap-2 px-3 py-2 text-left"
-      >
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-          {m.fromName}
-          {m.fromUs ? <span className="ml-1 text-xs text-[var(--fg-subtle)]">(you)</span> : null}
-        </span>
-        <span className="shrink-0 text-xs text-[var(--fg-muted)]">{longTime(m.at)}</span>
-      </button>
-      {open ? (
-        <div className="space-y-2 px-3 pb-3">
-          <p className="text-xs break-words text-[var(--fg-subtle)]">
-            To {m.to || '(hidden)'}
-            {m.cc ? ` · Cc ${m.cc}` : ''}
-          </p>
-          {m.flagged ? (
-            <Notice tone="warn">
-              <p className="font-medium">This message contains text aimed at an AI assistant.</p>
-              <p className="mt-1 text-[var(--fg-muted)]">
-                It was treated as data, not instructions. Nothing in it was acted on. The full text
-                is shown below so you can see exactly what was attempted.
-              </p>
-            </Notice>
-          ) : null}
-          <div className="text-sm leading-relaxed break-words whitespace-pre-wrap">
-            <Linkified text={main || '(no text)'} />
-          </div>
-          {quoted ? (
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowQuoted((q) => !q)}
-                className="text-xs text-[var(--fg-muted)] underline"
-              >
-                {showQuoted ? 'Hide quoted text' : 'Show quoted text'}
-              </button>
-              {showQuoted ? (
-                <div className="mt-1 border-l-2 border-[var(--border)] pl-3 text-xs break-words whitespace-pre-wrap text-[var(--fg-muted)]">
-                  <Linkified text={quoted} />
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {m.attachments.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {m.attachments.map((a) => (
-                <a
-                  key={a.id}
-                  href={`/api/inbox/attachment?${new URLSearchParams({
-                    m: m.id,
-                    a: a.id,
-                    name: a.name,
-                    type: a.mimeType,
-                  }).toString()}`}
-                  // A file the browser can show opens in a new tab; anything
-                  // else downloads in place, so a half-written reply stays put
-                  // and the desktop app leaves no blank window behind.
-                  {...(opensInline(a.mimeType)
-                    ? { target: '_blank', rel: 'noopener noreferrer' }
-                    : { download: a.name })}
-                  className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 text-xs hover:bg-[var(--bg-hover)]"
-                >
-                  <Paperclip className="size-3" aria-hidden /> {a.name}
-                  <span className="text-[var(--fg-subtle)]">{fileSize(a.size)}</span>
-                </a>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <p className="truncate px-3 pb-2 text-xs text-[var(--fg-muted)]">{main.slice(0, 160)}</p>
-      )}
-    </li>
-  );
-}
-
 interface DraftResponse {
   draft: { body: string } | null;
   draftError: string | null;
@@ -1103,12 +954,6 @@ function ReplyBox({
       </div>
     </div>
   );
-}
-
-function fileSize(bytes: number): string {
-  if (!bytes) return '';
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 /** Gmail's forward: the newest message quoted under a header, its attachments carried along. */

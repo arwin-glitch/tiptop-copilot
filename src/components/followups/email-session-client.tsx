@@ -18,6 +18,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/form';
+import { FullEmail, hasFullEmail, STICKY_CLEARANCE } from '@/components/followups/full-email';
 import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
 import { cn } from '@/lib/util/cn';
 import type { SessionAnswerKind, SessionItem } from '@/lib/services/email-session';
@@ -83,11 +84,14 @@ export function EmailSessionClient({
   canSend,
   mailbox,
   isDemo,
+  timeZone,
 }: {
   items: SessionItem[];
   canSend: boolean;
   mailbox: string;
   isDemo: boolean;
+  /** The profile's, for the times on the full email. */
+  timeZone: string;
 }) {
   // Local answers on top of the server's, so the queue moves instantly.
   const [local, setLocal] = React.useState<Record<string, SessionAnswerKind>>({});
@@ -202,6 +206,8 @@ export function EmailSessionClient({
           total={nickItems.length}
           canSend={canSend}
           mailbox={mailbox}
+          timeZone={timeZone}
+          nextId={queue[1]?.id ?? null}
           onAnswer={answer}
         />
       ) : (
@@ -234,6 +240,8 @@ function SessionCard({
   total,
   canSend,
   mailbox,
+  timeZone,
+  nextId,
   onAnswer,
 }: {
   item: SessionItem;
@@ -241,6 +249,9 @@ function SessionCard({
   total: number;
   canSend: boolean;
   mailbox: string;
+  timeZone: string;
+  /** The email after this one, read ahead so it shows at once. */
+  nextId: string | null;
   onAnswer: (id: string, kind: SessionAnswerKind, extra?: Record<string, unknown>) => Promise<void>;
 }) {
   const [loaded, setLoaded] = React.useState<DraftResponse | null>(null);
@@ -250,6 +261,17 @@ function SessionCard({
   const [note, setNote] = React.useState('');
   const [countdown, setCountdown] = React.useState(0);
   const timer = React.useRef<number | null>(null);
+  const cardRef = React.useRef<HTMLElement>(null);
+
+  // A new card (the queue moved on) opens at its top: the last one was
+  // answered from its buttons, further down, and this one would otherwise
+  // open mid-email with its sender out of view. No scroll when it shows.
+  React.useLayoutEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    const clearance = Number.parseFloat(getComputedStyle(card).scrollMarginTop) || 0;
+    if (card.getBoundingClientRect().top < clearance) card.scrollIntoView({ block: 'start' });
+  }, [item.id]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -365,12 +387,10 @@ function SessionCard({
 
   const draft = loaded?.draft ?? null;
   const signatureText = loaded?.signatures?.[signature] ?? null;
+  const withEmail = hasFullEmail(item.id);
 
-  return (
-    <article
-      aria-label={`Email from ${item.who}`}
-      className="space-y-4 rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg-raised)] p-4 sm:p-5"
-    >
+  const header = (
+    <>
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={item.group === 'today' || item.group === 'money' ? 'danger' : 'info'}>
           {GROUP_LABEL[item.group]}
@@ -398,7 +418,11 @@ function SessionCard({
           <p className="mt-1 text-xs text-[var(--fg-subtle)]">Waiting {item.waitingDays} days</p>
         ) : null}
       </div>
+    </>
+  );
 
+  const reply = (
+    <>
       <div className="space-y-2 rounded-md border border-[var(--border)] bg-[var(--bg)] p-3">
         <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--fg-muted)]">
           <span className="min-w-0 flex-1 truncate">
@@ -544,6 +568,37 @@ function SessionCard({
       <p className="hidden text-xs text-[var(--fg-subtle)] sm:block">
         Keys: Ctrl+Enter send · E archive · P no reply needed · L later
       </p>
+    </>
+  );
+
+  return (
+    <article
+      ref={cardRef}
+      aria-label={`Email from ${item.who}`}
+      className={cn(
+        'space-y-4 rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg-raised)] p-4 sm:p-5',
+        STICKY_CLEARANCE,
+      )}
+    >
+      {header}
+      {withEmail ? (
+        // The email and the reply to it side by side on a wide screen, the
+        // reply staying in view while a long email scrolls; stacked below that.
+        <div className="space-y-4 xl:grid xl:grid-cols-2 xl:items-start xl:gap-5 xl:space-y-0">
+          <FullEmail
+            id={item.id}
+            mailbox={mailbox}
+            timeZone={timeZone}
+            knownSubject={item.about}
+            prefetchNext={nextId}
+          />
+          <div className="space-y-4 xl:sticky xl:top-[calc(var(--app-banner-h)+var(--titlebar-h)+1rem)]">
+            {reply}
+          </div>
+        </div>
+      ) : (
+        reply
+      )}
     </article>
   );
 }

@@ -385,6 +385,23 @@ describe('the mailbox gate', () => {
     expect(g.most()).toBe(5);
   });
 
+  it('a read a person waits on (front) goes ahead of the background reads already queued', async () => {
+    const g = heldGmail();
+    const running = Array.from({ length: 4 }, () =>
+      gmailGet(STORE, INTEGRATION, '/labels', background),
+    );
+    await g.tick();
+    const queued = gmailGet(STORE, INTEGRATION, '/queued', background);
+    await g.tick();
+    const waited = gmailGet(STORE, INTEGRATION, '/waited', { retry: { front: true } });
+    await g.tick();
+    // Still within the four at once.
+    expect(g.inFlight()).toBe(4);
+    await g.releaseAll();
+    expect((await Promise.all([...running, queued, waited])).every((r) => r.ok)).toBe(true);
+    expect(g.paths.slice(4).map((p) => p.split('/').at(-1))).toEqual(['waited', 'queued']);
+  });
+
   it('gives up a queued read when its deadline comes first, without asking Gmail', async () => {
     const g = heldGmail();
     const running = Array.from({ length: 4 }, () =>

@@ -18,6 +18,7 @@ import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { mailboxOwnerPresence, type MailboxOwnerPresence } from '@/lib/services/presence';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { EmailSessionCard } from '@/components/followups/email-session-card';
+import { FollowUpEmailRow } from '@/components/followups/full-email';
 import { AutoRefresh } from '@/components/shell/auto-refresh';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -106,7 +107,7 @@ async function FollowUpsContent() {
         ) : (
           <ul className="space-y-2">
             {onYou.map((item) => (
-              <OnYouRow key={`${item.who}-${item.since}`} item={item} />
+              <OnYouRow key={`${item.who}-${item.since}`} item={item} tz={tz} />
             ))}
           </ul>
         )}
@@ -223,11 +224,16 @@ const KIND_LABEL: Record<RelationshipItem['kind'], string> = {
   other: 'Contact',
 };
 
-function OnYouRow({ item }: { item: RelationshipItem }) {
+function OnYouRow({ item, tz }: { item: RelationshipItem; tz: string }) {
   return (
     <li>
       <Card>
-        <CardContent className="flex items-start gap-3 pt-4">
+        <FollowUpEmailRow
+          id={item.thread_id}
+          who={item.who}
+          timeZone={tz}
+          aside={<ThreadLink threadId={item.thread_id} />}
+        >
           <HeartHandshake className="mt-0.5 size-4 shrink-0 text-[var(--warn)]" aria-hidden />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -244,8 +250,7 @@ function OnYouRow({ item }: { item: RelationshipItem }) {
             </div>
             {item.note ? <p className="mt-0.5 text-sm">{item.note}</p> : null}
           </div>
-          <ThreadLink threadId={item.thread_id} />
-        </CardContent>
+        </FollowUpEmailRow>
       </Card>
     </li>
   );
@@ -261,7 +266,13 @@ function WaitingRow({ item, tz }: { item: FollowUpItem; tz: string }) {
   return (
     <li>
       <Card>
-        <CardContent className="flex items-start gap-3 pt-4">
+        <FollowUpEmailRow
+          id={item.thread_id}
+          who={item.who}
+          timeZone={tz}
+          showSubject={false}
+          aside={<ThreadLink threadId={item.thread_id} />}
+        >
           <Hourglass className="mt-0.5 size-4 shrink-0 text-[var(--fg-subtle)]" aria-hidden />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -282,8 +293,7 @@ function WaitingRow({ item, tz }: { item: FollowUpItem; tz: string }) {
               {item.note ? ` · ${item.note}` : ''}
             </p>
           </div>
-          <ThreadLink threadId={item.thread_id} />
-        </CardContent>
+        </FollowUpEmailRow>
       </Card>
     </li>
   );
@@ -330,7 +340,13 @@ function SchedulingRow({ item, tz }: { item: SchedulingItem; tz: string }) {
   return (
     <li>
       <Card>
-        <CardContent className="flex items-start gap-3 pt-4">
+        <FollowUpEmailRow
+          id={item.thread_id}
+          who={item.who}
+          timeZone={tz}
+          showSubject={false}
+          aside={<ThreadLink threadId={item.thread_id} />}
+        >
           <CalendarClock className="mt-0.5 size-4 shrink-0 text-[var(--fg-subtle)]" aria-hidden />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -349,8 +365,7 @@ function SchedulingRow({ item, tz }: { item: SchedulingItem; tz: string }) {
             ) : null}
             {item.note ? <p className="mt-1 text-xs text-[var(--fg-subtle)]">{item.note}</p> : null}
           </div>
-          <ThreadLink threadId={item.thread_id} />
-        </CardContent>
+        </FollowUpEmailRow>
       </Card>
     </li>
   );

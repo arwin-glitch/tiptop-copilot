@@ -59,6 +59,36 @@ describe('live inbox', () => {
     ]);
     expect(thread.messages[0]!.attachments.map((a) => a.name)).toEqual(['q3.pdf']);
   });
+
+  it('never marks a lookalike sender as our own', () => {
+    const message = (id: string, from: string) => ({
+      id,
+      from,
+      to: 'nick@acme.vc',
+      cc: '',
+      date: '2026-10-12T15:00:00.000Z',
+      subject: 'Wire details',
+      text: 'New wire instructions attached.',
+      attachments: [],
+      labelIds: ['INBOX'],
+    });
+    const thread = toLiveThread(
+      {
+        id: 'abc1234568',
+        subject: 'Wire details',
+        labelIds: ['INBOX'],
+        messages: [
+          message('m1', 'Nick <nick@acme.vc.evil.example>'),
+          message('m2', '"Nick <nick@acme.vc>" <wires@evil.example>'),
+          message('m3', 'xnick@acme.vc'),
+          message('m4', 'NICK@ACME.VC'),
+        ],
+      },
+      names,
+      'nick@acme.vc',
+    );
+    expect(thread.messages.map((m) => m.fromUs)).toEqual([false, false, false, true]);
+  });
 });
 
 describe('reading plain-text mail', () => {

@@ -10,6 +10,28 @@ throughout.
 
 ## [Unreleased]
 
+- **Follow-ups and the email session show the full email.** Each Follow-ups
+  row with a Gmail thread gets "Show email" under its Open in Gmail link (one
+  row open at a time, with a second Hide email at the foot of the email); the
+  email session shows the email beside the drafted reply on a wide screen
+  (the reply stays in view while a long email scrolls) and above it on a
+  narrower one, and each new card opens at its top. The newest message is
+  collapsed to a few lines behind "Show full email", its To/Cc line to one
+  line, and the messages before it are behind "Show earlier messages". The
+  context line stays. Plain text only, through the Inbox's own renderer
+  (links open in a new tab, no images load, text aimed at an AI is flagged).
+  Read from Gmail on demand through the new read-only
+  `GET /api/follow-ups/email`: through the mailbox gate with an 8 s deadline,
+  ahead of background reads already queued (`retry.front`), cached a minute,
+  a message id followed to its thread. The session reads the next email ahead
+  and checks a copy older than 30 s again, since a reply goes to the newest
+  message. Meeting recaps (from Granola) get no control. The demo shows
+  fictional emails.
+
+- **The Inbox marks a message as yours only from your exact address.** It
+  matched any From header containing the mailbox's address, so a lookalike
+  such as `you@firm.com.other.example` showed as "(you)".
+
 - **Desktop app 0.3.1: new versions show up without asking.** The app now
   looks every hour instead of every 6, and also whenever its window comes to
   the front (at most every 15 minutes), so an app left open all day offers a

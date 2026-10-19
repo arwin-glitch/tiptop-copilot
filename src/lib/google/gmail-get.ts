@@ -23,13 +23,19 @@ import { err, ok, type AppError, type Result } from '@/lib/util/result';
  * comes if that is sooner; the 30 s timeout, or Gmail being unreachable, is
  * tried again the same way.
  *
+ * One read a person waits on opts in too: the full email on Follow-ups and in
+ * the email session (follow-up-email.ts), with an 8 s deadline. It is fetched
+ * only when asked for, after the page has drawn, so it waits its turn behind
+ * the mailbox's background reads instead of adding to a burst, and with
+ * `retry.front` it takes the first free place rather than the last.
+ *
  * Gmail's rate limit is per mailbox, not per reader, so the background reads
  * of one mailbox share one gate in this process, whichever reader asks: at
  * most BACKGROUND_CONCURRENCY at once, the rest queued in turn, and after a
  * rate limit none starts until the wait it called for is over. Two readers
  * running together (the numbers refresh and the asks read, from the daily job
  * or one Portfolio view) then pace each other rather than doubling the burst.
- * Interactive reads never queue here.
+ * Other interactive reads never queue here.
  *
  * Every failure carries Gmail's status in `error.details` (and `reason:
  * 'rate_limited'` for a rate limit, `reason: 'deadline'` when the caller's
@@ -68,13 +74,20 @@ export interface GmailRetry {
    * no request runs past it, and a read still queued then is given up.
    */
   deadline?: number;
+  /**
+   * A read a person is waiting on (the follow-up full email): it queues ahead
+   * of the background reads already waiting, still within
+   * BACKGROUND_CONCURRENCY and any rate-limit pause.
+   */
+  front?: boolean;
 }
 
 export interface GmailReadOptions {
   /**
-   * Background reads only: try a rate limit, a Gmail 5xx, a timeout or an
-   * unreachable Gmail again, paced with the mailbox's other background reads.
-   * Interactive reads leave it out and fail fast.
+   * Background reads, and the follow-up full email with a short deadline: try
+   * a rate limit, a Gmail 5xx, a timeout or an unreachable Gmail again, paced
+   * with the mailbox's other background reads. Other interactive reads leave
+   * it out and fail fast.
    */
   retry?: GmailRetry;
 }
@@ -126,7 +139,7 @@ export function gmailPause(ms: number): Promise<void> {
 interface MailboxGate {
   /** Background reads of the mailbox in flight now. */
   active: number;
-  /** Background reads waiting for a place, first come first served. */
+  /** Background reads waiting for a place, first come first served (a `front` read first). */
   queue: (() => void)[];
   /** After a rate limit, no background read of the mailbox starts before this (epoch ms). */
   pausedUntil: number;
@@ -145,7 +158,7 @@ function gateFor(integration: Integration): MailboxGate {
 }
 
 /** A place among the mailbox's background reads: true once it is this read's turn, false if the deadline comes first. */
-function enter(gate: MailboxGate, deadline: number): Promise<boolean> {
+function enter(gate: MailboxGate, deadline: number, front: boolean): Promise<boolean> {
   if (gate.active < BACKGROUND_CONCURRENCY) {
     gate.active += 1;
     return Promise.resolve(true);
@@ -157,7 +170,8 @@ function enter(gate: MailboxGate, deadline: number): Promise<boolean> {
       gate.active += 1;
       resolve(true);
     };
-    gate.queue.push(start);
+    if (front) gate.queue.unshift(start);
+    else gate.queue.push(start);
     if (Number.isFinite(deadline)) {
       timer = setTimeout(
         () => {
@@ -300,8 +314,9 @@ async function backgroundGet<T>(
   path: string,
   token: string,
   deadline: number,
+  front: boolean,
 ): Promise<Result<T>> {
-  if (!(await enter(gate, deadline))) return { ok: false, error: outOfTime() };
+  if (!(await enter(gate, deadline, front))) return { ok: false, error: outOfTime() };
   try {
     // Another read of this mailbox just met the rate limit: wait it out, when there is time to.
     const paused = gate.pausedUntil - Date.now();
@@ -355,6 +370,7 @@ export async function gmailGet<T>(
       path,
       token.value,
       retry.deadline ?? Number.POSITIVE_INFINITY,
+      retry.front === true,
     );
   }
   const res = await attempt<T>(path, token.value, null);

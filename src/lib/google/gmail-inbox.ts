@@ -11,7 +11,7 @@ import { htmlToPlainText } from '@/lib/util/text';
  * only. Kept apart from gmail-send.ts, which is the only module that writes.
  *
  * Every read fails fast unless its caller passes `GmailReadOptions.retry`,
- * which only background reads do (`gmail-get.ts`).
+ * which background reads and the follow-up full email do (`gmail-get.ts`).
  */
 
 const MAX_PAGES = 3;
@@ -162,6 +162,29 @@ export async function readMessageHeadline(
     subject: header(res.value, 'Subject'),
     at: res.value.internalDate ? new Date(Number(res.value.internalDate)).toISOString() : null,
   };
+}
+
+/**
+ * The thread a message belongs to. `format=minimal` carries ids and labels
+ * only, no headers or body. Unlike readMessageHeadline, a failure comes back
+ * as the error, so a caller can tell a rate limit from a missing message.
+ */
+export async function readMessageThreadId(
+  store: DataStore,
+  integration: Integration,
+  id: string,
+  options: GmailReadOptions = {},
+): Promise<Result<string>> {
+  const res = await gmailGet<{ threadId?: string }>(
+    store,
+    integration,
+    `/messages/${id}?format=minimal`,
+    options,
+  );
+  if (!res.ok) return res;
+  return res.value.threadId
+    ? ok(res.value.threadId)
+    : err('not_found', 'That message has no thread.');
 }
 
 /* ------------------------------------------------------------ live inbox */
