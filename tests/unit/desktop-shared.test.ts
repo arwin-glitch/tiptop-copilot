@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   compareVersions,
+  desktopAlertsShell,
   desktopFrame,
   formatInstallerSize,
   framelessShell,
   isDesktopFrame,
+  isInAppAlertPath,
   isInstallerPlatform,
   MATCH_ALPHABET,
   MATCH_CODE_RE,
@@ -155,5 +157,54 @@ describe('installers', () => {
     expect(formatInstallerSize(12 * 1_048_576 + 300_000)).toBe('12 MB');
     expect(formatInstallerSize(500_000)).toBe('488 KB');
     expect(formatInstallerSize(0)).toBe('');
+  });
+});
+
+describe('desktop alerts (0.4.0)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('come with 0.4.0 and every app after it', () => {
+    expect(desktopAlertsShell('0.3.9')).toBe(false);
+    expect(desktopAlertsShell('0.4.0')).toBe(true);
+    expect(desktopAlertsShell('0.10.0')).toBe(true);
+    expect(desktopAlertsShell(null)).toBe(false);
+  });
+
+  // The path rule's cases from alert_target in desktop/src-tauri/src/alerts.rs,
+  // which also refuses what the shell's link rules block (/api/auth/google).
+  const ACCEPTED = [
+    '/calendar',
+    '/go/meeting?id=abc_1',
+    '/fund-ii?tab=campaigns',
+    '/go/meeting?id=a%2Bb',
+    '/',
+  ];
+  const REFUSED: unknown[] = [
+    '//evil.com',
+    '/api/auth/%67oogle',
+    '/\\evil',
+    'https://evil.com',
+    '',
+    `/${'a'.repeat(300)}`,
+    '/today#x',
+    '/to day',
+    '/a:b',
+    'calendar',
+    null,
+    42,
+  ];
+
+  it('open only an in-app path', () => {
+    for (const path of ACCEPTED) expect(isInAppAlertPath(path), path).toBe(true);
+    for (const path of REFUSED) expect(isInAppAlertPath(path), String(path)).toBe(false);
+    expect(isInAppAlertPath(`/${'a'.repeat(299)}`)).toBe(true);
+  });
+
+  it('check the same rule against the page itself in a window', () => {
+    vi.stubGlobal('window', { location: { origin: 'https://copilot.example' } });
+    for (const path of ACCEPTED) expect(isInAppAlertPath(path), path).toBe(true);
+    for (const path of REFUSED) expect(isInAppAlertPath(path), String(path)).toBe(false);
   });
 });

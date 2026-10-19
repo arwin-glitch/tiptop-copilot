@@ -1,6 +1,6 @@
 [package]
 name = "tiptop-copilot-desktop"
-version = "0.3.1"
+version = "0.4.0"
 description = "TipTop Copilot for Mac and Windows"
 edition = "2024"
 rust-version = "1.90"
@@ -25,6 +25,26 @@ serde_json = "=1.0.154"
 # The native dialogs tauri-plugin-dialog uses, without the script it adds to
 # every page (src/updates.rs). Its default features only matter on Linux.
 rfd = { version = "=0.16.0", default-features = false, features = ["common-controls-v6"] }
+# Desktop alerts (src/alerts.rs): the shell asks Copilot for due alerts with a
+# token for this computer. The versions already in Cargo.lock, through
+# tauri-plugin-updater and tauri; rustls as the updater sets it up.
+reqwest = { version = "=0.13.5", default-features = false, features = ["json", "rustls-no-provider"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+getrandom = "=0.3.4"
+
+# Windows toasts, used from Rust only (no plugin, no script in the page), and
+# the notification setting Windows keeps for the app.
+[target.'cfg(windows)'.dependencies]
+tauri-winrt-notification = "=0.8.1"
+windows = { version = "=0.62.2", features = ["UI_Notifications"] }
+
+# A Mac's notifications (UNUserNotificationCenter), used from Rust only; the
+# timeouts around them; and the App Nap hold while alerts are on.
+[target.'cfg(target_os = "macos")'.dependencies]
+mac-usernotifications = { version = "=0.3.1", default-features = false }
+tokio = { version = "=1.53.3", default-features = false, features = ["time"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSProcessInfo", "NSString"] }
 
 [profile.release]
 codegen-units = 1

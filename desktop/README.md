@@ -11,20 +11,27 @@ and hands over to the live site as soon as the site answers. Everything after
 that is the web app, so every web update reaches the desktop app with no new
 build.
 
-The shell gives the web page one narrow bridge, for the main window's top
-bar and nothing else: `src-tauri/capabilities/` lets the main window, on the
-live site (`https://copilot.tiptop.vc:443/*`) or the bundled page, drag
-itself and double-click to maximise (`core:window:allow-start-dragging`,
+The shell gives the web page two narrow bridges, both in the main window
+only (`src-tauri/capabilities/`). The first is for the top bar: the main
+window, on the live site (`https://copilot.tiptop.vc:443/*`) or the bundled
+page, may drag itself and double-click to maximise
+(`core:window:allow-start-dragging`,
 `core:window:allow-internal-toggle-maximize`, used by Tauri's own drag
 script), and call three of the app's own commands, declared in
 `src-tauri/permissions/title-strip.toml`: `window_control` (minimise,
 maximise or restore, close, leave full screen), `window_frame` (maximised,
 full screen, zoom) and, on Windows, `show_app_menu`. These three act only on
 the window that calls them; Tauri's drag commands accept another window's
-name, so a page could also drag or maximise a second window. Second windows
-themselves get nothing, there is no `window.__TAURI__` object, and no plugin
-(links, updates, window state) is reachable from a page. Everything else the
-shell does is in Rust (`src-tauri/src/`):
+name, so a page could also drag or maximise a second window. The second
+bridge, from 0.4.0, is for desktop alerts: the live site alone (not the
+bundled page) may call five commands declared in
+`src-tauri/permissions/desktop-alerts.toml`: `alerts_state`,
+`alerts_request_permission`, `alerts_turn_on`, `alerts_turn_off` and
+`alerts_test`. None of them reads the alerts token back or shows text the
+page supplies (see "How desktop alerts work"). Second windows themselves get
+nothing, there is no `window.__TAURI__` object, and no plugin (links,
+updates, window state) is reachable from a page. Everything else the shell
+does is in Rust (`src-tauri/src/`):
 
 - **Where links go** (`nav.rs`, unit-tested). The live site loads in the
   window. Any other web address, `mailto:` and `tel:` open in the default
@@ -89,6 +96,9 @@ shell does is in Rust (`src-tauri/src/`):
   file selected. Windows keeps WebView2's own download bar.
 - **Updates** (`updates.rs`, unit-tested). From 0.2.0 the app installs new
   versions of itself; see "How updates work" below.
+- **Desktop alerts** (`alerts.rs`, unit-tested, from 0.4.0). The alerts
+  phones get, as Windows toasts and Mac notifications, while the app runs,
+  also with its window hidden; see "How desktop alerts work" below.
 
 The fallback page checks the site is up by loading `/icon-192.png` from it,
 so keep that file served by the web app.
@@ -120,8 +130,10 @@ signing key").
 
 The icons are generated during the build from `public/icon.svg`, so none are
 committed. The Mac build runs `cargo test` on the navigation rules, the zoom
-steps, the update timing, the top bar commands' input checks and the
-capability files first.
+steps, the update timing, the top bar commands' input checks, the desktop
+alerts rules (tokens, alert pages, timing, Copilot's answers, the saved
+file) and the capability files first. Windows-only code is checked by the
+Windows build compiling it, not by tests.
 
 ## Releasing a new version
 
@@ -258,6 +270,111 @@ from 0.2.0 on install it themselves:
 update on Windows first, then on a Mac (see the checklist), before anyone
 relies on in-app updates.
 
+## How desktop alerts work
+
+From 0.4.0 the app shows Copilot's alerts on the computer, as Windows toasts
+and Mac notifications (`src-tauri/src/alerts.rs`).
+
+- **What they are.** The same alerts as phone alerts, with the same rules:
+  money items, the morning top three, relationships waiting, portfolio
+  companies newly at risk, a meeting about 5 minutes before it starts,
+  campaign receipts and DocSend opens; each item once per device, and
+  nothing but meetings outside 8am to 8pm in the owner's time zone. They are
+  per computer and off by default: Settings > Preferences > Desktop alerts >
+  Enable alerts on this computer. Phone alerts are separate, so a phone and a
+  computer each ping, as two phones would. An item a phone got before the
+  computer was turned on does not ping the computer.
+- **Why the shell asks, not the page.** On a Mac, WebKit suspends a hidden
+  window's page (the app is built with the macOS 15 SDK or newer); WebView2
+  slows a hidden page's timers to once a minute after five minutes; and the
+  window may be showing the bundled page, the offline page or sign-in. The
+  shell keeps
+  running while the window is hidden, so it asks Copilot itself:
+  `GET https://copilot.tiptop.vc/api/desktop/alerts` with this computer's
+  token, then a `POST` saying which alerts it has. It follows no redirects
+  and talks to no other host.
+- **When.** About once a minute from 6am to 9pm in the owner's time zone.
+  Copilot's answer says when to ask next, so at night the app asks nothing
+  until 6am and the web service can sleep. Meetings follow the same window,
+  which is when phones get them too. After a failed poll it waits 1, 2, then
+  5 minutes, and 15 minutes once Copilot has failed for about 20 minutes. A
+  laptop that slept asks within 15 seconds of waking. On a Mac, App Nap is
+  held off from the first poll with alerts on until the app quits, because a
+  meeting's alert has six and a half minutes to arrive.
+- **The token.** Enable asks the system for permission first (a Mac shows
+  its Allow question; Windows asks nothing). Copilot then issues a token for
+  this computer to the signed-in page, which hands it straight to the shell.
+  The shell keeps it in `desktop-alerts.json` in the app's local data
+  (`%LOCALAPPDATA%\vc.tiptop.copilot`, which does not roam to other PCs;
+  `~/Library/Application Support/vc.tiptop.copilot`, readable by this user
+  only), with this computer's id and the alerts already shown. No page can
+  read it back. It reads alert summaries (the same text phones show) and
+  says which were shown on this computer; nothing else: no Gmail, CRM,
+  drafts or sending. Copilot keeps only its hash, and it never expires,
+  like a phone's subscription.
+- **Turning them off.** Turn off in Settings; signing out in the app (which,
+  unlike on a phone, also turns them off on this computer); the "Computers
+  with desktop alerts" list in Settings on any device, for a lost computer;
+  or removal from the organization. The app finds out at its next poll from
+  Copilot's own 401, which names `realm="tiptop-copilot"`. Any other 401,
+  for example from a proxy, counts as a passing failure, so the app never
+  forgets its token by mistake. Turning alerts back on keeps this computer's
+  id, so nothing already shown here comes again.
+- **No duplicates.** Copilot records which alerts each computer has, and the
+  app remembers what it showed for three days, so a lost acknowledgement
+  never shows one twice. An alert the system refused is offered again at the
+  next poll, and counted as shown after three refusals. At most 8 come from
+  one poll, meetings first; the rest come with the next.
+- **Windows.** Toasts carry the app's name and icon through the Start menu
+  shortcut the installer makes, whose AppUserModelID is `vc.tiptop.copilot`.
+  Without that shortcut (deleted, or installed with `/NS`) toasts may not
+  show at all: install again from the Download page. Settings says when
+  Windows has notifications off for the app. Meetings stay on screen for 25
+  seconds, other alerts for 7, with the default sound.
+- **Mac.** The first Enable shows macOS's Allow question. Don't Allow, or
+  turning notifications off later in System Settings > Notifications, makes
+  Settings say they are blocked. Banners also show while the app is in
+  front.
+- **Clicks.** A click brings the main window forward and opens the alert's
+  page the way a link in the page would, so a campaign that is sending still
+  asks "Leave while sending?" first. A meeting with a video link opens in the
+  browser. The page is checked in the shell (`alert_target`: a path on the
+  live site that loads in the app) and again in the page; if the window is
+  not showing the live site, the shell loads the page itself. On a Mac a
+  click opens the page for 15 minutes after the alert (for four alerts at a
+  time, eight counting meetings). A later click, or one macOS reports as the
+  notification leaving Notification Center, only activates the app, with no
+  window: click the Dock icon. On Windows a click on the popup opens the
+  page; one from Action Center may only bring the app forward (see Known
+  limitations).
+- **What a page can do with it.** A script on the live page could turn this
+  computer's alerts on or off (it already has the session) and show the
+  fixed test notification, "Alerts work on this computer." It cannot read
+  the token, write a notification's text through the shell, change where
+  the app asks, or use these commands from the bundled page or a second
+  window. A token issued for another computer is refused. What a
+  notification says comes only from Copilot, over the token's own requests.
+  But the shell takes any token for its own id, so such a script could
+  hand over one from an organization of its own: this computer would then
+  show that organization's alerts until Turn off (D-057 accepts this; the
+  script already holds the session).
+- **Release order.** Publish `desktop-v0.4.0` before the web side of desktop
+  alerts reaches `master`: tag the branch once its `lock` job has committed
+  `Cargo.lock`. Otherwise 0.3.x shows "Update the app to get desktop alerts"
+  while Check for Updates… still finds nothing newer. 0.4.0 with the old web
+  side is harmless: the old Settings page never calls these commands.
+- **If Windows drops toasts from Action Center** (checklist item 15): the
+  fix is to register `HKCU\Software\Classes\AppUserModelId\vc.tiptop.copilot`
+  with `DisplayName`, `IconUri` and `CustomActivator` (a CLSID), plus
+  `HKCU\Software\Classes\CLSID\<that CLSID>\LocalServer32` pointing at the
+  app's exe (`windows-registry` 0.6.1 is already in `Cargo.lock`). Windows then
+  keeps the toast and starts the exe on a click, and the running app comes
+  forward as for a second launch.
+- **If Mac clicks get lost** (checklist item 15): treat a "dismissed" answer
+  as a click when the app is active now but was not when the notification
+  was posted (`NSRunningApplication::currentApplication().isActive()` from
+  `objc2-app-kit` 0.3.2, already in `Cargo.lock`).
+
 ## The update signing key
 
 Updates are signed with a minisign key made with `tauri signer generate`. It
@@ -281,8 +398,27 @@ job strips stray line breaks and spaces anyway.
 
 ## Known limitations
 
-- No phone alerts in the desktop app (app webviews can't receive Web Push).
-  The Settings page says to turn them on from a phone.
+- Desktop alerts need the app running. Quitting pauses them, and the app
+  does not start at login, so after a restart they come back once the app is
+  opened. Phone alerts are separate (app webviews can't receive Web Push), and
+  Settings says to turn those on from a phone.
+- Desktop alerts follow the owner's time zone (6am to 9pm, quiet hours 8pm to
+  8am), whoever's computer it is.
+- On a Mac, a click on an alert more than 15 minutes old, or one macOS
+  reports as a dismissal, activates the app with no window; click the Dock
+  icon. App Nap stays held off from the first alerts poll until the app
+  quits, even after Turn off.
+- On Windows, with no COM activator registered, a toast that timed out may be
+  missing from Action Center, and a click there may only bring the app
+  forward. Toasts need the Start menu shortcut: install again if it was
+  deleted or the installer ran with `/NS`.
+- Focus Assist and Do Not Disturb hide alerts, and Copilot cannot tell: they
+  count as shown.
+- A copy restored from a backup, or moved with Migration Assistant, brings
+  this computer's id and token along, so the two computers share one entry.
+  To split them, quit the app on the new computer, delete
+  `desktop-alerts.json` from its app data folder (see "How desktop alerts
+  work"), then open it and enable alerts again.
 - Connecting Google, or turning on sending, is done in a web browser; the
   desktop app says so where those buttons would be.
 - No address bar. Back and Forward are in the top bar; Windows also has
@@ -446,3 +582,56 @@ job strips stray line breaks and spaces anyway.
       once; in full screen the space for the traffic lights goes; at zoom
       80% and 125% the bar keeps its size and the lights stay centred. The
       menu bar is unchanged.
+15. Desktop alerts (0.4.0). Settings > Preferences > Desktop alerts; use
+    fictional calendar events.
+    - Windows (NSIS install):
+      - Enable shows "On for this computer."; Send a test shows a toast with
+        the TipTop Copilot name and icon and the default sound, and a click
+        on it opens Settings. If Windows refuses it, Settings says "Could not
+        send a test. Try again." (reinstall from the Download page to restore
+        the Start menu shortcut); note it if that happens on a normal
+        install.
+      - With the window closed to the tray, a calendar meeting made 7
+        minutes ahead toasts about 5 to 6 minutes before it starts.
+      - Clicking the popup brings the window back from the tray and opens
+        `/calendar`, or the browser for a video call.
+      - After a popup times out, is the toast listed in Action Center? Click
+        it there and note what happens (at best the app comes forward). If
+        it is not listed, see "If Windows drops toasts from Action Center".
+      - Turning TipTop Copilot off in Windows Settings > System >
+        Notifications (Notifications & actions on Windows 10) shows the
+        blocked text when you come back to Settings; turning it on again
+        shows "On".
+      - Focus Assist hides toasts (expected).
+    - Mac:
+      - The first Enable shows macOS's Allow question. Don't Allow shows the
+        blocked text; allowing in System Settings > Notifications and coming
+        back shows Enable again.
+      - A test banner shows while the app is in front, with a sound (if it
+        is silent, note it).
+      - With the window closed (⌘W) for 20 minutes or more, a meeting alert
+        arrives on time, and Activity Monitor shows App Nap "No" for the
+        app.
+      - Click five fresh banners one after another: each must open its page.
+        A click on one older than 15 minutes activates the app; note whether
+        the window shows, and that the Dock icon brings it back. If fresh
+        clicks get lost, see "If Mac clicks get lost".
+      - After updating to a newer 0.4.x, permission stays with no new
+        question.
+    - Both:
+      - Turn off stops alerts here while phone alerts carry on.
+      - Signing out leaves this computer off and takes it off the
+        "Computers with desktop alerts" list.
+      - The list shows this computer as "Windows (ID xxxx) · on since … ·
+        this computer" (or Mac); the same ID shows in a browser's Settings.
+      - Turning this computer off from another device's Settings stops its
+        alerts within about a minute.
+      - Quit and reopen: alerts carry on without enabling them again.
+      - A phone and the computer both ping for an item that appears after
+        the computer was turned on; an item the phone already had does not
+        ping the computer.
+      - Nothing arrives between 9pm and 6am owner time, and only meetings
+        outside 8am to 8pm.
+      - Clicking an alert while a campaign is sending asks "Leave while
+        sending?".
+      - Alerts stay on after updating to 0.4.x.

@@ -16,6 +16,45 @@ throughout.
   new version soon after it is released. Later keeps that version quiet for
   4 hours; Check for Updates… still asks at once.
 
+- **Desktop alerts, web and server side (desktop 0.4.0).** Settings ›
+  Preferences in the desktop app swaps the "Alerts can’t show in the desktop
+  app" line for a Desktop alerts card: the same alerts and rules as phone
+  alerts (meetings 5 minutes ahead, money or legal going stale, the morning
+  top 3, LPs and founders waiting, portfolio newly at risk, DocSend opens,
+  campaigns sent; each item once; everything but meetings 8am to 8pm), off
+  until someone turns them on, per computer. Enable asks the system for
+  permission, then `POST /api/push/desktop` (signed in, same origin, 10 an
+  hour) mints a token for that computer, answered once and handed straight to
+  the shell; only its SHA-256 is kept, in an `audit_events` row
+  (`push.desktop`), so no migration. The shell asks the new public
+  `/api/desktop/alerts` with that token: GET works out what is due for that
+  computer from the phone job's inputs (cached per organization, so many
+  computers cost no extra Calendar or Slack reads), POST records what it
+  showed in a ledger of its own (`push.desktop_alerted`), DELETE turns it
+  off. It asks every minute from 6am to 9pm in the owner's timezone and is
+  told to wait until 6am at night, so the server can still sleep. A phone and
+  a computer each ping for anything new; whatever a phone already got before
+  a computer was turned on stays quiet there. Turn off, signing out in the
+  app, the list of computers in Settings (any device; whoever turned it on,
+  or an admin; each row shows the end of the computer's id, and only those
+  who may turn it off are sent the whole id) and leaving the organization
+  all turn a computer off. A 401 from the endpoint always carries its realm,
+  a store failure is a 503, and the per-computer limit is keyed on the
+  organization and computer and charged only once the token checks out, so
+  nobody can make a colleague's computer miss a meeting. At most 5 computers
+  per person and 20 per organization. Older apps see "Update the app to get
+  desktop alerts." and that phone alerts are turned on from a phone. Nothing
+  changes for phones (D-057).
+- **Desktop app 0.4.0: alerts on your computer.** Windows toasts and macOS
+  notifications (Notification Center), from the shell itself, so they come
+  while the window is hidden in the tray or closed on a Mac. A click brings
+  the window forward and opens the alert's page through the page's own link
+  handling, so a campaign that is sending still asks before leaving; meeting
+  alerts open the call in the browser. 0.3.x apps get it through the in-app
+  updater. Release order: publish `desktop-v0.4.0` (after the lock job has
+  committed Cargo.lock on the branch) before the web side reaches master, so
+  nobody is told to update before there is an update. The on-device checks
+  in desktop/README.md (item 15) are still to do.
 - **On a phone, the Ask Arwin page puts the question box before Recent.**
   Recent came first, so with a long history the box was a screen down and
   appeared only once the page had scrolled to it. From lg up, Recent stays

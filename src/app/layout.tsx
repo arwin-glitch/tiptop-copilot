@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Toaster } from 'sonner';
+import { DesktopAlertOpener } from '@/components/desktop/desktop-alert-opener';
 import { DesktopTitleBar } from '@/components/desktop/desktop-title-bar';
 import { ServiceWorkerRegistrar } from '@/components/shell/service-worker';
 import { FRAME_BOOT_SCRIPT } from '@/lib/desktop/frame-boot';
@@ -73,6 +74,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             the app's main window from 0.3.0; after the skip link, so that
             stays the first Tab stop. */}
         <DesktopTitleBar />
+        {/* Follows a click on a desktop alert (0.4.0 and newer); renders nothing. */}
+        <DesktopAlertOpener />
         {children}
         <ServiceWorkerRegistrar />
         <Toaster

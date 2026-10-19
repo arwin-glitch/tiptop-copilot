@@ -22,7 +22,7 @@ pub enum Route {
 
 /// The live site itself: https on the standard port, with no user name or
 /// password in front of the host.
-fn is_live(url: &Url) -> bool {
+pub(crate) fn is_live(url: &Url) -> bool {
     url.scheme() == "https"
         && url.host_str() == Some(LIVE_HOST)
         && url.port().is_none()

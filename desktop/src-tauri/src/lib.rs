@@ -1,13 +1,17 @@
 //! TipTop Copilot for Mac and Windows: a window onto https://copilot.tiptop.vc.
 //!
 //! A bundled fallback page hands over to the live site once it answers, so
-//! every web update reaches the app with no new build. The page gets one
-//! narrow bridge: in the main window only, the live site and the fallback page
-//! may move, minimise, maximise and close that window, read its state, and
-//! open the menu under its top bar's ☰ button (`frame.rs`, `capabilities/`,
-//! `permissions/`). Everything else native is here, driven from Rust: the
-//! menus (`menu.rs`), the in-app updates (`updates.rs`), links and downloads.
+//! every web update reaches the app with no new build. The page gets two
+//! narrow bridges, in the main window only (`capabilities/`, `permissions/`).
+//! The live site and the fallback page may move, minimise, maximise and close
+//! that window, read its state, and open the menu under its top bar's ☰
+//! button (`frame.rs`). The live site alone may turn desktop alerts on or off
+//! for this computer and show their fixed test notification (`alerts.rs`).
+//! Everything else native is here, driven from Rust: the menus (`menu.rs`),
+//! the in-app updates (`updates.rs`), the alerts themselves, links and
+//! downloads.
 
+mod alerts;
 mod frame;
 mod menu;
 mod nav;
@@ -232,12 +236,18 @@ pub fn run() {
         .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         // Used from Rust only (updates.rs); no capability grants it to the page.
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // The top bar's commands (frame.rs). Only capabilities/ lets a page
-        // call them: the main window, on the live site or the fallback page.
+        // The top bar's commands (frame.rs) and desktop alerts' (alerts.rs).
+        // Only capabilities/ lets a page call them: the main window, on the
+        // live site, and for the top bar the fallback page too.
         .invoke_handler(tauri::generate_handler![
             frame::show_app_menu,
             frame::window_control,
-            frame::window_frame
+            frame::window_frame,
+            alerts::alerts_state,
+            alerts::alerts_request_permission,
+            alerts::alerts_turn_on,
+            alerts::alerts_turn_off,
+            alerts::alerts_test
         ])
         .on_window_event(|window, event| match event {
             // Closing the main window hides it (tray on Windows, Dock on a Mac).
@@ -260,6 +270,8 @@ pub fn run() {
             let handle = app.handle().clone();
             // Before the menus, so Check for Updates… always finds its state.
             updates::init(&handle);
+            // Before any window, so Settings always finds the alerts' state.
+            alerts::init(&handle);
             // Before any window, so the menu is there when the page first asks
             // for it. A Mac keeps its default menus if this fails.
             if menu::install(&handle).is_err() {

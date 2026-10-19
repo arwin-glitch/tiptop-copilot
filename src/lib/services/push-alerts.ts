@@ -1,12 +1,26 @@
 import 'server-only';
 import { z } from 'zod';
-import { env } from '@/lib/config/env';
+import { env, isDemoMode } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import { log } from '@/lib/security/redact';
-import type { AuditEvent, Organization, OrganizationMember, UserProfile } from '@/lib/types/domain';
+import type {
+  AuditEvent,
+  CalendarEvent,
+  Integration,
+  Organization,
+  OrganizationMember,
+  UserProfile,
+} from '@/lib/types/domain';
 import { newId, sha256 } from '@/lib/util/hash';
+import { processWide } from '@/lib/util/process-state';
+import { ok, type Result } from '@/lib/util/result';
 import { localClock } from '@/lib/util/time';
-import { dueMeetingAlerts, listMeetingEvents } from '@/lib/calendar/meetings';
+import {
+  dueMeetingAlerts,
+  listMeetingEvents,
+  meetingFromStoredEvent,
+  type MeetingEvent,
+} from '@/lib/calendar/meetings';
 import { receiptLine } from '@/lib/campaigns/receipt';
 import { finishedCampaignsSince, type FinishedCampaign } from './campaigns';
 import { buildReaders, readDocSendViews, type DocSendReader } from './docsend';
@@ -34,6 +48,10 @@ import { readFollowUps, type FollowUpsSnapshot } from './follow-ups';
  * (readFollowUps), DocSend views, and campaigns that just finished sending;
  * each item alerts once, and nothing is sent outside 8am-8pm in the owner's
  * timezone.
+ *
+ * The desktop app gets the same alerts by asking for them itself
+ * (desktop-alerts.ts), with readAlertInputs, alertsFromInputs and
+ * meetingAlerts below and a ledger of its own per computer.
  */
 
 /** Public half of the VAPID pair; not a secret. The private half is a GitHub secret. */
@@ -370,7 +388,7 @@ async function alertedKeys(
   return new Set(rows.map((r) => r.entity_id).filter((k): k is string => Boolean(k)));
 }
 
-async function ownerTimeZone(store: DataStore, organizationId: string): Promise<string> {
+export async function ownerTimeZone(store: DataStore, organizationId: string): Promise<string> {
   try {
     const members = (await store.list(
       'organization_members',
@@ -393,6 +411,51 @@ export interface OutboxEntry {
   alerts: PushAlert[];
 }
 
+/** How long one Calendar read serves every caller for an organization. */
+const MEETING_EVENTS_TTL_MS = 50_000;
+
+const meetingEventsCache = processWide(
+  'push-meeting-events',
+  () => new Map<string, { at: number; events: MeetingEvent[] }>(),
+);
+
+/**
+ * Events starting in the next quarter hour, for meetingAlerts. A read that
+ * worked serves every caller for 50 seconds (the phone job and each desktop
+ * all ask every minute, and Calendar has no cache of its own); the window
+ * reaches far enough ahead that a read that old still covers the next 6.5
+ * minutes. In demo mode the synced rows stand in, as on the Calendar tab, so
+ * asking never reaches Google or marks the demo connection as needing a
+ * reconnect.
+ */
+async function upcomingMeetingEvents(
+  store: DataStore,
+  organizationId: string,
+  integration: Integration,
+  now: Date,
+): Promise<Result<MeetingEvent[]>> {
+  const from = new Date(now.getTime() - 60_000);
+  const to = new Date(now.getTime() + 15 * 60_000);
+  if (isDemoMode()) {
+    const rows = (await store.list('calendar_events', organizationId, {})) as CalendarEvent[];
+    return ok(
+      rows
+        .filter((r) => r.starts_at >= from.toISOString() && r.starts_at < to.toISOString())
+        .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+        .map(meetingFromStoredEvent),
+    );
+  }
+  const cached = meetingEventsCache.get(organizationId);
+  if (cached && Math.abs(now.getTime() - cached.at) < MEETING_EVENTS_TTL_MS) {
+    return ok(cached.events);
+  }
+  const events = await listMeetingEvents(store, integration, from, to);
+  if (events.ok) {
+    meetingEventsCache.set(organizationId, { at: now.getTime(), events: events.value });
+  }
+  return events;
+}
+
 /**
  * Meeting alerts: real meetings (see classifyMeeting) starting in about five
  * minutes. These ignore the 8am-8pm quiet window, because an early meeting
@@ -400,7 +463,7 @@ export interface OutboxEntry {
  * video call, except for a face-to-face meeting, which opens the Calendar tab
  * (its card still has the Join link).
  */
-async function meetingAlerts(
+export async function meetingAlerts(
   store: DataStore,
   organizationId: string,
   sent: ReadonlySet<string>,
@@ -409,12 +472,7 @@ async function meetingAlerts(
 ): Promise<PushAlert[]> {
   const integration = await getPrimaryIntegration(store, organizationId).catch(() => null);
   if (!integration || integration.status === 'disconnected') return [];
-  const events = await listMeetingEvents(
-    store,
-    integration,
-    new Date(now.getTime() - 60_000),
-    new Date(now.getTime() + 15 * 60_000),
-  );
+  const events = await upcomingMeetingEvents(store, organizationId, integration, now);
   if (!events.ok) return [];
   const own = [integration.account_email ?? ''].filter(Boolean);
   return dueMeetingAlerts(events.value, own, sent, now, timeZone).map((m) => {
@@ -433,6 +491,73 @@ async function meetingAlerts(
 }
 
 export type OutboxScope = 'all' | 'meetings';
+
+/** What every alert but the meeting ones is worked out from, for one organization. */
+export interface AlertInputs {
+  /** The relay snapshot, or null when it could not be read. */
+  followUps: FollowUpsSnapshot | null;
+  readers: DocSendReader[];
+  finished: FinishedCampaign[];
+}
+
+/**
+ * Read the inputs: campaigns finished within the alert window, the relay
+ * snapshot (`force` skips its one-minute cache) and, when that worked, who
+ * opened DocSend links. A failed campaign or DocSend read leaves that part
+ * empty; a throw from the snapshot read is the caller's to handle.
+ */
+export async function readAlertInputs(
+  store: DataStore,
+  organizationId: string,
+  now: Date,
+  timeZone: string,
+  { force }: { force: boolean },
+): Promise<AlertInputs> {
+  const finished = await finishedCampaignsSince(
+    store,
+    organizationId,
+    new Date(now.getTime() - campaignAlertWindowMs(now, timeZone)),
+  ).catch(() => null);
+  const inputs: AlertInputs = {
+    followUps: null,
+    readers: [],
+    finished: finished?.ok ? finished.value : [],
+  };
+  const followUps = await readFollowUps(store, organizationId, { now, force });
+  if (followUps.state === 'ok') {
+    inputs.followUps = followUps.snapshot;
+    const docsend = await readDocSendViews(store, organizationId, { now }).catch(() => null);
+    inputs.readers =
+      docsend?.state === 'ok'
+        ? buildReaders(docsend.views, {
+            ownDomain: docsend.ownDomain,
+            lps: followUps.snapshot.lpPipeline?.lps ?? [],
+            now,
+          })
+        : [];
+  }
+  return inputs;
+}
+
+/** Every alert but the meeting ones that is due now: campaigns first, then the rest. Pure. */
+export function alertsFromInputs(
+  inputs: AlertInputs,
+  sent: ReadonlySet<string>,
+  now: Date,
+  timeZone: string,
+): PushAlert[] {
+  return [
+    ...computeCampaignAlerts(inputs.finished, sent, now, timeZone),
+    ...(inputs.followUps
+      ? computeDueAlerts(inputs.followUps, sent, now, timeZone, inputs.readers)
+      : []),
+  ];
+}
+
+/** Test hook. */
+export function resetPushAlertCaches(): void {
+  meetingEventsCache.clear();
+}
 
 /**
  * What the sender job should push now, per organization with a subscribed
@@ -456,25 +581,8 @@ export async function buildOutbox(
       ]);
       const alerts: PushAlert[] = await meetingAlerts(store, org.id, sent, now, tz).catch(() => []);
       if (scope === 'all') {
-        const finished = await finishedCampaignsSince(
-          store,
-          org.id,
-          new Date(now.getTime() - campaignAlertWindowMs(now, tz)),
-        ).catch(() => null);
-        if (finished?.ok) alerts.push(...computeCampaignAlerts(finished.value, sent, now, tz));
-        const followUps = await readFollowUps(store, org.id, { now, force: true });
-        if (followUps.state === 'ok') {
-          const docsend = await readDocSendViews(store, org.id, { now }).catch(() => null);
-          const readers =
-            docsend?.state === 'ok'
-              ? buildReaders(docsend.views, {
-                  ownDomain: docsend.ownDomain,
-                  lps: followUps.snapshot.lpPipeline?.lps ?? [],
-                  now,
-                })
-              : [];
-          alerts.push(...computeDueAlerts(followUps.snapshot, sent, now, tz, readers));
-        }
+        const inputs = await readAlertInputs(store, org.id, now, tz, { force: true });
+        alerts.push(...alertsFromInputs(inputs, sent, now, tz));
       }
       out.push({
         organizationId: org.id,

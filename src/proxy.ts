@@ -44,6 +44,11 @@ const PUBLIC_PATHS = [
   // one by one: /api/desktop/download stays signed in.
   '/api/desktop/update',
   '/api/desktop/update-file',
+  // The desktop app's alerts: its shell asks with its own HTTP client, apart
+  // from the window, so no session cookie. A per-computer bearer token,
+  // checked by the route with its own brakes (lib/desktop/alerts-endpoint.ts).
+  // /api/push/desktop, which hands out those tokens, stays signed in.
+  '/api/desktop/alerts',
   '/api/cron',
   // Cloud Pub/Sub delivers Gmail notifications here and carries no session
   // cookie. Listed individually rather than opening /api/integrations, which

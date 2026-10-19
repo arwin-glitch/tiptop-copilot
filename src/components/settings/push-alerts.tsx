@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Bell, BellOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { desktopAppVersion } from '@/lib/desktop/shared';
+import { AlertsSummary } from './alerts-summary';
 
 type State = 'loading' | 'desktop' | 'unsupported' | 'install' | 'denied' | 'off' | 'on';
 
@@ -40,8 +41,18 @@ async function registration(): Promise<ServiceWorkerRegistration | null> {
  * money or legal items going stale, the morning top 3, LPs and founders waiting
  * on you, portfolio companies newly at risk, and a campaign that finished
  * sending; 8am-8pm only.
+ *
+ * Inside the desktop app this renders nothing: the Desktop alerts card
+ * (desktop-alerts.tsx) takes its place. `desktopHint` is the app's version
+ * from its cookie, so the server render already leaves it out there.
  */
-export function PushAlertsSetting({ publicKey }: { publicKey: string }) {
+export function PushAlertsSetting({
+  publicKey,
+  desktopHint = null,
+}: {
+  publicKey: string;
+  desktopHint?: string | null;
+}) {
   const [state, setState] = React.useState<State>('loading');
   const [busy, setBusy] = React.useState(false);
 
@@ -52,6 +63,7 @@ export function PushAlertsSetting({ publicKey }: { publicKey: string }) {
       if (desktopAppVersion()) {
         // Checked first: the Windows app's webview has every API this tests
         // for and still has no push service, so subscribing would only fail.
+        // The Desktop alerts card covers this computer instead.
         next = 'desktop';
       } else if (
         !('Notification' in window) ||
@@ -133,16 +145,12 @@ export function PushAlertsSetting({ publicKey }: { publicKey: string }) {
     });
   };
 
+  if (state === 'desktop' || (state === 'loading' && desktopHint)) return null;
+
   return (
     <div>
       <p className="text-sm font-medium">Phone alerts</p>
-      <p className="mt-1 text-sm text-[var(--fg-muted)]">
-        A ping 5 minutes before each real meeting (calendar blocks like Focus, Hold or Lunch never
-        ping; the Calendar tab shows which is which), plus money or legal items going stale, your
-        morning top 3, LPs and founders waiting on you, portfolio companies newly at risk, someone
-        outside TipTop opening your fund materials on DocSend, and a campaign finishing sending (its
-        name and counts). Each item alerts once; everything but meetings stays within 8am to 8pm.
-      </p>
+      <AlertsSummary />
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {state === 'loading' ? (
           <span className="text-sm text-[var(--fg-subtle)]">Checking this device…</span>
@@ -173,11 +181,6 @@ export function PushAlertsSetting({ publicKey }: { publicKey: string }) {
           <span className="text-sm text-[var(--fg-muted)]">
             Notifications are blocked for this app. Allow them in your phone&apos;s settings, then
             reload.
-          </span>
-        ) : null}
-        {state === 'desktop' ? (
-          <span className="text-sm text-[var(--fg-muted)]">
-            Alerts can’t show in the desktop app. Turn them on from Copilot on your phone.
           </span>
         ) : null}
         {state === 'unsupported' ? (

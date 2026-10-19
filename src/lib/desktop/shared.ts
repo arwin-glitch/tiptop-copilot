@@ -154,6 +154,63 @@ export function desktopFrame(): DesktopFrame | null {
 }
 
 /**
+ * From 0.4.0 the shell shows alerts on the computer itself (Settings >
+ * Preferences > Desktop alerts; lib/services/desktop-alerts.ts): it asks
+ * Copilot for due alerts with a token of its own and shows them as Windows
+ * toasts or macOS notifications. Older apps are told to update.
+ */
+export const FIRST_DESKTOP_ALERTS_VERSION = '0.4.0';
+
+/** Whether a desktop app of this version can show desktop alerts (null: not inside the app). */
+export function desktopAlertsShell(version: string | null): boolean {
+  return version !== null && compareVersions(version, FIRST_DESKTOP_ALERTS_VERSION) >= 0;
+}
+
+/**
+ * The DOM event the shell fires in its main window when someone clicks an
+ * alert, with the alert's in-app path as `detail`
+ * (components/desktop/desktop-alert-opener.tsx follows it like a link).
+ */
+export const DESKTOP_ALERT_OPEN_EVENT = 'tiptop-desktop-open';
+
+/**
+ * An alert's in-app path: starts with one `/`, at most 300 characters, and
+ * no `\`, `#`, `:` or spaces, so it can only ever resolve on this site; no
+ * `%` before any `?`, so no escape can spell a path the shell blocks. The
+ * server, the shell (desktop/src-tauri/src/alerts.rs) and the page each
+ * check the same rule.
+ */
+const IN_APP_ALERT_PATH = /^\/(?!\/)[A-Za-z0-9/_.~?=&%+,-]{0,299}$/;
+
+export function isInAppAlertPath(value: unknown): value is string {
+  if (typeof value !== 'string' || !IN_APP_ALERT_PATH.test(value)) return false;
+  if (value.split('?')[0]?.includes('%')) return false;
+  const origin = typeof window === 'undefined' ? 'https://copilot.invalid' : window.location.origin;
+  try {
+    return new URL(value, origin).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
+/** One computer with desktop alerts on, as Settings lists it: never its token. */
+export interface DesktopComputer {
+  /** The row's id: a key for the list that says nothing about the computer. */
+  id: string;
+  /** The computer's id, only for a viewer who may turn it off. */
+  device: string | null;
+  /** Its id's last 4 characters, to tell two computers apart (the app's list shows the same). */
+  shortId: string;
+  platform: InstallerPlatform;
+  version: string;
+  enabledAt: string;
+  /** Turned on by the person looking. */
+  mine: boolean;
+  /** Theirs, or they are an admin. */
+  canTurnOff: boolean;
+}
+
+/**
  * Where Check for Updates… lives for this app version (or, in a browser, the
  * newest release): under File in the top-left menu from 0.3.0 on Windows, in
  * the File menu bar before that, and after About in the app menu on a Mac.

@@ -238,11 +238,8 @@ test.describe('the download page', () => {
 
     await page.goto('/settings');
     await page.getByRole('tab', { name: 'Preferences' }).click();
-    await expect(
-      page.getByText(
-        'Alerts can’t show in the desktop app. Turn them on from Copilot on your phone.',
-      ),
-    ).toBeVisible();
+    await expect(page.getByText('Update the app to get desktop alerts.')).toBeVisible();
+    await expect(page.getByText('Phone alerts', { exact: true })).toHaveCount(0);
     await expect(page.getByText('You’re using the desktop app, version 0.1.0.')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Check for a new version' })).toHaveAttribute(
       'href',

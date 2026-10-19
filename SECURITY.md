@@ -155,6 +155,15 @@ fixed demo identity.
 Mutations are **server actions**, so Next's built-in origin check is the CSRF
 control. API routes exist only for callers that are not the app.
 
+The desktop app's alerts (D-057) use a per-computer bearer token
+(`tcdsk_…`), minted once by the signed-in, same-origin `/api/push/desktop`
+and handed to the shell, which never gives it back to the page. Only its
+SHA-256 is stored, compared in constant time; it reads that organization's
+alert summaries and records what that computer showed, nothing else. Turn
+off, signing out in the app, Settings' list of computers and leaving the
+organization (checked on every request) revoke it; it has no expiry, like a
+phone subscription.
+
 ---
 
 ## 5. Organization isolation
@@ -200,6 +209,7 @@ lookups, tool calls and a full chat turn.
 | Hourly AI requests | Persisted `ai_usage` rows | Per user |
 | Daily AI spend | Persisted `ai_usage` rows | Per organization |
 | Sync triggers, uploads, demo entry | In-process fixed window | Per key |
+| Desktop alerts (`/api/desktop/alerts`) | In-process: bad tokens per address, then 20 a minute per computer once the token checks out; 300 ledger rows a day | Per address, per organization and computer |
 
 The AI ceilings are persisted so they hold across serverless instances. The
 in-process limiter is an abuse brake on a single-user internal tool, not a
@@ -226,7 +236,9 @@ any other use.
 `audit_events` records anything consequential: sync started and finished, body
 fetched, attachment extracted, deal created, fact corrected, decision recorded,
 analysis overridden, draft created, integration disconnected, data deleted,
-injection flagged, citation rejected, question asked.
+injection flagged, citation rejected, question asked, desktop alerts turned
+on or off for a computer (`push.desktop_enabled`, `push.desktop_disabled`,
+with the platform or the reason, never the token).
 
 Client IPs are stored as an HMAC hash, never raw. Metadata is structured and
 non-sensitive by construction.

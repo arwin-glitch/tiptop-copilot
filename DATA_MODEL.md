@@ -216,7 +216,12 @@ attempt to set it, and if one were added the database would reject it.
 
 Besides the audit trail, a few background jobs keep their state here under
 their own `action`, so they need no table or migration: the phone-alert
-subscriptions and delivery ledger (`push.subscription`, `push.alerted`), and
+subscriptions and delivery ledger (`push.subscription`, `push.alerted`), the
+computers with desktop alerts and their ledger (`push.desktop`, one row per
+computer with `entity_id` the shell's device id, `user_id` whoever turned it
+on and the token's SHA-256 in metadata, replaced rather than updated;
+`push.desktop_alerted`, `entity_id` the alert key, `metadata.device` the
+computer), and
 the Portfolio page's stored numbers (`portfolio.numbers_snapshot`, one row per
 organization holding the last read, replaced by each refresh).
 The daily Affinity sync keeps its progress the same way

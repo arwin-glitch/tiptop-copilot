@@ -16,6 +16,8 @@ const PATTERNS: { name: string; re: RegExp }[] = [
   // Copilot's own MCP connector tokens (lib/services/mcp-tokens.ts), which
   // also travel in a URL path and so can end up in a logged URL.
   { name: 'mcp_token', re: /\btcmcp_[A-Za-z0-9_-]{16,}/g },
+  // The desktop app's per-computer alert tokens (lib/services/desktop-alerts.ts).
+  { name: 'desktop_alerts_token', re: /\btcdsk_[A-Za-z0-9_-]{16,}/g },
   { name: 'aws_key', re: /\bAKIA[0-9A-Z]{16}\b/g },
   {
     name: 'private_key_block',

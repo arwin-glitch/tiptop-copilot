@@ -89,6 +89,8 @@ export type AuditAction =
   | 'mcp.token_created'
   | 'mcp.token_revoked'
   | 'mcp.tool_called'
+  | 'push.desktop_enabled'
+  | 'push.desktop_disabled'
   | 'thesis.updated'
   | 'account.data_deleted'
   | 'security.injection_flagged'

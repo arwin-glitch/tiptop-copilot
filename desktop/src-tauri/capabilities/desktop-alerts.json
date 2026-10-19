@@ -1,0 +1,9 @@
+{
+  "identifier": "desktop-alerts",
+  "description": "Desktop alerts in Settings, on the live site in the main window only (never the bundled fallback page or a second window): read whether alerts are on and allowed on this computer, ask the system for permission, turn them on with the token Copilot just issued or off, and show the fixed test notification. Nothing else.",
+  "local": false,
+  "remote": { "urls": ["https://copilot.tiptop.vc:443/*"] },
+  "windows": ["main"],
+  "platforms": ["macOS", "windows"],
+  "permissions": ["allow-desktop-alerts"]
+}

@@ -954,7 +954,8 @@ guarantee that nobody but the person signing in can end up with their
 session.
 
 **Known limits.** No phone alerts in the desktop app (neither webview has a
-push service); connecting Google stays a browser task; each new shell version
+push service; *from 0.4.0 the shell shows desktop alerts itself, D-057*);
+connecting Google stays a browser task; each new shell version
 repeats Open Anyway on a Mac and SmartScreen's Run anyway on Windows (until
 0.2.0, D-055); the
 first load after Render has idled can take up to a minute, which the bundled
@@ -1165,3 +1166,122 @@ as a held button is untested. The dark ☰ menu relies on an undocumented
 Windows call and falls back to the system's colours where it is missing. Where
 the traffic lights sit on a Mac, and whether an old WebView2 drags with CSS,
 can only be checked on real machines (desktop/README.md, checklist item 14).
+
+### D-057 — Desktop alerts: the shell polls with a per-computer token
+
+**Context.** Asked for on 2026-10-18: "since we have a computer app already
+(mac/windows), can we be able to enable alerts there already?" Alerts were
+Web Push to phones only (Settings › Preferences › Phone alerts), and neither
+webview in the desktop app has a push service, so Settings told desktop users
+to use a phone.
+
+**Decision.**
+
+- **The same alerts, per computer, off by default.** From desktop 0.4.0,
+  Settings › Preferences in the app has Desktop alerts: the phone alerts'
+  triggers, quiet hours and once-per-item rule, shown as Windows toasts and
+  macOS notifications. Each computer is turned on by itself, like a phone.
+  Alerts were built for Nick; anyone else turns them on for a computer only
+  if they want them there.
+- **The shell asks, not the page.** A hidden window's page cannot be relied
+  on: built with the macOS 15 SDK, WebKit suspends a hidden page's web
+  process outright; WebView2 throttles hidden timers to once a minute after
+  five minutes and wry never tells it the window is hidden; and the window
+  may not even be on the live site (the fallback page, the offline page,
+  sign-in). The shell's process keeps running in the tray or the Dock, so it
+  asks `/api/desktop/alerts` itself, about once a minute, and shows what is
+  due. It also means there is no "notify" command: no page can make the
+  shell show text of its own.
+- **A per-computer token, minted through the signed-in page.** Enable asks
+  the system for permission first (two commands, so nothing is minted when
+  the person says no), then `POST /api/push/desktop` (session, same origin, 10
+  an hour per person) answers `tcdsk_<org>_<device>_<43 random>` once; the
+  page passes it straight to the shell's `alerts_turn_on`, which checks it
+  names its own device, keeps it in its local app data (not roaming; 0600 on
+  a Mac) and never returns it. Only its SHA-256 is stored, in an
+  `audit_events` row (`push.desktop`) replaced on every turn-on: no
+  migration. The shell does not borrow the window's cookies, whose refresh
+  token Supabase rotates.
+- **Worked out when asked, from cached inputs.** No outbox: each GET reads
+  the phone job's inputs (meetings cached 50 seconds and everything else 5
+  minutes per organization, so ten computers cost no more Calendar or Slack
+  reads than one), then leaves out what that computer must not alert. In
+  demo mode meetings come from the synced rows, so asking never reaches
+  Google or marks the demo connection as needing a reconnect.
+- **6am to 9pm, as phones get in practice.** The phone job runs only from
+  6am to 9pm Central, so phones get meetings only then. Outside that window
+  in the owner's timezone the endpoint works out nothing and tells the shell
+  to come back at 6am, so Render's free plan can still sleep at night.
+- **A ledger per computer.** `push.desktop_alerted` rows carry the device in
+  metadata. A computer's "already sent" is its own ledger plus whatever the
+  phones were alerted about before it was turned on, so turning one on never
+  replays what has already pinged. Other computers' ledgers are left out:
+  they are what those computers' tokens reported, and a token (or a made-up
+  computer) must not be able to quiet alerts on another. After that, phones
+  and computers each ping, as two phones would if each had its own ledger. The shell also keeps the keys
+  it showed for three days, so a lost report never shows twice, and reports
+  only notifications the system accepted.
+- **Revoking.** Turn off; signing out in the app (unlike a phone, which keeps
+  pinging after sign-out: the card says so); Settings' list of computers,
+  from any device, for whoever turned one on or an admin; and leaving the
+  organization, checked on every request. No expiry and no last-seen,
+  matching phone subscriptions.
+- **Clicks follow the page's own link rules.** The shell brings the main
+  window forward and fires a `tiptop-desktop-open` event with the alert's
+  in-app path; the page clicks a hidden link to it, so "Leave while sending?"
+  still guards a campaign that is sending. A native navigation would skip
+  `beforeunload` on a Mac and silently stop the send. The path is checked by
+  the same rule on the server, in Rust and in the page (one leading `/`, no
+  `\`, `#`, `:` or spaces, 300 characters at most).
+- **No notification plugin.** tauri-plugin-notification replaces
+  `window.Notification` on every page and cannot be told not to;
+  mac-notification-sys swizzles the process's bundle id. The shell uses
+  tauri-winrt-notification and mac-usernotifications (UNUserNotificationCenter)
+  directly, and holds off App Nap while alerts are on, so a 6.5-minute
+  meeting window is not slept through.
+- **A second narrow bridge, under D-056's rules.** Five commands
+  (`alerts_state`, `alerts_request_permission`, `alerts_turn_on`,
+  `alerts_turn_off`, `alerts_test`), for the live site in the main window
+  only, not the fallback page; no event listening, no plugin, no `*:default`.
+  This narrows D-054's "hiding phone alerts": the web app now hides the
+  phone card in the app and shows the desktop one.
+
+**Threat model.** A stolen token (from the disk or a process dump) reads that
+organization's alert summaries, the text phones already show, and records
+deliveries for that one computer: no Gmail, CRM, drafts or sending. It
+travels over HTTPS to a fixed host with redirects refused, and is redacted
+from logs. An XSS on the live page can turn this computer's alerts on or
+off, which its session could already do, and show only the fixed test text;
+it cannot read the token, write a notification's text through the shell, or
+reach the fallback page or second windows, and a token for another device is
+refused. The shell does take any token for its own device id, so an XSS
+could mint one in an organization of its own (every new account gets one)
+and hand it over: this computer would then show that organization's alerts,
+and not its own, until Turn off, even after the XSS is fixed. Accepted: the
+same script already holds the session, which reads and sends far more; the
+shell cannot tell which organization the window is signed in to, and a
+binding the page could undo with Turn off would add nothing.
+Notification text comes only from the server over the bearer channel; a
+click target is checked in Rust and again in the page, so a compromised
+answer can at worst open an in-app page. Re-registering a colleague's
+computer takes an admin, and only those who may turn a computer off are
+sent its full id. Brakes: bad tokens per address (a malformed one never
+reaches the database), then 20 requests a minute per organization and
+computer charged only once its token checks out (device ids are not
+secret, and the same id can be turned on in another organization), 10
+turn-ons an hour per person, 5 computers per person and 20 per
+organization, 300 ledger rows a day per computer. Only a refused token is
+answered 401, always with the realm the shell checks before it forgets its
+token; a store failure is 503.
+
+**Why.** It is what was asked for, it works with the window hidden, and it
+reuses the phone pipeline's rules without touching it.
+
+**Known limits.** Alerts need the app running (it does not start at login).
+Whether a Windows toast stays in Action Center without a COM activator, and
+whether a click there reaches the app, are on-device checks; so is the Mac's
+first-run prompt and a click on a notification more than 15 minutes old,
+which only activates the app (a Dock click brings the window back). Focus
+Assist and Do Not Disturb hold notifications back, as on phones. Release
+order matters: publish `desktop-v0.4.0` before the web side reaches master
+(desktop/README.md, checklist item 15).

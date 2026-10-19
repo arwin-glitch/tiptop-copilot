@@ -8,6 +8,9 @@ import { DEMO_IDS } from '@/lib/demo/ids';
 import { resetRuntime, setStoreForTesting } from '@/lib/runtime';
 import { resetLimiters } from '@/lib/security/limits';
 import { resetEnvCache } from '@/lib/config/env';
+import { resetDesktopAlertLimiters } from '@/lib/desktop/alerts-endpoint';
+import { resetDesktopAlertCaches } from '@/lib/services/desktop-alerts';
+import { resetPushAlertCaches } from '@/lib/services/push-alerts';
 import type { Organization, OrganizationMember, UserProfile } from '@/lib/types/domain';
 
 /**
@@ -33,6 +36,9 @@ export async function createHarness(options: { now?: Date } = {}): Promise<Harne
   resetEnvCache();
   resetRuntime();
   resetLimiters();
+  resetPushAlertCaches();
+  resetDesktopAlertCaches();
+  resetDesktopAlertLimiters();
 
   const store = new DemoStore(() => buildDemoDb(now) as never, dir);
   await store.reset();
