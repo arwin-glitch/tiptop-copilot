@@ -12,6 +12,7 @@ import { isEmailAllowed } from '@/lib/auth/domain';
 import { startDemoSession, supabaseServerClient } from '@/lib/auth/session';
 import type { DataStore } from '@/lib/db/store';
 import { DEMO_IDS } from '@/lib/demo/ids';
+import { isIosAppRequest } from '@/lib/ios/server';
 import { MATCH_CODE_RE, normalizeMatchCode, type DesktopVerifyStatus } from '@/lib/desktop/shared';
 import { getStore } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
@@ -55,7 +56,9 @@ async function auditSignIn(
     action: 'auth.desktop_signed_in',
     entityType: 'session',
     entityId: null,
-    metadata: { platform: row.platform },
+    // The stored platform is mac, windows or other; the iPhone app says so
+    // in its own user agent (a hint, recorded and never relied on).
+    metadata: { platform: isIosAppRequest(request) ? 'ios' : row.platform },
     ip: clientAddress(request.headers),
   });
 }

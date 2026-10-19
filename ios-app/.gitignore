@@ -1,0 +1,3 @@
+# Capacitor's own ignores for the native project are in ios/.gitignore.
+node_modules/
+build/

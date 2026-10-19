@@ -1,9 +1,12 @@
-# Phone alerts for Nick (Web Push).
+# Phone alerts for Nick: Web Push to the home-screen web app, and Apple's push
+# service (APNs) to the TipTop Copilot iPhone app.
 #
 # One run loops through the day: every minute it asks the app for meetings
 # starting in about five minutes (GET /api/cron/push?scope=meetings), and every
-# half hour for everything else, then signs and sends them with the VAPID
-# private key held here as the VAPID_PRIVATE_KEY secret.
+# half hour for everything else, then signs and sends them with the keys held
+# here: the VAPID_PRIVATE_KEY secret for Web Push, and the APNS_KEY_P8 secret
+# with the APNS_KEY_ID and APPLE_TEAM_ID repository variables for the iPhone
+# app. Each channel runs when its key is there.
 #
 # GitHub starts scheduled runs late (sometimes hours), so the loop never
 # stops between days: outside 6am-9pm Central it waits without calling the
@@ -12,8 +15,11 @@
 # schedule is only a backup that restarts the chain if it ever breaks; a
 # scheduled run that finds a loop going just waits its turn.
 #
-# Until VAPID_PRIVATE_KEY is added this job is a no-op, not a failure (and
-# does not hand over, so it cannot spin).
+# Until VAPID_PRIVATE_KEY or APNS_KEY_P8 is added this job is a no-op, not a
+# failure (and does not hand over, so it cannot spin).
+#
+# A change to the sender takes over only once the run looping now ends (the
+# concurrency group queues the new one behind it), up to 5.5 hours later.
 
 name: push-alerts
 
@@ -27,6 +33,7 @@ on:
     paths:
       - .github/workflows/push-alerts.yml
       - scripts/push-alerts.mjs
+      - scripts/lib/apple-jwt.mjs
   workflow_dispatch:
 
 permissions:
@@ -59,10 +66,14 @@ jobs:
 
       - name: Install the sender
         # Only this job sends, so web-push stays out of package.json and the
-        # app's dependency tree: a scratch folder with just the script.
+        # app's dependency tree: a scratch folder with just the script and the
+        # one helper it imports (the token signer for Apple). The test suite
+        # copies the same files these lines name and runs the copy
+        # (tests/integration/push-sender.test.ts).
         run: |
-          mkdir -p "${RUNNER_TEMP}/sender"
+          mkdir -p "${RUNNER_TEMP}/sender/lib"
           cp scripts/push-alerts.mjs "${RUNNER_TEMP}/sender/"
+          cp scripts/lib/apple-jwt.mjs "${RUNNER_TEMP}/sender/lib/"
           cd "${RUNNER_TEMP}/sender"
           npm init -y >/dev/null
           npm install --no-audit --no-fund web-push@3.6.7
@@ -74,6 +85,13 @@ jobs:
           APP_URL: ${{ vars.APP_URL || 'https://tiptop-copilot.onrender.com' }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          # The iPhone app (APNs). Empty until they are added: then only Web
+          # Push runs, and the app holds back nobody's web push.
+          APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
+          APNS_KEY_ID: ${{ vars.APNS_KEY_ID }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          # "1" once the installed app carries the Time Sensitive entitlement.
+          APNS_TIME_SENSITIVE: ${{ vars.APNS_TIME_SENSITIVE }}
           # Under the 350-minute job limit, leaving time to hand over.
           LOOP_MAX_MINUTES: '330'
           LOOP_FROM_HOUR: '6'

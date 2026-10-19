@@ -44,7 +44,8 @@ jobs:
           node-version: 24.19.0
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # WebKit for the 'ios' project (the iPhone app, tests/e2e/ios-app.spec.ts).
+      - run: npx playwright install --with-deps chromium webkit
       # Playwright's webServer runs `next start`, which serves a build rather
       # than making one. Without this the server exits immediately with
       # "Could not find a production build in the '.next' directory" and the

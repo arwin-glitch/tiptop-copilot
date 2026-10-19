@@ -10,6 +10,9 @@ import {
   type DesktopFlowStatus,
   type DesktopVerifyStatus,
 } from '@/lib/desktop/shared';
+import { onIosEvent } from '@/lib/ios/native';
+import { parseIosSignInReturn } from '@/lib/ios/shared';
+import { useIosApp } from '@/lib/ios/use-ios-app';
 import type { DesktopHandoffFailure } from '@/lib/types/domain';
 
 type StopReason = DesktopHandoffFailure | 'expired' | 'unavailable';
@@ -52,24 +55,87 @@ const SIGN_IN_MS = 10 * 60_000;
  * backing off while Copilot cannot be reached) so it notices the code is
  * ready, or that the browser cancelled. Only a real outcome ends an attempt:
  * a failed check just says "Reconnecting…" and tries again.
+ *
+ * The iPhone app signs in the same way, with Safari as the browser. There
+ * the code page also offers "Open TipTop Copilot", a link back to the app
+ * carrying the code (lib/ios/shared.ts), which this then types in for the
+ * person. Only while this sign-in is open: a code arriving any other time is
+ * ignored, and /api/auth/desktop/verify still needs this app's own poll
+ * cookie, so a link from anywhere else can at worst use up one try.
  */
 export function DesktopSignIn() {
+  const ios = Boolean(useIosApp());
   const [phase, setPhase] = React.useState<Phase>({ kind: 'idle' });
   const [reconnecting, setReconnecting] = React.useState(false);
   const [code, setCode] = React.useState('');
   const [codeError, setCodeError] = React.useState<string | null>(null);
   const [verifying, setVerifying] = React.useState(false);
+  // A code the browser handed back to the iPhone app, until it can be used.
+  const returnedRef = React.useRef<string | null>(null);
 
   const finish = React.useCallback(() => {
     setPhase({ kind: 'done' });
     window.location.replace('/today');
   }, []);
 
+  const verify = async (typed: string) => {
+    setVerifying(true);
+    setCodeError(null);
+    try {
+      const response = await fetch('/api/auth/desktop/verify', {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: typed }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        value?: DesktopVerifyStatus;
+        error?: { message?: string };
+      } | null;
+      if (!response.ok || !body?.ok || !body.value) {
+        setCodeError(
+          response.status === 400 && body?.error?.message
+            ? body.error.message
+            : 'Couldn’t check the code just now. Try again.',
+        );
+        return;
+      }
+      const view = body.value;
+      switch (view.status) {
+        case 'signed_in':
+          finish();
+          return;
+        case 'wrong_code':
+          setCode('');
+          setCodeError(
+            `That code didn’t match. ${view.attemptsLeft} ${view.attemptsLeft === 1 ? 'try' : 'tries'} left.`,
+          );
+          return;
+        case 'waiting':
+        case 'enter_code':
+          setCodeError('Your browser hasn’t finished yet. Wait a moment, then try again.');
+          return;
+        case 'expired':
+          setPhase({ kind: 'stopped', reason: 'expired' });
+          return;
+        case 'failed':
+          setPhase({ kind: 'stopped', reason: view.reason });
+          return;
+      }
+    } catch {
+      setCodeError('Couldn’t reach Copilot. Try again.');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   const start = async () => {
     setPhase({ kind: 'starting' });
     setReconnecting(false);
     setCode('');
     setCodeError(null);
+    returnedRef.current = null;
     try {
       const response = await fetch('/api/auth/desktop/start', {
         method: 'POST',
@@ -95,6 +161,30 @@ export function DesktopSignIn() {
   const active = phase.kind === 'waiting' || phase.kind === 'code';
   const deadline = phase.kind === 'waiting' || phase.kind === 'code' ? phase.deadline : 0;
 
+  // The iPhone app: Safari's "Open TipTop Copilot" brings the code back. The
+  // app holds a link until something listens, so this listens from the start
+  // and drops a code that arrives with no sign-in open (one left over from
+  // before the app restarted would only use up a try of the next sign-in).
+  // It is typed in once the poll has seen the browser finish (coming back to
+  // the app checks at once), and never while a code is being checked.
+  const typeReturnedCode = React.useEffectEvent(() => {
+    const value = returnedRef.current;
+    if (!value || verifying) return;
+    returnedRef.current = null;
+    setCode(value);
+    void verify(value);
+  });
+  const takeReturnedCode = React.useEffectEvent((data: unknown) => {
+    const value = parseIosSignInReturn((data as { url?: unknown } | null)?.url);
+    if (!value || !active) return;
+    returnedRef.current = value;
+    if (phase.kind === 'code') typeReturnedCode();
+  });
+  React.useEffect(() => {
+    if (!ios) return;
+    return onIosEvent('App', 'appUrlOpen', (data) => takeReturnedCode(data)) ?? undefined;
+  }, [ios]);
+
   React.useEffect(() => {
     if (!active) return;
     let disposed = false;
@@ -112,6 +202,8 @@ export function DesktopSignIn() {
               ? { kind: 'code', url: current.url, deadline: current.deadline }
               : current,
           );
+          // The iPhone app may already have the code from Safari.
+          typeReturnedCode();
           return;
         case 'signed_in':
           disposed = true;
@@ -189,55 +281,7 @@ export function DesktopSignIn() {
       setCodeError('Type the 4 characters your browser shows.');
       return;
     }
-    setVerifying(true);
-    setCodeError(null);
-    try {
-      const response = await fetch('/api/auth/desktop/verify', {
-        method: 'POST',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: typed }),
-      });
-      const body = (await response.json().catch(() => null)) as {
-        ok?: boolean;
-        value?: DesktopVerifyStatus;
-        error?: { message?: string };
-      } | null;
-      if (!response.ok || !body?.ok || !body.value) {
-        setCodeError(
-          response.status === 400 && body?.error?.message
-            ? body.error.message
-            : 'Couldn’t check the code just now. Try again.',
-        );
-        return;
-      }
-      const view = body.value;
-      switch (view.status) {
-        case 'signed_in':
-          finish();
-          return;
-        case 'wrong_code':
-          setCode('');
-          setCodeError(
-            `That code didn’t match. ${view.attemptsLeft} ${view.attemptsLeft === 1 ? 'try' : 'tries'} left.`,
-          );
-          return;
-        case 'waiting':
-        case 'enter_code':
-          setCodeError('Your browser hasn’t finished yet. Wait a moment, then try again.');
-          return;
-        case 'expired':
-          setPhase({ kind: 'stopped', reason: 'expired' });
-          return;
-        case 'failed':
-          setPhase({ kind: 'stopped', reason: view.reason });
-          return;
-      }
-    } catch {
-      setCodeError('Couldn’t reach Copilot. Try again.');
-    } finally {
-      setVerifying(false);
-    }
+    await verify(typed);
   };
 
   const status =
@@ -278,7 +322,9 @@ export function DesktopSignIn() {
             Sign in with Google
           </Button>
           <p className="text-sm text-[var(--fg-muted)]">
-            Your web browser opens so you can sign in there. Then come back here.
+            {ios
+              ? 'Your browser opens so you can sign in there. Then it brings you back here.'
+              : 'Your web browser opens so you can sign in there. Then come back here.'}
           </p>
         </>
       ) : null}
@@ -289,8 +335,9 @@ export function DesktopSignIn() {
             Finish signing in using your browser
           </h2>
           <p className="text-sm text-[var(--fg-muted)]">
-            Sign in with Google in the browser window that just opened. It then shows a 4-character
-            code for you to type here.
+            {ios
+              ? 'Sign in with Google in the browser that just opened. Then tap Open TipTop Copilot there, or type the 4-character code it shows here.'
+              : 'Sign in with Google in the browser window that just opened. It then shows a 4-character code for you to type here.'}
           </p>
         </>
       ) : null}

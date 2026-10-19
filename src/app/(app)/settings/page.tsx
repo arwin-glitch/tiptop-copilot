@@ -7,7 +7,7 @@ import { getStore } from '@/lib/runtime';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { listMcpTokens } from '@/lib/services/mcp-tokens';
 import { err } from '@/lib/util/result';
-import { vapidPublicKey } from '@/lib/services/push-alerts';
+import { iosAlertsStatus, vapidPublicKey } from '@/lib/services/push-alerts';
 import { listDesktopDevices } from '@/lib/services/desktop-alerts';
 import { configuredCriteria, getActiveThesis } from '@/lib/services/thesis';
 import { googleConfigured } from '@/lib/google/oauth';
@@ -23,10 +23,12 @@ import { IntegrationControls } from '@/components/settings/integration-controls'
 import { PushAlertsSetting } from '@/components/settings/push-alerts';
 import { DesktopAlertsSetting } from '@/components/settings/desktop-alerts';
 import { DesktopAppSetting } from '@/components/settings/desktop-app';
+import { IosAlertsSetting } from '@/components/settings/ios-alerts';
 import { WebOnly } from '@/components/desktop/desktop-only';
 import { latestDesktopRelease } from '@/lib/desktop/releases';
 import { desktopVersionHint } from '@/lib/desktop/server';
 import { updatesItself } from '@/lib/desktop/shared';
+import { iosAppHint } from '@/lib/ios/server';
 import { McpConnectCard } from '@/components/settings/mcp-connect';
 import { formatDateTime } from '@/lib/util/time';
 
@@ -49,6 +51,11 @@ export default async function SettingsPage() {
     : err('forbidden', 'Owners only.');
   const mcpEndpoint = `${env().appUrl.replace(/\/+$/, '')}/api/mcp`;
   const desktopVersion = await desktopVersionHint();
+  const iosVersion = await iosAppHint();
+  // Null when it cannot be read: the cards then say nothing about the app.
+  const iosStatus = await iosAlertsStatus(store, auth.organizationId, auth.userId).catch(
+    () => null,
+  );
   // Only an app too old to update itself is told the newest version, so a
   // browser or a self-updating app never waits on the release lookup.
   const newestDesktop =
@@ -169,12 +176,19 @@ export default async function SettingsPage() {
                   {canSend(integration) ? (
                     <Badge tone="ok">On</Badge>
                   ) : (
-                    // Google's consent screen will not open in the desktop app.
+                    // Google's consent screen will not open in the desktop or
+                    // iPhone app.
                     <WebOnly
                       serverVersion={desktopVersion}
+                      iosServerVersion={iosVersion}
                       fallback={
                         <span className="text-sm text-[var(--fg-muted)]">
-                          Turn this on from Copilot in your web browser.
+                          <span className="ios-app:hidden">
+                            Turn this on from Copilot in your web browser.
+                          </span>
+                          <span className="ios-app:inline hidden">
+                            Do this on your computer: turn this on from Copilot there.
+                          </span>
                         </span>
                       }
                     >
@@ -230,6 +244,7 @@ export default async function SettingsPage() {
                   connected={Boolean(integration && integration.status !== 'disconnected')}
                   canConnect={!demo && googleConfigured()}
                   desktopVersion={desktopVersion}
+                  iosVersion={iosVersion}
                 />
               </div>
             </CardContent>
@@ -286,7 +301,13 @@ export default async function SettingsPage() {
           <Card>
             <CardContent className="space-y-5 pt-4">
               <TimezoneSetting current={auth.profile.timezone} />
-              <PushAlertsSetting publicKey={vapidPublicKey()} desktopHint={desktopVersion} />
+              <PushAlertsSetting
+                publicKey={vapidPublicKey()}
+                desktopHint={desktopVersion}
+                iosHint={iosVersion}
+                ios={iosStatus}
+              />
+              <IosAlertsSetting iosHint={iosVersion} status={iosStatus} />
               <DesktopAlertsSetting
                 computers={desktopComputers}
                 desktopHint={desktopVersion}

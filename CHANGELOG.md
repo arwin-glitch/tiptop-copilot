@@ -10,6 +10,65 @@ throughout.
 
 ## [Unreleased]
 
+- **The iPhone app, web and server side (D-058).** Copilot now knows when it
+  is open in the TipTop Copilot iPhone app (`ios-app/`, a Capacitor shell; its
+  user agent carries `TipTopCopilotiOS/<version>`), from the first frame:
+  `html[data-ios-app]` moves the page down clear of the clock and the Dynamic
+  Island (a fixed strip in the phone's light or dark colour behind them), hides the
+  Download tab and the desktop app link, and the Google connect and "Turn on
+  sending" links say "Do this on your computer"; when the request comes
+  from the app, `/api/integrations/google/start` answers that page instead
+  of going to Google, and `/api/auth/google` a page pointing back to the
+  app's own Sign in with Google. The login page signs the app in
+  through Safari with the desktop hand-off; on an iPhone the code page adds
+  "Open TipTop Copilot", which carries the code back to the app (used only
+  while the app's sign-in is open). An iPhone is no longer recorded as a Mac
+  in that hand-off. In the app, links to Copilot that open a new window stay
+  in the app, and a meeting alert joins through `/go/meeting?format=json`.
+  Settings › Preferences in the app has "iPhone alerts" in place of the web
+  push card: Turn on (iOS asks once, never at launch), Send a test alert (a
+  real one, through the sender, within a minute from 6am to 9pm Central),
+  Turn off, and a TestFlight update reminder once the build is 60 days old.
+  New routes: `/api/push/ios` (the app's push token, per iPhone, session and
+  same origin, 10 an hour; GET and DELETE by the token's SHA-256 prefix),
+  `/api/push/preference` and `/api/push/test`. Stored as `audit_events` rows
+  (`push.ios`, `push.prefer`, `push.test`), no migration. The phone-alert job
+  sends to the app through Apple's push service (`APNS_KEY_P8` secret,
+  `APNS_KEY_ID` and `APPLE_TEAM_ID` variables) when its key is there, and
+  asks for iPhone tokens with `?apns=1` only once Apple has accepted the key
+  (a check against a made-up device when a run starts). A token Apple says
+  can never work (410, BadDeviceToken, DeviceTokenNotForTopic) is forgotten
+  without stopping the other iPhones; while Apple is not answering (10
+  seconds) or failing (5xx), the job adds `&fallback=1`, so the app is still
+  tried every pass but nobody's web push is held back. While
+  someone's app has checked in within 8 days on a build under 80 days old,
+  their iPhone's home-screen web push is held back so nothing pings twice;
+  it comes back by itself when the app goes quiet, is deleted (Apple's 410),
+  or has notifications switched off, and the home-screen app offers "Send
+  alerts here instead". New web subscriptions record whether an iPhone made
+  them. Inert until an iPhone registers and the key is added; tests use only
+  invented tokens and people.
+
+- **The iPhone app itself (`ios-app/`, `.github/workflows/ios.yml`; D-058).**
+  A Capacitor 8.5.3 shell (pinned, with `@capacitor/push-notifications`
+  8.1.3 and `@capacitor/app` 8.1.2) around `https://copilot.tiptop.vc/`:
+  bundle ID `vc.tiptop.copilot`, iPhone only, portrait, iOS 16.4 or later,
+  the `TipTopCopilotiOS/<version>` user-agent token, the
+  `vc.tiptop.copilot://` sign-in return link, the icon drawn from
+  `public/icon.svg`, and a view controller that answers only the App,
+  PushNotifications, SystemBars and Console plugins, keeps same-site
+  new-window links in the app, saves downloads through the share sheet,
+  shows the offline page only for a real network failure, and turns on
+  swipe-back. The workflow builds it for the simulator and opens it there on
+  every push touching `ios-app/` (no keys); a tag `ios-vX.Y.Z`, a manual
+  upload and a monthly rebuild of the newest tag sign it by hand and send it
+  to TestFlight for internal testing only, and stop at a green notice until
+  Apple's keys are in the repository. A failed monthly rebuild or a
+  certificate near its end opens an issue. Swift packages come only from the
+  committed `Package.resolved` (committed back by a branch build), and every
+  action is pinned to a commit. `ios-app/README.md` has the steps for Nick
+  and Arwin once Apple approves the account, and the on-phone checklist.
+
 - **Follow-ups and the email session show the full email.** Each Follow-ups
   row with a Gmail thread gets "Show email" under its Open in Gmail link (one
   row open at a time, with a second Hide email at the foot of the email); the

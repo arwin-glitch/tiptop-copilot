@@ -10,7 +10,8 @@ import { processWide } from '@/lib/util/process-state';
  * A page view writes one `app.visited` row in `audit_events`, at most once per
  * VISIT_THROTTLE_MS per person (no schema change, same as the push ledger).
  * Last activity is the newest row of a kind only a person in the app creates
- * (a visit, a session answer, a question in Ask, turning on alerts). Background
+ * (a visit, a session answer, a question in Ask, turning on alerts, the
+ * iPhone app checking in for alerts as it opens). Background
  * jobs such as the mailbox sync write rows under the mailbox owner too, so
  * "any row by Nick" would say he was here when only a sync ran.
  */
@@ -18,11 +19,14 @@ import { processWide } from '@/lib/util/process-state';
 export const VISIT_ACTION = 'app.visited';
 const VISIT_THROTTLE_MS = 15 * 60_000;
 const SUBSCRIPTION_ACTION = 'push.subscription';
+/** An iPhone with app alerts on (ios-push.ts); its row is replaced each time the app checks in. */
+const IOS_DEVICE_ACTION = 'push.ios';
 const PERSON_ACTIONS = [
   VISIT_ACTION,
   'email.session_answer',
   'chat.question_asked',
   SUBSCRIPTION_ACTION,
+  IOS_DEVICE_ACTION,
 ] as const;
 
 const lastWrite = processWide('presence-last-write', () => new Map<string, number>());
@@ -109,7 +113,7 @@ export async function mailboxOwnerPresence(
   }
 
   const userId = owner.member.user_id;
-  const [latestPerKind, alertDevices] = await Promise.all([
+  const [latestPerKind, webDevices, iosDevices] = await Promise.all([
     Promise.all(
       PERSON_ACTIONS.map(
         (action) =>
@@ -124,7 +128,11 @@ export async function mailboxOwnerPresence(
     store.count('audit_events', organizationId, {
       eq: { action: SUBSCRIPTION_ACTION, user_id: userId },
     }),
+    store.count('audit_events', organizationId, {
+      eq: { action: IOS_DEVICE_ACTION, user_id: userId },
+    }),
   ]);
+  const alertDevices = webDevices + iosDevices;
   return {
     name: owner.profile.full_name?.split(' ')[0] || firstNameFromEmail(target),
     signedIn: true,

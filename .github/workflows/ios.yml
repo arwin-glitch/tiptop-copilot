@@ -1,0 +1,842 @@
+# Builds the TipTop Copilot iPhone app (ios-app/) and, once Apple's keys are
+# in the repository, sends it to TestFlight. See ios-app/README.md.
+#
+# A push to any branch that touches ios-app/, this file, public/icon.svg or
+# the root package.json runs the checks job: the version, the pinned
+# Capacitor packages and the reviewed settings agree; the native project is
+# Capacitor 8.5.3's own template plus the changes ios-app/scripts/
+# check-native-project.mjs lists, and in step with `cap sync`; the App Store
+# Connect script's tests pass. When ios-app/ or this file changed, the
+# simulator job then, on macOS: compiles and runs the shell's own checks on
+# the runner, builds for the simulator and, without signing, for devices,
+# and opens the app on an iPhone simulator, with screenshots kept on the run.
+# None of that needs a key.
+#
+# Swift packages: while the committed Package.resolved fits the project,
+# every build uses exactly the package versions in it and fails rather than
+# quietly fetching others. On a branch, one that no longer fits (a Capacitor
+# version changed), or none at all, is resolved afresh, and the resolved job
+# commits the result to the branch, as the desktop lock job does for
+# Cargo.lock. An upload refuses to run without one that fits, so a signed
+# build never picks up a package tag that moved.
+#
+# Sending a build needs Apple's keys, which exist only once the Apple
+# Developer account is approved: the secrets ASC_KEY_P8, IOS_DIST_P12 and
+# IOS_DIST_P12_PASSWORD, and the variables ASC_KEY_ID, ASC_ISSUER_ID and
+# APPLE_TEAM_ID. Until all six are set, an upload run stops at its gate with
+# a notice and fails nothing. After that:
+# - a tag ios-vX.Y.Z, matching ios-app/package.json, builds that tag;
+# - on the 1st of each month the newest ios-v* tag is built again with a new
+#   build number, so no TestFlight build reaches Apple's 90-day expiry;
+# - Run workflow with task "upload" sends the chosen branch.
+# The build is signed by hand with the one Apple Distribution certificate, in
+# a keychain made for the run, on the App target alone (the project file
+# sets it; signing settings on the command line would also reach the Swift
+# packages, which refuse them). The App Store profile holding that
+# certificate is found or made through the API. The export is for TestFlight
+# internal testing only, so the build can never reach external testers or
+# the App Store. Run workflow with task "setup" checks every key and
+# registers the bundle ID and its push capability, without building.
+#
+# Workflow logs can be read by others, so the signing identity's name (the
+# Account Holder's legal name) and the team ID are masked before any tool
+# could print them, and no signing log is kept as an artifact. Only two jobs
+# can write: resolved commits Package.resolved to a branch, and report opens
+# an issue when a monthly rebuild fails or the certificate is near its end.
+# The actions are GitHub's own, each pinned to a commit, because the release
+# job runs with the signing certificate and the App Store Connect key.
+
+name: ios
+
+on:
+  push:
+    branches: ['**']
+    # Path filters apply to branch pushes only; a tag push always runs.
+    paths:
+      - 'ios-app/**'
+      - '.github/workflows/ios.yml'
+      - 'public/icon.svg'
+      - 'package.json'
+    tags: ['ios-v*']
+  schedule:
+    - cron: '0 15 1 * *'
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'build: checks and simulator only. setup: check the Apple keys and register the app. upload: build this branch and send it to TestFlight.'
+        type: choice
+        options: [build, setup, upload]
+        default: build
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}-${{ github.event_name }}
+  # A newer push to a branch replaces its build; uploads always finish.
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.task != 'setup')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      native: ${{ steps.changes.outputs.native }}
+    defaults:
+      run:
+        working-directory: ios-app
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.19.0
+      - name: What changed
+        id: changes
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # The macOS job runs only when the app itself changed. A tag, a
+          # manual run, a new branch or a history that cannot be compared all
+          # count as changed.
+          native=true
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_TYPE" = branch ] \
+            && [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] \
+            && git fetch --quiet --depth=1 origin "$BEFORE" 2> /dev/null; then
+            if git diff --quiet "$BEFORE" "$GITHUB_SHA" -- . ../.github/workflows/ios.yml; then
+              native=false
+            fi
+          fi
+          echo "native=$native" >> "$GITHUB_OUTPUT"
+          echo "App files changed: $native"
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Settings agree
+        run: node scripts/check-config.mjs
+      - name: App Store Connect script
+        run: node --test tests/asc.test.mjs
+      - name: Scripts and property lists parse
+        run: |
+          for script in scripts/*.sh; do bash -n "$script"; done
+          python3 -I -c 'import plistlib, sys; [plistlib.load(open(p, "rb")) for p in sys.argv[1:]]' \
+            ios/App/App/Info.plist ios/App/App/App.entitlements \
+            ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+      - name: Native project is Capacitor's template plus the listed changes
+        run: |
+          # A fresh `cap add ios` from the same CLI, in a scratch copy.
+          fresh="$RUNNER_TEMP/fresh"
+          mkdir -p "$fresh"
+          cp package.json package-lock.json capacitor.config.json "$fresh/"
+          cp -R www node_modules "$fresh/"
+          if ! (cd "$fresh" && npx cap add ios > "$RUNNER_TEMP/cap-add.log" 2>&1); then
+            cat "$RUNNER_TEMP/cap-add.log"
+            echo "::error::npx cap add ios failed in a scratch copy (above)."
+            exit 1
+          fi
+          node scripts/check-native-project.mjs "$fresh/ios" ios
+      - name: Every difference from the template, for review
+        if: always()
+        run: |
+          fresh="$RUNNER_TEMP/fresh/ios"
+          [ -d "$fresh" ] || exit 0
+          # What cap sync writes on every build is not part of the project.
+          rm -rf "$fresh/App/App/public" "$fresh/App/App/capacitor.config.json" \
+            "$fresh/App/App/config.xml" "$fresh/capacitor-cordova-ios-plugins"
+          mkdir -p "$RUNNER_TEMP/review"
+          git diff --no-index --stat "$fresh" ios > "$RUNNER_TEMP/review/template-changes.txt" || true
+          git diff --no-index "$fresh" ios >> "$RUNNER_TEMP/review/template-changes.txt" || true
+      - name: Native project is in step with cap sync
+        run: |
+          npx cap sync ios
+          if [ -n "$(git status --porcelain -- ios)" ]; then
+            git --no-pager diff -- ios
+            echo "::error::npx cap sync ios changed committed files (above). Run it in ios-app and commit the result."
+            exit 1
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: ios-template-review
+          path: ${{ runner.temp }}/review/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  simulator:
+    needs: checks
+    if: needs.checks.outputs.native == 'true'
+    runs-on: macos-26
+    timeout-minutes: 45
+    outputs:
+      resolved: ${{ steps.resolved.outputs.resolved }}
+    defaults:
+      run:
+        working-directory: ios-app
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.19.0
+      - name: Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.6.app
+          xcodebuild -version
+      - name: Install and sync
+        run: |
+          npm ci --no-audit --no-fund
+          npx cap sync ios
+      - name: Shell checks on the runner
+        run: |
+          # ShellPolicy.swift and WebViewProxies.swift use only Foundation and
+          # WebKit, which macOS has too, so they are checked here directly.
+          log="$RUNNER_TEMP/shell-tests-build.log"
+          if ! xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos14.0" \
+            -o "$RUNNER_TEMP/shell-tests" ios/App/App/ShellPolicy.swift \
+            ios/App/App/WebViewProxies.swift tests/main.swift > "$log" 2>&1; then
+            cat "$log"
+            echo "::error::The shell's own Swift did not compile (above)."
+            exit 1
+          fi
+          near=$(grep -E 'nearly matches|does not conform' "$log" || true)
+          if [ -n "$near" ]; then
+            printf '%s\n' "$near"
+            echo "::error::A delegate method's signature does not match WebKit's, so WebKit would never call it."
+            exit 1
+          fi
+          "$RUNNER_TEMP/shell-tests"
+      - name: What this Xcode knows
+        run: |
+          # Every key the upload's ExportOptions.plist uses, and every Swift
+          # package option the builds use, so one Xcode renamed or dropped
+          # shows up here, long before a release.
+          help="$RUNNER_TEMP/xcodebuild-help.txt"
+          xcodebuild -help > "$help" 2>&1 || true
+          for key in method destination signingStyle teamID signingCertificate provisioningProfiles \
+            manageAppVersionAndBuildNumber testFlightInternalTestingOnly uploadSymbols; do
+            if ! grep -Eq "^[[:space:]]*$key[[:space:]]*:" "$help"; then
+              echo "::error::xcodebuild -help does not list the export option $key."
+              exit 1
+            fi
+          done
+          if ! grep -q 'app-store-connect' "$help"; then
+            echo "::error::xcodebuild -help does not list the export method app-store-connect."
+            exit 1
+          fi
+          for flag in -resolvePackageDependencies -disableAutomaticPackageResolution \
+            -clonedSourcePackagesDirPath; do
+            if ! grep -q -- "$flag" "$help"; then
+              echo "::error::xcodebuild -help does not list $flag."
+              exit 1
+            fi
+          done
+          echo "This Xcode knows every export option and package option the builds use."
+      - name: Swift packages
+        run: |
+          # Exactly the versions in the committed Package.resolved while it
+          # fits (see the header); otherwise resolved here, for the resolved
+          # job to commit.
+          resolved=ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          log="$RUNNER_TEMP/packages.log"
+          resolve() {
+            xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App \
+              -clonedSourcePackagesDirPath "$RUNNER_TEMP/spm" "$@" > "$log" 2>&1
+          }
+          fresh() {
+            if ! resolve; then
+              cat "$log"
+              echo "::error::The Swift packages could not be resolved (above)."
+              exit 1
+            fi
+          }
+          if git ls-files --error-unmatch "$resolved" > /dev/null 2>&1; then
+            if resolve -disableAutomaticPackageResolution && git diff --quiet -- "$resolved"; then
+              echo "PACKAGES=-disableAutomaticPackageResolution" >> "$GITHUB_ENV"
+              echo "Swift packages: exactly those in Package.resolved."
+            else
+              tail -n 20 "$log"
+              git checkout -- "$resolved"
+              echo "::warning::Package.resolved no longer fits the project (a Capacitor version changed?), so this build resolves the Swift packages again; the resolved job commits the result to the branch."
+              fresh
+            fi
+          else
+            echo "::warning::No Package.resolved is committed yet, so the Swift packages were resolved fresh; the resolved job commits this build's file to the branch."
+            fresh
+          fi
+      - name: Build for the simulator
+        run: |
+          log="$RUNNER_TEMP/build-simulator.log"
+          if ! xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd" -clonedSourcePackagesDirPath "$RUNNER_TEMP/spm" \
+            ${PACKAGES:-} CODE_SIGNING_ALLOWED=NO build > "$log" 2>&1; then
+            grep -E ': error:|error:' "$log" | sort -u | head -n 40 || true
+            tail -n 60 "$log"
+            echo "::error::The simulator build failed (errors above; the full log is on the run)."
+            exit 1
+          fi
+          near=$(grep -E 'nearly matches' "$log" || true)
+          if [ -n "$near" ]; then
+            printf '%s\n' "$near"
+            echo "::error::A delegate method's signature does not match WebKit's, so WebKit would never call it."
+            exit 1
+          fi
+          ours=$(grep -E '/ios-app/ios/App/App/[^:]+:[0-9]+:[0-9]+: warning:' "$log" | sort -u || true)
+          if [ -n "$ours" ]; then
+            echo "Warnings in the app's own code:"
+            printf '%s\n' "$ours"
+          fi
+      - name: Built app has the reviewed settings
+        run: |
+          app="$RUNNER_TEMP/dd/Build/Products/Debug-iphonesimulator/App.app"
+          info="$app/Info.plist"
+          version=$(node -p "require('./package.json').version")
+          fail() { echo "::error::Built app: $1"; exit 1; }
+          value() { plutil -extract "$1" raw -o - "$info" 2> /dev/null || true; }
+          [ "$(value CFBundleIdentifier)" = vc.tiptop.copilot ] || fail "bundle ID is not vc.tiptop.copilot."
+          [ "$(value CFBundleDisplayName)" = TipTop ] || fail "home-screen name is not TipTop."
+          [ "$(value CFBundleShortVersionString)" = "$version" ] || fail "version is not $version."
+          [ "$(value MinimumOSVersion)" = 16.4 ] || fail "minimum iOS is not 16.4."
+          [ "$(plutil -extract UIDeviceFamily json -o - "$info")" = '[1]' ] || fail "it is not iPhone only."
+          [ "$(value ITSAppUsesNonExemptEncryption)" = false ] || fail "the encryption answer is missing."
+          [ "$(value CFBundleURLTypes.0.CFBundleURLSchemes.0)" = vc.tiptop.copilot ] || fail "the URL scheme is missing."
+          [ "$(value CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName)" = AppIcon ] || fail "the icon is missing."
+          [ -f "$app/public/offline.html" ] || fail "the offline page is missing."
+          node -e '
+            const c = require(process.argv[1]);
+            const list = c.packageClassList || [];
+            const ok = c.server && c.server.url === "https://copilot.tiptop.vc/" &&
+              list.includes("AppPlugin") && list.includes("PushNotificationsPlugin");
+            if (!ok) { console.log("::error::Built app: capacitor.config.json lacks the server URL or a plugin."); process.exit(1); }
+          ' "$app/capacitor.config.json"
+          echo "The built app has the reviewed settings."
+      - name: Build for devices, unsigned
+        run: |
+          # The Release build an upload signs, compiled for real devices with
+          # signing off, so a release-only problem shows now.
+          log="$RUNNER_TEMP/build-device.log"
+          if ! xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/unsigned.xcarchive" \
+            -derivedDataPath "$RUNNER_TEMP/dd-device" -clonedSourcePackagesDirPath "$RUNNER_TEMP/spm" \
+            ${PACKAGES:-} CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive > "$log" 2>&1; then
+            grep -E 'error:' "$log" | sort -u | head -n 40 || true
+            tail -n 60 "$log"
+            echo "::error::The device build failed (errors above; the full log is on the run)."
+            exit 1
+          fi
+          plist="$RUNNER_TEMP/unsigned.xcarchive/Products/Applications/App.app/Info.plist"
+          [ -f "$plist" ] || { echo "::error::The archive holds no App.app."; exit 1; }
+          echo "Release build for devices: $(plutil -extract CFBundleShortVersionString raw -o - "$plist")."
+      - name: Open the app on a simulator
+        run: |
+          bash scripts/simulator-smoke.sh \
+            "$RUNNER_TEMP/dd/Build/Products/Debug-iphonesimulator/App.app" "$RUNNER_TEMP/smoke"
+      - name: Package.resolved for the branch
+        id: resolved
+        run: |
+          resolved=ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          if [ ! -f "$resolved" ]; then
+            found=$(find ios -name Package.resolved | head -n 1)
+            echo "::warning::Xcode left no Package.resolved at ios-app/$resolved${found:+ (it wrote ios-app/$found)}, so none can be committed, and an upload needs one."
+            echo "resolved=missing" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # It must pin Capacitor's Swift package at the version package.json
+          # pins (Package.resolved version 2 or later, or version 1).
+          node -e '
+            const fs = require("fs");
+            const read = (path) => JSON.parse(fs.readFileSync(path, "utf8"));
+            const resolved = read(process.argv[1]);
+            const want = read("node_modules/@capacitor/ios/package.json").version;
+            const pins = resolved.pins || (resolved.object && resolved.object.pins) || [];
+            const pin = pins.find((p) => /capacitor-swift-pm/i.test(p.identity || p.location || p.repositoryURL || ""));
+            const got = pin && pin.state && pin.state.version;
+            if (got !== want) {
+              console.log(`::error::Package.resolved pins capacitor-swift-pm ${got || "nowhere"}, not ${want}.`);
+              process.exit(1);
+            }
+            console.log(`Package.resolved pins capacitor-swift-pm ${got} at ${pin.state.revision}.`);
+          ' "$PWD/$resolved"
+          mkdir -p "$RUNNER_TEMP/package"
+          cp "$resolved" "$RUNNER_TEMP/package/Package.resolved"
+          if git ls-files --error-unmatch "$resolved" > /dev/null 2>&1 && git diff --quiet -- "$resolved"; then
+            echo "resolved=same" >> "$GITHUB_OUTPUT"
+            echo "The committed Package.resolved is the one this build used."
+          else
+            echo "resolved=changed" >> "$GITHUB_OUTPUT"
+            echo "This build's Package.resolved differs from the committed one (or none is committed); on a branch the resolved job commits it."
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.resolved.outputs.resolved == 'changed'
+        with:
+          name: ios-package-resolved
+          path: ${{ runner.temp }}/package/Package.resolved
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: ios-simulator
+          path: |
+            ${{ runner.temp }}/smoke/
+            ${{ runner.temp }}/*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  resolved:
+    # On a branch, commits the Package.resolved the simulator build used when
+    # none is committed or the committed one no longer fitted (see the
+    # header). Pushes made with the workflow token start no new run.
+    needs: simulator
+    if: >-
+      github.event_name == 'push' && github.ref_type == 'branch' &&
+      needs.simulator.outputs.resolved == 'changed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ios-package-resolved
+          path: built
+      - name: Commit Package.resolved
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          resolved=ios-app/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          if [ -f "$resolved" ] && cmp -s built/Package.resolved "$resolved"; then
+            echo "Package.resolved is up to date."
+            exit 0
+          fi
+          mkdir -p "$(dirname "$resolved")"
+          cp built/Package.resolved "$resolved"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$resolved"
+          git commit -m "ios: commit the Package.resolved from run $GITHUB_RUN_ID"
+          git pull --rebase origin "$BRANCH"
+          git push origin "HEAD:$BRANCH"
+
+  gate:
+    # Whether this run sends a build to TestFlight, and from which commit.
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'push' && github.ref_type == 'tag') ||
+      (github.event_name == 'workflow_dispatch' && inputs.task == 'upload')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.gate.outputs.ready }}
+      ref: ${{ steps.gate.outputs.ref }}
+    steps:
+      - name: Keys and commit
+        id: gate
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          IOS_DIST_P12: ${{ secrets.IOS_DIST_P12 }}
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          missing=()
+          for name in ASC_KEY_P8 IOS_DIST_P12 IOS_DIST_P12_PASSWORD ASC_KEY_ID ASC_ISSUER_ID APPLE_TEAM_ID; do
+            value="${!name}"
+            [ -n "${value//[[:space:]]/}" ] || missing+=("$name")
+          done
+          case "$GITHUB_EVENT_NAME" in
+            push) ref="$GITHUB_REF_NAME" ;;
+            workflow_dispatch) ref="$GITHUB_SHA" ;;
+            schedule)
+              # The newest ios-v* tag, by version.
+              ref=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/ios-v" --jq '.[].ref' \
+                | sed 's#^refs/tags/##' | sort -V | tail -n 1)
+              ;;
+          esac
+          ready=true
+          if [ ${#missing[@]} -gt 0 ]; then
+            ready=false
+            message="TestFlight upload skipped: Apple's keys are not in the repository yet (missing ${missing[*]}). See ios-app/README.md."
+          elif [ -z "$ref" ]; then
+            ready=false
+            message="Monthly TestFlight rebuild skipped: there is no ios-v* tag yet."
+          else
+            message="Sending $ref to TestFlight."
+          fi
+          if [ "$ready" = true ]; then echo "$message"; else echo "::notice::$message"; fi
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: [gate, checks, simulator]
+    # A tag or a manual upload waits for its own checks and simulator run; the
+    # monthly rebuild builds a tag that passed them when it was made.
+    if: >-
+      !cancelled() && needs.gate.outputs.ready == 'true' &&
+      (github.event_name == 'schedule' ||
+       (needs.checks.result == 'success' && needs.simulator.result == 'success'))
+    runs-on: macos-26
+    timeout-minutes: 60
+    outputs:
+      renew: ${{ steps.keychain.outputs.renew }}
+    defaults:
+      run:
+        working-directory: ios-app
+    env:
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.gate.outputs.ref }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.19.0
+      - name: Xcode
+        run: |
+          echo "::add-mask::$APPLE_TEAM_ID"
+          sudo xcode-select -s /Applications/Xcode_26.6.app
+          xcodebuild -version
+      - name: Version and build number
+        id: version
+        env:
+          REF: ${{ needs.gate.outputs.ref }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          case "$REF" in
+            ios-v*)
+              if [ "$REF" != "ios-v$version" ]; then
+                echo "::error::Tag $REF does not match ios-app/package.json version $version."
+                exit 1
+              fi
+              ;;
+          esac
+          # The build number is always higher than any earlier upload's,
+          # re-runs included, and starts with the UTC build date. The same day
+          # goes into the user agent as TipTopBuilt/YYYY-MM-DD, which the web
+          # app reads to tell when a TestFlight build nears Apple's 90-day
+          # expiry.
+          day=$(date -u +%Y-%m-%d)
+          build="${day//-/}.$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "day=$day" >> "$GITHUB_OUTPUT"
+          echo "Building TipTop Copilot $version ($build) from $REF."
+      - name: Install, check and sync
+        env:
+          DAY: ${{ steps.version.outputs.day }}
+        run: |
+          npm ci --no-audit --no-fund
+          node scripts/check-config.mjs
+          # This build only: the build day after the version in the user agent.
+          node -e '
+            const fs = require("fs");
+            const config = JSON.parse(fs.readFileSync("capacitor.config.json", "utf8"));
+            config.ios.appendUserAgent += " TipTopBuilt/" + process.env.DAY;
+            fs.writeFileSync("capacitor.config.json", JSON.stringify(config, null, 2));
+            console.log("User agent token: " + config.ios.appendUserAgent);
+          '
+          npx cap sync ios
+      - name: Swift packages
+        run: |
+          # Exactly the Swift packages a branch build resolved and committed:
+          # an upload never resolves them afresh, so a package tag that moved
+          # cannot reach a signed build.
+          resolved=ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          if [ ! -f "$resolved" ]; then
+            echo "::error::No Package.resolved is committed. Push this commit to a branch first: its simulator build resolves the Swift packages and the resolved job commits the file. Then build from that commit."
+            exit 1
+          fi
+          log="$RUNNER_TEMP/packages.log"
+          if ! xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/spm" -disableAutomaticPackageResolution \
+            > "$log" 2>&1 || ! git diff --quiet -- "$resolved"; then
+            tail -n 40 "$log"
+            echo "::error::The committed Package.resolved does not fit the project (above). Push to a branch first, so its build commits one that does, then build from that commit."
+            exit 1
+          fi
+          echo "Swift packages: exactly those in Package.resolved."
+      - name: Signing keychain
+        id: keychain
+        env:
+          IOS_DIST_P12: ${{ secrets.IOS_DIST_P12 }}
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+        run: bash scripts/signing-keychain.sh
+      - name: App Store Connect key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/asc"
+          node --input-type=module \
+            -e 'import { p8ToPem } from "./scripts/asc.mjs"; process.stdout.write(p8ToPem(process.env.ASC_KEY_P8));' \
+            > "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
+      - name: Bundle ID and profile
+        id: profile
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          node scripts/asc.mjs check
+          node scripts/asc.mjs prepare
+          node scripts/asc.mjs profile --cert "$RUNNER_TEMP/dist.pem" --out "$RUNNER_TEMP/profile.mobileprovision"
+      - name: App record exists
+        if: steps.profile.outputs.app_record != 'yes'
+        run: |
+          echo "::error::Make the app record in App Store Connect first (ios-app/README.md, step A6), then run this again."
+          exit 1
+      - name: Install the profile
+        env:
+          UUID: ${{ steps.profile.outputs.profile_uuid }}
+        run: |
+          profile="$RUNNER_TEMP/profile.mobileprovision"
+          decoded="$RUNNER_TEMP/profile.plist"
+          security cms -D -i "$profile" > "$decoded"
+          entry() { /usr/libexec/PlistBuddy -c "Print :$1" "$decoded" 2> /dev/null || true; }
+          fail() { echo "::error::Profile: $1"; exit 1; }
+          [ "$(entry UUID)" = "$UUID" ] || fail "its UUID is not the one Apple listed."
+          [ "$(entry TeamIdentifier:0)" = "$APPLE_TEAM_ID" ] || fail "it belongs to another team."
+          [ "$(entry Entitlements:application-identifier)" = "$APPLE_TEAM_ID.vc.tiptop.copilot" ] \
+            || fail "it is not for vc.tiptop.copilot."
+          aps=$(entry Entitlements:aps-environment)
+          [ -n "$aps" ] || fail "it has no push entitlement: run the workflow's setup task."
+          for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp "$profile" "$dir/$UUID.mobileprovision"
+          done
+          # The build's entitlements follow the profile: production push, and
+          # Time Sensitive alerts only if the profile allows them.
+          entitlements=ios/App/App/App.entitlements
+          /usr/libexec/PlistBuddy -c "Set :aps-environment $aps" "$entitlements"
+          if [ "$(entry Entitlements:com.apple.developer.usernotifications.time-sensitive)" = true ]; then
+            /usr/libexec/PlistBuddy -c 'Add :com.apple.developer.usernotifications.time-sensitive bool true' "$entitlements"
+            echo "Meeting alerts in this build can break through a Focus (Time Sensitive)."
+          else
+            echo "::notice::The profile has no Time Sensitive entitlement, so this build sends meeting alerts as ordinary alerts. See ios-app/README.md."
+          fi
+          echo "Profile installed (push: $aps)."
+      - name: Archive
+        env:
+          UUID: ${{ steps.profile.outputs.profile_uuid }}
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          log="$RUNNER_TEMP/archive.log"
+          # Only user-defined settings on the command line; the project file
+          # turns them into the App target's signing settings.
+          if ! xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/spm" -disableAutomaticPackageResolution \
+            CURRENT_PROJECT_VERSION="$BUILD" TIPTOP_PROFILE="$UUID" TIPTOP_TEAM_ID="$APPLE_TEAM_ID" \
+            archive > "$log" 2>&1; then
+            grep -E 'error:' "$log" | sort -u | head -n 40 || true
+            tail -n 60 "$log"
+            echo "::error::The archive failed (errors above)."
+            exit 1
+          fi
+          echo "Archived."
+      - name: Check the signed app
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD: ${{ steps.version.outputs.build }}
+          DAY: ${{ steps.version.outputs.day }}
+        run: |
+          app="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
+          fail() { echo "::error::Signed app: $1"; exit 1; }
+          codesign --verify --strict "$app" || fail "its signature does not verify."
+          codesign -d --entitlements - --xml "$app" > "$RUNNER_TEMP/signed-entitlements.plist" 2> /dev/null
+          entry() { /usr/libexec/PlistBuddy -c "Print :$1" "$RUNNER_TEMP/signed-entitlements.plist" 2> /dev/null || true; }
+          [ "$(entry aps-environment)" = production ] || fail "it is not signed for production push."
+          [ "$(entry application-identifier)" = "$APPLE_TEAM_ID.vc.tiptop.copilot" ] || fail "its app ID is wrong."
+          [ "$(plutil -extract CFBundleShortVersionString raw -o - "$app/Info.plist")" = "$VERSION" ] || fail "version"
+          [ "$(plutil -extract CFBundleVersion raw -o - "$app/Info.plist")" = "$BUILD" ] || fail "build number"
+          [ -f "$app/embedded.mobileprovision" ] || fail "it carries no profile."
+          agent=$(node -p 'require(process.argv[1]).ios.appendUserAgent' "$app/capacitor.config.json")
+          [ "$agent" = "TipTopCopilotiOS/$VERSION TipTopBuilt/$DAY" ] || fail "its user-agent token is \"$agent\"."
+          echo "Signed for production push, version $VERSION ($BUILD)."
+      - name: Upload to TestFlight
+        env:
+          UUID: ${{ steps.profile.outputs.profile_uuid }}
+          SHA1: ${{ steps.keychain.outputs.sha1 }}
+        run: |
+          options="$RUNNER_TEMP/ExportOptions.plist"
+          rm -f "$options"
+          set_option() { /usr/libexec/PlistBuddy -c "$1" "$options" > /dev/null; }
+          set_option 'Add :method string app-store-connect'
+          set_option 'Add :destination string upload'
+          set_option 'Add :signingStyle string manual'
+          set_option "Add :teamID string $APPLE_TEAM_ID"
+          set_option "Add :signingCertificate string $SHA1"
+          set_option 'Add :provisioningProfiles dict'
+          set_option "Add :provisioningProfiles:vc.tiptop.copilot string $UUID"
+          set_option 'Add :manageAppVersionAndBuildNumber bool false'
+          set_option 'Add :testFlightInternalTestingOnly bool true'
+          set_option 'Add :uploadSymbols bool true'
+          plutil -lint "$options"
+          log="$RUNNER_TEMP/upload.log"
+          if ! xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$options" -exportPath "$RUNNER_TEMP/export" \
+            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" > "$log" 2>&1; then
+            grep -E 'error' "$log" | sort -u | head -n 40 || true
+            tail -n 60 "$log"
+            echo "::error::The upload failed (above). If Apple mentions an agreement, the Account Holder must accept it in App Store Connect first."
+            exit 1
+          fi
+          tail -n 5 "$log"
+      - name: Summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD: ${{ steps.version.outputs.build }}
+          EXPIRES: ${{ steps.keychain.outputs.expires }}
+        run: |
+          {
+            echo "### TipTop Copilot $VERSION ($BUILD) sent to TestFlight"
+            echo
+            echo "For internal testing only. Apple processes it for about 5 to 30 minutes; then TestFlight"
+            echo "offers it to the internal group, and phones with Automatic Updates on install it."
+            echo
+            echo "Signing certificate valid until $EXPIRES."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Clean up
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/tiptop-signing.keychain-db" 2> /dev/null || true
+          rm -rf "$RUNNER_TEMP/asc" "$RUNNER_TEMP/dist.pem" "$RUNNER_TEMP"/profile.* \
+            "$RUNNER_TEMP/ExportOptions.plist" "$RUNNER_TEMP/signed-entitlements.plist" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles" \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+
+  report:
+    # A monthly rebuild that failed, or a certificate near its end, becomes an
+    # issue, so it does not rest on someone reading a GitHub email.
+    needs: [gate, release]
+    if: >-
+      !cancelled() && github.event_name == 'schedule' && needs.gate.outputs.ready == 'true' &&
+      (needs.release.result == 'failure' || needs.release.outputs.renew == 'yes')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.release.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$RESULT" = failure ]; then
+            title='iOS: the monthly TestFlight rebuild failed'
+            body="The run that rebuilds the newest ios-v* tag failed: $RUN_URL. Until a build succeeds, the TestFlight build installed on phones keeps counting down to Apple's 90-day expiry. The usual causes are an Apple agreement waiting for the Account Holder in App Store Connect, or an expired certificate (see ios-app/README.md)."
+          else
+            title='iOS: the Apple Distribution certificate expires within 30 days'
+            body="The monthly rebuild warned that the signing certificate ends soon: $RUN_URL. Renew it as \"Renewing the certificate\" in ios-app/README.md describes, before uploads stop."
+          fi
+          open=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq 'length')
+          if [ "$open" = 0 ]; then
+            gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          else
+            echo "An open issue already says so."
+          fi
+
+  setup:
+    # Run workflow, task "setup": checks each Apple key that is present (never
+    # printing one), registers the bundle ID with its push capability, makes
+    # sure an App Store profile can be made, and lists what is still missing.
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'setup'
+    runs-on: macos-26
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ios-app
+    env:
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+      APNS_KEY_ID: ${{ vars.APNS_KEY_ID }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.19.0
+      - name: Which keys are set
+        id: keys
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          IOS_DIST_P12: ${{ secrets.IOS_DIST_P12 }}
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+          APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
+        run: |
+          echo "::add-mask::$APPLE_TEAM_ID"
+          has() { local value="${!1}"; [ -n "${value//[[:space:]]/}" ]; }
+          {
+            echo "### Apple keys in this repository"
+            echo
+            echo "| Name | Kind | Set |"
+            echo "| --- | --- | --- |"
+            for name in ASC_KEY_P8 IOS_DIST_P12 IOS_DIST_P12_PASSWORD APNS_KEY_P8; do
+              if has "$name"; then mark=yes; else mark='**no**'; fi
+              echo "| $name | secret | $mark |"
+            done
+            for name in ASC_KEY_ID ASC_ISSUER_ID APPLE_TEAM_ID APNS_KEY_ID; do
+              if has "$name"; then mark=yes; else mark='**no**'; fi
+              echo "| $name | variable | $mark |"
+            done
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          both() { for name in "$@"; do has "$name" || { echo no; return; }; done; echo yes; }
+          echo "asc=$(both ASC_KEY_P8 ASC_KEY_ID ASC_ISSUER_ID)" >> "$GITHUB_OUTPUT"
+          echo "p12=$(both IOS_DIST_P12 IOS_DIST_P12_PASSWORD APPLE_TEAM_ID)" >> "$GITHUB_OUTPUT"
+          echo "apns=$(both APNS_KEY_P8 APNS_KEY_ID APPLE_TEAM_ID)" >> "$GITHUB_OUTPUT"
+      - name: App Store Connect key, bundle ID and capabilities
+        id: asc
+        if: steps.keys.outputs.asc == 'yes'
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          node scripts/asc.mjs check
+          node scripts/asc.mjs prepare
+          echo "- The App Store Connect key works; the bundle ID and Push Notifications are registered." >> "$GITHUB_STEP_SUMMARY"
+      - name: Distribution certificate
+        id: keychain
+        if: steps.keys.outputs.p12 == 'yes'
+        env:
+          IOS_DIST_P12: ${{ secrets.IOS_DIST_P12 }}
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+        run: |
+          bash scripts/signing-keychain.sh
+          echo "- The Apple Distribution certificate imports, matches APPLE_TEAM_ID and is in date." >> "$GITHUB_STEP_SUMMARY"
+      - name: App Store profile
+        if: steps.asc.outcome == 'success' && steps.keychain.outcome == 'success'
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          node scripts/asc.mjs profile --cert "$RUNNER_TEMP/dist.pem" --out "$RUNNER_TEMP/profile.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          aps=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$RUNNER_TEMP/profile.plist" 2> /dev/null || true)
+          if [ -z "$aps" ]; then
+            echo "::error::The App Store profile has no push entitlement."
+            exit 1
+          fi
+          echo "- An App Store profile with push ($aps) holds the certificate." >> "$GITHUB_STEP_SUMMARY"
+      - name: Push key
+        if: steps.keys.outputs.apns == 'yes'
+        env:
+          APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
+        run: |
+          node scripts/asc.mjs apns-check
+          echo "- The APNs key works for vc.tiptop.copilot." >> "$GITHUB_STEP_SUMMARY"
+      - name: Clean up
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/tiptop-signing.keychain-db" 2> /dev/null || true
+          rm -f "$RUNNER_TEMP/dist.pem" "$RUNNER_TEMP"/profile.*

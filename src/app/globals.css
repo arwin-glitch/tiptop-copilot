@@ -35,6 +35,13 @@
   }
 }
 
+/* Inside the iPhone app (ios-app/), from the first frame: html[data-ios-app]
+   is set before first paint (lib/desktop/frame-boot.ts), because a web view
+   reports display-mode: browser and only the user agent tells it apart.
+   `ios-no-downloads` in an app version that cannot save a downloaded file. */
+@custom-variant ios-app (&:where([data-ios-app] *));
+@custom-variant ios-no-downloads (&:where([data-ios-no-downloads] *));
+
 @theme {
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
@@ -300,6 +307,10 @@
   /* The desktop app's top bar (DesktopTitleBar), above all of these: 0px in
      a browser, so every offset that adds it is unchanged there. */
   --titlebar-h: 0px;
+  /* The top safe area a fixed panel clears by itself, next to --titlebar-h.
+     In the iPhone app --titlebar-h already holds the safe area, so this is
+     0px there ("The iPhone app" below) and it is never counted twice. */
+  --safe-top: env(safe-area-inset-top, 0px);
   /* Windows 11's close-button red: a platform convention, not a theme colour. */
   --titlebar-close: #c42b1c;
   --titlebar-close-pressed: rgb(196 43 28 / 0.9);
@@ -410,6 +421,52 @@
   }
 
   :root[data-desktop-frame] [data-titlebar] {
+    display: none;
+  }
+}
+
+/* The iPhone app (ios-app/). Its web view runs full screen, under the clock
+   and the Dynamic Island, where the home-screen web app has the status bar
+   above the page. So the page moves down by the top safe area, the same way
+   it moves down for the desktop app's top bar: every sticky offset already
+   adds --titlebar-h. A fixed strip fills that space, so content scrolling up
+   never shows under the clock. Its colour follows the phone's light or dark
+   setting, as the clock does (not Copilot's own theme switch), so the time
+   always reads. Placed before the scroll padding rules below, which win on
+   pages with subtabs and add --titlebar-h themselves. */
+:root[data-ios-app] {
+  --titlebar-h: env(safe-area-inset-top, 0px);
+  --safe-top: 0px;
+  scroll-padding-top: var(--titlebar-h);
+}
+
+/* (0,2,1), like the desktop rule above, to outrank react-remove-scroll. */
+:root[data-ios-app] body {
+  padding-top: var(--titlebar-h);
+}
+
+:root[data-ios-app] body::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: var(--z-titlebar);
+  height: var(--titlebar-h);
+  background: #f6f1e4;
+  pointer-events: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-ios-app] body::before {
+    background: #0e0f0f;
+  }
+}
+
+@media print {
+  :root[data-ios-app] {
+    --titlebar-h: 0px;
+  }
+
+  :root[data-ios-app] body::before {
     display: none;
   }
 }

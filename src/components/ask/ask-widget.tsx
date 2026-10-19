@@ -833,7 +833,7 @@ export function AskWidget({
             // Phone, a phone on its side, or any short window: a sheet over
             // everything, inside the safe areas, never wider than a column.
             // (Below the desktop app's top bar, which is 0px high elsewhere.)
-            'inset-x-2 top-[calc(max(0.5rem,env(safe-area-inset-top))+var(--titlebar-h))] bottom-[max(0.5rem,env(safe-area-inset-bottom))] mx-auto max-w-[40rem]',
+            'inset-x-2 top-[calc(max(0.5rem,var(--safe-top))+var(--titlebar-h))] bottom-[max(0.5rem,env(safe-area-inset-bottom))] mx-auto max-w-[40rem]',
             // Wide and tall enough: a panel above the launcher, which sits
             // above the tab bar.
             'panel-float:top-auto panel-float:right-4 panel-float:bottom-[calc(8.25rem+env(safe-area-inset-bottom))] panel-float:left-auto panel-float:h-[min(38rem,calc(100dvh-12.5rem-var(--titlebar-h)))] panel-float:w-[24rem]',

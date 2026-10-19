@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Toaster } from 'sonner';
 import { DesktopAlertOpener } from '@/components/desktop/desktop-alert-opener';
 import { DesktopTitleBar } from '@/components/desktop/desktop-title-bar';
+import { IosAppBridge } from '@/components/ios/ios-app-bridge';
 import { ServiceWorkerRegistrar } from '@/components/shell/service-worker';
 import { FRAME_BOOT_SCRIPT } from '@/lib/desktop/frame-boot';
 import './globals.css';
@@ -54,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         {/* eslint-disable-next-line no-restricted-syntax -- two static,
             self-authored constants with no external input: the standard
-            no-flash theme bootstrap, and the desktop app's top-bar flag
+            no-flash theme bootstrap, and the desktop and iPhone apps' flags
             (lib/desktop/frame-boot.ts). Neither can carry untrusted content.
             Every other surface in the app renders text through <PlainText>. */}
         <script dangerouslySetInnerHTML={{ __html: themeScript + FRAME_BOOT_SCRIPT }} />
@@ -76,6 +77,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <DesktopTitleBar />
         {/* Follows a click on a desktop alert (0.4.0 and newer); renders nothing. */}
         <DesktopAlertOpener />
+        {/* Links, alert taps and alert check-ins inside the iPhone app; renders nothing. */}
+        <IosAppBridge />
         {children}
         <ServiceWorkerRegistrar />
         <Toaster

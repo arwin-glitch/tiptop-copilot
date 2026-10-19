@@ -322,25 +322,40 @@ export function MessageBody({
         <div className="flex flex-wrap gap-1.5">
           {m.attachments.map((a, i) =>
             a.id ? (
-              <a
-                key={`${a.id}|${a.name}|${i}`}
-                href={`/api/inbox/attachment?${new URLSearchParams({
-                  m: m.id,
-                  a: a.id,
-                  name: a.name,
-                  type: a.mimeType,
-                }).toString()}`}
-                // A file the browser can show opens in a new tab; anything
-                // else downloads in place, so a half-written reply stays put
-                // and the desktop app leaves no blank window behind.
-                {...(opensInline(a.mimeType)
-                  ? { target: '_blank', rel: 'noopener noreferrer' }
-                  : { download: a.name })}
-                className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 text-xs hover:bg-[var(--bg-hover)]"
-              >
-                <Paperclip className="size-3" aria-hidden /> {a.name}
-                <span className="text-[var(--fg-subtle)]">{fileSize(a.size)}</span>
-              </a>
+              <React.Fragment key={`${a.id}|${a.name}|${i}`}>
+                <a
+                  href={`/api/inbox/attachment?${new URLSearchParams({
+                    m: m.id,
+                    a: a.id,
+                    name: a.name,
+                    type: a.mimeType,
+                  }).toString()}`}
+                  // A file the browser can show opens in a new tab; anything
+                  // else downloads in place, so a half-written reply stays put
+                  // and the desktop app leaves no blank window behind.
+                  {...(opensInline(a.mimeType)
+                    ? { target: '_blank', rel: 'noopener noreferrer' }
+                    : { download: a.name })}
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 text-xs hover:bg-[var(--bg-hover)]',
+                    !opensInline(a.mimeType) && 'ios-no-downloads:hidden',
+                  )}
+                >
+                  <Paperclip className="size-3" aria-hidden /> {a.name}
+                  <span className="text-[var(--fg-subtle)]">{fileSize(a.size)}</span>
+                </a>
+                {/* An iPhone app that cannot save a download: a file that only
+                  downloads is named, and opens on a computer. */}
+                {opensInline(a.mimeType) ? null : (
+                  <span
+                    title="Open this attachment on your computer."
+                    className="ios-no-downloads:inline-flex hidden items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 text-xs"
+                  >
+                    <Paperclip className="size-3" aria-hidden /> {a.name}
+                    <span className="text-[var(--fg-subtle)]">on your computer</span>
+                  </span>
+                )}
+              </React.Fragment>
             ) : (
               // The demo's attachments have no id: nothing to fetch.
               <span

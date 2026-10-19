@@ -26,6 +26,20 @@ import { finishedCampaignsSince, type FinishedCampaign } from './campaigns';
 import { buildReaders, readDocSendViews, type DocSendReader } from './docsend';
 import { getPrimaryIntegration } from './inbox';
 import { readFollowUps, type FollowUpsSnapshot } from './follow-ups';
+import type { IosAlertsStatus } from '@/lib/ios/shared';
+import {
+  alertsPreferences,
+  apnsSenderReady,
+  iosAlertsStatusFor,
+  listIosDevices,
+  noteApnsSender,
+  pendingTestAlerts,
+  removeGoneIosDevices,
+  routeChannels,
+  sweepIosDevices,
+  type GoneIosDevice,
+  type IosDevice,
+} from './ios-push';
 
 /**
  * Phone alerts (Web Push) for Nick.
@@ -51,7 +65,9 @@ import { readFollowUps, type FollowUpsSnapshot } from './follow-ups';
  *
  * The desktop app gets the same alerts by asking for them itself
  * (desktop-alerts.ts), with readAlertInputs, alertsFromInputs and
- * meetingAlerts below and a ledger of its own per computer.
+ * meetingAlerts below and a ledger of its own per computer. The iPhone app
+ * gets them through this same job and ledger, by Apple's push service
+ * (ios-push.ts): the outbox lists its tokens next to the subscriptions.
  */
 
 /** Public half of the VAPID pair; not a secret. The private half is a GitHub secret. */
@@ -102,8 +118,20 @@ export const SUBSCRIPTION_SCHEMA = z.object({
 });
 export type PushSubscriptionInput = z.infer<typeof SUBSCRIPTION_SCHEMA>;
 
+/** What a subscribing browser was: kept from now on, so an iPhone's can be told apart. */
+export type SubscriptionPlatform = 'ios' | 'mac' | 'other';
+
+export function subscriptionPlatform(userAgent: string | null | undefined): SubscriptionPlatform {
+  if (!userAgent) return 'other';
+  if (/\b(iPhone|iPod)\b/.test(userAgent)) return 'ios';
+  if (/Macintosh|Mac OS X/.test(userAgent)) return 'mac';
+  return 'other';
+}
+
 export interface StoredSubscription extends PushSubscriptionInput {
   userId: string | null;
+  /** Null for a row from before platforms were kept. */
+  platform: SubscriptionPlatform | null;
 }
 
 const endpointKey = (endpoint: string) => sha256(endpoint).slice(0, 40);
@@ -113,6 +141,7 @@ export async function saveSubscription(
   organizationId: string,
   userId: string,
   subscription: PushSubscriptionInput,
+  platform: SubscriptionPlatform = 'other',
 ): Promise<void> {
   const entityId = endpointKey(subscription.endpoint);
   await store.removeWhere('audit_events', organizationId, {
@@ -125,7 +154,7 @@ export async function saveSubscription(
     action: SUBSCRIPTION_ACTION,
     entity_type: 'push',
     entity_id: entityId,
-    metadata: { endpoint: subscription.endpoint, keys: subscription.keys },
+    metadata: { endpoint: subscription.endpoint, keys: subscription.keys, platform },
     ip_hash: null,
     created_at: new Date().toISOString(),
   };
@@ -155,9 +184,33 @@ export async function listSubscriptions(
   const out: StoredSubscription[] = [];
   for (const row of rows) {
     const parsed = SUBSCRIPTION_SCHEMA.safeParse(row.metadata);
-    if (parsed.success) out.push({ ...parsed.data, userId: row.user_id });
+    const platform = (row.metadata as Record<string, unknown>).platform;
+    if (parsed.success) {
+      out.push({
+        ...parsed.data,
+        userId: row.user_id,
+        platform:
+          platform === 'ios' || platform === 'mac' || platform === 'other' ? platform : null,
+      });
+    }
   }
   return out;
+}
+
+/** The signed-in person's iPhone app alerts, for Settings (ios-push.ts). */
+export async function iosAlertsStatus(
+  store: DataStore,
+  organizationId: string,
+  userId: string,
+  now: Date = new Date(),
+): Promise<IosAlertsStatus> {
+  const [subscriptions, devices, preferences, senderReady] = await Promise.all([
+    listSubscriptions(store, organizationId),
+    listIosDevices(store, organizationId),
+    alertsPreferences(store, organizationId),
+    apnsSenderReady(store, organizationId, now),
+  ]);
+  return iosAlertsStatusFor(userId, subscriptions, devices, preferences, now, senderReady);
 }
 
 export async function hasSubscription(
@@ -405,9 +458,22 @@ export async function ownerTimeZone(store: DataStore, organizationId: string): P
   }
 }
 
+/** One iPhone app to send to: its id (to report it gone), token and owner. */
+export interface OutboxApns {
+  key: string;
+  token: string;
+  userId: string | null;
+}
+
+/**
+ * One batch for the sender: these alerts, to these phones. `apns` is listed
+ * only to a sender that says it can send to Apple, and an older sender
+ * ignores it, so the app and the job can be deployed in either order.
+ */
 export interface OutboxEntry {
   organizationId: string;
   subscriptions: PushSubscriptionInput[];
+  apns: OutboxApns[];
   alerts: PushAlert[];
 }
 
@@ -559,36 +625,83 @@ export function resetPushAlertCaches(): void {
   meetingEventsCache.clear();
 }
 
+/** The fixed test alert ("Send a test alert"), for one person's phones. */
+export function testAlert(key: string): PushAlert {
+  return {
+    keys: [key],
+    title: 'Test alert',
+    body: 'Alerts reach this phone. Tap to open Settings.',
+    url: '/settings',
+    tag: 'test',
+  };
+}
+
 /**
- * What the sender job should push now, per organization with a subscribed
- * phone. The sender asks every minute for meetings only, and for everything
- * every half hour.
+ * What the sender job should push now, per organization with a phone that
+ * has alerts on (a web subscription or the iPhone app). The sender asks
+ * every minute for meetings only, and for everything every half hour.
+ *
+ * `apnsReady` is the sender saying it holds a working APNs key. Only then
+ * are iPhone app tokens listed and anyone's web push held back for their app
+ * (ios-push.ts routeChannels), so a missing or failing key never leaves a
+ * phone with nothing. `holdBack` false is the sender saying its APNs sends
+ * are failing right now (no answer, or Apple's side failing): the tokens are
+ * still listed, but nobody's web push is held back until Apple answers
+ * again. A test alert someone asked for is an entry of its own
+ * with only their phones, so not even an older sender shows it to anyone
+ * else; like meeting alerts, it ignores the 8am-8pm window.
  */
 export async function buildOutbox(
   store: DataStore,
   now: Date = new Date(),
   scope: OutboxScope = 'all',
+  { apnsReady = false, holdBack = true }: { apnsReady?: boolean; holdBack?: boolean } = {},
 ): Promise<OutboxEntry[]> {
   const organizations = (await store.list('organizations', '', {})) as Organization[];
   const out: OutboxEntry[] = [];
   for (const org of organizations) {
     try {
-      const subscriptions = await listSubscriptions(store, org.id);
-      if (!subscriptions.length) continue;
-      const [sent, tz] = await Promise.all([
+      if (scope === 'all') await sweepIosDevices(store, org.id, now);
+      const [subscriptions, devices] = await Promise.all([
+        listSubscriptions(store, org.id),
+        listIosDevices(store, org.id),
+      ]);
+      if (apnsReady) await noteApnsSender(store, org.id, now);
+      if (!subscriptions.length && !devices.length) continue;
+      const [sent, tz, preferences] = await Promise.all([
         alertedKeys(store, org.id, now),
         ownerTimeZone(store, org.id),
+        alertsPreferences(store, org.id),
       ]);
+      const toEntry = (
+        alerts: PushAlert[],
+        subs: readonly StoredSubscription[],
+        apps: readonly IosDevice[],
+      ): OutboxEntry => {
+        const routed = routeChannels(subs, apps, preferences, now, apnsReady, holdBack);
+        return {
+          organizationId: org.id,
+          subscriptions: routed.subscriptions.map(({ endpoint, keys }) => ({ endpoint, keys })),
+          apns: routed.devices.map(({ key, token, userId }) => ({ key, token, userId })),
+          alerts,
+        };
+      };
+
       const alerts: PushAlert[] = await meetingAlerts(store, org.id, sent, now, tz).catch(() => []);
       if (scope === 'all') {
         const inputs = await readAlertInputs(store, org.id, now, tz, { force: true });
         alerts.push(...alertsFromInputs(inputs, sent, now, tz));
       }
-      out.push({
-        organizationId: org.id,
-        subscriptions: subscriptions.map(({ endpoint, keys }) => ({ endpoint, keys })),
-        alerts,
-      });
+      out.push(toEntry(alerts, subscriptions, devices));
+
+      for (const test of await pendingTestAlerts(store, org.id, sent, now)) {
+        const entry = toEntry(
+          [testAlert(test.key)],
+          subscriptions.filter((s) => s.userId === test.userId),
+          devices.filter((d) => d.userId === test.userId),
+        );
+        if (entry.subscriptions.length || entry.apns.length) out.push(entry);
+      }
     } catch (error) {
       log.warn('Push outbox failed for an organization', {
         reason: (error as Error)?.message,
@@ -598,13 +711,17 @@ export async function buildOutbox(
   return out;
 }
 
-/** The sender job's report: ledger the delivered keys, drop endpoints the push service says are gone. */
+/**
+ * The sender job's report: ledger the delivered keys, drop endpoints the push
+ * service says are gone, and the iPhones Apple says are (ios-push.ts).
+ */
 export async function recordDelivery(
   store: DataStore,
   organizationId: string,
   sentKeys: readonly string[],
   goneEndpoints: readonly string[],
-): Promise<{ recorded: number; removed: number }> {
+  goneIphones: readonly GoneIosDevice[] = [],
+): Promise<{ recorded: number; removed: number; removedIphones: number }> {
   const created_at = new Date().toISOString();
   const keys = [...new Set(sentKeys)].slice(0, 200);
   if (keys.length) {
@@ -627,5 +744,6 @@ export async function recordDelivery(
   for (const endpoint of goneEndpoints.slice(0, 50)) {
     removed += await removeSubscription(store, organizationId, endpoint);
   }
-  return { recorded: keys.length, removed };
+  const removedIphones = await removeGoneIosDevices(store, organizationId, goneIphones);
+  return { recorded: keys.length, removed, removedIphones };
 }

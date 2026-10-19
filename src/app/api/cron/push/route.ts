@@ -11,10 +11,15 @@ export const maxDuration = 120;
 /**
  * The phone-alert outbox, for the push-alerts GitHub Actions job only.
  *
- * GET returns the alerts due now and the subscriptions to send them to; the
- * job signs and sends them with the VAPID private key it holds as a GitHub
- * secret. POST is the job's report: which alert keys were delivered (so they
- * never alert twice) and which endpoints the push service says are gone.
+ * GET returns the alerts due now and the phones to send them to; the job
+ * signs and sends them with the VAPID and APNs keys it holds as GitHub
+ * secrets. `?apns=1` is the job saying its APNs key is there and working:
+ * only then are iPhone app tokens listed, and web push held back for anyone
+ * whose app has their alerts (lib/services/ios-push.ts). `&fallback=1` adds
+ * that its APNs sends are failing right now: the tokens are still listed, and
+ * nothing is held back until Apple answers again. POST is the job's
+ * report: which alert keys were delivered (so they never alert twice), and
+ * which endpoints and iPhones the push services say are gone.
  *
  * Bearer CRON_SECRET, compared in constant time; refuses everyone when unset.
  */
@@ -42,7 +47,9 @@ export async function GET(request: NextRequest) {
   const denied = unauthorized(request);
   if (denied) return denied;
   const scope = request.nextUrl.searchParams.get('scope') === 'meetings' ? 'meetings' : 'all';
-  const outbox = await buildOutbox(getStore(), new Date(), scope);
+  const apnsReady = request.nextUrl.searchParams.get('apns') === '1';
+  const holdBack = request.nextUrl.searchParams.get('fallback') !== '1';
+  const outbox = await buildOutbox(getStore(), new Date(), scope, { apnsReady, holdBack });
   return NextResponse.json(
     { ok: true, publicKey: vapidPublicKey(), outbox },
     { headers: { 'Cache-Control': 'no-store' } },
@@ -53,6 +60,17 @@ const REPORT = z.object({
   organizationId: z.string().min(1).max(64),
   sent: z.array(z.string().min(1).max(200)).max(200),
   gone: z.array(z.string().url().max(1000)).max(50),
+  // From a sender with an APNs key; an older one leaves it out.
+  goneApns: z
+    .array(
+      z.object({
+        key: z.string().regex(/^[0-9a-f]{40}$/),
+        // When Apple confirmed the token stopped working (a 410's timestamp).
+        at: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .max(50)
+    .optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -65,7 +83,7 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  const { organizationId, sent, gone } = parsed.data;
-  const result = await recordDelivery(getStore(), organizationId, sent, gone);
+  const { organizationId, sent, gone, goneApns } = parsed.data;
+  const result = await recordDelivery(getStore(), organizationId, sent, gone, goneApns ?? []);
   return NextResponse.json({ ok: true, ...result });
 }

@@ -15,7 +15,8 @@ const ITEM =
  * just this page, in its columns and sort — and, for owners, the whole CRM
  * as a ZIP. Offered to members and above only, the roles the export routes
  * serve. Download links that show a refused or failed export as a toast
- * rather than saving its error as a file (DownloadLink).
+ * rather than saving its error as a file (DownloadLink). Not in an iPhone
+ * app that cannot save a download (html[data-ios-no-downloads]).
  */
 export function ExportMenu({
   viewHref,
@@ -31,7 +32,7 @@ export function ExportMenu({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="secondary" size="sm">
+        <Button variant="secondary" size="sm" className="ios-no-downloads:hidden">
           <Download aria-hidden="true" />
           Export
         </Button>

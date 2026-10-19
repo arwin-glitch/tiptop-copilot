@@ -220,6 +220,41 @@ Actions workflow signs and sends them. So:
 
 Generate a new pair with `npx web-push generate-vapid-keys`.
 
+### iPhone app alerts: `APNS_KEY_P8` (GitHub secret), `APNS_KEY_ID` and `APPLE_TEAM_ID` (GitHub variables)
+
+The TipTop Copilot iPhone app (`ios-app/`) gets the same alerts through Apple's
+push service (APNs), sent by the same `push-alerts` workflow. None of these is
+a Render variable: the app only decides what is due and lists the iPhones'
+tokens to the workflow (`/api/cron/push?apns=1`).
+
+- **`APNS_KEY_P8`** — a **GitHub repository secret**: the text of the APNs key
+  file (`AuthKey_<id>.p8`). The key must work with Apple's production push
+  service, which TestFlight builds use. Until it is set the
+  workflow sends Web Push only, and nobody's web push is held back for the app.
+- **`APNS_KEY_ID`** and **`APPLE_TEAM_ID`** — **GitHub repository variables**:
+  the key's 10-character id and the team's. With the secret set but either one
+  missing, the workflow logs an error and sends Web Push only.
+- **`APNS_TIME_SENSITIVE`** — optional **GitHub repository variable**. Set it
+  to `1` once the installed app carries the Time Sensitive Notifications
+  entitlement; meeting alerts are then sent as time-sensitive, so they get
+  through Focus. Unset, every alert is an ordinary one.
+
+The workflow lists the iPhones only after Apple has accepted the key (one
+check against a made-up device when a run starts). If Apple refuses the key,
+the workflow logs an error and leaves the iPhone app aside for an hour, during
+which Web Push carries the alerts. A run reads these values only when it
+starts, so after adding or changing one, cancel the `push-alerts` run in
+progress and start a new one (Run workflow). See
+[DECISIONS.md](DECISIONS.md) D-058.
+
+### iPhone app builds (GitHub only)
+
+`.github/workflows/ios.yml` signs and uploads the iPhone app with the
+repository secrets `ASC_KEY_P8`, `IOS_DIST_P12` and `IOS_DIST_P12_PASSWORD` and
+the repository variables `ASC_KEY_ID`, `ASC_ISSUER_ID` and `APPLE_TEAM_ID`.
+Every step that needs them is skipped until they exist. What each one is, and
+how to make it, is in [ios-app/README.md](ios-app/README.md).
+
 ### `GRANOLA_WEBHOOK_SECRET`
 
 Token required by `/api/integrations/granola/webhook`, the endpoint external

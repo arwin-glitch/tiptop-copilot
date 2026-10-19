@@ -93,6 +93,17 @@ describe('secrets and codes', () => {
     expect(platformFromUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe('windows');
     expect(platformFromUserAgent('curl/8.0')).toBe('other');
     expect(platformFromUserAgent(null)).toBe('other');
+    // An iPhone says "like Mac OS X"; the column has no iPhone value.
+    expect(
+      platformFromUserAgent(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 TipTopCopilotiOS/1.0.0',
+      ),
+    ).toBe('other');
+    expect(
+      platformFromUserAgent(
+        'Mozilla/5.0 (iPad; CPU OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1',
+      ),
+    ).toBe('other');
   });
 });
 

@@ -10,10 +10,11 @@ import {
 import { useDesktopApp } from '@/lib/desktop/use-desktop-app';
 
 /**
- * Settings > Preferences: the desktop app. In a browser, where to get it;
- * inside the app, which version this is and how it updates. From 0.2.0 the
- * app installs its own updates; an older one is pointed to /download once
- * more, with the newest version when the server looked it up.
+ * Settings > Preferences: the desktop app. In a browser, where to get it
+ * (in the iPhone app, to get it on a computer); inside the app, which version
+ * this is and how it updates. From 0.2.0 the app installs its own updates; an
+ * older one is pointed to /download once more, with the newest version when
+ * the server looked it up.
  */
 export function DesktopAppSetting({
   serverVersion = null,
@@ -73,9 +74,12 @@ export function DesktopAppSetting({
       <p className="mt-1 text-sm text-[var(--fg-muted)]">
         Copilot in its own window, with an icon in your Dock or taskbar.
       </p>
-      <Button asChild variant="secondary" size="sm" className="mt-3">
+      <Button asChild variant="secondary" size="sm" className="ios-app:hidden mt-3">
         <Link href="/download">Get the desktop app</Link>
       </Button>
+      <p className="ios-app:block mt-1 hidden text-sm text-[var(--fg-muted)]">
+        Do this on your computer: open Copilot there and choose Download.
+      </p>
     </div>
   );
 }

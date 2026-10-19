@@ -91,6 +91,8 @@ export type AuditAction =
   | 'mcp.tool_called'
   | 'push.desktop_enabled'
   | 'push.desktop_disabled'
+  | 'push.ios_enabled'
+  | 'push.ios_disabled'
   | 'thesis.updated'
   | 'account.data_deleted'
   | 'security.injection_flagged'

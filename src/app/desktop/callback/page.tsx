@@ -5,6 +5,7 @@ import { AuthShell } from '@/components/desktop/auth-shell';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/feedback';
 import { demoHandoffs, receiveCode, type CallbackView } from '@/lib/auth/desktop-handoff';
+import { iosSignInReturnUrl, isIphoneUserAgent } from '@/lib/ios/shared';
 import { getStore } from '@/lib/runtime';
 import { addressKey } from '@/lib/security/client-address';
 import { rateLimit } from '@/lib/security/limits';
@@ -60,6 +61,12 @@ function one(value: string | string[] | undefined): string | null {
  * Where Google sends the system browser during a desktop app sign-in
  * (lib/auth/desktop-handoff.ts). It never signs this browser in: it seals
  * Google's code for the app and shows the short code the person types there.
+ *
+ * The iPhone app signs in the same way, through Safari on the same phone,
+ * so an iPhone gets its wording from this request (the hand-off's platform
+ * column has no iPhone value) and an "Open TipTop Copilot" button: a link
+ * to the app's own scheme carrying the code, which the app types in only
+ * while its sign-in is open (components/desktop/desktop-sign-in.tsx).
  */
 export default async function DesktopCallbackPage({
   searchParams,
@@ -67,8 +74,10 @@ export default async function DesktopCallbackPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
+  const requestHeaders = await headers();
+  const iphone = isIphoneUserAgent(requestHeaders.get('user-agent'));
   let view: CallbackView | { kind: 'busy' };
-  if (!rateLimit(`desktop-callback:${addressKey(await headers())}`, 60, 60_000).ok) {
+  if (!rateLimit(`desktop-callback:${addressKey(requestHeaders)}`, 60, 60_000).ok) {
     view = { kind: 'busy' };
   } else {
     try {
@@ -99,7 +108,9 @@ export default async function DesktopCallbackPage({
       footer="This page never signs this browser in. The app signs in once you type the code there."
     >
       <p className="mt-1.5 text-sm text-[var(--fg-muted)]">
-        Type this code into the TipTop Copilot app on this computer.
+        {iphone
+          ? 'Tap Open TipTop Copilot below, or type this code into the TipTop Copilot app on your iPhone.'
+          : 'Type this code into the TipTop Copilot app on this computer.'}
       </p>
       <output
         data-testid="desktop-match-code"
@@ -108,6 +119,13 @@ export default async function DesktopCallbackPage({
       >
         {view.matchCode}
       </output>
+      {iphone ? (
+        <Button asChild variant="primary" size="lg" className="mt-4 w-full">
+          <a href={iosSignInReturnUrl(view.matchCode)} data-testid="ios-open-app">
+            Open TipTop Copilot
+          </a>
+        </Button>
+      ) : null}
       <p className="mt-3 text-sm text-[var(--fg-muted)]">
         It works for the next few minutes. Once the app has signed in, you can close this tab.
       </p>

@@ -3,6 +3,8 @@ import { cookies } from 'next/headers';
 import { authOrError } from '@/lib/auth/session';
 import { env } from '@/lib/config/env';
 import { buildAuthorizationUrl, googleConfigured } from '@/lib/google/oauth';
+import { computerOnlyPage } from '@/lib/ios/computer-only';
+import { isIosAppRequest } from '@/lib/ios/server';
 import { randomToken, signedValue } from '@/lib/security/crypto';
 import { rateLimit } from '@/lib/security/limits';
 import { statusForError } from '@/lib/util/result';
@@ -20,8 +22,14 @@ export const OAUTH_STATE_COOKIE = 'tiptop_oauth_state';
  *
  * `?send=1` is the "Turn on sending" button: the same flow, also asking for
  * the send scope. Only the email session's Send button uses it.
+ *
+ * Never from inside the iPhone app, where Google's consent screen cannot
+ * finish (lib/ios/computer-only.ts).
  */
 export async function GET(request: NextRequest) {
+  if (isIosAppRequest(request)) {
+    return computerOnlyPage('Connecting Google', { href: '/settings', label: 'Back to Settings' });
+  }
   const auth = await authOrError();
   if (!auth.ok) {
     return NextResponse.json(

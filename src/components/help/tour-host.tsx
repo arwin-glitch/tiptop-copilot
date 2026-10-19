@@ -565,7 +565,7 @@ function TourEngine() {
             'before:pointer-events-none before:absolute before:inset-x-5 before:top-0 before:h-px before:bg-[var(--gold)]',
             position.mode === 'float' ? 'w-[22rem]' : 'inset-x-3',
             position.mode === 'dock' && position.edge === 'top'
-              ? 'top-[calc(env(safe-area-inset-top)+0.75rem+var(--titlebar-h))]'
+              ? 'top-[calc(var(--safe-top)+0.75rem+var(--titlebar-h))]'
               : null,
             position.mode === 'dock' && position.edge === 'bottom'
               ? 'bottom-[calc(env(safe-area-inset-bottom)+4.75rem)]'

@@ -100,7 +100,9 @@ export function isActive(
  * Whether an entry is shown. A web-only entry is left out inside the desktop
  * app, which says so through useDesktopApp; inside a home-screen app it is
  * rendered but hidden by the `standalone:` variant (globals.css), since only
- * CSS can tell that window from a browser tab before the page paints.
+ * CSS can tell that window from a browser tab before the page paints, and
+ * inside the iPhone app by the `ios-app:` variant (its user agent, read
+ * before first paint).
  */
 function webOnly(item: (typeof NAV_ITEMS)[number]): boolean {
   return 'webOnly' in item && item.webOnly;
@@ -141,7 +143,10 @@ export function SidebarNav({ desktopVersion = null }: { desktopVersion?: string 
                 const active = isActive(pathname, item);
                 const Icon = item.icon;
                 return (
-                  <li key={item.href} className={webOnly(item) ? 'standalone:hidden' : undefined}>
+                  <li
+                    key={item.href}
+                    className={webOnly(item) ? 'standalone:hidden ios-app:hidden' : undefined}
+                  >
                     <Link
                       href={item.href}
                       aria-current={active ? 'page' : undefined}
@@ -258,7 +263,7 @@ export function MobileNav({ desktopVersion = null }: { desktopVersion?: string |
               key={item.href}
               className={cn(
                 'min-w-[4.75rem] flex-1 shrink-0 snap-start',
-                webOnly(item) && 'standalone:hidden',
+                webOnly(item) && 'standalone:hidden ios-app:hidden',
               )}
             >
               <Link

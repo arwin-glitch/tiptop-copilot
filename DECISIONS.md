@@ -1285,3 +1285,193 @@ which only activates the app (a Dock click brings the window back). Focus
 Assist and Do Not Disturb hold notifications back, as on phones. Release
 order matters: publish `desktop-v0.4.0` before the web side reaches master
 (desktop/README.md, checklist item 15).
+
+### D-058 — The iPhone app: the live site in a Capacitor shell, alerts through APNs, web push held back while the app is in touch
+
+(The next free number when written. If another branch took D-058 first,
+renumber on merge.)
+
+**Context.** Nick enrolled in the Apple Developer Program on 2026-10-19, so
+Copilot can have a real iPhone app (TestFlight, internal testers only) as well
+as the home-screen web app. The shell is `ios-app/`, a Capacitor 8.5.3 project
+that loads `https://copilot.tiptop.vc/`; its own README covers the native
+side, signing and TestFlight in detail. This entry records the web and
+server side, which ships through Render and stays dormant until an iPhone
+registers and the APNs key exists, and the choices about the shell and its
+builds (`.github/workflows/ios.yml`), which need no key until the first
+upload.
+
+**Decision.**
+
+- **The app is told apart by its user agent, as a hint only.** The shell
+  appends `TipTopCopilotiOS/<version>`. The pre-paint script sets
+  `html[data-ios-app]` from it (lib/desktop/frame-boot.ts; a unit test holds
+  it to `iosAppVersion()`), server renders read the same token
+  (`iosAppHint`), and nothing is granted because of it. A web view reports
+  `display-mode: browser`, so the `standalone:` variant cannot be used.
+- **Under the clock.** The web view runs full screen, so `--titlebar-h`
+  becomes `env(safe-area-inset-top)` in the app: the desktop top bar's
+  plumbing moves the page and every sticky bar down, and a fixed strip in the
+  phone's own light or dark background colour fills the space, so the time
+  always reads. Two panels that already added the inset themselves use
+  `--safe-top`, which is 0 in the app, so it is never counted twice.
+- **What cannot work there is hidden, with "Do this on your computer".**
+  Google's sign-in and consent pages refuse a web view, and the app hands
+  every other site to Safari, which has neither the Copilot session nor the
+  OAuth cookie. So the Google connect and "Turn on sending" links, the
+  Download tab and the desktop app link are hidden in the app, and as a
+  backstop `/api/integrations/google/start` answers a fixed "Do this on your
+  computer" page instead of redirecting when the request carries the token,
+  and `/api/auth/google` one that points back to the app's own sign-in
+  (signing in on a computer would not sign the app in). File downloads stay: from 1.0.0 the shell saves
+  them through the share sheet (`FIRST_IOS_DOWNLOADS_VERSION`; an app without
+  that hides them through `html[data-ios-no-downloads]`).
+- **Sign-in reuses the desktop hand-off.** The login page shows
+  DesktopSignIn in the app; Safari finishes Google on the same phone. The
+  callback page picks its iPhone wording from its own request and offers
+  "Open TipTop Copilot", a link to `vc.tiptop.copilot://signin?code=XXXX`,
+  which the app types in only while its own sign-in is open (a code arriving
+  at any other time is dropped). `/verify` still needs the poll cookie of the
+  app that started, so the anti-phishing design is unchanged.
+  `platformFromUserAgent` no longer calls an iPhone a Mac; the column has no
+  iPhone value, so iPhones are stored as `other` (no migration) and the
+  sign-in audit records `ios` from the app's own request.
+- **No `@capacitor/core` in the web app.** The shell defines
+  `window.Capacitor.Plugins.PushNotifications` and `.App` on every page it
+  loads (Capacitor's JSExport.swift and native-bridge.js), calling exactly
+  what the npm package would. lib/ios/native.ts uses those, looked up at call
+  time, so the web bundle and its lockfile carry nothing for the app.
+- **Links that would leave for Safari stay.** Capacitor sends every
+  `target="_blank"` link and `window.open` to Safari, same site included, so
+  in the app those to Copilot follow a plain link in the same window (the
+  page's own link guards still apply); the shell's swipe-back returns. A
+  meeting alert's `/go/meeting` asks `?format=json` for the join link and
+  goes to it: a redirect off the site would be cut off half-way, and
+  `window.open` is refused without a fresh tap.
+- **Alerts through APNs, from the same job and ledger.** The app's Settings
+  card asks for permission only when tapped, then the page posts the push
+  token to `/api/push/ios` (session, same origin, from the app, 10 an hour).
+  An iPhone is an `audit_events` row (`push.ios`, entity_id = the first 40
+  hex characters of the token's SHA-256), replaced each time the app checks
+  in (launch and resume, at most twice a day) and swept after 45 days or when
+  its person leaves the organization; 5 per person, 20 per organization. The
+  outbox lists the tokens next to the web subscriptions, and
+  `scripts/push-alerts.mjs` sends them over HTTP/2 with an ES256 provider
+  token (scripts/lib/apple-jwt.mjs, no dependency): production host, topic
+  `vc.tiptop.copilot`, push type alert, priority 10, collapse id = the
+  alert's tag, expiry 10 minutes for meetings and 6 hours otherwise, a new
+  provider token every 50 minutes. The ledger (`push.alerted`) is shared: an
+  alert counts once any phone took it.
+- **No double pings, and never silence.** While someone's app is in touch
+  (checked in within 8 days, on a build under 80 days old), their iPhone's
+  home-screen web push is held back, not deleted. Apple goes on taking pushes
+  for a deleted app for an unpredictable time, so going quiet is the only
+  reliable sign: after 8 days web push comes back by itself. Notifications
+  switched off in iOS Settings turn the app's row off on its next launch, so
+  web push returns at once. The app is sent to until Apple answers 410
+  (Unregistered or ExpiredToken; an app that checked in after the 410's
+  timestamp keeps its row), or 400 BadDeviceToken or DeviceTokenNotForTopic
+  (a token that can never work for `vc.tiptop.copilot`, which Apple says not
+  to retry). Each of those is about one iPhone only: the others still get
+  the alert in the same pass. Old web subscriptions
+  carry no platform, so an Apple one with none counts as an iPhone; new ones
+  record it. The home-screen app says when the app has the alerts and offers
+  "Send alerts here instead", which holds the app back instead (and the app
+  offers the way back). Above all, nothing is held back unless the sender
+  says its APNs key works (`?apns=1`), and it says so only after Apple has
+  accepted the key (a check against a made-up device when a run starts and
+  after each pause: 400 BadDeviceToken means the key, Key ID and Team ID are
+  right). A sender without the key, an older sender, or one whose key Apple
+  refused (set aside for an hour, then checked again) gets no tokens and
+  every web subscription. While Apple is not answering or its side fails
+  (no answer within 10 seconds, or a 5xx), the sender stops trying the app
+  for the rest of that pass and, for the next 15 minutes or until the app
+  next takes an alert, asks with `&fallback=1`: the tokens are still listed,
+  so an iPhone with only the app is tried every pass, but nobody's web push
+  is held back, so one with the home-screen web app too gets the alert that
+  way. A meeting alert, due for only about six minutes, is never left
+  waiting on a pause that outlasts it; a double ping is possible only in the
+  pass where Apple recovers.
+- **"Send a test alert".** A `push.test` row queues one real alert, sent on
+  the sender's next pass to that person's phones only, as an outbox entry of
+  its own (so not even an older sender shows it to anyone else).
+- **The sender's one helper travels with it.** push-alerts.yml copies
+  `scripts/lib/apple-jwt.mjs` next to the script, and a test runs the sender
+  from a folder holding exactly what that step copies, so an import the
+  workflow misses fails in CI rather than stopping Web Push on GitHub.
+  `web-push` is imported only when a VAPID key is set.
+- **The shell: Capacitor 8.5.3 with a remote `server.url`.** Pinned exactly
+  (`@capacitor/cli`, `core` and `ios` 8.5.3, `push-notifications` 8.1.3,
+  `app` 8.1.2) in `ios-app/` only. Capacitor's own `server.url` loads
+  `https://copilot.tiptop.vc/` (root and trailing slash, so no look-alike
+  host passes its prefix check). Capacitor's documentation says `server.url`
+  is meant for live reload, not production; that is acceptable for an
+  internal TestFlight build, which has no App Review. Chosen over Tauri's iOS target because Capacitor's push plugin
+  is official and gives the raw APNs token with no Firebase, and because
+  reusing `desktop/` would risk the Mac app's live updater. The committed
+  native project is Capacitor's template plus a listed set of changes,
+  which CI compares against a fresh `cap add ios` on every push.
+- **The shell answers only four plugins.** Capacitor registers HTTP,
+  Cookies and WebView plugins in every app, callable by any script on the
+  page; the shell's own view controller drops their calls and passes only
+  PushNotifications, App, SystemBars and Console, from the live site's
+  top-level page. It also ignores the cancelled (-999) and interrupted
+  (WebKit 102) loads Capacitor would cover with the offline page, saves
+  downloads through the share sheet, keeps same-site new-window links in the
+  app, and turns on swipe-back.
+- **Bundle ID `vc.tiptop.copilot`, shared with the Mac app.** One identifier
+  for both, as the plan chose; Developer ID signing of the Mac app does not
+  claim the App ID, so they do not clash today. It is permanent once the
+  first build is uploaded. Because the Mac app has the same identifier, the
+  TestFlight group's "test on Apple silicon Macs" setting stays off (it is
+  off by default), and a separate iPhone identifier would have to be chosen
+  before that first upload, never after.
+- **Signed by hand on the App target, uploaded for internal testing only.**
+  One Apple Distribution certificate (made from Arwin's signing request by
+  the Account Holder) lives in a GitHub secret and goes into a keychain made
+  for each run; the App Store profile holding it is found or made through
+  the App Store Connect API. The project file sets manual signing on the App
+  target alone, because signing settings on the `xcodebuild` command line
+  would also reach the Swift packages, which refuse them. Automatic signing
+  was rejected because each fresh runner would mint a new certificate. The
+  export sets `testFlightInternalTestingOnly`, so a build can never reach
+  external testers or the App Store.
+- **When builds happen.** Every push touching `ios-app/` builds for the
+  simulator and opens the app there, with no key. A tag `ios-vX.Y.Z`, a
+  manual upload, and a rebuild of the newest tag on the 1st of each month
+  (so the installed build never reaches TestFlight's 90-day expiry) sign and
+  upload, only once all six keys exist; until then they stop at a gate with
+  a notice, green. A failed monthly rebuild, or a certificate within 30 days
+  of its end, opens an issue rather than relying on someone reading a GitHub
+  email. Swift packages come from the committed `Package.resolved`, which a
+  branch build commits back (as the desktop lock job does), and an upload
+  refuses to resolve them afresh; every action the workflow uses is pinned
+  to a commit.
+
+**Threat model.** A script running on copilot.tiptop.vc inside the app could
+call the shell's plugins; the shell passes only App, PushNotifications,
+SystemBars and Console (ios-app/), and none of them reads data. The push token
+goes to Copilot only and is never shown; the page keeps only its SHA-256
+prefix and a timestamp in localStorage, and asks by that prefix, since query
+strings reach logs. Registering needs the session, same origin and the app's
+user agent; taking over a colleague's iPhone takes an admin. The APNs key
+lives only in GitHub, next to the VAPID key, and the sender never logs a
+token. A forged `TipTopCopilotiOS` user agent changes only layout and the
+Google links' answer.
+
+**Why.** It is what was asked for, it reuses the alert triggers, ledger and
+sender without changing them for web push, and every failure (no key, a
+refused key, a deleted app, an expired build) falls back to the web push Nick
+has today.
+
+**Known limits.** Time-sensitive delivery needs the entitlement in the build
+and the `APNS_TIME_SENSITIVE` variable; until then meeting alerts are ordinary
+ones, which Focus can hold. A sender change, or a new APNs key, takes over
+only when the running 5.5-hour loop ends (or is cancelled and started
+again). Everything in Certificates, Identifiers & Profiles (the APNs key,
+certificates, capabilities) needs Nick, the Account Holder of an Individual
+account, and Apple's agreement and certificate emails go to his Apple
+Account. Alerts go to every phone in the organization, as before,
+so Arwin's app gets Nick's alerts while it is on. The on-device checks (the
+status bar strip, the return link, a tap launching the app, a meeting link
+handed to the meeting app, the share sheet) are in ios-app/README.md.

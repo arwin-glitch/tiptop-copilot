@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/form';
 import { useDesktopApp } from '@/lib/desktop/use-desktop-app';
+import { useIosApp } from '@/lib/ios/use-ios-app';
 
 /**
  * Connect, disconnect and delete-data controls.
@@ -17,21 +18,26 @@ import { useDesktopApp } from '@/lib/desktop/use-desktop-app';
  * of friction the action deserves.
  *
  * Connecting goes through Google's consent screen, which refuses to open in
- * the desktop app's window, so there it points to the browser instead.
+ * the desktop app's window, so there it points to the browser instead, and in
+ * the iPhone app to a computer.
  */
 export function IntegrationControls({
   connected,
   canConnect,
   showDataDeletion = false,
   desktopVersion = null,
+  iosVersion = null,
 }: {
   connected: boolean;
   canConnect: boolean;
   showDataDeletion?: boolean;
   /** The desktop app's version hint from the server render (desktopVersionHint). */
   desktopVersion?: string | null;
+  /** The iPhone app's, likewise (iosAppHint). */
+  iosVersion?: string | null;
 }) {
   const inDesktopApp = Boolean(useDesktopApp(desktopVersion));
+  const inIosApp = Boolean(useIosApp(iosVersion));
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
   const [confirmText, setConfirmText] = React.useState('');
@@ -60,7 +66,11 @@ export function IntegrationControls({
   return (
     <div className="flex flex-wrap gap-2">
       {!connected && canConnect ? (
-        inDesktopApp ? (
+        inIosApp ? (
+          <p className="text-sm text-[var(--fg-muted)]">
+            Do this on your computer: connect Google from Copilot there.
+          </p>
+        ) : inDesktopApp ? (
           <p className="text-sm text-[var(--fg-muted)]">
             Connect Google from Copilot in your web browser.
           </p>

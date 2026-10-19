@@ -691,9 +691,10 @@ export function ResolveFlagButton({
   );
 }
 
+/** Not in an iPhone app that cannot save a download (html[data-ios-no-downloads]). */
 export function ExportMemoButton({ dealId, companyName }: { dealId: string; companyName: string }) {
   return (
-    <Button asChild variant="secondary" size="sm">
+    <Button asChild variant="secondary" size="sm" className="ios-no-downloads:hidden">
       <a href={`/api/deals/${dealId}/memo`} download={`${companyName}-memo.md`}>
         <Download aria-hidden="true" />
         Export memo
