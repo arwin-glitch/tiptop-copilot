@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Bell, BellOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
+  askAlertsShell,
   desktopAppVersion,
   desktopAlertsShell,
   desktopFrame,
@@ -74,8 +75,9 @@ async function onAtCopilot(device: string): Promise<boolean | null> {
 
 /**
  * Settings > Preferences: desktop alerts, the same alerts as phone alerts,
- * shown by the desktop app on this computer (0.4.0 and newer; D-057). Off
- * until someone turns them on here, per computer.
+ * shown by the desktop app on this computer (0.4.0 and newer; D-057), and
+ * from 0.4.1 Ask Arwin's answers to your own questions (D-058). Off until
+ * someone turns them on here, per computer.
  *
  * Inside the app's main window: Enable (asks the system for permission,
  * gets this computer's token from /api/push/desktop and hands it to the
@@ -96,6 +98,9 @@ export function DesktopAlertsSetting({
 }) {
   const router = useRouter();
   const [mode, setMode] = React.useState<Mode>(() => initialMode(desktopHint));
+  // Ask Arwin's answers alert only from 0.4.1 (D-058): an older app, which
+  // may wait days on Later, is not promised them.
+  const [askAlerts, setAskAlerts] = React.useState(() => askAlertsShell(desktopHint));
   const [busy, setBusy] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
   // The list as this card first rendered it, for the one check on mount.
@@ -126,7 +131,10 @@ export function DesktopAlertsSetting({
         }
         next = status ? { kind: 'ready', status } : { kind: 'unavailable' };
       }
-      if (!cancelled) setMode(next);
+      if (!cancelled) {
+        setMode(next);
+        setAskAlerts(askAlertsShell(version));
+      }
     })();
     return () => {
       cancelled = true;
@@ -283,6 +291,9 @@ export function DesktopAlertsSetting({
         </p>
       ) : (
         <p className="mt-1 text-sm text-[var(--fg-muted)]">
+          {askAlerts
+            ? 'On this computer they also come, at any hour, when Arwin answers your question, unless you’re looking at the app. '
+            : null}
           Alerts come while the app is running, even with its window closed (it stays in the tray on
           Windows and in the Dock on a Mac). Quitting the app pauses them until you open it again;
           signing out turns them off on this computer. Phone alerts are separate: turn them on from

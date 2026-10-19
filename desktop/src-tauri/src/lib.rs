@@ -6,7 +6,8 @@
 //! The live site and the fallback page may move, minimise, maximise and close
 //! that window, read its state, and open the menu under its top bar's ☰
 //! button (`frame.rs`). The live site alone may turn desktop alerts on or off
-//! for this computer and show their fixed test notification (`alerts.rs`).
+//! for this computer, show their fixed test notification, and ask for them
+//! within half a minute after a question to Ask Arwin (`alerts.rs`).
 //! Everything else native is here, driven from Rust: the menus (`menu.rs`),
 //! the in-app updates (`updates.rs`), the alerts themselves, links and
 //! downloads.
@@ -247,7 +248,8 @@ pub fn run() {
             alerts::alerts_request_permission,
             alerts::alerts_turn_on,
             alerts::alerts_turn_off,
-            alerts::alerts_test
+            alerts::alerts_test,
+            alerts::alerts_poll_soon
         ])
         .on_window_event(|window, event| match event {
             // Closing the main window hides it (tray on Windows, Dock on a Mac).

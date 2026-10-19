@@ -32,6 +32,42 @@ throughout.
   matched any From header containing the mailbox's address, so a lookalike
   such as `you@firm.com.other.example` showed as "(you)".
 
+- **Ask Arwin answers ping your computer (web and server side, desktop
+  0.4.1).** When Arwin answers a question you asked, your own computers with
+  desktop alerts on show "Arwin replied" (or "Arwin replied to N questions")
+  with the answer's first line as plain text, up to 100 characters, and a
+  click opens that conversation. Only the person who asked gets it: other
+  members' computers, Nick's included, never get yours. Not while you are
+  looking at the app: the alert carries a new `quietWhenFocused` flag, which
+  0.4.1 honours by counting it as shown and telling the page, whose widget
+  then reads that conversation, and the others answered in the last 10
+  minutes (a grouped alert names only the newest), and shows its own pop-up,
+  also for a question asked from a phone or a browser; an answer the full
+  Ask page showed as it landed is handed to the widget as seen, so it is not
+  announced twice. Any hour, no 8am-8pm window, but only for answers that
+  landed in the last 10 minutes, after the computer was turned on, and at
+  most 2 hours after the question, so a thread touched for another reason
+  never replays an answer older than that. Keys `ask:<answer id>` go in each
+  computer's ledger. While your own question waits (up to 30 minutes),
+  `GET /api/desktop/alerts` first settles answers from the Slack relay and
+  tells the app to ask again in 30 seconds, day or night, so an answer pings
+  about 30 seconds after it lands (up to 45). The widget also has the app
+  ask within 30 seconds straight after a question, so one asked at night
+  pings too. Sent only to apps from 0.4.1, by their User-Agent; Settings
+  mentions it in those apps only. Phones unchanged. No migration (D-058).
+- **Ask: a question goes only into your own conversation.** `ask()` now
+  refuses a thread id that belongs to someone else ("That conversation does
+  not exist.", as the widget's read already did), since its answer would
+  alert that person's computers (D-058).
+- **Desktop app 0.4.1: Ask Arwin answers as alerts.** An alert can ask to
+  stay quiet while the main window is shown, not minimised, in front and on
+  the live site; it then counts as shown, never comes later, and the page is
+  told (`tiptop-desktop-replied`, with the alert's path). A sixth page
+  command, `alerts_poll_soon`, lets the widget have the app ask within 30
+  seconds after a question: at most one poll per 30 seconds however often it
+  is called, and nothing while alerts are off, failed polls back off or
+  Copilot asked the app to wait. Either release order works. On-device
+  checks: desktop/README.md, item 16.
 - **Desktop app 0.3.1: new versions show up without asking.** The app now
   looks every hour instead of every 6, and also whenever its window comes to
   the front (at most every 15 minutes), so an app left open all day offers a

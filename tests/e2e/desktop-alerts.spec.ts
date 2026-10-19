@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import {
   alertCalls,
   FAKE_DEVICE,
@@ -14,7 +14,10 @@ import {
  * phone card in a browser, the update line in an older app, turning this
  * computer on and off (also across a tab switch before the page refreshed),
  * a computer Copilot no longer has, the blocked copy, a click on an alert
- * opening its page, and signing out turning the computer off.
+ * opening its page, signing out turning the computer off, and from 0.4.1 Ask
+ * Arwin answers: the line in Settings, the widget's own pop-up for an alert
+ * the shell held back (each answer it groups, never one read on the full Ask
+ * page), and the shell asked to poll soon when a question starts waiting.
  */
 
 const EMPTY = { cookies: [], origins: [] };
@@ -42,6 +45,45 @@ async function preferences(page: Page, options?: AlertsShellOptions) {
   await page.getByRole('tab', { name: 'Preferences' }).click();
 }
 
+/** Asks on the full Ask page (a conversation of its own); returns its id. */
+async function askOnFullPage(page: Page, question: string): Promise<string> {
+  await page.goto('/ask');
+  await page.getByLabel('Your question').fill(question);
+  await page.getByRole('button', { name: 'Ask', exact: true }).click();
+  await page.waitForURL(/\/ask\?thread=/);
+  await expect(page.getByText('AI-generated').first()).toBeVisible({ timeout: 30_000 });
+  const threadId = new URL(page.url()).searchParams.get('thread');
+  expect(threadId).toBeTruthy();
+  return threadId ?? '';
+}
+
+/**
+ * Today in the app, in a tab of its own (its widget has handled none of the
+ * answers yet). The demo store holds every other file's conversations too, so
+ * the recent ones its widget reads are narrowed to `threads`.
+ */
+async function appToday(context: BrowserContext, version: string, threads: readonly string[]) {
+  const app = await context.newPage();
+  await app.addInitScript(markAsAlertsDesktop, { version });
+  await app.route('**/api/ask/threads', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { threads?: { id: string }[] };
+    const json = { ...body, threads: (body.threads ?? []).filter((t) => threads.includes(t.id)) };
+    await route.fulfill({ response, json });
+  });
+  await app.goto('/today');
+  await expect(app.getByRole('heading', { level: 1 })).toBeVisible();
+  await app.bringToFront();
+  return app;
+}
+
+/** What the shell does when it holds back an alert because the app is in front. */
+async function heldBack(page: Page, path: string) {
+  await page.evaluate((detail) => {
+    window.dispatchEvent(new CustomEvent('tiptop-desktop-replied', { detail }));
+  }, path);
+}
+
 test('in a browser, the phone card as before', async ({ page }) => {
   await preferences(page);
   await expect(page.getByText('Phone alerts', { exact: true })).toBeVisible();
@@ -56,6 +98,16 @@ test('an app before 0.4.0 is told to update, and nothing asks its shell', async 
   ).toBeVisible();
   await expect(page.getByText('Phone alerts', { exact: true })).toHaveCount(0);
   expect(await alertCalls(page)).toEqual([]);
+});
+
+test('an app from 0.4.1 says Ask Arwin answers come too', async ({ page }) => {
+  await preferences(page, { version: '0.4.1' });
+  await expect(page.getByRole('button', { name: 'Enable alerts on this computer' })).toBeVisible();
+  await expect(
+    page.getByText(
+      /On this computer they also come, at any hour, when Arwin answers your question/,
+    ),
+  ).toBeVisible();
 });
 
 test('turn this computer on, test it, and turn it off', async ({ page, playwright, baseURL }) => {
@@ -77,6 +129,9 @@ test('turn this computer on, test it, and turn it off', async ({ page, playwrigh
       await route.continue().catch(() => {});
     },
   );
+  // A 0.4.0 app is not promised Ask Arwin answers (D-058).
+  await expect(page.getByRole('button', { name: 'Enable alerts on this computer' })).toBeVisible();
+  await expect(page.getByText(/when Arwin answers your question/)).toHaveCount(0);
   await page.getByRole('button', { name: 'Enable alerts on this computer' }).click();
 
   await expect(page.getByText('On for this computer.', { exact: true })).toBeVisible();
@@ -196,6 +251,71 @@ test('a click on an alert opens its page, and only an in-app one', async ({ page
 
   await fire('/calendar');
   await page.waitForURL(/\/calendar$/);
+});
+
+test('an Ask Arwin alert held back in the app pops up there, for each answer it groups', async ({
+  page,
+  context,
+}) => {
+  // Asked in a browser tab of their own: nothing in the app watched them.
+  const first = await askOnFullPage(page, 'Which founders wrote this week?');
+  const second = await askOnFullPage(page, 'What is waiting on me today?');
+  const app = await appToday(context, '0.4.1', [first, second]);
+  const card = app.locator('[data-ask-reply]');
+
+  // One alert for both, naming the newest, as the shell gets it.
+  await heldBack(app, `/ask?thread=${second}`);
+  await expect(card).toBeVisible({ timeout: 15_000 });
+  await expect(card).toContainText('Arwin replied to 2 questions');
+  await expect(card).toContainText('You asked: What is waiting on me today?');
+  await expect(card).toBeHidden({ timeout: 10_000 });
+
+  // Handled once: the same alert again shows nothing. Nor does an answer the
+  // full Ask page says landed on screen there.
+  const third = await askOnFullPage(page, 'Which deals moved this week?');
+  const answerId = await app.evaluate(async (id) => {
+    const response = await fetch(`/api/ask/thread?id=${encodeURIComponent(id)}`);
+    const body = (await response.json()) as { messages: { id: string }[] };
+    return body.messages[body.messages.length - 1]?.id ?? '';
+  }, third);
+  await app.evaluate(
+    (detail) => window.dispatchEvent(new CustomEvent('tiptop:ask-watch', { detail })),
+    { threadId: third, watching: false, answerId },
+  );
+  for (const threadId of [second, third]) {
+    const read = app.waitForResponse((r) =>
+      r.url().includes(`/api/ask/thread?id=${encodeURIComponent(threadId)}`),
+    );
+    await heldBack(app, `/ask?thread=${threadId}`);
+    await read;
+  }
+  await app.waitForTimeout(500);
+  await expect(card).toHaveCount(0);
+  await app.close();
+});
+
+test('a question starting to wait has a 0.4.1 app look for alerts soon, and an older one not', async ({
+  context,
+}) => {
+  for (const [version, asked] of [
+    ['0.4.1', true],
+    ['0.4.0', false],
+  ] as const) {
+    const app = await appToday(context, version, []);
+    const threadId = '00000000-0000-4000-8000-0000000e2e01';
+    await app.evaluate(
+      (detail) => window.dispatchEvent(new CustomEvent('tiptop:ask-watch', { detail })),
+      { threadId, watching: true },
+    );
+    // The widget took the conversation on...
+    await expect
+      .poll(() => app.evaluate(() => sessionStorage.getItem('tiptop-ask-watching') ?? ''))
+      .toContain(threadId);
+    // ...and asked the shell, from 0.4.1 only.
+    if (asked) await expect.poll(() => alertCalls(app)).toContain('alerts_poll_soon');
+    else expect(await alertCalls(app)).not.toContain('alerts_poll_soon');
+    await app.close();
+  }
 });
 
 test('signing out in the app turns this computer off first', async ({ browser, baseURL }) => {

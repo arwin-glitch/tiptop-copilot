@@ -196,7 +196,10 @@ export async function ask(
       )) as ChatThread | null)
     : null;
 
-  if (options.threadId && !thread) {
+  // Only the asker's own conversation, as readThreadView reads them: an
+  // answer alerts the thread's owner's computers (D-058), so a question added
+  // to someone else's thread would put words on their screen.
+  if (options.threadId && (!thread || thread.user_id !== auth.userId)) {
     return err('not_found', 'That conversation does not exist.');
   }
 

@@ -3,6 +3,8 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { hasRole, type AuthContext } from '@/lib/auth/session';
 import type { DataStore, Filter } from '@/lib/db/store';
 import {
+  compareVersions,
+  FIRST_ASK_ALERTS_VERSION,
   isInAppAlertPath,
   type DesktopComputer,
   type InstallerPlatform,
@@ -16,6 +18,13 @@ import { processWide } from '@/lib/util/process-state';
 import { err, ok, type Result } from '@/lib/util/result';
 import { addDaysToKey, isSupportedTimezone, localClock, wallTimeToUtc } from '@/lib/util/time';
 import {
+  askRepliesFor,
+  askReplyKey,
+  askReplyWords,
+  ASK_WAIT_POLL_SECONDS,
+  NO_ASK_REPLIES,
+} from './ask-reply-alerts';
+import {
   alertsFromInputs,
   meetingAlerts,
   ownerTimeZone,
@@ -25,16 +34,19 @@ import {
 } from './push-alerts';
 
 /**
- * Desktop alerts: the same alerts phones get (push-alerts.ts), shown by the
+ * Desktop alerts: the alerts phones get (push-alerts.ts), shown by the
  * desktop app from 0.4.0 as Windows toasts and macOS notifications (D-057).
+ * From desktop 0.4.1 also Ask Arwin answers, to the asker's own computers
+ * only (ask-reply-alerts.ts, D-058).
  *
  *   page ── POST /api/push/desktop ──> token for this computer (once)
  *   page ── IPC alerts_turn_on(token) ──> shell keeps it in its app data
  *   shell ── GET  /api/desktop/alerts ──> due alerts + when to ask again
  *   shell ── POST /api/desktop/alerts ──> "showed these" (this computer's ledger)
  *
- * The shell asks for itself, about once a minute, because a hidden window's
- * page cannot be relied on to run (WebKit suspends it on a Mac). Nothing is
+ * The shell asks for itself, about once a minute (every 30 seconds while its
+ * owner's Ask Arwin question waits), because a hidden window's page cannot
+ * be relied on to run (WebKit suspends it on a Mac). Nothing is
  * queued: each ask works the alerts out from the same inputs as the phone job
  * (cached per organization, so many computers cost no more Calendar or Slack
  * reads than one), then leaves out what this computer already showed.
@@ -58,7 +70,11 @@ export const DESKTOP_TOKEN_PREFIX = 'tcdsk_';
 export const DESKTOP_DEVICE_LIMIT = 20;
 /** Of those, how many one person may have turned on, so nobody can fill the rest. */
 export const DESKTOP_DEVICES_PER_USER = 5;
-/** The shell asks only from 6am to 9pm in the owner's timezone, as the phone job does. */
+/**
+ * The shell asks from 6am to 9pm in the owner's timezone, as the phone job
+ * runs; at night only while the computer's owner waits for an Ask Arwin
+ * answer (ask-reply-alerts.ts), or when the page asks it to after a question.
+ */
 export const POLL_FROM_HOUR = 6;
 export const POLL_UNTIL_HOUR = 21;
 /** How often the shell asks during the day. */
@@ -75,8 +91,11 @@ const LEDGER_DAYS = 60;
  * notification of their kind on the next ask.
  */
 export const ALERT_KEYS_MAX = 50;
-/** The kinds of key push-alerts.ts makes. Anything else a computer reports is ignored. */
-const KEY_PREFIXES = /^(meeting|money|top3|wait|risk|docsend|campaign):/;
+/**
+ * The kinds of key push-alerts.ts makes, and Ask Arwin answers
+ * (ask-reply-alerts.ts). Anything else a computer reports is ignored.
+ */
+const KEY_PREFIXES = /^(meeting|money|top3|wait|risk|docsend|campaign|ask):/;
 
 const DEVICE_RE = /^[0-9a-f]{32}$/;
 const TOKEN_RE = /^tcdsk_([0-9a-f]{32})_([0-9a-f]{32})_([A-Za-z0-9_-]{43})$/;
@@ -505,6 +524,12 @@ export interface DesktopAlert {
   url: string;
   /** A meeting about to start: kept on screen longer. */
   urgent: boolean;
+  /**
+   * Something the page shows whoever is looking (an Ask Arwin answer's
+   * "Arwin replied" pop-up): no notification while the app's main window is
+   * in front on the live site, and it counts as shown. From desktop 0.4.1.
+   */
+  quietWhenFocused: boolean;
 }
 
 /** A phone alert worded for a computer. Pure. */
@@ -515,7 +540,22 @@ export function toDesktopAlert(alert: PushAlert): DesktopAlert {
     body: alert.body.replace('Tap to join', 'Click to join'),
     url: isInAppAlertPath(alert.url) ? alert.url : '/today',
     urgent: alert.tag.startsWith('meeting-'),
+    quietWhenFocused: false,
   };
+}
+
+const SHELL_AGENT = /^TipTopCopilot\/(\d{1,4}\.\d{1,5}\.\d{1,6}) desktop-alerts$/;
+
+/**
+ * Whether the shell that sent this User-Agent (alerts.rs USER_AGENT) takes
+ * Ask Arwin answers: from FIRST_ASK_ALERTS_VERSION, which holds back an alert
+ * marked quietWhenFocused while its window is in front. A compatibility hint,
+ * never a permission: anyone can send any User-Agent; the token decides what
+ * is read.
+ */
+export function shellTakesAskReplies(userAgent: string | null): boolean {
+  const version = userAgent ? SHELL_AGENT.exec(userAgent.trim())?.[1] : undefined;
+  return version !== undefined && compareVersions(version, FIRST_ASK_ALERTS_VERSION) >= 0;
 }
 
 /** Whether the shell asks at this hour: 6am to 9pm in the owner's timezone. */
@@ -584,30 +624,59 @@ async function cachedInputs(
   }
 }
 
+/** Ask Arwin's answers for this computer's owner; none when they cannot be read. */
+async function askReplies(store: DataStore, caller: DesktopCaller, now: Date) {
+  try {
+    return await askRepliesFor(store, caller, now);
+  } catch (error) {
+    // Without this the answers and the 30-second cadence would go quietly.
+    log.warn('Ask Arwin answers could not be read for desktop alerts', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return NO_ASK_REPLIES;
+  }
+}
+
 /**
  * What one computer should show now, and when to ask again. Outside 6am-9pm
- * nothing is worked out at all. Meetings first, then campaigns, then the
- * rest, each without the keys this computer must not alert.
+ * only Ask Arwin answers are worked out. Meetings first, then Ask Arwin
+ * answers, then campaigns, then the rest, each without the keys this computer
+ * must not alert.
+ *
+ * Ask Arwin answers (`askReplies`, for a shell from 0.4.1 only: the endpoint
+ * decides by its User-Agent) come at any hour, to whoever asked, with a
+ * 30-second cadence while the caller's own question waits. Off unless asked
+ * for, so a caller cannot skip that check by leaving it out.
  */
 export async function desktopAlertsFor(
   store: DataStore,
   caller: DesktopCaller,
   now: Date = new Date(),
+  options: { askReplies?: boolean } = {},
 ): Promise<{ alerts: DesktopAlert[]; pollAfterSeconds: number }> {
   const timeZone = await cachedTimeZone(store, caller.organizationId, now);
-  const pollAfterSeconds = desktopPollAfterSeconds(now, timeZone);
-  if (!inDesktopPollWindow(now, timeZone)) return { alerts: [], pollAfterSeconds };
-  const sent = await desktopSentKeys(
-    store,
-    caller.organizationId,
-    caller.device,
-    caller.enabledAt,
-    now,
-  );
+  const inWindow = inDesktopPollWindow(now, timeZone);
+  let pollAfterSeconds = desktopPollAfterSeconds(now, timeZone);
+  // No quiet hours for these: the person just asked.
+  const replies = options.askReplies ? await askReplies(store, caller, now) : NO_ASK_REPLIES;
+  if (replies.waiting) pollAfterSeconds = Math.min(pollAfterSeconds, ASK_WAIT_POLL_SECONDS);
+  if (!inWindow && !replies.arrivals.length) return { alerts: [], pollAfterSeconds };
+  const sent = inWindow
+    ? await desktopSentKeys(store, caller.organizationId, caller.device, caller.enabledAt, now)
+    : await deviceLedger(store, caller.organizationId, caller.device, now);
+  const words = askReplyWords(replies.arrivals.filter((a) => !sent.has(askReplyKey(a.answerId))));
+  const asked: DesktopAlert[] = words ? [{ ...words, urgent: false, quietWhenFocused: true }] : [];
+  if (!inWindow) return { alerts: asked, pollAfterSeconds };
   const meetings = await meetingAlerts(store, caller.organizationId, sent, now, timeZone).catch(
     () => [],
   );
   const inputs = await cachedInputs(store, caller.organizationId, now, timeZone);
-  const alerts = [...meetings, ...alertsFromInputs(inputs, sent, now, timeZone)];
-  return { alerts: alerts.map(toDesktopAlert), pollAfterSeconds };
+  return {
+    alerts: [
+      ...meetings.map(toDesktopAlert),
+      ...asked,
+      ...alertsFromInputs(inputs, sent, now, timeZone).map(toDesktopAlert),
+    ],
+    pollAfterSeconds,
+  };
 }

@@ -3,5 +3,5 @@
 
 [[permission]]
 identifier = "allow-desktop-alerts"
-description = "Turn desktop alerts on or off for this computer, read whether they are on and allowed, ask the system for permission, and show the fixed test notification. Never reads the token back; never shows text a page supplies."
-commands.allow = ["alerts_state", "alerts_request_permission", "alerts_turn_on", "alerts_turn_off", "alerts_test"]
+description = "Turn desktop alerts on or off for this computer, read whether they are on and allowed, ask the system for permission, show the fixed test notification, and ask for the next poll within half a minute. Never reads the token back; never shows text a page supplies."
+commands.allow = ["alerts_state", "alerts_request_permission", "alerts_turn_on", "alerts_turn_off", "alerts_test", "alerts_poll_soon"]

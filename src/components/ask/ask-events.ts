@@ -35,6 +35,11 @@ export const ASK_WATCH_EVENT = 'tiptop:ask-watch';
 export interface AskWatchDetail {
   threadId: string;
   watching: boolean;
+  /**
+   * With `watching: false`, the answer that landed on screen there: seen, so
+   * neither the widget nor a held-back desktop alert (D-058) announces it.
+   */
+  answerId?: string;
 }
 
 export function watchAskReply(detail: AskWatchDetail): void {

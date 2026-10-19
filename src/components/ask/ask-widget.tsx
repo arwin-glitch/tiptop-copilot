@@ -18,7 +18,7 @@ import {
   askRequestFromParam,
   type AskRequest,
 } from '@/lib/chat/ask-link';
-import { replyAnnouncement, replyArrival } from '@/lib/chat/reply-notice';
+import { REPLY_DEFER_MAX_MS, replyAnnouncement, replyArrival } from '@/lib/chat/reply-notice';
 import {
   THREAD_STATUS_LABEL,
   historyLine,
@@ -26,6 +26,8 @@ import {
   type ThreadStatus,
   type ThreadSummary,
 } from '@/lib/chat/thread-summary';
+import { pollDesktopAlertsSoon } from '@/lib/desktop/native';
+import { askAlertsShell, desktopAppVersion, DESKTOP_REPLIED_EVENT } from '@/lib/desktop/shared';
 import { ignoreTitleBarPointer } from '@/lib/desktop/title-bar';
 import type { ChatMessage } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
@@ -56,7 +58,9 @@ import { useReplyNotices } from './use-reply-notices';
  * one (or a question left waiting on the full Ask page). An answer that lands
  * out of sight marks the launcher with a gold dot and pops up "Arwin replied"
  * above it for a few seconds (components/ask/reply-notice.tsx; the rules are
- * in lib/chat/reply-notice.ts).
+ * in lib/chat/reply-notice.ts). In the desktop app with desktop alerts on, the
+ * answer to Nick's own question also pings the computer while he is not
+ * looking at the app (D-058).
  *
  * `/ask` links anywhere in the app ("Ask about today", a deal's "IC memo")
  * open the widget instead of navigating, and any page opens it with
@@ -88,6 +92,11 @@ const BACKGROUND_POLL_MS = 8_000;
 const HIDDEN_POLL_MS = 30_000;
 /** An answer later than this is left to the history list. */
 const WATCH_MAX_MS = 30 * 60_000;
+/**
+ * A held-back desktop alert's other conversations read at most: one alert
+ * groups at most ten answers (lib/services/ask-reply-alerts.ts).
+ */
+const REPLIED_OTHERS_MAX = 9;
 
 interface DealScope {
   id: string;
@@ -240,6 +249,7 @@ export function AskWidget({
     arrive: arriveReply,
     dismiss: dismissReply,
     viewed: viewedReply,
+    known: knownReply,
   } = useReplyNotices(onScreenThreadId);
 
   /** Start (`since`) or stop (null) checking a conversation for its answer. */
@@ -248,6 +258,10 @@ export function AskWidget({
     if (since !== null) {
       if (map.has(threadId)) return;
       map.set(threadId, since);
+      // The desktop app looks for its alerts within half a minute, so the
+      // answer can ping this computer even at night, when it otherwise waits
+      // until 6am (D-058). Nothing outside the app or before 0.4.1.
+      if (askAlertsShell(desktopAppVersion())) void pollDesktopAlertsSoon();
     } else if (!map.delete(threadId)) {
       return;
     }
@@ -599,12 +613,14 @@ export function AskWidget({
     openPanel(request);
   });
 
-  // The full Ask page hands over a question it is waiting on.
+  // The full Ask page hands over a question it is waiting on, and says when
+  // its answer landed on screen there: read, so never announced here.
   React.useEffect(() => {
     const handleWatch = (event: Event) => {
       const detail = (event as CustomEvent<AskWatchDetail | undefined>).detail;
       if (!detail?.threadId) return;
       setWatch(detail.threadId, detail.watching ? Date.now() : null);
+      if (!detail.watching && typeof detail.answerId === 'string') knownReply(detail.answerId);
     };
     window.addEventListener(ASK_WATCH_EVENT, handleWatch);
     // Conversations still waiting before a reload. Deferred a tick: picking
@@ -616,7 +632,7 @@ export function AskWidget({
       window.removeEventListener(ASK_WATCH_EVENT, handleWatch);
       window.clearTimeout(timer);
     };
-  }, [setWatch]);
+  }, [knownReply, setWatch]);
 
   React.useEffect(() => {
     const handleOpen = (event: Event) =>
@@ -662,6 +678,53 @@ export function AskWidget({
     },
     [loadThread, noteLanded],
   );
+
+  /**
+   * The desktop app held back its "Arwin replied" alert because Nick is
+   * looking at it (0.4.1, D-058). The question may have been asked on a phone
+   * or in a browser, which nothing here watches, so the conversation is read
+   * (only his own: the routes check) and announced here instead. A grouped
+   * alert names only its newest conversation, so the others answered in the
+   * last ten minutes are read too; an answer already handled here is skipped.
+   */
+  const onDesktopReplied = React.useEffectEvent(async (path: unknown) => {
+    if (typeof path !== 'string') return;
+    const named = askRequestFromHref(path, window.location.href)?.threadId;
+    if (!named) return;
+    const since = Date.now() - REPLY_DEFER_MAX_MS;
+    const listed = await getJson<{ threads: ThreadSummary[] }>('/api/ask/threads');
+    const others = listed.ok
+      ? listed.data.threads
+          .filter(
+            (t) =>
+              t.id !== named && t.status === 'answered' && Date.parse(t.lastActivityAt) >= since,
+          )
+          .sort((a, b) => Date.parse(a.lastActivityAt) - Date.parse(b.lastActivityAt))
+          .slice(-REPLIED_OTHERS_MAX)
+      : [];
+    // Oldest first and the named one last: the pop-up opens the newest, as
+    // the alert would have.
+    const threadIds = [...others.map((t) => t.id), named];
+    const reads = await Promise.all(
+      threadIds.map((id) => getJson<ThreadPayload>(`/api/ask/thread?id=${encodeURIComponent(id)}`)),
+    );
+    reads.forEach((result, i) => {
+      const threadId = threadIds[i];
+      if (!threadId || !result.ok || result.data.messages.some(isPendingAnswer)) return;
+      noteLanded(threadId, result.data.messages);
+    });
+    // The conversation in the panel, open or not, is brought up to date.
+    const inPanel = convThreadRef.current;
+    if (inPanel && threadIds.includes(inPanel)) void loadThread(inPanel, convKey.current, true);
+  });
+
+  React.useEffect(() => {
+    if (!askAlertsShell(desktopAppVersion())) return;
+    const handleReplied = (event: Event) =>
+      void onDesktopReplied((event as CustomEvent<unknown>).detail);
+    window.addEventListener(DESKTOP_REPLIED_EVENT, handleReplied);
+    return () => window.removeEventListener(DESKTOP_REPLIED_EVENT, handleReplied);
+  }, []);
 
   // Every other conversation with an answer on its way: one asked before
   // starting another, or left waiting on the full Ask page.

@@ -6,12 +6,14 @@ import {
   inDesktopPollWindow,
   mintDesktopToken,
   parseDesktopToken,
+  shellTakesAskReplies,
   toDesktopAlert,
 } from '@/lib/services/desktop-alerts';
 
 /**
  * Desktop alerts, the pure parts: the token's shape, when the shell asks
- * again, and how a phone alert is worded for a computer.
+ * again, how a phone alert is worded for a computer, and which shells take
+ * Ask Arwin answers.
  */
 
 const ORG = '0f0e0d0c-0b0a-4908-8706-050403020100';
@@ -96,6 +98,7 @@ describe('a phone alert, worded for a computer', () => {
       body: '10:05 AM · with Jordan Lee · Click to join',
       url: '/go/meeting?id=evt1',
       urgent: true,
+      quietWhenFocused: false,
     });
   });
 
@@ -121,5 +124,31 @@ describe('a phone alert, worded for a computer', () => {
     });
     expect(alert).toMatchObject({ url: '/today', urgent: false });
     expect(alert).not.toHaveProperty('tag');
+  });
+});
+
+describe('which shells take Ask Arwin answers', () => {
+  it('0.4.1 and newer, by the User-Agent the shell sends', () => {
+    for (const agent of [
+      'TipTopCopilot/0.4.1 desktop-alerts',
+      'TipTopCopilot/0.10.0 desktop-alerts',
+      'TipTopCopilot/1.0.0 desktop-alerts',
+    ]) {
+      expect(shellTakesAskReplies(agent), agent).toBe(true);
+    }
+  });
+
+  it('nothing older, and nothing else', () => {
+    for (const agent of [
+      'TipTopCopilot/0.4.0 desktop-alerts',
+      null,
+      '',
+      'Mozilla/5.0',
+      'TipTopCopilot/0.4.1',
+      'TipTopCopilot/0.4.1 desktop-alerts extra',
+      'TipTopCopilot/latest desktop-alerts',
+    ]) {
+      expect(shellTakesAskReplies(agent), String(agent)).toBe(false);
+    }
   });
 });

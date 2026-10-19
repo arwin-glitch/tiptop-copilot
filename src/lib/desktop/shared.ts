@@ -167,11 +167,38 @@ export function desktopAlertsShell(version: string | null): boolean {
 }
 
 /**
+ * From 0.4.1 Ask Arwin's answers are desktop alerts too (D-058): the shell
+ * holds back an alert marked `quietWhenFocused` while the person is looking at
+ * Copilot, and the page may ask it to poll within half a minute after a
+ * question. Copilot sends those alerts only to a shell this new or newer (by
+ * its User-Agent); an older one would show them on top of the page's own
+ * "Arwin replied" pop-up.
+ */
+export const FIRST_ASK_ALERTS_VERSION = '0.4.1';
+
+/** Whether a desktop app of this version alerts Ask Arwin's answers (null: not inside the app). */
+export function askAlertsShell(version: string | null): boolean {
+  return version !== null && compareVersions(version, FIRST_ASK_ALERTS_VERSION) >= 0;
+}
+
+/**
  * The DOM event the shell fires in its main window when someone clicks an
  * alert, with the alert's in-app path as `detail`
  * (components/desktop/desktop-alert-opener.tsx follows it like a link).
  */
 export const DESKTOP_ALERT_OPEN_EVENT = 'tiptop-desktop-open';
+
+/**
+ * The DOM event the shell (0.4.1+) fires in its main window when it holds
+ * back a `quietWhenFocused` alert because the person is looking at Copilot,
+ * with the alert's in-app path as `detail`. The Ask Arwin widget reads the
+ * conversation a `/ask?thread=` path names (and the others answered in the
+ * last ten minutes, which a grouped alert does not name) and shows its own
+ * "Arwin replied" pop-up, so an answer to a question asked elsewhere (a
+ * phone, a browser) still gets a signal. Any page script can fire it; all it
+ * does is owner-checked reads.
+ */
+export const DESKTOP_REPLIED_EVENT = 'tiptop-desktop-replied';
 
 /**
  * An alert's in-app path: starts with one `/`, at most 300 characters, and

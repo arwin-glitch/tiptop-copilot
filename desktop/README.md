@@ -24,13 +24,14 @@ full screen, zoom) and, on Windows, `show_app_menu`. These three act only on
 the window that calls them; Tauri's drag commands accept another window's
 name, so a page could also drag or maximise a second window. The second
 bridge, from 0.4.0, is for desktop alerts: the live site alone (not the
-bundled page) may call five commands declared in
+bundled page) may call six commands declared in
 `src-tauri/permissions/desktop-alerts.toml`: `alerts_state`,
-`alerts_request_permission`, `alerts_turn_on`, `alerts_turn_off` and
-`alerts_test`. None of them reads the alerts token back or shows text the
-page supplies (see "How desktop alerts work"). Second windows themselves get
-nothing, there is no `window.__TAURI__` object, and no plugin (links,
-updates, window state) is reachable from a page. Everything else the shell
+`alerts_request_permission`, `alerts_turn_on`, `alerts_turn_off`,
+`alerts_test` and, from 0.4.1, `alerts_poll_soon`. None of them reads the
+alerts token back or shows text the page supplies (see "How desktop alerts
+work"). Second windows themselves get nothing, there is no
+`window.__TAURI__` object, and no plugin (links, updates, window state) is
+reachable from a page. Everything else the shell
 does is in Rust (`src-tauri/src/`):
 
 - **Where links go** (`nav.rs`, unit-tested). The live site loads in the
@@ -97,8 +98,9 @@ does is in Rust (`src-tauri/src/`):
 - **Updates** (`updates.rs`, unit-tested). From 0.2.0 the app installs new
   versions of itself; see "How updates work" below.
 - **Desktop alerts** (`alerts.rs`, unit-tested, from 0.4.0). The alerts
-  phones get, as Windows toasts and Mac notifications, while the app runs,
-  also with its window hidden; see "How desktop alerts work" below.
+  phones get, and from 0.4.1 Ask Arwin's answers to whoever asked, as
+  Windows toasts and Mac notifications, while the app runs, also with its
+  window hidden; see "How desktop alerts work" below.
 
 The fallback page checks the site is up by loading `/icon-192.png` from it,
 so keep that file served by the web app.
@@ -279,11 +281,33 @@ and Mac notifications (`src-tauri/src/alerts.rs`).
   money items, the morning top three, relationships waiting, portfolio
   companies newly at risk, a meeting about 5 minutes before it starts,
   campaign receipts and DocSend opens; each item once per device, and
-  nothing but meetings outside 8am to 8pm in the owner's time zone. They are
-  per computer and off by default: Settings > Preferences > Desktop alerts >
-  Enable alerts on this computer. Phone alerts are separate, so a phone and a
-  computer each ping, as two phones would. An item a phone got before the
-  computer was turned on does not ping the computer.
+  nothing but meetings outside 8am to 8pm in the owner's time zone. From
+  0.4.1 also Ask Arwin's answers, on computers only and at any hour (below).
+  They are per computer and off by default: Settings > Preferences > Desktop
+  alerts > Enable alerts on this computer. Phone alerts are separate, so a
+  phone and a computer each ping, as two phones would. An item a phone got
+  before the computer was turned on does not ping the computer.
+- **Ask Arwin answers (0.4.1).** When Arwin answers a question you asked,
+  your own computers with alerts on show "Arwin replied" (or "Arwin replied
+  to N questions") and the answer's first line, up to 100 characters of
+  plain text; a click opens that conversation (`/ask?thread=…`) in the
+  widget, or on the Ask page if you were there. Not while you are looking at
+  the app (main window shown, not minimised, in front, on the live site),
+  where the page's own pop-up says so: Copilot marks these alerts
+  `quietWhenFocused`, and the shell then counts the alert as shown, so it
+  never comes later, and tells the page (a `tiptop-desktop-replied` event
+  with the alert's path), which shows its pop-up also for a question asked
+  from a phone or a browser, and for every answer of the last 10 minutes it
+  has not shown yet (a grouped alert names only the newest). Any hour, no
+  8am-8pm window. Only answers that landed in the last 10 minutes, after
+  the computer was turned on, and at most 2 hours after their question: an
+  answer that takes longer never pings (Ask's history still has it).
+  "Landed" is when the conversation was last touched, so one touched for
+  another reason can replay, once, an answer up to 2 hours old that this
+  computer never showed (one from before it was turned on). "You" is
+  whoever turned alerts on for that computer: other people's questions
+  never ping it, but on a shared computer the first person's answers keep
+  coming after someone else signs in, until alerts are turned off for it.
 - **Why the shell asks, not the page.** On a Mac, WebKit suspends a hidden
   window's page (the app is built with the macOS 15 SDK or newer); WebView2
   slows a hidden page's timers to once a minute after five minutes; and the
@@ -295,12 +319,17 @@ and Mac notifications (`src-tauri/src/alerts.rs`).
   and talks to no other host.
 - **When.** About once a minute from 6am to 9pm in the owner's time zone.
   Copilot's answer says when to ask next, so at night the app asks nothing
-  until 6am and the web service can sleep. Meetings follow the same window,
-  which is when phones get them too. After a failed poll it waits 1, 2, then
-  5 minutes, and 15 minutes once Copilot has failed for about 20 minutes. A
-  laptop that slept asks within 15 seconds of waking. On a Mac, App Nap is
-  held off from the first poll with alerts on until the app quits, because a
-  meeting's alert has six and a half minutes to arrive.
+  until 6am and the web service can sleep, unless a question waits. Meetings
+  follow the same window, which is when phones get them too. While a
+  question you asked in the last 30 minutes waits for its answer, Copilot
+  asks the app to come back every 30 seconds, day or night, so the answer
+  pings about 30 seconds after it lands (up to 45). Asking in the app also
+  has it ask within about 30 seconds (`alerts_poll_soon`), so a question
+  asked at night still pings that computer. After a failed poll it waits 1,
+  2, then 5 minutes, and 15 minutes once Copilot has failed for about 20
+  minutes. A laptop that slept asks within 15 seconds of waking. On a Mac,
+  App Nap is held off from the first poll with alerts on until the app
+  quits, because a meeting's alert has six and a half minutes to arrive.
 - **The token.** Enable asks the system for permission first (a Mac shows
   its Allow question; Windows asks nothing). Copilot then issues a token for
   this computer to the signed-in page, which hands it straight to the shell.
@@ -308,10 +337,11 @@ and Mac notifications (`src-tauri/src/alerts.rs`).
   (`%LOCALAPPDATA%\vc.tiptop.copilot`, which does not roam to other PCs;
   `~/Library/Application Support/vc.tiptop.copilot`, readable by this user
   only), with this computer's id and the alerts already shown. No page can
-  read it back. It reads alert summaries (the same text phones show) and
-  says which were shown on this computer; nothing else: no Gmail, CRM,
-  drafts or sending. Copilot keeps only its hash, and it never expires,
-  like a phone's subscription.
+  read it back. It reads alert summaries (the same text phones show), from
+  0.4.1 the first line of its owner's own new Ask Arwin answers and whether
+  one of their questions waits, and says which were shown on this computer;
+  nothing else: no Gmail, CRM, drafts or sending. Copilot keeps only its
+  hash, and it never expires, like a phone's subscription.
 - **Turning them off.** Turn off in Settings; signing out in the app (which,
   unlike on a phone, also turns them off on this computer); the "Computers
   with desktop alerts" list in Settings on any device, for a lost computer;
@@ -334,7 +364,8 @@ and Mac notifications (`src-tauri/src/alerts.rs`).
 - **Mac.** The first Enable shows macOS's Allow question. Don't Allow, or
   turning notifications off later in System Settings > Notifications, makes
   Settings say they are blocked. Banners also show while the app is in
-  front.
+  front, except Ask Arwin's answers (0.4.1), which the page announces itself
+  while its window is the key window.
 - **Clicks.** A click brings the main window forward and opens the alert's
   page the way a link in the page would, so a campaign that is sending still
   asks "Leave while sending?" first. A meeting with a video link opens in the
@@ -348,21 +379,28 @@ and Mac notifications (`src-tauri/src/alerts.rs`).
   page; one from Action Center may only bring the app forward (see Known
   limitations).
 - **What a page can do with it.** A script on the live page could turn this
-  computer's alerts on or off (it already has the session) and show the
-  fixed test notification, "Alerts work on this computer." It cannot read
-  the token, write a notification's text through the shell, change where
-  the app asks, or use these commands from the bundled page or a second
-  window. A token issued for another computer is refused. What a
-  notification says comes only from Copilot, over the token's own requests.
-  But the shell takes any token for its own id, so such a script could
-  hand over one from an organization of its own: this computer would then
-  show that organization's alerts until Turn off (D-057 accepts this; the
-  script already holds the session).
+  computer's alerts on or off (it already has the session), show the fixed
+  test notification, "Alerts work on this computer.", and ask for the next
+  poll within 30 seconds (`alerts_poll_soon`; at most one poll per 30
+  seconds however often it is called, and nothing while alerts are off,
+  failed polls back off or Copilot asked the app to wait). It cannot read
+  the token, write a notification's text through the shell, mark an alert
+  quiet, change where the app asks, or use these commands from the bundled
+  page or a second window. A token issued for another computer is refused.
+  What a notification says comes only from Copilot, over the token's own
+  requests. But the shell takes any token for its own id, so such a script
+  could hand over one from an organization of its own: this computer would
+  then show that organization's alerts until Turn off (D-057 accepts this;
+  the script already holds the session).
 - **Release order.** Publish `desktop-v0.4.0` before the web side of desktop
   alerts reaches `master`: tag the branch once its `lock` job has committed
   `Cargo.lock`. Otherwise 0.3.x shows "Update the app to get desktop alerts"
   while Check for Updates… still finds nothing newer. 0.4.0 with the old web
   side is harmless: the old Settings page never calls these commands.
+  0.4.1 and its web side can ship in either order: Copilot sends Ask answers
+  only to 0.4.1 and newer, by the app's User-Agent, an older app quietly
+  refuses `alerts_poll_soon`, and 0.4.1 with the old web side never gets a
+  quiet alert or a call to it.
 - **If Windows drops toasts from Action Center** (checklist item 15): the
   fix is to register `HKCU\Software\Classes\AppUserModelId\vc.tiptop.copilot`
   with `DisplayName`, `IconUri` and `CustomActivator` (a CLSID), plus
@@ -403,7 +441,30 @@ job strips stray line breaks and spaces anyway.
   opened. Phone alerts are separate (app webviews can't receive Web Push), and
   Settings says to turn those on from a phone.
 - Desktop alerts follow the owner's time zone (6am to 9pm, quiet hours 8pm to
-  8am), whoever's computer it is.
+  8am), whoever's computer it is. Ask Arwin answers have no quiet hours, but
+  the app's night sleep follows the same time zone.
+- Ask Arwin answers (0.4.1) at night (9pm to 6am owner time) wake only the
+  computer the question was asked from, in the app. Your other computers,
+  and questions asked in a browser or on a phone, ping in the day window
+  only. An answer that takes more than 30 minutes at night never pings: the
+  30-second polls stop when the wait does, and by 6am the answer is more
+  than 10 minutes old.
+- "Looking at the app" is the main window in front on the live site, so
+  there is no toast and the answer waits in the app when that window is in
+  front on another monitor, on an unlocked PC with the display off, or with
+  nobody at the desk; a live page without the widget (sign-in) counts too.
+  An answer read in the page just before you switch away can still ping
+  once (polls are up to 45 seconds apart), and after a toast the page's own
+  pop-up may show as well when you come back within 10 minutes; it can also
+  name an answer you read on a phone or in a browser in the last 10
+  minutes. A browser tab of Copilot on the same computer can pop up beside
+  a toast: the app cannot see the browser.
+- An Ask Arwin answer more than 2 hours after its question never pings,
+  even by day. A conversation touched for another reason (a deal deleted
+  from under it) can replay, once, an answer up to 2 hours old that this
+  computer never showed, such as one from before it was turned on.
+- On a shared computer, Ask answers go to whoever turned its alerts on, even
+  after someone else signs in, until alerts are turned off for it.
 - On a Mac, a click on an alert more than 15 minutes old, or one macOS
   reports as a dismissal, activates the app with no window; click the Dock
   icon. App Nap stays held off from the first alerts poll until the app
@@ -631,7 +692,38 @@ job strips stray line breaks and spaces anyway.
         the computer was turned on; an item the phone already had does not
         ping the computer.
       - Nothing arrives between 9pm and 6am owner time, and only meetings
-        outside 8am to 8pm.
+        outside 8am to 8pm (from 0.4.1, Ask Arwin answers aside: item 16).
       - Clicking an alert while a campaign is sending asks "Leave while
         sending?".
       - Alerts stay on after updating to 0.4.x.
+16. Ask Arwin answers (0.4.1), alerts on, a fictional question. Windows and
+    Mac:
+    - Ask in the widget and keep the app in front: the answer appears in the
+      app (in the open conversation, or with the "Arwin replied" pop-up if
+      the panel was closed or showed another conversation), no toast or
+      banner, and none comes after you switch away.
+    - Ask on the Ask page, wait for the answer there, then go to Today: no
+      "Arwin replied" pop-up for it, and no toast.
+    - Ask from a phone or a browser while the app is in front: no toast, and
+      the app's own pop-up shows when the answer lands. Two such questions
+      answered together: "Arwin replied to 2 questions" in the app too.
+    - Ask, then switch to another app: "Arwin replied" with the answer's
+      first line, about 30 seconds (at most 45) after the answer lands. A
+      click brings the window forward with that conversation open in the
+      widget, or on the Ask page if you were there.
+    - Ask, then minimise; ask, then close to the tray (Windows) or ⌘W (Mac);
+      ask, then bring a second app window (an attachment) or the update
+      question to the front: each pings.
+    - Two questions answered together give one "Arwin replied to 2
+      questions".
+    - Ask in the app after 9pm owner time, then hide it: it pings within
+      about 30 to 45 seconds of the answer landing.
+    - A colleague's question never pings your computer.
+    - Windows: with the screen locked, does the toast show or land in Action
+      Center? With the app in front and the display off but the session
+      unlocked, it is held back (expected; the answer waits in the app).
+      With Focus Assist on, the toast goes quietly to Action Center and
+      counts as shown.
+    - Mac: a banner does not show while the window is key, and does while
+      another app is active. Note what happens with the screen locked or the
+      screensaver on while the window is key.

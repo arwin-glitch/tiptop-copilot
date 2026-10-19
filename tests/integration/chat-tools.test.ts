@@ -274,6 +274,26 @@ describe('ask', () => {
     if (!result.ok) expect(result.error.code).toBe('not_found');
   });
 
+  it("refuses a colleague's thread, whose answers alert their computers", async () => {
+    const at = new Date().toISOString();
+    const threadId = '00000000-0000-4000-8000-0000000a5a01';
+    await harness.store.insert('chat_threads', {
+      id: threadId,
+      organization_id: harness.auth.organizationId,
+      user_id: '00000000-0000-4000-8000-0000000c0b02',
+      title: 'A fictional colleague’s question',
+      deal_id: null,
+      created_at: at,
+      updated_at: at,
+    });
+    const result = await ask(harness.auth, 'anything', { threadId });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('not_found');
+    expect(await getThread(harness.auth.organizationId, threadId)).toMatchObject({
+      messages: [],
+    });
+  });
+
   it('cannot write when writes are disabled', async () => {
     const before = await harness.store.count('tasks', harness.auth.organizationId);
     const result = await ask(harness.auth, 'Create a task to call the Vetrix founders.', {

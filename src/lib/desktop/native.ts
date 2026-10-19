@@ -5,11 +5,12 @@
  * (D-056), move, minimise, maximise and close that window, read its state,
  * and open the File, Edit and View menu under the bar's menu button; for
  * desktop alerts (0.4.0, D-057), turn them on or off for this computer, read
- * whether they are on and allowed, ask the system for permission, and show
- * the fixed test notification. The page can hand the shell its alerts token
- * but never read it back, and no call shows text the page supplies; the
- * shell takes any token for its own device id, so the page decides which
- * organization's alerts this computer follows.
+ * whether they are on and allowed, ask the system for permission, show the
+ * fixed test notification, and ask for the next poll within half a minute
+ * (0.4.1, D-058). The page can hand the shell its alerts token but never
+ * read it back, and no call shows text the page supplies; the shell takes
+ * any token for its own device id, so the page decides which organization's
+ * alerts this computer follows.
  *
  * Client-only, and every call is a no-op outside the app: there is no
  * `@tauri-apps/api` here, only the shell's own `__TAURI_INTERNALS__.invoke`,
@@ -128,4 +129,15 @@ export async function turnOffDesktopAlerts(): Promise<DesktopAlertsStatus | null
 /** The shell's fixed test notification: "Alerts work on this computer." */
 export async function testDesktopAlert(): Promise<DesktopAlertsStatus | null> {
   return alertsStatus(await call('alerts_test', {}));
+}
+
+/**
+ * Asks the shell to look for this computer's alerts within half a minute
+ * (0.4.1+): called when a question to Ask Arwin starts waiting, so its answer
+ * pings even at night, when the shell otherwise waits until 6am. Shows
+ * nothing itself; does nothing while alerts are off, and an app before 0.4.1
+ * refuses it (quietly: this resolves either way).
+ */
+export async function pollDesktopAlertsSoon(): Promise<void> {
+  await call('alerts_poll_soon', {});
 }

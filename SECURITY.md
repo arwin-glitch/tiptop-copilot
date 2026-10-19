@@ -159,10 +159,13 @@ The desktop app's alerts (D-057) use a per-computer bearer token
 (`tcdsk_…`), minted once by the signed-in, same-origin `/api/push/desktop`
 and handed to the shell, which never gives it back to the page. Only its
 SHA-256 is stored, compared in constant time; it reads that organization's
-alert summaries and records what that computer showed, nothing else. Turn
-off, signing out in the app, Settings' list of computers and leaving the
-organization (checked on every request) revoke it; it has no expiry, like a
-phone subscription.
+alert summaries, from desktop 0.4.1 the first 100 characters of its owner's
+own new Ask Arwin answers and whether one of their questions waits (D-058),
+and records what that computer showed, nothing else. While that person
+waits, a read also settles answers from the Slack relay, the same write the
+Ask page's polls already make. Turn off, signing out in the app, Settings'
+list of computers and leaving the organization (checked on every request)
+revoke it; it has no expiry, like a phone subscription.
 
 ---
 

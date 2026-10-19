@@ -143,15 +143,22 @@ export function AskClient({
 
   // The Ask Arwin widget keeps checking once Nick leaves this page, so an
   // answer that lands later still pops up wherever he is. One that lands
-  // here was seen here.
+  // here was seen here, and the widget is told which, so neither it nor a
+  // held-back desktop alert announces it again (D-058).
   const watchedThread = React.useRef<string | null>(null);
+  const last = messages[messages.length - 1];
+  const landed = !hasOutstandingBridgeAnswer && last?.role === 'assistant' ? last : null;
+  const landedId = landed?.id ?? null;
+  const landedThread = landed?.thread_id ?? null;
   React.useEffect(() => {
     let detail: AskWatchDetail | null = null;
     if (hasOutstandingBridgeAnswer && activeThread) {
       watchedThread.current = activeThread;
       detail = { threadId: activeThread, watching: true };
     } else if (!hasOutstandingBridgeAnswer && watchedThread.current) {
-      detail = { threadId: watchedThread.current, watching: false };
+      const threadId = watchedThread.current;
+      detail = { threadId, watching: false };
+      if (landedId && landedThread === threadId) detail.answerId = landedId;
       watchedThread.current = null;
     }
     if (!detail) return;
@@ -162,7 +169,7 @@ export function AskClient({
     // the widget ignores a repeat.
     const send = detail;
     window.setTimeout(() => watchAskReply(send), 0);
-  }, [hasOutstandingBridgeAnswer, activeThread]);
+  }, [hasOutstandingBridgeAnswer, activeThread, landedId, landedThread]);
 
   return (
     <div className="flex flex-col">

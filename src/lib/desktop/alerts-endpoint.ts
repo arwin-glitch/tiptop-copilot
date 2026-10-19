@@ -10,6 +10,7 @@ import {
   parseDesktopToken,
   recordDesktopDelivery,
   removeDesktopDevice,
+  shellTakesAskReplies,
 } from '@/lib/services/desktop-alerts';
 import { processWide } from '@/lib/util/process-state';
 
@@ -17,7 +18,8 @@ import { processWide } from '@/lib/util/process-state';
  * /api/desktop/alerts: what the desktop app's shell asks with its token, with
  * no session (lib/services/desktop-alerts.ts, D-057).
  *
- *   GET     the alerts due for this computer, and when to ask again
+ *   GET     the alerts due for this computer, and when to ask again (Ask
+ *           Arwin answers only to a shell from 0.4.1, by its User-Agent)
  *   POST    { delivered: keys[] }: which ones it showed (its ledger)
  *   DELETE  turn alerts off for this computer (Turn off, signing out)
  *
@@ -171,7 +173,9 @@ export async function handleDesktopAlerts(
 
   try {
     if (method === 'GET') {
-      const { alerts, pollAfterSeconds } = await desktopAlertsFor(store, caller, now());
+      const { alerts, pollAfterSeconds } = await desktopAlertsFor(store, caller, now(), {
+        askReplies: shellTakesAskReplies(request.headers.get('user-agent')),
+      });
       if (alerts.length) log.info('Desktop alerts due', { count: alerts.length });
       return json({ ok: true, alerts, pollAfterSeconds });
     }

@@ -41,6 +41,11 @@ export interface ReplyNotices {
   dismiss: () => void;
   /** A conversation was put on screen. */
   viewed: (threadId: string) => void;
+  /**
+   * An answer read where it landed, outside the widget (the full Ask page):
+   * remembered as seen, so nothing announces it again.
+   */
+  known: (answerId: string) => void;
 }
 
 export function useReplyNotices(onScreenThreadId: () => string | null): ReplyNotices {
@@ -79,23 +84,36 @@ export function useReplyNotices(onScreenThreadId: () => string | null): ReplyNot
     }
   }, []);
 
+  // Read once, on the first answer handled: answers seen before a reload count.
+  const load = React.useCallback(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    stateRef.current = {
+      ...stateRef.current,
+      seen: rememberSeen(readSeen(), stateRef.current.seen),
+    };
+  }, []);
+
   const arrive = React.useCallback(
     (arrival: ReplyArrival, options: { onScreen?: boolean } = {}): ReplyOutcome => {
-      if (!loadedRef.current) {
-        // Read once, on the first answer: answers seen before a reload count.
-        loadedRef.current = true;
-        stateRef.current = {
-          ...stateRef.current,
-          seen: rememberSeen(readSeen(), stateRef.current.seen),
-        };
-      }
+      load();
       const ctx = context();
       if (options.onScreen) ctx.onScreenThreadId = arrival.threadId;
       const { state, outcome } = arriveReply(stateRef.current, arrival, ctx);
       commit(state);
       return outcome;
     },
-    [commit, context],
+    [commit, context, load],
+  );
+
+  const known = React.useCallback(
+    (answerId: string) => {
+      load();
+      const state = stateRef.current;
+      if (state.seen.includes(answerId)) return;
+      commit({ ...state, seen: rememberSeen(state.seen, [answerId]) });
+    },
+    [commit, load],
   );
 
   const dismiss = React.useCallback(() => commit(dismissReply(stateRef.current)), [commit]);
@@ -130,7 +148,7 @@ export function useReplyNotices(onScreenThreadId: () => string | null): ReplyNot
     };
   }, [commit, context]);
 
-  return { notice, arrive, dismiss, viewed };
+  return { notice, arrive, dismiss, viewed, known };
 }
 
 function readSeen(): string[] {

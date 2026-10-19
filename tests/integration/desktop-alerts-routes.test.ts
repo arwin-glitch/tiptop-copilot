@@ -9,7 +9,7 @@ import {
 import { setStoreForTesting } from '@/lib/runtime';
 import { resetLimiters } from '@/lib/security/limits';
 import { mintDesktopToken } from '@/lib/services/desktop-alerts';
-import type { AuditEvent } from '@/lib/types/domain';
+import type { AuditEvent, ChatMessage } from '@/lib/types/domain';
 import { ok } from '@/lib/util/result';
 import { proxy } from '@/proxy';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
@@ -63,10 +63,11 @@ function page(method: 'POST' | 'DELETE', body: unknown, origin = ORIGIN) {
 
 function shell(
   method: 'GET' | 'POST' | 'DELETE',
-  options: { token?: string | null; body?: string; from?: string } = {},
+  options: { token?: string | null; body?: string; from?: string; agent?: string } = {},
 ) {
   const headers: Record<string, string> = { 'x-forwarded-for': options.from ?? ip };
   if (options.token) headers.authorization = `Bearer ${options.token}`;
+  if (options.agent) headers['user-agent'] = options.agent;
   if (options.body !== undefined) headers['content-type'] = 'application/json';
   return new Request(`${ORIGIN}/api/desktop/alerts`, { method, headers, body: options.body });
 }
@@ -181,7 +182,14 @@ describe('/api/desktop/alerts', () => {
     expect(noon.pollAfterSeconds).toBe(60);
     expect(noon.alerts.length).toBeGreaterThan(0);
     for (const alert of noon.alerts) {
-      expect(Object.keys(alert).sort()).toEqual(['body', 'keys', 'title', 'urgent', 'url']);
+      expect(Object.keys(alert).sort()).toEqual([
+        'body',
+        'keys',
+        'quietWhenFocused',
+        'title',
+        'urgent',
+        'url',
+      ]);
     }
   });
 
@@ -216,6 +224,54 @@ describe('/api/desktop/alerts', () => {
     expect(
       (await handleDesktopAlerts(shell('POST', { token, body: huge }), 'POST', at)).status,
     ).toBe(413);
+  });
+
+  it('Ask Arwin answers reach a 0.4.1 shell only', async () => {
+    const token = await turnOn();
+    // The route turns the computer on by the real clock, so the answer lands after it.
+    const at = new Date().toISOString();
+    const threadId = '00000000-0000-4000-8000-00000000a001';
+    const answerId = '00000000-0000-4000-8000-00000000b001';
+    const { organizationId, userId } = harness.auth;
+    await harness.store.insert('chat_threads', {
+      id: threadId,
+      organization_id: organizationId,
+      user_id: userId,
+      title: 'A fictional question',
+      deal_id: null,
+      created_at: at,
+      updated_at: at,
+    });
+    const row = (id: string, role: 'user' | 'assistant', content: string): ChatMessage => ({
+      id,
+      organization_id: organizationId,
+      thread_id: threadId,
+      role,
+      content,
+      citations: [],
+      tool_calls: [],
+      model: null,
+      prompt_version: null,
+      status: 'answered',
+      created_at: at,
+    });
+    await harness.store.insertMany('chat_messages', [
+      row('00000000-0000-4000-8000-00000000c001', 'user', 'Who leads the fictional round?'),
+      row(answerId, 'assistant', 'Fictional Capital leads it.'),
+    ]);
+
+    const ask = async (agent?: string) => {
+      const res = await handleDesktopAlerts(shell('GET', { token, agent }), 'GET');
+      const body = (await res.json()) as {
+        alerts: { keys: string[]; quietWhenFocused: boolean }[];
+      };
+      return body.alerts.filter((a) => a.keys.some((k) => k.startsWith('ask:')));
+    };
+    expect(await ask()).toEqual([]);
+    expect(await ask('TipTopCopilot/0.4.0 desktop-alerts')).toEqual([]);
+    expect(await ask('TipTopCopilot/0.4.1 desktop-alerts')).toMatchObject([
+      { keys: [`ask:${answerId}`], quietWhenFocused: true },
+    ]);
   });
 
   it('turns itself off: the token stops working', async () => {

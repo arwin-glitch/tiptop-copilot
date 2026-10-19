@@ -497,9 +497,10 @@ unsafe extern "system" {
 }
 
 /// Whether `window` is the window in front. Its webview has the keyboard
-/// focus, but the window in front is still the top-level one.
+/// focus, but the window in front is still the top-level one. (Also
+/// alerts.rs: whether an Ask Arwin answer needs a notification.)
 #[cfg(windows)]
-fn in_front<R: Runtime>(window: &WebviewWindow<R>) -> bool {
+pub(crate) fn in_front<R: Runtime>(window: &WebviewWindow<R>) -> bool {
     let Ok(hwnd) = window.hwnd() else {
         return false;
     };

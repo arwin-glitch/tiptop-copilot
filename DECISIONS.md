@@ -1241,8 +1241,9 @@ to use a phone.
   meeting window is not slept through.
 - **A second narrow bridge, under D-056's rules.** Five commands
   (`alerts_state`, `alerts_request_permission`, `alerts_turn_on`,
-  `alerts_turn_off`, `alerts_test`), for the live site in the main window
-  only, not the fallback page; no event listening, no plugin, no `*:default`.
+  `alerts_turn_off`, `alerts_test`; a sixth, `alerts_poll_soon`, from 0.4.1:
+  D-058), for the live site in the main window only, not the fallback page;
+  no event listening, no plugin, no `*:default`.
   This narrows D-054's "hiding phone alerts": the web app now hides the
   phone card in the app and shows the desktop one.
 
@@ -1285,3 +1286,134 @@ which only activates the app (a Dock click brings the window back). Focus
 Assist and Do Not Disturb hold notifications back, as on phones. Release
 order matters: publish `desktop-v0.4.0` before the web side reaches master
 (desktop/README.md, checklist item 15).
+
+### D-058 — Ask Arwin answers alert the asker's computers
+
+**Context.** Asked for on 2026-10-19: "when arwin chatbot replies, it should
+ping an alert to our pc as well". The Ask Arwin widget already showed a
+3.5-second "Arwin replied" pop-up and a gold dot when an answer landed, but
+only in a page that was watching that conversation, and a hidden window's
+page cannot be relied on to run (D-057). In production answers arrive later,
+through the Ask bridge, often while the person is in another app.
+
+**Decision.**
+
+- **A new kind of desktop alert, per person.** `ask:<answer id>`, worked out
+  when the shell asks, like the rest (`lib/services/ask-reply-alerts.ts`).
+  Only computers whose row was turned on by the thread's owner
+  (`chat_threads.user_id`) get it: other members' computers get nothing, and
+  neither do Nick's unless he asked. The organization comes from the token
+  and membership is re-checked on every request, as in D-057.
+- **One notification per ask, worded as the pop-up.** "Arwin replied", or
+  "Arwin replied to N questions" when several land together; the newest
+  answer's first line as plain text (Slack and Markdown removed, code fences
+  skipped), 100 characters at most, else "You asked: <question>", else "The
+  answer is ready to read." Never the full answer or markup. A click opens
+  `/ask?thread=<id>` through the existing alert opener, so the widget opens
+  the conversation (the Ask page, if that is where the person is).
+- **Nothing old replays.** An answer counts when its thread was touched after
+  the computer was turned on and in the last 10 minutes (the pop-up's own
+  limit), and its row is at most 2 hours old. A thread's `updated_at` is the
+  only "answered at" (a bridge answer keeps its row's `created_at`, the
+  question's time), but every update to the row bumps it, including the
+  `on delete set null` of a deleted deal, so the row's age keeps such a
+  thread from replaying days-old answers. Times are compared as instants:
+  Supabase writes `+00:00`, JavaScript `Z`.
+- **Quiet while the person is looking.** Each alert carries
+  `quietWhenFocused` (false for everything else). From 0.4.1 the shell counts
+  such an alert as shown, without a notification, while the main window is
+  shown, not minimised, in front (Windows: the foreground window, since a
+  window whose WebView2 has focus does not report itself focused; a Mac: the
+  key window) and on the live site; it is remembered and acknowledged like
+  any other, so it never shows later. The shell then fires
+  `tiptop-desktop-replied` with the alert's path, and the widget reads that
+  conversation (owner-checked) and shows its own pop-up, so an answer to a
+  question asked from a phone or a browser still gets a signal. A grouped
+  alert names only its newest conversation, so the widget also reads the
+  person's conversations answered in the last 10 minutes; an answer the
+  full Ask page showed when it landed there is handed to the widget as seen,
+  so neither announces it again.
+- **Any hour, and sooner while waiting.** No quiet hours: the person just
+  asked. While their own question has waited less than 30 minutes (the
+  widget's watch limit), the GET first settles answers from the Slack relay
+  (throttled process-wide, nothing without a relay token) and tells the
+  shell to come back in 30 seconds, the soonest it takes, day or night. With
+  the shell's 15-second tick an answer pings about 30 seconds after it lands,
+  45 at most. Asked in the app, the widget also calls `alerts_poll_soon`, so
+  the shell, asleep until 6am at night, asks within 30 seconds: a working
+  day in another time zone can fall entirely inside Copilot's night.
+- **Only to a shell that can stay quiet.** Ask alerts and the 30-second hint
+  go only to a shell whose User-Agent is `TipTopCopilot/<v> desktop-alerts`
+  with v at least 0.4.1 (`FIRST_ASK_ALERTS_VERSION`); a 0.4.0 shell would
+  toast on top of the page's own pop-up. The User-Agent is a compatibility
+  hint, never a permission: the token decides what is read. Settings
+  promises Ask alerts only inside a 0.4.1 app, since an older one may wait
+  days on the updater's Later. Either release order works.
+- **Phones unchanged.** push-alerts.ts, the shared alerts summary and the
+  phone ledger do not change. No migration.
+
+**Threat model.** No new cross-user path: the only selector is the thread
+owner equal to the device row's owner, inside the token's organization, and
+a token works only in the shell with its own device id. Ledger rows hold an
+answer id, never text, and logs stay counts-only. A stolen token now also
+reads the first 100 characters of its owner's new Ask answers, for 10
+minutes after each lands, and whether a question waits (a 30-second hint
+instead of 60); it can pre-acknowledge `ask:` keys for its own computer
+only, inside the unchanged 300-a-day cap, and is revoked the same ways. An
+XSS on the live page can call `alerts_poll_soon`, at most one extra poll per
+30 seconds and never during a failure backoff or a Retry-After, and fire
+`tiptop-desktop-replied`, which only makes the widget read the signed-in
+person's own conversations (the recent list and at most ten of them) and
+show the pop-up it would show anyway; it cannot set a notification's text,
+the flag or its click target. Answer text, which email content can shape
+through the routine, is shown as plain text (WinRT toast text, a Mac's
+notification strings), with control and bidi characters flattened in Rust;
+the click target is built by the server from the thread id and checked by
+the server, the shell and the page. Flooding: nothing older than 10 minutes
+or the computer's turn-on, at most 10 threads read and one notification per
+ask, a per-computer ledger plus the shell's three-day seen list. Load: two
+asks a minute per computer, only while its owner's own question has waited
+less than 30 minutes; an idle ask costs one indexed thread read. The
+answer's first line can show on the lock screen and in Action Center or
+Notification Center, the same class of text as phone alerts (D-057).
+Alerts follow the thread's owner, so `ask()` now refuses a thread id that is
+not the asker's own ("That conversation does not exist.", as the widget's
+read already did): before, a member who knew a colleague's thread id could
+add a question to it and have the answer, shaped by that question, pop up on
+the colleague's computers, and keep them polling every 30 seconds while it
+waited. Still pre-existing and out of scope: the full Ask page shows any
+thread of the organization by its id.
+
+**Why.** It is what was asked for, it reaches the person in another app or
+with the window hidden, and it reuses D-057's token, ledger, limits and
+click path rather than adding a second channel.
+
+**Known limits.**
+
+- At night (9pm to 6am in the owner's timezone, not the asker's) only the
+  computer the question was asked from, in the app, wakes. The person's
+  other computers, and questions asked in a browser or on a phone, ping in
+  the day window only. An answer that takes more than 30 minutes at night
+  never pings: the 30-second asks stop when the wait does, and by 6am it is
+  over 10 minutes old.
+- "Looking" is the main window in front on the live site, so there is no
+  notification (the answer waits in the app) when that window is in front on
+  another monitor, on an unlocked PC with the display off, or with nobody at
+  the desk; a live page without the widget (sign-in) counts too. Whether a
+  locked Windows session counts as in front is an on-device check.
+- An answer read in the page just before the person switches away can still
+  ping once (asks are up to 45 seconds apart), and after a notification the
+  page's own pop-up may also show on return within 10 minutes. When an alert
+  is held back, the widget's pop-up counts every answer of the last 10
+  minutes it has not handled in that window, so it can also name one read
+  on a phone or in a browser. A browser tab of Copilot on the same computer
+  can pop up beside a notification: the shell cannot see the browser.
+- On a shared computer, answers go to whoever turned its alerts on, even
+  after someone else signs in, until alerts are turned off for it (Sign out
+  in the app does that; a session that expires does not).
+- An answer more than 2 hours after its question never alerts; Ask's
+  history still shows it. A thread touched for another reason can still
+  replay, once, an answer up to 2 hours old that this computer never showed
+  (one that landed before it was turned on).
+- In-process answers (the demo, tests) arrive within the request, so they
+  never call `alerts_poll_soon`.

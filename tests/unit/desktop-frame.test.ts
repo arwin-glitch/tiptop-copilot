@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FRAME_BOOT_SCRIPT } from '@/lib/desktop/frame-boot';
-import { hasNativeBridge, showAppMenu, windowControl, windowFrame } from '@/lib/desktop/native';
+import {
+  hasNativeBridge,
+  pollDesktopAlertsSoon,
+  showAppMenu,
+  windowControl,
+  windowFrame,
+} from '@/lib/desktop/native';
 import { desktopFrame } from '@/lib/desktop/shared';
 import { clampZoom, isWindows10, menuAnchor, nextToolbarIndex } from '@/lib/desktop/title-bar';
 
@@ -142,6 +148,7 @@ describe('calls to the shell', () => {
     expect(await windowFrame()).toBeNull();
     await expect(windowControl('close')).resolves.toBeUndefined();
     await expect(showAppMenu(6, 40)).resolves.toBeUndefined();
+    await expect(pollDesktopAlertsSoon()).resolves.toBeUndefined();
 
     vi.stubGlobal('window', { __TAURI_INTERNALS__: { invoke: 'not a function' } });
     expect(hasNativeBridge()).toBe(false);
@@ -159,6 +166,7 @@ describe('calls to the shell', () => {
     await windowControl('exit-full-screen');
     await showAppMenu(6, 40);
     expect(await windowFrame()).toEqual({ maximized: true, fullscreen: false, zoom: 1.25 });
+    await pollDesktopAlertsSoon();
     expect(invoke.mock.calls).toEqual([
       ['window_control', { action: 'minimize' }],
       ['window_control', { action: 'toggle-maximize' }],
@@ -166,6 +174,7 @@ describe('calls to the shell', () => {
       ['window_control', { action: 'exit-full-screen' }],
       ['show_app_menu', { x: 6, y: 40 }],
       ['window_frame', {}],
+      ['alerts_poll_soon', {}],
     ]);
   });
 
@@ -195,6 +204,8 @@ describe('calls to the shell', () => {
     expect(await windowFrame()).toBeNull();
     await expect(windowControl('minimize')).resolves.toBeUndefined();
     await expect(showAppMenu(6, 40)).resolves.toBeUndefined();
+    // An app before 0.4.1 refuses it.
+    await expect(pollDesktopAlertsSoon()).resolves.toBeUndefined();
 
     vi.stubGlobal('window', {
       __TAURI_INTERNALS__: {

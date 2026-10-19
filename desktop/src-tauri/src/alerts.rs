@@ -1,18 +1,32 @@
-//! Desktop alerts (from 0.4.0): the alerts phones get, as Windows toasts and
-//! macOS notifications, while the app runs, also with its window hidden in
-//! the tray (Windows), closed (a Mac keeps running) or minimised.
+//! Desktop alerts (from 0.4.0): the alerts phones get, and from 0.4.1 Ask
+//! Arwin's answers to whoever asked, as Windows toasts and macOS
+//! notifications, while the app runs, also with its window hidden in the
+//! tray (Windows), closed (a Mac keeps running) or minimised.
 //!
 //! The shell asks Copilot for them itself, with a token for this computer
 //! alone: about once a minute from 6am to 9pm in the owner's time zone, as
-//! Copilot's answers say. The page could not: WebKit suspends a hidden
-//! window's page on a Mac, WebView2 slows a hidden page's timers to once a
-//! minute, and the window may show the bundled page or sign-in. The token
-//! comes once, from Copilot through the signed-in page, which hands it
+//! Copilot's answers say, and every 30 seconds while a question to Ask
+//! Arwin from whoever turned alerts on here waits for its answer (from
+//! 0.4.1; nobody else's question). The page could not: WebKit suspends a
+//! hidden window's page on a Mac, WebView2 slows a hidden page's timers to
+//! once a minute, and the window may show the bundled page or sign-in. The
+//! token comes once, from Copilot through the signed-in page, which hands it
 //! straight to `alerts_turn_on`. It is kept in this computer's app data and
-//! never given back to a page, and it can only read alert summaries and say
-//! which were shown here.
+//! never given back to a page, and it can only read alert summaries (with
+//! the start of its owner's own new Ask answers) and say which were shown
+//! here.
 //!
-//! The page gets five commands (capabilities/desktop-alerts.json): the main
+//! From 0.4.1 an alert may ask to stay quiet while the person is looking at
+//! Copilot (`quietWhenFocused`: Ask Arwin's answers, which the page announces
+//! itself). With the main window shown, not minimised, in front and on the
+//! live site, it counts as shown without a notification, so it never shows
+//! later either, and the page is told which page it opens
+//! (`tiptop-desktop-replied`), so it can show its own pop-up for an answer
+//! it was not watching. The page may also ask for the next poll within half
+//! a minute (`alerts_poll_soon`), straight after a question, so its answer
+//! can ping at night too.
+//!
+//! The page gets six commands (capabilities/desktop-alerts.json): the main
 //! window, on the live site only. None shows text a page chooses: what a
 //! notification says comes only from Copilot, over the token's own requests.
 //! Any token for this computer's id is taken, though, so a script on the live
@@ -91,6 +105,9 @@ const SEEN_FOR: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 const SEEN_MAX: usize = 300;
 /// Send a test is refused more often than this.
 const TEST_EVERY: Duration = Duration::from_secs(3);
+/// How long a poll waits for the main thread to say whether the person is
+/// looking at Copilot; past it, the alert shows.
+const FOCUS_WAIT: Duration = Duration::from_secs(2);
 
 /// What the page is told this computer is.
 const PLATFORM: &str = if cfg!(target_os = "macos") { "mac" } else { "windows" };
@@ -157,12 +174,40 @@ struct State {
     next_due: Option<SystemTime>,
     /// Failed polls in a row.
     failures: u32,
+    /// The next poll waits as Copilot asked (Retry-After) or while the
+    /// system does not allow notifications; `alerts_poll_soon` leaves it.
+    held: bool,
+    /// The page asked for a poll soon since the last poll started.
+    soon: bool,
     /// Times the system refused an alert, by its first key.
     tries: HashMap<String, u32>,
     last_test: Option<Instant>,
 }
 
 impl State {
+    /// The page asked for a poll soon (`alerts_poll_soon`): the next comes
+    /// within `POLL_SOONEST`, never later than one already due. Nothing
+    /// changes while alerts are off, failed polls back off or Copilot asked
+    /// the app to wait.
+    fn poll_soon(&mut self, now: SystemTime) {
+        if self.token.is_some() && self.failures == 0 && !self.held {
+            self.next_due = due_soon(self.next_due, now);
+            self.soon = true;
+        }
+    }
+
+    /// Copilot answered a poll: the next comes when it said, or within
+    /// `POLL_SOONEST` when the page asked for one while this poll was under
+    /// way, since the answer may predate that question.
+    fn answered(&mut self, poll_after: Duration, now: SystemTime) {
+        self.next_due = Some(now + poll_after);
+        if std::mem::take(&mut self.soon) {
+            self.next_due = due_soon(self.next_due, now);
+        }
+        self.failures = 0;
+        self.held = false;
+    }
+
     /// Counts a failed attempt to show the alert keyed `key`; true once it
     /// has failed `TRIES_MAX` times.
     fn give_up(&mut self, key: &str) -> bool {
@@ -221,11 +266,12 @@ impl Alerts {
     }
 
     /// The next poll comes after `wait`, unless alerts were turned on or off
-    /// meanwhile.
+    /// meanwhile; the page cannot ask for it sooner.
     fn wait(&self, generation: u64, wait: Duration) {
         let mut state = self.lock();
         if state.generation == generation {
             state.next_due = Some(SystemTime::now() + wait);
+            state.held = true;
         }
     }
 
@@ -403,6 +449,7 @@ pub async fn alerts_turn_on<R: Runtime>(
         state.generation += 1;
         state.next_due = Some(SystemTime::now());
         state.failures = 0;
+        state.held = false;
         state.tries.clear();
     }
     shared.persist();
@@ -423,6 +470,7 @@ pub async fn alerts_turn_off<R: Runtime>(window: WebviewWindow<R>) -> Result<Sta
             state.generation += 1;
             state.next_due = None;
             state.failures = 0;
+            state.held = false;
             state.tries.clear();
         }
         old
@@ -461,6 +509,8 @@ pub async fn alerts_test<R: Runtime>(window: WebviewWindow<R>) -> Result<Status,
             body: "Alerts work on this computer.".to_owned(),
             path: "/settings".to_owned(),
             urgent: false,
+            // Shows with Settings in front: that is where it is sent from.
+            quiet_when_focused: false,
         };
         if !show(&app, shared, &test).await {
             eprintln!("the test notification could not be shown");
@@ -468,6 +518,26 @@ pub async fn alerts_test<R: Runtime>(window: WebviewWindow<R>) -> Result<Status,
         }
     }
     shared.status(permission)
+}
+
+/// The next poll once the page asks for one soon: within `POLL_SOONEST`,
+/// never later than one already due (none set means due now).
+fn due_soon(next_due: Option<SystemTime>, now: SystemTime) -> Option<SystemTime> {
+    next_due.map(|at| at.min(now + POLL_SOONEST))
+}
+
+/// Looks for this computer's alerts within half a minute: the page calls it
+/// when a question to Ask Arwin starts waiting, so the answer can ping at
+/// night too, when Copilot otherwise has the app wait until 6am. Never
+/// sooner than that however often it is called, never later than a poll
+/// already due, and nothing while alerts are off, failed polls back off or
+/// Copilot asked the app to wait. Shows nothing itself: what comes is up to
+/// Copilot.
+#[tauri::command]
+pub async fn alerts_poll_soon<R: Runtime>(window: WebviewWindow<R>) -> Result<(), String> {
+    let app = from_main(&window)?;
+    alerts(&app).lock().poll_soon(SystemTime::now());
+    Ok(())
 }
 
 async fn revoke<R: Runtime>(app: &AppHandle<R>, token: &str) {
@@ -501,6 +571,9 @@ async fn poll_once<R: Runtime>(app: &AppHandle<R>) {
         shared.failed(generation);
         return;
     };
+    // This poll's answer covers what the page asked about so far; an ask
+    // from now on may come too late for it (`State::answered`).
+    shared.lock().soon = false;
     match fetch(&client, &token).await {
         Fetched::Alerts(batch) => deliver(app, shared, &client, &token, generation, batch).await,
         Fetched::Revoked => shared.revoked(generation),
@@ -540,7 +613,11 @@ async fn deliver<R: Runtime>(
             is_new(&state.seen, &alert.keys)
         };
         if fresh {
-            let shown = show(app, shared, alert).await;
+            // What the page announces itself (an Ask Arwin answer) counts as
+            // shown while the person is looking at Copilot: remembered and
+            // reported like any other, so it never shows later.
+            let shown = (alert.quiet_when_focused && quiet_here(app, &alert.path))
+                || show(app, shared, alert).await;
             let mut state = shared.lock();
             if shown {
                 state.tries.remove(&alert.keys[0]);
@@ -585,8 +662,7 @@ async fn deliver<R: Runtime>(
         let before = state.seen.len();
         prune(&mut state.seen, unix_now());
         changed |= state.seen.len() != before;
-        state.next_due = Some(SystemTime::now() + batch.poll_after);
-        state.failures = 0;
+        state.answered(batch.poll_after, SystemTime::now());
     }
     if changed {
         shared.persist();
@@ -730,6 +806,9 @@ struct Alert {
     path: String,
     /// A meeting: shown first and for longer.
     urgent: bool,
+    /// Shown only while the person is not looking at Copilot (an Ask Arwin
+    /// answer, which the page announces itself); otherwise counted as shown.
+    quiet_when_focused: bool,
 }
 
 /// One answer's alerts, and when to ask again.
@@ -759,6 +838,8 @@ struct RawAlert {
     url: Option<String>,
     #[serde(default)]
     urgent: bool,
+    #[serde(default, rename = "quietWhenFocused")]
+    quiet_when_focused: bool,
 }
 
 /// Copilot's answer: other fields are ignored, an alert that does not fit is
@@ -809,6 +890,7 @@ fn alert_from(raw: RawAlert) -> Option<Alert> {
         body: clip(raw.body.as_deref().unwrap_or(""), TEXT_MAX),
         path,
         urgent: raw.urgent,
+        quiet_when_focused: raw.quiet_when_focused,
     })
 }
 
@@ -964,6 +1046,77 @@ fn open_alert<R: Runtime>(app: &AppHandle<R>, path: &str) {
     if posted.is_err() {
         eprintln!("could not open an alert's page");
     }
+}
+
+/// Tells the web app an alert it announces itself was held back while the
+/// person looks at it, with the page that alert opens, so it can show its
+/// own pop-up for an answer it was not watching (asked from a phone or
+/// another window). The path passed `alert_target`, and JSON keeps it a
+/// plain string.
+fn replied_script(path: &str) -> String {
+    format!(
+        "window.dispatchEvent(new CustomEvent('tiptop-desktop-replied', {{ detail: {} }}));",
+        serde_json::Value::String(path.to_owned())
+    )
+}
+
+/// Whether an alert marked `quiet_when_focused` stays quiet: true while the
+/// person is looking at Copilot (`main_in_front`), and the page is then told
+/// (`replied_script`). Asked on the main thread, which owns the window;
+/// false when it does not answer within `FOCUS_WAIT`, so the alert shows.
+fn quiet_here<R: Runtime>(app: &AppHandle<R>, path: &str) -> bool {
+    let (tell, told) = std::sync::mpsc::channel();
+    let handle = app.clone();
+    let script = replied_script(path);
+    let posted = app.run_on_main_thread(move || {
+        let looking = main_in_front(&handle);
+        // Told only while the poll still waits for this answer: one that
+        // gave up shows the notification instead.
+        if tell.send(looking).is_err() || !looking {
+            return;
+        }
+        let told_page = handle
+            .get_webview_window(crate::MAIN)
+            .is_some_and(|main| main.eval(script).is_ok());
+        if !told_page {
+            eprintln!("could not tell the page about a quiet alert");
+        }
+    });
+    posted.is_ok() && told.recv_timeout(FOCUS_WAIT).unwrap_or(false)
+}
+
+/// Whether the person is looking at Copilot: the main window shown, not
+/// minimised, in front and on the live site, where the page shows its own
+/// pop-up. Call it on the main thread: off it, each getter waits on the
+/// main thread with no time limit.
+fn main_in_front<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let Some(main) = app.get_webview_window(crate::MAIN) else {
+        return false;
+    };
+    main.is_visible().unwrap_or(false)
+        && !main.is_minimized().unwrap_or(true)
+        && in_front(&main)
+        && main.url().is_ok_and(|url| nav::is_live(&url))
+}
+
+/// On Windows the window whose page has the keyboard does not report itself
+/// focused (menu.rs), so this asks which window is in front, as frame.rs
+/// does. Shown but minimised still counts as visible there, hence the check
+/// above.
+#[cfg(windows)]
+fn in_front<R: Runtime>(main: &WebviewWindow<R>) -> bool {
+    crate::frame::in_front(main)
+}
+
+/// A Mac's key window: false while another app is active.
+#[cfg(target_os = "macos")]
+fn in_front<R: Runtime>(main: &WebviewWindow<R>) -> bool {
+    main.is_focused().unwrap_or(false)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn in_front<R: Runtime>(_: &WebviewWindow<R>) -> bool {
+    false
 }
 
 /// The saved settings, or None when the file is missing or too big.
@@ -1282,7 +1435,9 @@ mod mac {
     }
 
     /// True once macOS accepted the notification. Banners show even while the
-    /// app is in front (the crate's delegate asks for them).
+    /// app is in front (the crate's delegate asks for them); an alert marked
+    /// quiet while the person looks at Copilot never gets here then
+    /// (`quiet_here`).
     pub async fn show<R: Runtime>(app: &AppHandle<R>, alert: &Alert) -> bool {
         let note = Notification::new()
             .title(&alert.title)
@@ -1428,6 +1583,18 @@ mod tests {
     }
 
     #[test]
+    fn the_page_is_told_of_a_quiet_alert_with_a_plain_string() {
+        assert_eq!(
+            replied_script("/ask?thread=t-1"),
+            "window.dispatchEvent(new CustomEvent('tiptop-desktop-replied', { detail: \"/ask?thread=t-1\" }));"
+        );
+        assert_eq!(
+            replied_script("/x\"); alert(1); (\""),
+            "window.dispatchEvent(new CustomEvent('tiptop-desktop-replied', { detail: \"/x\\\"); alert(1); (\\\"\" }));"
+        );
+    }
+
+    #[test]
     fn polls_follow_copilots_hint_within_bounds() {
         assert_eq!(poll_after(None), Duration::from_secs(60));
         assert_eq!(poll_after(Some(60.0)), Duration::from_secs(60));
@@ -1437,6 +1604,65 @@ mod tests {
         assert_eq!(poll_after(Some(1e12)), Duration::from_secs(10 * 3600));
         assert_eq!(poll_after(Some(f64::NAN)), Duration::from_secs(60));
         assert_eq!(poll_after(Some(f64::INFINITY)), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn asking_soon_never_delays_a_poll_or_polls_sooner_than_half_a_minute() {
+        assert_eq!(due_soon(Some(at(3600)), at(0)), Some(at(30)));
+        assert_eq!(due_soon(Some(at(10)), at(0)), Some(at(10)));
+        assert_eq!(due_soon(None, at(0)), None);
+        // Asking again and again keeps the first half minute.
+        let once = due_soon(Some(at(3600)), at(0));
+        assert_eq!(due_soon(once, at(5)), Some(at(30)));
+    }
+
+    fn on_at_night() -> State {
+        State {
+            token: Some(token_for(DEVICE)),
+            next_due: Some(at(7 * 3600)),
+            ..State::default()
+        }
+    }
+
+    #[test]
+    fn asking_soon_waits_while_alerts_are_off_failing_or_held_back() {
+        let mut state = on_at_night();
+        state.poll_soon(at(0));
+        assert_eq!(state.next_due, Some(at(30)));
+        assert!(state.soon);
+
+        let mut off = State { token: None, next_due: None, ..on_at_night() };
+        off.poll_soon(at(0));
+        assert_eq!(off.next_due, None);
+        assert!(!off.soon);
+
+        // A failed poll backs off, and a Retry-After (or notifications not
+        // allowed) holds the next poll where Copilot put it.
+        let mut failing = State { failures: 1, next_due: Some(at(60)), ..on_at_night() };
+        failing.poll_soon(at(0));
+        assert_eq!(failing.next_due, Some(at(60)));
+        let mut held = State { held: true, next_due: Some(at(60)), ..on_at_night() };
+        held.poll_soon(at(0));
+        assert_eq!(held.next_due, Some(at(60)));
+        assert!(!held.soon);
+    }
+
+    #[test]
+    fn an_ask_during_a_poll_is_not_lost_to_its_answer() {
+        // Copilot's answer predates the question: wait until 6am.
+        let mut asked = State { soon: true, ..on_at_night() };
+        asked.answered(Duration::from_secs(7 * 3600), at(100));
+        assert_eq!(asked.next_due, Some(at(130)));
+        assert!(!asked.soon);
+
+        let mut quiet = State { failures: 2, held: true, ..on_at_night() };
+        quiet.answered(Duration::from_secs(60), at(100));
+        assert_eq!(quiet.next_due, Some(at(160)));
+        assert_eq!(quiet.failures, 0);
+        assert!(!quiet.held);
+        // Once answered, the page may ask again.
+        quiet.poll_soon(at(110));
+        assert_eq!(quiet.next_due, Some(at(140)));
     }
 
     #[test]
@@ -1619,7 +1845,19 @@ mod tests {
                 body: "Fictional Fund LP".to_owned(),
                 path: "/today".to_owned(),
                 urgent: false,
+                quiet_when_focused: false,
             }]
+        );
+        let quiet = batch(
+            r#"{"alerts":[{"keys":["ask:a"],"title":"Arwin replied","body":"Fictional answer","url":"/ask?thread=t-1","quietWhenFocused":true}]}"#,
+        );
+        assert!(quiet.alerts[0].quiet_when_focused);
+        assert_eq!(quiet.alerts[0].path, "/ask?thread=t-1");
+        // A flag that is not a boolean makes the alert unreadable, as with urgent.
+        assert!(
+            batch(r#"{"alerts":[{"keys":["ask:b"],"title":"Bad flag","quietWhenFocused":"yes"}]}"#)
+                .alerts
+                .is_empty()
         );
         assert_eq!(batch("{}"), Batch { alerts: Vec::new(), poll_after: Duration::from_secs(60) });
         assert_eq!(batch(r#"{"alerts":null,"pollAfterSeconds":"soon"}"#).alerts, Vec::new());
@@ -1748,7 +1986,7 @@ mod tests {
         assert_eq!(file.matches("[[permission]]").count(), 1);
         assert!(file.contains("identifier = \"allow-desktop-alerts\""));
         assert!(file.contains(
-            "commands.allow = [\"alerts_state\", \"alerts_request_permission\", \"alerts_turn_on\", \"alerts_turn_off\", \"alerts_test\"]"
+            "commands.allow = [\"alerts_state\", \"alerts_request_permission\", \"alerts_turn_on\", \"alerts_turn_off\", \"alerts_test\", \"alerts_poll_soon\"]"
         ));
     }
 }
