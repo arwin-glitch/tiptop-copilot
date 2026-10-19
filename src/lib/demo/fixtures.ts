@@ -1,6 +1,7 @@
 import { joinPages } from '@/lib/documents/pages';
 import { sha256 } from '@/lib/util/hash';
 import { normalizeCompanyName, snippet } from '@/lib/util/text';
+import { localDateKey } from '@/lib/util/time';
 import {
   DEFAULT_DEAL_STAGES,
   DEFAULT_SCORING_WEIGHTS,
@@ -100,6 +101,9 @@ export const DEMO_USER = {
   name: 'Nick Tippmann',
 } as const;
 
+/** The demo user's profile timezone: their "today" is Central's. */
+const DEMO_TIMEZONE = 'America/Chicago';
+
 function iso(d: Date): string {
   return d.toISOString();
 }
@@ -112,11 +116,15 @@ function daysAgo(now: Date, d: number): string {
 function daysAhead(now: Date, d: number): string {
   return iso(new Date(now.getTime() + d * 86_400_000));
 }
-/** An instant at `hour:minute` local-ish today, expressed in UTC. */
+/**
+ * An instant at `hour:minute` UTC on today's date in Central. The hours used
+ * (11:31 to 21:45 UTC) all fall on that same Central day. The date has to be
+ * Central's, not UTC's: from 7pm Central UTC is already on tomorrow, and the
+ * day's meetings and morning brief would jump there with it.
+ */
 function todayAt(now: Date, hour: number, minute = 0): string {
-  const d = new Date(now);
-  d.setUTCHours(hour, minute, 0, 0);
-  return iso(d);
+  const [y, m, d] = localDateKey(now, DEMO_TIMEZONE).split('-').map(Number);
+  return iso(new Date(Date.UTC(y!, m! - 1, d!, hour, minute)));
 }
 
 /* ------------------------------------------------------------- documents */
@@ -359,7 +367,7 @@ export function buildDemoDb(now: Date = new Date()): DemoDb {
       email: DEMO_USER.email,
       full_name: DEMO_USER.name,
       avatar_url: null,
-      timezone: 'America/Chicago',
+      timezone: DEMO_TIMEZONE,
       theme: 'system',
       created_at: daysAgo(now, 400),
       updated_at: nowIso,
@@ -2165,7 +2173,7 @@ function demoCampaigns(now: Date): {
 
 /** The Today cards the Daily Overview routine posts: one brief, one dossier. All invented. */
 function demoRoutineBriefings(now: Date): RoutineBriefing[] {
-  const dateKey = iso(now).slice(0, 10);
+  const dateKey = localDateKey(now, DEMO_TIMEZONE);
   const postedAt = todayAt(now, 11, 31);
   const row = (
     id: string,
