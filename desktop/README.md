@@ -141,7 +141,8 @@ capability files first.
    both installers built and both update files were signed and their
    signatures checked. The Download page shows the new version within about
    ten minutes.
-5. Installed apps from 0.2.0 on find it within about six hours, or at once
+5. Installed apps from 0.3.1 on find it within about an hour (sooner when
+   the window is brought forward), or at once
    from Check for Updates…, download it and ask to restart. People on 0.1.0
    download the new version once from `/download` (see "How updates
    work").
@@ -211,9 +212,12 @@ The app always shows the latest Copilot, so most changes need no new app
 version at all. When `desktop/` changes and a new version is released, apps
 from 0.2.0 on install it themselves:
 
-- **When it looks.** About 15 seconds after launch, then every 6 hours (by
-  the clock, so a laptop that slept catches up soon after waking), and after
-  a check that failed, again in about 30 minutes. Check for Updates… (☰,
+- **When it looks.** About 15 seconds after launch, then every hour (by
+  the clock, so a laptop that slept catches up soon after waking), whenever
+  the main window comes to the front if no check ran in the last 15
+  minutes, and after a check that failed, again in about 30 minutes. Later
+  keeps that version quiet for 4 hours (0.2.x and 0.3.0 looked every 6
+  hours). Check for Updates… (☰,
   then File, on Windows; TipTop Copilot menu on a Mac, after About) looks at
   once; the item reads "Checking for Updates…" while it does. A development build
   never looks by itself.

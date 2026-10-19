@@ -245,8 +245,14 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
             }
-            // Menu commands act on the window in front.
-            WindowEvent::Focused(true) => menu::focused(window.label()),
+            // Menu commands act on the window in front; the main window coming
+            // forward also looks for an update (at most every 15 minutes).
+            WindowEvent::Focused(true) => {
+                menu::focused(window.label());
+                if window.label() == MAIN {
+                    updates::focused(window.app_handle());
+                }
+            }
             WindowEvent::Destroyed => menu::destroyed(window.label()),
             _ => {}
         })

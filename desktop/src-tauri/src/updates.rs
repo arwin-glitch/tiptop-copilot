@@ -1,6 +1,8 @@
-//! In-app updates. About 15 seconds after launch, and then every 6 hours, the
-//! app asks Copilot whether a newer version exists (tauri.conf.json > plugins
-//! > updater), downloads it in the background and asks whether to restart.
+//! In-app updates. About 15 seconds after launch, then every hour and whenever
+//! the main window comes to the front (at most every 15 minutes), the app asks
+//! Copilot whether a newer version exists (tauri.conf.json > plugins >
+//! updater), downloads it in the background and asks whether to restart.
+//! Later quiets the question for that version for 4 hours.
 //! Check for Updates… does the same and also says when nothing is new. Every
 //! download is checked against the public key built into the app, and the
 //! version it was signed for, before anything is installed.
@@ -22,7 +24,11 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 pub const MENU_ID: &str = "app-check-for-updates";
 
 const FIRST_CHECK: Duration = Duration::from_secs(15);
-const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+const EVERY: Duration = Duration::from_secs(60 * 60);
+/// Bringing the main window to the front checks too, unless one ran this recently.
+const FOCUS_RECHECK: Duration = Duration::from_secs(15 * 60);
+/// After Later, automatic checks keep that version quiet this long.
+const SNOOZE: Duration = Duration::from_secs(4 * 60 * 60);
 /// After a check that failed (offline, the service asleep or busy).
 const RETRY: Duration = Duration::from_secs(30 * 60);
 /// How often the timer looks at the clock. Wall-clock time, so a laptop that
@@ -89,6 +95,8 @@ struct State {
     told_place: bool,
     /// The last check that ran, manual or automatic: the timer goes by it.
     last: Option<Checked>,
+    /// The version Later was chosen for, and when.
+    declined: Option<(String, SystemTime)>,
 }
 
 impl State {
@@ -125,6 +133,25 @@ impl State {
     fn tell_place(&mut self, report: bool) -> bool {
         let first = !std::mem::replace(&mut self.told_place, true);
         report || first
+    }
+
+    /// Whether an automatic check should keep quiet about `version`: Later
+    /// was chosen for it less than 4 hours ago. A clock that went backwards
+    /// ends the quiet.
+    fn snoozed(&self, version: &str, now: SystemTime) -> bool {
+        self.declined.as_ref().is_some_and(|(declined, at)| {
+            declined == version && now.duration_since(*at).is_ok_and(|gone| gone < SNOOZE)
+        })
+    }
+
+    /// Whether bringing the window to the front should check: not while one
+    /// runs or before the first, and not within 15 minutes of the last.
+    fn focus_due(&self, now: SystemTime) -> bool {
+        !self.running
+            && !self.installing
+            && self.last.is_some_and(|last| {
+                now.duration_since(last.at).map_or(true, |gone| gone >= FOCUS_RECHECK)
+            })
     }
 
     fn ready_version(&self) -> Option<String> {
@@ -242,13 +269,29 @@ struct Checked {
     failed: bool,
 }
 
-/// At once the first time, then 6 hours after a check that worked, or 30
+/// At once the first time, then an hour after a check that worked, or 30
 /// minutes after one that failed. A clock that went backwards counts as due.
 fn due(last: Option<Checked>, now: SystemTime) -> bool {
     last.is_none_or(|last| {
         let wait = if last.failed { RETRY } else { EVERY };
         now.duration_since(last.at).map_or(true, |gone| gone >= wait)
     })
+}
+
+/// The main window came to the front: checks unless one ran in the last 15
+/// minutes, so an app left open finds a new version when it is next used.
+pub fn focused<R: Runtime>(app: &AppHandle<R>) {
+    if cfg!(debug_assertions) {
+        return;
+    }
+    let Some(shared) = app.try_state::<Updates<R>>() else {
+        return;
+    };
+    if !shared.lock().focus_due(SystemTime::now()) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move { check(&app, Trigger::Automatic).await });
 }
 
 /// Runs one check, or joins the one running, which then reports to a manual
@@ -268,8 +311,13 @@ async fn check<R: Runtime>(app: &AppHandle<R>, trigger: Trigger) {
         refresh_menu_item(app);
     }
     match outcome {
-        // Asked whoever started it; Later asks again at the next check.
-        Outcome::Ready(next) => ask_to_restart(app, &next),
+        // A manual check always asks; an automatic one keeps quiet for 4
+        // hours about a version Later was chosen for.
+        Outcome::Ready(next)
+            if report || !updates(app).lock().snoozed(&next, SystemTime::now()) =>
+        {
+            ask_to_restart(app, &next)
+        }
         // Automatic checks stay silent; only a manual one hears these.
         Outcome::UpToDate if report => {
             let current = app.package_info().version.to_string();
@@ -425,6 +473,7 @@ fn ask_to_restart<R: Runtime>(app: &AppHandle<R>, version: &str) {
         state.asking = true;
     }
     let handle = app.clone();
+    let asked = version.to_owned();
     let shown = show(
         app,
         &format!("TipTop Copilot {version} is ready"),
@@ -436,6 +485,9 @@ fn ask_to_restart<R: Runtime>(app: &AppHandle<R>, version: &str) {
             let ready = {
                 let mut state = updates(&handle).lock();
                 state.asking = false;
+                if !restart {
+                    state.declined = Some((asked, SystemTime::now()));
+                }
                 let ready = if restart { state.ready.take() } else { None };
                 state.installing = ready.is_some();
                 ready
@@ -594,13 +646,49 @@ mod tests {
     }
 
     #[test]
-    fn checks_that_work_are_six_hours_apart() {
+    fn checks_that_work_are_an_hour_apart() {
         let last = Some(Checked {
             at: at(0),
             failed: false,
         });
-        assert!(!due(last, at(6 * 3600 - 1)));
-        assert!(due(last, at(6 * 3600)));
+        assert!(!due(last, at(3600 - 1)));
+        assert!(due(last, at(3600)));
+    }
+
+    #[test]
+    fn the_window_coming_forward_checks_at_most_every_15_minutes() {
+        let mut state = State::default();
+        // Not before the first check, which runs 15 seconds after launch.
+        assert!(!state.focus_due(at(0)));
+        state.last = Some(Checked {
+            at: at(0),
+            failed: false,
+        });
+        assert!(!state.focus_due(at(15 * 60 - 1)));
+        assert!(state.focus_due(at(15 * 60)));
+        state.running = true;
+        assert!(!state.focus_due(at(15 * 60)));
+        state.running = false;
+        state.installing = true;
+        assert!(!state.focus_due(at(15 * 60)));
+    }
+
+    #[test]
+    fn later_quiets_that_version_for_four_hours() {
+        let state = State {
+            declined: Some(("0.3.1".to_owned(), at(0))),
+            ..State::default()
+        };
+        assert!(state.snoozed("0.3.1", at(4 * 3600 - 1)));
+        assert!(!state.snoozed("0.3.1", at(4 * 3600)));
+        // A newer version asks at once.
+        assert!(!state.snoozed("0.3.2", at(60)));
+        // A clock that went backwards ends the quiet.
+        let later = State {
+            declined: Some(("0.3.1".to_owned(), at(60))),
+            ..State::default()
+        };
+        assert!(!later.snoozed("0.3.1", at(0)));
     }
 
     #[test]
@@ -659,16 +747,16 @@ mod tests {
             }),
             ..State::default()
         };
-        let due_at = at(6 * 3600);
+        let due_at = at(3600);
         assert_eq!(state.begin(Trigger::Manual), Begin::Run);
         // The timer comes due while the manual check runs, and joins it.
         assert_eq!(state.begin(Trigger::Automatic), Begin::Joined);
         assert!(due(state.last, due_at));
         // The manual check fails: the timer tries again in half an hour,
-        // not six hours.
+        // not an hour.
         state.end(true, due_at);
-        assert!(!due(state.last, at(6 * 3600 + 30 * 60 - 1)));
-        assert!(due(state.last, at(6 * 3600 + 30 * 60)));
+        assert!(!due(state.last, at(3600 + 30 * 60 - 1)));
+        assert!(due(state.last, at(3600 + 30 * 60)));
     }
 
     #[test]
@@ -676,8 +764,8 @@ mod tests {
         let mut state = State::default();
         assert_eq!(state.begin(Trigger::Manual), Begin::Run);
         state.end(false, at(0));
-        assert!(!due(state.last, at(6 * 3600 - 1)));
-        assert!(due(state.last, at(6 * 3600)));
+        assert!(!due(state.last, at(3600 - 1)));
+        assert!(due(state.last, at(3600)));
     }
 
     #[test]

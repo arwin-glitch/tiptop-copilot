@@ -10,6 +10,12 @@ throughout.
 
 ## [Unreleased]
 
+- **Desktop app 0.3.1: new versions show up without asking.** The app now
+  looks every hour instead of every 6, and also whenever its window comes to
+  the front (at most every 15 minutes), so an app left open all day offers a
+  new version soon after it is released. Later keeps that version quiet for
+  4 hours; Check for Updates… still asks at once.
+
 - **On a phone, the Ask Arwin page puts the question box before Recent.**
   Recent came first, so with a long history the box was a screen down and
   appeared only once the page had scrolled to it. From lg up, Recent stays
