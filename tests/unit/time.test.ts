@@ -9,6 +9,7 @@ import {
   formatDateTime,
   formatTime,
   formatWeekdayLong,
+  formatWeekdayTime,
   isOverdue,
   isSupportedTimezone,
   localDateKey,
@@ -16,6 +17,7 @@ import {
   startOfDayUtc,
   todayWindow,
 } from '@/lib/util/time';
+import { PROCESS_ZONES, underProcessZone } from '../helpers/process-zone';
 
 /**
  * "Today" must mean today in Nick's timezone, not the server's. The Today
@@ -184,6 +186,31 @@ describe('formatting', () => {
     const lateUtc = new Date('2026-08-02T02:00:00.000Z');
     expect(formatDate(lateUtc, 'America/Chicago')).toBe('Aug 1, 2026');
     expect(formatDate(lateUtc, 'UTC')).toBe('Aug 2, 2026');
+  });
+
+  // A server page and the browser that hydrates it run these in different
+  // zones; only the zone passed in may decide the text.
+  it('gives the same text whatever zone the process runs in', async () => {
+    const lateUtc = new Date('2026-08-02T02:00:00.000Z');
+    const render = () => [
+      formatTime(lateUtc, 'America/Chicago'),
+      formatDate(lateUtc, 'America/Chicago'),
+      formatDateTime(lateUtc, 'America/Chicago'),
+      formatWeekdayTime(lateUtc, 'America/Chicago'),
+      formatWeekdayLong(lateUtc, 'America/Chicago'),
+      localDateKey(lateUtc, 'America/Chicago'),
+    ];
+    const expected = [
+      '9:00 PM',
+      'Aug 1, 2026',
+      'Aug 1, 9:00 PM',
+      'Sat 9:00 PM',
+      'Saturday, August 1',
+      '2026-08-01',
+    ];
+    for (const tz of PROCESS_ZONES) {
+      expect(await underProcessZone(tz, render), tz).toEqual(expected);
+    }
   });
 });
 

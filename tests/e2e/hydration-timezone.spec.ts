@@ -26,6 +26,15 @@ const PAGES = [
   { path: '/follow-ups', marker: '[data-tour="followups-session"]' },
   { path: '/calendar', marker: '[data-tour="calendar-days"]' },
   { path: '/inbox', marker: '[data-tour="inbox-list"]' },
+  // A sent campaign's report and receipt, and a draft in the composer.
+  {
+    path: '/fund-ii/campaigns/00000000-0000-4000-8000-0000000007d0',
+    marker: 'section[aria-labelledby="report-people"]',
+  },
+  {
+    path: '/fund-ii/campaigns/00000000-0000-4000-8000-0000000007d1',
+    marker: 'nav[aria-label="Campaign steps"]',
+  },
 ];
 
 const HYDRATION = /#418|#423|#425|hydrat|didn't match/i;

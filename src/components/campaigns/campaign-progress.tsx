@@ -11,6 +11,7 @@ import { Notice } from '@/components/ui/feedback';
 import { campaignReceipt, finishToast } from '@/lib/campaigns/receipt';
 import { PAUSE_REASON_TEXT } from '@/lib/campaigns/status';
 import type { CampaignPauseReason, CampaignStatus } from '@/lib/types/domain';
+import { formatWeekdayTime } from '@/lib/util/time';
 
 export interface ProgressCounts {
   total: number;
@@ -75,6 +76,7 @@ export function CampaignProgress({
   initialCapResetsAt = null,
   unconfirmedRecipients = [],
   autoStart = false,
+  timezone,
 }: {
   campaignId: string;
   initialStatus: CampaignStatus;
@@ -87,6 +89,12 @@ export function CampaignProgress({
   unconfirmedRecipients?: UnconfirmedRecipient[];
   /** Only straight after the tap on Send (or Resume / Retry) on this page. */
   autoStart?: boolean;
+  /**
+   * The reader's profile timezone, for when the next slot opens. Never the
+   * process's: the server renders this and the browser hydrates it, and the
+   * two can be in different zones.
+   */
+  timezone: string;
 }) {
   const router = useRouter();
   const [confirm, confirmDialog] = useConfirm();
@@ -345,13 +353,7 @@ export function CampaignProgress({
         ) : null}
         {capResetsAt && (capped || status === 'sending') ? (
           <p className="text-sm text-[var(--fg-muted)]">
-            The next slot opens{' '}
-            {new Date(capResetsAt).toLocaleString([], {
-              weekday: 'short',
-              hour: 'numeric',
-              minute: '2-digit',
-            })}
-            .
+            The next slot opens {formatWeekdayTime(capResetsAt, timezone)}.
           </p>
         ) : null}
         {stalled && !message ? (

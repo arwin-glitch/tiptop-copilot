@@ -74,7 +74,7 @@ export default async function TodayPage() {
                 <RefreshOutlookButton />
               </>
             ) : null}
-            <CreateFollowUpButton />
+            <CreateFollowUpButton timeZone={auth.profile.timezone} />
           </>
         }
       />

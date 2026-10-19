@@ -329,7 +329,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                 </Button>
               </SourceDrawer>
               <AddNoteButton dealId={deal.id} />
-              <CreateFollowUpButton dealId={deal.id} />
+              <CreateFollowUpButton dealId={deal.id} timeZone={auth.profile.timezone} />
             </div>
           </CardContent>
         </Card>
@@ -627,6 +627,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                           <span className="flex-1">{q}</span>
                           <CreateFollowUpButton
                             dealId={deal.id}
+                            timeZone={auth.profile.timezone}
                             defaultTitle={q}
                             label="Task"
                             variant="ghost"
@@ -925,7 +926,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
             <CardContent className="pt-4">
               <div className="flex flex-wrap gap-2">
                 <AddNoteButton dealId={deal.id} />
-                <CreateFollowUpButton dealId={deal.id} />
+                <CreateFollowUpButton dealId={deal.id} timeZone={auth.profile.timezone} />
               </div>
 
               <FieldLabel as="h3" className="mt-5">

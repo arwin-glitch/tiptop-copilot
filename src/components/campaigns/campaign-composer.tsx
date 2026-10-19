@@ -149,12 +149,15 @@ export function CampaignComposer({
   lists,
   listsNote,
   me,
+  timezone,
 }: {
   campaign: ComposerCampaign;
   recipients: ComposerRecipient[];
   lists: ListOption[];
   listsNote: string | null;
   me: string;
+  /** The reader's profile timezone, passed on to the progress card. */
+  timezone: string;
 }) {
   const router = useRouter();
   const [step, setStep] = React.useState<Step>(recipients.length ? 'message' : 'recipients');
@@ -269,6 +272,7 @@ export function CampaignComposer({
           pending: recipients.length,
         }}
         autoStart
+        timezone={timezone}
       />
     );
   }

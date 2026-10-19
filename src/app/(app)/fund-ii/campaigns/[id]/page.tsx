@@ -132,6 +132,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
           lists={lists}
           listsNote={listsNote}
           me={auth.profile.email}
+          timezone={tz}
         />
       </PageShell>
     );
@@ -191,6 +192,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
               initialPauseReason={campaign.pause_reason}
               initialStalled={phase === 'stalled'}
               initialCapResetsAt={cap?.ok ? cap.value.resetsAt : null}
+              timezone={tz}
               unconfirmedRecipients={recipients
                 .filter((r) => r.status === 'unconfirmed')
                 .map((r) => ({ id: r.id, name: r.name, email: r.email }))}

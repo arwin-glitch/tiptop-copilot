@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { toLiveThread, userLabels } from '@/lib/services/inbox-live';
+import { PROCESS_ZONES, underProcessZone } from '../helpers/process-zone';
 
 describe('live inbox', () => {
   const names = new Map([
@@ -110,17 +111,6 @@ describe('row and message times', () => {
   // 11:35 PM Central on Oct 18, already Oct 19 in UTC and further east.
   const NOW = new Date('2026-10-19T04:35:00Z');
 
-  async function underProcessZone<T>(tz: string, run: () => Promise<T>): Promise<T> {
-    const before = process.env.TZ;
-    process.env.TZ = tz;
-    try {
-      return await run();
-    } finally {
-      if (before === undefined) delete process.env.TZ;
-      else process.env.TZ = before;
-    }
-  }
-
   async function times() {
     const { shortTime, longTime } = await import('@/components/inbox/live-inbox');
     return [
@@ -133,7 +123,7 @@ describe('row and message times', () => {
 
   it('reads the profile timezone, whatever zone the process is in', async () => {
     const expected = ['8:05 PM', 'Oct 17', 'Dec 31, 2025', 'Sun, Oct 18, 8:05 PM'];
-    for (const tz of ['UTC', 'America/Chicago', 'Pacific/Kiritimati', 'Pacific/Pago_Pago']) {
+    for (const tz of PROCESS_ZONES) {
       expect(await underProcessZone(tz, times)).toEqual(expected);
     }
   });

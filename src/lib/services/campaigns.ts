@@ -71,6 +71,7 @@ import { newId } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
 import { err, ok, type Result } from '@/lib/util/result';
 import { corporateEmailDomain, htmlToPlainText } from '@/lib/util/text';
+import { DEFAULT_TIMEZONE, formatDate } from '@/lib/util/time';
 
 /**
  * Campaigns: tracked bulk email, replacing Affinity's.
@@ -466,17 +467,23 @@ export interface CampaignActor {
   userId: string | null;
 }
 
+/**
+ * A new draft. With no name it is called after today, "Campaign Oct 18, 2026",
+ * read in the creator's profile timezone (`timeZone`): the server runs in UTC,
+ * whose date has already turned over on a Central evening.
+ */
 export async function createCampaign(
   store: DataStore,
   organizationId: string,
   actor: CampaignActor,
-  input: { name?: string | null } = {},
+  input: { name?: string | null; timeZone?: string; now?: Date } = {},
 ): Promise<Result<Campaign>> {
   return guard('write', 'create a campaign', async () => {
-    const now = new Date().toISOString();
+    const at = input.now ?? new Date();
+    const now = at.toISOString();
     const name =
       (input.name ?? '').trim().slice(0, 300) ||
-      `Campaign ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+      `Campaign ${formatDate(at, input.timeZone ?? DEFAULT_TIMEZONE)}`;
     const campaign: Campaign = {
       id: newId(),
       organization_id: organizationId,

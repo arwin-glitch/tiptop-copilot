@@ -33,6 +33,7 @@ import {
 import type { Campaign, CampaignRecipient, EmailMessage, EmailThread } from '@/lib/types/domain';
 import { processWide } from '@/lib/util/process-state';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
+import { PROCESS_ZONES, underProcessZone } from '../helpers/process-zone';
 
 /**
  * Campaigns end to end on the demo store: draft, recipients, review, the one
@@ -143,6 +144,43 @@ function racing(
     },
   });
 }
+
+describe('a new draft', () => {
+  // 9 PM Central on Oct 18, when the server's UTC clock already says Oct 19.
+  const EVENING = new Date('2026-10-19T02:00:00Z');
+
+  it('with no name is called after today in the creator’s timezone, whatever the process zone', async () => {
+    for (const tz of PROCESS_ZONES) {
+      const created = await underProcessZone(tz, () =>
+        createCampaign(harness.store, org, actor(), {
+          timeZone: 'America/Chicago',
+          now: EVENING,
+        }),
+      );
+      if (!created.ok) throw new Error(created.error.message);
+      expect(created.value.name, tz).toBe('Campaign Oct 18, 2026');
+      expect(created.value.created_at).toBe(EVENING.toISOString());
+    }
+  });
+
+  it('reads the profile’s own timezone, and Central when none is given', async () => {
+    const tokyo = await createCampaign(harness.store, org, actor(), {
+      timeZone: 'Asia/Tokyo',
+      now: EVENING,
+    });
+    const unset = await createCampaign(harness.store, org, actor(), { now: EVENING });
+    expect(tokyo.ok && tokyo.value.name).toBe('Campaign Oct 19, 2026');
+    expect(unset.ok && unset.value.name).toBe('Campaign Oct 18, 2026');
+  });
+
+  it('keeps a name it was given', async () => {
+    const created = await createCampaign(harness.store, org, actor(), {
+      name: '  Fund II close  ',
+      timeZone: 'America/Chicago',
+    });
+    expect(created.ok && created.value.name).toBe('Fund II close');
+  });
+});
 
 describe('recipients', () => {
   it('come from a CRM list, minus anyone who unsubscribed', async () => {

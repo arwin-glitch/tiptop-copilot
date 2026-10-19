@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     getStore(),
     gate.auth.organizationId,
     { userId: gate.auth.userId },
-    { name: parsed.data.name },
+    { name: parsed.data.name, timeZone: gate.auth.profile.timezone },
   );
   return respond(created, (c) => ({ id: c.id }));
 }
