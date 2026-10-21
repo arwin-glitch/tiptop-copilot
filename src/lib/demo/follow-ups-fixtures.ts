@@ -213,6 +213,25 @@ export function demoFollowUps(now: Date): FollowUpsSnapshot {
           thread_id: '0f0000000000h001',
           note: 'Promised after the board call',
         },
+        // Write the intro: Ledgerly's founder comes from Portfolio, Hana's
+        // address from the CRM and her LinkedIn from the tracker's row.
+        {
+          for_who: 'Ledgerly',
+          to_who: 'Hana Kuroda (Riverlight Ventures)',
+          status: 'owed',
+          asked_at: ago(3),
+          made_at: null,
+          thread_id: '0f0000000000h004',
+          note: 'Asked for Series A investor intros',
+          to_org: 'Riverlight Ventures',
+          to_people: [
+            {
+              name: 'Hana Kuroda',
+              email: null,
+              linkedin: 'https://www.linkedin.com/in/hana-kuroda-example',
+            },
+          ],
+        },
         {
           for_who: 'Girder AI',
           to_who: 'Ivy Chen',

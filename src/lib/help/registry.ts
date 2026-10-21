@@ -582,7 +582,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'network-intros',
         title: 'Intros',
-        body: 'Intros you owe, intros made, and ones that stalled, each with its email thread.',
+        body: 'Intros you owe, made or stalled, with their threads. Write the intro opens a ready email you send.',
         placement: 'top',
         grand: true,
       },

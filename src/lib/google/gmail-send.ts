@@ -5,6 +5,7 @@ import { log } from '@/lib/security/redact';
 import type { Integration } from '@/lib/types/domain';
 import { htmlToPlainText } from '@/lib/util/text';
 import { err, ok, type Result } from '@/lib/util/result';
+import { lineWithLinksToHtml, textWithLinks } from '@/lib/email/name-links';
 import { SEND_SCOPES } from './send-scopes';
 
 /**
@@ -253,11 +254,17 @@ export async function readPrimarySignature(
 const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export function bodyToHtml(body: string): string {
+/**
+ * The typed body as HTML, one div per line, every character escaped. With
+ * `links` (the intro draft only), names written [Full Name](LinkedIn URL)
+ * become links to those profiles; nothing else does (`email/name-links.ts`).
+ */
+export function bodyToHtml(body: string, options: { links?: boolean } = {}): string {
+  const html = options.links ? lineWithLinksToHtml : escapeHtml;
   return body
     .trim()
     .split(/\n/)
-    .map((line) => (line.trim() ? `<div>${escapeHtml(line)}</div>` : '<div><br></div>'))
+    .map((line) => (line.trim() ? `<div>${html(line)}</div>` : '<div><br></div>'))
     .join('');
 }
 
@@ -271,11 +278,14 @@ export function buildReplyMime(input: {
   references: string;
   body: string;
   signatureHtml: string | null;
+  /** Names written [Full Name](LinkedIn URL) go out as links (the intro draft). */
+  links?: boolean;
 }): string {
   const boundary = `b_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
   const signatureText = input.signatureHtml ? htmlToPlainText(input.signatureHtml) : '';
-  const text = signatureText ? `${input.body.trim()}\n\n--\n${signatureText}` : input.body.trim();
-  const html = `<div dir="ltr">${bodyToHtml(input.body)}${
+  const plain = input.links ? textWithLinks(input.body.trim()) : input.body.trim();
+  const text = signatureText ? `${plain}\n\n--\n${signatureText}` : plain;
+  const html = `<div dir="ltr">${bodyToHtml(input.body, { links: input.links })}${
     input.signatureHtml ? `<br><div class="gmail_signature">${input.signatureHtml}</div>` : ''
   }</div>`;
   const clean = (v: string) => v.replace(/[\r\n]+/g, ' ').trim();
@@ -413,6 +423,7 @@ export function buildNewMime(input: {
   body: string;
   signatureHtml: string | null;
   attachments?: MimeAttachment[];
+  links?: boolean;
 }): string {
   const reply = buildReplyMime({ ...input, inReplyTo: '', references: '' });
   if (!input.attachments?.length) return reply;
@@ -478,6 +489,8 @@ export async function sendNew(
     body: string;
     signatureHtml: string | null;
     forwardMessageId?: string | null;
+    /** Names written [Full Name](LinkedIn URL) go out as links (the intro draft). */
+    links?: boolean;
   },
 ): Promise<Result<{ messageId: string; threadId: string }>> {
   if (!canSend(integration)) return err('forbidden', 'Sending is not turned on for this mailbox.');
@@ -520,6 +533,7 @@ export async function sendNew(
     body: input.body,
     signatureHtml: input.signatureHtml,
     attachments,
+    links: input.links,
   });
   const sent = await gmail<{ id: string; threadId: string }>(store, integration, '/messages/send', {
     method: 'POST',

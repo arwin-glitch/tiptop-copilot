@@ -36,7 +36,8 @@ import { isRelayOrganization } from './deal-relay';
  * - `PORTFOLIO_HEALTH_V1`: per portfolio company, when it last sent an update,
  *   a qualitative runway flag and its open asks. Newest wins. No figures.
  * - `INTROS_V1`: intros Nick was asked for, owes, made, and how they went.
- *   Newest wins.
+ *   Newest wins. Each side's firm and people may come along, for the intro
+ *   draft.
  * - `WEEK_AHEAD_V1`: the next seven days of Nick's calendar with prep context.
  *   Newest wins.
  * - `LP_UPDATE_DRAFT_V1`: the quarterly LP update drafted into Gmail (to Nick
@@ -240,6 +241,17 @@ export type PortfolioHealthItem = PortfolioHealth['companies'][number];
 
 export const INTRO_STATUSES = ['owed', 'made', 'connected', 'stalled', 'declined'] as const;
 
+/**
+ * Optional, for "Write the intro": one person on a side of an intro, as the
+ * tracker verified them. A malformed address or URL is dropped (null), never
+ * a reason to drop the post; the intro still shows, just without it.
+ */
+const INTRO_PERSON = z.object({
+  name: text(120),
+  email: z.string().trim().toLowerCase().email().max(254).nullish().catch(null),
+  linkedin: z.string().trim().max(500).nullish().catch(null),
+});
+
 export const INTROS_SCHEMA = z.object({
   run_at: z.string().datetime(),
   part: PART,
@@ -253,6 +265,12 @@ export const INTROS_SCHEMA = z.object({
         made_at: z.string().datetime().nullish(),
         thread_id: THREAD_ID.nullish(),
         note: optionalText(200),
+        // Optional detail the intro draft prefers over a name lookup: the
+        // company or firm on each side, and its people.
+        for_org: optionalText(120).catch(null),
+        for_people: z.array(INTRO_PERSON).max(8).optional().catch(undefined),
+        to_org: optionalText(120).catch(null),
+        to_people: z.array(INTRO_PERSON).max(8).optional().catch(undefined),
       }),
     )
     .max(100),

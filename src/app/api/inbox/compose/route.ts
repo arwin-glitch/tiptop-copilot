@@ -19,6 +19,8 @@ const BODY = z.object({
     .string()
     .regex(/^[0-9a-f]{10,24}$/i)
     .nullish(),
+  /** The intro draft: names written [Full Name](LinkedIn URL) go out as links. */
+  links: z.boolean().default(false),
 });
 
 /** A new email or a forward from Nick's inbox, only from a person's tap on Send. */
@@ -64,6 +66,7 @@ export async function POST(request: NextRequest) {
     body: parsed.data.body,
     signatureHtml,
     forwardMessageId: parsed.data.forwardOf ?? null,
+    links: parsed.data.links,
   });
   if (!sent.ok) return fail(sent.error);
   return NextResponse.json({ ok: true, threadId: sent.value.threadId });
