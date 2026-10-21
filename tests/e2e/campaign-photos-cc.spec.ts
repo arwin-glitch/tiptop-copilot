@@ -122,7 +122,7 @@ test('photos match by name or by hand, copies are set, and the review shows who 
   const review = page.getByRole('region', { name: 'Send to 2 people?' });
   const who = review.getByRole('region', { name: 'Who gets what' });
   await expect(who.getByTestId('who-gets-what-summary')).toHaveText(
-    '2 with photo, 0 without, 0 problems; CC: partner@fund.example; BCC: archive@fund.example (first email only); 1 person has their own CC.',
+    '2 with photo, 0 without, 0 problems; CC: partner@fund.example; BCC: archive@fund.example (one sample, on the first email that actually goes out); 1 person has their own CC.',
   );
   await expect(who).toContainText('With 4 CC and BCC copies, this counts as 6 emails');
   await expect(who).toContainText('count as the recipient’s');
@@ -132,7 +132,9 @@ test('photos match by name or by hand, copies are set, and the review shows who 
   await expect(jane).toContainText('partner@fund.example');
   await expect(jane).toContainText('pa@acme.example (theirs)');
   await expect(jane).toContainText('archive@fund.example');
-  await expect(jane).toContainText('first email only');
+  await expect(jane).toContainText(
+    'BCC sample: goes on the first email actually sent (normally this one)',
+  );
   const sam = table.getByRole('row', { name: /Sam Lee/ });
   await expect(sam).toContainText('group-shot.png');
   await expect(sam).toContainText('partner@fund.example');
@@ -143,7 +145,7 @@ test('photos match by name or by hand, copies are set, and the review shows who 
   const csv = await page.evaluate(async (url) => (await fetch(url!)).text(), href);
   expect(csv).toContain('To,Name,Photo,Shared attachments,CC,BCC,Flags');
   expect(csv).toContain(
-    'jane@acme.example,Jane Doe,jane_doe.png,,partner@fund.example; pa@acme.example,archive@fund.example (first email only),',
+    'jane@acme.example,Jane Doe,jane_doe.png,,partner@fund.example; pa@acme.example,archive@fund.example (BCC sample: goes on the first email actually sent (normally this one)),',
   );
   expect(csv).toContain('sam@lee.example,Sam Lee,group-shot.png,,partner@fund.example,,');
 

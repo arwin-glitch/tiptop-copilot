@@ -57,7 +57,12 @@ export interface ManifestRow {
   /** The part of `cc` that is this person's own. */
   personalCc: string[];
   bcc: string[];
-  /** This email carries the campaign's one "first email only" BCC copy. */
+  /**
+   * The campaign's one "first email only" BCC copy is expected on this email:
+   * the first in send order that can carry it. The send puts it on the first
+   * email that actually goes out, so a skip or a failure before this one moves
+   * it on; the label says so rather than promising this row.
+   */
   bccSample: boolean;
   /** Attachment bytes on this email: the shared ones plus the photo. */
   bytes: number;
@@ -73,7 +78,7 @@ export interface ManifestSummary {
   cc: string[];
   bcc: string[];
   bccMode: CampaignBccMode;
-  /** The first-only BCC copy already went with an email, so no row carries it. */
+  /** The first-only BCC copy was already claimed by an earlier email, so no row carries it. */
   bccSampleUsed: boolean;
   /** People with their own CC. */
   personalCc: number;
@@ -274,16 +279,24 @@ export function checkExtras(input: {
   };
 }
 
+/** What a row marks as carrying the first-only BCC sample: where it is expected, not promised. */
+export const BCC_SAMPLE_MARK =
+  'BCC sample: goes on the first email actually sent (normally this one)';
+
+/** How the summary line says where a BCC goes. */
+function bccWhere(s: ManifestSummary): string {
+  if (s.bccMode !== 'first') return 'every email';
+  return s.bccSampleUsed
+    ? 'one sample, already used by an earlier email'
+    : 'one sample, on the first email that actually goes out';
+}
+
 /** The summary as one line: what the top of "Who gets what" says. */
 export function describeManifest(s: ManifestSummary): string {
   const parts = [
     `${s.withPhoto} with photo, ${s.withoutPhoto} without, ${s.problems} ${s.problems === 1 ? 'problem' : 'problems'}`,
     `CC: ${s.cc.length ? s.cc.join(', ') : 'none'}`,
-    `BCC: ${
-      s.bcc.length
-        ? `${s.bcc.join(', ')} (${s.bccMode === 'first' ? 'first email only' : 'every email'}${s.bccSampleUsed ? ', already sent' : ''})`
-        : 'none'
-    }`,
+    `BCC: ${s.bcc.length ? `${s.bcc.join(', ')} (${bccWhere(s)})` : 'none'}`,
     `${s.personalCc} ${s.personalCc === 1 ? 'person has' : 'people have'} their own CC`,
   ];
   return parts.join('; ');
@@ -311,7 +324,7 @@ export function manifestTable(rows: readonly ManifestRow[], extras = true): stri
       r.photo?.name ?? 'none',
       r.attachments.join('; '),
       r.cc.join('; '),
-      r.bcc.length ? `${r.bcc.join('; ')}${r.bccSample ? ' (first email only)' : ''}` : '',
+      r.bcc.length ? `${r.bcc.join('; ')}${r.bccSample ? ` (${BCC_SAMPLE_MARK})` : ''}` : '',
       flags(r),
     ]),
   ];

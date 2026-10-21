@@ -7,7 +7,7 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Notice } from '@/components/ui/feedback';
 import { Input } from '@/components/ui/form';
 import { DAILY_CAP } from '@/lib/campaigns/limits';
-import type { ManifestRow, ManifestSummary } from '@/lib/campaigns/manifest';
+import { BCC_SAMPLE_MARK, type ManifestRow, type ManifestSummary } from '@/lib/campaigns/manifest';
 import { campaignCall } from './campaign-api';
 
 interface Manifest {
@@ -30,7 +30,7 @@ const matches = (r: ManifestRow, q: string) =>
     .toLowerCase()
     .includes(q);
 
-/** A row's CC (theirs marked) and BCC (the first-only sample marked). */
+/** A row's CC (theirs marked) and BCC (where the first-only sample is expected, marked). */
 function CopyCells({ row: r }: { row: ManifestRow }) {
   const none = <span className="text-[var(--fg-subtle)]">none</span>;
   return (
@@ -56,7 +56,7 @@ function CopyCells({ row: r }: { row: ManifestRow }) {
               </span>
             ))}
             {r.bccSample ? (
-              <span className="block text-[var(--fg-subtle)]">first email only</span>
+              <span className="block text-[var(--fg-subtle)]">{BCC_SAMPLE_MARK}</span>
             ) : null}
           </>
         ) : (

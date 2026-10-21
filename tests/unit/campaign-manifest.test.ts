@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_ATTACHMENT_BYTES } from '@/lib/campaigns/limits';
 import {
+  BCC_SAMPLE_MARK,
   checkExtras,
   describeManifest,
   manifestTable,
@@ -174,6 +175,17 @@ describe('checkExtras', () => {
     });
     expect(used.rows.every((r) => r.bcc.length === 0)).toBe(true);
     expect(used.summary.bccSampleUsed).toBe(true);
+    // The line says where the sample goes: the first email that actually goes
+    // out (a skip or failure moves it on), or that an earlier email used it.
+    expect(describeManifest(fresh.summary)).toContain(
+      'BCC: archive@fund.example (one sample, on the first email that actually goes out)',
+    );
+    expect(describeManifest(used.summary)).toContain(
+      'BCC: archive@fund.example (one sample, already used by an earlier email)',
+    );
+    expect(BCC_SAMPLE_MARK).toBe(
+      'BCC sample: goes on the first email actually sent (normally this one)',
+    );
     // Never to the BCC address itself: the sample waits for the next email.
     const self = checkExtras({
       campaign: { ...plain, bcc: ['jane@acme.example'], bcc_mode: 'first' },
@@ -223,7 +235,7 @@ describe('describeManifest and manifestTable', () => {
       suppressed: new Set(),
     });
     expect(describeManifest(check.summary)).toBe(
-      '1 with photo, 1 without, 0 problems; CC: partner@fund.example; BCC: archive@fund.example (first email only); 1 person has their own CC',
+      '1 with photo, 1 without, 0 problems; CC: partner@fund.example; BCC: archive@fund.example (one sample, on the first email that actually goes out); 1 person has their own CC',
     );
     expect(manifestTable(check.rows)).toEqual([
       ['To', 'Name', 'Photo', 'Shared attachments', 'CC', 'BCC', 'Flags'],
@@ -233,7 +245,7 @@ describe('describeManifest and manifestTable', () => {
         'jane_doe.png',
         'Letter.pdf',
         'partner@fund.example; assistant@acme.example',
-        'archive@fund.example (first email only)',
+        'archive@fund.example (BCC sample: goes on the first email actually sent (normally this one))',
         '',
       ],
       ['sam@lee.example', 'Sam Lee', 'none', 'Letter.pdf', 'partner@fund.example', '', ''],
