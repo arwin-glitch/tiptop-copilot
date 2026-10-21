@@ -20,6 +20,9 @@ export const OAUTH_STATE_COOKIE = 'tiptop_oauth_state';
  *
  * `?send=1` is the "Turn on sending" button: the same flow, also asking for
  * the send scope. Only the email session's Send button uses it.
+ *
+ * `?calendar=1` is the "Turn on calendar editing" button: the same flow, also
+ * asking for the event-editing scope, and back to the Calendar tab after.
  */
 export async function GET(request: NextRequest) {
   const auth = await authOrError();
@@ -48,17 +51,22 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const send = request.nextUrl.searchParams.get('send') === '1';
+  const calendar = request.nextUrl.searchParams.get('calendar') === '1';
+
   const nonce = randomToken(24);
   const statePayload = JSON.stringify({
     nonce,
     userId: auth.value.userId,
     organizationId: auth.value.organizationId,
     issuedAt: Date.now(),
+    // A fixed page, never one taken from the request: the callback only
+    // honours values on its own list.
+    ...(calendar ? { returnTo: '/calendar' } : {}),
   });
   const state = signedValue(statePayload);
 
-  const send = request.nextUrl.searchParams.get('send') === '1';
-  const url = buildAuthorizationUrl(state, { send });
+  const url = buildAuthorizationUrl(state, { send, calendar });
   if (!url.ok) {
     return NextResponse.json({ ok: false, error: url.error }, { status: 503 });
   }

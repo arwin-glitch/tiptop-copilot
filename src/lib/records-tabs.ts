@@ -88,7 +88,8 @@ export const DEALS_TABS = define({
  * Diagnostics is a System page, not a Records page, but its feed health sits
  * behind the same kind of bar: the configuration report first (the bare
  * URL, unchanged), then when each routine and job was last seen. A desktop
- * feed notice opens `?tab=feeds`.
+ * feed notice opens `?tab=feeds`. The calendar parity check, which has to
+ * pass before the new calendar views become the default, is `?tab=parity`.
  */
 export const DIAGNOSTICS_TABS = define({
   path: '/diagnostics',
@@ -107,6 +108,12 @@ export const DIAGNOSTICS_TABS = define({
       label: 'Feeds',
       blurb:
         'When each routine and job that fills the cards was last seen, against how often it runs, in plain words.',
+    },
+    {
+      key: 'parity',
+      label: 'Event parity',
+      blurb:
+        'Whether the new calendar views show the same events as the day list for the main calendar, day by day. Read-only.',
     },
   ],
 });

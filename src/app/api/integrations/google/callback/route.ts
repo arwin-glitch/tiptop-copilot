@@ -42,7 +42,13 @@ export async function GET(request: NextRequest) {
   if (!payload || !expectedNonce) {
     return redirectWithError('That authorisation link is no longer valid. Start again.');
   }
-  let parsed: { nonce: string; userId: string; organizationId: string; issuedAt: number };
+  let parsed: {
+    nonce: string;
+    userId: string;
+    organizationId: string;
+    issuedAt: number;
+    returnTo?: string;
+  };
   try {
     parsed = JSON.parse(payload);
   } catch {
@@ -142,8 +148,15 @@ export async function GET(request: NextRequest) {
     },
   });
 
+  // "Turn on calendar editing" started on the Calendar tab goes back there.
+  if (parsed.returnTo && RETURN_PAGES.has(parsed.returnTo)) {
+    return NextResponse.redirect(`${env().appUrl}${parsed.returnTo}?connected=google`);
+  }
   return NextResponse.redirect(`${env().appUrl}/settings?connected=google`);
 }
+
+/** The only pages a finished connection may return to besides Settings. */
+const RETURN_PAGES = new Set(['/calendar']);
 
 function redirectWithError(message: string): NextResponse {
   const target = new URL('/settings', env().appUrl);
