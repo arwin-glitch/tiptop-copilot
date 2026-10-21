@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Check, Paperclip, Send, Trash2, Users, X } from 'lucide-react';
+import { Check, ChevronRight, Paperclip, Send, Trash2, Users, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm';
@@ -20,8 +20,17 @@ import {
   estimatedMinutes,
   formatBytes,
 } from '@/lib/campaigns/limits';
+import {
+  MAX_MERGE_VALUE,
+  cleanMergeValue,
+  contactReplacements,
+  missingByField,
+  type MergeValues,
+  type MissingPerson,
+} from '@/lib/campaigns/missing-fields';
 import { parsePastedRecipients } from '@/lib/campaigns/recipients';
 import {
+  firstNameOf,
   parseTemplate,
   renderSubject,
   subjectIssues,
@@ -364,6 +373,7 @@ export function CampaignComposer({
           sender={sender}
           onEdit={(s) => void go(s)}
           onStarted={() => setStarted(true)}
+          onRecipientsChanged={() => router.refresh()}
         />
       )}
     </div>
@@ -1122,6 +1132,8 @@ interface ReviewData {
   recipientCount: number;
   issues: string[];
   fallbacks: { field: MergeField; count: number }[];
+  /** Who has no value for a field the email uses: listed under each fallback line. */
+  missing: MissingPerson[];
   attachmentBytes: number;
   subject: string;
   body_template: string;
@@ -1141,26 +1153,44 @@ const FIELD_LABEL: Record<MergeField, string> = {
   company: 'a company',
 };
 
+interface FillResponse {
+  filled: MergeField[];
+  contact:
+    | { status: 'skipped' | 'not_linked' | 'unchanged' }
+    | { status: 'saved'; fields: string[] }
+    | { status: 'failed'; message: string };
+}
+
 function ReviewStep({
   campaignId,
   sender,
   onEdit,
   onStarted,
+  onRecipientsChanged,
 }: {
   campaignId: string;
   sender: SenderInfo | null;
   onEdit: (step: Step) => void;
   onStarted: () => void;
+  /** A recipient's merge values changed here, so the composer's own copy is stale. */
+  onRecipientsChanged: () => void;
 }) {
   const [review, setReview] = React.useState<ReviewData | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [sending, setSending] = React.useState(false);
   const [readCount, setReadCount] = React.useState(0);
+  /** Fills on their way: Send waits, since each one moves the version the review must echo. */
+  const [filling, setFilling] = React.useState(0);
+
+  const read = React.useCallback(
+    () => call<{ review: ReviewData }>(`/api/campaigns/${campaignId}/review`),
+    [campaignId],
+  );
 
   // Always read from the server: the review shows the saved campaign, not this page's copy.
   React.useEffect(() => {
     let live = true;
-    void call<{ review: ReviewData }>(`/api/campaigns/${campaignId}/review`).then((r) => {
+    void read().then((r) => {
       if (!live) return;
       if (r.ok) {
         setReview(r.data.review);
@@ -1172,11 +1202,52 @@ function ReviewStep({
     return () => {
       live = false;
     };
-  }, [campaignId, readCount]);
+  }, [read, readCount]);
 
   const load = () => {
     setError(null);
     setReadCount((n) => n + 1);
+  };
+
+  /** Save what someone typed for one person, then read the review again: new counts and version. */
+  const fill = async (
+    person: MissingPerson,
+    values: MergeValues,
+    saveToContact: boolean,
+  ): Promise<boolean> => {
+    setFilling((n) => n + 1);
+    try {
+      const r = await call<FillResponse>(
+        `/api/campaigns/${campaignId}/recipients`,
+        jsonInit('PATCH', { recipientId: person.id, values, saveToContact }),
+      );
+      if (r.ok) {
+        const who = person.name ?? person.email;
+        const { contact, filled } = r.data;
+        if (contact.status === 'failed') {
+          toast.warning(`Saved for this campaign, but not on their contact: ${contact.message}`);
+        } else {
+          toast.success(
+            !filled.length
+              ? `${who} already had that filled in.`
+              : contact.status === 'saved'
+                ? `Saved for ${who}, and on their contact.`
+                : contact.status === 'unchanged'
+                  ? `Saved for ${who}. Their contact already had it.`
+                  : `Saved for ${who}.`,
+          );
+        }
+        onRecipientsChanged();
+      } else {
+        toast.error(r.message);
+      }
+      const fresh = await read();
+      if (fresh.ok) setReview(fresh.data.review);
+      else setError(fresh.message);
+      return r.ok;
+    } finally {
+      setFilling((n) => n - 1);
+    }
   };
 
   if (error) {
@@ -1197,7 +1268,11 @@ function ReviewStep({
     : null;
   const minutes = estimatedMinutes(review.recipientCount);
   const people = `${review.recipientCount} ${review.recipientCount === 1 ? 'person' : 'people'}`;
-  const blocked = review.issues.length > 0 || !sender?.canSend;
+  const blocked = review.issues.length > 0 || !sender?.canSend || filling > 0;
+  const missingGroups = missingByField(
+    review.fallbacks.map((f) => f.field),
+    review.missing ?? [],
+  );
 
   const confirm = async () => {
     setSending(true);
@@ -1286,15 +1361,13 @@ function ReviewStep({
         </section>
       ) : null}
 
-      {review.fallbacks.length ? (
+      {missingGroups.length ? (
         <Notice>
-          {review.fallbacks.map((f) => (
-            <p key={f.field}>
-              {f.count} {f.count === 1 ? 'person has' : 'people have'} no{' '}
-              {FIELD_LABEL[f.field].replace(/^an? /, '')} on file and will see the fallback for{' '}
-              {`{{${f.field}}}`}.
-            </p>
-          ))}
+          <div className="space-y-1">
+            {missingGroups.map((g) => (
+              <MissingFieldLine key={g.field} field={g.field} people={g.people} onSave={fill} />
+            ))}
+          </div>
         </Notice>
       ) : null}
 
@@ -1341,5 +1414,166 @@ function ReviewStep({
       </div>
       {review.status !== 'draft' ? <Badge tone="warn">This campaign already started.</Badge> : null}
     </section>
+  );
+}
+
+/* ---------------------------------------------------- missing merge fields */
+
+const INPUT_LABEL: Record<MergeField, string> = {
+  first_name: 'First name',
+  name: 'Full name',
+  company: 'Company',
+};
+
+/** People listed open at once under a line; the rest behind "Show all". */
+const MISSING_SHOWN = 25;
+
+type SaveFill = (
+  person: MissingPerson,
+  values: MergeValues,
+  saveToContact: boolean,
+) => Promise<boolean>;
+
+/**
+ * One "N people have no …" line, opening to who they are, each with inputs
+ * for what they lack. A person drops off once the line's field is filled;
+ * anyone left empty still sees the fallback.
+ */
+function MissingFieldLine({
+  field,
+  people,
+  onSave,
+}: {
+  field: MergeField;
+  people: MissingPerson[];
+  onSave: SaveFill;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [showAll, setShowAll] = React.useState(false);
+  const panelId = React.useId();
+  const noun = FIELD_LABEL[field].replace(/^an? /, '');
+  const shown = showAll ? people : people.slice(0, MISSING_SHOWN);
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((o) => !o)}
+        className="-mx-1 flex min-h-8 w-full items-start gap-1 rounded px-1 py-0.5 text-left hover:bg-[var(--bg-hover)]"
+      >
+        <ChevronRight
+          aria-hidden="true"
+          className={cn(
+            'mt-0.5 size-4 shrink-0 text-[var(--fg-subtle)] transition-transform',
+            open && 'rotate-90',
+          )}
+        />
+        <span>
+          {people.length} {people.length === 1 ? 'person has' : 'people have'} no {noun} on file and
+          will see the fallback for {`{{${field}}}`}.
+        </span>
+      </button>
+      <div id={panelId} hidden={!open}>
+        <ul
+          aria-label={`People with no ${noun}`}
+          className="mt-1.5 mb-1 divide-y divide-[var(--border)] rounded-md border border-[var(--border)] bg-[var(--bg-raised)]"
+        >
+          {shown.map((p) => (
+            <MissingPersonRow key={p.id} person={p} onSave={onSave} />
+          ))}
+        </ul>
+        {people.length > shown.length ? (
+          <Button variant="link" size="sm" className="px-0" onClick={() => setShowAll(true)}>
+            Show all {people.length}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** One person's missing values: Save (or Enter) fills them in for this campaign. */
+function MissingPersonRow({ person, onSave }: { person: MissingPerson; onSave: SaveFill }) {
+  const [values, setValues] = React.useState<MergeValues>({});
+  const [toContact, setToContact] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const id = React.useId();
+  const who = person.name ?? person.email;
+  // A contact holds a full name and a company; a first name stays with the campaign.
+  const linkable =
+    person.contact !== null && person.lacks.some((f) => f === 'name' || f === 'company');
+  const typed = person.lacks.some((f) => cleanMergeValue(values[f]));
+  const replaces = linkable && toContact ? contactReplacements(person.contact, values) : [];
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!typed || saving) return;
+    setSaving(true);
+    const picked: MergeValues = {};
+    for (const f of person.lacks) if (cleanMergeValue(values[f])) picked[f] = values[f];
+    const saved = await onSave(person, picked, linkable && toContact);
+    setSaving(false);
+    if (saved) setValues({});
+  };
+
+  return (
+    <li className="space-y-2 px-3 py-2.5">
+      <p className="text-sm break-words">
+        <span className="font-medium">{who}</span>
+        {person.name ? <span className="text-[var(--fg-muted)]"> · {person.email}</span> : null}
+      </p>
+      <form onSubmit={(e) => void submit(e)} aria-label={`Fill in ${who}`} className="space-y-2">
+        <div className="flex flex-wrap items-end gap-2">
+          {person.lacks.map((f) => (
+            <div key={f} className="min-w-36 flex-1 space-y-1">
+              <label htmlFor={`${id}-${f}`} className="block text-xs text-[var(--fg-muted)]">
+                {INPUT_LABEL[f]}
+              </label>
+              <Input
+                id={`${id}-${f}`}
+                value={values[f] ?? ''}
+                maxLength={MAX_MERGE_VALUE}
+                autoComplete="off"
+                // A full name typed already fills the first name, unless one is typed here.
+                placeholder={f === 'first_name' ? firstNameOf(values.name) || undefined : undefined}
+                onChange={(e) => setValues((cur) => ({ ...cur, [f]: e.target.value }))}
+              />
+            </div>
+          ))}
+          <Button
+            type="submit"
+            size="sm"
+            variant="secondary"
+            loading={saving}
+            disabled={!typed || saving}
+          >
+            Save
+          </Button>
+        </div>
+        {linkable ? (
+          <div className="space-y-0.5">
+            <label className="inline-flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                className="size-3.5 accent-[var(--accent)]"
+                checked={toContact}
+                onChange={(e) => setToContact(e.target.checked)}
+              />
+              Also save to their contact
+            </label>
+            {replaces.length ? (
+              <p className="text-xs text-[var(--warn)]">
+                Replaces{' '}
+                {replaces
+                  .map((r) => `${r.field === 'name' ? 'the name' : 'the company'} “${r.from}”`)
+                  .join(' and ')}{' '}
+                on their contact.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </form>
+    </li>
   );
 }

@@ -6,6 +6,7 @@ import {
   mergeCrmFields,
   normalizeCrmFields,
   normalizeCrmValue,
+  personCompanyOf,
   statusFieldOf,
   validateCrmValue,
   type CrmFieldInput,
@@ -1286,6 +1287,64 @@ export async function updateEntryValues(
       ),
     });
     return ok(updated);
+  });
+}
+
+export type PersonContactField = 'name' | 'company';
+
+/**
+ * Set a person's name or company: what a campaign's review fills in for a
+ * recipient who was missing it, when "Also save to their contact" is ticked.
+ * Only what is given changes. The company goes in the field already holding
+ * one (put first in a multi-value field, the others kept), else in "Company".
+ * The caller decides whether a value already there may be replaced; the
+ * review shows it beside the checkbox and writes only when it is ticked.
+ */
+export async function updatePersonContact(
+  store: DataStore,
+  organizationId: string,
+  recordId: string,
+  values: { name?: string | null; company?: string | null },
+  actor?: CrmActor,
+): Promise<Result<{ record: CrmRecord; changed: PersonContactField[] }>> {
+  return guard('write', 'update a CRM person', async () => {
+    if (!isUuid(recordId)) return err('not_found', 'That contact does not exist.');
+    const record = await store.get('crm_records', organizationId, recordId);
+    if (!record || record.kind !== 'person') {
+      return err('not_found', 'That contact does not exist.');
+    }
+    const clean = (v: string | null | undefined) =>
+      (v ?? '').replace(/\s+/g, ' ').trim().slice(0, 500);
+    const name = clean(values.name);
+    const company = clean(values.company);
+    const patch: Partial<CrmRecord> = {};
+    const changed: PersonContactField[] = [];
+    if (name && name !== record.name) {
+      patch.name = name;
+      patch.name_key = crmNameKey(name);
+      changed.push('name');
+    }
+    if (company) {
+      const key = personCompanyOf(record.fields)?.key ?? 'Company';
+      const existing = record.fields[key];
+      const next: CrmValue = Array.isArray(existing)
+        ? [company, ...existing.filter((v) => v !== company)]
+        : company;
+      if (!same(existing ?? null, next)) {
+        patch.fields = { ...record.fields, [key]: next };
+        changed.push('company');
+      }
+    }
+    if (!changed.length) return ok({ record, changed });
+    const updated = await store.update('crm_records', organizationId, record.id, {
+      ...patch,
+      updated_at: new Date().toISOString(),
+    });
+    // Which fields, never their values.
+    await audit(store, organizationId, actor, 'crm.record_updated', 'crm_record', record.id, {
+      fields: changed,
+    });
+    return ok({ record: updated, changed });
   });
 }
 

@@ -38,6 +38,28 @@ export function crmNameKey(name: string): string {
   return name.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+/** Where a person record keeps their company, as exports name the column, most specific first. */
+export const PERSON_COMPANY_KEYS = [
+  'Organization',
+  'Organizations',
+  'Company',
+  'Current Organization',
+] as const;
+
+/** The field holding a person's company now, and its (first) value; null when none is set. */
+export function personCompanyOf(
+  fields: Record<string, CrmValue> | null | undefined,
+): { key: string; value: string } | null {
+  for (const key of PERSON_COMPANY_KEYS) {
+    const raw = fields?.[key];
+    const value = (Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [])
+      .map((v) => v.trim())
+      .find(Boolean);
+    if (value) return { key, value };
+  }
+  return null;
+}
+
 const KEY_RE = /^[a-z][a-z0-9_]{0,59}$/;
 
 /**
