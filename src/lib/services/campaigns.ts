@@ -1,6 +1,7 @@
 import 'server-only';
 import {
   CLICK_BURST_MS,
+  bounceNames,
   isAutoReply,
   isAutomatedAgent,
   withinScanWindow,
@@ -3560,6 +3561,29 @@ export async function unsubscribe(
 
 const BOUNCE_SENDER = /^(mailer-daemon|postmaster)@/i;
 
+/**
+ * Whether a sent email went with copies (CC or BCC). A bounce in its thread
+ * may then be about a dead copy address rather than the recipient, so it
+ * counts against the recipient only when it names their address (see
+ * checkReplies). copy_count says so for an email that sent normally; for one
+ * settled from Sent after an interruption, the copies it would have carried
+ * do: every email's CC and the person's own, BCC on every email, or the
+ * first-only sample on the email that claimed it, which claims it straight
+ * after that email's attempt is marked and before the next one's (they are
+ * at least the send interval apart).
+ */
+function sentWithCopies(r: CampaignRecipient, campaign: Campaign | undefined): boolean {
+  if ((r.copy_count ?? 0) > 0 || cleanCopyList(r.cc).length > 0) return true;
+  if (!campaign) return false;
+  const copies = copySettingsOf(campaign);
+  if (copies.cc.length) return true;
+  if (!copies.bcc.length) return false;
+  if (copies.bccMode === 'every') return true;
+  if (!copies.bccSampleAt || !r.attempted_at) return false;
+  const gap = Date.parse(copies.bccSampleAt) - Date.parse(r.attempted_at);
+  return gap >= 0 && gap < SEND_INTERVAL_MS;
+}
+
 /** Only the last few weeks of sends are checked; older ones have had their replies. */
 const REPLY_WINDOW_DAYS = 60;
 
@@ -3636,9 +3660,10 @@ async function settleUnconfirmed(
  * Replies and bounces, read from the synced mailbox: a message in a sent
  * email's Gmail thread, after it was sent, from that recipient (a reply,
  * unless it is an automatic one such as an out-of-office) or from a mail
- * server (a bounce). Also settles "may have gone out" sends whose copy turned
- * up in Sent. Reads the mailbox only; sends nothing. Run when a campaign is
- * viewed and from the daily job.
+ * server (a bounce; for an email that went with copies, only one naming the
+ * recipient's own address). Also settles "may have gone out" sends whose copy
+ * turned up in Sent. Reads the mailbox only; sends nothing. Run when a
+ * campaign is viewed and from the daily job.
  */
 export async function checkReplies(
   store: DataStore,
@@ -3692,6 +3717,18 @@ export async function checkReplies(
       list.push(m);
       byThread.set(m.thread_id, list);
     }
+    const campaigns = new Map(
+      (
+        await listWhereIn(
+          store,
+          'campaigns',
+          organizationId,
+          {},
+          'id',
+          open.map((r) => r.campaign_id),
+        )
+      ).map((c) => [c.id, c]),
+    );
 
     let replies = 0;
     let bounces = 0;
@@ -3702,7 +3739,15 @@ export async function checkReplies(
       const after = (byThread.get(threadId) ?? [])
         .filter((m) => Date.parse(m.sent_at) > Date.parse(r.sent_at as string))
         .sort((a, b) => a.sent_at.localeCompare(b.sent_at));
-      const bounce = after.find((m) => BOUNCE_SENDER.test(m.from_address));
+      // Without copies, any mail server's message in the thread is the
+      // recipient's bounce, as it always was. With copies it may be about a
+      // copy, so only one that names the recipient's own address counts: a
+      // dead CC never marks the recipient bounced or stops their replies
+      // being read.
+      const copied = sentWithCopies(r, campaigns.get(r.campaign_id));
+      const bounce = after.find(
+        (m) => BOUNCE_SENDER.test(m.from_address) && (!copied || bounceNames(m, r.email)),
+      );
       const fromThem = after.filter((m) => m.from_address.toLowerCase() === r.email);
       // An out-of-office is not a reply; a real one after it still counts.
       const reply = fromThem.find((m) => !isAutoReply(m, r.sent_at));

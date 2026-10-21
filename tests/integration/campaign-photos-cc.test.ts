@@ -13,6 +13,7 @@ import {
   addRecipientsFromPaste,
   assignPhoto,
   campaignManifest,
+  checkReplies,
   confirmCampaign,
   controlCampaign,
   createCampaign,
@@ -30,7 +31,7 @@ import {
   updateCampaignCopies,
   type BatchDeps,
 } from '@/lib/services/campaigns';
-import type { Campaign, CampaignRecipient } from '@/lib/types/domain';
+import type { Campaign, CampaignRecipient, EmailMessage, EmailThread } from '@/lib/types/domain';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
 import { masterComposeCampaignEmail } from '../helpers/master-campaign-email';
 
@@ -719,7 +720,230 @@ describe('sending with photos and copies', () => {
   });
 });
 
+/* The synced mailbox: a sent email's Gmail thread, and what lands in it after the send. */
+
+type Landed = Pick<EmailMessage, 'from_address'> &
+  Partial<Pick<EmailMessage, 'subject' | 'snippet' | 'body_text'>>;
+
+/** Each message lands a minute after the one before, the first a minute after the send. */
+async function landInThread(r: CampaignRecipient, messages: Landed[]): Promise<string[]> {
+  const threadId = randomUUID();
+  const times = messages.map((_, i) =>
+    new Date(Date.parse(r.sent_at as string) + (i + 1) * 60_000).toISOString(),
+  );
+  const last = times.at(-1) as string;
+  const thread: EmailThread = {
+    id: threadId,
+    organization_id: org,
+    provider: 'google',
+    provider_thread_id: r.gmail_thread_id as string,
+    subject: 'Your portrait',
+    last_message_at: last,
+    message_count: messages.length + 1,
+    created_at: last,
+    updated_at: last,
+  };
+  await harness.store.insert('email_threads', thread);
+  for (const [i, m] of messages.entries()) {
+    const at = times[i] as string;
+    await harness.store.insert('email_messages', {
+      id: randomUUID(),
+      organization_id: org,
+      thread_id: threadId,
+      provider: 'google',
+      provider_message_id: randomUUID(),
+      subject: 'Re: Your portrait',
+      snippet: '',
+      from_name: null,
+      to_addresses: ['nick@tiptop.demo'],
+      cc_addresses: [],
+      labels: ['INBOX'],
+      is_unread: true,
+      sent_at: at,
+      body_text: null,
+      body_fetched_at: null,
+      body_hash: null,
+      has_attachments: false,
+      category: 'unknown',
+      category_confidence: null,
+      category_source: null,
+      importance: null,
+      is_ignored: false,
+      linked_deal_id: null,
+      linked_portfolio_company_id: null,
+      injection_flagged: false,
+      created_at: at,
+      updated_at: at,
+      ...m,
+    } as EmailMessage);
+  }
+  return times;
+}
+
+/** Gmail's own bounce, quoting the returned message's headers (which name everyone on it). */
+function gmailBounce(failed: string, original: { to: string; cc?: string }): Landed {
+  return {
+    from_address: 'mailer-daemon@googlemail.com',
+    subject: 'Delivery Status Notification (Failure)',
+    snippet: `Address not found Your message wasn&#39;t delivered to ${failed} because the address couldn&#39;t be found, or is unable to receive mail.`,
+    body_text: [
+      '** Address not found **',
+      '',
+      `Your message wasn't delivered to ${failed} because the address couldn't be found, or is unable to receive mail.`,
+      '',
+      'The response was: 550 5.1.1 The email account that you tried to reach does not exist.',
+      '',
+      '----- Original message -----',
+      '',
+      'From: nick@tiptop.demo',
+      `To: ${original.to}`,
+      ...(original.cc ? [`Cc: ${original.cc}`] : []),
+      'Subject: Your portrait',
+    ].join('\n'),
+  };
+}
+
+/** A delivery report (RFC 3464) from another mail server: its Final-Recipient says who failed. */
+function deliveryReport(finalRecipient: string, words: string): Landed {
+  return {
+    from_address: 'MAILER-DAEMON@mx.harbor.example',
+    subject: 'Undelivered Mail Returned to Sender',
+    snippet: 'This is the mail system at host mx.harbor.example. I am sorry to have to inform you',
+    body_text: [
+      'This is the mail system at host mx.harbor.example.',
+      '',
+      words,
+      '',
+      'Reporting-MTA: dns; mx.harbor.example',
+      `Final-Recipient: rfc822; ${finalRecipient}`,
+      `Original-Recipient: rfc822;${finalRecipient}`,
+      'Action: failed',
+      'Status: 5.1.1',
+      'Diagnostic-Code: smtp; 550 5.1.1 User unknown',
+    ].join('\n'),
+  };
+}
+
+/** A mail server's message that names nobody: a bounce, but of whom it does not say. */
+const namelessBounce: Landed = {
+  from_address: 'postmaster@mail.example',
+  subject: 'Delivery incomplete',
+  snippet: 'There was a problem delivering your message. See the technical details below.',
+};
+
+describe('bounces when an email went with copies', () => {
+  it('count against the recipient only when they name the recipient’s own address', async () => {
+    const campaign = await draft();
+    must(
+      await updateCampaignCopies(harness.store, org, campaign.id, { cc: 'partner@fund.example' }),
+    );
+    await confirm(campaign.id);
+    must(await sendBatch(harness.store, org, campaign.id, deps(new DemoCampaignSender())));
+    const jane = await byEmail(campaign.id, 'jane@acme.example');
+    const sam = await byEmail(campaign.id, 'sam@lee.example');
+    const wei = await byEmail(campaign.id, 'wei@harbor.example');
+    expect([jane, sam, wei].map((r) => r.copy_count)).toEqual([1, 1, 1]);
+
+    // Jane's address bounced (named in another case: still hers).
+    const [janeBounced] = await landInThread(jane, [
+      gmailBounce('Jane@Acme.example', { to: jane.email, cc: 'partner@fund.example' }),
+    ]);
+    // Only Sam's copy bounced, twice over: Gmail's bounce names the copy (the
+    // quoted headers name Sam too, as the original's To), and a delivery
+    // report's Final-Recipient is the copy though its words mention Sam. Then
+    // Sam replies, and that is still read.
+    const [, , samReplied] = await landInThread(sam, [
+      gmailBounce('partner@fund.example', { to: sam.email, cc: 'partner@fund.example' }),
+      deliveryReport(
+        'partner@fund.example',
+        `Your message to ${sam.email} could not be delivered to one of its recipients.`,
+      ),
+      { from_address: sam.email, snippet: 'Love it, thank you!' },
+    ]);
+    // Wei's address bounced, as the delivery report's own field says.
+    const [weiBounced] = await landInThread(wei, [
+      deliveryReport('WEI@harbor.example', '<wei@harbor.example>: 550 5.1.1 User unknown'),
+    ]);
+
+    const checked = must(await checkReplies(harness.store, org, { campaignId: campaign.id }));
+    expect(checked).toMatchObject({ bounces: 2, replies: 1 });
+    expect((await byEmail(campaign.id, jane.email)).bounced_at).toBe(janeBounced);
+    expect((await byEmail(campaign.id, wei.email)).bounced_at).toBe(weiBounced);
+    expect(await byEmail(campaign.id, sam.email)).toMatchObject({
+      bounced_at: null,
+      replied_at: samReplied,
+      status: 'sent',
+    });
+  });
+
+  it('a bounce naming nobody marks no email that carried the first-only sample; the rest keep the rule they always had', async () => {
+    const campaign = await draft();
+    must(
+      await updateCampaignCopies(harness.store, org, campaign.id, {
+        bcc: 'archive@fund.example',
+        bccMode: 'first',
+      }),
+    );
+    await confirm(campaign.id);
+    // A clock that moves a second per reading, so each step of the send has its own time.
+    let tick = Date.now();
+    const now = () => new Date((tick += 1000));
+    must(await sendBatch(harness.store, org, campaign.id, deps(new DemoCampaignSender(), { now })));
+    const jane = await byEmail(campaign.id, 'jane@acme.example');
+    const sam = await byEmail(campaign.id, 'sam@lee.example');
+    const wei = await byEmail(campaign.id, 'wei@harbor.example');
+    expect([jane.copy_count, sam.copy_count, wei.copy_count]).toEqual([1, undefined, undefined]);
+
+    // Jane's email carried the sample: the BCC's bounce, and one that names
+    // nobody, are not hers to count.
+    await landInThread(jane, [
+      gmailBounce('archive@fund.example', { to: jane.email }),
+      namelessBounce,
+    ]);
+    // Sam's and Wei's carried no copy: any mail server's message is their
+    // bounce, whoever it names, exactly as before copies existed.
+    const [samBounced] = await landInThread(sam, [namelessBounce]);
+    const [weiBounced] = await landInThread(wei, [
+      gmailBounce('archive@fund.example', { to: wei.email }),
+    ]);
+
+    const checked = must(await checkReplies(harness.store, org, { campaignId: campaign.id }));
+    expect(checked.bounces).toBe(2);
+    expect((await byEmail(campaign.id, jane.email)).bounced_at).toBeNull();
+    expect((await byEmail(campaign.id, sam.email)).bounced_at).toBe(samBounced);
+    expect((await byEmail(campaign.id, wei.email)).bounced_at).toBe(weiBounced);
+
+    // The sample's email settled from Sent after an interruption has no
+    // copy_count; it is still known by the claim made just after its attempt.
+    await harness.store.update('campaign_recipients', org, jane.id, { copy_count: 0 });
+    const again = must(await checkReplies(harness.store, org, { campaignId: campaign.id }));
+    expect(again.bounces).toBe(0);
+    expect((await byEmail(campaign.id, jane.email)).bounced_at).toBeNull();
+  });
+});
+
 describe('a campaign that uses no photo and no copies', () => {
+  it('reads bounces exactly as before: any mail server’s message in the thread, whoever it names', async () => {
+    const campaign = await draft();
+    await confirm(campaign.id);
+    must(await sendBatch(harness.store, org, campaign.id, deps(new DemoCampaignSender())));
+    const jane = await byEmail(campaign.id, 'jane@acme.example');
+    const sam = await byEmail(campaign.id, 'sam@lee.example');
+    const wei = await byEmail(campaign.id, 'wei@harbor.example');
+    const [janeBounced] = await landInThread(jane, [namelessBounce]);
+    const [samBounced] = await landInThread(sam, [
+      deliveryReport('someone@elsewhere.example', 'Delivery to someone@elsewhere.example failed.'),
+    ]);
+    const [weiReplied] = await landInThread(wei, [
+      { from_address: wei.email, snippet: 'Got it, thanks.' },
+    ]);
+    const checked = must(await checkReplies(harness.store, org, { campaignId: campaign.id }));
+    expect(checked).toMatchObject({ bounces: 2, replies: 1 });
+    expect((await byEmail(campaign.id, jane.email)).bounced_at).toBe(janeBounced);
+    expect((await byEmail(campaign.id, sam.email)).bounced_at).toBe(samBounced);
+    expect((await byEmail(campaign.id, wei.email)).replied_at).toBe(weiReplied);
+  });
+
   it('sends exactly the emails it always did, and writes nothing new', async () => {
     const campaign = await draft();
     must(

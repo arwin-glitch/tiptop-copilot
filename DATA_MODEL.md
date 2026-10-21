@@ -432,7 +432,12 @@ gets what" lists each pending email (`/api/campaigns/<id>/manifest`, or
 included, but never carries a Cc or Bcc; the page shows who it would copy.
 The Bcc line is written into the raw message Gmail's `messages.send`
 delivers from; Gmail is expected to strip it from the delivered copies, which
-must be confirmed with an owned-inbox test before real use. Until the
+must be confirmed with an owned-inbox test before real use. A bounce in the
+thread of an email that went with copies counts against the recipient only
+when it names their own address (a delivery report's Final-Recipient or
+Original-Recipient, or the bounce's own words, not the returned message's
+quoted headers); one naming only a copy leaves them sent, their replies still
+read. An email without copies is read as before. Until the
 migration is applied, rows come back without these columns and the features
 stay hidden; nothing writes them.
 ---
