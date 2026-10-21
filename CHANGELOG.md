@@ -10,6 +10,108 @@ throughout.
 
 ## [Unreleased]
 
+- **Campaigns: fill in missing merge fields from the review.** On the review
+  screen, each "N people have no first name / name / company" line now opens
+  to show who they are, with inputs for whatever each person is missing (Save,
+  or Enter). The values are used for that campaign's preview, counts and send,
+  and people drop off the list as they are filled; anyone left empty still
+  sees the fallback. For people linked to a CRM contact, "Also save to their
+  contact" (on by default) also updates that contact's full name and company,
+  and names any value it would replace; a first name never goes to the
+  contact. Send waits while a save is going through or while typed values are
+  unsaved. No database change.
+
+- **Tasks: a menu on every task, and a Money & legal tab.** Every task row on
+  Tasks and in Today's "Tasks due" has a More actions menu to edit it, snooze
+  it to a chosen day, assign it to a teammate (To do can be filtered by
+  person), mark it money & legal, or delete it with Undo. The new Money &
+  legal tab holds wires, signatures, filings, invoices and the like until they
+  are closed with proof (a link or a teammate's confirmation), and marks
+  anything quiet for a week as going stale. If the 3 PM auto-check calls one
+  done without proof, it waits under "Needs proof" instead of closing. No
+  migration (D-064).
+
+- **CRM writes in Copilot, and Knowledge › Find & save.** New list (Knowledge
+  › Affinity lists), Save as list from any list view, and a new Find & save
+  tab that finds people or companies by name, place and last contact (for
+  example, in Austin, in touch within 3 years), optionally within one list,
+  then saves every match as a list or adds them to one; campaigns can use
+  these lists. New company or person keys on website or email, opens an
+  existing record instead of copying it, and is adopted by the daily Affinity
+  sync. Lists get Add column (a Copilot column, edited in the side panel; the
+  sync never takes it over). Notes written in Copilot can be edited and
+  deleted; Affinity notes say why they are read-only while the sync runs.
+  Remove from list has Undo and stays removed through the sync and CSV
+  re-imports. Profiles get Add to list and a note box. Lists made in Copilot
+  start as Reference only. Remove from list needs migration
+  `20261021000300_crm_writes.sql`; everything else works without it (D-063).
+
+- **Affinity exit checklist.** Knowledge › Affinity import has a second view,
+  Exit checklist (`?view=exit`): a countdown to a notice date you set on the
+  page, a Cancelled switch, status rows counted from Copilot's own records
+  (lists, records, notes, introductions, daily sync), rows for what is not
+  copied yet (contacts on no list, reminders, files), a checklist of outside
+  tools that still use Affinity, and a final archive download. Two owner-only
+  copies run only on a press, after a confirm: contacts on no list (capped per
+  press) and open reminders as tasks (safe to repeat). Today shows one quiet
+  line linking to the checklist in the last 14 days before the date. When
+  Affinity refuses the key, the daily sync now stops cleanly: the job stays
+  green and the panel says "Stopped" instead of failing every morning. No
+  migration (D-062).
+
+- **Diagnostics › Feeds, and opt-in feed notices.** Diagnostics now has two
+  tabs, Setup (the old page) and Feeds: every routine, job and delivery that
+  fills a card, meeting notes included, with when it was last seen against how
+  often it runs (running / late / looks stopped / not seen / can't check /
+  off). Feed notices are opt-in per person: one desktop notice a day per
+  stopped feed, 8am-8pm, only on the computers of the person who turned them
+  on; phones never get them. Cards other than Top priorities add "may be out
+  of date" beside "checked" when their feed looks stopped. No migration
+  (D-061).
+
+- **Network › Intros: Write the intro.** Each intro still owed has a "Write
+  the intro" button. It opens the compose window on a fresh thread in the
+  intro format: an "Intro: First (Firm) <> First & First (Company)" subject,
+  everyone greeted by first name, co-founders included, full names linked to
+  LinkedIn, and a body that ends at the sign-off so the real Gmail signature
+  is added on send. To holds only addresses the app has on record (the tracker
+  row, CRM people, portfolio founders, imported introductions); anything
+  missing shows as a note to fill in, never a guess. Nothing sends until Send
+  is tapped, and Copy for Gmail keeps the links. Subjects and To/Cc names with
+  accented letters are now encoded properly, for replies too.
+
+- **Ask Arwin: a Feedback tab, and an AI tag.** The chat window has a Feedback
+  tab: type or dictate what should change in Copilot, and the note is saved
+  with the page you were on. Notes show on the full Ask page's new Feedback
+  tab (`/ask?tab=feedback`), Open and Done, newest first, with the open count
+  on the tab and Mark done / Reopen. Desktop alerts for new feedback from
+  other people can be turned on there (off by default). A small "AI" tag sits
+  beside the Ask Arwin name on the chat button, in the chat header, on the Ask
+  page title and in the "Arwin replied" pop-up, and desktop notifications read
+  "Arwin (AI) replied". The chatbot still calls itself Arwin. No database
+  change (D-060).
+
+- **Inbox: labels.** A Label button (tag icon) is on every row, in the reading
+  pane and on the bulk bar for selected emails, and the l key opens it. It
+  lists the mailbox's own Gmail labels: tick a plain label to add it, untick
+  it to take it off. Numbered labels (1:, 2:, ...) are a move: picking one
+  takes the email out of the other numbered labels, so the hourly sorter does
+  not undo it. Changes show at once, and the list picks up changes made in
+  Gmail sooner: about every 45 seconds while the tab is open, a few seconds
+  after each action, and when you come back to the tab. Like archive and star,
+  labels need sending turned on.
+
+- **Times in your profile timezone on every page, and portfolio numbers that
+  finish.** Today, Inbox, Campaigns, the Follow-ups email session and the New
+  follow-up dialog print dates and times in your profile timezone on the
+  server and in the browser, so pages no longer redraw themselves after
+  loading when the two are in different zones (React #418). New follow-ups
+  default to two days from today in your zone, due at 5 PM. Demo meetings stay
+  on today after 7pm Central. Portfolio "Numbers from their updates": a
+  refresh that runs out of time carries on by itself in the background, up to
+  6 passes with 15 s between them, and stops early when a pass reads nothing
+  new; page views and the daily job join the refresh already running.
+
 - **Ask Arwin knows it is Arwin.** Answers speak as Arwin, the assistant in
   TipTop Copilot, in the first person and the way Arwin writes (warm, short,
   spaced hyphens, no AI tells), instead of "TipTop Copilot, an internal
