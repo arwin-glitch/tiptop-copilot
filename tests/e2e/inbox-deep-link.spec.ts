@@ -107,13 +107,23 @@ test("a deal's source email opens in Copilot by its synced id, where it was a de
 test('a synced email\u2019s Gmail link goes on to Gmail, and an old ?message= link still opens', async ({
   page,
 }) => {
-  const res = await page.request.get(`/inbox?thread=${VETRIX_INTRO}&open=gmail`, {
-    maxRedirects: 0,
+  // Where the app sends the browser, read before it leaves: the test never opens Gmail.
+  const OPEN_GMAIL = /\/inbox\?thread=[^&]+&open=gmail$/;
+  let target: string | undefined;
+  await page.route(OPEN_GMAIL, async (route) => {
+    const res = await route.fetch({ maxRedirects: 0 });
+    target =
+      res.headers()['location'] ??
+      /http-equiv="refresh" content="\d+;url=([^"]+)"/.exec(await res.text())?.[1];
+    await route.fulfill({ status: 200, contentType: 'text/html', body: '<p>Stopped here</p>' });
   });
-  expect([302, 303, 307, 308]).toContain(res.status());
-  expect(res.headers()['location']).toMatch(
-    /^https:\/\/mail\.google\.com\/mail\/\?authuser=.+#all\/[0-9a-f]{16}$/,
-  );
+  await page.goto(`/inbox?thread=${VETRIX_INTRO}&open=gmail`);
+  await expect.poll(() => target).toBeDefined();
+  const gmail = new URL(target!.replace(/&amp;/g, '&'));
+  expect(gmail.origin).toBe('https://mail.google.com');
+  expect(gmail.searchParams.get('authuser')).toBe('nick@tiptop.demo');
+  expect(gmail.hash).toMatch(/^#all\/[0-9a-f]{16}$/);
+  await page.unroute(OPEN_GMAIL);
 
   // A brief or bookmark saved before the Inbox read ?thread=.
   await page.goto(`/inbox?message=${VETRIX_INTRO}`);

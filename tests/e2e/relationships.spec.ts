@@ -48,9 +48,15 @@ test('a person’s profile shows the relationship panel with its evidence', asyn
   await expect(panel.locator('[data-smart-field="next_meeting"]')).not.toContainText('—');
   await expect(panel.locator('[data-smart-field="first_email"]')).not.toContainText('Affinity');
 
-  const thread = panel.getByRole('link', { name: /Customer reference for diligence/ });
+  // A thread in the timeline, in Copilot's Inbox or in Gmail.
+  const thread = panel.getByRole('link', {
+    name: 'Open in Gmail: Customer reference for diligence',
+  });
   await expect(thread).toHaveAttribute('href', /mail\.google\.com.*#all\/de0a000000000005$/);
   await expect(thread).toHaveAttribute('target', '_blank');
+  await expect(
+    panel.getByRole('link', { name: 'Open in Copilot: Customer reference for diligence' }),
+  ).toHaveAttribute('href', '/inbox?thread=de0a000000000005');
 });
 
 test('a company’s profile shows who Nick knows there and who can intro', async ({ page }) => {

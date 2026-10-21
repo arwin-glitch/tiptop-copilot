@@ -81,6 +81,11 @@ const PAGES = [
   // Diagnostics, and its feeds with their long schedule lines.
   '/diagnostics',
   '/diagnostics?tab=feeds',
+  // Rows whose email links offer Copilot and Gmail side by side.
+  '/calendar',
+  '/portfolio?tab=requests',
+  '/portfolio?tab=numbers',
+  '/network?tab=cold',
 ];
 
 /** No sideways scroll beyond a few pixels of rounding. */
@@ -262,6 +267,14 @@ test.describe('mobile layout', () => {
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(2);
+
+    // Its source emails, each with Copilot and Gmail, still fit the phone.
+    await page.getByRole('tab', { name: 'Sources' }).click();
+    const copilot = page.getByRole('link', { name: /^Open in Copilot: Intro: Vetrix/ }).first();
+    await expect(copilot).toBeVisible();
+    await expectNoSidewaysScroll(page);
+    const box = (await copilot.boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   });
 
   test('the ask composer stays reachable above the bottom bar', async ({ page }) => {
