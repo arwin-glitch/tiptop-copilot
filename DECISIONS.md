@@ -1842,3 +1842,63 @@ the real calendar or email anyone while it is built.
 - The parity check in demo mode compares the demo's synced rows with the mock
   calendar, so it only proves the plumbing; the real proof is running it
   against Nick's calendar.
+
+### D-066 — Calendar: Google's event card on every event, and Google's layout where it is better
+
+**Context.** Arwin: "make sure we can click on the block and have the same
+options as google calendar". A click on an event opened a side drawer with
+Edit and Delete only. The UX review also left three places where Google's
+layout is better: titles cut to one line in narrow columns, the quick editor
+as a centred dialog over the slot just dragged, and no way to drag out an
+event over several days.
+
+**Decision.**
+
+- **The card.** A click on any event (meeting or block) in Day, Week or Month
+  opens Google's event card beside it, on whichever side has room (a Radix
+  popover on a virtual anchor), never a centred dialog; a phone gets a sheet
+  from the bottom. Esc or a press outside closes it, and that press does
+  nothing else (it does not also start a new event), as in Google. It shows
+  what Google shows (title, time and zone, the repeat rule read from the
+  series, the calendar, the guests with their answers counted, the organizer,
+  the description as plain words with its http/https/mailto links clickable,
+  attachments as links) plus Copilot's Meeting/Block verdict, the Hold tag,
+  "Pings 5 min before" and the day list's context box.
+- **Its options** (`lib/calendar/event-actions.ts`, shared by the page and the
+  write module): Edit, Delete (the plain confirm, or the cancellations question
+  with guests), Duplicate (the full editor prefilled as a new event on the same
+  calendar; saving asks the invitations question when it has guests), Google's
+  event colours on the card, Email guests (Copilot's compose window, prefilled;
+  only its own Send sends, Copy for Gmail without the grant), Join with Google
+  Meet and Copy Meet link, the place as a Maps link, and Open in Google
+  Calendar for the rest. Without calendar editing, or on a view-only calendar,
+  only what writes nothing is offered.
+- **Going? Yes / No / Maybe** on an event Nick is a guest on (not its
+  organizer) patches his own attendee entry's responseStatus and nothing else.
+  Google emails the organizer, so the card asks "Send your response to the
+  organizer?" (Send / Don't send / Cancel) every time; only Send becomes
+  sendUpdates `all`, and Cancel or Esc writes nothing.
+- **A colour is the viewer's own.** A colour change sends colorId alone with
+  sendUpdates `none` and is never asked about, from the card or from the
+  editor (a colour-only edit skips the guests question, and the server forces
+  `none` for it whatever was answered). Nick may colour an event he can change,
+  or his own copy of an invitation, as Google allows. A repeating event asks
+  "This event / All events" first (which events, not whether to email).
+- **One route.** The card's writes go through the same edit route as every
+  other change (PATCH with `kind: 'respond'` or `kind: 'color'`; the colour
+  body has no `notify` at all), so lib/calendar/write.ts stays the only way
+  in. The repeat rule is read by a new read-only route (`/api/calendar/series`,
+  one events.get when a card for a series opens).
+- **Google's layout.** Titles wrap over as many lines as an event's height
+  allows, with the time below when there is room. The quick editor opens
+  beside the slot just clicked or dragged, which stays drawn as "(No title)"
+  until it is saved or closed, with More options to the full editor; a phone
+  keeps a bottom sheet. A drag across empty days makes one all-day event over
+  all of them, in Month (across weeks too) and in Week's all-day row.
+
+**Still only in Google Calendar** (Open in Google Calendar on every card):
+print, publish, change owner, find a time, "This and following events",
+removing a Meet link, a guest's note with the answer, proposing a new time,
+removing an invitation from the calendar without answering, Duplicate of a
+whole series (the copy is one event), notifications per event, and the
+"modern" colour shades.

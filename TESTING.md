@@ -67,7 +67,8 @@ Pure logic, no store, no harness.
 | `calendar-grid.test.ts` | The new calendar views' arithmetic: Day/Week/Month ranges, stepping, labels, DST-safe placement, side-by-side overlaps, month packing with "+N more" |
 | `calendar-colors.test.ts` | Colours from Google: an event's colorId, else its calendar's; the palette and its names |
 | `calendar-edit-rules.test.ts` | Who may change an event, the guests prompt every time guests are involved, only Send becomes sendUpdates "all", recurring scopes, what a change sends |
-| `calendar-write-boundary.test.ts` | Only the Calendar tab's edit route reaches a calendar write; the readers, pings and parity check name none; nothing defaults to emailing guests; the calendar-editing scope is asked for only by the opt-in flow |
+| `calendar-write-boundary.test.ts` | Only the Calendar tab's edit route reaches a calendar write; the readers, pings and parity check name none; nothing defaults to emailing guests; a colour from the event card has no `notify` and is always sendUpdates "none"; the calendar-editing scope is asked for only by the opt-in flow |
+| `calendar-event-actions.test.ts` | The event card's requests: Going? changes only Nick's own answer and maps Send / Don't send to sendUpdates "all" / "none"; a colour is colorId alone, never an email; Duplicate's draft; which options a card offers (read-only events get only Join, Copy link, Email guests, Open in Google); the repeat rule, the guests' answers and a description as safe words and links |
 
 `env-boundary.test.ts` is worth singling out: it walks every file in `src/`,
 finds the ones marked `'use client'`, and asserts none imports a server-only
@@ -97,6 +98,7 @@ the model provider, and that one is deterministic rather than canned.
 | `calendar-pings-pin.test.ts` | The meeting pings' request and verdicts are unchanged (a pin) |
 | `calendar-range.test.ts` | The new views' reader over the mock calendar and Google's pages: calendars, recurring instances, all-day, colours, verdicts, caching; the parity check; per-person settings |
 | `calendar-edit.test.ts` | Writes against the mock calendar: create with Meet and guests, Send vs Don't send, move, resize, move calendars, delete with and without cancellations, recurring scopes, refusals without the grant or on view-only events |
+| `calendar-event-card.test.ts` | The event card's writes against the mock calendar: Duplicate saves a new id, a colour records sendUpdates "none" (from the editor too, even with Send), Going? Send vs Don't send, refusals for the organizer, a view-only calendar and no grant |
 
 ### The harness
 
@@ -136,6 +138,17 @@ fixed and every target is at least 44px, one `h1` and one `main` per page, the
 skip link is first in tab order, `aria-current` marks the current page, every
 control has an accessible name, every form control is labelled, and the theme
 toggle is an operable radio group.
+
+**`calendar-event-card.spec.ts`** covers the new calendar's event card over the
+demo's mock calendar: a click opens it beside the event (not a centred dialog)
+with Google's options; a press on an empty slot only closes it; a colour asks
+nothing and stays; Duplicate opens the editor prefilled and, with guests, asks
+the invitations question; Going? asks "Send your response to the organizer?"
+and Cancel writes nothing; a read-only event offers only what writes nothing;
+Email guests opens the compose window (Copy for Gmail in the demo); titles wrap
+in narrow columns; the quick editor opens beside the dragged slot, which stays
+drawn; a drag across days makes one event in Month and in Week's all-day row;
+and a phone gets a bottom sheet.
 
 **`updates.spec.ts`** covers the Updates tab over the invented demo workspace,
 with one shared sign-in: no Ledger line, footer or old roster anywhere in the
