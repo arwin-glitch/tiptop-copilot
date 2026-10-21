@@ -104,6 +104,29 @@ test("a deal's source email opens in Copilot by its synced id, where it was a de
   );
 });
 
+/** The demo LP's question about Q3 reporting (Copilot's own synced id for the email). */
+const LP_QUESTION = '00000000-0000-4000-8000-000000000195';
+
+test('an email in the Today outlook\u2019s top priorities opens in Copilot or Gmail', async ({
+  page,
+}) => {
+  await page.goto('/today');
+  await expect(page.getByRole('heading', { name: 'Outlook' })).toBeVisible();
+  const copilot = page
+    .getByRole('link', { name: /^Open in Copilot: Elena Ward: LP question on Q3/ })
+    .first();
+  await expect(copilot).toHaveAttribute('href', `/inbox?thread=${LP_QUESTION}`);
+  await expect(
+    page.getByRole('link', { name: /^Open in Gmail: Elena Ward: LP question on Q3/ }).first(),
+  ).toHaveAttribute('href', `/inbox?thread=${LP_QUESTION}&open=gmail`);
+
+  await copilot.click();
+  await page.waitForURL((url) => url.pathname === '/inbox');
+  await expect(
+    page.getByRole('region', { name: 'Reading pane' }).getByRole('heading', { level: 2 }),
+  ).toHaveText('LP question on Q3 reporting timeline');
+});
+
 test('a synced email\u2019s Gmail link goes on to Gmail, and an old ?message= link still opens', async ({
   page,
 }) => {

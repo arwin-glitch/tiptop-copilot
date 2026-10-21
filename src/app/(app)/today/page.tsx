@@ -18,7 +18,7 @@ import { readAffinityExitTodayLine } from '@/lib/services/affinity-exit';
 import { readMoneyLegal, readTaskPeople } from '@/lib/services/money-legal';
 import { readFollowUps, todayLead } from '@/lib/services/follow-ups';
 import { classifyMeeting, meetingFromStoredEvent } from '@/lib/calendar/meetings';
-import { emailLinkId } from '@/lib/email/thread-links';
+import { emailIdFromInboxHref, emailLinkId } from '@/lib/email/thread-links';
 import { autoCheckStatusLine, DEFAULT_MAILBOX, gmailMessageHref } from '@/lib/services/task-close';
 import { proofCheckView, readFlaggedProofTasks } from '@/lib/services/task-proof';
 import { readTaskCompanies } from '@/lib/services/task-company';
@@ -300,25 +300,36 @@ async function TodayContent({
                   Top {brief.priorities.length}
                 </FieldLabel>
                 <ol className="space-y-2.5">
-                  {brief.priorities.map((item, i) => (
-                    <li key={item.id} className="flex gap-3">
-                      <span className="tabular mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--jewel)] text-[11px] font-semibold text-[var(--jewel-fg)]">
-                        {i + 1}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">
-                          {item.href ? (
-                            <Link href={item.href} className="underline-offset-2 hover:underline">
-                              {item.title}
-                            </Link>
-                          ) : (
-                            item.title
-                          )}
-                        </p>
-                        <p className="mt-0.5 text-sm text-[var(--fg-muted)]">{item.detail}</p>
-                      </div>
-                    </li>
-                  ))}
+                  {brief.priorities.map((item, i) => {
+                    // An email priority offers both places to read it, like the brief's rows.
+                    const emailId = emailIdFromInboxHref(item.href);
+                    return (
+                      <li key={item.id} className="flex gap-3">
+                        <span className="tabular mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--jewel)] text-[11px] font-semibold text-[var(--jewel-fg)]">
+                          {i + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">
+                            {item.href && !emailId ? (
+                              <Link href={item.href} className="underline-offset-2 hover:underline">
+                                {item.title}
+                              </Link>
+                            ) : (
+                              item.title
+                            )}
+                          </p>
+                          <p className="mt-0.5 text-sm text-[var(--fg-muted)]">{item.detail}</p>
+                          <ThreadLinks
+                            id={emailId}
+                            mailbox={DEFAULT_MAILBOX}
+                            label={item.title}
+                            variant="text"
+                            className="mt-1"
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ol>
               </div>
             ) : null}
