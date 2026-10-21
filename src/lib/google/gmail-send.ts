@@ -291,9 +291,9 @@ export function buildReplyMime(input: {
   const clean = (v: string) => v.replace(/[\r\n]+/g, ' ').trim();
   const headers = [
     `From: ${clean(input.from)}`,
-    `To: ${clean(input.to)}`,
-    input.cc ? `Cc: ${clean(input.cc)}` : '',
-    `Subject: ${clean(input.subject)}`,
+    `To: ${encodeAddressHeader(input.to)}`,
+    input.cc ? `Cc: ${encodeAddressHeader(input.cc)}` : '',
+    `Subject: ${encodeHeaderValue(input.subject)}`,
     input.inReplyTo ? `In-Reply-To: ${clean(input.inReplyTo)}` : '',
     input.references ? `References: ${clean(input.references)}` : '',
     'MIME-Version: 1.0',
@@ -549,6 +549,21 @@ export function encodeHeaderValue(value: string): string {
   const clean = value.replace(/[\r\n]+/g, ' ').trim();
   if (/^[\x20-\x7e]*$/.test(clean)) return clean;
   return `=?UTF-8?B?${Buffer.from(clean, 'utf8').toString('base64')}?=`;
+}
+
+/**
+ * An address header (To, Cc) with each non-ASCII display name RFC 2047-encoded,
+ * as in `Zoë Park <zoe@x.example>`: the intro draft writes names from records.
+ * Plain ASCII, and anything not in that simple form, goes as it was.
+ */
+export function encodeAddressHeader(value: string): string {
+  const clean = value.replace(/[\r\n]+/g, ' ').trim();
+  if (/^[\x20-\x7e]*$/.test(clean)) return clean;
+  return clean.replace(
+    /(^|,\s*)([^<>",]*[^\x20-\x7e][^<>",]*?)\s*<([^<>\s]+)>/g,
+    (_whole, lead: string, name: string, address: string) =>
+      `${lead}${encodeHeaderValue(name)} <${address}>`,
+  );
 }
 
 /**

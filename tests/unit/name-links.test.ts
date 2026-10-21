@@ -6,7 +6,7 @@ import {
   textWithLinks,
   toLinkedInUrl,
 } from '@/lib/email/name-links';
-import { bodyToHtml, buildNewMime } from '@/lib/google/gmail-send';
+import { bodyToHtml, buildNewMime, encodeAddressHeader } from '@/lib/google/gmail-send';
 
 /** LinkedIn links on names in the intro draft; fictional people only. */
 
@@ -41,6 +41,13 @@ describe('toLinkedInUrl', () => {
     expect(toLinkedInUrl('https://www.linkedin.com/in/ola-(pellucid)')).toBe(
       'https://www.linkedin.com/in/ola-%28pellucid%29',
     );
+  });
+
+  it('keeps every accepted URL readable back as a link', () => {
+    const quoted = toLinkedInUrl("https://www.linkedin.com/in/ola-o'brightwater");
+    expect(quoted).toBe('https://www.linkedin.com/in/ola-o%27brightwater');
+    expect(hasNameLinks(linkName('Ola Brightwater', quoted))).toBe(true);
+    expect(toLinkedInUrl(`https://www.linkedin.com/in/${'a'.repeat(600)}`)).toBeNull();
   });
 });
 
@@ -109,5 +116,29 @@ describe('sending with links', () => {
       signatureHtml: null,
     });
     expect(decode(plain, 'html')).not.toContain('<a ');
+  });
+
+  it('encodes names written in other alphabets in the subject and To', () => {
+    const b64 = (s: string) => `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
+    const mime = buildNewMime({
+      from: 'owner@fund.example',
+      to: 'Zoë Brightwater <zoe@pellucid.demo>, Wren Abara <wren@halyard.example>, ola@pellucid.demo',
+      cc: 'José Ruiz <jose@halyard.example>',
+      subject: 'Intro: Wren (Halyard Ventures) <> Zoë (Pellucid)',
+      body: 'Hi all,\n\nCheers,\nSam',
+      signatureHtml: null,
+    });
+    expect(mime).toContain(
+      `To: ${b64('Zoë Brightwater')} <zoe@pellucid.demo>, Wren Abara <wren@halyard.example>, ola@pellucid.demo\r\n`,
+    );
+    expect(mime).toContain(`Cc: ${b64('José Ruiz')} <jose@halyard.example>\r\n`);
+    expect(mime).toContain(
+      `Subject: ${b64('Intro: Wren (Halyard Ventures) <> Zoë (Pellucid)')}\r\n`,
+    );
+    // Plain ASCII headers go exactly as typed.
+    expect(encodeAddressHeader('Wren Abara <wren@halyard.example>')).toBe(
+      'Wren Abara <wren@halyard.example>',
+    );
+    expect(encodeAddressHeader('Zoë <zoe@x.example>\r\nBcc: evil@x.example')).not.toMatch(/\r|\n/);
   });
 });
