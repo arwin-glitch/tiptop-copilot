@@ -120,8 +120,9 @@ function longDate(dateKey: string): string {
   }).format(new Date(`${dateKey}T12:00:00Z`));
 }
 
+/** "Central Time (America/Chicago)": the generic name, right on both sides of a clock change. */
 function zoneName(timeZone: string): string {
-  const name = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'long' })
+  const name = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longGeneric' })
     .formatToParts(new Date())
     .find((p) => p.type === 'timeZoneName')?.value;
   return name ? `${name} (${timeZone})` : timeZone;
@@ -241,7 +242,7 @@ function EditorBody({
       : `${longDate(fields.startDate)} · ${shortTime(state.draft.start, timeZone)} – ${shortTime(state.draft.end, timeZone)}`;
     return (
       <DialogContent title="New event" description={when} className="max-w-md">
-        <form onSubmit={submit} className="space-y-3">
+        <form onSubmit={submit} noValidate className="space-y-3">
           <Field label="Title" htmlFor="quick-title">
             <Input
               id="quick-title"
@@ -291,7 +292,7 @@ function EditorBody({
 
   return (
     <DialogContent title={isNew ? 'New event' : 'Edit event'} className="max-w-2xl">
-      <form onSubmit={submit} className="space-y-4">
+      <form onSubmit={submit} noValidate className="space-y-4">
         <Field label="Title" htmlFor="event-title">
           <Input
             id="event-title"
@@ -328,7 +329,7 @@ function EditorBody({
                 />
               </div>
               {!fields.allDay ? (
-                <div className="w-28">
+                <div className="w-32 shrink-0">
                   <Label htmlFor="event-start-time" className="text-xs text-[var(--fg-muted)]">
                     Start time
                   </Label>
@@ -355,7 +356,7 @@ function EditorBody({
                 />
               </div>
               {!fields.allDay ? (
-                <div className="w-28">
+                <div className="w-32 shrink-0">
                   <Label htmlFor="event-end-time" className="text-xs text-[var(--fg-muted)]">
                     End time
                   </Label>
@@ -486,7 +487,8 @@ function EditorBody({
         ) : null}
 
         {problem ? <p className="text-sm text-[var(--danger)]">{problem}</p> : null}
-        <DialogFooter>
+        {/* Save stays in reach however far down the form is scrolled. */}
+        <DialogFooter className="sticky -bottom-4 -mx-5 -mb-4 border-t border-[var(--border)] bg-[var(--bg-overlay)] px-5 py-3">
           <Button type="button" variant="ghost" onClick={onCancel} disabled={saving}>
             Cancel
           </Button>
@@ -543,6 +545,7 @@ function GuestInput({
   onChange: (guests: string[]) => void;
 }) {
   const [text, setText] = React.useState('');
+  const [invalid, setInvalid] = React.useState(false);
   const [suggestions, setSuggestions] = React.useState<{ name: string; email: string }[]>([]);
   const query = text.trim();
 
@@ -565,8 +568,15 @@ function GuestInput({
       .split(/[\s,;]+/)
       .map((s) => s.trim().replace(/^<|>$/g, ''))
       .filter((s) => isEmailAddress(s.toLowerCase()));
-    if (found.length) onChange(cleanGuestList([...guests, ...found]));
+    if (!found.length) {
+      // Nothing usable: keep what was typed (or pasted) so it can be fixed.
+      setText(raw.trim());
+      setInvalid(true);
+      return;
+    }
+    onChange(cleanGuestList([...guests, ...found]));
     setText('');
+    setInvalid(false);
     setSuggestions([]);
   };
 
@@ -600,7 +610,12 @@ function GuestInput({
         <Input
           id="event-guests"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            setInvalid(false);
+          }}
+          aria-invalid={invalid || undefined}
+          aria-describedby="event-guests-hint"
           onKeyDown={(e) => {
             if ((e.key === 'Enter' || e.key === ',' || e.key === ';') && text.trim()) {
               e.preventDefault();
@@ -640,7 +655,10 @@ function GuestInput({
           </ul>
         ) : null}
       </div>
-      <p className="text-xs text-[var(--fg-muted)]">
+      <p id="event-guests-hint" className="text-xs text-[var(--fg-muted)]">
+        {invalid ? (
+          <span className="text-[var(--danger)]">That is not an email address. </span>
+        ) : null}
         Nobody is emailed unless you choose Send when you save.
       </p>
     </div>
