@@ -236,6 +236,69 @@ describe('photos', () => {
     expect(two.outcome?.matchedTo).toBe('Wei Chen');
   });
 
+  it('an upload can never write over a photo or an attachment already there', async () => {
+    const campaign = await draft();
+    const attachmentId = randomUUID();
+    must(
+      await addAttachmentChunk(
+        harness.store,
+        storage,
+        org,
+        campaign.id,
+        { uploadId: attachmentId, index: 0, count: 1, name: 'Letter.pdf', type: '', size: 8 },
+        Buffer.from('%PDF-1.4'),
+      ),
+    );
+    const jane = must(await uploadPhoto(campaign.id, 'Jane Doe.png')).outcome!.photoId;
+    const [photo] = await harness.store.list('campaign_photos', org, { eq: { id: jane } });
+    const [attachment] = must(await getCampaign(harness.store, org, campaign.id)).campaign
+      .attachments;
+    const other = Buffer.concat([PNG, Buffer.from(' but another one')]);
+    const version = must(await reviewCampaign(harness.store, org, campaign.id)).version;
+
+    // The same id again, as a first piece of two or a whole file: refused
+    // before anything is written, and the photo's pieces are untouched.
+    for (const count of [2, 1]) {
+      const again = await addPhotoChunk(
+        harness.store,
+        storage,
+        org,
+        campaign.id,
+        { uploadId: jane, index: 0, count, name: 'Jane Doe.png', type: 'image/png', size: 40 },
+        other,
+      );
+      expect(!again.ok && again.error.code).toBe('invalid_input');
+    }
+    const kept = await storage.get(photo!.parts[0]!);
+    expect(kept.ok && Buffer.from(kept.value).equals(PNG)).toBe(true);
+
+    // A photo upload named with an attachment's id lands in the photos'
+    // own folder, never on the attachment's pieces.
+    const odd = must(
+      await addPhotoChunk(
+        harness.store,
+        storage,
+        org,
+        campaign.id,
+        {
+          uploadId: attachmentId,
+          index: 0,
+          count: 1,
+          name: 'Sam Lee.png',
+          type: 'image/png',
+          size: other.byteLength,
+        },
+        other,
+      ),
+    );
+    expect(odd.complete).toBe(true);
+    const letter = await storage.get(attachment!.parts[0]!);
+    expect(letter.ok && Buffer.from(letter.value).toString()).toBe('%PDF-1.4');
+    // Only the photo that did join moved the version.
+    expect(must(await reviewCampaign(harness.store, org, campaign.id)).version).not.toBe(version);
+    expect(await harness.store.count('campaign_photos', org, {})).toBe(2);
+  });
+
   it('can be given out by hand, changed, cleared and removed', async () => {
     const campaign = await draft();
     const group = must(await uploadPhoto(campaign.id, 'group-shot.png')).outcome!.photoId;

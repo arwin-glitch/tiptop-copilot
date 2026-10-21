@@ -1634,6 +1634,18 @@ export async function listCampaignPhotos(
   });
 }
 
+/**
+ * Where a photo's pieces are kept: a folder of their own beside the
+ * attachments' (partPath), so a photo upload can never land on an
+ * attachment's pieces, or an attachment upload on a photo's.
+ */
+const photoPartPath = (
+  organizationId: string,
+  campaignId: string,
+  uploadId: string,
+  index: number,
+) => `campaigns/${organizationId}/${campaignId}/photos/${uploadId}/${index}`;
+
 /** A draft that can take photos and copies right now, or why not. */
 async function extrasDraft(
   store: DataStore,
@@ -1722,13 +1734,20 @@ export async function addPhotoChunk(
         }
       }
 
-      const path = partPath(organizationId, campaign.id, meta.uploadId, meta.index);
+      // An id that is already a photo is refused before anything is written:
+      // its pieces sit at the same paths, so writing (or cleaning up after a
+      // refusal) would change or delete a photo someone already has, without
+      // moving the draft's version.
+      if (await store.get('campaign_photos', organizationId, meta.uploadId)) {
+        return err('invalid_input', 'That upload is not valid.');
+      }
+      const path = photoPartPath(organizationId, campaign.id, meta.uploadId, meta.index);
       const put = await storage.put(path, bytes, 'application/octet-stream');
       if (!put.ok) return put;
       if (meta.index < meta.count - 1) return ok({ complete: false });
 
       const parts = Array.from({ length: meta.count }, (_, i) =>
-        partPath(organizationId, campaign.id, meta.uploadId, i),
+        photoPartPath(organizationId, campaign.id, meta.uploadId, i),
       );
       const incomplete = async () => {
         await removeParts(storage, parts);
@@ -1754,7 +1773,8 @@ export async function addPhotoChunk(
         existing.some((p) => p.id === meta.uploadId) ||
         (await store.get('campaign_photos', organizationId, meta.uploadId))
       ) {
-        await removeParts(storage, parts);
+        // Another upload with this id finished first: these pieces are its
+        // pieces now, so they stay.
         return err('invalid_input', 'That upload is not valid.');
       }
       const photo: CampaignPhoto = {
