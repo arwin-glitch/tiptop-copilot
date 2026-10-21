@@ -167,5 +167,9 @@ describe('the CRM contact', () => {
       value: 'Fernhollow',
     });
     expect(personCompanyOf(null)).toBeNull();
+    // An odd value in the free-form fields is skipped, never a crash of the review.
+    expect(
+      personCompanyOf({ Organization: 42, Organizations: [7, ' Brightwell '] } as never),
+    ).toEqual({ key: 'Organizations', value: 'Brightwell' });
   });
 });

@@ -1209,45 +1209,70 @@ function ReviewStep({
     setReadCount((n) => n + 1);
   };
 
+  /**
+   * Fills go one at a time: each reads the person's merge as the last one
+   * left it, so a second save for the same person (from another line) never
+   * writes over the first.
+   */
+  const fillQueue = React.useRef<Promise<unknown>>(Promise.resolve());
+
+  /** Rows with something typed and not saved: Send waits, so nothing typed is left out unseen. */
+  const [unsaved, setUnsaved] = React.useState<ReadonlySet<string>>(() => new Set());
+  const onTyped = React.useCallback((row: string, typed: boolean) => {
+    setUnsaved((cur) => {
+      if (cur.has(row) === typed) return cur;
+      const next = new Set(cur);
+      if (typed) next.add(row);
+      else next.delete(row);
+      return next;
+    });
+  }, []);
+
   /** Save what someone typed for one person, then read the review again: new counts and version. */
-  const fill = async (
+  const fill = (
     person: MissingPerson,
     values: MergeValues,
     saveToContact: boolean,
   ): Promise<boolean> => {
     setFilling((n) => n + 1);
-    try {
-      const r = await call<FillResponse>(
-        `/api/campaigns/${campaignId}/recipients`,
-        jsonInit('PATCH', { recipientId: person.id, values, saveToContact }),
-      );
-      if (r.ok) {
-        const who = person.name ?? person.email;
-        const { contact, filled } = r.data;
-        if (contact.status === 'failed') {
-          toast.warning(`Saved for this campaign, but not on their contact: ${contact.message}`);
-        } else {
-          toast.success(
-            !filled.length
-              ? `${who} already had that filled in.`
-              : contact.status === 'saved'
-                ? `Saved for ${who}, and on their contact.`
-                : contact.status === 'unchanged'
-                  ? `Saved for ${who}. Their contact already had it.`
-                  : `Saved for ${who}.`,
-          );
-        }
-        onRecipientsChanged();
+    const run = fillQueue.current.then(() => fillNow(person, values, saveToContact));
+    fillQueue.current = run.catch(() => undefined);
+    return run.finally(() => setFilling((n) => n - 1));
+  };
+
+  const fillNow = async (
+    person: MissingPerson,
+    values: MergeValues,
+    saveToContact: boolean,
+  ): Promise<boolean> => {
+    const r = await call<FillResponse>(
+      `/api/campaigns/${campaignId}/recipients`,
+      jsonInit('PATCH', { recipientId: person.id, values, saveToContact }),
+    );
+    if (r.ok) {
+      const who = person.name ?? person.email;
+      const { contact, filled } = r.data;
+      if (contact.status === 'failed') {
+        toast.warning(`Saved for this campaign, but not on their contact: ${contact.message}`);
       } else {
-        toast.error(r.message);
+        toast.success(
+          !filled.length
+            ? `${who} already had that filled in.`
+            : contact.status === 'saved'
+              ? `Saved for ${who}, and on their contact.`
+              : contact.status === 'unchanged'
+                ? `Saved for ${who}. Their contact already had it.`
+                : `Saved for ${who}.`,
+        );
       }
-      const fresh = await read();
-      if (fresh.ok) setReview(fresh.data.review);
-      else setError(fresh.message);
-      return r.ok;
-    } finally {
-      setFilling((n) => n - 1);
+      onRecipientsChanged();
+    } else {
+      toast.error(r.message);
     }
+    const fresh = await read();
+    if (fresh.ok) setReview(fresh.data.review);
+    else setError(fresh.message);
+    return r.ok;
   };
 
   if (error) {
@@ -1268,7 +1293,7 @@ function ReviewStep({
     : null;
   const minutes = estimatedMinutes(review.recipientCount);
   const people = `${review.recipientCount} ${review.recipientCount === 1 ? 'person' : 'people'}`;
-  const blocked = review.issues.length > 0 || !sender?.canSend || filling > 0;
+  const blocked = review.issues.length > 0 || !sender?.canSend || filling > 0 || unsaved.size > 0;
   const missingGroups = missingByField(
     review.fallbacks.map((f) => f.field),
     review.missing ?? [],
@@ -1365,7 +1390,13 @@ function ReviewStep({
         <Notice>
           <div className="space-y-1">
             {missingGroups.map((g) => (
-              <MissingFieldLine key={g.field} field={g.field} people={g.people} onSave={fill} />
+              <MissingFieldLine
+                key={g.field}
+                field={g.field}
+                people={g.people}
+                onSave={fill}
+                onTyped={onTyped}
+              />
             ))}
           </div>
         </Notice>
@@ -1396,6 +1427,11 @@ function ReviewStep({
           : ''}
         {sender?.demo ? ' Demo: nothing actually leaves the app.' : ''}
       </p>
+      {unsaved.size ? (
+        <p className="text-sm text-[var(--warn)]">
+          Save or clear what you typed for the people above before sending.
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button variant="ghost" onClick={() => onEdit('message')}>
@@ -1434,6 +1470,9 @@ type SaveFill = (
   saveToContact: boolean,
 ) => Promise<boolean>;
 
+/** A row reporting whether it holds typed values not saved yet. */
+type OnTyped = (row: string, typed: boolean) => void;
+
 /**
  * One "N people have no …" line, opening to who they are, each with inputs
  * for what they lack. A person drops off once the line's field is filled;
@@ -1443,10 +1482,12 @@ function MissingFieldLine({
   field,
   people,
   onSave,
+  onTyped,
 }: {
   field: MergeField;
   people: MissingPerson[];
   onSave: SaveFill;
+  onTyped: OnTyped;
 }) {
   const [open, setOpen] = React.useState(false);
   const [showAll, setShowAll] = React.useState(false);
@@ -1480,7 +1521,7 @@ function MissingFieldLine({
           className="mt-1.5 mb-1 divide-y divide-[var(--border)] rounded-md border border-[var(--border)] bg-[var(--bg-raised)]"
         >
           {shown.map((p) => (
-            <MissingPersonRow key={p.id} person={p} onSave={onSave} />
+            <MissingPersonRow key={p.id} person={p} onSave={onSave} onTyped={onTyped} />
           ))}
         </ul>
         {people.length > shown.length ? (
@@ -1494,7 +1535,15 @@ function MissingFieldLine({
 }
 
 /** One person's missing values: Save (or Enter) fills them in for this campaign. */
-function MissingPersonRow({ person, onSave }: { person: MissingPerson; onSave: SaveFill }) {
+function MissingPersonRow({
+  person,
+  onSave,
+  onTyped,
+}: {
+  person: MissingPerson;
+  onSave: SaveFill;
+  onTyped: OnTyped;
+}) {
   const [values, setValues] = React.useState<MergeValues>({});
   const [toContact, setToContact] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -1505,6 +1554,12 @@ function MissingPersonRow({ person, onSave }: { person: MissingPerson; onSave: S
     person.contact !== null && person.lacks.some((f) => f === 'name' || f === 'company');
   const typed = person.lacks.some((f) => cleanMergeValue(values[f]));
   const replaces = linkable && toContact ? contactReplacements(person.contact, values) : [];
+
+  React.useEffect(() => {
+    onTyped(id, typed);
+  }, [id, typed, onTyped]);
+  // A row that goes (its person filled, or the line gone) holds nothing unsaved.
+  React.useEffect(() => () => onTyped(id, false), [id, onTyped]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();

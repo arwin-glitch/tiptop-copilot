@@ -411,6 +411,7 @@ contact", on by default for a recipient with a `record_id`, also writes the
 full name (`crm_records.name`) and company (the field already holding one,
 else `fields.Company`) to that CRM person, naming any value it replaces; a
 first name stays with the campaign.
+
 ---
 
 ## 7. Row-level security

@@ -52,8 +52,10 @@ export function personCompanyOf(
 ): { key: string; value: string } | null {
   for (const key of PERSON_COMPANY_KEYS) {
     const raw = fields?.[key];
-    const value = (Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [])
-      .map((v) => v.trim())
+    // Typed loosely on purpose: the review reads this for every recipient, and
+    // one odd value in a contact's free-form fields must not take it down.
+    const value = (Array.isArray(raw) ? (raw as unknown[]) : [raw])
+      .map((v) => (typeof v === 'string' ? v.trim() : ''))
       .find(Boolean);
     if (value) return { key, value };
   }

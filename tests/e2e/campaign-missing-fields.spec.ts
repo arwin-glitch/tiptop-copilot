@@ -100,6 +100,14 @@ test('the review lists who is missing a field, and filling one in drops the coun
   );
   await expect(review.getByRole('button', { name: 'Send to 3 people' })).toBeEnabled();
 
+  // Something typed and not saved holds Send back until it is saved or cleared.
+  const eli = noFirst.getByRole('form', { name: 'Fill in eli.new@fill.example' });
+  await eli.getByLabel('First name').fill('Eli');
+  await expect(review.getByRole('button', { name: 'Send to 3 people' })).toBeDisabled();
+  await expect(review.getByText('Save or clear what you typed')).toBeVisible();
+  await eli.getByLabel('First name').fill('');
+  await expect(review.getByRole('button', { name: 'Send to 3 people' })).toBeEnabled();
+
   // Back on the message, the preview has Dana's first name too.
   await review.getByRole('button', { name: 'Back', exact: true }).click();
   await page.getByLabel('Preview as').selectOption({ label: 'dana.new@fill.example' });
