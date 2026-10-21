@@ -16,8 +16,9 @@ throughout.
   **Gmail**, which opens it in Gmail in a new tab. That covers Calendar's
   latest emails, a deal's email threads and source emails, every Follow-ups
   row (and the session when an email can't load), Fund II's LP cards, DocSend
-  readers and warm paths, a campaign's replies, Today's important and LP
-  emails and last-email lines, Portfolio requests, numbers and company emails,
+  readers and warm paths, a campaign's replies, Today's outlook priorities,
+  important and LP emails and last-email lines, Portfolio requests, numbers
+  and company emails,
   Network's going cold, intros and relationship timelines, Reports' fresh
   updates and the Gmail links in routine posts, Gmail links in Ask answers,
   sources in the evidence drawer, and the Seen sent, auto-close and money &
