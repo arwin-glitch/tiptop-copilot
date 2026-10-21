@@ -295,6 +295,12 @@ export const KNOWLEDGE_TABS = define({
       blurb:
         'Drop Affinity CSV exports (a list view and its notes) to bring them in. Importing a file again updates what is here instead of duplicating it.',
     },
+    {
+      key: 'find',
+      label: 'Find & save',
+      blurb:
+        'Find people and companies by name, place and last contact, then save them as a list or add them to one. New people and companies are added here too.',
+    },
   ],
 });
 

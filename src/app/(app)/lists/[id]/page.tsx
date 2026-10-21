@@ -16,6 +16,7 @@ import {
   sortStatusOptions,
 } from '@/lib/crm/view';
 import {
+  affinitySyncIsOn,
   CRM_MIGRATION_FILE,
   countEntriesByStatus,
   getCrmList,
@@ -253,6 +254,7 @@ export default async function ListPage({
         timezone={auth.profile.timezone}
         canWrite={canWrite}
         canExportAll={hasRole(auth, 'owner')}
+        affinitySyncOn={affinitySyncIsOn()}
       />
     </PageShell>
   );

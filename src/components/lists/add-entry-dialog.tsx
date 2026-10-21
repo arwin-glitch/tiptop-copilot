@@ -2,8 +2,12 @@
 
 import * as React from 'react';
 import { toast } from 'sonner';
-import { Plus, X } from 'lucide-react';
-import { addCrmEntryAction, searchCrmRecordsAction } from '@/app/actions/crm';
+import { Plus, UserPlus, X } from 'lucide-react';
+import {
+  addCrmEntryAction,
+  createCrmRecordAction,
+  searchCrmRecordsAction,
+} from '@/app/actions/crm';
 import type { ListViewList } from '@/components/lists/list-view';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
@@ -20,6 +24,11 @@ const SEARCH_DEBOUNCE_MS = 200;
  * with; a company or person list takes the record (a name alone makes an
  * unlinked row, as Affinity allows). The record search is the same ranked
  * search as the profiles use — exact name first, then prefixes.
+ *
+ * On a company or person list, someone not in the CRM yet can be made here
+ * ("New company" / "New person", with a website or an email): the record is
+ * created first — or, when one with that domain or address already exists,
+ * that one is used instead of a duplicate — and then added to the list.
  */
 export function AddEntryDialog({
   list,
@@ -42,6 +51,12 @@ export function AddEntryDialog({
   const [title, setTitle] = React.useState('');
   const [status, setStatus] = React.useState('');
   const [saving, startSaving] = React.useTransition();
+  // Making a new company or person (not on a deal list).
+  const [creating, setCreating] = React.useState(false);
+  const [newName, setNewName] = React.useState('');
+  const [identity, setIdentity] = React.useState('');
+  const [place, setPlace] = React.useState('');
+  const canCreate = list.entity_type !== 'deal';
 
   const reset = () => {
     setQuery('');
@@ -50,6 +65,10 @@ export function AddEntryDialog({
     setPicked(null);
     setTitle('');
     setStatus('');
+    setCreating(false);
+    setNewName('');
+    setIdentity('');
+    setPlace('');
   };
 
   React.useEffect(() => {
@@ -69,15 +88,50 @@ export function AddEntryDialog({
   }, [query, kind, picked]);
 
   const shown = query.trim().length >= 2 && !picked ? results : [];
-  const canSave = Boolean(picked || title.trim());
+  const canSave = creating
+    ? Boolean(newName.trim() || identity.trim())
+    : Boolean(picked || title.trim());
 
   const save = () =>
     startSaving(async () => {
+      let record = picked;
+      if (creating) {
+        const made = await createCrmRecordAction({
+          kind,
+          name: newName.trim(),
+          ...(kind === 'company' ? { domain: identity.trim() } : { email: identity.trim() }),
+          location: place.trim(),
+        }).catch(() => null);
+        if (!made) {
+          toast.error(`The ${noun} could not be added: no connection.`);
+          return;
+        }
+        if (!made.ok || !made.data) {
+          toast.error(made.error?.message ?? `The ${noun} could not be added.`, {
+            description: made.error?.stillUsable,
+          });
+          return;
+        }
+        record = made.data.record;
+        if (made.data.existed) {
+          toast.info(`${record.name} was already in the CRM, so that record is used.`, {
+            description:
+              made.data.matchedBy === 'name'
+                ? 'Matched by name. Give a website or email to tell two apart.'
+                : `Matched by ${made.data.matchedBy === 'domain' ? 'website' : 'email'}.`,
+          });
+        }
+      }
       const result = await addCrmEntryAction(list.id, {
-        recordId: picked?.id ?? null,
+        recordId: record?.id ?? null,
         title: title.trim() || null,
         values: statusField && status ? { [statusField.key]: status } : {},
       }).catch(() => null);
+      // Made (or found) now: a retry adds this record rather than making it again.
+      if (creating && record) {
+        setCreating(false);
+        setPicked(record);
+      }
       if (!result) {
         toast.error('The entry could not be added: no connection.');
         return;
@@ -154,7 +208,7 @@ export function AddEntryDialog({
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
-                {shown.length > 0 ? (
+                {creating ? null : shown.length > 0 ? (
                   <ul
                     aria-label={`Matching ${noun === 'person' ? 'people' : 'companies'}`}
                     className="mt-1.5 max-h-56 space-y-0.5 overflow-y-auto rounded-md border border-[var(--border)] p-1"
@@ -181,15 +235,78 @@ export function AddEntryDialog({
                   </ul>
                 ) : query.trim().length >= 2 && searched === query.trim() ? (
                   <p className="mt-1.5 text-xs text-[var(--fg-muted)]">
-                    No {noun} by that name yet. Type the name below to add the row without a linked
-                    record.
+                    {canCreate
+                      ? `No ${noun} by that name yet. Make a new one below, or type a name to add the row without a linked record.`
+                      : `No ${noun} by that name yet. Type the name below to add the row without a linked record.`}
                   </p>
+                ) : null}
+                {canCreate && !creating ? (
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="mt-1 h-auto px-0"
+                    onClick={() => {
+                      setCreating(true);
+                      setNewName(query.includes('@') || query.includes('.') ? '' : query.trim());
+                      setIdentity(query.includes('@') || query.includes('.') ? query.trim() : '');
+                    }}
+                  >
+                    <UserPlus aria-hidden="true" />
+                    New {noun}
+                  </Button>
                 ) : null}
               </>
             )}
           </Field>
 
-          {list.entity_type === 'deal' || !picked ? (
+          {creating ? (
+            <fieldset className="space-y-3 rounded-md border border-[var(--border)] p-3">
+              <legend className="px-1 text-sm font-medium">New {noun}</legend>
+              <Field label="Name" htmlFor="add-entry-new-name">
+                <Input
+                  id="add-entry-new-name"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  maxLength={500}
+                  autoComplete="off"
+                />
+              </Field>
+              <Field
+                label={kind === 'company' ? 'Website' : 'Email'}
+                htmlFor="add-entry-new-identity"
+                hint={
+                  kind === 'company'
+                    ? 'A company already here with this website is used instead of a copy.'
+                    : 'Someone already here with this email is used instead of a copy.'
+                }
+              >
+                <Input
+                  id="add-entry-new-identity"
+                  type={kind === 'company' ? 'text' : 'email'}
+                  value={identity}
+                  onChange={(e) => setIdentity(e.target.value)}
+                  placeholder={kind === 'company' ? 'example.com' : 'name@example.com'}
+                  autoComplete="off"
+                />
+              </Field>
+              <Field label="Location" htmlFor="add-entry-new-place">
+                <Input
+                  id="add-entry-new-place"
+                  value={place}
+                  onChange={(e) => setPlace(e.target.value)}
+                  maxLength={300}
+                  placeholder="City, state"
+                  autoComplete="off"
+                />
+              </Field>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setCreating(false)}>
+                Pick someone already here instead
+              </Button>
+            </fieldset>
+          ) : null}
+
+          {list.entity_type === 'deal' || (!picked && !creating) ? (
             <Field
               label={list.entity_type === 'deal' ? 'Deal name' : 'Name'}
               htmlFor="add-entry-title"

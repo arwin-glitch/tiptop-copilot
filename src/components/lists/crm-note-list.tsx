@@ -26,6 +26,8 @@ export function CrmNoteList({
   empty = 'No notes yet.',
   about,
   label = 'Notes',
+  actions,
+  editing,
 }: {
   notes: readonly CrmNote[];
   timezone: string;
@@ -37,6 +39,10 @@ export function CrmNoteList({
   about?: Readonly<Record<string, readonly { id: string; name: string }[]>>;
   /** Accessible name of the list. */
   label?: string;
+  /** Controls for a note (edit, delete, why it is read-only), from a client caller. */
+  actions?: (note: CrmNote) => React.ReactNode;
+  /** The note being edited, and the editor shown in place of its text. */
+  editing?: { id: string; editor: React.ReactNode } | null;
 }) {
   if (notes.length === 0) {
     return <p className="text-sm text-[var(--fg-subtle)]">{empty}</p>;
@@ -44,7 +50,14 @@ export function CrmNoteList({
   return (
     <ul className="space-y-2" aria-label={label}>
       {notes.map((note) => (
-        <CrmNoteItem key={note.id} note={note} timezone={timezone} about={about?.[note.id]} />
+        <CrmNoteItem
+          key={note.id}
+          note={note}
+          timezone={timezone}
+          about={about?.[note.id]}
+          actions={actions?.(note)}
+          editor={editing?.id === note.id ? editing.editor : null}
+        />
       ))}
     </ul>
   );
@@ -54,10 +67,14 @@ function CrmNoteItem({
   note,
   timezone,
   about,
+  actions,
+  editor,
 }: {
   note: CrmNote;
   timezone: string;
   about?: readonly { id: string; name: string }[];
+  actions?: React.ReactNode;
+  editor?: React.ReactNode;
 }) {
   // An imported note whose date could not be read has none. It says so,
   // rather than borrowing the import's time and passing a 2019 note off as
@@ -90,6 +107,7 @@ function CrmNoteItem({
         <Badge tone="outline" className="ml-1">
           {note.source === 'affinity' ? 'From Affinity' : 'Copilot'}
         </Badge>
+        {actions ? <span className="ml-auto flex items-center gap-1">{actions}</span> : null}
       </p>
       {about?.length ? (
         <p className="text-mini mt-0.5 text-[var(--fg-subtle)]">
@@ -117,7 +135,9 @@ function CrmNoteItem({
         </Notice>
       ) : null}
 
-      {long ? (
+      {editor ? (
+        <div className="mt-2">{editor}</div>
+      ) : long ? (
         <>
           <PlainText
             text={`${note.content.slice(0, PREVIEW_CHARS).trimEnd()}…`}
