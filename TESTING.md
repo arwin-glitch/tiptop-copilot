@@ -67,7 +67,7 @@ Pure logic, no store, no harness.
 | `calendar-grid.test.ts` | The new calendar views' arithmetic: Day/Week/Month ranges, stepping, labels, DST-safe placement, side-by-side overlaps, month packing with "+N more" |
 | `calendar-colors.test.ts` | Colours from Google: an event's colorId, else its calendar's; the palette and its names |
 | `calendar-edit-rules.test.ts` | Who may change an event, the guests prompt every time guests are involved, only Send becomes sendUpdates "all", recurring scopes, what a change sends |
-| `calendar-write-boundary.test.ts` | Only the Calendar tab's edit route reaches a calendar write; the readers, pings and parity check name none; nothing defaults to emailing guests |
+| `calendar-write-boundary.test.ts` | Only the Calendar tab's edit route reaches a calendar write; the readers, pings and parity check name none; nothing defaults to emailing guests; the calendar-editing scope is asked for only by the opt-in flow |
 
 `env-boundary.test.ts` is worth singling out: it walks every file in `src/`,
 finds the ones marked `'use client'`, and asserts none imports a server-only

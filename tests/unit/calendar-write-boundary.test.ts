@@ -71,6 +71,33 @@ describe('calendar writes', () => {
     expect(rules).toMatch(/return choice === 'send' \? 'all' : 'none';/);
   });
 
+  it('the calendar-editing scope is asked for by the opt-in flow alone', () => {
+    // The scope list is read by the OAuth URL builder (only when the start
+    // route was opened with ?calendar=1) and by the check that refuses writes.
+    const readers = SOURCES.filter((s) => /\bCALENDAR_EDIT_SCOPES\b/.test(s.text)).map(
+      (s) => s.rel,
+    );
+    expect(readers.sort()).toEqual([
+      'lib/calendar/edit-access.ts',
+      'lib/google/oauth.ts',
+      'lib/google/send-scopes.ts',
+    ]);
+    const builders = SOURCES.filter((s) => /\bbuildAuthorizationUrl\(/.test(s.text)).map(
+      (s) => s.rel,
+    );
+    expect(builders.sort()).toEqual([
+      'app/api/integrations/google/start/route.ts',
+      'lib/google/oauth.ts',
+    ]);
+    const start = SOURCES.find((s) => s.rel === 'app/api/integrations/google/start/route.ts')!;
+    expect(start.text).toMatch(/searchParams\.get\('calendar'\) === '1'/);
+    // The "Turn on calendar editing" links: Settings and the Calendar tab's view-only note.
+    const linkers = SOURCES.filter((s) => /google\/start\?calendar=1/.test(s.text)).map(
+      (s) => s.rel,
+    );
+    expect(linkers.sort()).toEqual(['app/(app)/calendar/page.tsx', 'app/(app)/settings/page.tsx']);
+  });
+
   it('every API route that writes checks where the request came from', () => {
     for (const rel of ['app/api/calendar/events/route.ts', 'app/api/calendar/prefs/route.ts']) {
       const text = SOURCES.find((s) => s.rel === rel)!.text;
