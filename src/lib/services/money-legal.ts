@@ -215,10 +215,12 @@ function hostOf(url: string): string | null {
 
 export function proofView(proof: ProofRecord, people: readonly TaskPerson[]): ProofView {
   if (proof.kind === 'link') {
-    const host = proof.url ? hostOf(proof.url) : null;
+    // Checked again on the way out: the row is shown back as a link.
+    const url = proof.url && /^https?:\/\//i.test(proof.url) ? proof.url : null;
+    const host = url ? hostOf(url) : null;
     return {
       label: host ? `Closed with proof · ${host}` : 'Closed with proof',
-      href: proof.url,
+      href: url,
       note: proof.note,
     };
   }

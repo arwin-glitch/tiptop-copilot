@@ -100,7 +100,10 @@ export function MoneyLegalTasks({
             if (rows.length === 0) return null;
             return (
               <section key={group.key}>
-                <SectionHeading count={group.key === 'closed' ? closedTotal : rows.length}>
+                {/* Closed shows only the newest few: the heading counts them all, unless filtered. */}
+                <SectionHeading
+                  count={group.key === 'closed' && who === 'all' ? closedTotal : rows.length}
+                >
                   {group.key === 'needs_proof' ? (
                     <span className="text-[var(--danger)]">{group.label}</span>
                   ) : (

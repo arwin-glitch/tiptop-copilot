@@ -11,6 +11,7 @@ import {
   needsProofView,
   proofView,
   readMoneyLegal,
+  readTaskPeople,
   setMoneyLegal,
 } from '@/lib/services/money-legal';
 import { NEEDS_PROOF_ACTION, PROOF_ACTION } from '@/lib/services/money-legal-records';
@@ -192,6 +193,25 @@ describe('closing a money or legal task', () => {
     expect(await rows(PROOF_ACTION, task.id)).toHaveLength(0);
   });
 
+  it('never shows a stored link that is not a web link as a link', () => {
+    const stored = {
+      auditId: 'a1',
+      at: '2026-10-20T15:00:00.000Z',
+      userId: null,
+      kind: 'link' as const,
+      confirmedBy: null,
+      note: null,
+    };
+    expect(proofView({ ...stored, url: 'javascript:alert(1)' }, [])).toEqual({
+      label: 'Closed with proof',
+      href: null,
+      note: null,
+    });
+    expect(proofView({ ...stored, url: 'http://files.example.com/a.pdf' }, []).href).toBe(
+      'http://files.example.com/a.pdf',
+    );
+  });
+
   it('Undo reopens it, and its old proof no longer explains anything', async () => {
     const task = await human('ZZ File the annual report');
     await completeTaskWithProof(harness.auth, task.id, {
@@ -354,6 +374,27 @@ describe('automatic closes of money and legal tasks', () => {
       ),
     ]);
     expect(await readTasksVersion(harness.store, org)).not.toBe(before);
+  });
+});
+
+/* ------------------------------------------------- a store that cannot read */
+
+describe('when the store cannot be read', () => {
+  it('reads as no money or legal marks and no people, never an error', async () => {
+    const open = await listOpenTasks(org, new Date());
+    const broken = new Proxy(harness.store, {
+      get(target, prop, receiver) {
+        if (prop === 'list' || prop === 'userProfileById') {
+          return () => Promise.reject(new Error('relation does not exist'));
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const read = await readMoneyLegal(broken, org, open);
+    expect(read.states.size).toBe(0);
+    expect(read.claims.size).toBe(0);
+    expect(read.proofs.size).toBe(0);
+    expect(await readTaskPeople(org, broken)).toEqual([]);
   });
 });
 

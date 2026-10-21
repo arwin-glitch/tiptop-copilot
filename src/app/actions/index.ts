@@ -36,7 +36,6 @@ import {
   assignTask,
   createTask,
   editTask,
-  listTaskPeople,
   restoreTask,
   snoozeTask,
   updateTaskStatus,
@@ -44,6 +43,7 @@ import {
 import {
   completeTaskWithProof,
   dismissNeedsProof,
+  readTaskPeople,
   setMoneyLegal,
 } from '@/lib/services/money-legal';
 import type { TaskProof } from '@/lib/tasks/money-legal';
@@ -283,10 +283,10 @@ export async function assignTaskAction(
   return succeed();
 }
 
-/** The organization's members, for the assign menu and the proof dialog. */
+/** The organization's members, for the assign menu and the proof dialog. None when unreadable. */
 export async function listTaskPeopleAction(): Promise<ActionResult<TaskPerson[]>> {
   const auth = await requireAuth();
-  return succeed(await listTaskPeople(auth.organizationId));
+  return succeed(await readTaskPeople(auth.organizationId));
 }
 
 /** Puts a task on the Money & legal tab, or takes it off, whatever the keyword rules say. */
