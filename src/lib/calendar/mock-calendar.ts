@@ -554,8 +554,19 @@ export function locate(
 /** A patch as Google applies one: named fields replaced, `null` clears. */
 export function applyPatch(event: GCalEvent, body: GCalEventWrite): GCalEvent {
   const next: Record<string, unknown> = { ...event };
+  // Google's answer-only form: the guests named change their entry, and
+  // everyone else on the list stays as they were.
+  const answerOnly = body.attendeesOmitted === true && body.attendees !== undefined;
+  if (answerOnly) {
+    const named = new Map(body.attendees!.map((a) => [a.email?.toLowerCase(), a]));
+    next.attendees = (event.attendees ?? []).map((a) => {
+      const entry = named.get(a.email?.toLowerCase());
+      return entry ? structuredClone({ ...a, responseStatus: entry.responseStatus }) : a;
+    });
+  }
   for (const [field, value] of Object.entries(body)) {
-    if (value === undefined) continue;
+    if (value === undefined || field === 'attendeesOmitted') continue;
+    if (answerOnly && field === 'attendees') continue;
     if (value === null) {
       delete next[field];
       continue;

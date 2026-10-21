@@ -77,10 +77,12 @@ export function respondRule(
 }
 
 /**
- * The patch that answers an event: the guest list as Google has it, with
- * only Nick's own responseStatus changed (a guest's patch can change nothing
- * else), and Google's sendUpdates for his choice in the question. Null when
- * he is not on the list.
+ * The patch that answers an event, in Google's answer-only form: Nick's own
+ * guest entry alone, with only its responseStatus changed, and
+ * `attendeesOmitted` so Google leaves everyone else on the list as it is
+ * (even when the organizer lets guests change the event, or the list moved
+ * on since it was read). Google's sendUpdates follows his choice in the
+ * question. Null when he is not on the list.
  */
 export function rsvpRequest(
   existing: Pick<GCalEvent, 'attendees'>,
@@ -89,14 +91,10 @@ export function rsvpRequest(
   ownEmails: readonly string[] = [],
 ): { body: GCalEventWrite; sendUpdates: SendUpdates } | null {
   const attendees = existing.attendees ?? [];
-  const index = ownAttendeeIndex(attendees, ownEmails);
-  if (index < 0) return null;
+  const own = attendees[ownAttendeeIndex(attendees, ownEmails)];
+  if (!own) return null;
   return {
-    body: {
-      attendees: attendees.map((a, i) =>
-        i === index ? { ...a, responseStatus: response } : { ...a },
-      ),
-    },
+    body: { attendees: [{ ...own, responseStatus: response }], attendeesOmitted: true },
     sendUpdates: sendUpdatesFor(notify),
   };
 }

@@ -1874,10 +1874,12 @@ event over several days.
   Calendar for the rest. Without calendar editing, or on a view-only calendar,
   only what writes nothing is offered.
 - **Going? Yes / No / Maybe** on an event Nick is a guest on (not its
-  organizer) patches his own attendee entry's responseStatus and nothing else.
-  Google emails the organizer, so the card asks "Send your response to the
-  organizer?" (Send / Don't send / Cancel) every time; only Send becomes
-  sendUpdates `all`, and Cancel or Esc writes nothing.
+  organizer) patches his own attendee entry's responseStatus and nothing else,
+  in Google's answer-only form (his entry alone, with `attendeesOmitted`), so
+  no answer can rewrite anyone else on the guest list, even where guests may
+  change the event. Google emails the organizer, so the card asks "Send your
+  response to the organizer?" (Send / Don't send / Cancel) every time; only
+  Send becomes sendUpdates `all`, and Cancel or Esc writes nothing.
 - **A colour is the viewer's own.** A colour change sends colorId alone with
   sendUpdates `none` and is never asked about, from the card or from the
   editor (a colour-only edit skips the guests question, and the server forces

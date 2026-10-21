@@ -193,7 +193,9 @@ describe('a colour from the card', () => {
       notify: 'send',
       changes: { colorId: '7' },
     });
-    expect(state.writes[0]).toMatchObject({ body: { colorId: '7' }, sendUpdates: 'none' });
+    expect(state.writes[0]).toMatchObject({ sendUpdates: 'none' });
+    // The colour and nothing else (toMatchObject would let other fields through).
+    expect(state.writes[0]!.body).toEqual({ colorId: '7' });
   });
 
   it('"All events" recolours the series itself', async () => {
@@ -235,13 +237,25 @@ describe('Going? Yes / No / Maybe', () => {
     expect(res.ok).toBe(true);
     const write = state.writes[0]!;
     expect(write).toMatchObject({ op: 'patch', eventId: 'demoteamboard', sendUpdates: 'all' });
-    expect(Object.keys(write.body ?? {})).toEqual(['attendees']);
+    // Google's answer-only form: Nick's own entry and nobody else's.
+    expect(Object.keys(write.body ?? {}).sort()).toEqual(['attendees', 'attendeesOmitted']);
+    expect(write.body?.attendeesOmitted).toBe(true);
     expect(write.body?.attendees).toEqual([
       expect.objectContaining({ email: MOCK_OWN_EMAIL, self: true, responseStatus: 'accepted' }),
-      expect.objectContaining({ email: 'maya@ledgerly.demo', responseStatus: 'accepted' }),
-      expect.objectContaining({ email: 'sam@ledgerly.demo', responseStatus: 'tentative' }),
     ]);
-    if (res.ok) expect(res.value.event?.myResponse).toBe('accepted');
+    if (res.ok) {
+      expect(res.value.event?.myResponse).toBe('accepted');
+      // Everyone else stays on the list with the answer they gave.
+      expect(
+        res.value.event?.attendees
+          .map((a) => [a.email, a.response])
+          .sort(([a], [b]) => String(a).localeCompare(String(b))),
+      ).toEqual([
+        ['maya@ledgerly.demo', 'accepted'],
+        [MOCK_OWN_EMAIL, 'accepted'],
+        ['sam@ledgerly.demo', 'tentative'],
+      ]);
+    }
   });
 
   it('Don’t send answers without telling anyone', async () => {
@@ -253,7 +267,9 @@ describe('Going? Yes / No / Maybe', () => {
       notify: 'dont_send',
     });
     expect(state.writes[0]).toMatchObject({ sendUpdates: 'none' });
-    expect(state.writes[0]!.body?.attendees?.[0]).toMatchObject({ responseStatus: 'declined' });
+    expect(state.writes[0]!.body?.attendees).toEqual([
+      expect.objectContaining({ email: MOCK_OWN_EMAIL, responseStatus: 'declined' }),
+    ]);
     // Declined: the pings' own verdict makes it a block.
     if (res.ok) {
       expect(res.value.event?.myResponse).toBe('declined');

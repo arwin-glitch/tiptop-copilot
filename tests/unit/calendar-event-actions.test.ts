@@ -113,14 +113,19 @@ function rangeEvent(over: Partial<RangeEvent> = {}): RangeEvent {
 }
 
 describe('answering an invitation (Going? Yes / No / Maybe)', () => {
-  it('changes only Nick’s own answer, and keeps everyone else’s entry as it was', () => {
+  it('sends only Nick’s own entry in Google’s answer-only form, so nobody else’s can change', () => {
     const request = rsvpRequest(invite, 'accepted', 'dont_send', OWN)!;
-    expect(Object.keys(request.body)).toEqual(['attendees']);
+    expect(Object.keys(request.body).sort()).toEqual(['attendees', 'attendeesOmitted']);
+    expect(request.body.attendeesOmitted).toBe(true);
+    // His entry as Google has it (his note kept), with only the answer changed.
     expect(request.body.attendees).toEqual([
-      { email: 'maya@ledger.example', displayName: 'Maya Chen', responseStatus: 'accepted' },
       { email: 'nick@acme.example', responseStatus: 'accepted', self: true, comment: 'maybe late' },
-      { email: 'sam@ledger.example', responseStatus: 'tentative', optional: true },
     ]);
+    // Even where the organizer lets guests change the event.
+    const guestsCanModify = { ...invite, guestsCanModify: true };
+    const editable = rsvpRequest(guestsCanModify, 'declined', 'send', OWN)!;
+    expect(editable.body.attendees?.map((a) => a.email)).toEqual(['nick@acme.example']);
+    expect(editable.body.attendeesOmitted).toBe(true);
   });
 
   it('tells the organizer only on Send: Don’t send and no answer are both none', () => {

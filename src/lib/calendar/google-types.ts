@@ -126,6 +126,12 @@ export interface GCalEventWrite {
   start?: GCalDateTimeWrite;
   end?: GCalDateTimeWrite;
   attendees?: GCalAttendee[];
+  /**
+   * Google's form for answering an invitation: `attendees` holds only the
+   * person's own entry, and Google changes that guest's answer alone, leaving
+   * everyone else on the list as it is.
+   */
+  attendeesOmitted?: boolean;
   conferenceData?: GCalConferenceData;
 }
 
