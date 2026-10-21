@@ -1006,6 +1006,40 @@ describe('bounces when an email went with copies', () => {
     expect(again.bounces).toBe(0);
     expect((await byEmail(campaign.id, jane.email)).bounced_at).toBeNull();
   });
+
+  it('an email settled from Sent (no copy_count) is still known by the copies it went with', async () => {
+    // Each kind of copy on its own: the campaign's CC, BCC on every email,
+    // and the person's own CC.
+    for (const setup of [
+      { copies: { cc: 'partner@fund.example' } },
+      { copies: { bcc: 'archive@fund.example', bccMode: 'every' as const } },
+      { personalCc: 'pa@acme.example' },
+    ]) {
+      const campaign = await draft('Jane Doe <jane@acme.example>');
+      if (setup.copies) {
+        must(await updateCampaignCopies(harness.store, org, campaign.id, setup.copies));
+      }
+      if (setup.personalCc) {
+        const pending = await byEmail(campaign.id, 'jane@acme.example');
+        must(
+          await setRecipientCc(harness.store, org, campaign.id, {
+            recipientId: pending.id,
+            cc: setup.personalCc,
+          }),
+        );
+      }
+      await confirm(campaign.id);
+      must(await sendBatch(harness.store, org, campaign.id, deps(new DemoCampaignSender())));
+      const jane = await byEmail(campaign.id, 'jane@acme.example');
+      expect(jane.copy_count).toBe(1);
+      // Settled from Sent after an interruption: no copy_count was written.
+      await harness.store.update('campaign_recipients', org, jane.id, { copy_count: 0 });
+      await landInThread(jane, [namelessBounce]);
+      const checked = must(await checkReplies(harness.store, org, { campaignId: campaign.id }));
+      expect(checked.bounces).toBe(0);
+      expect((await byEmail(campaign.id, jane.email)).bounced_at).toBeNull();
+    }
+  });
 });
 
 describe('a campaign that uses no photo and no copies', () => {
