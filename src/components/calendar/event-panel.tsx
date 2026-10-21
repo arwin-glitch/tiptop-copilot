@@ -69,6 +69,7 @@ export function EventPanel({
   event,
   calendar,
   timeZone,
+  ownEmails,
   mailbox,
   editing,
   editingOffReason,
@@ -80,6 +81,8 @@ export function EventPanel({
   event: RangeEvent | null;
   calendar: CalendarInfo | null;
   timeZone: string;
+  /** Nick's own addresses: he is never listed among the guests, as in the day list. */
+  ownEmails: readonly string[];
   /** The mailbox the "latest emails" links open in. */
   mailbox: string | null;
   /** Calendar editing is on (the grant, or the demo). */
@@ -98,6 +101,7 @@ export function EventPanel({
             event={event}
             calendar={calendar}
             timeZone={timeZone}
+            ownEmails={ownEmails}
             mailbox={mailbox}
             editing={editing}
             editingOffReason={editingOffReason}
@@ -115,6 +119,7 @@ function EventDetails({
   event,
   calendar,
   timeZone,
+  ownEmails,
   mailbox,
   editing,
   editingOffReason,
@@ -125,6 +130,7 @@ function EventDetails({
   event: RangeEvent;
   calendar: CalendarInfo | null;
   timeZone: string;
+  ownEmails: readonly string[];
   mailbox: string | null;
   editing: boolean;
   editingOffReason: string | null;
@@ -132,7 +138,8 @@ function EventDetails({
   onDelete: (event: RangeEvent) => void;
   turnOnHref: string | null;
 }) {
-  const people = event.attendees.filter((a) => !a.resource && !a.self);
+  const own = new Set(ownEmails.map((e) => e.toLowerCase()));
+  const people = event.attendees.filter((a) => !a.resource && !a.self && !own.has(a.email));
   const canChange = editing && event.canModify;
 
   return (

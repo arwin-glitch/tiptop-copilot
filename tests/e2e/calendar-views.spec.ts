@@ -116,6 +116,8 @@ test('moves to any date, back or ahead, with the buttons, the keys and the date 
   await picker.getByRole('button', { name: 'Next month' }).click();
   await picker.locator('button[aria-label*=" 15, "]').click();
   await expect(page).toHaveURL(/date=\d{4}-\d{2}-15/);
+  // Like Google's, the picker closes once a day is picked.
+  await expect(picker).toHaveCount(0);
 });
 
 test('month view packs a busy day and offers the rest under "+N more"', async ({ page }) => {
@@ -162,6 +164,11 @@ test('drag on the grid to make an event, then edit its guests: Google’s questi
   await expect(panel.getByText('Block')).toBeVisible();
   await panel.getByRole('button', { name: 'Edit' }).click();
   const editor = page.getByRole('dialog', { name: 'Edit event' });
+  // Something that is not an address stays in the box with a note, not dropped.
+  await editor.getByLabel('Guests').fill('guest.one');
+  await editor.getByLabel('Guests').press('Enter');
+  await expect(editor.getByLabel('Guests')).toHaveValue('guest.one');
+  await expect(editor.getByText('That is not an email address.')).toBeVisible();
   await editor.getByLabel('Guests').fill('guest.one@example.org');
   await editor.getByLabel('Guests').press('Enter');
   await expect(editor.getByRole('list', { name: 'Guests added' })).toContainText(
@@ -225,9 +232,18 @@ test('drag an event to move it, and its bottom edge to change its length', async
   const event = chip(page, title);
   await expect(event).toHaveAccessibleName(/9am – 10am/);
 
-  // Move: grab it and drop it two hours later. No guests, so no question.
+  // Esc in the middle of a drag drops it back where it was: nothing changes.
   const box = (await event.boundingBox())!;
   const x = box.x + box.width / 2;
+  await page.mouse.move(x, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(x, box.y + 10 + 48, { steps: 5 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await expect(event).toHaveAccessibleName(/9am – 10am/);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  // Move: grab it and drop it two hours later. No guests, so no question.
   await page.mouse.move(x, box.y + 10);
   await page.mouse.down();
   await page.mouse.move(x, box.y + 10 + 48, { steps: 5 });
@@ -248,6 +264,46 @@ test('drag an event to move it, and its bottom edge to change its length', async
   await page.reload();
   await expect(chip(page, title)).toHaveAccessibleName(/11am – 1pm/);
   await chip(page, title).click();
+  await page.getByRole('dialog', { name: title }).getByRole('button', { name: 'Delete' }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete this event?' })
+    .getByRole('button', { name: 'Delete' })
+    .click();
+  await expect(chip(page, title)).toHaveCount(0);
+});
+
+test('an overnight event dragged by its after-midnight piece moves by the distance dragged', async ({
+  page,
+}) => {
+  // Fixed winter days: a night when the clocks change would make the length look off by an hour.
+  const night = '2027-02-10';
+  const morning = '2027-02-11';
+  const title = `Red-eye ${Date.now()}`;
+  await page.goto(`/calendar?view=day&date=${morning}`);
+  await expect(grid(page, 'day')).toBeVisible();
+  await page.getByRole('button', { name: 'Create' }).click();
+  const editor = page.getByRole('dialog', { name: 'New event' });
+  await editor.getByLabel('Title').fill(title);
+  await editor.getByLabel('Starts').fill(night);
+  await editor.getByLabel('Start time').fill('23:00');
+  await editor.getByLabel('Ends').fill(morning);
+  await editor.getByLabel('End time').fill('01:00');
+  await editor.getByRole('button', { name: 'Save' }).click();
+  const event = chip(page, title);
+  await expect(event).toHaveAccessibleName(/11pm – 1am/);
+
+  // Grab the piece after midnight and drag it an hour later: 11pm–1am becomes 12am–2am.
+  await event.scrollIntoViewIfNeeded();
+  const box = (await event.boundingBox())!;
+  const x = box.x + box.width / 2;
+  await page.mouse.move(x, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x, box.y + box.height / 2 + 24, { steps: 4 });
+  await page.mouse.move(x, box.y + box.height / 2 + 48, { steps: 4 });
+  await page.mouse.up();
+  await expect(event).toHaveAccessibleName(/12am – 2am/);
+
+  await event.click();
   await page.getByRole('dialog', { name: title }).getByRole('button', { name: 'Delete' }).click();
   await page
     .getByRole('dialog', { name: 'Delete this event?' })
@@ -303,6 +359,29 @@ test('a repeating event asks "This event" or "All events", and an organizer’s 
     board.getByText('Only the organizer (Maya Chen) can change this event.'),
   ).toBeVisible();
   await expect(board.getByRole('button', { name: 'Edit' })).toHaveCount(0);
+});
+
+test('a dragged event with guests waits where it was dropped, and Cancel puts it back', async ({
+  page,
+}) => {
+  await page.goto(`/calendar?view=week&date=${dayFromToday(7)}`);
+  const partner = chip(page, 'Partner meeting').first();
+  await expect(partner).toHaveAttribute('aria-label', /10am – 11am/);
+  await partner.scrollIntoViewIfNeeded();
+  const box = (await partner.boundingBox())!;
+  const x = box.x + box.width / 2;
+  await page.mouse.move(x, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(x, box.y + 10 + 24, { steps: 4 });
+  await page.mouse.move(x, box.y + 10 + 48, { steps: 4 });
+  await page.mouse.up();
+  // As in Google Calendar, it shows at the new time while the question is up.
+  const scope = page.getByRole('dialog', { name: 'Change a repeating event' });
+  await expect(scope).toBeVisible();
+  await expect(partner).toHaveAttribute('aria-label', /11am – 12pm/);
+  await scope.getByRole('button', { name: 'Cancel' }).click();
+  await expect(partner).toHaveAttribute('aria-label', /10am – 11am/);
+  await expect(page.getByText('Saved.')).toHaveCount(0);
 });
 
 test('turning a calendar off hides its events, and on brings them back', async ({ page }) => {

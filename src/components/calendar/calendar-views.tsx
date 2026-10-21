@@ -146,6 +146,7 @@ export function CalendarViews(props: CalendarViewsProps) {
   const [confirm, confirmDialog] = useConfirm();
   const swipe = React.useRef<{ x: number; y: number } | null>(null);
   const savedView = React.useRef(props.view);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
 
   const calendars = current.calendars.length ? current.calendars : props.initial.calendars;
   const palette = current.palette.length ? current.palette : props.initial.palette;
@@ -210,7 +211,11 @@ export function CalendarViews(props: CalendarViewsProps) {
     (next: { view?: CalendarViewKind; date?: string }) => {
       const v = next.view ?? view;
       const d = next.date ?? date;
-      window.history.pushState(null, '', `/calendar?view=${v}&date=${d}`);
+      const href = `/calendar?view=${v}&date=${d}`;
+      // Today on today (or a view already shown) adds no step to Back.
+      if (`${window.location.pathname}${window.location.search}` !== href) {
+        window.history.pushState(null, '', href);
+      }
       if (next.view && next.view !== savedView.current) {
         savedView.current = next.view;
         void savePrefs({ view: next.view, preview: true });
@@ -333,10 +338,16 @@ export function CalendarViews(props: CalendarViewsProps) {
     destination: string | null,
     reopen?: { draft: EventDraft; calendarId: string },
   ): Promise<void> {
+    const calendar = calendarsById.get(destination ?? event.calendarId);
+    if (!calendar) return;
+    // As in Google Calendar, a dragged event stays where it was dropped while
+    // the questions are asked; Cancel puts it back. Nothing is saved before.
+    putEvent(event.key, optimisticEvent(event, changes, calendar, palette, event.key));
+    const putBack = () => putEvent(event.key, event);
     let scope: RecurringScope = 'this';
     if (event.recurringEventId) {
       const answer = await askScope('edit');
-      if (!answer) return;
+      if (!answer) return putBack();
       scope = answer;
     }
     const before = guestEmails(event.attendees, ownEmails);
@@ -344,13 +355,10 @@ export function CalendarViews(props: CalendarViewsProps) {
     let notify: GuestChoice = 'dont_send';
     if (prompt) {
       const answer = await askGuests(prompt);
-      if (!answer) return;
+      if (!answer) return putBack();
       notify = answer;
     }
-    const calendar = calendarsById.get(destination ?? event.calendarId);
-    if (!calendar) return;
     setEditor(null);
-    putEvent(event.key, optimisticEvent(event, changes, calendar, palette, event.key));
     setSaving(true);
     const res = await updateEvent({
       calendarId: event.calendarId,
@@ -582,7 +590,7 @@ export function CalendarViews(props: CalendarViewsProps) {
         <h2 className="min-w-0 font-serif text-lg leading-tight font-semibold" aria-live="polite">
           {rangeLabel(view, date)}
         </h2>
-        <Popover>
+        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="icon" aria-label="Pick a date">
               <CalendarDays aria-hidden />
@@ -593,7 +601,11 @@ export function CalendarViews(props: CalendarViewsProps) {
               selected={date}
               today={today}
               highlight={highlight}
-              onPick={(d) => go({ date: d })}
+              onPick={(d) => {
+                // Like Google's date picker: picking a day goes there and closes it.
+                setPickerOpen(false);
+                go({ date: d });
+              }}
             />
           </PopoverContent>
         </Popover>
@@ -748,6 +760,7 @@ export function CalendarViews(props: CalendarViewsProps) {
         event={selected}
         calendar={selected ? (calendarsById.get(selected.calendarId) ?? null) : null}
         timeZone={timeZone}
+        ownEmails={ownEmails}
         mailbox={props.mailbox}
         editing={editing.allowed}
         editingOffReason={editing.reason}

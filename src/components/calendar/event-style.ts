@@ -29,6 +29,10 @@ export function chipStyle(
   };
 }
 
+/** The small "Hold" tag on a hold (a block, never pinged), the same in every view. */
+export const HOLD_TAG_CLASS =
+  'shrink-0 rounded-sm border border-current px-0.5 text-[10px] leading-none font-medium uppercase opacity-80';
+
 /** The small round swatch beside a calendar or an event in a list. */
 export function swatchStyle(background: string, hollow = false): React.CSSProperties {
   return hollow

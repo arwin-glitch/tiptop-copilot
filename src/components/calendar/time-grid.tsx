@@ -19,8 +19,8 @@ import {
 } from '@/lib/calendar/grid';
 import type { CalendarInfo, RangeEvent } from '@/lib/calendar/range-types';
 import { cn } from '@/lib/util/cn';
-import { localClock, localDateKey } from '@/lib/util/time';
-import { chipLabel, chipStyle } from './event-style';
+import { addDaysToKey, localClock, localDateKey } from '@/lib/util/time';
+import { chipLabel, chipStyle, HOLD_TAG_CLASS } from './event-style';
 
 /**
  * The Day and Week views: an hour gutter, one column per day, an all-day row
@@ -61,6 +61,7 @@ type Pending =
       event: RangeEvent;
       grab: number;
       durationMs: number;
+      carried: boolean;
     }
   | { mode: 'resize'; pointerId: number; x: number; y: number; event: RangeEvent };
 
@@ -70,9 +71,11 @@ type Drag =
       mode: 'move';
       event: RangeEvent;
       day: string;
+      /** Minutes past the day's midnight; below 0 on a piece carried over from the day before. */
       start: number;
       durationMs: number;
       grab: number;
+      carried: boolean;
     }
   | { mode: 'resize'; event: RangeEvent; end: Date };
 
@@ -120,6 +123,21 @@ export function TimeGrid({
   const editable = (e: RangeEvent) => canEdit && e.canModify;
   const single = days.length === 1;
 
+  // Esc drops a drag where it started, as in Google Calendar; nothing is saved.
+  const dragging = drag !== null;
+  React.useEffect(() => {
+    if (!dragging) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      pending.current = null;
+      dragRef.current = null;
+      setDragState(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dragging]);
+
   // Open on the working day: an hour before now on today, else 7am.
   const firstDay = days[0];
   React.useEffect(() => {
@@ -150,6 +168,21 @@ export function TimeGrid({
     [days],
   );
 
+  /** Where a moved event starts: minutes before 0 fall on the evening before. */
+  const moveStart = (day: string, minutes: number) =>
+    minutes < 0
+      ? instantAt(addDaysToKey(day, -1), MINUTES_PER_DAY + minutes, timeZone)
+      : instantAt(day, minutes, timeZone);
+  /**
+   * A move keeps the event inside the day it is dropped on, as before; an
+   * overnight event grabbed by its after-midnight piece may still begin the
+   * evening before, so it moves by exactly the distance it was dragged.
+   */
+  const clampStart = (minutes: number, carried: boolean, durationMs: number) => {
+    const lower = carried ? -Math.max(0, durationMs / 60_000 - SNAP_MINUTES) : 0;
+    return Math.max(lower, Math.min(MINUTES_PER_DAY - SNAP_MINUTES, snap(minutes)));
+  };
+
   const timed = events.filter((e) => !inAllDayRow(e) && e.startsAt);
   const allDay = events.filter((e) => inAllDayRow(e));
 
@@ -157,7 +190,7 @@ export function TimeGrid({
   const shown = timed.map((e) => {
     if (!drag || drag.mode === 'create' || drag.event.key !== e.key) return e;
     if (drag.mode === 'resize') return { ...e, endsAt: drag.end.toISOString() };
-    const start = instantAt(drag.day, drag.start, timeZone);
+    const start = moveStart(drag.day, drag.start);
     return {
       ...e,
       startsAt: start.toISOString(),
@@ -168,6 +201,9 @@ export function TimeGrid({
   function onPointerDownEmpty(e: React.PointerEvent<HTMLDivElement>) {
     if (!canEdit || e.button !== 0) return;
     if ((e.target as HTMLElement).closest('[data-event-chip]')) return;
+    // The hour labels are not a day: a click there makes nothing.
+    const rect = contentRef.current?.getBoundingClientRect();
+    if (!rect || e.clientX - rect.left < GUTTER_PX) return;
     const at = locate(e.clientX, e.clientY);
     if (!at) return;
     pending.current = {
@@ -187,14 +223,23 @@ export function TimeGrid({
     const at = locate(e.clientX, e.clientY);
     if (!at || !event.startsAt || !event.endsAt) return;
     const seg = segmentOnDay(event, at.day, timeZone);
+    const startMs = Date.parse(event.startsAt);
+    // Grabbed by the piece after midnight of an event that began the day
+    // before: measure the grab from its real start, not from midnight.
+    const carried = localDateKey(new Date(startMs), timeZone) < at.day;
     pending.current = {
       mode: 'move',
       pointerId: e.pointerId,
       x: e.clientX,
       y: e.clientY,
       event,
-      grab: seg ? at.minutes - seg.start : 0,
-      durationMs: Date.parse(event.endsAt) - Date.parse(event.startsAt),
+      grab: carried
+        ? (instantAt(at.day, at.minutes, timeZone).getTime() - startMs) / 60_000
+        : seg
+          ? at.minutes - seg.start
+          : 0,
+      durationMs: Date.parse(event.endsAt) - startMs,
+      carried,
     };
   }
 
@@ -220,9 +265,10 @@ export function TimeGrid({
           mode: 'move',
           event: p.event,
           day: at.day,
-          start: snap(at.minutes - p.grab),
+          start: clampStart(at.minutes - p.grab, p.carried, p.durationMs),
           durationMs: p.durationMs,
           grab: p.grab,
+          carried: p.carried,
         });
       } else {
         setDrag({ mode: 'resize', event: p.event, end: new Date(Date.parse(p.event.endsAt!)) });
@@ -235,10 +281,7 @@ export function TimeGrid({
     if (current.mode === 'create') {
       setDrag({ ...current, current: at.minutes });
     } else if (current.mode === 'move') {
-      const start = Math.max(
-        0,
-        Math.min(MINUTES_PER_DAY - SNAP_MINUTES, snap(at.minutes - current.grab)),
-      );
+      const start = clampStart(at.minutes - current.grab, current.carried, current.durationMs);
       setDrag({ ...current, day: single ? current.day : at.day, start });
     } else {
       const startMs = Date.parse(current.event.startsAt!);
@@ -277,7 +320,7 @@ export function TimeGrid({
         end: instantAt(current.day, b, timeZone),
       });
     } else if (current.mode === 'move') {
-      const start = instantAt(current.day, current.start, timeZone);
+      const start = moveStart(current.day, current.start);
       const end = new Date(start.getTime() + current.durationMs);
       if (start.getTime() !== Date.parse(current.event.startsAt!)) {
         onChange(current.event, { start, end });
@@ -353,9 +396,11 @@ export function TimeGrid({
         onPickDay={onPickDay}
       />
 
+      {/* On a computer the hours fill the window below the bar, so the page
+          itself does not scroll as well (a 900px-tall laptop included). */}
       <div
         ref={scrollRef}
-        className="relative h-[min(62dvh,40rem)] scrollbar-thin overflow-y-auto overscroll-contain sm:h-[min(68dvh,46rem)]"
+        className="relative h-[min(62dvh,40rem)] scrollbar-thin overflow-y-auto overscroll-contain sm:h-[clamp(22rem,calc(100dvh-24rem),46rem)]"
       >
         <div
           ref={contentRef}
@@ -457,13 +502,16 @@ export function TimeGrid({
                             </span>
                           ) : null}
                         </span>
-                        {event.hold ? (
-                          <span className="rounded-sm border border-current px-0.5 text-[10px] leading-none font-medium uppercase opacity-80">
-                            Hold
-                          </span>
-                        ) : null}
+                        {event.hold ? <span className={HOLD_TAG_CLASS}>Hold</span> : null}
                         {event.verdict.meeting ? (
-                          <Bell className="mt-0.5 size-3 shrink-0 opacity-80" aria-hidden />
+                          // A phone's week columns are narrow: the title gets the room.
+                          <Bell
+                            className={cn(
+                              'mt-0.5 size-3 shrink-0 opacity-80',
+                              !single && 'max-sm:hidden',
+                            )}
+                            aria-hidden
+                          />
                         ) : null}
                       </span>
                       {!compact ? <span className="block truncate opacity-80">{when}</span> : null}
@@ -572,7 +620,7 @@ function AllDayRow({
     days,
     maxLanes,
   );
-  const lanes = Math.max(1, packed.lanes + (packed.more.length ? 1 : 0));
+  const lanes = Math.max(1, packed.lanes);
   const colOf = (clientX: number) => {
     const el = rowRef.current;
     if (!el) return 0;
@@ -643,7 +691,7 @@ function AllDayRow({
             }}
             aria-label={chipLabel(event, 'all day', calendars.get(event.calendarId)?.name ?? null)}
             className={cn(
-              'absolute truncate rounded-[5px] border px-1.5 text-left text-[12px] leading-[18px] font-medium focus-visible:outline-2 focus-visible:outline-[var(--focus)]',
+              'absolute flex items-center gap-1 rounded-[5px] border px-1.5 text-left text-[12px] leading-[18px] font-medium focus-visible:outline-2 focus-visible:outline-[var(--focus)]',
               editable && 'cursor-grab',
               s.continuesBefore && 'rounded-l-none',
               s.continuesAfter && 'rounded-r-none',
@@ -655,8 +703,8 @@ function AllDayRow({
               ...chipStyle(event, { dragging: shift !== 0 }),
             }}
           >
-            {event.hold ? 'Hold · ' : ''}
-            {event.title}
+            <span className="min-w-0 flex-1 truncate">{event.title}</span>
+            {event.hold ? <span className={HOLD_TAG_CLASS}>Hold</span> : null}
           </button>
         );
       })}

@@ -12,7 +12,7 @@ import {
 import type { CalendarInfo, RangeEvent } from '@/lib/calendar/range-types';
 import { cn } from '@/lib/util/cn';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { chipLabel, chipStyle, swatchStyle } from './event-style';
+import { chipLabel, chipStyle, HOLD_TAG_CLASS, swatchStyle } from './event-style';
 
 /**
  * The Month view: whole weeks, each day with as many events as fit and a
@@ -56,14 +56,16 @@ export function MonthGrid({
   today: string;
   calendars: ReadonlyMap<string, CalendarInfo>;
   canEdit: boolean;
-  /** A phone: fewer lanes per day. */
+  /** A phone: fewer lanes per day, and titles rather than times. */
   compact: boolean;
   onOpen: (event: RangeEvent) => void;
   onPickDay: (day: string) => void;
   onCreateAllDay: (day: string) => void;
   onShiftDays: (event: RangeEvent, days: number) => void;
 }) {
-  const maxLanes = compact ? 2 : 3;
+  // As many events a day as fit without the page scrolling: a six-week month
+  // has shorter days. The rest are behind "+N more", as in Google Calendar.
+  const maxLanes = compact ? 2 : weeks.length > 5 ? 3 : 4;
   const month = monthStartOf(monthOf).slice(0, 7);
   const byKey = React.useMemo(() => new Map(events.map((e) => [e.key, e])), [events]);
   const items = React.useMemo(
@@ -223,7 +225,7 @@ export function MonthGrid({
                       style={swatchStyle(event.color.background, !event.verdict.meeting)}
                     />
                   ) : null}
-                  {!bar ? (
+                  {!bar && !compact ? (
                     <span className="shrink-0 text-[var(--fg-muted)] tabular-nums">{when}</span>
                   ) : null}
                   <span
@@ -235,9 +237,9 @@ export function MonthGrid({
                           : 'text-[var(--fg-muted)]'),
                     )}
                   >
-                    {event.hold ? 'Hold · ' : ''}
                     {event.title}
                   </span>
+                  {event.hold && !compact ? <span className={HOLD_TAG_CLASS}>Hold</span> : null}
                 </button>
               );
             })}
