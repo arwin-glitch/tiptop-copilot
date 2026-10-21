@@ -1,4 +1,6 @@
 import type { EventDraft, GuestChoice, RecurringScope } from '@/lib/calendar/edit-rules';
+import type { RsvpResponse } from '@/lib/calendar/event-actions';
+import type { GCalDateTime } from '@/lib/calendar/google-types';
 import type { CalendarRangeData, CalendarViewKind, RangeEvent } from '@/lib/calendar/range-types';
 
 /**
@@ -69,6 +71,36 @@ export function deleteEvent(input: {
   notify: GuestChoice;
 }) {
   return call<WriteAnswer>('DELETE', '/api/calendar/events', input);
+}
+
+/** Going? Yes / No / Maybe. `notify` is 'send' only after Send in the organizer question. */
+export function respondToEvent(input: {
+  calendarId: string;
+  eventId: string;
+  scope: RecurringScope;
+  response: RsvpResponse;
+  notify: GuestChoice;
+}) {
+  return call<WriteAnswer>('PATCH', '/api/calendar/events', { kind: 'respond', ...input });
+}
+
+/** An event colour from the card: colorId alone, never an email. */
+export function recolorEvent(input: {
+  calendarId: string;
+  eventId: string;
+  scope: RecurringScope;
+  colorId: string | null;
+}) {
+  return call<WriteAnswer>('PATCH', '/api/calendar/events', { kind: 'color', ...input });
+}
+
+/** A repeating event's rule, for the card's "Weekly on Monday". */
+export function fetchSeries(calendarId: string, eventId: string) {
+  const params = new URLSearchParams({ calendarId, eventId });
+  return call<{ recurrence: string[]; start: GCalDateTime | null }>(
+    'GET',
+    `/api/calendar/series?${params}`,
+  );
 }
 
 export function savePrefs(patch: {

@@ -17,16 +17,19 @@ import { cn } from '@/lib/util/cn';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Field, Input, Label, Select, Textarea } from '@/components/ui/form';
+import { AnchoredCard } from './anchored-card';
 import { fetchGuests } from './calendar-api';
 import { swatchStyle } from './event-style';
 
 /**
  * Making and changing an event, as in Google Calendar: a quick editor after
- * a drag on the grid (title, the time, Save, or More options), and the full
- * editor: title, start and end, all day, the time zone the times are shown
- * in, the calendar, guests, Google Meet, place, description and Google's own
- * event colours. Saving hands the draft back; the page asks the guests
- * question and talks to the server.
+ * a click or a drag on the grid (title, the time, Save, or More options),
+ * opened beside the slot with the dragged placeholder still showing (a sheet
+ * from the bottom on a phone), and the full editor: title, start and end,
+ * all day, the time zone the times are shown in, the calendar, guests,
+ * Google Meet, place, description and Google's own event colours. Saving
+ * hands the draft back; the page asks the guests question and talks to the
+ * server.
  */
 
 export interface EditorState {
@@ -35,7 +38,12 @@ export interface EditorState {
   event: RangeEvent | null;
   draft: EventDraft;
   calendarId: string;
+  /** The full editor's heading when it is not "New event" or "Edit event" (Duplicate). */
+  heading?: string;
 }
+
+/** The placeholder the grid draws for a new event while the quick editor is up. */
+const placeholder = () => document.querySelector<HTMLElement>('[data-new-event]');
 
 interface Fields {
   title: string;
@@ -154,6 +162,7 @@ function shiftEnd(fields: Fields, next: Partial<Fields>, timeZone: string): Part
 
 export function EventEditor({
   state,
+  phone,
   calendars,
   palette,
   timeZone,
@@ -163,6 +172,7 @@ export function EventEditor({
   onMoreOptions,
 }: {
   state: EditorState | null;
+  phone: boolean;
   /** Calendars this account can write to. */
   calendars: CalendarInfo[];
   palette: EventPaletteEntry[];
@@ -172,6 +182,31 @@ export function EventEditor({
   onSave: (draft: EventDraft, calendarId: string) => void;
   onMoreOptions: (draft: EventDraft, calendarId: string) => void;
 }) {
+  if (state?.mode === 'quick') {
+    return (
+      <AnchoredCard
+        open
+        getAnchor={placeholder}
+        phone={phone}
+        label="New event"
+        width={340}
+        onClose={() => (!saving ? onCancel() : undefined)}
+        data-quick-editor=""
+      >
+        <EditorBody
+          key={`quick-${state.draft.start}-${state.draft.end}`}
+          state={state}
+          calendars={calendars}
+          palette={palette}
+          timeZone={timeZone}
+          saving={saving}
+          onCancel={onCancel}
+          onSave={onSave}
+          onMoreOptions={onMoreOptions}
+        />
+      </AnchoredCard>
+    );
+  }
   return (
     <Dialog
       open={state !== null}
@@ -241,57 +276,74 @@ function EditorBody({
         : `${longDate(fields.startDate)} · All day`
       : `${longDate(fields.startDate)} · ${shortTime(state.draft.start, timeZone)} – ${shortTime(state.draft.end, timeZone)}`;
     return (
-      <DialogContent title="New event" description={when} className="max-w-md">
-        <form onSubmit={submit} noValidate className="space-y-3">
-          <Field label="Title" htmlFor="quick-title">
-            <Input
-              id="quick-title"
-              autoFocus
-              value={fields.title}
-              onChange={(e) => set({ title: e.target.value })}
-              placeholder="Add title"
-              maxLength={1024}
-            />
-          </Field>
-          {calendars.length > 1 ? (
-            <Field label="Calendar" htmlFor="quick-calendar">
-              <Select
-                id="quick-calendar"
-                value={fields.calendarId}
-                onChange={(e) => set({ calendarId: e.target.value })}
-              >
-                {calendars.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          ) : null}
-          {problem ? <p className="text-sm text-[var(--danger)]">{problem}</p> : null}
-          <DialogFooter className="mt-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                const draft = toDraft(fields, state.draft, timeZone);
-                if (typeof draft === 'string') setProblem(draft);
-                else onMoreOptions(draft, fields.calendarId);
-              }}
+      <form onSubmit={submit} noValidate className="space-y-3 p-4">
+        <div className="flex items-start justify-between gap-2">
+          <p className="font-serif text-base leading-tight font-semibold">New event</p>
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Close"
+            className="-mt-1 -mr-1 rounded-md p-1 text-[var(--fg-subtle)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]"
+          >
+            <X className="size-4" aria-hidden />
+          </button>
+        </div>
+        <div>
+          <Label htmlFor="quick-title" className="sr-only">
+            Title
+          </Label>
+          <Input
+            id="quick-title"
+            autoFocus
+            value={fields.title}
+            onChange={(e) => set({ title: e.target.value })}
+            placeholder="Add title"
+            maxLength={1024}
+            className="text-base"
+          />
+        </div>
+        <p className="text-sm text-[var(--fg-muted)]">{when}</p>
+        {calendars.length > 1 ? (
+          <Field label="Calendar" htmlFor="quick-calendar">
+            <Select
+              id="quick-calendar"
+              value={fields.calendarId}
+              onChange={(e) => set({ calendarId: e.target.value })}
             >
-              More options
-            </Button>
-            <Button type="submit" variant="primary" loading={saving}>
-              Save
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
+              {calendars.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+        {problem ? <p className="text-sm text-[var(--danger)]">{problem}</p> : null}
+        <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              const draft = toDraft(fields, state.draft, timeZone);
+              if (typeof draft === 'string') setProblem(draft);
+              else onMoreOptions(draft, fields.calendarId);
+            }}
+          >
+            More options
+          </Button>
+          <Button type="submit" variant="primary" loading={saving}>
+            Save
+          </Button>
+        </div>
+      </form>
     );
   }
 
   return (
-    <DialogContent title={isNew ? 'New event' : 'Edit event'} className="max-w-2xl">
+    <DialogContent
+      title={state.heading ?? (isNew ? 'New event' : 'Edit event')}
+      className="max-w-2xl"
+    >
       <form onSubmit={submit} noValidate className="space-y-4">
         <Field label="Title" htmlFor="event-title">
           <Input

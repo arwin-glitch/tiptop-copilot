@@ -11,16 +11,21 @@ import {
 } from '@/lib/calendar/grid';
 import type { CalendarInfo, RangeEvent } from '@/lib/calendar/range-types';
 import { cn } from '@/lib/util/cn';
+import { addDaysToKey } from '@/lib/util/time';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { chipLabel, chipStyle, HOLD_TAG_CLASS, swatchStyle } from './event-style';
+import type { PendingSlot } from './time-grid';
 
 /**
  * The Month view: whole weeks, each day with as many events as fit and a
  * "+N more" that lists the rest, packed the way Google Calendar packs them
  * (lib/calendar/grid.ts, packWeek). Events that run over several days are
  * bars; a timed event on one day is a dot, its time and its title. With
- * editing on, drag an event to another day to move it, or click an empty
- * part of a day to add an all-day event there.
+ * editing on, drag an event to another day to move it, click an empty part of
+ * a day to add an all-day event there, or drag across days (into the next
+ * week too) for one event over all of them. The days stay marked while the
+ * new event's quick editor is open beside them. A click on an event opens its
+ * card beside it.
  */
 
 const LANE_PX = 20;
@@ -43,6 +48,7 @@ export function MonthGrid({
   calendars,
   canEdit,
   compact,
+  pending,
   onOpen,
   onPickDay,
   onCreateAllDay,
@@ -58,9 +64,13 @@ export function MonthGrid({
   canEdit: boolean;
   /** A phone: fewer lanes per day, and titles rather than times. */
   compact: boolean;
-  onOpen: (event: RangeEvent) => void;
+  /** The new event whose quick editor is open: its days stay marked. */
+  pending: PendingSlot | null;
+  /** A click on an event: its card opens beside the element clicked. */
+  onOpen: (event: RangeEvent, element: HTMLElement) => void;
   onPickDay: (day: string) => void;
-  onCreateAllDay: (day: string) => void;
+  /** One day, or the days dragged across (`endKey` exclusive). */
+  onCreateAllDay: (day: string, endKey?: string) => void;
   onShiftDays: (event: RangeEvent, days: number) => void;
 }) {
   // As many events a day as fit without the page scrolling: a six-week month
@@ -84,6 +94,26 @@ export function MonthGrid({
     moved: boolean;
   } | null>(null);
   const [hover, setHover] = React.useState<{ key: string; day: string } | null>(null);
+  // Drag across empty days for one event over all of them, as in Google Calendar.
+  const select = React.useRef<{
+    from: string;
+    x: number;
+    y: number;
+    moved: boolean;
+    touch: boolean;
+  } | null>(null);
+  const [selecting, setSelecting] = React.useState<{ from: string; to: string } | null>(null);
+  const marked = selecting
+    ? {
+        from: selecting.from < selecting.to ? selecting.from : selecting.to,
+        last: selecting.from < selecting.to ? selecting.to : selecting.from,
+      }
+    : pending?.allDay
+      ? { from: pending.start, last: addDaysToKey(pending.end, -1) }
+      : null;
+  const firstMarked = marked
+    ? weeks.flat().find((d) => d >= marked.from && d <= marked.last)
+    : undefined;
 
   const dayAt = (clientX: number, clientY: number): string | null => {
     const el = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>('[data-date]');
@@ -97,6 +127,15 @@ export function MonthGrid({
       data-tour="calendar-entries"
       data-calendar-view="month"
       onPointerMove={(e) => {
+        const s = select.current;
+        if (s && !s.touch) {
+          if (!s.moved && Math.hypot(e.clientX - s.x, e.clientY - s.y) < DRAG_THRESHOLD_PX) return;
+          if (!s.moved) gridRef.current?.setPointerCapture(e.pointerId);
+          s.moved = true;
+          const day = dayAt(e.clientX, e.clientY);
+          if (day) setSelecting({ from: s.from, to: day });
+          return;
+        }
         const d = drag.current;
         if (!d) return;
         if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_THRESHOLD_PX) return;
@@ -106,11 +145,24 @@ export function MonthGrid({
         if (day) setHover({ key: d.event.key, day });
       }}
       onPointerUp={(e) => {
-        const d = drag.current;
-        drag.current = null;
         if (gridRef.current?.hasPointerCapture(e.pointerId)) {
           gridRef.current.releasePointerCapture(e.pointerId);
         }
+        const s = select.current;
+        if (s) {
+          select.current = null;
+          const range = selecting;
+          setSelecting(null);
+          if (s.moved && range) {
+            const [a, b] = range.from < range.to ? [range.from, range.to] : [range.to, range.from];
+            onCreateAllDay(a, addDaysToKey(b, 1));
+          } else if (!s.moved) {
+            onCreateAllDay(s.from);
+          }
+          return;
+        }
+        const d = drag.current;
+        drag.current = null;
         const target = hover?.day;
         setHover(null);
         if (d?.moved && target && target !== d.from) {
@@ -120,7 +172,9 @@ export function MonthGrid({
       }}
       onPointerCancel={() => {
         drag.current = null;
+        select.current = null;
         setHover(null);
+        setSelecting(null);
       }}
     >
       <div className="grid grid-cols-7 border-b border-[var(--border)]" aria-hidden>
@@ -135,6 +189,11 @@ export function MonthGrid({
       </div>
       {weeks.map((week) => {
         const packed = packWeek(items, week, maxLanes);
+        // The quick editor sits beside the marked days of the range's first week.
+        const markedCols = marked
+          ? week.flatMap((d, i) => (d >= marked.from && d <= marked.last ? [i] : []))
+          : [];
+        const anchorHere = firstMarked !== undefined && week.includes(firstMarked);
         return (
           <div
             key={week[0]}
@@ -145,13 +204,25 @@ export function MonthGrid({
               <div
                 key={d}
                 data-date={d}
-                onClick={(e) => {
-                  if (canEdit && e.target === e.currentTarget) onCreateAllDay(d);
+                data-marked={marked && d >= marked.from && d <= marked.last ? '' : undefined}
+                onPointerDown={(e) => {
+                  if (!canEdit || e.button !== 0 || e.target !== e.currentTarget) return;
+                  select.current = {
+                    from: d,
+                    x: e.clientX,
+                    y: e.clientY,
+                    moved: false,
+                    touch: e.pointerType === 'touch',
+                  };
                 }}
                 className={cn(
                   'border-l border-[var(--border)] first:border-l-0',
                   d.slice(0, 7) !== month && 'bg-[var(--bg-sunken)]/40',
                   hover?.day === d && 'bg-[var(--accent-soft)]',
+                  marked &&
+                    d >= marked.from &&
+                    d <= marked.last &&
+                    'bg-[var(--primary)]/20 shadow-[inset_0_0_0_1px_var(--primary)]',
                   canEdit && 'cursor-cell',
                 )}
               >
@@ -172,6 +243,18 @@ export function MonthGrid({
               </div>
             ))}
 
+            {anchorHere && markedCols.length ? (
+              <div
+                aria-hidden
+                data-new-event=""
+                className="pointer-events-none absolute inset-y-0"
+                style={{
+                  left: `${(markedCols[0]! / 7) * 100}%`,
+                  width: `${(markedCols.length / 7) * 100}%`,
+                }}
+              />
+            ) : null}
+
             {packed.segments.map((s) => {
               const event = byKey.get(s.key);
               if (!event) return null;
@@ -189,6 +272,7 @@ export function MonthGrid({
                   key={`${s.key}-${s.startCol}`}
                   type="button"
                   data-event-chip
+                  data-event-key={event.key}
                   onPointerDown={(e) => {
                     if (!editable || e.button !== 0 || e.pointerType === 'touch') return;
                     drag.current = {
@@ -199,7 +283,7 @@ export function MonthGrid({
                       moved: false,
                     };
                   }}
-                  onClick={() => onOpen(event)}
+                  onClick={(e) => onOpen(event, e.currentTarget)}
                   aria-label={chipLabel(event, when, calendars.get(event.calendarId)?.name ?? null)}
                   className={cn(
                     'absolute flex items-center gap-1 truncate rounded-[4px] px-1 text-left text-[11.5px] leading-[18px] focus-visible:outline-2 focus-visible:outline-[var(--focus)]',
@@ -282,7 +366,7 @@ export function MonthGrid({
                         <li key={e.key}>
                           <button
                             type="button"
-                            onClick={() => onOpen(e)}
+                            onClick={(ev) => onOpen(e, ev.currentTarget)}
                             className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-sm hover:bg-[var(--bg-hover)]"
                           >
                             <span

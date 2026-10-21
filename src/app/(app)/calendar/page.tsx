@@ -12,6 +12,7 @@ import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { readCalendarDay, type CalendarEntry } from '@/lib/services/calendar-view';
 import { readCalendarPrefs } from '@/lib/services/calendar-prefs';
+import { mailboxCanSend } from '@/lib/services/docsend-follow-up';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { CalendarViews } from '@/components/calendar/calendar-views';
@@ -124,6 +125,8 @@ async function NewCalendar({
           ? '/api/integrations/google/start?calendar=1'
           : null
       }
+      // "Email guests" opens the compose window: Send needs the opt-in grant.
+      canSend={found.ok && mailboxCanSend(found.source.integration) && !auth.isDemo}
     />
   );
 }

@@ -5,6 +5,8 @@ import { calendarAuth, done, fail } from '@/lib/calendar/route-auth';
 import {
   createCalendarEvent,
   deleteCalendarEvent,
+  recolorCalendarEvent,
+  respondToCalendarEvent,
   updateCalendarEvent,
   type WriteContext,
 } from '@/lib/calendar/write';
@@ -21,6 +23,11 @@ export const dynamic = 'force-dynamic';
  * only when the person chose Send in the guests prompt, which is the only way
  * Google emails anyone. lib/calendar/write.ts refuses unless calendar editing
  * is on, the calendar is writable and the event is one this account may change.
+ *
+ * PATCH also takes the event card's one-tap writes: `kind: 'respond'` (Going?
+ * Yes / No / Maybe, with `notify` from "Send your response to the
+ * organizer?") and `kind: 'color'` (Google's colorId alone; it has no
+ * `notify`, since a colour change never emails anyone).
  */
 
 const CALENDAR_ID = z.string().trim().min(1).max(320);
@@ -65,6 +72,30 @@ const UPDATE = z
   })
   .strict();
 
+const RESPOND = z
+  .object({
+    kind: z.literal('respond'),
+    calendarId: CALENDAR_ID,
+    eventId: EVENT_ID,
+    scope: SCOPE,
+    response: z.enum(['accepted', 'declined', 'tentative']),
+    notify: NOTIFY,
+  })
+  .strict();
+
+const COLOR = z
+  .object({
+    kind: z.literal('color'),
+    calendarId: CALENDAR_ID,
+    eventId: EVENT_ID,
+    scope: SCOPE,
+    colorId: z
+      .string()
+      .regex(/^\d{1,2}$/)
+      .nullable(),
+  })
+  .strict();
+
 const DELETE_BODY = z
   .object({ calendarId: CALENDAR_ID, eventId: EVENT_ID, scope: SCOPE, notify: NOTIFY })
   .strict();
@@ -103,7 +134,25 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const gate = await calendarAuth(request, { bucket: 'write', max: 60, write: true });
   if (!gate.ok) return gate.response;
-  const parsed = UPDATE.safeParse(await request.json().catch(() => null));
+  const body: unknown = await request.json().catch(() => null);
+  const kind = body && typeof body === 'object' ? (body as { kind?: unknown }).kind : undefined;
+  if (kind === 'respond') {
+    const parsed = RESPOND.safeParse(body);
+    if (!parsed.success) return fail(INVALID('That answer could not be saved.'));
+    const ctx = await context(gate.auth);
+    if (!ctx) return fail(NOT_CONNECTED);
+    const { kind: _kind, ...input } = parsed.data;
+    return respond(await respondToCalendarEvent(ctx, input));
+  }
+  if (kind === 'color') {
+    const parsed = COLOR.safeParse(body);
+    if (!parsed.success) return fail(INVALID('Pick one of Google’s event colours.'));
+    const ctx = await context(gate.auth);
+    if (!ctx) return fail(NOT_CONNECTED);
+    const { kind: _kind, ...input } = parsed.data;
+    return respond(await recolorCalendarEvent(ctx, input));
+  }
+  const parsed = UPDATE.safeParse(body);
   if (!parsed.success) return fail(INVALID('Check the change and try again.'));
   const ctx = await context(gate.auth);
   if (!ctx) return fail(NOT_CONNECTED);

@@ -63,8 +63,18 @@ export interface GCalEvent {
   guestsCanSeeOtherGuests?: boolean;
   privateCopy?: boolean;
   locked?: boolean;
+  /** Files Google lists on the event (Drive links), when it has any. */
+  attachments?: GCalAttachment[];
   updated?: string;
   etag?: string;
+}
+
+export interface GCalAttachment {
+  fileUrl?: string;
+  title?: string;
+  mimeType?: string;
+  iconLink?: string;
+  fileId?: string;
 }
 
 export type GCalAccessRole = 'owner' | 'writer' | 'reader' | 'freeBusyReader';

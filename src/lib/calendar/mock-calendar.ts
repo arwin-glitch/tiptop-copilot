@@ -260,13 +260,27 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
       attendees: [me(), guest('riley@tiptop.demo', 'Riley Park')],
     },
     {
+      // An invitation Nick has not answered yet: Going? Yes / No / Maybe.
       id: 'demoteamboard',
       summary: 'Ledgerly board meeting',
       ...timed(day(1), [13, 0], [14, 30]),
       organizer: { email: 'maya@ledgerly.demo', displayName: 'Maya Chen', self: false },
-      attendees: [me(), guest('maya@ledgerly.demo', 'Maya Chen')],
+      attendees: [
+        me('needsAction'),
+        guest('maya@ledgerly.demo', 'Maya Chen'),
+        guest('sam@ledgerly.demo', 'Sam Ortiz', 'tentative'),
+      ],
       guestsCanModify: false,
       location: '500 Example Blvd, Austin',
+      description:
+        'Q3 review and the 2027 plan.<br>Agenda: <a href="https://docs.google.com/document/d/demo-ledgerly-agenda">board agenda</a>',
+      attachments: [
+        {
+          fileUrl: 'https://drive.google.com/file/d/demo-ledgerly-deck/view',
+          title: 'Ledgerly Q3 board deck.pdf',
+          mimeType: 'application/pdf',
+        },
+      ],
     },
     {
       id: 'demoteamdemoday',

@@ -55,6 +55,8 @@ describe('calendar writes', () => {
       'lib/services/push-alerts.ts',
       'app/api/calendar/range/route.ts',
       'app/api/calendar/context/route.ts',
+      'app/api/calendar/series/route.ts',
+      'lib/calendar/event-text.ts',
     ]) {
       const text = SOURCES.find((s) => s.rel === rel)?.text ?? '';
       expect(text, rel).not.toBe('');
@@ -96,6 +98,19 @@ describe('calendar writes', () => {
       (s) => s.rel,
     );
     expect(linkers.sort()).toEqual(['app/(app)/calendar/page.tsx', 'app/(app)/settings/page.tsx']);
+  });
+
+  it('a colour from the event card can never carry a request to email anyone', () => {
+    // The route's colour body has no `notify` at all, and the request built
+    // for it is always sendUpdates 'none'.
+    const route = SOURCES.find((s) => s.rel === 'app/api/calendar/events/route.ts')!.text;
+    const color = /const COLOR = z[\s\S]*?\.strict\(\);/.exec(route)?.[0] ?? '';
+    expect(color).toMatch(/kind: z\.literal\('color'\)/);
+    expect(color).not.toMatch(/notify/);
+    const actions = SOURCES.find((s) => s.rel === 'lib/calendar/event-actions.ts')!.text;
+    expect(actions).toMatch(
+      /return \{ body: \{ colorId \}, sendUpdates: 'none', conferenceDataVersion: 0 \};/,
+    );
   });
 
   it('every API route that writes checks where the request came from', () => {

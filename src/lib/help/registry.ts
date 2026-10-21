@@ -473,7 +473,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'calendar-entries',
         title: 'Meetings and blocks',
-        body: 'Each entry says meeting or block, and why. Meetings ping your phone 5 minutes before.',
+        body: 'Each entry says meeting or block, and why. Meetings ping 5 minutes before. New calendar: click one for its options.',
         placement: 'top',
         grand: true,
       },

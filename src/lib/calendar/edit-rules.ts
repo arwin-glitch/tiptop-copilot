@@ -32,6 +32,11 @@ const SPECIAL_TYPES = new Set([
   'fromGmail',
 ]);
 
+/** Focus time, out of office, a birthday, a Gmail booking: changed in Google Calendar only. */
+export function isSpecialEntry(eventType: string | null | undefined): boolean {
+  return Boolean(eventType && eventType !== 'default' && SPECIAL_TYPES.has(eventType));
+}
+
 export interface ModifyRule {
   canModify: boolean;
   reason: string | null;
@@ -60,7 +65,7 @@ export function modifyRule(
     );
   }
   if (event.status === 'cancelled') return no('This event was cancelled.');
-  if (event.eventType && event.eventType !== 'default' && SPECIAL_TYPES.has(event.eventType)) {
+  if (isSpecialEntry(event.eventType)) {
     return no('Change this kind of entry in Google Calendar.');
   }
   if (event.locked) return no('Google keeps this event locked.');

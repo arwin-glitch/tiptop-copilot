@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/feedback';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useConfirm } from '@/components/ui/confirm';
+import { Composer, type ComposeDraft } from '@/components/inbox/composer';
 import {
   changedFields,
   draftFromEvent,
@@ -19,6 +20,14 @@ import {
   optimisticEvent,
   wallFields,
 } from '@/lib/calendar/draft';
+import {
+  duplicateDraft,
+  eventOptions,
+  isColorOnly,
+  RSVP_CHOICES,
+  withResponse,
+  type RsvpResponse,
+} from '@/lib/calendar/event-actions';
 import {
   guestEmails,
   guestPrompt,
@@ -47,10 +56,18 @@ import {
 } from '@/lib/calendar/range-types';
 import { addDaysToKey, localDateKey } from '@/lib/util/time';
 import { cn } from '@/lib/util/cn';
-import { createEvent, deleteEvent, fetchRange, savePrefs, updateEvent } from './calendar-api';
+import {
+  createEvent,
+  deleteEvent,
+  fetchRange,
+  recolorEvent,
+  respondToEvent,
+  savePrefs,
+  updateEvent,
+} from './calendar-api';
 import { useChoice } from './choice-dialog';
 import { EventEditor, type EditorState } from './event-editor';
-import { EventPanel } from './event-panel';
+import { EventPanel, type CardAnchor } from './event-panel';
 import { MiniMonth } from './mini-month';
 import { MonthGrid } from './month-grid';
 import { PreviewSwitch } from './preview-switch';
@@ -61,12 +78,15 @@ import { TimeGrid, type GridChange } from './time-grid';
  * Week and Month like Google Calendar, any date past or future, Today and
  * back and forward, a date picker, all in the address (?view=&date=). Nick's
  * calendars down the side with Google's own names and colours, each one on or
- * off. Every event keeps Copilot's Meeting/Block verdict, and opens into the
- * same details the day list shows.
+ * off. Every event keeps Copilot's Meeting/Block verdict, and a click on it
+ * opens Google Calendar's event card beside it (event-panel.tsx): Edit,
+ * Delete, Duplicate, Email guests, its colour, Going? for an invitation, Join.
  *
  * Changes (with calendar editing on) go through lib/calendar/write.ts. Before
  * any change that involves guests, the page asks Google Calendar's question,
- * "Send … emails to guests?", every time; only Send emails anyone.
+ * "Send … emails to guests?", every time; only Send emails anyone. An answer
+ * to an invitation asks "Send your response to the organizer?" the same way.
+ * A colour change is nobody else's business and is never asked about.
  */
 
 export interface CalendarViewsProps {
@@ -81,6 +101,8 @@ export interface CalendarViewsProps {
   editing: { allowed: boolean; reason: string | null; demo: boolean };
   /** "Turn on calendar editing", when it is off and can be turned on. */
   turnOnHref: string | null;
+  /** The compose window may send (the opt-in grant); else it offers Copy for Gmail. */
+  canSend: boolean;
 }
 
 const isTyping = (target: EventTarget | null) =>
@@ -123,6 +145,35 @@ function usePhone(): boolean {
   );
 }
 
+/** The key of a new event on the page while Google is still saving it. */
+const PENDING_PREFIX = 'pending-';
+
+/** The repeating-event question, per kind of change. */
+const SCOPE_QUESTION: Record<
+  'edit' | 'delete' | 'respond' | 'color',
+  { title: string; description: string }
+> = {
+  edit: {
+    title: 'Change a repeating event',
+    description:
+      'Apply this to this event only, or to every event in the series. To change this and the following events, or to move the whole series to another day, use Google Calendar.',
+  },
+  delete: {
+    title: 'Delete a repeating event',
+    description:
+      'Delete this event only, or every event in the series. To delete this and the following events, use Google Calendar.',
+  },
+  respond: {
+    title: 'Answer a repeating event',
+    description:
+      'Answer for this event only, or for every event in the series. To answer this and the following events, use Google Calendar.',
+  },
+  color: {
+    title: 'Colour a repeating event',
+    description: 'Colour this event only, or every event in the series. Nobody is emailed.',
+  },
+};
+
 export function CalendarViews(props: CalendarViewsProps) {
   const { timeZone, ownEmails, editing } = props;
   const params = useSearchParams();
@@ -139,8 +190,12 @@ export function CalendarViews(props: CalendarViewsProps) {
   const [reloadToken, setReloadToken] = React.useState(0);
   const cache = React.useRef(new Map<string, CalendarRangeData>());
   const [nowMs, setNowMs] = React.useState<number | null>(null);
-  const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
+  const [selected, setSelected] = React.useState<{ key: string; anchor: CardAnchor } | null>(null);
   const [editor, setEditor] = React.useState<EditorState | null>(null);
+  const [compose, setCompose] = React.useState<ComposeDraft | null>(null);
+  // A press outside an open card closes it and does nothing else, as in Google
+  // Calendar: it does not also start a new event on the slot pressed.
+  const swallowCreate = React.useRef(false);
   const [saving, setSaving] = React.useState(false);
   const [askChoice, choiceDialog] = useChoice();
   const [confirm, confirmDialog] = useConfirm();
@@ -229,16 +284,35 @@ export function CalendarViews(props: CalendarViewsProps) {
     [go, view, date],
   );
 
+  // Whether a card or the quick editor is open, for the press-outside check below.
+  const cardOpen = React.useRef(false);
+  React.useEffect(() => {
+    cardOpen.current = selected !== null || editor?.mode === 'quick';
+  });
+  React.useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      if (!cardOpen.current) return;
+      const target = e.target instanceof Element ? e.target : null;
+      // Inside the card, or a question asked over it: not a press outside.
+      if (target?.closest('[data-event-card], [data-quick-editor], [role="dialog"]')) return;
+      swallowCreate.current = true;
+      const clear = () =>
+        window.setTimeout(() => {
+          swallowCreate.current = false;
+        }, 0);
+      window.addEventListener('pointerup', clear, { once: true });
+      window.addEventListener('pointercancel', clear, { once: true });
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, []);
+
   /* ------------------------------------------------------- the questions */
 
   const askScope = React.useCallback(
-    (action: 'edit' | 'delete') =>
+    (action: 'edit' | 'delete' | 'respond' | 'color') =>
       askChoice<RecurringScope>({
-        title: action === 'edit' ? 'Change a repeating event' : 'Delete a repeating event',
-        description:
-          action === 'edit'
-            ? 'Apply this to this event only, or to every event in the series. To change this and the following events, or to move the whole series to another day, use Google Calendar.'
-            : 'Delete this event only, or every event in the series. To delete this and the following events, use Google Calendar.',
+        ...SCOPE_QUESTION[action],
         choices: RECURRING_SCOPES.map((s) => ({
           value: s.value,
           label: s.label,
@@ -291,12 +365,20 @@ export function CalendarViews(props: CalendarViewsProps) {
       toast.message(editing.reason ?? 'Events cannot be added here.');
       return;
     }
+    setSelected(null);
     setEditor({ mode, event: null, draft, calendarId: defaultCalendarId });
   };
 
-  const createAt = (r: GridChange) => openCreate(newDraft(r.start, r.end, timeZone), 'quick');
-  const createAllDay = (day: string) =>
-    openCreate(newAllDayDraft(day, addDaysToKey(day, 1), timeZone), 'quick');
+  // From the grid: not when the press only closed an open card.
+  const createAt = (r: GridChange) => {
+    if (swallowCreate.current) return;
+    openCreate(newDraft(r.start, r.end, timeZone), 'quick');
+  };
+  /** An all-day event on one day, or across the days dragged over (`endKey` exclusive). */
+  const createAllDay = (day: string, endKey = addDaysToKey(day, 1)) => {
+    if (swallowCreate.current) return;
+    openCreate(newAllDayDraft(day, endKey, timeZone), 'quick');
+  };
   const createNow = () => {
     const base = date === today && nowMs !== null ? new Date(nowMs) : null;
     const start = base
@@ -315,7 +397,7 @@ export function CalendarViews(props: CalendarViewsProps) {
     }
     const calendar = calendarsById.get(calendarId);
     if (!calendar) return;
-    const tempKey = `pending-${Date.now()}`;
+    const tempKey = `${PENDING_PREFIX}${Date.now()}`;
     setEditor(null);
     putEvent(tempKey, optimisticEvent(null, draft, calendar, palette, tempKey), true);
     setSaving(true);
@@ -328,6 +410,9 @@ export function CalendarViews(props: CalendarViewsProps) {
       return;
     }
     putEvent(tempKey, res.value.event);
+    // Opened while it was saving: the card follows it to the id Google gave it.
+    const saved = res.value.event;
+    if (saved) setSelected((s) => (s && s.key === tempKey ? { ...s, key: saved.key } : s));
     if (res.value.event && !visibleIds.includes(calendarId)) reload();
     toast.success(notifyNote(notify, 'saved'));
   }
@@ -351,7 +436,11 @@ export function CalendarViews(props: CalendarViewsProps) {
       scope = answer;
     }
     const before = guestEmails(event.attendees, ownEmails);
-    const prompt = guestPrompt('update', before, changes.guests ?? before);
+    // A colour alone tells nobody (Google keeps it to the viewer): no question.
+    const prompt =
+      isColorOnly(changes) && !destination
+        ? null
+        : guestPrompt('update', before, changes.guests ?? before);
     let notify: GuestChoice = 'dont_send';
     if (prompt) {
       const answer = await askGuests(prompt);
@@ -422,7 +511,7 @@ export function CalendarViews(props: CalendarViewsProps) {
       });
       if (!sure) return;
     }
-    setSelectedKey(null);
+    setSelected(null);
     putEvent(event.key, null);
     const res = await deleteEvent({
       calendarId: event.calendarId,
@@ -438,6 +527,105 @@ export function CalendarViews(props: CalendarViewsProps) {
     if (res.value.reload) reload();
     toast.success(notifyNote(notify, 'deleted'));
   }
+
+  /* ------------------------------------------- the event card's quick taps */
+
+  /**
+   * Going? Yes / No / Maybe. Google emails the organizer the answer, so it
+   * asks every time whether to send it; Cancel (or Esc) changes nothing, and
+   * nothing defaults to Send.
+   */
+  async function respond(event: RangeEvent, response: RsvpResponse) {
+    if (event.myResponse === response) return;
+    let scope: RecurringScope = 'this';
+    if (event.recurringEventId) {
+      const answer = await askScope('respond');
+      if (!answer) return;
+      scope = answer;
+    }
+    const label = RSVP_CHOICES.find((c) => c.value === response)?.label ?? response;
+    const who = event.organizer?.name ?? event.organizer?.email ?? 'the organizer';
+    const notify = await askChoice<GuestChoice>({
+      title: 'Send your response to the organizer?',
+      description: `Google Calendar can email ${who} that your answer is “${label}”.`,
+      choices: [
+        { value: 'dont_send', label: "Don't send" },
+        { value: 'send', label: 'Send', tone: 'primary' },
+      ],
+    });
+    if (!notify) return;
+    putEvent(event.key, withResponse(event, response, ownEmails));
+    const res = await respondToEvent({
+      calendarId: event.calendarId,
+      eventId: event.id,
+      scope,
+      response,
+      notify,
+    });
+    if (!res.ok) {
+      putEvent(event.key, event);
+      toast.error(res.message);
+      return;
+    }
+    if (res.value.reload || !res.value.event) reload();
+    else putEvent(event.key, res.value.event);
+    toast.success(notify === 'send' ? 'Saved; Google is telling the organizer.' : 'Saved.');
+  }
+
+  /** A colour from the card: colorId alone, never a question about guests, never an email. */
+  async function recolor(event: RangeEvent, colorId: string | null) {
+    if ((event.colorId ?? null) === colorId) return;
+    const calendar = calendarsById.get(event.calendarId);
+    if (!calendar) return;
+    let scope: RecurringScope = 'this';
+    if (event.recurringEventId) {
+      const answer = await askScope('color');
+      if (!answer) return;
+      scope = answer;
+    }
+    putEvent(event.key, optimisticEvent(event, { colorId }, calendar, palette, event.key));
+    const res = await recolorEvent({
+      calendarId: event.calendarId,
+      eventId: event.id,
+      scope,
+      colorId,
+    });
+    if (!res.ok) {
+      putEvent(event.key, event);
+      toast.error(res.message);
+      return;
+    }
+    if (res.value.reload || !res.value.event) reload();
+    else putEvent(event.key, res.value.event);
+  }
+
+  /** Google's Duplicate: the editor, prefilled, for a new event on the same calendar. */
+  const duplicate = (event: RangeEvent) => {
+    const calendarId = calendarsById.get(event.calendarId)?.writable
+      ? event.calendarId
+      : defaultCalendarId;
+    if (!canEdit || !calendarId) return;
+    setSelected(null);
+    setEditor({
+      mode: 'full',
+      event: null,
+      draft: duplicateDraft(event, timeZone, ownEmails),
+      calendarId,
+      heading: 'Duplicate event',
+    });
+  };
+
+  /** The compose window with the guests: a draft, sent only by its own Send. */
+  const emailGuests = (event: RangeEvent) => {
+    const to = guestEmails(event.attendees, ownEmails);
+    if (!to.length) return;
+    setSelected(null);
+    setCompose({
+      to: to.join(', '),
+      subject: event.title === '(no title)' ? '' : event.title,
+      body: '',
+    });
+  };
 
   const changeTimes = (event: RangeEvent, next: GridChange) =>
     void commitUpdate(
@@ -529,7 +717,26 @@ export function CalendarViews(props: CalendarViewsProps) {
     const span = daySpan(e, timeZone);
     return span ? range.days.some((d) => coversDay(span, d)) : false;
   });
-  const selected = selectedKey ? (current.events.find((e) => e.key === selectedKey) ?? null) : null;
+  const selectedEvent = selected
+    ? (current.events.find((e) => e.key === selected.key) ?? null)
+    : null;
+  const selectedCalendar = selectedEvent
+    ? (calendarsById.get(selectedEvent.calendarId) ?? null)
+    : null;
+  const selectedOptions = selectedEvent
+    ? eventOptions(selectedEvent, {
+        // Still saving: nothing to change until Google has it (the card then follows it).
+        editing: editing.allowed && !selectedEvent.key.startsWith(PENDING_PREFIX),
+        calendarWritable: Boolean(selectedCalendar?.writable),
+        ownEmails,
+      })
+    : null;
+  const pending =
+    editor?.mode === 'quick' && editor.event === null
+      ? { allDay: editor.draft.allDay, start: editor.draft.start, end: editor.draft.end }
+      : null;
+  const openEvent = (event: RangeEvent, element: HTMLElement | null) =>
+    setSelected({ key: event.key, anchor: { element } });
   const failedNames = current.failed
     .map((f) => calendarsById.get(f.calendarId)?.name)
     .filter((n): n is string => Boolean(n));
@@ -726,7 +933,8 @@ export function CalendarViews(props: CalendarViewsProps) {
               calendars={calendarsById}
               canEdit={canEdit}
               compact={phone}
-              onOpen={(e) => setSelectedKey(e.key)}
+              pending={pending}
+              onOpen={openEvent}
               onPickDay={(d) => go({ view: 'day', date: d })}
               onCreateAllDay={createAllDay}
               onShiftDays={shiftDays}
@@ -740,7 +948,8 @@ export function CalendarViews(props: CalendarViewsProps) {
               nowMs={nowMs}
               calendars={calendarsById}
               canEdit={canEdit}
-              onOpen={(e) => setSelectedKey(e.key)}
+              pending={pending}
+              onOpen={openEvent}
               onCreate={createAt}
               onCreateAllDay={createAllDay}
               onChange={changeTimes}
@@ -757,17 +966,29 @@ export function CalendarViews(props: CalendarViewsProps) {
       </div>
 
       <EventPanel
-        event={selected}
-        calendar={selected ? (calendarsById.get(selected.calendarId) ?? null) : null}
+        event={selectedEvent}
+        anchor={selected?.anchor ?? null}
+        phone={phone}
+        calendar={selectedCalendar}
+        palette={palette}
+        options={selectedOptions}
         timeZone={timeZone}
         ownEmails={ownEmails}
         mailbox={props.mailbox}
         editing={editing.allowed}
         editingOffReason={editing.reason}
         turnOnHref={props.turnOnHref}
-        onClose={() => setSelectedKey(null)}
+        // Only this card: one closing as another opens leaves the new one open.
+        onClose={() => {
+          const key = selected?.key;
+          setSelected((s) => (s && s.key === key ? null : s));
+        }}
+        onDuplicate={duplicate}
+        onColor={(event, colorId) => void recolor(event, colorId)}
+        onRespond={(event, response) => void respond(event, response)}
+        onEmailGuests={emailGuests}
         onEdit={(event) => {
-          setSelectedKey(null);
+          setSelected(null);
           setEditor({
             mode: 'full',
             event,
@@ -780,6 +1001,7 @@ export function CalendarViews(props: CalendarViewsProps) {
 
       <EventEditor
         state={editor}
+        phone={phone}
         calendars={writable}
         palette={palette}
         timeZone={timeZone}
@@ -794,6 +1016,14 @@ export function CalendarViews(props: CalendarViewsProps) {
           setEditor({ mode: 'full', event: null, draft, calendarId })
         }
       />
+      {compose ? (
+        <Composer
+          title="Email guests"
+          initial={compose}
+          canSend={props.canSend}
+          onClose={() => setCompose(null)}
+        />
+      ) : null}
       {choiceDialog}
       {confirmDialog}
     </div>

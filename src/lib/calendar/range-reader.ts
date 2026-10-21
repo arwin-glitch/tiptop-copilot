@@ -9,6 +9,7 @@ import { ok, type Result } from '@/lib/util/result';
 import { startOfDayUtc } from '@/lib/util/time';
 import { calendarColor, eventColor, eventPalette } from './colors';
 import { isWritableRole, meetLinkOf, modifyRule } from './edit-rules';
+import { ownAttendeeIndex, respondRule } from './event-actions';
 import type { GCalColors, GCalEvent, GCalListEntry } from './google-types';
 import {
   classifyMeeting,
@@ -126,6 +127,8 @@ export function toRangeEvent(
   const title = busyOnly ? 'Busy' : meeting.title;
   const inPerson = isInPerson(meeting);
   const rule = modifyRule(google, calendar.accessRole);
+  const answer = respondRule(google, calendar.accessRole, ownEmails);
+  const mine = google.attendees?.[ownAttendeeIndex(google.attendees, ownEmails)];
   const allDay = meeting.allDay;
   return {
     key: eventKey(calendar.id, google.id),
@@ -168,6 +171,14 @@ export function toRangeEvent(
     guestsCanModify: Boolean(google.guestsCanModify),
     canModify: rule.canModify,
     readOnlyReason: rule.reason,
+    canRespond: answer.canRespond,
+    myResponse: mine?.responseStatus ?? null,
+    attachments: (google.attachments ?? []).flatMap((a) => {
+      const url = httpsOnly(a.fileUrl);
+      return url
+        ? [{ title: a.title?.trim() || 'Attachment', url, mimeType: a.mimeType ?? null }]
+        : [];
+    }),
     verdict: { meeting: verdict.meeting, reason: verdict.reason, with: verdict.with },
     hold: !verdict.meeting && HOLD_TITLE.test(title),
     inPerson,

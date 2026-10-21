@@ -28,8 +28,13 @@ import { chipLabel, chipStyle, HOLD_TAG_CLASS } from './event-style';
  * column side by side (lib/calendar/grid.ts, layoutColumns). With editing on,
  * as in Google Calendar: drag across empty time to create, drag an event to
  * move it (to another day too, in Week), drag its bottom edge to change its
- * length, all on a 15-minute snap. A plain click opens the event; on a touch
- * screen a tap does, and dragging is left to scrolling.
+ * length, all on a 15-minute snap; drag across days in the all-day row for an
+ * event over several days. The new event's placeholder stays drawn while its
+ * quick editor is open beside it. A plain click opens the event's card; on a
+ * touch screen a tap does, and dragging is left to scrolling.
+ *
+ * Titles wrap over as many lines as the event's height allows (narrow
+ * overlapping columns included), with the time below when there is room.
  */
 
 export const HOUR_PX = 48;
@@ -37,10 +42,20 @@ const GUTTER_PX = 52;
 const MIN_CHIP_PX = 18;
 const DRAG_THRESHOLD_PX = 4;
 const ALL_DAY_LANE_PX = 22;
+/** One line of a chip's 12px text, for how many lines of title fit. */
+const CHIP_LINE_PX = 15;
 
 export interface GridChange {
   start: Date;
   end: Date;
+}
+
+/** The new event being made, drawn while its quick editor is open. */
+export interface PendingSlot {
+  allDay: boolean;
+  /** Timed: instants. All-day: `YYYY-MM-DD`, end exclusive. */
+  start: string;
+  end: string;
 }
 
 type Pending =
@@ -87,6 +102,7 @@ export function TimeGrid({
   nowMs,
   calendars,
   canEdit,
+  pending: newSlot,
   onOpen,
   onCreate,
   onCreateAllDay,
@@ -102,9 +118,13 @@ export function TimeGrid({
   nowMs: number | null;
   calendars: ReadonlyMap<string, CalendarInfo>;
   canEdit: boolean;
-  onOpen: (event: RangeEvent) => void;
+  /** The new event whose quick editor is open: its placeholder stays drawn. */
+  pending: PendingSlot | null;
+  /** A click on an event: its card opens beside the element clicked. */
+  onOpen: (event: RangeEvent, element: HTMLElement) => void;
   onCreate: (range: GridChange) => void;
-  onCreateAllDay: (day: string) => void;
+  /** One day, or the days dragged across (`endKey` exclusive). */
+  onCreateAllDay: (day: string, endKey?: string) => void;
   onChange: (event: RangeEvent, next: GridChange) => void;
   onShiftDays: (event: RangeEvent, days: number) => void;
   onPickDay: (day: string) => void;
@@ -390,6 +410,7 @@ export function TimeGrid({
         calendars={calendars}
         canEdit={canEdit}
         maxLanes={single ? 6 : 3}
+        pending={newSlot?.allDay ? newSlot : null}
         onOpen={onOpen}
         onCreateAllDay={onCreateAllDay}
         onShiftDays={onShiftDays}
@@ -434,6 +455,10 @@ export function TimeGrid({
               segments.map((s) => ({ key: s.event.key, start: s.seg.start, end: s.seg.end })),
             );
             const creating = drag?.mode === 'create' && drag.day === d ? drag : null;
+            const held =
+              !creating && newSlot && !newSlot.allDay
+                ? segmentOnDay({ startsAt: newSlot.start, endsAt: newSlot.end }, d, timeZone)
+                : null;
             return (
               <div
                 key={d}
@@ -460,13 +485,16 @@ export function TimeGrid({
                   const past =
                     nowMs !== null && event.endsAt !== null && Date.parse(event.endsAt) < nowMs;
                   const compact = height < 34;
+                  // As many lines of title as the height allows; the time follows if room is left.
+                  const titleLines = Math.max(1, Math.floor((height - 4) / CHIP_LINE_PX));
                   return (
                     <button
                       key={event.key}
                       type="button"
                       data-event-chip
+                      data-event-key={event.key}
                       onPointerDown={(e) => onChipPointerDown(e, event)}
-                      onClick={() => onOpen(event)}
+                      onClick={(e) => onOpen(event, e.currentTarget)}
                       aria-label={chipLabel(
                         event,
                         when,
@@ -490,10 +518,22 @@ export function TimeGrid({
                         className={cn('flex min-w-0 items-start gap-1', compact && 'items-center')}
                       >
                         <span
+                          data-chip-title=""
                           className={cn(
-                            'min-w-0 flex-1 truncate',
+                            'min-w-0 flex-1',
+                            compact ? 'truncate' : 'break-words',
                             event.verdict.meeting ? 'font-semibold' : 'font-medium',
                           )}
+                          style={
+                            compact
+                              ? undefined
+                              : {
+                                  display: '-webkit-box',
+                                  WebkitBoxOrient: 'vertical',
+                                  WebkitLineClamp: titleLines,
+                                  overflow: 'hidden',
+                                }
+                          }
                         >
                           {event.title}
                           {compact ? (
@@ -525,6 +565,22 @@ export function TimeGrid({
                     </button>
                   );
                 })}
+
+                {held ? (
+                  <div
+                    data-new-event=""
+                    className="pointer-events-none absolute inset-x-0.5 z-[3] overflow-hidden rounded-[5px] border border-[var(--primary)] bg-[var(--primary)]/30 px-1.5 py-0.5 text-[12px] leading-tight font-medium text-[var(--fg)] shadow-[var(--elevation-lifted)]"
+                    style={{
+                      top: (held.start / 60) * HOUR_PX,
+                      height: Math.max(MIN_CHIP_PX, ((held.end - held.start) / 60) * HOUR_PX - 1),
+                    }}
+                  >
+                    (No title)
+                    <span className="block font-normal opacity-80">
+                      {shortTime(newSlot!.start, timeZone)} – {shortTime(newSlot!.end, timeZone)}
+                    </span>
+                  </div>
+                ) : null}
 
                 {creating ? (
                   <div
@@ -590,6 +646,7 @@ function AllDayRow({
   calendars,
   canEdit,
   maxLanes,
+  pending,
   onOpen,
   onCreateAllDay,
   onShiftDays,
@@ -602,8 +659,9 @@ function AllDayRow({
   calendars: ReadonlyMap<string, CalendarInfo>;
   canEdit: boolean;
   maxLanes: number;
-  onOpen: (event: RangeEvent) => void;
-  onCreateAllDay: (day: string) => void;
+  pending: PendingSlot | null;
+  onOpen: (event: RangeEvent, element: HTMLElement) => void;
+  onCreateAllDay: (day: string, endKey?: string) => void;
   onShiftDays: (event: RangeEvent, days: number) => void;
   onPickDay: (day: string) => void;
 }) {
@@ -612,6 +670,11 @@ function AllDayRow({
     null,
   );
   const [offset, setOffset] = React.useState<{ key: string; days: number } | null>(null);
+  // Drag across empty days to make one event over all of them, as in Google Calendar.
+  const select = React.useRef<{ col: number; x: number; moved: boolean; touch: boolean } | null>(
+    null,
+  );
+  const [selecting, setSelecting] = React.useState<{ from: number; to: number } | null>(null);
   const byKey = new Map(events.map((e) => [e.key, e]));
   const packed = packWeek(
     events
@@ -621,6 +684,26 @@ function AllDayRow({
     maxLanes,
   );
   const lanes = Math.max(1, packed.lanes);
+  // The new event's bar: while dragging across days, then while its quick editor is open.
+  const pendingCols = (() => {
+    if (selecting) {
+      return {
+        from: Math.min(selecting.from, selecting.to),
+        to: Math.max(selecting.from, selecting.to),
+      };
+    }
+    if (!pending) return null;
+    const first = days[0]!;
+    const last = days[days.length - 1]!;
+    const lastDay = addDaysToKey(pending.end, -1);
+    if (pending.start > last || lastDay < first) return null;
+    return {
+      from: pending.start < first ? 0 : days.indexOf(pending.start),
+      to: lastDay > last ? days.length - 1 : days.indexOf(lastDay),
+    };
+  })();
+  // Under the events already there, as Google adds it.
+  const barLane = packed.lanes;
   const colOf = (clientX: number) => {
     const el = rowRef.current;
     if (!el) return 0;
@@ -636,8 +719,19 @@ function AllDayRow({
     <div
       ref={rowRef}
       className="relative grid border-b border-[var(--border)]"
-      style={{ gridTemplateColumns: columns, minHeight: lanes * ALL_DAY_LANE_PX + 6 }}
+      style={{
+        gridTemplateColumns: columns,
+        minHeight: Math.max(lanes, packed.lanes + (pendingCols ? 1 : 0)) * ALL_DAY_LANE_PX + 6,
+      }}
       onPointerMove={(e) => {
+        const s = select.current;
+        if (s && !s.touch) {
+          if (!s.moved && Math.abs(e.clientX - s.x) < DRAG_THRESHOLD_PX) return;
+          if (!s.moved) rowRef.current?.setPointerCapture(e.pointerId);
+          s.moved = true;
+          setSelecting({ from: s.col, to: colOf(e.clientX) });
+          return;
+        }
         const d = drag.current;
         if (!d) return;
         if (!d.moved && Math.abs(e.clientX - d.x) < DRAG_THRESHOLD_PX) return;
@@ -646,29 +740,65 @@ function AllDayRow({
         setOffset({ key: d.event.key, days: colOf(e.clientX) - d.col });
       }}
       onPointerUp={(e) => {
-        const d = drag.current;
-        drag.current = null;
         if (rowRef.current?.hasPointerCapture(e.pointerId))
           rowRef.current.releasePointerCapture(e.pointerId);
+        const s = select.current;
+        if (s) {
+          select.current = null;
+          const range = selecting;
+          setSelecting(null);
+          if (s.moved && range) {
+            const from = Math.min(range.from, range.to);
+            const to = Math.max(range.from, range.to);
+            onCreateAllDay(days[from]!, addDaysToKey(days[to]!, 1));
+          } else if (!s.moved) {
+            onCreateAllDay(days[s.col]!);
+          }
+          return;
+        }
+        const d = drag.current;
+        drag.current = null;
         const shift = offset?.days ?? 0;
         setOffset(null);
         if (d?.moved && shift !== 0) onShiftDays(d.event, shift);
       }}
       onPointerCancel={() => {
         drag.current = null;
+        select.current = null;
         setOffset(null);
+        setSelecting(null);
       }}
     >
       <div className="text-micro self-center px-1 text-right text-[var(--fg-subtle)]">All day</div>
-      {days.map((d) => (
+      {days.map((d, i) => (
         <div
           key={d}
+          data-all-day-date={d}
           className={cn('border-l border-[var(--border)]', canEdit && 'cursor-cell')}
-          onClick={(e) => {
-            if (canEdit && e.target === e.currentTarget) onCreateAllDay(d);
+          onPointerDown={(e) => {
+            if (!canEdit || e.button !== 0 || e.target !== e.currentTarget) return;
+            select.current = {
+              col: i,
+              x: e.clientX,
+              moved: false,
+              touch: e.pointerType === 'touch',
+            };
           }}
         />
       ))}
+      {pendingCols ? (
+        <div
+          data-new-event=""
+          className="pointer-events-none absolute z-[3] truncate rounded-[5px] border border-[var(--primary)] bg-[var(--primary)]/30 px-1.5 text-[12px] leading-[18px] font-medium text-[var(--fg)] shadow-[var(--elevation-lifted)]"
+          style={{
+            top: 3 + barLane * ALL_DAY_LANE_PX,
+            left: `calc(${GUTTER_PX}px + (100% - ${GUTTER_PX}px) * ${pendingCols.from / days.length} + 2px)`,
+            width: `calc((100% - ${GUTTER_PX}px) * ${(pendingCols.to - pendingCols.from + 1) / days.length} - 4px)`,
+          }}
+        >
+          (No title)
+        </div>
+      ) : null}
       {packed.segments.map((s) => {
         const event = byKey.get(s.key);
         if (!event) return null;
@@ -682,12 +812,13 @@ function AllDayRow({
             key={`${s.key}-${s.startCol}`}
             type="button"
             data-event-chip
+            data-event-key={event.key}
             onPointerDown={(e) => {
               if (!editable || e.button !== 0 || e.pointerType === 'touch') return;
               drag.current = { event, col: colOf(e.clientX), x: e.clientX, moved: false };
             }}
-            onClick={() => {
-              if (!drag.current?.moved) onOpen(event);
+            onClick={(e) => {
+              if (!drag.current?.moved) onOpen(event, e.currentTarget);
             }}
             aria-label={chipLabel(event, 'all day', calendars.get(event.calendarId)?.name ?? null)}
             className={cn(

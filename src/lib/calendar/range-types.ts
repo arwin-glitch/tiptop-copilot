@@ -44,6 +44,12 @@ export interface RangeAttendee {
   optional: boolean;
 }
 
+export interface RangeAttachment {
+  title: string;
+  url: string;
+  mimeType: string | null;
+}
+
 export interface RangeVerdict {
   meeting: boolean;
   reason: string;
@@ -86,6 +92,16 @@ export interface RangeEvent {
   canModify: boolean;
   /** Why not, in plain words, when canModify is false. */
   readOnlyReason: string | null;
+  /**
+   * Nick is a guest here (not the organizer) on a calendar he can write to,
+   * so he can answer Going? Yes / No / Maybe (calendar editing on is checked
+   * apart from this).
+   */
+  canRespond: boolean;
+  /** Nick's own answer on it: accepted, declined, tentative, needsAction, or null. */
+  myResponse: string | null;
+  /** Files Google lists on it, https links only. */
+  attachments: RangeAttachment[];
   verdict: RangeVerdict;
   /** A hold (Hold/Tentative/TBD...) that nobody has confirmed: a block, tagged Hold. */
   hold: boolean;

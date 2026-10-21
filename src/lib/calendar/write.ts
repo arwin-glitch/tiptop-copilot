@@ -18,6 +18,14 @@ import {
   type GuestChoice,
   type RecurringScope,
 } from './edit-rules';
+import {
+  colorRequest,
+  colorRule,
+  isColorOnly,
+  respondRule,
+  rsvpRequest,
+  type RsvpResponse,
+} from './event-actions';
 import type {
   GCalColors,
   GCalDateTime,
@@ -35,7 +43,8 @@ import type { CalendarInfo, RangeEvent } from './range-types';
 
 /**
  * The Calendar tab's only way to change a calendar: create, change, move and
- * delete one event at a time, on a person's tap. Imported by the Calendar
+ * delete one event at a time, answer an invitation (Going? Yes / No / Maybe)
+ * and pick an event's colour, on a person's tap. Imported by the Calendar
  * tab's edit route alone (a test pins that).
  *
  * Every write is refused here, before Google is asked, unless:
@@ -43,11 +52,14 @@ import type { CalendarInfo, RangeEvent } from './range-types';
  *   in-memory calendar counts as on, since nothing there reaches Google),
  * - the calendar is one this account can write to (owner or writer), and
  * - for a change or a delete, the event is one this account may change
- *   (its own, or its organizer lets guests change it).
+ *   (its own, or its organizer lets guests change it); for an answer, Nick is
+ *   a guest on it and not its organizer; for a colour, either.
  *
  * Guests hear about it only when the person chose Send in the prompt the
  * page shows every time guests are involved: `notify` is required, and only
- * 'send' becomes Google's sendUpdates 'all'. Everything else is 'none'.
+ * 'send' becomes Google's sendUpdates 'all'. Everything else is 'none'. An
+ * answer asks "Send your response to the organizer?" the same way. A colour
+ * change is always 'none' and is never asked about.
  */
 
 export interface WriteContext {
@@ -280,11 +292,14 @@ export async function updateCalendarEvent(
       : { ...shifted.end, dateTime: null, timeZone: null };
   }
 
-  const sendUpdates = sendUpdatesFor(input.notify);
   const destinationId =
     input.destinationCalendarId && input.destinationCalendarId !== calendar.id
       ? input.destinationCalendarId
       : null;
+  // A colour is the viewer's own business, as in Google Calendar: a change
+  // that only recolours the event tells nobody, whatever was answered.
+  const sendUpdates =
+    isColorOnly(input.changes) && !destinationId ? 'none' : sendUpdatesFor(input.notify);
   let finalCalendar = calendar;
   let latest: GCalEvent = existing;
   let changed = false;
@@ -364,4 +379,123 @@ export async function deleteCalendarEvent(
     guests: guestEmails(existing.attendees, ctx.source.ownEmails).length,
   });
   return ok({ event: null, reload: series });
+}
+
+/* ---------------------------------------------------- the event card */
+
+/** The one-tap writes from an event's card share the same checks as a change. */
+async function cardTarget(
+  ctx: WriteContext,
+  calendar: CalendarInfo,
+  eventId: string,
+  scope: RecurringScope,
+  allowed: (event: GCalEvent) => { ok: boolean; reason: string | null },
+): Promise<Result<{ existing: GCalEvent; targetId: string; series: boolean }>> {
+  const instance = await ctx.source.provider.getEvent(calendar.id, eventId);
+  if (!instance.ok) return instance;
+  if (instance.value.recurrence?.length && !instance.value.recurringEventId) {
+    return err('invalid_input', 'Open one event of the series to change it.');
+  }
+  const rule = allowed(instance.value);
+  if (!rule.ok) return refuse(rule.reason ?? 'This event is view-only here.');
+  const target = scopeTarget(instance.value, scope);
+  if (!target.series) {
+    return ok({ existing: instance.value, targetId: target.eventId, series: false });
+  }
+  const series = await ctx.source.provider.getEvent(calendar.id, target.eventId);
+  if (!series.ok) return series;
+  const seriesRule = allowed(series.value);
+  if (!seriesRule.ok) return refuse(seriesRule.reason ?? 'This series is view-only here.');
+  return ok({ existing: series.value, targetId: target.eventId, series: true });
+}
+
+export interface RespondInput {
+  calendarId: string;
+  eventId: string;
+  scope: RecurringScope;
+  response: RsvpResponse;
+  /** 'send' only when the person chose Send in "Send your response to the organizer?". */
+  notify: GuestChoice;
+}
+
+/**
+ * Going? Yes / No / Maybe on an event Nick is a guest on: his own answer
+ * changes and nothing else. Google tells the organizer only on Send.
+ */
+export async function respondToCalendarEvent(
+  ctx: WriteContext,
+  input: RespondInput,
+): Promise<Result<WriteResult>> {
+  const source = await writableCalendar(ctx, input.calendarId);
+  if (!source.ok) return source;
+  const { calendar, colors } = source.value;
+  const own = ctx.source.ownEmails;
+  const found = await cardTarget(ctx, calendar, input.eventId, input.scope, (event) => {
+    const rule = respondRule(event, calendar.accessRole, own);
+    return { ok: rule.canRespond, reason: rule.reason };
+  });
+  if (!found.ok) return found;
+  const { existing, targetId, series } = found.value;
+  const request = rsvpRequest(existing, input.response, input.notify, own);
+  if (!request) return refuse('You are not on the guest list.');
+  const patched = await ctx.source.provider.patchEvent(calendar.id, targetId, request.body, {
+    sendUpdates: request.sendUpdates,
+  });
+  if (!patched.ok) return patched;
+  invalidateCalendarCache(ctx.organizationId, [calendar.id]);
+  await audit(ctx, 'calendar.event_updated', targetId, {
+    primary: calendar.primary,
+    scope: series ? 'all' : 'this',
+    kind: 'respond',
+    response: input.response,
+    notified: request.sendUpdates === 'all',
+  });
+  return ok({
+    event: series ? null : toRangeEvent(patched.value, calendar, colors, own),
+    reload: series,
+  });
+}
+
+export interface RecolorInput {
+  calendarId: string;
+  eventId: string;
+  scope: RecurringScope;
+  /** One of Google's event colours, or null for the calendar's colour. */
+  colorId: string | null;
+}
+
+/** A colour from the event's card: Google's colorId alone, and never an email. */
+export async function recolorCalendarEvent(
+  ctx: WriteContext,
+  input: RecolorInput,
+): Promise<Result<WriteResult>> {
+  const source = await writableCalendar(ctx, input.calendarId);
+  if (!source.ok) return source;
+  const { calendar, colors } = source.value;
+  const problem = checkDraft({ colorId: input.colorId }, colors);
+  if (problem) return err('invalid_input', problem);
+  const own = ctx.source.ownEmails;
+  const found = await cardTarget(ctx, calendar, input.eventId, input.scope, (event) => {
+    const rule = colorRule(event, calendar.accessRole, own);
+    return { ok: rule.canColor, reason: rule.reason };
+  });
+  if (!found.ok) return found;
+  const { targetId, series } = found.value;
+  const request = colorRequest(input.colorId);
+  const patched = await ctx.source.provider.patchEvent(calendar.id, targetId, request.body, {
+    sendUpdates: request.sendUpdates,
+    conferenceDataVersion: request.conferenceDataVersion,
+  });
+  if (!patched.ok) return patched;
+  invalidateCalendarCache(ctx.organizationId, [calendar.id]);
+  await audit(ctx, 'calendar.event_updated', targetId, {
+    primary: calendar.primary,
+    scope: series ? 'all' : 'this',
+    kind: 'color',
+    notified: false,
+  });
+  return ok({
+    event: series ? null : toRangeEvent(patched.value, calendar, colors, own),
+    reload: series,
+  });
 }

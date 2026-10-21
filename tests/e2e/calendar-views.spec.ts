@@ -335,7 +335,8 @@ test('a repeating event asks "This event" or "All events", and an organizer’s 
   await page.goto(`/calendar?view=week&date=${dayFromToday(7)}`);
   await chip(page, 'Partner meeting').first().click();
   const panel = page.getByRole('dialog', { name: 'Partner meeting' });
-  await expect(panel.getByText('Repeats')).toBeVisible();
+  // Google's words for the series, read from the series itself.
+  await expect(panel.getByText('Weekly on Monday, 12 times')).toBeVisible();
   await panel.getByRole('button', { name: 'Edit' }).click();
   await page.getByRole('dialog', { name: 'Edit event' }).getByLabel('Location').fill('Board room');
   await page
