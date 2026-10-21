@@ -19,6 +19,7 @@ import {
   sortStudentItems,
   sourceEmailId,
   studentFilterParams,
+  studentSourceKey,
   studentWho,
   studentsFreshness,
   type StudentFilters,
@@ -108,7 +109,7 @@ export function PortfolioStudentsView({
   timeZone: string;
   shownRaw: string | string[] | undefined;
 }) {
-  const items = sortStudentItems(snapshot.items, now);
+  const items = sortStudentItems(snapshot.items, now, timeZone);
   const visible = filterStudentItems(items, filters);
   const shown = shownCount(shownRaw, STEP, Math.max(visible.length, STEP));
   const page = visible.slice(0, shown);
@@ -296,8 +297,8 @@ function StudentCard({
   const where = [item.person ? item.school_or_org : null, item.program].filter((p): p is string =>
     Boolean(p),
   );
-  const deadline = deadlineState(item, now);
-  const days = daysUntilDeadline(item, now);
+  const deadline = deadlineState(item, now, timeZone);
+  const days = daysUntilDeadline(item, now, timeZone);
   // Arwin's to do: the next step is his and the item is still open.
   const mine = item.next_owner === 'arwin' && isOpenStudentItem(item);
   const [latest, ...earlier] = item.sources;
@@ -389,7 +390,7 @@ function StudentCard({
                 </summary>
                 <ul className="mt-2 space-y-2" aria-label={`Earlier emails about ${who}`}>
                   {earlier.map((s) => (
-                    <li key={`${sourceEmailId(s)}-${s.date}`}>
+                    <li key={studentSourceKey(s)}>
                       <SourceRow source={s} mailbox={mailbox} timeZone={timeZone} who={who} />
                     </li>
                   ))}

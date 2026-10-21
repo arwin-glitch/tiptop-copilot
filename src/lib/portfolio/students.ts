@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { single } from '@/lib/util/page-tabs';
+import { localDateKey } from '@/lib/util/time';
 import {
   DAY,
   GMAIL_ID,
@@ -140,6 +141,8 @@ export function studentKey(kind: StudentKind, who: string, program: string | nul
 
 /* ------------------------------- the post ------------------------------ */
 
+const NO_SUBJECT = '(no subject)';
+
 export const STUDENT_SOURCE_SCHEMA = z
   .object({
     /** The Gmail thread id, hex: what the two links open. */
@@ -147,7 +150,12 @@ export const STUDENT_SOURCE_SCHEMA = z
     /** The Gmail message id, hex: used when there is no thread id. */
     message_id: GMAIL_ID.nullish(),
     date: DAY,
-    subject: clippedText(300),
+    /** As written; an email sent with no subject keeps its links rather than being dropped. */
+    subject: z.preprocess(
+      (v) =>
+        v === null || v === undefined || (typeof v === 'string' && !v.trim()) ? NO_SUBJECT : v,
+      clippedText(300),
+    ),
   })
   .refine((s) => Boolean(s.thread_id || s.message_id), { message: 'A source needs a Gmail id' });
 export type StudentSource = z.infer<typeof STUDENT_SOURCE_SCHEMA>;
@@ -157,8 +165,8 @@ export function sourceEmailId(source: StudentSource): string {
   return (source.thread_id ?? source.message_id)!.toLowerCase();
 }
 
-/** What makes two sources one: the message, else the thread. */
-function sourceKey(source: StudentSource): string {
+/** What makes two sources one: the message, else the thread. Unique in an item's list. */
+export function studentSourceKey(source: StudentSource): string {
   return (source.message_id ?? source.thread_id)!.toLowerCase();
 }
 
@@ -187,19 +195,24 @@ export const STUDENT_ITEM_SCHEMA = z
     next_owner: z.preprocess(normalizeStudentOwner, z.enum(STUDENT_OWNERS).nullable()),
     first_seen: DAY,
     last_seen: DAY,
-    /** Each source checked on its own: a bad one is left out, never the whole item. */
+    /**
+     * Each source checked on its own: a bad one is left out, never the whole
+     * item. One email listed twice is kept once.
+     */
     sources: z
       .array(z.unknown())
       .max(40)
       .default([])
-      .transform((list) =>
-        list
-          .flatMap((s) => {
-            const source = STUDENT_SOURCE_SCHEMA.safeParse(s);
-            return source.success ? [source.data] : [];
-          })
-          .slice(0, MAX_STUDENT_SOURCES),
-      ),
+      .transform((list) => {
+        const kept = new Map<string, StudentSource>();
+        for (const raw of list) {
+          const source = STUDENT_SOURCE_SCHEMA.safeParse(raw);
+          if (!source.success) continue;
+          const key = studentSourceKey(source.data);
+          if (!kept.has(key)) kept.set(key, source.data);
+        }
+        return [...kept.values()].slice(0, MAX_STUDENT_SOURCES);
+      }),
   })
   .refine((item) => Boolean(item.person || item.school_or_org), {
     message: 'An item needs a person or a school',
@@ -247,7 +260,7 @@ export function mergeStudentItems(a: StudentItem, b: StudentItem): StudentItem {
   const [newer, older] = b.last_seen > a.last_seen ? [b, a] : [a, b];
   const sources = new Map<string, StudentSource>();
   for (const s of [...newer.sources, ...older.sources]) {
-    if (!sources.has(sourceKey(s))) sources.set(sourceKey(s), s);
+    if (!sources.has(studentSourceKey(s))) sources.set(studentSourceKey(s), s);
   }
   const replies = [newer.last_reply_date, older.last_reply_date].filter((d): d is string =>
     Boolean(d),
@@ -288,26 +301,35 @@ export function isOpenStudentItem(item: Pick<StudentItem, 'status'>): boolean {
 const DAY_MS = 86_400_000;
 
 /**
- * Whole days until an item's deadline: 0 for today, negative once past.
- * A bare day is held at noon UTC, so "today" reads as today in any US
- * timezone. Null without a deadline.
+ * Whole calendar days until an item's deadline where the viewer is: 0 all
+ * day on the day itself, negative once past. Counted between calendar days
+ * in `timeZone`, never from the clock's hours: a deadline nine days out
+ * reads "in 9 days" at 6 am in Austin and in Singapore alike. A bare day is
+ * held at noon UTC, so it is that same day in every timezone the app offers.
+ * Null without a deadline.
  */
-export function daysUntilDeadline(item: Pick<StudentItem, 'deadline'>, now: Date): number | null {
+export function daysUntilDeadline(
+  item: Pick<StudentItem, 'deadline'>,
+  now: Date,
+  timeZone: string,
+): number | null {
   if (!item.deadline) return null;
-  // `|| 0` folds -0 (a deadline earlier today) into today.
-  return Math.ceil((Date.parse(item.deadline) - now.getTime()) / DAY_MS) || 0;
+  const due = Date.parse(`${localDateKey(new Date(item.deadline), timeZone)}T00:00:00Z`);
+  const today = Date.parse(`${localDateKey(now, timeZone)}T00:00:00Z`);
+  return Math.round((due - today) / DAY_MS);
 }
 
 /**
  * How an item's deadline reads: `soon` within 14 days, `passed` once gone
  * (only an open item says so: a done one does not need the alarm), `later`
- * beyond that, null without one.
+ * beyond that, null without one. Days are counted in `timeZone`.
  */
 export function deadlineState(
   item: Pick<StudentItem, 'deadline' | 'status'>,
   now: Date,
+  timeZone: string,
 ): 'passed' | 'soon' | 'later' | null {
-  const days = daysUntilDeadline(item, now);
+  const days = daysUntilDeadline(item, now, timeZone);
   if (days === null) return null;
   if (days < 0) return isOpenStudentItem(item) ? 'passed' : 'later';
   return days <= STUDENTS_DEADLINE_SOON_DAYS ? 'soon' : 'later';
@@ -326,11 +348,15 @@ export function deadlineDistance(days: number): string {
  * that is close or past first (soonest first), then the most recently seen;
  * closed ones by most recently seen.
  */
-export function sortStudentItems(items: readonly StudentItem[], now: Date): StudentItem[] {
+export function sortStudentItems(
+  items: readonly StudentItem[],
+  now: Date,
+  timeZone: string,
+): StudentItem[] {
   const urgency = (item: StudentItem) => {
-    const state = deadlineState(item, now);
+    const state = deadlineState(item, now, timeZone);
     return isOpenStudentItem(item) && (state === 'soon' || state === 'passed')
-      ? (daysUntilDeadline(item, now) ?? 0)
+      ? (daysUntilDeadline(item, now, timeZone) ?? 0)
       : Number.POSITIVE_INFINITY;
   };
   return [...items].sort(

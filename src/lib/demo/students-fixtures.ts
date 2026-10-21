@@ -6,6 +6,7 @@ import {
   type StudentItemInput,
   type StudentsSnapshot,
 } from '@/lib/portfolio/students';
+import { addDaysToKey, DEFAULT_TIMEZONE, localDateKey } from '@/lib/util/time';
 import { DEMO_USER } from './fixtures';
 
 /**
@@ -26,9 +27,11 @@ const ago = (now: Date, days: number, hour = 15) => {
   return d.toISOString();
 };
 
-/** A bare day, as the routine writes a deadline. */
-const dayIn = (now: Date, days: number) =>
-  new Date(now.getTime() + days * 86_400_000).toISOString().slice(0, 10);
+/**
+ * A bare day, as the routine writes a deadline: `days` after today in the
+ * demo user's timezone, so the tab counts the same days at any hour.
+ */
+const dayIn = (now: Date, days: number) => addDaysToKey(localDateKey(now, DEFAULT_TIMEZONE), days);
 
 export function demoStudents(now: Date): StudentsSnapshot {
   const item = (fields: Omit<StudentItemInput, 'id'>): StudentItem => ({

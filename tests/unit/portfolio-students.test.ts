@@ -4,6 +4,7 @@ vi.mock('server-only', () => ({}));
 
 import {
   STUDENT_KINDS,
+  daysUntilDeadline,
   dedupeStudentItems,
   deadlineDistance,
   deadlineState,
@@ -13,6 +14,7 @@ import {
   sortStudentItems,
   sourceEmailId,
   studentFilterParams,
+  studentSourceKey,
   studentsFreshness,
   type StudentItem,
 } from '@/lib/portfolio/students';
@@ -32,6 +34,8 @@ const msg = (text: string, ts: string, extra: Record<string, unknown> = {}) => (
 
 const RUN = '2026-10-19T13:00:00.000Z';
 const NOW = new Date('2026-10-21T12:00:00Z');
+const CHICAGO = 'America/Chicago';
+const SINGAPORE = 'Asia/Singapore';
 
 const ITEM = {
   kind: 'mentoring',
@@ -133,6 +137,32 @@ describe('parseStudentsMessage', () => {
     });
     expect(read.sources.map((s) => s.subject)).toEqual(['Message id only']);
     expect(sourceEmailId(read.sources[0]!)).toBe('1a0000000000cccc');
+  });
+
+  it('keeps an email sent with no subject, and one email listed twice once', () => {
+    const read = item({
+      sources: [
+        { thread_id: '1a0000000000eeee', message_id: '1a0000000000eeef', date: '2026-10-15' },
+        {
+          thread_id: '1a0000000000eeee',
+          message_id: '1a0000000000eeef',
+          date: '2026-10-15',
+          subject: 'Again',
+        },
+        {
+          thread_id: '1a0000000000eeee',
+          message_id: '1a0000000000eef0',
+          date: '2026-10-15',
+          subject: '  ',
+        },
+      ],
+    });
+    expect(read.sources.map((s) => [s.message_id, s.subject])).toEqual([
+      ['1a0000000000eeef', '(no subject)'],
+      ['1a0000000000eef0', '(no subject)'],
+    ]);
+    // Two emails of one thread on one day still tell apart.
+    expect(new Set(read.sources.map(studentSourceKey)).size).toBe(2);
   });
 
   it('cuts an over-long ask short, and reads a bad deadline as none', () => {
@@ -249,12 +279,14 @@ describe('filters', () => {
 
 describe('deadlines, order and freshness', () => {
   it('reads a deadline as soon within 14 days, past only while open', () => {
-    expect(deadlineState(item({ deadline: '2026-10-21' }), NOW)).toBe('soon');
-    expect(deadlineState(item({ deadline: '2026-11-04' }), NOW)).toBe('soon');
-    expect(deadlineState(item({ deadline: '2026-11-05' }), NOW)).toBe('later');
-    expect(deadlineState(item({ deadline: '2026-10-20' }), NOW)).toBe('passed');
-    expect(deadlineState(item({ deadline: '2026-10-20', status: 'done' }), NOW)).toBe('later');
-    expect(deadlineState(item(), NOW)).toBeNull();
+    expect(deadlineState(item({ deadline: '2026-10-21' }), NOW, CHICAGO)).toBe('soon');
+    expect(deadlineState(item({ deadline: '2026-11-04' }), NOW, CHICAGO)).toBe('soon');
+    expect(deadlineState(item({ deadline: '2026-11-05' }), NOW, CHICAGO)).toBe('later');
+    expect(deadlineState(item({ deadline: '2026-10-20' }), NOW, CHICAGO)).toBe('passed');
+    expect(deadlineState(item({ deadline: '2026-10-20', status: 'done' }), NOW, CHICAGO)).toBe(
+      'later',
+    );
+    expect(deadlineState(item(), NOW, CHICAGO)).toBeNull();
     expect([0, 1, -1, 9, -3].map(deadlineDistance)).toEqual([
       'today',
       'tomorrow',
@@ -262,6 +294,37 @@ describe('deadlines, order and freshness', () => {
       'in 9 days',
       '3 days ago',
     ]);
+  });
+
+  it('counts calendar days where the viewer is, at any hour of the day', () => {
+    const due = item({ deadline: '2026-10-30' });
+    // Oct 21 in Austin: from just after midnight (05:30 UTC) to late evening (04:30 UTC next day).
+    for (const at of [
+      '2026-10-21T05:30:00Z',
+      '2026-10-21T11:00:00Z',
+      '2026-10-21T18:00:00Z',
+      '2026-10-22T04:30:00Z',
+    ]) {
+      expect(daysUntilDeadline(due, new Date(at), CHICAGO), at).toBe(9);
+    }
+    // Oct 21 in Singapore (UTC+8): 16:30 UTC the day before to 15:00 UTC.
+    for (const at of ['2026-10-20T16:30:00Z', '2026-10-21T01:00:00Z', '2026-10-21T15:00:00Z']) {
+      expect(daysUntilDeadline(due, new Date(at), SINGAPORE), at).toBe(9);
+    }
+    // The day itself is "today" all day long, in either place, and "yesterday" after midnight.
+    expect(daysUntilDeadline(due, new Date('2026-10-30T06:00:00Z'), CHICAGO)).toBe(0);
+    expect(daysUntilDeadline(due, new Date('2026-10-31T04:00:00Z'), CHICAGO)).toBe(0);
+    expect(daysUntilDeadline(due, new Date('2026-10-31T06:00:00Z'), CHICAGO)).toBe(-1);
+    expect(daysUntilDeadline(due, new Date('2026-10-30T15:30:00Z'), SINGAPORE)).toBe(0);
+    expect(daysUntilDeadline(due, new Date('2026-10-30T16:30:00Z'), SINGAPORE)).toBe(-1);
+    // Fourteen days out is still soon early in the morning; fifteen is not, late at night.
+    const fortnight = item({ deadline: '2026-11-04' });
+    expect(deadlineState(fortnight, new Date('2026-10-21T05:30:00Z'), CHICAGO)).toBe('soon');
+    const fifteen = item({ deadline: '2026-11-05' });
+    expect(deadlineState(fifteen, new Date('2026-10-22T04:30:00Z'), CHICAGO)).toBe('later');
+    // A deadline written as a local time keeps its own day.
+    const evening = item({ deadline: '2026-10-30T23:59:00-05:00' });
+    expect(daysUntilDeadline(evening, new Date('2026-10-21T18:00:00Z'), CHICAGO)).toBe(9);
   });
 
   it('puts open before closed, a close deadline first, then the most recently seen', () => {
@@ -273,6 +336,7 @@ describe('deadlines, order and freshness', () => {
         item({ person: 'Far Example', last_seen: '2026-10-18', deadline: '2027-03-01' }),
       ],
       NOW,
+      CHICAGO,
     );
     expect(sorted.map((i) => i.person)).toEqual([
       'Deadline Example',
@@ -305,10 +369,18 @@ describe('the demo snapshot', () => {
     const mentoring = snapshot.items.find((i) => i.kind === 'mentoring')!;
     expect(mentoring.next_owner).toBe('arwin');
     const program = snapshot.items.find((i) => i.kind === 'program' && i.deadline)!;
-    expect(deadlineState(program, NOW)).toBe('soon');
+    expect(deadlineState(program, NOW, CHICAGO)).toBe('soon');
     const interns = snapshot.items.filter((i) => i.kind === 'intern_request');
     expect(interns.map((i) => i.status).sort()).toEqual(['new', 'replied']);
     expect(studentsFreshness(snapshot.runAt, NOW).stale).toBe(false);
+  });
+
+  it("puts the program's deadline nine days out in the demo's timezone, at any hour", () => {
+    for (let hour = 0; hour < 24; hour += 1) {
+      const at = new Date(Date.UTC(2026, 9, 21, hour, 30));
+      const program = demoStudents(at).items.find((i) => i.kind === 'program' && i.deadline)!;
+      expect(daysUntilDeadline(program, at, CHICAGO), at.toISOString()).toBe(9);
+    }
   });
 
   it('has ids that match the rule, and an email behind every source', () => {
