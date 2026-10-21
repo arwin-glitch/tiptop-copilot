@@ -2,10 +2,12 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { CheckCircle2, CircleAlert, CircleDashed, FlaskConical } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
+import { isDateKey } from '@/lib/calendar/grid';
+import { checkCalendarParity, PARITY_MAX_DAYS } from '@/lib/calendar/parity';
 import { capabilityReport, envLimits, type CapabilityStatus } from '@/lib/config/env';
 import { DIAGNOSTICS_TABS, resolvePageTab } from '@/lib/records-tabs';
 import { getAI, getResearchProvider, getStore } from '@/lib/runtime';
-import { getUsageWindow } from '@/lib/security/limits';
+import { getUsageWindow, rateLimit } from '@/lib/security/limits';
 import { listDesktopDevices } from '@/lib/services/desktop-alerts';
 import { feedNoticesOn, readFeedHealth } from '@/lib/services/feed-health';
 import { taskCloserRuntime } from '@/lib/services/task-relay';
@@ -16,6 +18,8 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ErrorState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
+import { ParityForm, ParityResult } from '@/components/calendar/parity-report';
+import { localDateKey } from '@/lib/util/time';
 import { TOOL_NAMES } from '@/lib/ai/tools/registry';
 import { PROMPT_VERSIONS } from '@/lib/ai/prompts';
 
@@ -34,7 +38,8 @@ export default async function DiagnosticsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const tab = resolvePageTab(DIAGNOSTICS_TABS, await searchParams);
+  const params = await searchParams;
+  const tab = resolvePageTab(DIAGNOSTICS_TABS, params);
   return (
     <PageShell>
       <PageHeader
@@ -52,6 +57,11 @@ export default async function DiagnosticsPage({
         <Suspense fallback={<SkeletonText lines={10} />}>
           <FeedsTab />
         </Suspense>
+      ) : tab === 'parity' ? (
+        <ParityTab
+          from={typeof params.from === 'string' ? params.from : null}
+          days={typeof params.days === 'string' ? params.days : null}
+        />
       ) : (
         <SetupTab />
       )}
@@ -92,6 +102,58 @@ async function FeedsTab() {
       )}
     </div>
   );
+}
+
+/**
+ * The calendar parity check: the day list's read and the new views' read of
+ * the main calendar, compared day by day. It only reads; it is here, signed
+ * in, so it can run on the real calendar before the new views become the
+ * default.
+ */
+async function ParityTab({ from, days }: { from: string | null; days: string | null }) {
+  const auth = await requireAuth();
+  const tz = auth.profile.timezone;
+  const start = isDateKey(from) ? from : localDateKey(new Date(), tz);
+  const count = Math.max(1, Math.min(PARITY_MAX_DAYS, Number.parseInt(days ?? '7', 10) || 7));
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div>
+            <CardTitle as="h2">Calendar parity</CardTitle>
+            <p className="mt-1 text-sm text-[var(--fg-muted)]">
+              The new calendar views stay behind their switch until they show the same events as the
+              day list. This reads both for the main calendar, day by day, and lists every event one
+              shows and the other does not, and every changed title, time or meeting/block verdict.
+              It only reads: nothing is changed and nobody is emailed.
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ParityForm from={start} days={count} />
+        </CardContent>
+      </Card>
+      <Suspense key={`${start}|${count}`} fallback={<SkeletonText lines={6} />}>
+        <ParityRun from={start} days={count} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function ParityRun({ from, days }: { from: string; days: number }) {
+  const auth = await requireAuth();
+  // Each run is up to one Google read per day: a few runs a minute is plenty.
+  const limited = rateLimit(`calendar-parity:${auth.userId}`, 6, 60_000);
+  if (!limited.ok) {
+    return <Notice tone="warn">That is a lot of checks in a minute. Try again shortly.</Notice>;
+  }
+  const report = await checkCalendarParity(getStore(), auth.organizationId, {
+    from,
+    days,
+    timeZone: auth.profile.timezone,
+    ownEmail: auth.profile.email,
+  });
+  return <ParityResult report={report} />;
 }
 
 async function SetupTab() {

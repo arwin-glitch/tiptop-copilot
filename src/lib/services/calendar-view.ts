@@ -150,14 +150,29 @@ async function recentThreads(
   return threads;
 }
 
-export async function readCalendarDay(
+/** A day's events as the day list reads them, before any context is added. */
+export interface CalendarDayEvents {
+  state: 'ok' | 'not_connected' | 'error';
+  message?: string;
+  events: MeetingEvent[];
+  /** The addresses that are Nick, for classifyMeeting. */
+  own: string[];
+  integration: Integration | null;
+}
+
+/**
+ * The day list's own read of one day: the synced rows in demo mode, else one
+ * primary-calendar read for the day window. Split out of readCalendarDay
+ * unchanged, so the parity check (lib/calendar/parity.ts) compares the new
+ * views against exactly what this page shows, without its Gmail lookups.
+ */
+export async function readCalendarDayEvents(
   store: DataStore,
   organizationId: string,
-  options: { dateKey: string; timeZone: string; ownEmail: string; now?: Date },
-): Promise<CalendarDay> {
+  options: { dateKey: string; timeZone: string; ownEmail: string },
+): Promise<CalendarDayEvents> {
   const { dateKey, timeZone } = options;
   const window = dayWindow(dateKey, timeZone);
-  const now = options.now ?? new Date();
 
   let events: MeetingEvent[];
   let integration: Integration | null = null;
@@ -173,13 +188,32 @@ export async function readCalendarDay(
   } else {
     integration = await getPrimaryIntegration(store, organizationId).catch(() => null);
     if (!integration || integration.status === 'disconnected') {
-      return { state: 'not_connected', dateKey, entries: [] };
+      return { state: 'not_connected', events: [], own, integration: null };
     }
     own = [integration.account_email ?? options.ownEmail].filter(Boolean);
     const listed = await listMeetingEvents(store, integration, window.start, window.end);
-    if (!listed.ok) return { state: 'error', dateKey, entries: [], message: listed.error.message };
+    if (!listed.ok) {
+      return { state: 'error', message: listed.error.message, events: [], own, integration };
+    }
     events = listed.value;
   }
+  return { state: 'ok', events, own, integration };
+}
+
+export async function readCalendarDay(
+  store: DataStore,
+  organizationId: string,
+  options: { dateKey: string; timeZone: string; ownEmail: string; now?: Date },
+): Promise<CalendarDay> {
+  const { dateKey, timeZone } = options;
+  const now = options.now ?? new Date();
+
+  const read = await readCalendarDayEvents(store, organizationId, options);
+  if (read.state === 'not_connected') return { state: 'not_connected', dateKey, entries: [] };
+  if (read.state === 'error') {
+    return { state: 'error', dateKey, entries: [], message: read.message };
+  }
+  const { events, integration, own } = read;
 
   // Context sources: today's dossier, and the week-ahead routine's prep notes.
   const [dossierRow, followUps] = await Promise.all([

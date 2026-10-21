@@ -467,11 +467,24 @@ export const HELP_PAGES: readonly HelpPage[] = [
         placement: 'bottom',
       },
       {
+        // The preview switch on the day list; the views bar on the new calendar.
+        target: 'calendar-views',
+        title: 'Day, week or month',
+        body: 'The new calendar switch opens Day, Week and Month: step back or ahead, jump anywhere, Today brings you back.',
+        placement: 'bottom',
+      },
+      {
         target: 'calendar-entries',
         title: 'Meetings and blocks',
-        body: 'Each entry says meeting or block, and why. Meetings ping your phone 5 minutes before.',
+        body: 'Each entry says meeting or block, and why. Meetings ping 5 minutes before. New calendar: click one for its options.',
         placement: 'top',
         grand: true,
+      },
+      {
+        target: 'calendar-list',
+        title: 'Your Google calendars',
+        body: 'Turn each calendar on or off. Names and colors come straight from Google Calendar.',
+        placement: 'right',
       },
     ],
     sketch: [
@@ -480,11 +493,13 @@ export const HELP_PAGES: readonly HelpPage[] = [
       { x: 4, y: 3.8, w: 2.6, h: 1, tone: 'chip' },
       { x: 7, y: 3.8, w: 2.6, h: 1, tone: 'chip' },
       { x: 10, y: 3.8, w: 2.6, h: 1, tone: 'chip' },
+      { x: 17, y: 3.8, w: 6, h: 1, tone: 'tabs', pin: 'calendar-views' },
       { x: 1, y: 5.8, w: 9, h: 0.6, tone: 'line', pin: 'calendar-summary' },
-      { x: 1, y: 8, w: 22, h: 2.2, tone: 'card', pin: 'calendar-entries' },
-      { x: 1, y: 10.6, w: 22, h: 2.2, tone: 'card' },
-      { x: 1, y: 13.2, w: 22, h: 2.2, tone: 'card' },
-      { x: 2.4, y: 8.7, w: 2, h: 0.7, tone: 'gold' },
+      { x: 1, y: 8, w: 4.2, h: 7.4, tone: 'pane', pin: 'calendar-list' },
+      { x: 5.8, y: 8, w: 17.2, h: 2.2, tone: 'card', pin: 'calendar-entries' },
+      { x: 5.8, y: 10.6, w: 17.2, h: 2.2, tone: 'card' },
+      { x: 5.8, y: 13.2, w: 17.2, h: 2.2, tone: 'card' },
+      { x: 7.2, y: 8.7, w: 2, h: 0.7, tone: 'gold' },
     ],
   },
   {

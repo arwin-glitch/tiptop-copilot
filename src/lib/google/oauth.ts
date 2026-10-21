@@ -6,7 +6,7 @@ import type { DataStore } from '@/lib/db/store';
 import type { EncryptedProviderToken, Integration } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
 import { newId } from '@/lib/util/hash';
-import { SEND_SCOPES } from './send-scopes';
+import { CALENDAR_EDIT_SCOPES, SEND_SCOPES } from './send-scopes';
 
 /**
  * Google OAuth 2.0 authorization-code flow with encrypted refresh-token
@@ -16,6 +16,9 @@ import { SEND_SCOPES } from './send-scopes';
  * separate opt-in (`{ send: true }`), started from Settings by the mailbox
  * owner, which adds the scope in send-scopes.ts on top of these. The only code
  * that uses it is the email session's Send button; see gmail-send.ts.
+ * Calendar editing is another (`{ calendar: true }`), started from Settings
+ * or the Calendar tab, which adds the event-editing scope; only the Calendar
+ * tab's edit routes use it (lib/calendar/write.ts).
  */
 
 export const GOOGLE_SCOPES = [
@@ -44,7 +47,7 @@ export function googleConfigured(): boolean {
 
 export function buildAuthorizationUrl(
   state: string,
-  options: { send?: boolean } = {},
+  options: { send?: boolean; calendar?: boolean } = {},
 ): Result<string> {
   const e = env();
   if (!googleConfigured()) {
@@ -54,7 +57,11 @@ export function buildAuthorizationUrl(
     client_id: e.googleClientId!,
     redirect_uri: e.googleRedirectUri,
     response_type: 'code',
-    scope: [...REQUESTED_SCOPES, ...(options.send ? SEND_SCOPES : [])].join(' '),
+    scope: [
+      ...REQUESTED_SCOPES,
+      ...(options.send ? SEND_SCOPES : []),
+      ...(options.calendar ? CALENDAR_EDIT_SCOPES : []),
+    ].join(' '),
     access_type: 'offline',
     // Forces a refresh token even when the user has consented before.
     prompt: 'consent',

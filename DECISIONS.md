@@ -1862,3 +1862,137 @@ or a portfolio company already.
   routine; until then it is flagged, and the row says no address was found.
 - The rules read English titles and will miss some deliverables; a miss
   only means no check, which is how every task worked before.
+
+### D-066 — Calendar: Day, Week and Month views behind a switch, editing behind its own grant
+
+**Context.** The Calendar tab showed one day at a time, seven days ahead, and
+could change nothing. Arwin asked for Google Calendar's way of working (any
+date, Day/Week/Month, Today, back and forward, drag to create, overlaps side
+by side, edit, move and delete with guests, a Meet link) while keeping the
+Meeting/Block verdict and the meeting context, with Google's own colours and
+names, and with two rules: what the page reads must not change until a check
+on real data says the new reader shows the same events, and nothing may touch
+the real calendar or email anyone while it is built.
+
+**Decision.**
+
+- **Behind a switch.** The day list stays the default. "New calendar
+  (preview)" opens the new views (`?view=day|week|month&date=`) and is
+  remembered per person, with the view and the calendar toggles, as a
+  `calendar.prefs_set` audit row (newest wins, no migration). `?view=list`
+  or an old `?day=` link is the day list.
+- **A parity check before it can be the default.** Diagnostics › Event parity
+  reads each day exactly as the day list does (`readCalendarDayEvents`, split
+  out of `readCalendarDay` unchanged and pinned by a test) and the same range
+  through the new reader, for the main calendar, and lists every missing,
+  extra or changed event (title, start, end, all-day, verdict). Read-only.
+- **One reader for the views** (`lib/calendar/range-reader.ts`): one
+  events.list per visible calendar per range, all pages, single events, the
+  calendar list and Google's colours cached for minutes and a range for a
+  minute. Each event gets `classifyMeeting(toMeetingEvent(...))`, the pings'
+  own verdict; holds stay blocks, tagged Hold. `listMeetingEvents` and the
+  pings are untouched and pinned.
+- **Google's colours and names.** An event's colour is its colorId's in
+  Google's event palette, else its calendar's; a calendar's name is the
+  person's own name for it, else Google's. Every calendar on the list (not
+  Google's hidden ones), main first, starting from Google's own ticks.
+- **Editing is its own opt-in.** "Turn on calendar editing" asks for
+  `calendar.events` (event-level only, never the full calendar scope), named
+  in `send-scopes.ts` beside `gmail.modify`, through the same
+  include-granted-scopes flow as sending. Without it the views are read-only
+  and say how to turn it on. `lib/calendar/write.ts` refuses unless the grant
+  is there, the calendar is owner/writer, and the event is this account's or
+  its organizer lets guests change it. Only the edit route imports it (a test).
+- **Guests are asked every time.** Google's question ("Send … emails to
+  guests?", Send / Don't send / Cancel) comes up for every change that
+  involves guests: new guests, any change to an event with guests (a drag
+  too), a delete. Every request names `notify`; only `send` becomes
+  sendUpdates `all`. Nothing defaults to sending.
+- **Recurring events** offer "This event" and "All events". "This and
+  following" is left to Google Calendar: splitting a series correctly
+  (its rule, counts, exceptions) is easy to get wrong on a real calendar.
+  A Meet link can be added but not removed here; one instance of a series
+  cannot move to another calendar (Google does not allow it either).
+  "All events" gives the series the event's new time of day and length, on
+  the series' own first date in its own time zone (so a daylight-saving
+  change between them cannot shift it an hour). Moving a whole series to
+  another day, or between all-day and timed, is refused and left to Google
+  Calendar: it needs the repeat rule rewritten (its weekday, its day of the
+  month), and moving only the first date leaves the two out of step. A guest
+  edit for "All events" adds and removes only the people changed on that
+  event (the ones the guests prompt named). A write naming a series by its
+  own id is refused, so "This event" can never reach the whole series.
+- **Demo and tests use a mock calendar** (`lib/calendar/mock-calendar.ts`):
+  fictional calendars and events in memory that answer like Google and
+  record every write with its sendUpdates and conference data.
+
+**Known limits.**
+
+- Google's API returns its classic palette; Google Calendar's web app can
+  draw the same colorId in its newer "modern" shade.
+- Weeks start on Sunday (Google's US default), not the account's own setting.
+- The parity check in demo mode compares the demo's synced rows with the mock
+  calendar, so it only proves the plumbing; the real proof is running it
+  against Nick's calendar.
+
+### D-067 — Calendar: Google's event card on every event, and Google's layout where it is better
+
+**Context.** Arwin: "make sure we can click on the block and have the same
+options as google calendar". A click on an event opened a side drawer with
+Edit and Delete only. The UX review also left three places where Google's
+layout is better: titles cut to one line in narrow columns, the quick editor
+as a centred dialog over the slot just dragged, and no way to drag out an
+event over several days.
+
+**Decision.**
+
+- **The card.** A click on any event (meeting or block) in Day, Week or Month
+  opens Google's event card beside it, on whichever side has room (a Radix
+  popover on a virtual anchor), never a centred dialog; a phone gets a sheet
+  from the bottom. Esc or a press outside closes it, and that press does
+  nothing else (it does not also start a new event), as in Google. It shows
+  what Google shows (title, time and zone, the repeat rule read from the
+  series, the calendar, the guests with their answers counted, the organizer,
+  the description as plain words with its http/https/mailto links clickable,
+  attachments as links) plus Copilot's Meeting/Block verdict, the Hold tag,
+  "Pings 5 min before" and the day list's context box.
+- **Its options** (`lib/calendar/event-actions.ts`, shared by the page and the
+  write module): Edit, Delete (the plain confirm, or the cancellations question
+  with guests), Duplicate (the full editor prefilled as a new event on the same
+  calendar; saving asks the invitations question when it has guests), Google's
+  event colours on the card, Email guests (Copilot's compose window, prefilled;
+  only its own Send sends, Copy for Gmail without the grant), Join with Google
+  Meet and Copy Meet link, the place as a Maps link, and Open in Google
+  Calendar for the rest. Without calendar editing, or on a view-only calendar,
+  only what writes nothing is offered.
+- **Going? Yes / No / Maybe** on an event Nick is a guest on (not its
+  organizer) patches his own attendee entry's responseStatus and nothing else,
+  in Google's answer-only form (his entry alone, with `attendeesOmitted`), so
+  no answer can rewrite anyone else on the guest list, even where guests may
+  change the event. Google emails the organizer, so the card asks "Send your
+  response to the organizer?" (Send / Don't send / Cancel) every time; only
+  Send becomes sendUpdates `all`, and Cancel or Esc writes nothing.
+- **A colour is the viewer's own.** A colour change sends colorId alone with
+  sendUpdates `none` and is never asked about, from the card or from the
+  editor (a colour-only edit skips the guests question, and the server forces
+  `none` for it whatever was answered). Nick may colour an event he can change,
+  or his own copy of an invitation, as Google allows. A repeating event asks
+  "This event / All events" first (which events, not whether to email).
+- **One route.** The card's writes go through the same edit route as every
+  other change (PATCH with `kind: 'respond'` or `kind: 'color'`; the colour
+  body has no `notify` at all), so lib/calendar/write.ts stays the only way
+  in. The repeat rule is read by a new read-only route (`/api/calendar/series`,
+  one events.get when a card for a series opens).
+- **Google's layout.** Titles wrap over as many lines as an event's height
+  allows, with the time below when there is room. The quick editor opens
+  beside the slot just clicked or dragged, which stays drawn as "(No title)"
+  until it is saved or closed, with More options to the full editor; a phone
+  keeps a bottom sheet. A drag across empty days makes one all-day event over
+  all of them, in Month (across weeks too) and in Week's all-day row.
+
+**Still only in Google Calendar** (Open in Google Calendar on every card):
+print, publish, change owner, find a time, "This and following events",
+removing a Meet link, a guest's note with the answer, proposing a new time,
+removing an invitation from the calendar without answering, Duplicate of a
+whole series (the copy is one event), notifications per event, and the
+"modern" colour shades.

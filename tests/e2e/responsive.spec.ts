@@ -81,11 +81,16 @@ const PAGES = [
   // Diagnostics, and its feeds with their long schedule lines.
   '/diagnostics',
   '/diagnostics?tab=feeds',
-  // Rows whose email links offer Copilot and Gmail side by side.
+  // Rows whose email links offer Copilot and Gmail side by side (the
+  // calendar's day list among them), and the new calendar views by address.
   '/calendar',
   '/portfolio?tab=requests',
   '/portfolio?tab=numbers',
   '/network?tab=cold',
+  '/calendar?view=day',
+  '/calendar?view=week',
+  '/calendar?view=month',
+  '/diagnostics?tab=parity',
 ];
 
 /** No sideways scroll beyond a few pixels of rounding. */

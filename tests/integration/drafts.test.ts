@@ -212,7 +212,7 @@ describe('nothing sends on its own', () => {
     }
   });
 
-  it('names a write scope in exactly one file, and only gmail.modify', async () => {
+  it('names a write scope in exactly one file: gmail.modify and calendar.events, nothing else', async () => {
     // Matched as a scope URL, so a deep link to the Gmail UI does not trip it.
     const WRITE_SCOPE =
       /auth\/(gmail\.(send|compose|modify|insert)|calendar(\.events)?(?!\.readonly))|['"]https:\/\/mail\.google\.com\/['"]/;
@@ -224,8 +224,15 @@ describe('nothing sends on its own', () => {
         offenders.push(path.relative(SRC, file).split(path.sep).join('/'));
     }
     expect(offenders).toEqual(['lib/google/send-scopes.ts']);
-    const { SEND_SCOPES } = await import('@/lib/google/send-scopes');
-    expect([...SEND_SCOPES]).toEqual(['https://www.googleapis.com/auth/gmail.modify']);
+    const scopes = await import('@/lib/google/send-scopes');
+    expect([...scopes.SEND_SCOPES]).toEqual(['https://www.googleapis.com/auth/gmail.modify']);
+    // Event-level calendar writes, asked for only by "Turn on calendar
+    // editing". Never the full calendar scope, which can share and delete
+    // whole calendars.
+    expect([...scopes.CALENDAR_EDIT_SCOPES]).toEqual([
+      'https://www.googleapis.com/auth/calendar.events',
+    ]);
+    expect(Object.keys(scopes).sort()).toEqual(['CALENDAR_EDIT_SCOPES', 'SEND_SCOPES']);
   });
 
   it('only the email session, the Inbox tab and Settings can reach the send module', async () => {
@@ -334,10 +341,19 @@ describe('nothing sends on its own', () => {
     const { buildAuthorizationUrl } = await import('@/lib/google/oauth');
     const plain = buildAuthorizationUrl('state');
     const optIn = buildAuthorizationUrl('state', { send: true });
-    expect(plain.ok && optIn.ok).toBe(true);
-    if (plain.ok && optIn.ok) {
+    const calendar = buildAuthorizationUrl('state', { calendar: true });
+    expect(plain.ok && optIn.ok && calendar.ok).toBe(true);
+    if (plain.ok && optIn.ok && calendar.ok) {
       expect(decodeURIComponent(plain.value)).not.toContain('gmail.modify');
+      expect(decodeURIComponent(plain.value)).not.toContain('calendar.events');
       expect(decodeURIComponent(optIn.value)).toContain('gmail.modify');
+      expect(decodeURIComponent(optIn.value)).not.toContain('calendar.events');
+      // Calendar editing asks for event writes alone, on top of the read scopes.
+      const scope = new URL(calendar.value).searchParams.get('scope')!.split(' ');
+      expect(scope).toContain('https://www.googleapis.com/auth/calendar.events');
+      expect(scope).toContain('https://www.googleapis.com/auth/calendar.readonly');
+      expect(scope).not.toContain('https://www.googleapis.com/auth/gmail.modify');
+      expect(new URL(calendar.value).searchParams.get('include_granted_scopes')).toBe('true');
     }
   });
 

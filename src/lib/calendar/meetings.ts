@@ -152,7 +152,7 @@ const WITH_SOMEONE =
 const PERSONAL_TITLE =
   /\b(mari|date night|anniversary|birthday|bday|family|kids?|baby|wife|husband|nanny|daycare|pediatrician)\b/i;
 
-const HOLD_TITLE = /^\s*(hold|tentative|placeholder|tbd|pencil(led)?)\b/i;
+export const HOLD_TITLE = /^\s*(hold|tentative|placeholder|tbd|pencil(led)?)\b/i;
 
 export interface MeetingVerdict {
   meeting: boolean;
