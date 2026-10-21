@@ -17,6 +17,7 @@ import {
   Search,
   Send,
   Star,
+  Tag,
   Undo2,
   X,
 } from 'lucide-react';
@@ -25,8 +26,19 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/form';
 import { swapSignOff } from '@/components/followups/email-session-client';
 import { Composer, type ComposeDraft } from '@/components/inbox/composer';
+import { LabelMenu } from '@/components/inbox/label-menu';
 import { MessageItem, longTime } from '@/components/inbox/message-view';
 import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
+import {
+  applyLabelPlan,
+  applyPending,
+  labelNamesFor,
+  PENDING_MS,
+  planLabelChange,
+  type LabelChange,
+  type MailLabel,
+  type PendingChange,
+} from '@/lib/email/inbox-actions';
 import { cn } from '@/lib/util/cn';
 import { formatDate, formatMonthDay, formatTime, localDateKey } from '@/lib/util/time';
 import type {
@@ -51,7 +63,18 @@ const TABS: { id: InboxTab; label: string }[] = [
 ];
 
 const UNDO_SECONDS = 8;
-const REFRESH_MS = 2 * 60_000;
+/**
+ * The first page is read again this often while the tab is in view, so a
+ * change made in Gmail itself shows soon. One thread-list read each time;
+ * a thread is read again only when Gmail says it changed (inbox-live.ts).
+ */
+const REFRESH_MS = 45_000;
+/** Back in view after this long, the list is read again at once. */
+const STALE_ON_RETURN_MS = 20_000;
+/** A quiet re-read this long after the last tap, once Gmail has caught up. */
+const SETTLE_MS = 4_000;
+
+const viewKey = (v: { tab: InboxTab; q: string }) => `${v.tab}|${v.q}`;
 
 const gmailUrl = (id: string, mailbox: string | null) =>
   mailbox
@@ -107,21 +130,48 @@ export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; time
   const [checked, setChecked] = React.useState<Set<string>>(new Set());
   const [replyOpen, setReplyOpen] = React.useState(false);
   const [compose, setCompose] = React.useState<{ title: string; draft: ComposeDraft } | null>(null);
+  /**
+   * Which Label menu the l key opened: the open thread's or the selection's,
+   * keyed by what it is for, so a menu never reopens on its own for a later
+   * thread or selection.
+   */
+  const [labelMenu, setLabelMenu] = React.useState<string | null>(null);
+  /** Older pages are on screen: a quiet re-read of the first page would drop them. */
+  const [extraPages, setExtraPages] = React.useState(false);
   const searchRef = React.useRef<HTMLInputElement>(null);
-  const { canAct, mailbox } = list;
+  /** Changes made here, laid over each list Gmail answers until it has caught up. */
+  const pending = React.useRef(new Map<string, PendingChange<LiveThreadRow>>());
+  const lastLoad = React.useRef(0);
+  const settleTimer = React.useRef<number | null>(null);
+  const view = React.useRef({ tab, q: searched });
+  React.useEffect(() => {
+    view.current = { tab, q: searched };
+  }, [tab, searched]);
+  // The first page came with the page itself: a quick tab switch is not stale.
+  React.useEffect(() => {
+    lastLoad.current = Date.now();
+  }, []);
+  const { canAct, canLabel, mailbox, labelChoices } = list;
 
   const load = React.useCallback(
     async (next: { tab: InboxTab; q: string }, opts: { quiet?: boolean } = {}) => {
       if (!opts.quiet) setLoading(true);
+      lastLoad.current = Date.now();
       try {
         const params = new URLSearchParams({ tab: next.tab, q: next.q });
         const res = await fetch(`/api/inbox/threads?${params.toString()}`);
         if (!res.ok) throw new Error(await errorMessage(res, 'Could not load your inbox.'));
         const data = (await res.json()) as LiveThreadList;
-        setList(data);
+        // A quiet re-read that lands after the person moved on is dropped.
+        if (opts.quiet && viewKey(view.current) !== viewKey(next)) return;
+        setList({
+          ...data,
+          rows: applyPending(data.rows, pending.current, viewKey(next), Date.now()),
+        });
         if (!opts.quiet) {
           setChecked(new Set());
           setSelectedId(null);
+          setExtraPages(false);
         }
       } catch (e) {
         if (!opts.quiet) toast.error((e as Error).message);
@@ -132,15 +182,62 @@ export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; time
     [],
   );
 
-  // Keep the first page fresh while the tab is open, like Gmail does.
+  const quietReload = React.useCallback(() => {
+    if (document.visibilityState !== 'visible' || extraPages) return;
+    void load(view.current, { quiet: true });
+  }, [load, extraPages]);
+
+  // Keep the first page fresh while the tab is in view, like Gmail does, and
+  // read it again on coming back to the tab after a while.
   React.useEffect(() => {
-    const t = window.setInterval(() => {
-      if (document.visibilityState === 'visible' && !list.nextPageToken) {
-        void load({ tab, q: searched }, { quiet: true });
+    const t = window.setInterval(quietReload, REFRESH_MS);
+    const onVisible = () => {
+      if (Date.now() - lastLoad.current >= STALE_ON_RETURN_MS) quietReload();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [quietReload]);
+
+  // After a tap, one quiet re-read once Gmail has settled; taps in a row share it.
+  const settle = React.useCallback(() => {
+    if (settleTimer.current) window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => {
+      settleTimer.current = null;
+      quietReload();
+    }, SETTLE_MS);
+  }, [quietReload]);
+  React.useEffect(
+    () => () => {
+      if (settleTimer.current) window.clearTimeout(settleTimer.current);
+    },
+    [],
+  );
+
+  /**
+   * Hold a change made here over the lists Gmail answers for a while.
+   * `removedFrom` left out keeps the view a thread left; null clears it (the
+   * thread is back in the inbox).
+   */
+  const hold = React.useCallback(
+    (ids: string[], patch: Partial<LiveThreadRow>, removedFrom?: string | null) => {
+      const until = Date.now() + PENDING_MS;
+      for (const id of ids) {
+        const prev = pending.current.get(id);
+        pending.current.set(id, {
+          patch: { ...prev?.patch, ...patch },
+          removedFrom: removedFrom === undefined ? prev?.removedFrom : (removedFrom ?? undefined),
+          until,
+        });
       }
-    }, REFRESH_MS);
-    return () => window.clearInterval(t);
-  }, [load, tab, searched, list.nextPageToken]);
+    },
+    [],
+  );
+  const release = React.useCallback((ids: string[]) => {
+    for (const id of ids) pending.current.delete(id);
+  }, []);
 
   const loadMore = async () => {
     if (!list.nextPageToken) return;
@@ -154,6 +251,7 @@ export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; time
         ...data,
         rows: [...cur.rows, ...data.rows.filter((r) => !cur.rows.some((c) => c.id === r.id))],
       }));
+      setExtraPages(true);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -191,30 +289,43 @@ export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; time
       }
       const before = list.rows;
       // Optimistic, then put it back if Gmail refuses.
+      const patch: Partial<LiveThreadRow> =
+        action === 'archive' || action === 'inbox'
+          ? { inInbox: action === 'inbox' }
+          : action === 'read' || action === 'unread'
+            ? { unread: action === 'unread' }
+            : { starred: action === 'star' };
       if (action === 'archive' && inInboxView) {
         setList((cur) => ({ ...cur, rows: cur.rows.filter((r) => !ids.includes(r.id)) }));
         if (selectedId && ids.includes(selectedId)) setSelectedId(null);
-      } else if (action === 'archive') patchRows(ids, { inInbox: false });
-      else if (action === 'inbox') patchRows(ids, { inInbox: true });
-      else if (action === 'read' || action === 'unread')
-        patchRows(ids, { unread: action === 'unread' });
-      else patchRows(ids, { starred: action === 'star' });
+        hold(ids, patch, viewKey(view.current));
+      } else {
+        patchRows(ids, patch);
+        // Moved back to the inbox: an archive held from before no longer hides it there.
+        hold(ids, patch, action === 'inbox' ? null : undefined);
+      }
       setChecked(new Set());
 
       const res = await postJson('/api/inbox/modify', { ids, action });
       if (!res.ok) {
+        release(ids);
         setList((cur) => ({ ...cur, rows: before }));
         toast.error(await errorMessage(res, 'Gmail did not take that. Try again.'));
         return false;
       }
+      settle();
       if (action === 'archive' && !opts.silent) {
         toast.success(ids.length === 1 ? 'Archived' : `${ids.length} archived`, {
           action: {
             label: 'Undo',
             onClick: () => {
               void postJson('/api/inbox/modify', { ids, action: 'inbox' }).then((r) => {
-                if (r.ok) setList((cur) => ({ ...cur, rows: before }));
-                else toast.error('Could not move it back. Find it in All Mail in Gmail.');
+                if (r.ok) {
+                  release(ids);
+                  hold(ids, { inInbox: true }, null);
+                  setList((cur) => ({ ...cur, rows: before }));
+                  settle();
+                } else toast.error('Could not move it back. Find it in All Mail in Gmail.');
               });
             },
           },
@@ -222,7 +333,60 @@ export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; time
       }
       return true;
     },
-    [canAct, inInboxView, list.rows, patchRows, selectedId],
+    [canAct, inInboxView, list.rows, patchRows, selectedId, hold, release, settle],
+  );
+
+  // Label as: the person's own Gmail labels. Drawn at once, held over the
+  // list until Gmail catches up, and put back if Gmail refuses.
+  const label = React.useCallback(
+    async (ids: string[], change: LabelChange) => {
+      if (!canLabel) {
+        toast.error('Labels need sending turned on. Change them in Gmail for now.');
+        return false;
+      }
+      const plan = planLabelChange(labelChoices, change);
+      if (!plan.ok) {
+        toast.error(plan.message);
+        return false;
+      }
+      const before = list.rows;
+      const relabel = (row: LiveThreadRow): Partial<LiveThreadRow> => {
+        const labelIds = applyLabelPlan(row.labelIds, plan);
+        return { labelIds, labels: labelNamesFor(labelIds, labelChoices).slice(0, 4) };
+      };
+      for (const row of before) if (ids.includes(row.id)) hold([row.id], relabel(row));
+      setList((cur) => ({
+        ...cur,
+        rows: cur.rows.map((r) => (ids.includes(r.id) ? { ...r, ...relabel(r) } : r)),
+      }));
+
+      // The route gets what was tapped, not the plan: it plans again against
+      // Gmail's own label list, and a numbered family's full removal list
+      // could pass the per-change cap the route holds a tap to.
+      const res = await postJson('/api/inbox/modify', {
+        ids,
+        action: 'label',
+        add: change.add,
+        remove: change.remove,
+      });
+      if (!res.ok) {
+        release(ids);
+        setList((cur) => ({ ...cur, rows: before }));
+        toast.error(await errorMessage(res, 'Gmail did not take that. Try again.'));
+        return false;
+      }
+      settle();
+      const [added] = labelNamesFor(plan.add, labelChoices);
+      const [removed] = labelNamesFor(plan.remove, labelChoices);
+      const moved = plan.remove.length > change.remove.length;
+      toast.success(
+        added
+          ? `${moved ? 'Moved to' : 'Labelled'} “${added}”`
+          : `Took off “${removed ?? 'the label'}”`,
+      );
+      return true;
+    },
+    [canLabel, labelChoices, list.rows, hold, release, settle],
   );
 
   const open = React.useCallback(
@@ -245,9 +409,11 @@ export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; time
   const rows = list.rows;
   const index = rows.findIndex((r) => r.id === selectedId);
   const selected = index >= 0 ? rows[index]! : null;
+  const paneMenu = selected ? `pane:${selected.id}` : null;
+  const bulkMenu = checked.size ? `bulk:${[...checked].sort().join(',')}` : null;
 
   // Gmail's keys: j/k move, o/Enter open, e archive, s star, Shift+U unread,
-  // r reply, u back to the list, / search, x select. Never while something is
+  // r reply, l label, u back, / search, x select. Never while something is
   // drawn over the list (the Ask Arwin panel, a tour card, a dialog): a key
   // meant for that must not archive or open the thread underneath.
   React.useEffect(() => {
@@ -287,6 +453,12 @@ export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; time
             e.preventDefault();
             setReplyOpen(true);
           }
+          break;
+        case 'l':
+          if (!canLabel) break;
+          // Kept out of the menu's filter, which takes focus as it opens.
+          e.preventDefault();
+          setLabelMenu(paneMenu ?? bulkMenu);
           break;
         case 'u':
         case 'Escape':
@@ -399,8 +571,8 @@ export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; time
 
       {!canAct ? (
         <p className="rounded-md border border-[var(--border)] bg-[var(--bg-raised)] px-3 py-2 text-xs text-[var(--fg-muted)]">
-          Reading only: archive, star, read/unread and Send need sending turned on (Settings ›
-          Integrations). Until then, Send opens the email in Gmail.
+          Reading only: archive, star, {canLabel ? '' : 'labels, '}read/unread and Send need sending
+          turned on (Settings › Integrations). Until then, Send opens the email in Gmail.
         </p>
       ) : null}
 
@@ -434,6 +606,19 @@ export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; time
               >
                 <Mail className="size-4" aria-hidden /> Mark unread
               </Button>
+              {canLabel ? (
+                <LabelMenu
+                  choices={labelChoices}
+                  current={rows.filter((r) => checked.has(r.id)).map((r) => r.labelIds)}
+                  onChange={(change) => void label([...checked], change)}
+                  open={labelMenu !== null && labelMenu === bulkMenu}
+                  onOpenChange={(o) => setLabelMenu(o ? bulkMenu : null)}
+                >
+                  <Button size="sm" variant="secondary">
+                    <Tag className="size-4" aria-hidden /> Label
+                  </Button>
+                </LabelMenu>
+              ) : null}
               <Button size="sm" variant="ghost" onClick={() => setChecked(new Set())}>
                 Clear
               </Button>
@@ -461,6 +646,8 @@ export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; time
                   onCheck={() => toggleCheck(row.id)}
                   onStar={() => void act([row.id], row.starred ? 'unstar' : 'star')}
                   onArchive={row.inInbox ? () => void act([row.id], 'archive') : null}
+                  labelChoices={labelChoices}
+                  onLabel={canLabel ? (change) => void label([row.id], change) : null}
                 />
               ))}
             </ul>
@@ -474,8 +661,8 @@ export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; time
             </div>
           ) : null}
           <p className="mt-3 hidden text-xs text-[var(--fg-subtle)] lg:block">
-            Keys: j/k next and previous · e archive · s star · r reply · Shift+U unread · u back · /
-            search
+            Keys: j/k next and previous · e archive · s star · r reply · l label · Shift+U unread ·
+            u back · / search
           </p>
         </section>
 
@@ -498,6 +685,10 @@ export function LiveInbox({ initial, timeZone }: { initial: LiveThreadList; time
               setReplyOpen={setReplyOpen}
               onBack={() => setSelectedId(null)}
               onAct={(action) => act([selected.id], action)}
+              labelChoices={labelChoices}
+              onLabel={canLabel ? (change) => void label([selected.id], change) : null}
+              labelMenuOpen={labelMenu !== null && labelMenu === paneMenu}
+              setLabelMenuOpen={(o) => setLabelMenu(o ? paneMenu : null)}
               onSent={() => void load({ tab, q: searched }, { quiet: true })}
               onForward={(draft) => setCompose({ title: 'Forward', draft })}
             />
@@ -534,6 +725,8 @@ function ThreadRow({
   onCheck,
   onStar,
   onArchive,
+  labelChoices,
+  onLabel,
 }: {
   row: LiveThreadRow;
   timeZone: string;
@@ -543,6 +736,8 @@ function ThreadRow({
   onCheck: () => void;
   onStar: () => void;
   onArchive: (() => void) | null;
+  labelChoices: readonly MailLabel[];
+  onLabel: ((change: LabelChange) => void) | null;
 }) {
   return (
     <li
@@ -611,6 +806,17 @@ function ThreadRow({
           </div>
         ) : null}
       </button>
+      {onLabel ? (
+        <LabelMenu choices={labelChoices} current={[row.labelIds]} onChange={onLabel}>
+          <button
+            type="button"
+            aria-label="Label"
+            className="mt-0.5 text-[var(--fg-subtle)] opacity-100 hover:text-[var(--fg)] lg:opacity-0 lg:group-hover:opacity-100 lg:focus:opacity-100 lg:data-[state=open]:opacity-100"
+          >
+            <Tag className="size-4" aria-hidden />
+          </button>
+        </LabelMenu>
+      ) : null}
       {onArchive ? (
         <button
           type="button"
@@ -634,6 +840,10 @@ function ThreadView({
   setReplyOpen,
   onBack,
   onAct,
+  labelChoices,
+  onLabel,
+  labelMenuOpen,
+  setLabelMenuOpen,
   onSent,
   onForward,
 }: {
@@ -645,6 +855,10 @@ function ThreadView({
   setReplyOpen: (open: boolean) => void;
   onBack: () => void;
   onAct: (action: Action) => Promise<boolean>;
+  labelChoices: readonly MailLabel[];
+  onLabel: ((change: LabelChange) => void) | null;
+  labelMenuOpen: boolean;
+  setLabelMenuOpen: (open: boolean) => void;
   onSent: () => void;
   onForward: (draft: ComposeDraft) => void;
 }) {
@@ -710,6 +924,19 @@ function ThreadView({
             aria-hidden
           />
         </Button>
+        {onLabel ? (
+          <LabelMenu
+            choices={labelChoices}
+            current={[row.labelIds]}
+            onChange={onLabel}
+            open={labelMenuOpen}
+            onOpenChange={setLabelMenuOpen}
+          >
+            <Button size="sm" variant="ghost" aria-label="Label">
+              <Tag className="size-4" aria-hidden />
+            </Button>
+          </LabelMenu>
+        ) : null}
         <Button
           size="sm"
           variant="ghost"
@@ -733,9 +960,10 @@ function ThreadView({
 
       <div className="space-y-3 p-4">
         <h2 className="text-lg font-semibold text-balance">{thread?.subject ?? row.subject}</h2>
-        {thread && thread.labels.length > 0 ? (
+        {/* The row's labels, so a change made here shows at once. */}
+        {row.labels.length > 0 ? (
           <div className="flex flex-wrap gap-1">
-            {thread.labels.map((l) => (
+            {row.labels.map((l) => (
               <Badge key={l} tone="neutral">
                 {l}
               </Badge>

@@ -13,6 +13,13 @@ import {
   type InboxThreadMeta,
 } from '@/lib/google/gmail-inbox';
 import { canSend } from '@/lib/google/gmail-send';
+import { DEMO_MAIL_LABELS } from '@/lib/demo/inbox-labels-fixtures';
+import {
+  applyLabelPlan,
+  labelChoices,
+  USER_LABEL_ID,
+  type MailLabel,
+} from '@/lib/email/inbox-actions';
 import type { EmailMessage, EmailThread, Integration } from '@/lib/types/domain';
 import { scanForInjection } from '@/lib/security/injection';
 import { processWide } from '@/lib/util/process-state';
@@ -21,8 +28,9 @@ import { getPrimaryIntegration } from './inbox';
 
 /**
  * The Inbox tab, straight from Gmail: the same mailbox, tabs and search Nick
- * sees in Gmail, read live. Replies and archive go through the same send path
- * as the email session (gmail-send.ts), so nothing ever sends on its own.
+ * sees in Gmail, read live. Replies, archive and labels go through the same
+ * send path as the email session (gmail-send.ts), so nothing ever sends or
+ * changes on its own.
  */
 
 export type { AttachmentRef };
@@ -40,7 +48,10 @@ const TAB_QUERY: Record<InboxTab, { labelIds: string[]; q?: string }> = {
 export const THREAD_ID = /^[0-9a-f]{10,24}$/i;
 const PAGE_SIZE = 40;
 const FETCH_BATCH = 10;
-const LABELS_TTL_MS = 60 * 60_000;
+/** Label names are re-read this often, so a label made in Gmail reaches the menu soon. */
+const LABELS_TTL_MS = 10 * 60_000;
+/** Sooner when a thread carries a label the cached names do not know, but not every poll. */
+const LABELS_RECHECK_MS = 60_000;
 
 export interface LiveThreadRow {
   id: string;
@@ -53,6 +64,8 @@ export interface LiveThreadRow {
   inInbox: boolean;
   /** Names of user labels on the thread (triage labels, categories left out). */
   labels: string[];
+  /** Ids of every label of the person's own on the thread, for the Label menu. */
+  labelIds: string[];
   lastFromUs: boolean;
   /** Text aimed at an AI assistant was found; shown, flagged, never acted on. */
   flagged: boolean;
@@ -63,6 +76,10 @@ export interface LiveThreadList {
   rows: LiveThreadRow[];
   nextPageToken: string | null;
   canAct: boolean;
+  /** Labels can be changed from a tap: sending is on, or this is the demo. */
+  canLabel: boolean;
+  /** The person's own Gmail labels, for the Label menu. */
+  labelChoices: MailLabel[];
   mailbox: string | null;
   message?: string;
 }
@@ -87,6 +104,7 @@ export interface LiveThread {
   starred: boolean;
   inInbox: boolean;
   labels: string[];
+  labelIds: string[];
   messages: LiveMessage[];
 }
 
@@ -101,16 +119,63 @@ export function resetInboxLiveCache(): void {
   cache.labels.clear();
 }
 
+/**
+ * Gmail's label id -> name map, cached per mailbox. `seen` are label ids just
+ * read off threads: one the cache does not know (a label made in Gmail since)
+ * re-reads the names, at most once a minute. `fresh` always re-reads. A failed
+ * read keeps the names already known: a mailbox always has system labels, so
+ * an empty answer is a failure, not a mailbox without labels.
+ */
 async function labelNames(
   store: DataStore,
   integration: Integration,
   now: number,
+  options: { seen?: readonly string[]; fresh?: boolean } = {},
 ): Promise<Map<string, string>> {
   const hit = cache.labels.get(integration.id);
-  if (hit && now - hit.at < LABELS_TTL_MS) return hit.names;
+  if (hit && !options.fresh) {
+    const age = now - hit.at;
+    const unknown = options.seen?.some((id) => USER_LABEL_ID.test(id) && !hit.names.has(id));
+    if (age < LABELS_TTL_MS && !(unknown && age >= LABELS_RECHECK_MS)) return hit.names;
+  }
   const names = await readLabelNames(store, integration).catch(() => new Map<string, string>());
+  if (names.size === 0) {
+    // A failed read: keep what is known, and try again in a minute, not after the full TTL.
+    const kept = hit?.names ?? names;
+    cache.labels.set(integration.id, { at: now - LABELS_TTL_MS + LABELS_RECHECK_MS, names: kept });
+    return kept;
+  }
   cache.labels.set(integration.id, { at: now, names });
   return names;
+}
+
+/**
+ * The person's own labels, for the Label menu and for checking a change
+ * against: the demo's fictional ones in demo mode. `fresh` re-reads Gmail,
+ * for a label id the cached list does not hold.
+ */
+export async function readLabelChoices(
+  store: DataStore,
+  integration: Integration | null,
+  options: { fresh?: boolean; now?: Date } = {},
+): Promise<MailLabel[]> {
+  if (isDemoMode()) return [...DEMO_MAIL_LABELS];
+  if (!integration) return [];
+  const now = (options.now ?? new Date()).getTime();
+  return labelChoices(await labelNames(store, integration, now, { fresh: options.fresh }));
+}
+
+/**
+ * Forget what is cached about these threads, after the app changed them, so
+ * the next list reads each one again from Gmail rather than trusting a cached
+ * copy (Gmail's thread list can lag a write by a moment).
+ */
+export function forgetThreads(ids: readonly string[]): void {
+  const prefixes = ids.map((id) => `${id.toLowerCase()}:`);
+  for (const key of cache.meta.keys()) {
+    const lower = key.toLowerCase();
+    if (prefixes.some((p) => lower.startsWith(p))) cache.meta.delete(key);
+  }
 }
 
 /** User label names for display: system labels and Gmail categories are left out. */
@@ -120,6 +185,11 @@ export function userLabels(labelIds: readonly string[], names: Map<string, strin
     .map((id) => names.get(id))
     .filter((n): n is string => Boolean(n))
     .slice(0, 4);
+}
+
+/** Ids of the person's own labels on a thread, for the Label menu: no cap, no system labels. */
+export function userLabelIds(labelIds: readonly string[]): string[] {
+  return labelIds.filter((id) => USER_LABEL_ID.test(id));
 }
 
 function toRow(meta: InboxThreadMeta, snippet: string, names: Map<string, string>): LiveThreadRow {
@@ -133,6 +203,7 @@ function toRow(meta: InboxThreadMeta, snippet: string, names: Map<string, string
     starred: meta.labelIds.includes('STARRED'),
     inInbox: meta.labelIds.includes('INBOX'),
     labels: userLabels(meta.labelIds, names),
+    labelIds: userLabelIds(meta.labelIds),
     lastFromUs: meta.lastFromUs,
     flagged: scanForInjection(`${meta.subject}
 ${snippet}`).flagged,
@@ -150,7 +221,15 @@ export async function listLiveThreads(
 
   const integration = await getPrimaryIntegration(store, organizationId).catch(() => null);
   if (!integration || integration.status === 'disconnected') {
-    return { state: 'not_connected', rows: [], nextPageToken: null, canAct: false, mailbox: null };
+    return {
+      state: 'not_connected',
+      rows: [],
+      nextPageToken: null,
+      canAct: false,
+      canLabel: false,
+      labelChoices: [],
+      mailbox: null,
+    };
   }
   const search = options.q?.trim();
   const tab = TAB_QUERY[options.tab ?? 'primary'];
@@ -160,12 +239,22 @@ export async function listLiveThreads(
     pageToken: options.pageToken ?? undefined,
     max: PAGE_SIZE,
   });
-  const base = { canAct: canSend(integration), mailbox: integration.account_email ?? null };
+  const base = {
+    canAct: canSend(integration),
+    canLabel: canSend(integration),
+    mailbox: integration.account_email ?? null,
+  };
   if (!page.ok) {
-    return { state: 'error', rows: [], nextPageToken: null, message: page.error.message, ...base };
+    return {
+      state: 'error',
+      rows: [],
+      nextPageToken: null,
+      message: page.error.message,
+      labelChoices: [],
+      ...base,
+    };
   }
 
-  const names = await labelNames(store, integration, now.getTime());
   // A thread's meta only changes when its historyId does, so cache on both.
   const key = (t: { id: string; historyId: string }) => `${t.id}:${t.historyId}`;
   const missing = page.value.threads.filter((t) => !cache.meta.has(key(t)));
@@ -181,13 +270,21 @@ export async function listLiveThreads(
   }
   if (cache.meta.size > 5000) cache.meta.clear();
 
+  const seen = page.value.threads.flatMap((t) => cache.meta.get(key(t))?.labelIds ?? []);
+  const names = await labelNames(store, integration, now.getTime(), { seen });
   const rows = page.value.threads
     .map((t) => {
       const meta = cache.meta.get(key(t));
       return meta ? toRow(meta, decodeEntities(t.snippet), names) : null;
     })
     .filter((r): r is LiveThreadRow => Boolean(r));
-  return { state: 'ok', rows, nextPageToken: page.value.nextPageToken, ...base };
+  return {
+    state: 'ok',
+    rows,
+    nextPageToken: page.value.nextPageToken,
+    labelChoices: labelChoices(names),
+    ...base,
+  };
 }
 
 /** The whole conversation, newest message last. */
@@ -202,7 +299,7 @@ export async function readLiveThread(
   if (!integration) return err('not_found', 'No mailbox is connected.');
   const thread = await readThreadFull(store, integration, id);
   if (!thread.ok) return thread;
-  const names = await labelNames(store, integration, Date.now());
+  const names = await labelNames(store, integration, Date.now(), { seen: thread.value.labelIds });
   return ok(toLiveThread(thread.value, names, integration.account_email ?? ''));
 }
 
@@ -218,6 +315,7 @@ export function toLiveThread(
     starred: thread.labelIds.includes('STARRED'),
     inInbox: thread.labelIds.includes('INBOX'),
     labels: userLabels(thread.labelIds, names),
+    labelIds: userLabelIds(thread.labelIds),
     messages: thread.messages.map((m) => ({
       id: m.id,
       fromName: displayName(m.from),
@@ -247,6 +345,13 @@ function decodeEntities(text: string): string {
 
 /** Demo threads get a hex id (the tail of their uuid) so the same routes serve them. */
 const demoId = (thread: EmailThread) => thread.id.replace(/-/g, '').slice(-16);
+
+const DEMO_LABEL_NAMES = new Map(DEMO_MAIL_LABELS.map((l) => [l.id, l.name]));
+
+/** A demo thread's own labels: every one any of its messages carries. */
+function demoLabelIds(list: readonly EmailMessage[]): string[] {
+  return userLabelIds([...new Set(list.flatMap((m) => m.labels))]);
+}
 
 async function demoData(store: DataStore, organizationId: string) {
   const [threads, messages] = await Promise.all([
@@ -284,7 +389,8 @@ async function demoList(
         unread: list.some((m) => m.is_unread),
         starred: false,
         inInbox: true,
-        labels: [],
+        labels: userLabels(demoLabelIds(list), DEMO_LABEL_NAMES),
+        labelIds: demoLabelIds(list),
         lastFromUs: false,
         flagged: list.some((m) => m.injection_flagged),
       };
@@ -294,7 +400,16 @@ async function demoList(
       q ? `${r.who} ${r.subject} ${r.snippet}`.toLowerCase().includes(q) : options.tab !== 'sent',
     )
     .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
-  return { state: 'ok', rows, nextPageToken: null, canAct: false, mailbox: null };
+  return {
+    state: 'ok',
+    rows,
+    nextPageToken: null,
+    canAct: false,
+    // Label changes stay on the demo messages, so the demo can show them.
+    canLabel: true,
+    labelChoices: [...DEMO_MAIL_LABELS],
+    mailbox: null,
+  };
 }
 
 async function demoThread(
@@ -312,7 +427,8 @@ async function demoThread(
     unread: list.some((m) => m.is_unread),
     starred: false,
     inInbox: true,
-    labels: [],
+    labels: userLabels(demoLabelIds(list), DEMO_LABEL_NAMES),
+    labelIds: demoLabelIds(list),
     messages: list.map((m) => ({
       id: m.id,
       fromName: m.from_name ?? m.from_address,
@@ -326,4 +442,29 @@ async function demoThread(
       flagged: m.injection_flagged || scanForInjection(m.body_text ?? m.snippet).flagged,
     })),
   });
+}
+
+/**
+ * A label change in demo mode: kept on the demo thread's messages, the way
+ * Gmail keeps labels on messages. `plan` is already checked against the
+ * demo's labels (planLabelChange); nothing reaches Gmail.
+ */
+export async function setDemoThreadLabels(
+  store: DataStore,
+  organizationId: string,
+  id: string,
+  plan: { add: string[]; remove: string[] },
+): Promise<Result<true>> {
+  if (!THREAD_ID.test(id)) return err('invalid_input', 'Bad thread id.');
+  const { threads, byThread } = await demoData(store, organizationId);
+  const thread = threads.find((t) => demoId(t) === id.toLowerCase());
+  if (!thread) return err('not_found', 'That conversation no longer exists.');
+  for (const m of byThread.get(thread.id) ?? []) {
+    const own = userLabelIds(m.labels);
+    const system = m.labels.filter((l) => !own.includes(l));
+    await store.update('email_messages', organizationId, m.id, {
+      labels: [...system, ...applyLabelPlan(own, plan)],
+    });
+  }
+  return ok(true);
 }

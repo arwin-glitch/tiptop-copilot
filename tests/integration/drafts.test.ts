@@ -258,6 +258,43 @@ describe('nothing sends on its own', () => {
     for (const file of importers) expect(ALLOWED.has(file), file).toBe(true);
   });
 
+  it('changes Gmail labels only in gmail-send.ts, called from the Inbox modify route alone', async () => {
+    // Labels (archive, star, read state, the person's own labels) change on a
+    // tap in the Inbox tab and nowhere else: no job, tool or relay reader.
+    const MODIFY_ENDPOINT = /\/(threads|messages)\/\$\{[^}]+\}\/modify|batchModify/;
+    const files = await walk(SRC);
+    const callers: string[] = [];
+    const writers: string[] = [];
+    for (const file of files) {
+      const source = await readFile(file, 'utf8');
+      const rel = path.relative(SRC, file).split(path.sep).join('/');
+      if (rel !== 'lib/google/gmail-send.ts' && /\bsetThreadLabels\s*\(/.test(source)) {
+        callers.push(rel);
+      }
+      if (MODIFY_ENDPOINT.test(source)) writers.push(rel);
+    }
+    expect(callers).toEqual(['app/api/inbox/modify/route.ts']);
+    expect(writers).toEqual(['lib/google/gmail-send.ts']);
+  });
+
+  it('setThreadLabels refuses every system label but read state, star and inbox', async () => {
+    const { setThreadLabels } = await import('@/lib/google/gmail-send');
+    const { SEND_SCOPES } = await import('@/lib/google/send-scopes');
+    const integration = {
+      id: '44444444-4444-4444-8444-444444444444',
+      scopes: [...SEND_SCOPES],
+    } as unknown as Parameters<typeof setThreadLabels>[1];
+    for (const label of ['TRASH', 'SPAM', 'SENT', 'DRAFT', 'IMPORTANT', 'CATEGORY_PERSONAL']) {
+      const res = await setThreadLabels(harness.store, integration, 'abc1234567', {
+        add: [label as 'INBOX'],
+      });
+      expect(res.ok, label).toBe(false);
+      if (!res.ok) expect(res.error.code).toBe('invalid_input');
+    }
+    const empty = await setThreadLabels(harness.store, integration, 'abc1234567', {});
+    expect(empty.ok).toBe(false);
+  });
+
   it('only the campaign routes a person taps reach the campaign sender', async () => {
     const ALLOWED = new Set([
       'app/api/campaigns/[id]/test/route.ts',
