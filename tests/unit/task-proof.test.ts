@@ -102,8 +102,57 @@ describe('classifyDeliverable: plain to-dos are never deliverables', () => {
     'Execute the plan',
     'Payroll review',
     'Draft the Fund II narrative',
+    'Think about Q4 plan',
+    'Review deck',
+    // A call, an invite or a meeting is not an email the app could see.
+    'Give Dana a call',
+    'Return call to Dana',
+    'Return Dana call',
+    'Send Calendar invite',
+    'Share screen with Dana',
+    'Reply to Dana on Slack',
+    'Respond in Slack',
+    'Tell Maya in person',
+    // "Connect with", "intro coffee": meeting someone, not introducing two people.
+    'Connect with Dana',
+    'Connect on LinkedIn with Dana',
+    'Intro coffee with Dana',
+    // Idioms that only look like a payment or a signature.
+    "Pay attention to Dana's churn numbers",
+    'Pay a visit to Fernhollow',
+    'Wire instructions for Fernhollow',
+    'Sign up for Summitconf',
+    'Sign in to the data room',
+    // Updating a tool, or a Title Case noun where a name would be.
+    'Update Pipewise with the notes',
+    'Update CRM with call notes',
+    'Update Ledgerbook on Friday',
+    'Let folks know the call moved',
+    'Send Monthly Update',
+    'Send Investor Update',
+    'Send Invoice',
+    'Send Thank you notes',
+    'Email Sequence for Q4',
+    'Return Equipment',
+    'Return to Lisbon',
+    'Update Mom on the trip',
   ])('%s', (title) => {
     expect(classifyDeliverable(title)).toBeNull();
+  });
+
+  it('reads a self-introduction as a note to that person', () => {
+    expect(classifyDeliverable('Introduce myself to Dana')).toMatchObject({
+      kind: 'send',
+      recipients: ['Dana'],
+    });
+    expect(classifyDeliverable('Connect Maya with Dana')).toMatchObject({
+      kind: 'intro',
+      recipients: ['Maya', 'Dana'],
+    });
+    expect(classifyDeliverable('Send Dana the call notes')).toMatchObject({
+      kind: 'send',
+      recipients: ['Dana'],
+    });
   });
 });
 

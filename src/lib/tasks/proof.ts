@@ -145,10 +145,77 @@ const NOT_A_NAME = new Set(
     'q',
     'docs',
     'deck',
+    // Nouns a Title Case task puts where a name would go: "Send Monthly
+    // Update", "Send Invoice", "Answer Questionnaire" name no one.
+    'folks',
+    'people',
+    'mom',
+    'dad',
+    'update',
+    'updates',
+    'invoice',
+    'invoices',
+    'reminder',
+    'reminders',
+    'thank',
+    'thanks',
+    'calendar',
+    'invite',
+    'invites',
+    'invitation',
+    'daily',
+    'weekly',
+    'monthly',
+    'quarterly',
+    'annual',
+    'investor',
+    'newsletter',
+    'report',
+    'reports',
+    'equipment',
+    'sequence',
+    'final',
+    'signed',
+    'new',
+    'next',
+    'draft',
+    'revised',
+    'updated',
+    'memo',
+    'notes',
+    'summary',
+    'recap',
+    'agenda',
+    'materials',
+    'proposal',
+    'contract',
+    'agreement',
+    'questionnaire',
+    'survey',
+    'rfp',
+    'form',
+    'link',
+    'details',
+    'info',
+    'feedback',
+    'email',
+    'message',
+    'letter',
+    'slides',
+    'data',
+    'access',
+    'budget',
+    'bank',
+    'amex',
+    'crm',
+    'google',
+    'slack',
+    'linkedin',
+    'zoom',
   ].map((w) => w.toLowerCase()),
 );
 
-/** One capitalised word: "Dana", "O'Neil", "LoomStack", "IVP". */
+/** One capitalised word: "Dana", "O'Neil", "LoomStack", "QRX". */
 const CAP = String.raw`[A-Z][A-Za-z]*(?:['’\-][A-Za-z]+)*`;
 /** A first name and, optionally, a second capitalised word. */
 const NAME = String.raw`${CAP}(?:\s+${CAP})?`;
@@ -210,14 +277,33 @@ const LEAD_RE = /^(?:\[[^\]]{1,30}\]\s*)?(?:re:\s*)?/i;
 const REPLY_VERB = /^(?:reply|respond|write back|get back|answer|revert)\b\s*(?:to\s+)?/i;
 const SEND_VERB = /^(?:send|email|e-mail|forward|give|pass|share|return|hand)\s+/i;
 const TELL_VERB = /^(?:tell|notify|update)\s+/i;
-const LET_KNOW_RE = new RegExp(`^let\\s+(${NAME})\\s+know\\b`, 'i');
+/** "Let Riley know": the name keeps its capital, so "let folks know" names no one. */
+const LET_KNOW_RE = new RegExp(`^[Ll]et\\s+(${NAME})\\s+know\\b`);
 const REVIEW_VERB =
   /^(?:review|proofread|mark up|markup|edit|comment on|look over|go through|read through|redline)\s+/i;
-const SIGN_VERB = /^(?:sign|countersign|e-?sign|docusign|execute)\s+/i;
+/** "Sign up for", "sign in to", "sign off on": not a signature anyone receives. */
+const SIGN_VERB =
+  /^(?:sign|countersign|e-?sign|docusign|execute)\s+(?!(?:up|in|into|out|on|off)\b)/i;
+/** "Pay attention to", "pay a visit", "wire instructions": not a payment. */
 const PAY_VERB =
-  /^(?:pay|reimburse|wire|send (?:the )?(?:wire|payment|funds)|confirm (?:the )?(?:payment|wire|transfer))\b\s*/i;
+  /^(?:pay(?!\s+(?:attention|a visit|visits?|respects?|homage|tribute|off|down|up)\b)|reimburse|wire(?!\s+(?:instructions|details|info)\b)|send (?:the )?(?:wire|payment|funds)|confirm (?:the )?(?:payment|wire|transfer))\b\s*/i;
 const INTRO_VERB =
   /^(?:make\s+|send\s+)?(?:an\s+|the\s+)?(?:intro(?:duction)?|introduce|connect)\b[\s:–—-]*/i;
+/** "Intro coffee with Dana" is a meeting, like an "intro call". */
+const INTRO_MEETING =
+  /^(?:coffee|call|meeting|chat|lunch|dinner|drinks|zoom|session|catch[- ]?up|sync)\b/i;
+/** "Introduce myself to Dana" is a note to Dana, not an intro between two people. */
+const INTRO_SELF = /^(?:myself|ourselves|me|us)\b/i;
+/**
+ * A call, a calendar invite or a meeting goes out by phone or calendar, where
+ * the app cannot look: "Give Dana a call", "Send Maya an invite". Notes from
+ * one are still a send ("Send Dana the call notes").
+ */
+const CALL_OR_INVITE =
+  /\b(?:call|ring|buzz|invite|invitation|screen)\b(?!\s+(?:notes?|recap|summary|transcript|recording|agenda|deck|memo|slides|minutes|list))/i;
+/** Said to go by Slack, phone, text or in person: the app looks only at email. */
+const ELSEWHERE =
+  /\b(?:in|on|via|over|by)\s+(?:slack|whatsapp|signal|text|sms|imessage|the phone|phone|a call|zoom|person)\b/i;
 const ARROW = /\s*(?:→|->|=>|<>|↔)\s*/;
 /** Words that make a send a review: the thing handed back is someone's work, marked up. */
 const FEEDBACK_RE = /\b(?:feedback|comments|notes on|edits|thoughts|markup|redlines?)\b/i;
@@ -265,8 +351,17 @@ export function classifyDeliverable(title: string, detail?: string | null): Deli
     return { kind, recipients: all, proof: [...PROOF_BY_KIND[kind]] };
   };
 
+  if (ELSEWHERE.test(text)) return null;
+
   if (isIntroTitle(text)) {
+    const rest = text.replace(INTRO_VERB, '');
+    if (rest !== text && !ARROW.test(text)) {
+      if (INTRO_MEETING.test(rest)) return null;
+      if (INTRO_SELF.test(rest)) return make('send', [nameAfter(rest, 'to')]);
+    }
     const parties = introParties(text);
+    // "Connect with Dana", "Connect on LinkedIn with Dana": a connect names both sides or is no intro.
+    if (/^connect\b/i.test(text) && parties.length < 2) return null;
     return parties.length > 0 ? make('intro', parties) : null;
   }
 
@@ -286,7 +381,15 @@ export function classifyDeliverable(title: string, detail?: string | null): Deli
     const raw = leadingRaw(rest);
     // "Update the deck" is not a send; "Update Maya on the round" is.
     const followed = raw ? rest.slice(raw.length) : '';
-    if (raw && !isPossessive(raw) && /^\s+(?:on|about|that|re|with|we|the|our)\b/.test(followed)) {
+    // "Update Pipewise with the notes" fills in a tool, and "Update Ledgerbook on Friday" says when.
+    if (
+      raw &&
+      !isPossessive(raw) &&
+      /^\s+(?:on|about|that|re|we)\b/.test(followed) &&
+      !/^\s+on\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow)\b/i.test(
+        followed,
+      )
+    ) {
       return make('send', [cleanName(raw)]);
     }
     if (raw && /^tell\s/i.test(text) && !isPossessive(raw)) return make('send', [cleanName(raw)]);
@@ -335,6 +438,9 @@ export function classifyDeliverable(title: string, detail?: string | null): Deli
   if (send) {
     const verb = send[0].trim().toLowerCase();
     const rest = text.slice(send[0].length);
+    // A call or an invite is not an email, unless the verb is one; "Return to Lisbon" is a trip.
+    if (!/^(?:email|e-mail|forward)$/.test(verb) && CALL_OR_INVITE.test(rest)) return null;
+    if (verb === 'return' && /^to\b/i.test(rest)) return null;
     const kind: DeliverableKind = FEEDBACK_RE.test(rest) ? 'review' : 'send';
     const raw = leadingRaw(rest);
     const lead = raw && !isPossessive(raw) ? cleanName(raw) : null;
