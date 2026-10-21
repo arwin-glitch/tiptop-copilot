@@ -96,7 +96,7 @@ export function AffinitySyncPanel({
         }
         const data = result.data;
         if (data.stopped) {
-          setError('Affinity still refuses the API key, so the sync stays stopped.');
+          setError('Affinity refused the API key, so the sync is stopped.');
           router.refresh();
           return;
         }
@@ -129,9 +129,10 @@ export function AffinitySyncPanel({
 
   const last = status.lastRun;
   const stopped = status.configured && !status.demo ? (status.stopped ?? null) : null;
+  // A stopped sync keeps its run's place, but nothing is syncing: no progress bar.
   const shown: Progress | null =
     progress ??
-    (status.running && status.phase
+    (status.running && status.phase && !stopped
       ? { phase: status.phase, listsDone: status.listsDone, listsTotal: status.listsTotal }
       : null);
 
