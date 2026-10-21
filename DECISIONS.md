@@ -1491,3 +1491,60 @@ keeps the in-app and bridge answers from drifting apart.
   "who are you?" and "am I talking to a real person?" in Ask Arwin to check.
 - Demo mode's canned answers (`src/lib/ai/mock.ts`) carry no identity and
   are unchanged.
+
+### D-060 — The Affinity exit checklist: the date is data, a refused key stops cleanly, copies are opt-in
+
+**Context.** The workspace is leaving Affinity and needed one place for it:
+the day Affinity needs notice by, what Copilot already holds, what the daily
+sync deliberately leaves behind, the outside tools that still read from
+Affinity, and a final archive. And once the key dies, the daily sync failed
+every morning: `recoverFetch` answered a refused key with "retry", the step
+reported it as a failure, and the GitHub job went red until someone deleted
+the key.
+
+**Decision.**
+
+- **Where it lives.** Knowledge → Affinity import gains two chips: "Sync &
+  import" (the bare tab, unchanged) and "Exit checklist" (`?view=exit`),
+  which carries the countdown in its label. No new subtab and no long page.
+- **Everything real is data.** The notice date, "Cancelled" and the list of
+  outside tools are typed in on the page and kept as `audit_events` rows
+  (`action = 'crm.affinity_exit'`, the whole settings in
+  `metadata.settings`, newest wins, each change one row). No date, vendor or
+  tool name is in the code. No migration: every read degrades to "nothing
+  set", every count to "unknown".
+- **Status rows are counted, not claimed.** Lists, companies, people and notes
+  are counted from the CRM (`source = 'affinity'`); introductions from their
+  sidecar rows, each counted once. The rows for what the sync does not copy
+  say "not copied" with a count only where something can tell: the API gives
+  no total for the directory, the reminder copy asks Affinity for the open
+  count, and files stay "unknown" (the pinned API version cannot list them).
+- **A refused key stops the sync.** A 401 anywhere, or a 403 on the list of
+  lists, records `stopped` in the sync state and answers `done: true,
+  stopped: true`. The run keeps its place. While stopped, each call makes one
+  `GET /v2/lists?limit=1` and writes nothing if the key is still refused, so a
+  stopped sync adds no rows and no errors; a key that works again resumes the
+  run. The workflow prints one line and ends green.
+- **Copies are opt-in, capped and keyed.** "Copy contacts on no list" pages
+  `/v2/companies` then `/v2/persons` and adds only what Copilot lacks, by
+  Affinity id (name, domain, emails; teammates never), up to 5,000 a press
+  and never past 50,000 records in the workspace (about 1.2 KB a record with
+  its indexes, so about 6 MB a press on a 500 MB free database). "Copy open
+  reminders as tasks" makes one task per active or overdue reminder with an
+  id derived from the reminder's, so a second copy adds nothing and a
+  finished task is never brought back. Both are the owner's, run in bounded
+  steps the page loops, and keep their progress (counts and a cursor only)
+  in `audit_events` like the sync. Shapes are from Affinity's API reference
+  for the pinned version 2024-01-01.
+- **Today.** One quiet line below the glance cards, linking to the
+  checklist, only in the last 14 days before the date and on the day, never
+  once cancelled. Top priorities is untouched.
+
+**Why.** The deadline matters and is the workspace's to set, so it is data;
+a dead key is an expected end state, not an error; and the directory and
+reminders are copied only on a person's say-so because the sync left them out
+on purpose.
+
+**Known limits.** The reminder count relies on Affinity's documented filter
+syntax (`status=active|status=overdue`) and is best effort; the copy itself
+filters in code. Files cannot be copied through the API version in use.

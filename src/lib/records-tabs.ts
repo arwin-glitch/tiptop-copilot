@@ -293,7 +293,7 @@ export const KNOWLEDGE_TABS = define({
       key: 'import',
       label: 'Affinity import',
       blurb:
-        'Drop Affinity CSV exports (a list view and its notes) to bring them in. Importing a file again updates what is here instead of duplicating it.',
+        'Drop Affinity CSV exports (a list view and its notes) to bring them in; importing again updates rather than duplicates. The exit checklist counts down to the notice date and shows what is not copied yet.',
     },
   ],
 });
@@ -301,6 +301,18 @@ export const KNOWLEDGE_TABS = define({
 /** Knowledge's Affinity tabs, which the old `/lists` URLs redirect to. */
 export const AFFINITY_LISTS_HREF = '/knowledge?tab=lists';
 export const AFFINITY_IMPORT_HREF = '/knowledge?tab=import';
+
+/**
+ * The Affinity import tab's two views, a pair of chips under the tab bar: the
+ * bare tab is the sync and CSV import, as it always was; `?view=exit` is the
+ * exit checklist, which Today's reminder line links to.
+ */
+export type AffinityImportView = 'import' | 'exit';
+export const AFFINITY_EXIT_HREF = '/knowledge?tab=import&view=exit';
+
+export function affinityImportView(params: Params): AffinityImportView {
+  return single(params.view) === 'exit' ? 'exit' : 'import';
+}
 
 /** Every Records page with subtabs, in navigation order. */
 export const RECORDS_TABS = [

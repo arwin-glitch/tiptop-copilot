@@ -330,6 +330,16 @@ sync reports itself not connected and does nothing; CSV exports can still be
 imported by hand. The key is read only on the server and sent only to
 api.affinity.co. Delete it once Affinity is cancelled.
 
+A key Affinity refuses (revoked, or the subscription ended) stops the sync
+cleanly: the cron route answers `done: true, stopped: true`, the daily job
+ends green with one line saying so, and Knowledge → Affinity import shows
+"Stopped". While stopped, each call makes one light request to ask whether
+the key works again and writes nothing; a replaced key plus "Sync now"
+carries the run on from where it stopped. The same key also powers the two
+opt-in copies on the exit checklist (contacts on no list, open reminders as
+tasks), which run only when the owner presses their button. The contacts copy
+needs Affinity's "Export All" directory permissions on the key.
+
 ### `ASK_ROUTINE_FIRE_URL`, `ASK_ROUTINE_TOKEN`, `ASK_RELAY_SLACK_TOKEN`
 
 Optional. Together they make the Ask bridge instant instead of polled. The

@@ -53,6 +53,7 @@ const PAGES = [
   '/knowledge?tab=contacts',
   '/knowledge?tab=lists',
   '/knowledge?tab=import',
+  '/knowledge?tab=import&view=exit',
   // Affinity's data where it is used: tables and chip rows that must not
   // push the page sideways on a phone.
   '/deals?tab=pipeline',

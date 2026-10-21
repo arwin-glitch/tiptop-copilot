@@ -16,7 +16,12 @@ import {
   loadHelperCandidates,
   networkSummary,
 } from '@/lib/services/network-helpers';
-import { KNOWLEDGE_TABS, NETWORK_TABS, resolvePageTab } from '@/lib/records-tabs';
+import {
+  KNOWLEDGE_TABS,
+  NETWORK_TABS,
+  affinityImportView,
+  resolvePageTab,
+} from '@/lib/records-tabs';
 import { SHOW_PARAM, showMoreHref, shownCount, single } from '@/lib/util/page-tabs';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -111,7 +116,7 @@ export default async function KnowledgePage({
         ) : tab === 'lists' ? (
           <AffinityLists auth={auth} q={q} />
         ) : tab === 'import' ? (
-          <AffinityImportTab auth={auth} />
+          <AffinityImportTab auth={auth} view={affinityImportView(params)} />
         ) : (
           <DocumentsTab auth={auth} q={q} />
         )}
