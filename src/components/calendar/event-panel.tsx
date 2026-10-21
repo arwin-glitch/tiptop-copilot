@@ -40,7 +40,7 @@ import { SkeletonText } from '@/components/ui/feedback';
 import { ThreadLinks } from '@/components/email/thread-links';
 import { AnchoredCard } from './anchored-card';
 import { fetchContext, fetchSeries, type MeetingContext } from './calendar-api';
-import { swatchStyle } from './event-style';
+import { swatchStyle, tickStyle } from './event-style';
 
 /**
  * One event, opened by a click on it in Day, Week or Month: Google Calendar's
@@ -718,7 +718,7 @@ function ColorRow({
               className="flex size-5 items-center justify-center rounded-full border"
               style={swatchStyle(s.background)}
             >
-              {on ? <Check className="size-3 text-[#1d1d1d]" /> : null}
+              {on ? <Check className="size-3" style={tickStyle(s.background)} /> : null}
             </span>
           </button>
         );

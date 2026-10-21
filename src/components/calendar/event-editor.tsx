@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Field, Input, Label, Select, Textarea } from '@/components/ui/form';
 import { AnchoredCard } from './anchored-card';
 import { fetchGuests } from './calendar-api';
-import { swatchStyle } from './event-style';
+import { swatchStyle, tickStyle } from './event-style';
 
 /**
  * Making and changing an event, as in Google Calendar: a quick editor after
@@ -582,7 +582,7 @@ function ColorSwatch({
         className="flex size-5 items-center justify-center rounded-full border"
         style={swatchStyle(background)}
       >
-        {selected ? <Check className="size-3 text-[#1d1d1d]" /> : null}
+        {selected ? <Check className="size-3" style={tickStyle(background)} /> : null}
       </span>
     </button>
   );

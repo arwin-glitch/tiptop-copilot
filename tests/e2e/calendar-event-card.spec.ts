@@ -203,6 +203,11 @@ test('a colour from the card changes it at once, asks nothing, and stays', async
     page.getByRole('dialog', { name: /emails to guests|Send your response/ }),
   ).toHaveCount(0);
   await expect(card.getByRole('radio', { name: 'Tomato' })).toHaveAttribute('aria-checked', 'true');
+  // The tick stands out on a dark swatch: white on Tomato, not the dark tick.
+  await expect(card.getByRole('radio', { name: 'Tomato' }).locator('svg')).toHaveCSS(
+    'color',
+    'rgb(255, 255, 255)',
+  );
   await expect(chip(page, title)).toHaveCSS('border-top-color', 'rgb(220, 33, 39)');
   // The page asked for the colour and nothing else: no notify, no other field.
   expect(writes).toHaveLength(1);

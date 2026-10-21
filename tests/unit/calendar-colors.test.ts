@@ -5,8 +5,12 @@ import {
   eventPalette,
   NO_GOOGLE_COLOR,
   readableOn,
+  TICK_ON_DARK,
+  TICK_ON_LIGHT,
+  tickOn,
 } from '@/lib/calendar/colors';
 import type { GCalColors } from '@/lib/calendar/google-types';
+import { MOCK_COLORS } from '@/lib/calendar/mock-calendar';
 
 /** Colours come from Google: an event's own colorId, else its calendar's. */
 
@@ -71,5 +75,49 @@ describe('the event palette', () => {
       { id: '11', name: 'Tomato', background: '#dc2127', foreground: '#ffffff' },
     ]);
     expect(eventPalette(null)).toEqual([]);
+  });
+});
+
+describe('the tick on the selected swatch', () => {
+  /** WCAG contrast between two #rrggbb colours. */
+  function contrast(a: string, b: string): number {
+    const lum = (hex: string) => {
+      const n = Number.parseInt(hex.slice(1), 16);
+      const [r, g, bl] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
+        const v = c / 255;
+        return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!;
+    };
+    const [x, y] = [lum(a), lum(b)];
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  }
+
+  it('is white on a dark swatch and dark on a light one', () => {
+    // Dark swatches: Tomato, and the darker shades Google Calendar draws for
+    // Blueberry, Basil, Graphite and Grape.
+    for (const dark of ['#dc2127', '#d50000', '#3f51b5', '#0b8043', '#616161', '#8e24aa']) {
+      expect(tickOn(dark), dark).toBe(TICK_ON_DARK);
+    }
+    // Light swatches: Banana, Sage, Lavender, Graphite's light grey.
+    for (const light of ['#fbd75b', '#7ae7bf', '#a4bdfc', '#e1e1e1']) {
+      expect(tickOn(light), light).toBe(TICK_ON_LIGHT);
+    }
+  });
+
+  it('stands out on every colour of the palette (3:1 or better, as a graphic needs)', () => {
+    const swatches = [
+      ...Object.values(MOCK_COLORS.event ?? {}),
+      ...Object.values(MOCK_COLORS.calendar ?? {}),
+    ].map((c) => c.background);
+    expect(swatches.length).toBeGreaterThan(20);
+    for (const background of swatches) {
+      expect(contrast(tickOn(background)!, background), background).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('leaves a colour it cannot read to the theme', () => {
+    expect(tickOn('tomato')).toBeNull();
+    expect(tickOn('#fff')).toBeNull();
   });
 });

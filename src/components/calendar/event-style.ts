@@ -1,4 +1,5 @@
 import type * as React from 'react';
+import { tickOn } from '@/lib/calendar/colors';
 import type { RangeEvent } from '@/lib/calendar/range-types';
 
 /**
@@ -38,6 +39,11 @@ export function swatchStyle(background: string, hollow = false): React.CSSProper
   return hollow
     ? { borderColor: background, borderWidth: 2, borderStyle: 'solid' }
     : { backgroundColor: background, borderColor: background };
+}
+
+/** The selected swatch's tick, picked per swatch to stand out (the theme's text colour if unknown). */
+export function tickStyle(background: string): React.CSSProperties {
+  return { color: tickOn(background) ?? 'var(--fg)' };
 }
 
 /** "Meeting: Partner sync, 10am to 11am, TipTop team" for a screen reader. */

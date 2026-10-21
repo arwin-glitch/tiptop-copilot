@@ -45,16 +45,40 @@ function clean(color: Partial<GCalColor> | undefined): CalendarColor | null {
   };
 }
 
-/** Black or white text, whichever reads better on the background. */
-export function readableOn(background: string): string {
-  if (!HEX.test(background)) return '#1d1d1d';
-  const n = Number.parseInt(background.slice(1), 16);
+/** A #rrggbb colour's relative luminance (WCAG), 0 for black to 1 for white. */
+function luminanceOf(hex: string): number {
+  const n = Number.parseInt(hex.slice(1), 16);
   const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
     const s = c / 255;
     return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
   });
-  const luminance = 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
-  return luminance > 0.4 ? '#1d1d1d' : '#ffffff';
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+}
+
+/** Black or white text, whichever reads better on the background. */
+export function readableOn(background: string): string {
+  if (!HEX.test(background)) return '#1d1d1d';
+  return luminanceOf(background) > 0.4 ? '#1d1d1d' : '#ffffff';
+}
+
+/** The tick on a light swatch (Google's own dark text colour), and on a dark one. */
+export const TICK_ON_LIGHT = '#1d1d1d';
+export const TICK_ON_DARK = '#ffffff';
+
+/**
+ * The tick on the selected colour swatch: white on a dark swatch, dark on a
+ * light one, whichever stands out more against that swatch (Tomato, Grape or
+ * Graphite take white; Banana or Sage take dark). Null for a colour that is
+ * not #rrggbb, where the tick takes the theme's text colour.
+ */
+export function tickOn(background: string): string | null {
+  if (!HEX.test(background)) return null;
+  const swatch = luminanceOf(background);
+  const contrast = (tick: string) => {
+    const other = luminanceOf(tick);
+    return (Math.max(swatch, other) + 0.05) / (Math.min(swatch, other) + 0.05);
+  };
+  return contrast(TICK_ON_DARK) > contrast(TICK_ON_LIGHT) ? TICK_ON_DARK : TICK_ON_LIGHT;
 }
 
 /** A calendar's colour: its own backgroundColor, else its colorId in the palette. */
