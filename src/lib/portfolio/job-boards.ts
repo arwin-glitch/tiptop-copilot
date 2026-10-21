@@ -82,10 +82,30 @@ export function jobBoardCheck(link: string | null | undefined): JobBoardCheck | 
 /** What a board's answer says: the posting is up, gone, or the answer says nothing. */
 export type BoardVerdict = 'live' | 'gone' | 'unknown';
 
+const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+/**
+ * The posting ids one entry of a board's list carries: its `id`, and the id
+ * in its `jobUrl` / `applyUrl`. Ashby documents only the two links (its `id`
+ * is there today but undocumented), so either is enough.
+ */
+function boardEntryIds(entry: unknown): string[] {
+  if (!entry || typeof entry !== 'object') return [];
+  const { id, jobUrl, applyUrl } = entry as Record<string, unknown>;
+  const out: string[] = [];
+  if (typeof id === 'string' && id) out.push(id.toLowerCase());
+  for (const url of [jobUrl, applyUrl]) {
+    if (typeof url === 'string')
+      out.push(...(url.match(UUID_IN_TEXT) ?? []).map((u) => u.toLowerCase()));
+  }
+  return out;
+}
+
 /**
  * Read a board's answer. Only a definite answer counts: a 404 for a posting
  * (or a whole board), or a board list without the posting. A timeout, a 5xx,
- * a rate limit or a body that will not parse is `unknown`, and changes nothing.
+ * a rate limit, a body that will not parse, or a list whose entries carry no
+ * id this can read is `unknown`, and changes nothing.
  */
 export function readBoardAnswer(check: JobBoardCheck, status: number, body: unknown): BoardVerdict {
   if (status === 404 || status === 410) return 'gone';
@@ -93,6 +113,10 @@ export function readBoardAnswer(check: JobBoardCheck, status: number, body: unkn
   if (check.kind === 'posting') return 'live';
   const jobs = (body as { jobs?: unknown } | null)?.jobs;
   if (!Array.isArray(jobs)) return 'unknown';
-  const ids = jobs.map((j) => String((j as { id?: unknown } | null)?.id ?? '').toLowerCase());
-  return ids.includes(check.postingId) ? 'live' : 'gone';
+  // A board with nothing published: every posting on it is gone.
+  if (jobs.length === 0) return 'gone';
+  const ids = new Set(jobs.flatMap(boardEntryIds));
+  // Entries without a readable id say nothing (a changed answer shape).
+  if (ids.size === 0) return 'unknown';
+  return ids.has(check.postingId) ? 'live' : 'gone';
 }

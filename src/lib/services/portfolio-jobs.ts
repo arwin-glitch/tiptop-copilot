@@ -262,7 +262,9 @@ export async function readPortfolioJobs(
         return remember(result(window.state), RETRY_MS);
       }
       const value = result('ok', collectJobs(window.messages, e.dealRelayPosterIds));
+      // A read that worked and found no scan (every post aged out) has nothing to stand in.
       if (value.snapshot) cache.lastGood.set(organizationId, { at: now.getTime(), result: value });
+      else cache.lastGood.delete(organizationId);
       // A run still posting its parts is read again after a minute.
       return remember(value, value.snapshot?.partial ? RETRY_MS : CACHE_MS);
     } catch {

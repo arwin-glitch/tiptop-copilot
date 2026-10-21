@@ -55,7 +55,7 @@ const ROLE = {
   ],
 };
 
-const RUN = '2026-10-19T13:00:00Z';
+const RUN = '2026-10-19T13:00:00.000Z';
 
 function role(overrides: Partial<JobRole> = {}): JobRole {
   const parsed = parseJobsMessage(post({ run_at: RUN, roles: [ROLE] }))!.roles[0]!;
@@ -168,6 +168,26 @@ describe('parseJobsMessage', () => {
     expect(parsed?.dropped).toBe(1);
   });
 
+  it('cuts an over-long note short and drops an over-long link, keeping the role', () => {
+    const parsed = parseJobsMessage(
+      post({
+        run_at: RUN,
+        roles: [
+          {
+            ...ROLE,
+            status_note: `${'late-stage interviews, '.repeat(12)}want someone by January`,
+            link: `https://jobs.examplerobotics.example/backend?${'x'.repeat(700)}`,
+          },
+        ],
+      }),
+    );
+    expect(parsed?.dropped).toBe(0);
+    const r = parsed!.roles[0]!;
+    expect(r.status_note).toHaveLength(200);
+    expect(r.status_note?.endsWith('…')).toBe(true);
+    expect(r.link).toBeNull();
+  });
+
   it('ignores other markers, bad JSON and a bad envelope', () => {
     expect(parseJobsMessage(`PORTFOLIO_HEALTH_V1\n\`{"run_at":"${RUN}"}\``)).toBeNull();
     expect(parseJobsMessage('JOBS_V1\n`{not json}`')).toBeNull();
@@ -208,7 +228,7 @@ describe('collectJobs', () => {
   });
 
   it('passes over a run still posting for the last complete one', () => {
-    const NEXT = '2026-10-26T13:00:00Z';
+    const NEXT = '2026-10-26T13:00:00.000Z';
     const messages = [
       msg(post({ run_at: NEXT, part: 1, parts: 2, roles: [second] }), '1793000000.000100'),
       msg(post({ run_at: RUN, roles: [ROLE] }), '1792400000.000100'),
@@ -234,6 +254,19 @@ describe('collectJobs', () => {
       msg(post({ run_at: RUN, part: 1, roles: [ROLE] }), '1792400000.000100'),
     ]);
     expect(whole?.partial).toBe(false);
+  });
+
+  it('joins parts however each spells the run time', () => {
+    const snapshot = collectJobs([
+      msg(
+        post({ run_at: '2026-10-19T13:00:00Z', part: 2, parts: 2, roles: [third] }),
+        '1792400100.1',
+      ),
+      msg(post({ run_at: RUN, part: 1, parts: 2, roles: [ROLE] }), '1792400000.1'),
+    ]);
+    expect(snapshot?.partial).toBe(false);
+    expect(snapshot?.runAt).toBe(RUN);
+    expect(snapshot?.roles).toHaveLength(2);
   });
 
   it('keeps the later post of a part posted twice', () => {
@@ -266,7 +299,7 @@ describe('collectJobs', () => {
         '1792400000.000100',
       ),
     ]);
-    expect(snapshot?.scannedSince).toBe('2026-06-21T00:00:00Z');
+    expect(snapshot?.scannedSince).toBe('2026-06-21T00:00:00.000Z');
     expect(snapshot?.emailsScanned).toBe(57);
     expect(snapshot?.dropped).toBe(1);
   });

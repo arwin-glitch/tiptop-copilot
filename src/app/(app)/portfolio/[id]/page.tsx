@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/auth/session';
 import { getAI, getStore } from '@/lib/runtime';
@@ -10,7 +11,7 @@ import { isAutoAsk, requestLabel } from '@/lib/portfolio/requests';
 import { loadPortfolioContacts } from '@/lib/services/portfolio-contacts';
 import { readPortfolioJobsWithin } from '@/lib/services/portfolio-jobs';
 import { cachedJobLinkVerdicts } from '@/lib/services/job-liveness';
-import { applyJobLiveness, jobPlace, roleIsAtCompany, type JobRole } from '@/lib/portfolio/jobs';
+import { applyJobLiveness, jobPlace, roleIsAtCompany } from '@/lib/portfolio/jobs';
 import { SNAPSHOT_WAIT_MS } from '@/lib/records-tabs';
 import { PROFILE_CONTACTS, provenanceLabel } from '@/lib/portfolio/contacts';
 import { CompanyAffinitySection } from '@/components/crm/company-affinity';
@@ -23,6 +24,7 @@ import { ClassifyEmailButton, RequestActions } from '@/components/portfolio/port
 import { jobsTabHref } from '@/components/portfolio/portfolio-jobs';
 import { CreateFollowUpButton, TaskControls } from '@/components/today/today-actions';
 import { formatDate, relativeTime } from '@/lib/util/time';
+import type { PortfolioCompany } from '@/lib/types/domain';
 import { isOpenNow } from '@/lib/tasks/tasks-view';
 
 export const dynamic = 'force-dynamic';
@@ -52,7 +54,7 @@ export default async function PortfolioCompanyPage({
   const openTasks = tasks.filter((t) => isOpenNow(t, new Date()));
   const aiAvailable = getAI().available();
 
-  const [meetingNotes, affinity, people, jobs] = await Promise.all([
+  const [meetingNotes, affinity, people] = await Promise.all([
     notesForCompany(
       getStore(),
       auth.organizationId,
@@ -66,20 +68,9 @@ export default async function PortfolioCompanyPage({
     }),
     // Its people from every source, and the last contact. Never fails.
     loadPortfolioContacts(getStore(), auth.organizationId, [company]),
-    // The weekly jobs scan, if it answers in time; never holds the page.
-    readPortfolioJobsWithin(getStore(), auth.organizationId, SNAPSHOT_WAIT_MS),
   ]);
   const derived = people[company.id]?.contacts ?? [];
   const lastContactAt = people[company.id]?.lastContactAt ?? company.last_contact_at;
-  const jobRoles =
-    jobs?.state === 'ok' && jobs.snapshot
-      ? jobs.snapshot.roles.filter((r) => roleIsAtCompany(r, company))
-      : null;
-  const openRoles = jobRoles
-    ? applyJobLiveness(jobRoles, cachedJobLinkVerdicts(jobRoles)).filter(
-        (r) => r.status === 'active',
-      )
-    : null;
 
   return (
     <PageShell>
@@ -226,12 +217,10 @@ export default async function PortfolioCompanyPage({
             </CardContent>
           </Card>
 
-          {openRoles ? (
-            <OpenRolesCard
-              roles={openRoles}
-              href={jobsTabHref(jobRoles?.[0]?.company ?? company.name)}
-            />
-          ) : null}
+          {/* Streams in: the jobs scan is read from Slack and never holds the page. */}
+          <Suspense fallback={null}>
+            <OpenRolesCard organizationId={auth.organizationId} company={company} />
+          </Suspense>
 
           <Card>
             <CardContent className="pt-4">
@@ -316,7 +305,21 @@ export default async function PortfolioCompanyPage({
 /** Shown on a company's page: its open roles from the weekly jobs scan. */
 const ROLES_ON_PAGE = 3;
 
-function OpenRolesCard({ roles, href }: { roles: JobRole[]; href: string }) {
+async function OpenRolesCard({
+  organizationId,
+  company,
+}: {
+  organizationId: string;
+  company: PortfolioCompany;
+}) {
+  // The weekly jobs scan, if it answers in time; hidden when it cannot be read.
+  const jobs = await readPortfolioJobsWithin(getStore(), organizationId, SNAPSHOT_WAIT_MS);
+  if (jobs?.state !== 'ok' || !jobs.snapshot) return null;
+  const atCompany = jobs.snapshot.roles.filter((r) => roleIsAtCompany(r, company));
+  const roles = applyJobLiveness(atCompany, cachedJobLinkVerdicts(atCompany)).filter(
+    (r) => r.status === 'active',
+  );
+  const href = jobsTabHref(atCompany[0]?.company ?? company.name);
   return (
     <Card>
       <CardContent className="pt-4">

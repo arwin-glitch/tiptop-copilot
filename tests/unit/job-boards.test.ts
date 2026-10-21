@@ -80,6 +80,20 @@ describe('readBoardAnswer', () => {
     expect(readBoardAnswer(board, 200, { jobs: [{ id: 'other' }] })).toBe('gone');
     expect(readBoardAnswer(board, 200, { nope: true })).toBe('unknown');
     expect(readBoardAnswer(board, 404, null)).toBe('gone');
+    expect(readBoardAnswer(board, 200, { jobs: [] })).toBe('gone');
+  });
+
+  it('finds the posting by its link when the list carries no id', () => {
+    const at = (id: string) => ({
+      title: 'Designer',
+      jobUrl: `https://jobs.ashbyhq.com/samplefreight/${id}`,
+      applyUrl: `https://jobs.ashbyhq.com/samplefreight/${id}/application`,
+    });
+    const other = '9f8e7d6c-5b4a-4c3d-8e2f-1a0b9c8d7e6f';
+    expect(readBoardAnswer(board, 200, { jobs: [at(UUID)] })).toBe('live');
+    expect(readBoardAnswer(board, 200, { jobs: [at(other)] })).toBe('gone');
+    // Entries with nothing to match on never close a role.
+    expect(readBoardAnswer(board, 200, { jobs: [{ title: 'Designer' }] })).toBe('unknown');
   });
 });
 

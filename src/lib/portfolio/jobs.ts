@@ -176,12 +176,24 @@ export function jobKey(company: string, title: string): string {
 
 const MESSAGE_ID = z.string().regex(/^[0-9a-f]{10,24}$/i);
 const text = (max: number) => z.string().trim().min(1).max(max);
-/** Optional text: blank or missing reads as null. */
+/**
+ * Optional text: blank or missing reads as null, and text past `max` is cut
+ * short with an ellipsis. A founder's note a little over the limit must not
+ * cost the whole role.
+ */
 const optionalText = (max: number) =>
-  z.preprocess(
-    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
-    z.string().trim().max(max).nullish(),
-  );
+  z.preprocess((v) => {
+    if (typeof v !== 'string') return v;
+    const t = v.trim();
+    if (t === '') return null;
+    return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+  }, z.string().max(max).nullish());
+
+/** A time, as one spelling: parts of one run group by it, however the routine wrote it. */
+const RUN_TIME = z
+  .string()
+  .datetime()
+  .transform((v) => new Date(v).toISOString());
 
 /**
  * A day or a time: "2026-10-01" or an ISO time. A bare day becomes noon UTC,
@@ -223,10 +235,10 @@ export const JOB_ROLE_SCHEMA = z.object({
   location: optionalText(120),
   remote: z.preprocess(normalizeJobRemote, z.enum(JOB_REMOTE).nullable()),
   comp: optionalText(120),
-  /** A job page. Only plain http(s) is kept; anything else reads as no link. */
+  /** A job page. Only plain http(s) is kept; anything else (or too long) reads as no link. */
   link: z.preprocess(
     (v) => (typeof v === 'string' ? httpUrl(v.trim()) : null),
-    z.string().max(600).nullable(),
+    z.string().max(600).nullable().catch(null),
   ),
   contact_name: optionalText(120),
   contact_email: z.preprocess(
@@ -255,13 +267,13 @@ export type JobRole = Omit<JobRoleInput, 'id'> & { id: string };
  * row is dropped and counted, never the whole snapshot.
  */
 export const JOBS_POST_SCHEMA = z.object({
-  run_at: z.string().datetime(),
+  run_at: RUN_TIME,
   /** Part number of a list split across posts (Slack caps a message's length). */
   part: z.number().int().min(1).max(30).optional(),
   /** How many parts the run posted, so a run still posting is never read as whole. */
   parts: z.number().int().min(1).max(30).optional(),
   /** Where this run's scan started: the first run reads ~120 days, later runs since the last. */
-  scanned_since: z.string().datetime().nullish(),
+  scanned_since: RUN_TIME.nullish(),
   emails_scanned: z.number().int().min(0).max(100_000).nullish(),
   roles: z.array(z.unknown()).max(80).default([]),
 });

@@ -24,7 +24,7 @@ afterEach(async () => {
   await harness.dispose();
 });
 
-const RUN = '2026-10-19T13:00:00Z';
+const RUN = '2026-10-19T13:00:00.000Z';
 const NOW = new Date('2026-10-21T12:00:00Z');
 const live = (): AppEnv => ({
   ...env(),
@@ -157,6 +157,27 @@ describe('readPortfolioJobs', () => {
     });
     expect(after).toMatchObject({ state: 'bot_not_in_channel', snapshot: null });
     expect(peekPortfolioJobs(org, { now: later, e: live() })).toBeNull();
+  });
+
+  it('drops the last good snapshot once a working read finds none', async () => {
+    const org = harness.auth.organizationId;
+    const s = slack([ok, empty, limited]);
+    await readPortfolioJobs(harness.store, org, { now: NOW, fetchImpl: s.fetchImpl, e: live() });
+
+    const later = new Date(NOW.getTime() + 10 * 60_000);
+    const aged = await readPortfolioJobs(harness.store, org, {
+      now: later,
+      fetchImpl: s.fetchImpl,
+      e: live(),
+    });
+    expect(aged).toMatchObject({ state: 'ok', snapshot: null });
+
+    const during = await readPortfolioJobs(harness.store, org, {
+      now: new Date(later.getTime() + 10 * 60_000),
+      fetchImpl: s.fetchImpl,
+      e: live(),
+    });
+    expect(during).toMatchObject({ state: 'rate_limited', snapshot: null });
   });
 
   it('answers null past its wait, for a page that only counts', async () => {
