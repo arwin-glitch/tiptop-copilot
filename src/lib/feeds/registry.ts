@@ -60,6 +60,7 @@ export type StaticFeedId =
   | 'relationships'
   | 'lp-pipeline'
   | 'portfolio-health'
+  | 'portfolio-jobs'
   | 'intros'
   | 'week-ahead'
   | 'email-queue'
@@ -105,6 +106,11 @@ const TWICE_DAILY = { kind: 'every', hours: 12, graceHours: 6 } as const;
  * GitHub starts scheduled runs late, sometimes by hours.
  */
 const DAILY_JOB = { kind: 'every', hours: 12, graceHours: 6 } as const;
+/**
+ * Once a week: late after ten days, the age at which the Jobs tab calls its
+ * scan overdue (`JOBS_STALE_AFTER_DAYS`), and stopped once two runs are missed.
+ */
+const WEEKLY = { kind: 'every', hours: 7 * 24, graceHours: 3 * 24 } as const;
 
 /**
  * The fixed feeds, in the order the Diagnostics page lists feeds of the same
@@ -191,6 +197,16 @@ export const FEEDS: readonly FeedDef[] = [
     fills: ['Portfolio: Health', 'Phone and desktop alerts: companies at risk'],
     schedule: 'Every morning',
     cadence: DAILY,
+  },
+  {
+    id: 'portfolio-jobs',
+    name: 'Portfolio jobs',
+    source: 'deal-relay',
+    fills: ['Portfolio: Jobs', 'Company pages: Open roles'],
+    schedule: 'Once a week, Monday morning; a long list comes in numbered parts',
+    // A run split into parts repeats its run_at on every part, and any part
+    // the Jobs tab can read counts as the run being seen.
+    cadence: WEEKLY,
   },
   {
     id: 'lp-pipeline',
@@ -351,6 +367,7 @@ export const FEED_MARKERS: Partial<Record<StaticFeedId, readonly string[]>> = {
   relationships: ['RELATIONSHIPS_V1'],
   'lp-pipeline': ['LP_PIPELINE_V1'],
   'portfolio-health': ['PORTFOLIO_HEALTH_V1'],
+  'portfolio-jobs': ['JOBS_V1'],
   intros: ['INTROS_V1'],
   'week-ahead': ['WEEK_AHEAD_V1'],
   'email-queue': ['EMAIL_QUEUE_V1'],

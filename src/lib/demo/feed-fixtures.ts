@@ -19,6 +19,8 @@ export function demoFeedInputs(now: Date): FeedInputs {
     relationships: seen(7),
     'lp-pipeline': seen(8),
     'portfolio-health': seen(8),
+    // The weekly jobs scan, two days ago (as the demo Jobs tab says).
+    'portfolio-jobs': seen(50),
     intros: seen(9),
     'week-ahead': seen(9),
     'email-queue': seen(10),

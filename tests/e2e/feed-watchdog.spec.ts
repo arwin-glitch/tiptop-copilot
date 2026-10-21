@@ -65,6 +65,7 @@ test('Diagnostics keeps its setup report and puts the feeds one click away', asy
   await expect(rows.nth(1)).toHaveAttribute('data-feed', 'deal-sorter');
   await expect(rows.nth(1)).toContainText('Late');
   await expect(feeds.locator('li[data-feed="relationships"]')).toContainText('Running');
+  await expect(feeds.locator('li[data-feed="portfolio-jobs"]')).toContainText('Running');
   await expect(feeds.locator('li[data-feed="portfolio-adds"]')).toContainText(
     'normal when there was nothing new',
   );

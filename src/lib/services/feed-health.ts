@@ -13,6 +13,7 @@ import {
   type StaticFeedId,
 } from '@/lib/feeds/registry';
 import { cadenceStatus, STATUS_ORDER, type FeedStatus } from '@/lib/feeds/status';
+import { JOBS_MARKER } from '@/lib/portfolio/jobs';
 import { getUpdatesFeed } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
@@ -47,6 +48,7 @@ import {
   WEEK_AHEAD_MARKER,
 } from './follow-ups';
 import { parsePortfolioRelayMessage } from './portfolio-ingest';
+import { parseJobsMessage } from './portfolio-jobs';
 import { parseTaskCloseMessage, TASK_CLOSER_RUN_MARKER } from './task-close';
 import { parseTaskRelayMessage } from './task-ingest';
 import { readUpdates } from './updates';
@@ -349,6 +351,13 @@ export function dealRelayRules(e: Pick<AppEnv, 'dealRelayPosterIds' | 'taskRelay
       feeds: ['deal-sorter'],
       valid: parseDealRelayMessage(text)?.kind === 'heartbeat',
     }),
+    posters: e.dealRelayPosterIds,
+    skipSubtypes: true,
+  });
+  // The weekly jobs scan may come in numbered parts: any part the Jobs tab
+  // can read is the run seen.
+  rules.set(JOBS_MARKER, {
+    read: (text) => ({ feeds: ['portfolio-jobs'], valid: parseJobsMessage(text) !== null }),
     posters: e.dealRelayPosterIds,
     skipSubtypes: true,
   });

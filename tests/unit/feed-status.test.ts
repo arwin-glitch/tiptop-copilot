@@ -9,6 +9,7 @@ import {
   stoppedAfterHours,
 } from '@/lib/feeds/status';
 import { expectedWords } from '@/lib/feeds/words';
+import { JOBS_CADENCE_DAYS, JOBS_MARKER, JOBS_STALE_AFTER_DAYS } from '@/lib/portfolio/jobs';
 
 /**
  * The feed watchdog's status logic: on time, late after the grace period,
@@ -199,6 +200,24 @@ describe('the registry', () => {
     expect(
       cadenceStatus(feedDef('priorities').cadence, afternoon, at('2026-10-22T03:00:00Z'), TZ),
     ).toBe('stopped');
+  });
+
+  it('reads the weekly jobs scan as late exactly when the Jobs tab calls it overdue', () => {
+    const jobs = feedDef('portfolio-jobs');
+    expect(jobs.source).toBe('deal-relay');
+    expect(FEED_MARKERS['portfolio-jobs']).toEqual([JOBS_MARKER]);
+    expect(jobs.cadence).toMatchObject({ kind: 'every', hours: JOBS_CADENCE_DAYS * 24 });
+    const lastRun = '2026-10-05T13:00:00Z';
+    const daysAfter = (days: number) => new Date(Date.parse(lastRun) + days * 86_400_000);
+    expect(cadenceStatus(jobs.cadence, lastRun, daysAfter(8), TZ)).toBe('ok');
+    expect(cadenceStatus(jobs.cadence, lastRun, daysAfter(JOBS_STALE_AFTER_DAYS - 0.1), TZ)).toBe(
+      'ok',
+    );
+    expect(cadenceStatus(jobs.cadence, lastRun, daysAfter(JOBS_STALE_AFTER_DAYS + 0.1), TZ)).toBe(
+      'late',
+    );
+    // Two weekly runs missed is a stopped feed.
+    expect(cadenceStatus(jobs.cadence, lastRun, daysAfter(18), TZ)).toBe('stopped');
   });
 
   it('reads a Reports channel as late exactly when the Reports tab calls it overdue', () => {
