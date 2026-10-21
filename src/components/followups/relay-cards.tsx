@@ -12,8 +12,10 @@ import type {
   WeekAhead,
   WeekEvent,
 } from '@/lib/services/follow-ups';
+import { introKey, type IntroDraft } from '@/lib/intros/intro-draft';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { WriteIntroButton } from '@/components/followups/write-intro-button';
 import { formatDate, formatTime, formatWeekdayLong, relativeTime } from '@/lib/util/time';
 
 /**
@@ -138,11 +140,17 @@ export function IntrosCard({
   intros,
   now,
   empty = null,
+  drafts = {},
+  canSend = false,
 }: {
   intros: Intros;
   now: Date;
   /** What to show when there is no intro. Nothing, by default. */
   empty?: ReactNode;
+  /** "Write the intro" drafts for owed intros, by `introKey`; none, no button. */
+  drafts?: Record<string, IntroDraft>;
+  /** Whether the compose window may send from the mailbox (otherwise it offers Copy). */
+  canSend?: boolean;
 }) {
   if (intros.intros.length === 0) return empty;
   const sorted = [...intros.intros].sort(
@@ -161,27 +169,35 @@ export function IntrosCard({
       </CardHeader>
       <CardContent>
         <ul className="divide-y divide-[var(--border)]">
-          {sorted.map((i) => (
-            <li key={`${i.for_who}-${i.to_who}`} className="flex items-start gap-3 py-2.5">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium">
-                    {i.for_who} <span className="text-[var(--fg-subtle)]">→</span> {i.to_who}
-                  </span>
-                  <Badge tone={INTRO[i.status].tone}>{INTRO[i.status].label}</Badge>
+          {sorted.map((i) => {
+            const draft = i.status === 'owed' ? drafts[introKey(i)] : undefined;
+            return (
+              <li key={`${i.for_who}-${i.to_who}`} className="flex items-start gap-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">
+                      {i.for_who} <span className="text-[var(--fg-subtle)]">→</span> {i.to_who}
+                    </span>
+                    <Badge tone={INTRO[i.status].tone}>{INTRO[i.status].label}</Badge>
+                  </div>
+                  <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
+                    {i.made_at
+                      ? `Made ${relativeTime(i.made_at, now)}`
+                      : i.asked_at
+                        ? `Asked ${relativeTime(i.asked_at, now)}`
+                        : ''}
+                    {i.note ? `${i.made_at || i.asked_at ? ' · ' : ''}${i.note}` : ''}
+                  </p>
+                  {draft ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <WriteIntroButton draft={draft} canSend={canSend} who={introKey(i)} />
+                    </div>
+                  ) : null}
                 </div>
-                <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
-                  {i.made_at
-                    ? `Made ${relativeTime(i.made_at, now)}`
-                    : i.asked_at
-                      ? `Asked ${relativeTime(i.asked_at, now)}`
-                      : ''}
-                  {i.note ? `${i.made_at || i.asked_at ? ' · ' : ''}${i.note}` : ''}
-                </p>
-              </div>
-              <GmailLink threadId={i.thread_id} label={`Open the intro thread in Gmail`} />
-            </li>
-          ))}
+                <GmailLink threadId={i.thread_id} label={`Open the intro thread in Gmail`} />
+              </li>
+            );
+          })}
         </ul>
       </CardContent>
     </Card>

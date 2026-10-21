@@ -5,8 +5,10 @@ import { toast } from 'sonner';
 import { Copy, Loader2, Paperclip, Send, Undo2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/form';
+import { Notice } from '@/components/ui/feedback';
 import { swapSignOff } from '@/components/followups/email-session-client';
 import { parseAddresses } from '@/lib/email/addresses';
+import { lineWithLinksToHtml, textWithLinks } from '@/lib/email/name-links';
 
 type Signature = 'nick' | 'arwin';
 
@@ -18,9 +20,26 @@ export interface ComposeDraft {
   /** Message whose attachments go along (a forward). */
   forwardOf?: string | null;
   attachmentNames?: string[];
+  /** Names written [Full Name](LinkedIn URL) go out as links (the intro draft). */
+  links?: boolean;
+  /** Plain sentences to read before sending: a missing address, an unlinked name. */
+  hints?: string[];
 }
 
 const UNDO_SECONDS = 8;
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** The email as Gmail-pasteable HTML: headers, then the body with its LinkedIn names linked. */
+function copyHtml(head: string, body: string): string {
+  const lines = [
+    ...head.split('\n').map(escapeHtml),
+    '',
+    ...body.split('\n').map(lineWithLinksToHtml),
+  ];
+  return lines.map((l) => (l.trim() ? `<div>${l}</div>` : '<div><br></div>')).join('');
+}
 
 /**
  * A Gmail-style compose window: new email, forward, or a prefilled follow-up.
@@ -57,7 +76,15 @@ export function Composer({
     const res = await fetch('/api/inbox/compose', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to, cc, subject, body, signature, forwardOf: initial.forwardOf }),
+      body: JSON.stringify({
+        to,
+        cc,
+        subject,
+        body,
+        signature,
+        forwardOf: initial.forwardOf,
+        links: Boolean(initial.links),
+      }),
     });
     setSending(false);
     if (res.ok) {
@@ -68,7 +95,7 @@ export function Composer({
       const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
       toast.error(j?.error?.message ?? 'It did not send. Try again.');
     }
-  }, [to, cc, subject, body, signature, initial.forwardOf, onSent, onClose]);
+  }, [to, cc, subject, body, signature, initial.forwardOf, initial.links, onSent, onClose]);
 
   const sendRef = React.useRef(send);
   React.useEffect(() => {
@@ -118,9 +145,27 @@ export function Composer({
   };
 
   const copy = async () => {
-    const text = `To: ${to}\n${cc ? `Cc: ${cc}\n` : ''}Subject: ${subject}\n\n${body}`;
+    const head = `To: ${to}\n${cc ? `Cc: ${cc}\n` : ''}Subject: ${subject}`;
     try {
-      await navigator.clipboard.writeText(text);
+      if (initial.links) {
+        // Plain text names the links; the HTML copy pastes into Gmail with them.
+        const text = `${head}\n\n${textWithLinks(body)}`;
+        if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+          // A browser that refuses the HTML copy still gets the plain one.
+          await navigator.clipboard
+            .write([
+              new ClipboardItem({
+                'text/plain': new Blob([text], { type: 'text/plain' }),
+                'text/html': new Blob([copyHtml(head, body)], { type: 'text/html' }),
+              }),
+            ])
+            .catch(() => navigator.clipboard.writeText(text));
+        } else {
+          await navigator.clipboard.writeText(text);
+        }
+      } else {
+        await navigator.clipboard.writeText(`${head}\n\n${body}`);
+      }
       toast.success('Copied. Paste it into Gmail.');
     } catch {
       toast.error('Could not copy. Select the text and copy it.');
@@ -148,6 +193,15 @@ export function Composer({
         </button>
       </div>
       <div className="space-y-2 overflow-y-auto p-3">
+        {initial.hints?.length ? (
+          <Notice tone="warn">
+            <ul aria-label="Before you send" className="space-y-1 text-xs">
+              {initial.hints.map((h) => (
+                <li key={h}>{h}</li>
+              ))}
+            </ul>
+          </Notice>
+        ) : null}
         <div className="flex items-center gap-2">
           <label htmlFor={`${uid}-to`} className="w-12 text-sm text-[var(--fg-muted)]">
             To
@@ -208,6 +262,11 @@ export function Composer({
             }
           }}
         />
+        {initial.links ? (
+          <p className="text-xs text-[var(--fg-subtle)]">
+            A name written [Full Name](LinkedIn link) goes out linked to that profile.
+          </p>
+        ) : null}
         {initial.attachmentNames?.length ? (
           <div className="flex flex-wrap gap-1.5">
             {initial.attachmentNames.map((a) => (

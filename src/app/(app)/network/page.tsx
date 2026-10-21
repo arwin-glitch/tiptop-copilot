@@ -5,6 +5,8 @@ import { getStore } from '@/lib/runtime';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { buildRelationshipList } from '@/lib/services/network';
 import { readFollowUps, readFollowUpsWithin } from '@/lib/services/follow-ups';
+import { introDrafts } from '@/lib/services/intro-drafts';
+import { mailboxCanSend } from '@/lib/services/docsend-follow-up';
 import {
   fundAddresses,
   getRelationshipIndex,
@@ -245,7 +247,22 @@ async function IntrosTab() {
   const intros = followUps.snapshot.intros;
   const none = empty('Shows here once the intro routine has posted.');
   if (!intros) return none;
-  return <IntrosCard intros={intros} now={new Date()} empty={none} />;
+  // "Write the intro" on each owed one: drafts from verified data only, and
+  // never a reason for the tab to fail (both reads degrade to nothing).
+  const store = getStore();
+  const [drafts, integration] = await Promise.all([
+    introDrafts(store, auth.organizationId, intros.intros).catch(() => ({})),
+    getPrimaryIntegration(store, auth.organizationId).catch(() => null),
+  ]);
+  return (
+    <IntrosCard
+      intros={intros}
+      now={new Date()}
+      empty={none}
+      drafts={drafts}
+      canSend={mailboxCanSend(integration) && !auth.isDemo}
+    />
+  );
 }
 
 /** The relationship radar's "going cold" list, with Copilot's own from mail and calendar. */
