@@ -168,6 +168,8 @@ export function TimeGrid({
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
   const pending = React.useRef<Pending | null>(null);
+  // A "+N" list is open: a press elsewhere on the grid only closes it, as in Google.
+  const foldOpen = React.useRef(false);
   const [drag, setDragState] = React.useState<Drag | null>(null);
   // The handlers read the drag from the ref (no stale closure); the render reads the state.
   const dragRef = React.useRef<Drag | null>(null);
@@ -275,7 +277,7 @@ export function TimeGrid({
   });
 
   function onPointerDownEmpty(e: React.PointerEvent<HTMLDivElement>) {
-    if (!canEdit || e.button !== 0) return;
+    if (!canEdit || e.button !== 0 || foldOpen.current) return;
     // A press in a "+N" list (drawn elsewhere on the page) is not a press on the grid.
     if (!(e.target instanceof Node) || !contentRef.current?.contains(e.target)) return;
     if ((e.target as HTMLElement).closest('[data-event-chip], [data-event-fold]')) return;
@@ -664,6 +666,9 @@ export function TimeGrid({
                     z={fold.z}
                     timeZone={timeZone}
                     onOpen={onOpen}
+                    onOpenChange={(open) => {
+                      foldOpen.current = open;
+                    }}
                   />
                 ))}
 
@@ -767,6 +772,7 @@ function FoldChip({
   z,
   timeZone,
   onOpen,
+  onOpenChange,
 }: {
   events: RangeEvent[];
   top: number;
@@ -776,11 +782,12 @@ function FoldChip({
   z: number;
   timeZone: string;
   onOpen: (event: RangeEvent, element: HTMLElement) => void;
+  onOpenChange: (open: boolean) => void;
 }) {
   const first = events[0];
   if (!first?.startsAt) return null;
   return (
-    <Popover>
+    <Popover onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"

@@ -187,6 +187,21 @@ test('a "+N" holds what does not fit beside the others and lists it', async ({ p
   await more.click();
   const list = page.getByRole('dialog');
   await expect(list.getByText('Panel run-through')).toBeVisible();
+
+  // A press on empty time elsewhere only closes the list, as in Google: no new event.
+  const otherDay = page
+    .locator(`[data-calendar-view="week"] [data-date]:not([data-date="${busy}"])`)
+    .first();
+  const box = (await otherDay.boundingBox())!;
+  const scrolled = await page
+    .locator('[data-calendar-view="week"] .overflow-y-auto')
+    .evaluate((el) => el.scrollTop);
+  await page.mouse.click(box.x + box.width / 2, box.y + scrolled + 40);
+  await expect(list).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'New event' })).toHaveCount(0);
+  await expect(page.locator('[data-new-event]')).toHaveCount(0);
+
+  await more.click();
   await list.getByRole('button', { name: /Quick sync: Jordan/ }).click();
   await expect(page.getByRole('dialog', { name: 'Quick sync: Jordan' })).toBeVisible();
   // Pressing in the list made nothing new.

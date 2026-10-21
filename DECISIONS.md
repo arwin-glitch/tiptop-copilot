@@ -2025,7 +2025,8 @@ Calendar", and the new views to be what the tab opens on.
   A cascade too deep moves back left instead; a row with more side-by-side
   events than fit shows what fits and folds the rest into a "+N" in the last
   slot, as tall as the time it covers, which lists them (each opens its own
-  card). One left over on its own is drawn in that slot rather than as "+1".
+  card; a press elsewhere on the grid only closes the list, as in Google).
+  One left over on its own is drawn in that slot rather than as "+1".
 - **No word is ever broken.** Titles are `word-break: normal` and
   `overflow-wrap: normal` (no `break-words`/`anywhere`). Where a chip is wide
   and tall enough, the title wraps over whole words, each word kept whole and
