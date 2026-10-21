@@ -663,12 +663,19 @@ const refreshState = processWide('portfolio-numbers-refresh', () => ({
   /** The pass running now (or about to, after its pause), by organization. */
   inFlight: new Map<string, Promise<NumbersRefresh>>(),
   retryAt: new Map<string, number>(),
+  /** Bumped by the test reset; a refresh started before it stops at its next step. */
+  generation: 0,
 }));
 
-/** Test hook. */
+/**
+ * Test hook. A refresh still running (or waiting out its pause) stops at its
+ * next step: it reads nothing more, stores nothing more, and never takes the
+ * slot or sets a cooldown again, so it cannot leak into the next test.
+ */
 export function resetPortfolioNumbersRefresh(): void {
   refreshState.inFlight.clear();
   refreshState.retryAt.clear();
+  refreshState.generation += 1;
 }
 
 export interface RefreshOptions {
@@ -716,12 +723,18 @@ function startPass(
   const clock = options.now ?? (() => new Date());
   const read = (pass === 1 ? options.firstRead : undefined) ?? options.read ?? gmailReader;
   const maxPasses = options.maxPasses ?? MAX_PASSES;
+  // Only the test reset changes it (`resetPortfolioNumbersRefresh`): in the
+  // running app every pass is current.
+  const generation = refreshState.generation;
+  const current = () => refreshState.generation === generation;
   const run = (async (): Promise<NumbersRefresh> => {
     let previous: NumbersSnapshot | null = null;
     try {
       if (pauseMs > 0) await new Promise((r) => setTimeout(r, pauseMs));
+      if (!current()) return { state: 'error', snapshot: null, next: null };
       previous = await readNumbersSnapshot(store, organizationId).catch(() => null);
       const computed = await read(store, organizationId, companies, clock());
+      if (!current()) return { state: 'error', snapshot: previous, next: null };
       if (computed.state !== 'ok') {
         refreshState.retryAt.set(organizationId, clock().getTime() + REFRESH_RETRY_MS);
         return { state: computed.state, snapshot: previous, next: null };
@@ -731,6 +744,7 @@ function startPass(
       const progressed = pass === 1 || done.size > readInFull.size;
       const snapshot = mergeSnapshot(previous, computed, companies, clock());
       await writeNumbersSnapshot(store, organizationId, snapshot);
+      if (!current()) return { state: 'ok', snapshot, next: null };
       refreshState.retryAt.delete(organizationId);
       const carryOn = snapshot.partial && pass < maxPasses && progressed;
       // Registered before this pass settles, so nobody sees a gap between passes.
@@ -756,7 +770,9 @@ function startPass(
       return { state: 'ok', snapshot, next };
     } catch (error) {
       log.warn('Portfolio numbers refresh failed', { reason: (error as Error)?.message });
-      refreshState.retryAt.set(organizationId, clock().getTime() + REFRESH_RETRY_MS);
+      if (current()) {
+        refreshState.retryAt.set(organizationId, clock().getTime() + REFRESH_RETRY_MS);
+      }
       return { state: 'error', snapshot: previous, next: null };
     }
   })();

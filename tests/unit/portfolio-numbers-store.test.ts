@@ -575,4 +575,30 @@ describe('a refresh that runs out of time', () => {
     await refreshSettled(Promise.resolve(first));
     expect(gmail).toHaveBeenCalledTimes(2);
   });
+
+  it('a pass waiting out its pause stops at the test reset and leaves the next refresh alone', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    const gmail = passes(acmeOnly, both);
+    const first = await refreshPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], {
+      now: () => NOW,
+      read: gmail,
+    });
+    expect(first.next).not.toBeNull();
+
+    resetPortfolioNumbersRefresh();
+    await vi.advanceTimersByTimeAsync(15_000);
+    const last = await refreshSettled(Promise.resolve(first));
+    // The old chain read nothing more and handed on nothing.
+    expect(gmail).toHaveBeenCalledTimes(1);
+    expect(last.next).toBeNull();
+
+    // A refresh after the reset is a new one, not the old chain's next pass.
+    const fresh = vi.fn<NumbersReader>(async () => ({ state: 'ok', reads: both }));
+    const after = await refreshPortfolioNumbers(harness.store, org, [ACME, BRAMBLE], {
+      ...fast,
+      read: fresh,
+    });
+    expect(fresh).toHaveBeenCalledTimes(1);
+    expect(after.snapshot?.partial).toBe(false);
+  });
 });
