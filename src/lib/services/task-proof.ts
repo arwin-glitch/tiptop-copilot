@@ -978,6 +978,17 @@ export async function runProofCheck(
     const judgeAfter = Date.parse(check.expectation.judgeAfter);
     const due =
       check.state === 'waiting' && !Number.isNaN(judgeAfter) && now.getTime() >= judgeAfter;
+    // Only the mailbox's owner's deliverables are judged from it: a task
+    // someone else does (theirs, or one they ticked unassigned) goes out from
+    // their own mailbox, which the app cannot see.
+    const responsible = task.assigned_to ?? check.expectation.tickedBy;
+    const judgeable =
+      due &&
+      // A reply whose email came from the mailbox itself is owed to no one.
+      recipients.length > 0 &&
+      // Until the mailbox has synced past the window, a missing email may only be unsynced.
+      syncedThrough >= judgeAfter &&
+      !(ownerId && responsible && responsible !== ownerId);
     const find = (messages: readonly EmailMessage[]) =>
       findProofMessage(
         messages,
@@ -988,7 +999,7 @@ export async function runProofCheck(
         check.usedEvidence,
       );
     let message = find(sent);
-    if (!message && due) {
+    if (!message && judgeable) {
       // About to say nothing went out: look for this task's own recipients
       // too, since the scan above reads only the newest sent mail.
       const emails = recipients.flatMap((r) => r.emails);
@@ -1010,16 +1021,7 @@ export async function runProofCheck(
       if (applied === 'seen') seen++;
       continue;
     }
-    if (!due) continue;
-    // A reply whose email came from the mailbox itself is owed to no one: never judged.
-    if (recipients.length === 0) continue;
-    // Until the mailbox has synced past the window, a missing email may only be unsynced.
-    if (syncedThrough < judgeAfter) continue;
-    // Only the mailbox's owner's deliverables are judged from it: a task
-    // someone else does (theirs, or one they ticked unassigned) goes out from
-    // their own mailbox, which the app cannot see.
-    const responsible = task.assigned_to ?? check.expectation.tickedBy;
-    if (ownerId && responsible && responsible !== ownerId) continue;
+    if (!judgeable) continue;
     await recordAudit(store, {
       organizationId,
       userId: null,
