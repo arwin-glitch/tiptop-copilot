@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState, PlainText } from '@/components/ui/feedback';
 import { Switch } from '@/components/ui/form';
+import { ShowMore } from '@/components/ui/show-more';
 import { feedbackCounts, type FeedbackItem, type FeedbackStatus } from '@/lib/feedback/shared';
 import { cn } from '@/lib/util/cn';
 import { formatDateTime } from '@/lib/util/time';
@@ -25,6 +26,8 @@ import { formatDateTime } from '@/lib/util/time';
 
 /** A note longer than this opens folded to a few lines. */
 const FOLD_CHARS = 400;
+/** Notes a list shows at first, and each "Show more" adds: never a long scroll. */
+const STEP = 20;
 
 const failed = (message: string): ActionResult => ({
   ok: false,
@@ -43,17 +46,31 @@ export function FeedbackList({
   canClose: boolean;
 }) {
   const [show, setShow] = React.useState<FeedbackStatus>('open');
-  /** Statuses changed here, ahead of the page catching up. */
-  const [changed, setChanged] = React.useState<Record<string, FeedbackStatus>>({});
+  const [limit, setLimit] = React.useState<Record<FeedbackStatus, number>>({
+    open: STEP,
+    done: STEP,
+  });
+  /**
+   * Statuses changed here, ahead of the page catching up. Each holds only
+   * while its note's `changedAt` is still the one it was changed over: once
+   * the page brings a newer one (this change, or someone else's after it),
+   * the page wins.
+   */
+  const [changed, setChanged] = React.useState<
+    Record<string, { status: FeedbackStatus; over: string | null }>
+  >({});
   const [busy, setBusy] = React.useState<string | null>(null);
   const [, startChange] = React.useTransition();
 
   const notes = items.map((item) => {
-    const status = changed[item.id];
-    return status && status !== item.status ? { ...item, status } : item;
+    const local = changed[item.id];
+    return local && local.over === item.changedAt && local.status !== item.status
+      ? { ...item, status: local.status }
+      : item;
   });
   const counts = feedbackCounts(notes);
   const shown = notes.filter((n) => n.status === show);
+  const visible = shown.slice(0, limit[show]);
 
   function change(item: FeedbackItem, status: FeedbackStatus) {
     setBusy(item.id);
@@ -69,7 +86,7 @@ export function FeedbackList({
         toast.error(result.error?.message ?? 'That could not be saved. Try again.');
         return;
       }
-      setChanged((c) => ({ ...c, [item.id]: status }));
+      setChanged((c) => ({ ...c, [item.id]: { status, over: item.changedAt } }));
       toast.success(status === 'done' ? 'Marked done' : 'Back on the open list');
     });
   }
@@ -113,19 +130,30 @@ export function FeedbackList({
           }
         />
       ) : (
-        <ul aria-label={show === 'open' ? 'Open feedback' : 'Done feedback'} className="space-y-3">
-          {shown.map((note) => (
-            <li key={note.id}>
-              <FeedbackNote
-                note={note}
-                timeZone={timeZone}
-                canClose={canClose}
-                busy={busy === note.id}
-                onChange={change}
-              />
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul
+            aria-label={show === 'open' ? 'Open feedback' : 'Done feedback'}
+            className="space-y-3"
+          >
+            {visible.map((note) => (
+              <li key={note.id}>
+                <FeedbackNote
+                  note={note}
+                  timeZone={timeZone}
+                  canClose={canClose}
+                  busy={busy === note.id}
+                  onChange={change}
+                />
+              </li>
+            ))}
+          </ul>
+          <ShowMore
+            shown={visible.length}
+            total={shown.length}
+            step={STEP}
+            onMore={() => setLimit((l) => ({ ...l, [show]: l[show] + STEP }))}
+          />
+        </>
       )}
     </section>
   );
