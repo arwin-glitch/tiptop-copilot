@@ -10,6 +10,51 @@ throughout.
 
 ## [Unreleased]
 
+- **Tasks: a proof check for deliverables ticked by hand, and a company chip
+  on every task.** When someone ticks a task that is only done once something
+  reaches someone (a reply, a document sent, feedback handed back, an intro, a
+  signature or a payment, to a named person), the app looks for it in the
+  connected mailbox's sent mail. A send it finds shows as "Seen sent" on
+  Completed. After two business days with nothing seen, the task shows
+  "Ticked, not seen sent" on Completed and in a small Today card, with "It's
+  done" and "Reopen"; nothing is reopened or sent on its own, and a send seen
+  later still clears it. Plain to-dos (calls, meetings, anything done by
+  Slack, phone or in person) and automatic closes are never checked, and a
+  teammate's task is not flagged from the owner's mailbox. Once its prompt is
+  updated, the 3 PM task closer can also count Slack messages, payment
+  confirmations and signature notices as proof (`TASK_PROOF_V1`). Every task
+  row, on Tasks and in Today's "Tasks due", shows a quiet company chip from
+  its deal or portfolio link, or a CRM company chosen in the edit dialog. No
+  migration (D-065).
+
+- **Campaigns: a photo per person, CC and BCC, and "Who gets what".** All
+  optional; a campaign that uses none of it sends exactly as before. Photos
+  are uploaded as a set and matched to each person by file name; one that
+  matches nobody, or two people, is given out by hand. CC goes on every email;
+  BCC goes on every email or only on the first email sent; each person can
+  also have their own CC. The review now shows "Who gets what" for every email
+  (paged, searchable, with a CSV download), counts each copy toward the daily
+  cap, says that a copy's unsubscribe link unsubscribes the recipient, and
+  blocks sending, naming the person, when a photo cannot go or a copied
+  address has unsubscribed. "Send test to me" never copies anyone, and a
+  bounce from a copied address no longer marks the recipient bounced. Needs
+  migration `20261021001100_campaign_photos_cc.sql`; until it is applied these
+  options stay hidden. Before a real campaign uses BCC, confirm with a test to
+  inboxes you own that Gmail strips the Bcc line.
+
+- **Portfolio › Jobs, and Open roles on company pages.** A new Jobs tab lists
+  the open roles founders mention in investor updates and "we're hiring, know
+  anyone?" emails, from a weekly scan that a routine posts to #deal-relay
+  (`JOBS_V1`). Active roles show by default; filter by status, team and
+  company, or search, and the filters stay in the link. Each role shows the
+  founder's own status note, when it was first and last seen, how often it
+  came up, who to send candidates to, the job posting, its source emails in
+  Gmail, and a Copy blurb button for sharing. A posting that is gone from
+  Greenhouse, Lever or Ashby (checked daily) closes the role. Each company's
+  page shows Open roles (n), linking to its roles. Diagnostics › Feeds watches
+  the weekly scan and calls it late after 10 days. The tab explains the scan
+  until the routine first posts. No migration.
+
 - **Campaigns: fill in missing merge fields from the review.** On the review
   screen, each "N people have no first name / name / company" line now opens
   to show who they are, with inputs for whatever each person is missing (Save,
