@@ -8,6 +8,7 @@ import { TaskControls, type TaskControlsTask } from '@/components/today/today-ac
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/feedback';
 import { matchesWho } from '@/lib/tasks/tasks-view';
+import { CompanyChip, type TaskCompanyChip } from './company-chip';
 import { useTasksWho, WhoFilter } from './tasks-tabs';
 
 /** A To do row as the server prepared it: every label already worked out. */
@@ -25,6 +26,8 @@ export interface TodoTaskItem {
   assignedTo: string | null;
   /** Set for a money or legal task. */
   money: { why: string; stale: string | null; needsProof: boolean } | null;
+  /** The deal, portfolio or CRM company it is about. */
+  company?: TaskCompanyChip | null;
   controls: TaskControlsTask;
 }
 
@@ -96,6 +99,7 @@ function TodoRow({ item }: { item: TodoTaskItem }) {
           ) : (
             item.title
           )}
+          <CompanyChip company={item.company} />
           {item.suggested ? (
             <Badge tone="outline" className="ml-2">
               Suggested

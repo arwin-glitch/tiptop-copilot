@@ -9,8 +9,11 @@ import {
   autoCheckStatusLine,
   autoCloseInfo,
   autoCloseView,
+  gmailMessageHref,
   linkMailbox,
 } from '@/lib/services/task-close';
+import { proofCheckView, readProofChecksSafe } from '@/lib/services/task-proof';
+import { readTaskCompanies } from '@/lib/services/task-company';
 import {
   moneyLegalBadges,
   needsProofView,
@@ -74,7 +77,7 @@ export default async function TasksPage() {
     listDrafts(orgId, { limit: 20 }),
   ]);
   const openTasks = [...overdue, ...dueToday, ...upcoming];
-  const [autos, mailbox, version, money, people] = await Promise.all([
+  const [autos, mailbox, version, money, people, checks, companies] = await Promise.all([
     autoCloseInfo(
       store,
       orgId,
@@ -85,6 +88,9 @@ export default async function TasksPage() {
     // Never throws: a fault here hides the money and legal marks, not the page.
     readMoneyLegal(store, orgId, [...openTasks, ...snoozedTasks, ...completed]),
     readTaskPeople(orgId, store),
+    // Neither throws: a fault only hides the proof notes or the company chips.
+    readProofChecksSafe(store, orgId, completed),
+    readTaskCompanies(store, orgId, [...openTasks, ...snoozedTasks, ...completed]),
   ]);
   const timeZone = auth.profile.timezone;
   // Names on rows only when there is more than one person to tell apart.
@@ -96,6 +102,7 @@ export default async function TasksPage() {
     dueAt: task.due_at,
     assignedTo: task.assigned_to,
     moneyLegal: Boolean(money.states.get(task.id)?.on),
+    company: companies.get(task.id) ?? null,
   });
   const badges = (task: Task, asleep: boolean) => {
     const marks = moneyLegalBadges(task, money.states.get(task.id), now, asleep);
@@ -105,6 +112,11 @@ export default async function TasksPage() {
     const proof = money.proofs.get(task.id);
     return proof ? { ...proofView(proof, people), auto: false } : undefined;
   };
+  const proofCheckOf = (task: Task) =>
+    proofCheckView(checks.get(task.id), {
+      timeZone,
+      messageHref: (id) => gmailMessageHref(mailbox, id),
+    });
   const statusLine = autoCheckStatusLine(
     getTaskRelayStatus(orgId).lastRun,
     now,
@@ -127,6 +139,9 @@ export default async function TasksPage() {
       group,
       ...(auto ? { auto: autoCloseView(auto, auth.profile.timezone, mailbox) } : {}),
       ...(proofOf(task) ? { proof: proofOf(task) } : {}),
+      // A close that carried its own proof (money and legal) or an automatic one is not checked.
+      proofCheck: auto || proofOf(task) ? null : proofCheckOf(task),
+      company: companies.get(task.id) ?? null,
     };
   });
   const snoozedItems: SnoozedTaskItem[] = snoozedTasks.map((task) => ({
@@ -139,6 +154,7 @@ export default async function TasksPage() {
     due: snoozedDueLabel(task.due_at, task.snoozed_until, now),
     snoozedUntil: task.snoozed_until,
     money: badges(task, true),
+    company: companies.get(task.id) ?? null,
     controls: controls(task),
   }));
 
@@ -153,6 +169,7 @@ export default async function TasksPage() {
     assignee: assignee(task),
     assignedTo: task.assigned_to,
     money: badges(task, false),
+    company: companies.get(task.id) ?? null,
     controls: controls(task),
   });
   const todoItems: TodoTaskItem[] = [
@@ -188,6 +205,7 @@ export default async function TasksPage() {
         restore: asleep
           ? { status: 'snoozed', snoozedUntil: task.snoozed_until }
           : { status: 'open' },
+        company: companies.get(task.id) ?? null,
         controls: controls(task),
       };
     }),
@@ -215,6 +233,7 @@ export default async function TasksPage() {
             ? { label: autoView.label, href: autoView.href, note: autoView.reason, auto: true }
             : null),
         restore: { status: 'open' },
+        company: companies.get(task.id) ?? null,
         controls: controls(task),
       };
     }),

@@ -9,6 +9,15 @@ import { expect, test, type Page, type Request } from '@playwright/test';
 
 const SNOOZED = 'Ask Tom for the Girder AI onboarding numbers';
 const AUTO_CLOSED = 'Answer the LP question on the Q3 reporting timeline';
+// The demo's tasks ticked by hand for the proof check (Tasks → Completed): they stay
+// completed throughout, like the auto-closed one.
+const PROOF_TICKED = [
+  'Send Maya the Series A investor shortlist',
+  'Review the Q3 LP letter draft so Riley can send it',
+  'Reply to Tom about the Girder AI reference list',
+];
+/** Completed rows that belong to the demo and are never reopened by clean-up. */
+const DEMO_DONE = new RegExp([AUTO_CLOSED, ...PROOF_TICKED].join('|'));
 const LOOMSTACK = 'Send LoomStack pass note';
 
 // One demo sign-in for the whole file: demo entry is capped at 60 a minute.
@@ -37,7 +46,7 @@ test.afterEach(async ({ page }) => {
   const { completedPanel, todo, todoPanel } = tabs(page);
   const reopen = completedPanel
     .getByRole('listitem')
-    .filter({ hasNotText: AUTO_CLOSED })
+    .filter({ hasNotText: DEMO_DONE })
     .getByRole('button', { name: /^Reopen / });
   for (let left = await reopen.count(); left > 0; left--) {
     await reopen.first().click();
@@ -178,17 +187,17 @@ test('PageDown and PageUp switch tabs as they move focus', async ({ page }) => {
 test('Undo in the "Marked complete" toast brings the task back', async ({ page }) => {
   await gotoTasks(page);
   const { todoPanel, completed } = tabs(page);
-  await expect(completed).toHaveAccessibleName(/^Completed 1$/);
+  await expect(completed).toHaveAccessibleName(/^Completed 4$/);
   const row = todoPanel.getByRole('listitem').filter({ hasText: LOOMSTACK });
   await row.getByRole('button', { name: 'Mark complete' }).click();
   await expect(toast(page, 'Marked complete')).toBeVisible();
   await expect(row).toHaveCount(0);
-  await expect(completed).toHaveAccessibleName(/^Completed 2$/);
+  await expect(completed).toHaveAccessibleName(/^Completed 5$/);
 
   await toast(page, 'Marked complete').getByRole('button', { name: 'Undo' }).click();
   await expect(toast(page, 'Back on your list')).toBeVisible();
   await expect(row).toBeVisible();
-  await expect(completed).toHaveAccessibleName(/^Completed 1$/);
+  await expect(completed).toHaveAccessibleName(/^Completed 4$/);
 });
 
 test('completing a snoozed task can be undone back to its snooze', async ({ page }) => {
@@ -200,13 +209,13 @@ test('completing a snoozed task can be undone back to its snooze', async ({ page
   await row.getByRole('button', { name: 'Mark complete' }).click();
   await expect(toast(page, 'Marked complete')).toBeVisible();
   await expect(row).toHaveCount(0);
-  await expect(completed).toHaveAccessibleName(/^Completed 2$/);
+  await expect(completed).toHaveAccessibleName(/^Completed 5$/);
 
   await toast(page, 'Marked complete').getByRole('button', { name: 'Undo' }).click();
   await expect(toast(page, 'Snoozed again')).toBeVisible();
   await expect(row).toBeVisible();
   await expect(row).toContainText(wakes!);
-  await expect(completed).toHaveAccessibleName(/^Completed 1$/);
+  await expect(completed).toHaveAccessibleName(/^Completed 4$/);
 });
 
 test('Completed says why a task closed automatically, beside Reopen', async ({ page }) => {

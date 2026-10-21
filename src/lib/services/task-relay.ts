@@ -17,13 +17,16 @@ import {
   type TaskCloserRun,
 } from './task-close';
 import { ingestTasksFromSlack } from './task-ingest';
+import { runProofCheck, type ProofCheckOutcome } from './task-proof';
+import { applyTaskProofs, collectTaskProofs, type TaskProofCounts } from './task-proof-relay';
 import { REPLY_CHECK_MAILBOX, runReplyCheck, type ReplyCheckOutcome } from './task-reply-check';
 import { maybePostSnapshot, type SnapshotStatus } from './task-snapshot';
 
 /**
  * Everything the Tasks page pulls, in order: new suggested tasks from the
- * relay channel, closes from #deal-relay, the app's own 3pm "Reply to" check,
- * and the open-task snapshot. Runs on viewing /tasks, from an open tab's
+ * relay channel, closes and proofs from #deal-relay, the app's own 3pm
+ * "Reply to" check, the proof check for tasks ticked by hand, and the
+ * open-task snapshot. Runs on viewing /tasks, from an open tab's
  * version watcher, after /today renders, and from the daily job. Concurrent
  * callers share one run; each step runs at most once a minute (the daily job
  * forces them). Never throws.
@@ -42,6 +45,10 @@ export interface TaskRelayStatus {
   added: number | null;
   /** This pull's closes, or null when that step did not run or could not read. */
   closes: TaskCloseCounts | null;
+  /** This pull's TASK_PROOF_V1 proofs, read with the closes; null when that step did not run. */
+  proofs: TaskProofCounts | null;
+  /** This pull's look at sent mail for ticked deliverables; null when that step did not run. */
+  proofCheck: ProofCheckOutcome | null;
   /** The newest run record in the window, carried across pulls that could not read. */
   lastRun: { run: TaskCloserRun; ts: string } | null;
   /** This pull's reply check, or null when that step did not run. */
@@ -57,7 +64,9 @@ const CLOSE_WINDOW_DAYS = 14;
 const CLOSE_MAX_PAGES = 5;
 const CLOSE_PAGE_SIZE = 200;
 
-type Step = 'adds' | 'closes' | 'reply' | 'snapshot';
+type Step = 'adds' | 'closes' | 'reply' | 'proof' | 'snapshot';
+/** The proof check reads only the store, but needs no more than one run in five minutes. */
+const PROOF_INTERVAL_MS = 5 * 60_000;
 
 const { statuses, nextStepAt, inFlight } = processWide('task-relay', () => ({
   statuses: new Map<string, TaskRelayStatus>(),
@@ -72,6 +81,8 @@ function emptyStatus(): TaskRelayStatus {
     needed: null,
     added: null,
     closes: null,
+    proofs: null,
+    proofCheck: null,
     lastRun: null,
     reply: null,
     lastReplyCheck: null,
@@ -93,7 +104,7 @@ export async function pullTaskRelays(
   if (running) return running;
   const key = (step: Step) => `${organizationId}:${step}`;
   const due = (step: Step) => opts.force || Date.now() >= (nextStepAt.get(key(step)) ?? 0);
-  const steps: Step[] = ['adds', 'closes', 'reply', 'snapshot'];
+  const steps: Step[] = ['adds', 'closes', 'reply', 'proof', 'snapshot'];
   if (!steps.some(due)) return getTaskRelayStatus(organizationId);
 
   const pull = (async (): Promise<TaskRelayStatus> => {
@@ -103,7 +114,14 @@ export async function pullTaskRelays(
     const now = opts.now ?? new Date();
     const fetchImpl = opts.fetchImpl ?? fetch;
     const previous = getTaskRelayStatus(organizationId);
-    const status: TaskRelayStatus = { ...previous, added: null, closes: null, reply: null };
+    const status: TaskRelayStatus = {
+      ...previous,
+      added: null,
+      closes: null,
+      proofs: null,
+      proofCheck: null,
+      reply: null,
+    };
     const waitFor = (step: Step, ms: number) => nextStepAt.set(key(step), Date.now() + ms);
     let relayOrg: boolean | null = null;
     const isRelayOrg = async () => (relayOrg ??= await isRelayOrganization(store, organizationId));
@@ -157,6 +175,16 @@ export async function pullTaskRelays(
               waitFor('closes', 10_000);
               log.warn('Applying task closes failed', { reason: scrubErrorMessage(error) });
             }
+            // The same window carries the task-closer's proofs for ticked tasks.
+            try {
+              const proofs = collectTaskProofs(window.messages, e.taskRelayPosterIds);
+              status.proofs = await applyTaskProofs(store, organizationId, proofs.proofs, {
+                now,
+                rejected: proofs.rejected,
+              });
+            } catch (error) {
+              log.warn('Applying task proofs failed', { reason: scrubErrorMessage(error) });
+            }
           }
         }
       }
@@ -173,6 +201,15 @@ export async function pullTaskRelays(
           }
         } catch (error) {
           log.warn('Reply check failed', { reason: scrubErrorMessage(error) });
+        }
+      }
+
+      if (due('proof')) {
+        waitFor('proof', PROOF_INTERVAL_MS);
+        try {
+          status.proofCheck = await runProofCheck(store, organizationId, { now });
+        } catch (error) {
+          log.warn('Proof check failed', { reason: scrubErrorMessage(error) });
         }
       }
 
@@ -226,9 +263,9 @@ function iso(value: string | undefined): string {
 
 /**
  * A fingerprint of what /tasks shows, for the open-tab watcher: task count,
- * the newest change, the newest auto-close or needs-proof claim, how many
- * snoozes have woken and the newest run record. Hashed, so it carries no task
- * content.
+ * the newest change, the newest auto-close, needs-proof claim or proof-check
+ * result, how many snoozes have woken and the newest run record. Hashed, so
+ * it carries no task content.
  */
 export async function readTasksVersion(
   store: DataStore,
@@ -247,7 +284,17 @@ export async function readTasksVersion(
       'audit_events',
       organizationId,
       // A needs-proof claim changes the Money & legal tab the same way a close changes Completed.
-      { in: { action: ['task.auto_completed', 'task.needs_proof'] } },
+      {
+        in: {
+          action: [
+            'task.auto_completed',
+            'task.needs_proof',
+            // "Seen sent" and "Ticked, not seen sent" change the Completed tab.
+            'task.proof_seen',
+            'task.proof_missing',
+          ],
+        },
+      },
       { orderBy: [{ field: 'created_at', direction: 'desc' }], limit: 1 },
     ) as Promise<AuditEvent[]>,
     listAllPages(store, 'tasks', organizationId, { eq: { status: 'snoozed' } }) as Promise<Task[]>,

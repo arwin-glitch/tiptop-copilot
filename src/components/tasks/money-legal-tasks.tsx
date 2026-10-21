@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/feedback';
 import { matchesWho, type TaskRestore } from '@/lib/tasks/tasks-view';
+import { CompanyChip, type TaskCompanyChip } from './company-chip';
 import { useTasksWho, WhoFilter } from './tasks-tabs';
 import { MoneyBadges } from './todo-tasks';
 
@@ -42,6 +43,8 @@ export interface MoneyLegalItem {
   proof: { label: string; href: string | null; note: string | null; auto: boolean } | null;
   /** Where Undo puts it back; a snoozed row goes back to its wake time. */
   restore: TaskRestore;
+  /** The deal, portfolio or CRM company it is about. */
+  company?: TaskCompanyChip | null;
   controls: TaskControlsTask;
 }
 
@@ -141,6 +144,7 @@ function MoneyRow({ item }: { item: MoneyLegalItem }) {
           ) : (
             item.title
           )}
+          <CompanyChip company={item.company} />
           {item.suggested ? (
             <Badge tone="outline" className="ml-2">
               Suggested

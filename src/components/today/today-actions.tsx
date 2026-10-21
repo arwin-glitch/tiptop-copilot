@@ -29,6 +29,7 @@ import {
   updateTaskStatusAction,
 } from '@/app/actions';
 import { useReportRefresh } from '@/components/shell/refresh-status';
+import type { TaskCompanyChip } from '@/components/tasks/company-chip';
 import { useTaskActionHost } from '@/components/tasks/task-action-host';
 import { EditTaskDialog, ProofDialog, SnoozeUntilDialog } from '@/components/tasks/task-dialogs';
 import { Button } from '@/components/ui/button';
@@ -191,6 +192,8 @@ export interface TaskControlsTask {
   assignedTo: string | null;
   /** On the Money & legal tab: Mark complete asks for proof. */
   moneyLegal: boolean;
+  /** The company it is about, which Edit can change or clear. */
+  company?: TaskCompanyChip | null;
 }
 
 type ActionOutcome = { ok: boolean; error?: { message: string; code?: string } };

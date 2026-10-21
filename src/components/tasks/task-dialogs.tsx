@@ -6,12 +6,16 @@ import {
   completeTaskWithProofAction,
   editTaskAction,
   listTaskPeopleAction,
+  searchTaskCompaniesAction,
+  setTaskCompanyAction,
   snoozeTaskUntilAction,
 } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Field, Input, Select, Textarea } from '@/components/ui/form';
 import type { TaskPerson } from '@/lib/tasks/task-people';
+import type { TaskCompanyOption } from '@/lib/tasks/task-company';
+import { CompanyChip, type TaskCompanyChip } from './company-chip';
 
 /**
  * The task dialogs a row's menu and its tick open: edit, snooze until a
@@ -67,7 +71,7 @@ export function EditTaskDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   taskId: string;
-  task: { title: string; detail: string | null; dueAt: string | null };
+  task: EditableTask;
   run: RunTaskAction;
 }) {
   return (
@@ -86,22 +90,38 @@ function EditTaskForm({
   onClose,
 }: {
   taskId: string;
-  task: { title: string; detail: string | null; dueAt: string | null };
+  task: EditableTask;
   run: RunTaskAction;
   onClose: () => void;
 }) {
   const initialDue = localDateInput(task.dueAt);
+  const initialCompany = task.company ?? null;
   const [title, setTitle] = React.useState(task.title);
   const [detail, setDetail] = React.useState(task.detail ?? '');
   const [due, setDue] = React.useState(initialDue);
+  const [company, setCompany] = React.useState<TaskCompanyChip | null>(initialCompany);
   const [busy, setBusy] = React.useState(false);
+  const companyChanged =
+    (company?.kind ?? null) !== (initialCompany?.kind ?? null) ||
+    (company?.id ?? null) !== (initialCompany?.id ?? null);
 
   const save = () => {
     // An unchanged day keeps its exact time: a routine's 9am stays 9am.
     const dueAt = due === initialDue ? task.dueAt : due ? dateInputAt(due, 17) : null;
     setBusy(true);
     run(
-      () => editTaskAction(taskId, { title, detail: detail.trim() ? detail : null, dueAt }),
+      async () => {
+        const edited = await editTaskAction(taskId, {
+          title,
+          detail: detail.trim() ? detail : null,
+          dueAt,
+        });
+        if (!edited.ok || !companyChanged) return edited;
+        return setTaskCompanyAction(
+          taskId,
+          company ? { kind: company.kind, id: company.id } : null,
+        );
+      },
       'Task updated',
       (ok) => {
         setBusy(false);
@@ -111,7 +131,10 @@ function EditTaskForm({
   };
 
   return (
-    <DialogContent title="Edit task" description="Change what it says or when it is due.">
+    <DialogContent
+      title="Edit task"
+      description="Change what it says, when it is due, or which company it is about."
+    >
       <div className="space-y-4">
         <Field label="What needs doing" htmlFor="edit-task-title">
           <Input
@@ -138,6 +161,7 @@ function EditTaskForm({
             onChange={(e) => setDue(e.target.value)}
           />
         </Field>
+        <CompanyPicker value={company} onChange={setCompany} />
       </div>
       <DialogFooter>
         <Button variant="ghost" onClick={onClose}>
@@ -148,6 +172,107 @@ function EditTaskForm({
         </Button>
       </DialogFooter>
     </DialogContent>
+  );
+}
+
+/** What the edit dialog can change. */
+export interface EditableTask {
+  title: string;
+  detail: string | null;
+  dueAt: string | null;
+  company?: TaskCompanyChip | null;
+}
+
+/** Wait this long after the last keystroke before searching. */
+const SEARCH_DEBOUNCE_MS = 250;
+
+/**
+ * Which company a task is about: the current one as a chip with Clear, and a
+ * search over deals, portfolio companies and CRM companies to pick another.
+ */
+function CompanyPicker({
+  value,
+  onChange,
+}: {
+  value: TaskCompanyChip | null;
+  onChange: (company: TaskCompanyChip | null) => void;
+}) {
+  const [query, setQuery] = React.useState('');
+  const [found, setFound] = React.useState<{ q: string; options: TaskCompanyOption[] }>({
+    q: '',
+    options: [],
+  });
+  const term = query.trim();
+
+  React.useEffect(() => {
+    if (term.length < 2) return;
+    let live = true;
+    const timer = window.setTimeout(() => {
+      void searchTaskCompaniesAction(term).then((result) => {
+        if (live) setFound({ q: term, options: result.ok ? (result.data ?? []) : [] });
+      });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [term]);
+
+  const ready = term.length >= 2 && found.q === term;
+  const options = ready ? found.options : [];
+
+  return (
+    <Field
+      label="Company"
+      htmlFor="edit-task-company"
+      hint="Optional. The deal, portfolio or CRM company it is about, shown beside the task."
+    >
+      {value ? (
+        <div className="flex items-center gap-1">
+          <CompanyChip company={{ ...value, href: null }} className="ml-0" />
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Clear company ${value.name}`}
+            onClick={() => onChange(null)}
+          >
+            Clear
+          </Button>
+        </div>
+      ) : null}
+      <Input
+        id="edit-task-company"
+        type="search"
+        value={query}
+        autoComplete="off"
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={value ? 'Search to change it' : 'Search deals, portfolio and CRM companies'}
+      />
+      {options.length > 0 ? (
+        <ul
+          aria-label="Matching companies"
+          className="max-h-48 overflow-auto rounded-[var(--radius-field)] border border-[var(--border)] bg-[var(--bg-raised)] p-1"
+        >
+          {options.map((option) => (
+            <li key={`${option.kind}:${option.id}`}>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)] focus-visible:outline-none"
+                onClick={() => {
+                  onChange({ kind: option.kind, id: option.id, name: option.name, href: null });
+                  setQuery('');
+                }}
+              >
+                <span className="truncate">{option.name}</span>
+                <span className="shrink-0 text-xs text-[var(--fg-subtle)]">{option.sub}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : ready ? (
+        <p className="text-xs text-[var(--fg-subtle)]">No company by that name in Copilot.</p>
+      ) : null}
+    </Field>
   );
 }
 

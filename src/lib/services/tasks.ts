@@ -15,7 +15,9 @@ import {
 import type { OrganizationMember, Task, TaskStatus } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { err, ok, type Result } from '@/lib/util/result';
+import { DEFAULT_TIMEZONE } from '@/lib/util/time';
 import { isMoneyLegalTask } from './money-legal-records';
+import { recordProofExpectation } from './task-proof';
 
 /** Follow-ups and tasks. Deliberately small: a task is a title, a due date and a link. */
 
@@ -94,7 +96,13 @@ export async function updateTaskStatus(
   return ok(await writeTaskStatus(store, auth, task, status));
 }
 
-/** The status write itself, audited as the person's; the proof check is the caller's. */
+/**
+ * The status write itself, audited as the person's; the money and legal
+ * proof gate is the caller's. A person's completion of a deliverable (a
+ * reply, a send, feedback, an intro…) also notes what should have gone out,
+ * for the proof check (task-proof.ts), unless the completion already carried
+ * its proof (`with_proof`, a money or legal close).
+ */
 export async function writeTaskStatus(
   store: DataStore,
   auth: AuthContext,
@@ -116,6 +124,17 @@ export async function writeTaskStatus(
     entityId: task.id,
     metadata: { from: task.status, to: status, ...metadata },
   });
+  if (status === 'complete' && metadata.with_proof !== true) {
+    await recordProofExpectation(
+      store,
+      {
+        organizationId: auth.organizationId,
+        userId: auth.userId,
+        timeZone: auth.profile.timezone || DEFAULT_TIMEZONE,
+      },
+      { ...task, ...updated, status: 'complete' },
+    );
+  }
   return updated;
 }
 

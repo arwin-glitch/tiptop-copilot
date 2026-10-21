@@ -9,6 +9,7 @@ import {
 } from '@/components/today/today-actions';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/feedback';
+import { CompanyChip, type TaskCompanyChip } from './company-chip';
 import { useTasksWho } from './tasks-tabs';
 import { MoneyBadges } from './todo-tasks';
 import { useFocusAfterRemoval } from './use-row-focus';
@@ -27,6 +28,8 @@ export interface SnoozedTaskItem {
   snoozedUntil: string | null;
   /** Set for a money or legal task. */
   money?: { why: string; stale: string | null; needsProof: boolean } | null;
+  /** The deal, portfolio or CRM company it is about. */
+  company?: TaskCompanyChip | null;
   controls?: TaskControlsTask;
 }
 
@@ -66,6 +69,7 @@ export function SnoozedTasks({ items }: { items: SnoozedTaskItem[] }) {
                 ) : (
                   item.title
                 )}
+                <CompanyChip company={item.company} />
                 {item.suggested ? (
                   <Badge tone="outline" className="ml-2">
                     Suggested

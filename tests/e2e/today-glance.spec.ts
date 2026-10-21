@@ -17,6 +17,15 @@ const CHRIS = 'Intro Chris Dalton to Ivy Lin and Sam Park';
 const LUMEN = 'Lumen product walkthrough with the team';
 // The demo's one task closed automatically; it stays completed throughout.
 const AUTO_CLOSED = 'Answer the LP question on the Q3 reporting timeline';
+// The demo's tasks ticked by hand for the proof check (Tasks → Completed): they stay
+// completed throughout, like the auto-closed one.
+const PROOF_TICKED = [
+  'Send Maya the Series A investor shortlist',
+  'Review the Q3 LP letter draft so Riley can send it',
+  'Reply to Tom about the Girder AI reference list',
+];
+/** Completed rows that belong to the demo and are never reopened by clean-up. */
+const DEMO_DONE = new RegExp([AUTO_CLOSED, ...PROOF_TICKED].join('|'));
 
 // One demo sign-in for the whole file: demo entry is capped at 60 a minute
 // across the suite.
@@ -45,7 +54,7 @@ test.afterEach(async ({ page }) => {
   await expect(panel).toBeVisible();
   const reopen = panel
     .getByRole('listitem')
-    .filter({ hasNotText: AUTO_CLOSED })
+    .filter({ hasNotText: DEMO_DONE })
     .getByRole('button', { name: /^Reopen / });
   for (let left = await reopen.count(); left > 0; left--) {
     await reopen.first().click();

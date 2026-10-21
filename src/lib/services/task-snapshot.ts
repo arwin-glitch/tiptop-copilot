@@ -9,6 +9,7 @@ import { sha256 } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
 import { localClock } from '@/lib/util/time';
 import { CENTRAL_TIMEZONE, latestHumanTaskTouches, snapshotTitle } from './task-close';
+import { listAwaitingProof, type TaskProofCheck } from './task-proof';
 
 /**
  * The open-task snapshot (`TASK_OPEN_V1`) the app posts to #deal-relay so the
@@ -18,6 +19,11 @@ import { CENTRAL_TIMEZONE, latestHumanTaskTouches, snapshotTitle } from './task-
  * again, and Diagnostics says "needs chat:write". Adding the scope switches
  * it on with no other change. `TASK_SNAPSHOT_FEED=off` stops it entirely.
  * Tasks involving a Nick-only counterparty are left out.
+ *
+ * Tasks a person ticked by hand whose deliverable has not been seen yet are
+ * listed too, as `status: "ticked"` with what should have gone out and to
+ * whom, so the task-closer can look for the proof the app cannot see (a
+ * Slack message, a payment confirmation) and post it as `TASK_PROOF_V1`.
  */
 
 export const TASK_OPEN_MARKER = 'TASK_OPEN_V1';
@@ -62,7 +68,8 @@ export interface SnapshotStatus {
 export interface SnapshotTask {
   id: string;
   title: string;
-  status: 'open' | 'snoozed';
+  /** "ticked": completed by a person, its deliverable not seen yet (see task-proof.ts). */
+  status: 'open' | 'snoozed' | 'ticked';
   src: 'human' | 'suggested';
   created_at: string;
   touched_at?: string;
@@ -70,6 +77,10 @@ export interface SnapshotTask {
   thread_id?: string;
   from?: string;
   subject?: string;
+  /** For a ticked task: when it was ticked. */
+  ticked_at?: string;
+  /** For a ticked task: what should have gone out, and to whom, as the task names them. */
+  deliver?: { kind: string; to: string[] };
 }
 
 /** Slack's three entities, plus no backtick, which would end the code span early. */
@@ -148,16 +159,29 @@ export function snapshotParts(
   };
 }
 
-/** Open and snoozed tasks (sleeping ones too), with what the routine needs to find them. */
+/**
+ * Open and snoozed tasks (sleeping ones too), and ticked ones still waiting
+ * for their proof, with what the routine needs to find them.
+ */
 async function buildSnapshot(
   store: DataStore,
   organizationId: string,
-): Promise<{ tasks: Task[]; touches: Map<string, string>; hash: string }> {
-  const tasks = (await listAllPages(store, 'tasks', organizationId, {
+  now: Date,
+): Promise<{
+  tasks: Task[];
+  touches: Map<string, string>;
+  checks: Map<string, TaskProofCheck>;
+  hash: string;
+}> {
+  const open = (await listAllPages(store, 'tasks', organizationId, {
     in: { status: ['open', 'snoozed'] },
   })) as Task[];
+  // A fault reading the proof checks leaves the ticked tasks out, never the snapshot.
+  const ticked = await listAwaitingProof(store, organizationId, now).catch(() => []);
+  const checks = new Map(ticked.map(({ task, check }) => [task.id, check]));
+  const tasks = [...open, ...ticked.map(({ task }) => task)];
   const touches = await latestHumanTaskTouches(store, organizationId, tasks);
-  return { tasks, touches, hash: snapshotHash(tasks, touches) };
+  return { tasks, touches, checks, hash: snapshotHash(tasks, touches) };
 }
 
 /** What the snapshot says about each task, leaving out any that involve a Nick-only counterparty. */
@@ -167,6 +191,7 @@ async function describe(
   tasks: readonly Task[],
   touches: ReadonlyMap<string, string>,
   now: Date,
+  checks: ReadonlyMap<string, TaskProofCheck> = new Map(),
 ): Promise<SnapshotTask[]> {
   const messageIds = tasks.map((t) => t.email_message_id).filter((id): id is string => !!id);
   const messages = new Map<string, EmailMessage>();
@@ -200,10 +225,16 @@ async function describe(
     );
     if (nickOnly) continue;
     const touched = touches.get(task.id);
+    const check = task.status === 'complete' ? checks.get(task.id) : undefined;
+    if (task.status === 'complete' && !check) continue;
     described.push({
       id: task.id,
       title: snapshotTitle(task.title),
-      status: task.status === 'snoozed' && !isAwake(task, now) ? 'snoozed' : 'open',
+      status: check
+        ? 'ticked'
+        : task.status === 'snoozed' && !isAwake(task, now)
+          ? 'snoozed'
+          : 'open',
       src: task.source,
       created_at: task.created_at,
       ...(touched ? { touched_at: touched } : {}),
@@ -211,6 +242,15 @@ async function describe(
       ...(thread?.provider_thread_id ? { thread_id: thread.provider_thread_id } : {}),
       ...(message?.from_address ? { from: message.from_address } : {}),
       ...(message?.subject ? { subject: clip(message.subject, SUBJECT_MAX) } : {}),
+      ...(check
+        ? {
+            ticked_at: check.expectation.completedAt,
+            deliver: {
+              kind: check.expectation.kind,
+              to: check.expectation.recipients.map((name) => clip(name, 80)),
+            },
+          }
+        : {}),
     });
   }
   return described;
@@ -315,7 +355,7 @@ export async function maybePostSnapshot(
       };
     }
 
-    const { tasks, touches, hash } = await buildSnapshot(store, organizationId);
+    const { tasks, touches, checks, hash } = await buildSnapshot(store, organizationId, now);
     const age = last ? now.getTime() - Date.parse(last.at) : Infinity;
     const { hour } = localClock(now, CENTRAL_TIMEZONE);
     const beforeCheck = hour >= CHANGE_WINDOW_START_HOUR && hour < CHANGE_WINDOW_END_HOUR;
@@ -324,7 +364,7 @@ export async function maybePostSnapshot(
     if (!due) return { state: last ? 'posted' : 'idle', lastPostedAt, retryAt: null };
 
     const batch = now.toISOString();
-    const described = await describe(store, organizationId, tasks, touches, now);
+    const described = await describe(store, organizationId, tasks, touches, now, checks);
     const { texts, truncated } = snapshotParts(described, { batch, asOf: batch });
     for (const text of texts) {
       const posted = await postMessage(fetchImpl, opts.token, opts.channelId, text);
