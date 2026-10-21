@@ -44,8 +44,9 @@ import { err, ok, type Result } from '@/lib/util/result';
  * - `task.proof_seen` (no user): the deliverable was seen, by the app's own
  *   look at sent mail or a task-closer post. `{v, expected_id, source,
  *   evidence_type, evidence_id, evidence_at, ...}`. One per expectation.
- * - `task.proof_missing` (no user): the window passed with nothing seen.
- *   `{v, expected_id, judged_at, addressed}`. The task shows "Ticked, not
+ * - `task.proof_missing` (no user): the window passed with nothing seen, on
+ *   a working mailbox synced past it, for a task the mailbox's owner does.
+ *   `{v, expected_id, judged_at, addressed, to}`. The task shows "Ticked, not
  *   seen sent" until a person says "It's done" or reopens it. A proof that
  *   turns up later still clears it.
  * - `task.proof_confirmed` (a person): "It's done". `{v, expected_id}`.
@@ -66,6 +67,8 @@ const PROOF_ACTIONS = [
   PROOF_MISSING_ACTION,
   PROOF_CONFIRMED_ACTION,
 ];
+/** Read with the proof rows: an auto-close a person then reopened is evidence they turned down. */
+const AUTO_CLOSE_ACTION = 'task.auto_completed';
 
 /** How long after a tick the app keeps looking for the deliverable. */
 export const PROOF_CHECK_HORIZON_DAYS = 45;
@@ -141,6 +144,8 @@ export interface ProofExpectation {
   completedAt: string;
   judgeAfter: string;
   emailMessageId: string | null;
+  /** Who ticked it. */
+  tickedBy: string | null;
 }
 
 export interface ProofSeen {
@@ -162,6 +167,12 @@ export interface TaskProofCheck {
   /** When the window passed with nothing seen, and whether any recipient had an address. */
   missing: { at: string; addressed: boolean; to: string[] } | null;
   confirmed: { at: string; userId: string | null } | null;
+  /**
+   * Evidence this task already used up: what proved an earlier completion, or
+   * an automatic close a person reopened. A person reopening says that was not
+   * it, so it never proves a later tick.
+   */
+  usedEvidence: string[];
 }
 
 function readExpectation(row: AuditEvent): ProofExpectation | null {
@@ -183,6 +194,7 @@ function readExpectation(row: AuditEvent): ProofExpectation | null {
     completedAt,
     judgeAfter,
     emailMessageId: str(m.email_message_id),
+    tickedBy: row.user_id,
   };
 }
 
@@ -198,7 +210,10 @@ async function proofRows(
       store,
       'audit_events',
       organizationId,
-      { eq: { entity_type: 'task' }, in: { action: PROOF_ACTIONS, entity_id: ids } },
+      {
+        eq: { entity_type: 'task' },
+        in: { action: [...PROOF_ACTIONS, AUTO_CLOSE_ACTION], entity_id: ids },
+      },
       [{ field: 'created_at', direction: 'asc' }],
     )) as AuditEvent[];
     for (const row of rows) {
@@ -223,6 +238,14 @@ function foldCheck(task: Task, rows: readonly AuditEvent[]): TaskProofCheck | nu
   const seenRow = mine.find((row) => row.action === PROOF_SEEN_ACTION);
   const missingRow = mine.find((row) => row.action === PROOF_MISSING_ACTION);
   const confirmedRow = mine.find((row) => row.action === PROOF_CONFIRMED_ACTION && row.user_id);
+  const usedEvidence = rows
+    .filter(
+      (row) =>
+        row.action === AUTO_CLOSE_ACTION ||
+        (row.action === PROOF_SEEN_ACTION && row.metadata?.expected_id !== expectation.auditId),
+    )
+    .map((row) => str(row.metadata?.evidence_id))
+    .filter((id): id is string => !!id);
   const seen: ProofSeen | null = seenRow
     ? {
         auditId: seenRow.id,
@@ -250,6 +273,7 @@ function foldCheck(task: Task, rows: readonly AuditEvent[]): TaskProofCheck | nu
         }
       : null,
     confirmed: confirmedRow ? { at: confirmedRow.created_at, userId: confirmedRow.user_id } : null,
+    usedEvidence: [...new Set(usedEvidence)],
   };
 }
 
@@ -405,16 +429,31 @@ export interface ProofEvidence {
   channel?: string | null;
   reason?: string | null;
   slack_ts?: string | null;
+  /**
+   * For a task-closer post: when Slack says it was posted. The routine looks
+   * only at tasks already ticked, so a post from before this tick was about
+   * an earlier one (re-read every run, it must not prove a new tick).
+   */
+  posted_at?: string | null;
 }
 
-export type ProofApplied = 'seen' | 'already_applied' | 'not_awaiting' | 'evidence_too_old';
+export type ProofApplied =
+  | 'seen'
+  | 'already_applied'
+  | 'not_awaiting'
+  | 'evidence_too_old'
+  | 'posted_before_tick'
+  | 'evidence_used'
+  | 'wrong_evidence';
 
 /**
  * Marks a ticked task's deliverable seen, from a task-closer post or the
  * app's own look at sent mail. Only a task that is complete with an
- * expectation still outstanding takes it, and only evidence later than the
- * task's creation. Never changes the task. Re-reading the same post changes
- * nothing: an expectation is seen once.
+ * expectation still outstanding takes it, and only evidence of a kind that
+ * proves this deliverable, later than the task's creation, not already used
+ * by an earlier completion, and (for a post) posted after this tick. Never
+ * changes the task. Re-reading the same post changes nothing: an expectation
+ * is seen once, and a later tick is never proved by an older post.
  */
 export async function applyProofEvidence(
   store: DataStore,
@@ -427,6 +466,16 @@ export async function applyProofEvidence(
   if (!current) return 'not_awaiting';
   if (current.state === 'seen') return 'already_applied';
   if (current.state === 'confirmed') return 'not_awaiting';
+  const proof = current.expectation.proof;
+  if (proof.length > 0 && !proof.includes(evidence.evidence_type)) return 'wrong_evidence';
+  if (current.usedEvidence.includes(evidence.evidence_id)) return 'evidence_used';
+  if (evidence.posted_at) {
+    const posted = Date.parse(evidence.posted_at);
+    const ticked = Date.parse(current.expectation.completedAt);
+    if (Number.isNaN(posted) || (!Number.isNaN(ticked) && !(posted > ticked))) {
+      return 'posted_before_tick';
+    }
+  }
   const at = Date.parse(evidence.evidence_at);
   const created = Date.parse(task.created_at);
   if (Number.isNaN(at) || (!Number.isNaN(created) && !(at > created))) return 'evidence_too_old';
@@ -491,8 +540,10 @@ function domainOf(address: string): string {
  * Addresses for one name, from the sources in order: the email the task was
  * made from, the team, portfolio contacts, the network, CRM people, then
  * senders in the mailbox; for a company, its domain. A source with more than
- * one different address for a first name is ambiguous, and the name stays
- * without one: a wrong "Seen sent" would hide a real miss.
+ * one different address for a first name is ambiguous, unless exactly one of
+ * them is at the company the task is linked to ("Reply to Tom" on a Girder
+ * task is the Tom at Girder); otherwise the name stays without one: a wrong
+ * "Seen sent" would hide a real miss.
  */
 class RecipientResolver {
   private cache = new Map<string, Promise<unknown>>();
@@ -553,15 +604,53 @@ class RecipientResolver {
     );
   }
 
-  /** The one address among `emails`, or none when there are several or none. */
-  private one(emails: readonly (string | null | undefined)[]): string[] | 'ambiguous' | null {
+  /** The domains of the deal or portfolio company a task is linked to. */
+  private linkedDomains(task: Task): Promise<string[]> {
+    return this.load(
+      `linked:${task.deal_id ?? ''}:${task.portfolio_company_id ?? ''}`,
+      async () => {
+        const domains = new Set<string>();
+        if (task.deal_id) {
+          const deal = (await this.store
+            .get('deals', this.organizationId, task.deal_id)
+            .catch(() => null)) as Deal | null;
+          const domain = bareDomain(deal?.domain) ?? bareDomain(deal?.website);
+          if (domain) domains.add(domain);
+        }
+        if (task.portfolio_company_id) {
+          const company = (await this.store
+            .get('portfolio_companies', this.organizationId, task.portfolio_company_id)
+            .catch(() => null)) as PortfolioCompany | null;
+          const domain = bareDomain(company?.domain) ?? bareDomain(company?.website);
+          if (domain) domains.add(domain);
+        }
+        domains.delete(domainOf(this.mailbox));
+        return [...domains].filter((domain) => !FREE_MAIL_DOMAINS.has(domain));
+      },
+    );
+  }
+
+  /**
+   * The one address among `emails`, or none when there are none. Several are
+   * ambiguous, unless exactly one is at the task's linked company.
+   */
+  private async one(
+    emails: readonly (string | null | undefined)[],
+    task?: Task,
+  ): Promise<string[] | 'ambiguous' | null> {
     const set = [
       ...new Set(
         emails.map((e) => plainText(e)).filter((e) => e.includes('@') && e !== this.mailbox),
       ),
     ];
     if (set.length === 0) return null;
-    return set.length === 1 ? set : 'ambiguous';
+    if (set.length === 1) return set;
+    if (task && (task.deal_id || task.portfolio_company_id)) {
+      const domains = await this.linkedDomains(task);
+      const there = set.filter((e) => domains.includes(domainOf(e)));
+      if (there.length === 1) return there;
+    }
+    return 'ambiguous';
   }
 
   async resolve(name: string, task: Task): Promise<ProofRecipient> {
@@ -578,7 +667,7 @@ class RecipientResolver {
         .get('email_messages', this.organizationId, task.email_message_id)
         .catch(() => null)) as EmailMessage | null;
       if (message && nameMatches(message.from_name, name)) {
-        const found = this.one([message.from_address]);
+        const found = await this.one([message.from_address]);
         if (Array.isArray(found)) return out(found);
       }
     }
@@ -591,7 +680,7 @@ class RecipientResolver {
         .map((c) => c.email),
     ];
     for (const emails of people) {
-      const found = this.one(emails);
+      const found = await this.one(emails, task);
       if (found === 'ambiguous') return out();
       if (found) return out(found);
     }
@@ -605,7 +694,10 @@ class RecipientResolver {
           { limit: 5 },
         ),
       )) as CrmRecord[];
-      const found = this.one(crm.flatMap((r) => [r.primary_email, ...(r.emails ?? [])]));
+      const found = await this.one(
+        crm.flatMap((r) => [r.primary_email, ...(r.emails ?? [])]),
+        task,
+      );
       if (found === 'ambiguous') return out();
       if (found) return out(found);
     }
@@ -619,10 +711,11 @@ class RecipientResolver {
         { orderBy: [{ field: 'sent_at', direction: 'desc' }], limit: 50 },
       ),
     )) as EmailMessage[];
-    const wrote = this.one(
+    const wrote = await this.one(
       senders
         .filter((m) => !(m.labels ?? []).includes('SENT') && nameMatches(m.from_name, name))
         .map((m) => m.from_address),
+      task,
     );
     if (wrote === 'ambiguous') return out();
     if (wrote) return out(wrote);
@@ -683,6 +776,10 @@ class RecipientResolver {
   }
 }
 
+/** Senders nobody answers by email: calendar invites, notifications, no-reply robots. */
+const NO_REPLY_SENDER =
+  /^(?:no-?reply|do-?not-?reply|notifications?|calendar-notification|mailer-daemon|postmaster)[^@]*@/;
+
 /** Mail providers whose domain says nothing about a company. */
 const FREE_MAIL_DOMAINS = new Set([
   'gmail.com',
@@ -715,7 +812,8 @@ export async function resolveProofRecipients(
       .get('email_messages', organizationId, expectation.emailMessageId)
       .catch(() => null)) as EmailMessage | null;
     const from = plainText(message?.from_address);
-    if (!message || !from || from === mailbox) return [];
+    // A reply to the mailbox's own message, or to a robot, is owed to no one.
+    if (!message || !from || from === mailbox || NO_REPLY_SENDER.test(from)) return [];
     return [{ name: message.from_name?.trim() || from, emails: [from], domains: [] }];
   }
   return Promise.all(expectation.recipients.map((name) => resolver.resolve(name, task)));
@@ -733,14 +831,18 @@ export function findProofMessage(
   kind: DeliverableKind,
   mailbox: string,
   afterMs: number,
+  used: readonly string[] = [],
 ): EmailMessage | null {
   const addressed = recipients.filter((r) => r.emails.length > 0 || r.domains.length > 0);
   if (addressed.length === 0) return null;
   const reaches = (to: readonly string[], r: ProofRecipient) =>
     to.some((address) => r.emails.includes(address) || r.domains.includes(domainOf(address)));
   const ordered = [...sent].sort((a, b) => Date.parse(a.sent_at) - Date.parse(b.sent_at));
+  // A reply is judged as the "Reply to" check judges one; an intro may loop someone in.
+  const reading = kind === 'reply' ? 'reply' : kind === 'intro' ? 'intro' : 'send';
   for (const message of ordered) {
-    if (!isRealSend(message, mailbox, afterMs)) continue;
+    if (used.includes(message.provider_message_id)) continue;
+    if (!isRealSend(message, mailbox, afterMs, reading)) continue;
     const to = messageRecipients(message).filter((address) => address !== mailbox);
     if (kind === 'intro') {
       if (to.length >= 2 && addressed.every((r) => reaches(to, r))) return message;
@@ -762,27 +864,69 @@ export interface ProofCheckOutcome {
   flagged: number;
 }
 
-async function connectedMailbox(store: DataStore, organizationId: string): Promise<string | null> {
+async function connectedMailbox(
+  store: DataStore,
+  organizationId: string,
+): Promise<{ mailbox: string; ownerId: string | null; syncedThrough: number } | null> {
   const rows = (await store.list(
     'integrations',
     organizationId,
     { eq: { provider: 'google' } },
     { orderBy: [{ field: 'created_at', direction: 'desc' }], limit: 1 },
   )) as Integration[];
-  return rows[0]?.account_email ? plainText(rows[0].account_email) : null;
+  const row = rows[0];
+  if (!row?.account_email) return null;
+  // Mail is only known missing up to the last good sync of a working connection.
+  const synced =
+    row.status === 'connected' && row.last_sync_at ? Date.parse(row.last_sync_at) : NaN;
+  return {
+    mailbox: plainText(row.account_email),
+    ownerId: row.user_id ?? null,
+    syncedThrough: Number.isNaN(synced) ? Number.NEGATIVE_INFINITY : synced,
+  };
+}
+
+/** Sent mail to these addresses since `afterMs`, To or Cc: the one task's own look, past the scan's reach. */
+async function sentTo(
+  store: DataStore,
+  organizationId: string,
+  mailbox: string,
+  emails: readonly string[],
+  afterMs: number,
+): Promise<EmailMessage[]> {
+  if (emails.length === 0) return [];
+  const since = Number.isFinite(afterMs) ? new Date(afterMs).toISOString() : null;
+  const out = new Map<string, EmailMessage>();
+  for (const column of ['to_addresses', 'cc_addresses']) {
+    const rows = (await store.list(
+      'email_messages',
+      organizationId,
+      {
+        eq: { from_address: mailbox },
+        arrayContains: { labels: 'SENT' },
+        arrayOverlaps: { [column]: [...emails].slice(0, 20) },
+        ...(since ? { gt: { sent_at: since } } : {}),
+      },
+      { orderBy: [{ field: 'sent_at', direction: 'asc' }], limit: 50 },
+    )) as EmailMessage[];
+    for (const row of rows) out.set(row.id, row);
+  }
+  return [...out.values()];
 }
 
 /**
  * The app's own look for ticked deliverables, in the synced mailbox: a sent
  * email to the recipient after the task was created marks it seen; past its
  * window with none, it is flagged "Ticked, not seen sent", once. With no
- * mailbox connected there is nothing to look in, so nothing is judged. Runs
- * from the Tasks pull (see task-relay.ts), after the task-closer's own proofs.
+ * mailbox connected there is nothing to look in, so nothing is judged; with
+ * one that is broken or has not synced since the window ended, a missing
+ * email may only be unsynced, so the judging waits. Runs from the Tasks pull
+ * (see task-relay.ts), after the task-closer's own proofs.
  */
 export async function runProofCheck(
   store: DataStore,
   organizationId: string,
-  opts: { now?: Date } = {},
+  opts: { now?: Date; scanLimit?: number } = {},
 ): Promise<ProofCheckOutcome> {
   const now = opts.now ?? new Date();
   const outcome = (state: ProofCheckState, checked = 0, seen = 0, flagged = 0) => ({
@@ -793,8 +937,9 @@ export async function runProofCheck(
   });
   const awaiting = await listAwaitingProof(store, organizationId, now);
   if (awaiting.length === 0) return outcome('idle');
-  const mailbox = await connectedMailbox(store, organizationId);
-  if (!mailbox) return outcome('no_mailbox', awaiting.length);
+  const connection = await connectedMailbox(store, organizationId);
+  if (!connection) return outcome('no_mailbox', awaiting.length);
+  const { mailbox, ownerId, syncedThrough } = connection;
 
   const oldest = Math.min(
     ...awaiting.map(({ task }) => {
@@ -810,7 +955,10 @@ export async function runProofCheck(
       arrayContains: { labels: 'SENT' },
       gt: { sent_at: new Date(oldest).toISOString() },
     },
-    { orderBy: [{ field: 'sent_at', direction: 'desc' }], limit: SENT_SCAN_LIMIT },
+    {
+      orderBy: [{ field: 'sent_at', direction: 'desc' }],
+      limit: opts.scanLimit ?? SENT_SCAN_LIMIT,
+    },
   )) as EmailMessage[];
 
   const resolver = new RecipientResolver(store, organizationId, mailbox);
@@ -826,13 +974,26 @@ export async function runProofCheck(
       resolver,
     );
     const created = Date.parse(task.created_at);
-    const message = findProofMessage(
-      sent,
-      recipients,
-      check.expectation.kind,
-      mailbox,
-      Number.isNaN(created) ? Number.NEGATIVE_INFINITY : created,
-    );
+    const afterMs = Number.isNaN(created) ? Number.NEGATIVE_INFINITY : created;
+    const judgeAfter = Date.parse(check.expectation.judgeAfter);
+    const due =
+      check.state === 'waiting' && !Number.isNaN(judgeAfter) && now.getTime() >= judgeAfter;
+    const find = (messages: readonly EmailMessage[]) =>
+      findProofMessage(
+        messages,
+        recipients,
+        check.expectation.kind,
+        mailbox,
+        afterMs,
+        check.usedEvidence,
+      );
+    let message = find(sent);
+    if (!message && due) {
+      // About to say nothing went out: look for this task's own recipients
+      // too, since the scan above reads only the newest sent mail.
+      const emails = recipients.flatMap((r) => r.emails);
+      message = find(await sentTo(store, organizationId, mailbox, emails, afterMs));
+    }
     if (message) {
       const applied = await applyProofEvidence(
         store,
@@ -849,11 +1010,16 @@ export async function runProofCheck(
       if (applied === 'seen') seen++;
       continue;
     }
-    if (check.state !== 'waiting') continue;
+    if (!due) continue;
     // A reply whose email came from the mailbox itself is owed to no one: never judged.
     if (recipients.length === 0) continue;
-    const judgeAfter = Date.parse(check.expectation.judgeAfter);
-    if (Number.isNaN(judgeAfter) || now.getTime() < judgeAfter) continue;
+    // Until the mailbox has synced past the window, a missing email may only be unsynced.
+    if (syncedThrough < judgeAfter) continue;
+    // Only the mailbox's owner's deliverables are judged from it: a task
+    // someone else does (theirs, or one they ticked unassigned) goes out from
+    // their own mailbox, which the app cannot see.
+    const responsible = task.assigned_to ?? check.expectation.tickedBy;
+    if (ownerId && responsible && responsible !== ownerId) continue;
     await recordAudit(store, {
       organizationId,
       userId: null,

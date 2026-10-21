@@ -286,13 +286,18 @@ it" action, and none ever changes a task's status:
   'app-sent-check' | 'task-closer', evidence_type, evidence_id, evidence_at,
   thread_id?, channel?, reason?, slack_ts?}`. One per expectation. Written by
   the app's look at synced sent mail, by a `TASK_PROOF_V1` post, or by a
-  `TASK_CLOSE_V1` close for an already-ticked task.
+  `TASK_CLOSE_V1` close for an already-ticked task (a post only when posted
+  after the tick). Its `evidence_id`, like a `task.auto_completed` row's for
+  the same task, never proves a later completion of that task.
 - `task.proof_missing` (no user): `{v: 1, expected_id, judged_at,
   addressed, to}`, once, when `judge_after` (two business days in the ticker's
-  time zone) passed with nothing seen. Shows "Ticked, not seen sent".
+  time zone) passed with nothing seen and the Google connection is working
+  and has synced past `judge_after`, for a task the mailbox owner does (its
+  assignee, or whoever ticked it unassigned). Shows "Ticked, not seen sent".
   `addressed` is false when no recipient could be matched to an address;
   `to` names who it should have reached (a reply's sender, for one made from
-  an email). A reply to the mailbox's own message is never judged.
+  an email). A reply to the mailbox's own message, or to a no-reply sender,
+  is never judged.
 - `task.proof_confirmed` (a person): `{v: 1, expected_id}`, "It's done".
 - `task.company_set` (a person): `{v: 1, kind: 'deal' | 'portfolio' | 'crm' |
   null, id, name, previous}`, beside the write to `tasks.deal_id` /

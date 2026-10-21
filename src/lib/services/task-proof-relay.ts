@@ -125,8 +125,9 @@ export interface TaskProofCounts {
  * Matches each proof to one ticked task still waiting for its proof and marks
  * it seen: by `task_id` when the task exists and its title agrees, else by
  * title among those ticked tasks when exactly one matches. A proof for an
- * open task, a task already seen or confirmed, or evidence older than the
- * task changes nothing.
+ * open task, a task already seen or confirmed, evidence older than the task,
+ * a post from before the tick, or evidence of a kind that does not prove
+ * this deliverable changes nothing.
  */
 export async function applyTaskProofs(
   store: DataStore,
@@ -186,6 +187,7 @@ export async function applyTaskProofs(
         channel: proof.evidence.channel ?? null,
         reason: proof.reason,
         slack_ts: slackTs,
+        posted_at: postedAt,
       },
       waiting.check,
     );

@@ -86,6 +86,9 @@ export async function updateTaskStatus(
   const store = getStore();
   const task = (await store.get('tasks', auth.organizationId, taskId)) as Task | null;
   if (!task) return err('not_found', 'That task does not exist.');
+  // Already done (a stale tab, a double click): nothing to write, so an
+  // automatic close keeps its label and a proof check its state.
+  if (status === 'complete' && task.status === 'complete') return ok(task);
   if (
     status === 'complete' &&
     task.status !== 'complete' &&
@@ -110,9 +113,14 @@ export async function writeTaskStatus(
   status: TaskStatus,
   metadata: Record<string, unknown> = {},
 ): Promise<Task> {
+  // Ticking a task that is already complete (a stale tab, a double click) is
+  // not a new completion: it keeps its time, and with it whatever its
+  // completion already carries (an automatic close, a proof check).
+  const already = status === 'complete' && task.status === 'complete' && !!task.completed_at;
   const updated = (await store.update('tasks', auth.organizationId, task.id, {
     status,
-    completed_at: status === 'complete' ? new Date().toISOString() : null,
+    completed_at:
+      status === 'complete' ? (already ? task.completed_at : new Date().toISOString()) : null,
     snoozed_until: status === 'snoozed' ? task.snoozed_until : null,
   })) as Task;
 
@@ -124,7 +132,7 @@ export async function writeTaskStatus(
     entityId: task.id,
     metadata: { from: task.status, to: status, ...metadata },
   });
-  if (status === 'complete' && metadata.with_proof !== true) {
+  if (status === 'complete' && !already && metadata.with_proof !== true) {
     await recordProofExpectation(
       store,
       {

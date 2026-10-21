@@ -461,7 +461,9 @@ export async function applyTaskCloses(
   const closedHere = new Set<string>();
   // Ticked tasks still waiting for their proof, read once, only if a close needs them.
   let awaiting: Promise<{ task: Task; check: TaskProofCheck }[]> | null = null;
-  const waitingFor = () => (awaiting ??= listAwaitingProof(store, organizationId, now));
+  // A fault reading them only means no close counts as a proof this pull.
+  const waitingFor = () =>
+    (awaiting ??= listAwaitingProof(store, organizationId, now).catch(() => []));
   const asProof = async (task: Task, close: TaskClose, postedAt: string, slackTs: string) => {
     if (task.status !== 'complete' || closedHere.has(task.id)) return false;
     const waiting = (await waitingFor()).find((row) => row.task.id === task.id);
@@ -478,6 +480,7 @@ export async function applyTaskCloses(
         thread_id: close.evidence.thread_id ?? null,
         reason: close.reason,
         slack_ts: slackTs,
+        posted_at: postedAt,
       },
       waiting.check,
     );

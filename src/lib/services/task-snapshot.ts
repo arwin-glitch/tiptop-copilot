@@ -79,8 +79,8 @@ export interface SnapshotTask {
   subject?: string;
   /** For a ticked task: when it was ticked. */
   ticked_at?: string;
-  /** For a ticked task: what should have gone out, and to whom, as the task names them. */
-  deliver?: { kind: string; to: string[] };
+  /** For a ticked task: what should have gone out, to whom as named, and what proves it. */
+  deliver?: { kind: string; to: string[]; proof: string[] };
 }
 
 /** Slack's three entities, plus no backtick, which would end the code span early. */
@@ -248,6 +248,8 @@ async function describe(
             deliver: {
               kind: check.expectation.kind,
               to: check.expectation.recipients.map((name) => clip(name, 80)),
+              // What the app will take as its proof; anything else is refused.
+              proof: check.expectation.proof,
             },
           }
         : {}),

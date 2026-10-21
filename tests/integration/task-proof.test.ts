@@ -33,7 +33,7 @@ import {
 } from '@/lib/services/task-proof-relay';
 import { readTasksVersion } from '@/lib/services/task-relay';
 import { maybePostSnapshot, resetSnapshotState } from '@/lib/services/task-snapshot';
-import { createTask, updateTaskStatus } from '@/lib/services/tasks';
+import { assignTask, createTask, updateTaskStatus } from '@/lib/services/tasks';
 import type { AuditEvent, EmailMessage, NetworkContact, Task } from '@/lib/types/domain';
 
 // A made-up counterparty stands in for the real Nick-only ones.
@@ -144,9 +144,22 @@ async function sent(over: Partial<EmailMessage> & { sent_at: string }): Promise<
   return row;
 }
 
-async function check(iso: string) {
+/** The mailbox synced up to `iso`, as the real sync leaves it. */
+async function synced(iso: string, status: 'connected' | 'needs_reauth' = 'connected') {
+  await harness.store.update('integrations', org, DEMO_IDS.integrationGoogle, {
+    last_sync_at: iso,
+    status,
+  });
+}
+
+/** The proof check at `iso`, with the mailbox synced just before it unless told otherwise. */
+async function check(iso: string, opts: { sync?: boolean; scanLimit?: number } = {}) {
   at(iso);
-  return runProofCheck(harness.store, org, { now: new Date(iso) });
+  if (opts.sync !== false) await synced(iso);
+  return runProofCheck(harness.store, org, {
+    now: new Date(iso),
+    ...(opts.scanLimit ? { scanLimit: opts.scanLimit } : {}),
+  });
 }
 
 const view = async (taskId: string) =>
@@ -358,7 +371,7 @@ describe('a ticked deliverable with no matching sent email', () => {
     for (const row of (await harness.store.list('integrations', org)) as { id: string }[]) {
       await harness.store.remove('integrations', org, row.id);
     }
-    const outcome = await check('2026-10-28T21:01:00Z');
+    const outcome = await check('2026-10-28T21:01:00Z', { sync: false });
     expect(outcome.state).toBe('no_mailbox');
     expect((await checkOf(task.id))?.state).toBe('waiting');
   });
@@ -717,5 +730,296 @@ describe('around the proof check', () => {
       DEMO_IDS.taskProofFlaggedDone,
       DEMO_IDS.taskProofFlaggedReopen,
     ]);
+  });
+});
+
+/* --------------------------------------------- what review tried to break */
+
+describe('a flag is only raised on a mailbox that has synced past the window', () => {
+  async function tickedFriday() {
+    at('2026-10-23T20:00:00Z');
+    const task = await human('Give Riley feedback on the LP letter');
+    at('2026-10-23T21:00:00Z');
+    await tick(task);
+    return task;
+  }
+
+  it('waits while the last sync is older than the window', async () => {
+    const task = await tickedFriday();
+    await synced('2026-10-27T20:00:00Z'); // an hour before the window ends
+    await check('2026-10-28T21:00:00Z', { sync: false });
+    expect((await checkOf(task.id))?.state).toBe('waiting');
+    await synced('2026-10-28T21:00:00Z');
+    await check('2026-10-28T21:05:00Z', { sync: false });
+    expect((await checkOf(task.id))?.state).toBe('flagged');
+  });
+
+  it('waits while the connection is broken, however recent its last sync', async () => {
+    const task = await tickedFriday();
+    await synced('2026-10-28T21:00:00Z', 'needs_reauth');
+    await check('2026-10-28T21:05:00Z', { sync: false });
+    expect((await checkOf(task.id))?.state).toBe('waiting');
+  });
+});
+
+describe('a later tick is never proved by what an earlier one used', () => {
+  it('an old TASK_PROOF_V1, read again after a Reopen and a new tick, proves nothing', async () => {
+    const task = await tick(await human('Give Riley feedback on the LP letter'));
+    const message = proofMessage([slackProof(task)], '2026-10-21T20:00:00Z');
+    at('2026-10-21T20:30:00Z');
+    expect((await applyProofs([message])).seen).toBe(1);
+
+    at('2026-10-22T15:00:00Z');
+    await updateTaskStatus(harness.auth, task.id, 'open');
+    at('2026-10-22T16:00:00Z');
+    await tick(task);
+    expect((await checkOf(task.id))?.state).toBe('waiting');
+    const again = await applyProofs([message]);
+    expect(again.seen).toBe(0);
+    expect((await checkOf(task.id))?.state).toBe('waiting');
+    expect(await rows(PROOF_SEEN_ACTION, task.id)).toHaveLength(1);
+  });
+
+  it('the email that proved a tick the person then reopened does not prove the next one', async () => {
+    const task = await human('Send Riley the Q4 offsite agenda');
+    at('2026-10-20T16:00:00Z');
+    await tick(task);
+    await sent({ sent_at: '2026-10-20T17:00:00.000Z', to_addresses: [RILEY] });
+    await check('2026-10-20T18:00:00Z');
+    expect((await checkOf(task.id))?.state).toBe('seen');
+
+    at('2026-10-20T19:00:00Z');
+    await updateTaskStatus(harness.auth, task.id, 'open');
+    at('2026-10-20T20:00:00Z');
+    await tick(task);
+    await check('2026-10-20T21:00:00Z');
+    expect((await checkOf(task.id))?.state).toBe('waiting');
+
+    const fresh = await sent({ sent_at: '2026-10-21T15:00:00.000Z', to_addresses: [RILEY] });
+    await check('2026-10-21T16:00:00Z');
+    const [, second] = await rows(PROOF_SEEN_ACTION, task.id);
+    expect(second?.metadata?.evidence_id).toBe(fresh.provider_message_id);
+    expect((await checkOf(task.id))?.state).toBe('seen');
+  });
+
+  it('an automatic close the person reopened is not the proof of their own tick', async () => {
+    const task = await human('Send Riley the board deck');
+    const close = {
+      task_id: task.id,
+      title: task.title,
+      kind: 'send_doc',
+      evidence_at: '2026-10-20T15:30:00Z',
+      evidence: { type: 'gmail_sent', id: 'feed00000002' },
+      reason: 'Sent the deck.',
+    };
+    const message: SlackMessage = {
+      ts: slackTs('2026-10-20T15:40:00Z'),
+      user: POSTER,
+      text: `${TASK_CLOSE_MARKER}\n${TICK}${JSON.stringify({ v: 1, source: 'task-closer', closes: [close] })}${TICK}`,
+    };
+    at('2026-10-20T15:45:00Z');
+    const first = await applyTaskCloses(
+      harness.store,
+      org,
+      collectTaskCloses([message], [POSTER]).closes,
+    );
+    expect(first.closed).toBe(1);
+    at('2026-10-20T16:00:00Z');
+    await updateTaskStatus(harness.auth, task.id, 'open');
+    at('2026-10-20T17:00:00Z');
+    await tick(task);
+    const again = await applyTaskCloses(
+      harness.store,
+      org,
+      collectTaskCloses([message], [POSTER]).closes,
+    );
+    expect(again).toMatchObject({ closed: 0, proofs: 0 });
+    expect((await checkOf(task.id))?.state).toBe('waiting');
+  });
+});
+
+describe('ticking a task that is already complete', () => {
+  it('leaves an automatic close as it was: no proof check starts', async () => {
+    const task = await human('Send Riley the board deck');
+    await writeAutoClose(
+      harness.store,
+      org,
+      task.id,
+      {
+        source: 'task-closer',
+        match: 'id',
+        kind: 'send_doc',
+        evidence_type: 'gmail_sent',
+        evidence_id: 'feed00000003',
+        thread_id: null,
+        evidence_at: '2026-10-20T15:30:00.000Z',
+        reason: 'Sent the deck.',
+        slack_ts: null,
+      },
+      new Date(),
+    );
+    const closedAt = (await taskById(task.id)).completed_at;
+    at('2026-10-20T18:00:00Z');
+    await tick(task); // a stale tab still showing it open
+    expect((await taskById(task.id)).completed_at).toBe(closedAt);
+    expect(await rows(PROOF_EXPECTED_ACTION, task.id)).toEqual([]);
+  });
+
+  it('keeps a flag where it was', async () => {
+    at('2026-10-23T20:00:00Z');
+    const task = await human('Give Riley feedback on the LP letter');
+    at('2026-10-23T21:00:00Z');
+    await tick(task);
+    await check('2026-10-27T21:01:00Z');
+    expect((await checkOf(task.id))?.state).toBe('flagged');
+    at('2026-10-27T22:00:00Z');
+    await tick(task);
+    expect((await checkOf(task.id))?.state).toBe('flagged');
+    expect(await rows(PROOF_EXPECTED_ACTION, task.id)).toHaveLength(1);
+  });
+});
+
+describe('what counts as the deliverable', () => {
+  it('takes only evidence that proves this kind of deliverable', async () => {
+    const task = await tick(await human('Give Riley feedback on the LP letter'));
+    at('2026-10-21T20:30:00Z');
+    const counts = await applyProofs([
+      proofMessage(
+        [
+          slackProof(task, {
+            evidence: { type: 'payment_confirmation', id: 'pay-0001' },
+            reason: 'A payment went out.',
+          }),
+        ],
+        '2026-10-21T20:00:00Z',
+      ),
+    ]);
+    expect(counts).toMatchObject({ seen: 0, skipped: { wrong_evidence: 1 } });
+    expect((await checkOf(task.id))?.state).toBe('waiting');
+  });
+
+  it('counts an intro that loops someone in, and a send that ends on a question', async () => {
+    const intro = await tick(await human('Intro Riley to Maya'));
+    const send = await tick(await human('Send Riley the Q4 offsite agenda'));
+    await sent({
+      sent_at: '2026-10-20T16:00:00.000Z',
+      to_addresses: [RILEY, 'maya@ledgerly.demo'],
+      snippet: 'Looping in Maya, who runs Ledgerly. Maya, meet Riley.',
+    });
+    await sent({
+      sent_at: '2026-10-20T16:05:00.000Z',
+      to_addresses: [RILEY],
+      snippet: 'Agenda attached. Does Thursday still work?',
+    });
+    await check('2026-10-20T17:00:00Z');
+    expect((await checkOf(intro.id))?.state).toBe('seen');
+    expect((await checkOf(send.id))?.state).toBe('seen');
+  });
+
+  it('still reads a reply strictly: a holding note is not the answer', async () => {
+    at('2026-10-23T20:00:00Z');
+    const task = await human('Reply to Riley about the offsite');
+    at('2026-10-23T21:00:00Z');
+    await tick(task);
+    await sent({
+      sent_at: '2026-10-24T15:00:00.000Z',
+      to_addresses: [RILEY],
+      snippet: 'Let me check and get back to you.',
+    });
+    await check('2026-10-27T21:01:00Z');
+    expect((await checkOf(task.id))?.state).toBe('flagged');
+  });
+
+  it('finds an email older than the newest sent mail it scans before flagging', async () => {
+    at('2026-10-23T20:00:00Z');
+    const task = await human('Send Riley the Q4 offsite agenda');
+    const early = await sent({ sent_at: '2026-10-23T20:30:00.000Z', to_addresses: [RILEY] });
+    for (let i = 0; i < 3; i++) {
+      await sent({
+        sent_at: `2026-10-26T1${i}:00:00.000Z`,
+        to_addresses: [`someone${i}@elsewhere.example`],
+      });
+    }
+    at('2026-10-23T21:00:00Z');
+    await tick(task);
+    await check('2026-10-27T21:01:00Z', { scanLimit: 2 });
+    const [seen] = await rows(PROOF_SEEN_ACTION, task.id);
+    expect(seen?.metadata?.evidence_id).toBe(early.provider_message_id);
+    expect(await rows(PROOF_MISSING_ACTION, task.id)).toEqual([]);
+  });
+
+  it("picks the one of two same-named people at the task's company", async () => {
+    const contact = (id: string, full_name: string, email: string): NetworkContact => ({
+      id,
+      organization_id: org,
+      full_name,
+      email,
+      company: null,
+      title: null,
+      relationship: null,
+      expertise: [],
+      geography: null,
+      notes: null,
+      source_document_id: null,
+      created_at: '2026-10-01T00:00:00.000Z',
+      updated_at: '2026-10-01T00:00:00.000Z',
+    });
+    await harness.store.insert(
+      'network_contacts',
+      contact('97979797-0000-4000-8000-000000000011', 'Quinn Vale', 'quinn@vale.example'),
+    );
+    await harness.store.insert(
+      'network_contacts',
+      contact('97979797-0000-4000-8000-000000000012', 'Quinn Orr', 'quinn@girderai.demo'),
+    );
+    const linked = await createTask(harness.auth, {
+      title: 'Send Quinn the pilot pricing',
+      dealId: DEMO_IDS.dealGirder,
+    });
+    if (!linked.ok) throw new Error('could not create');
+    const loose = await human('Send Quinn the onboarding deck');
+    await tick(linked.value);
+    await tick(loose);
+    await sent({ sent_at: '2026-10-20T16:00:00.000Z', to_addresses: ['quinn@girderai.demo'] });
+    await check('2026-10-20T17:00:00Z');
+    expect((await checkOf(linked.value.id))?.state).toBe('seen');
+    // With no company to tell them apart, the name stays unmatched.
+    expect((await checkOf(loose.id))?.state).toBe('waiting');
+  });
+
+  it('never judges a reply to a no-reply sender', async () => {
+    const robot = await sent({
+      sent_at: '2026-10-23T19:00:00.000Z',
+      from_address: 'calendar-notification@calendar.example',
+      to_addresses: [MAILBOX],
+      labels: ['INBOX'],
+    });
+    at('2026-10-23T20:00:00Z');
+    const task = await human('Reply to the invite', { emailMessageId: robot.id });
+    at('2026-10-23T21:00:00Z');
+    await tick(task);
+    await check('2026-10-28T21:01:00Z');
+    expect(await rows(PROOF_EXPECTED_ACTION, task.id)).toHaveLength(1);
+    expect(await rows(PROOF_MISSING_ACTION, task.id)).toEqual([]);
+  });
+});
+
+describe("only the mailbox owner's deliverables are judged from it", () => {
+  it('never flags a task someone else does, which goes out from their own mailbox', async () => {
+    at('2026-10-23T20:00:00Z');
+    const theirs = await human('Send Maya the onboarding checklist');
+    const assigned = await assignTask(harness.auth, theirs.id, DEMO_TEAMMATE.id);
+    expect(assigned.ok).toBe(true);
+    const mine = await human('Give Riley feedback on the LP letter');
+    at('2026-10-23T21:00:00Z');
+    await tick(theirs);
+    await tick(mine);
+    await check('2026-10-28T21:01:00Z');
+    expect((await checkOf(theirs.id))?.state).toBe('waiting');
+    expect((await checkOf(mine.id))?.state).toBe('flagged');
+    // A send it can see still proves it.
+    await sent({ sent_at: '2026-10-28T22:00:00.000Z', to_addresses: ['maya@ledgerly.demo'] });
+    await check('2026-10-28T23:00:00Z');
+    expect((await checkOf(theirs.id))?.state).toBe('seen');
   });
 });
