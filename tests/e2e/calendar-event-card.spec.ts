@@ -75,6 +75,26 @@ async function dragAcross(page: Page, from: Locator, to: Locator) {
   await page.mouse.up();
 }
 
+/**
+ * Every write the page sends to the calendar routes, as sent: what the
+ * server is asked to do, so a test fails if the page asks for more than the
+ * person chose (a notify they did not pick, a field beside the colour).
+ */
+function recordWrites(page: Page) {
+  const writes: { method: string; url: string; body: Record<string, unknown> | null }[] = [];
+  page.on('request', (r) => {
+    if (r.method() === 'GET' || !/\/api\/(calendar|inbox)\//.test(r.url())) return;
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = r.postDataJSON() as Record<string, unknown> | null;
+    } catch {
+      body = null;
+    }
+    writes.push({ method: r.method(), url: new URL(r.url()).pathname, body });
+  });
+  return writes;
+}
+
 /** Side by side, not on top: the card does not cover what it is about. */
 function beside(card: { x: number; width: number }, target: { x: number; width: number }) {
   return card.x >= target.x + target.width - 2 || card.x + card.width <= target.x + 2;
@@ -174,6 +194,7 @@ test('a colour from the card changes it at once, asks nothing, and stays', async
   const day = dayFromToday(6);
   const title = `Colour check ${Date.now()}`;
   await newEvent(page, day, 8, title);
+  const writes = recordWrites(page);
   await chip(page, title).click();
   const card = page.getByRole('dialog', { name: title });
   await card.getByRole('radio', { name: 'Tomato' }).click();
@@ -183,6 +204,17 @@ test('a colour from the card changes it at once, asks nothing, and stays', async
   ).toHaveCount(0);
   await expect(card.getByRole('radio', { name: 'Tomato' })).toHaveAttribute('aria-checked', 'true');
   await expect(chip(page, title)).toHaveCSS('border-top-color', 'rgb(220, 33, 39)');
+  // The page asked for the colour and nothing else: no notify, no other field.
+  expect(writes).toHaveLength(1);
+  expect(writes[0]!.method).toBe('PATCH');
+  expect(Object.keys(writes[0]!.body ?? {}).sort()).toEqual([
+    'calendarId',
+    'colorId',
+    'eventId',
+    'kind',
+    'scope',
+  ]);
+  expect(writes[0]!.body).toMatchObject({ kind: 'color', colorId: '11', scope: 'this' });
   await page.screenshot({ path: 'test-results/calendar-card-colour.png' });
 
   await page.reload();
@@ -197,6 +229,7 @@ test('Duplicate opens the editor prefilled and saves a new event; with guests it
   const day = dayFromToday(6);
   const title = `Dup check ${Date.now()}`;
   await newEvent(page, day, 10, title);
+  const writes = recordWrites(page);
   await chip(page, title).click();
   await page
     .getByRole('dialog', { name: title })
@@ -208,6 +241,10 @@ test('Duplicate opens the editor prefilled and saves a new event; with guests it
   await expect(editor.getByLabel('Start time')).toHaveValue('10:00');
   await editor.getByRole('button', { name: 'Save' }).click();
   await expect(chip(page, title)).toHaveCount(2);
+  // A new event (one create), and the original is not touched.
+  expect(writes.map((w) => w.method)).toEqual(['POST']);
+  expect(writes[0]!.body).toMatchObject({ notify: 'dont_send' });
+  expect(writes[0]!.body).not.toHaveProperty('eventId');
   await deleteEvent(page, title);
   await deleteEvent(page, title);
   await expect(chip(page, title)).toHaveCount(0);
@@ -230,6 +267,8 @@ test('Duplicate opens the editor prefilled and saves a new event; with guests it
   await expect(copy).toBeVisible();
   await copy.getByRole('button', { name: 'Cancel' }).click();
   await expect(chip(page, 'Founder office hours')).toHaveCount(1);
+  // Cancel in the invitations question sent nothing at all.
+  expect(writes.filter((w) => w.method === 'POST')).toHaveLength(1);
 });
 
 test('Going? asks whether to tell the organizer, and Cancel writes nothing', async ({ page }) => {
@@ -259,17 +298,26 @@ test('Going? asks whether to tell the organizer, and Cancel writes nothing', asy
   await expect(card.getByRole('button', { name: 'Delete event' })).toHaveCount(0);
   await expect(card.getByRole('radiogroup', { name: 'Event colour' })).toBeVisible();
 
+  const writes = recordWrites(page);
   await yes.click();
   const ask = page.getByRole('dialog', { name: 'Send your response to the organizer?' });
   await expect(ask).toBeVisible();
   await expect(ask.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
   await expect(ask.getByRole('button', { name: "Don't send" })).toBeVisible();
+  // Send is never the default: Enter on the question as it opens is not Send.
+  await expect(ask.getByRole('button', { name: 'Send', exact: true })).not.toBeFocused();
   await page.screenshot({ path: 'test-results/calendar-card-rsvp.png' });
   await ask.getByRole('button', { name: 'Cancel' }).click();
   await expect(ask).toHaveCount(0);
-  // Nothing changed, on the card or on the calendar.
+  // Esc on the question is Cancel too.
+  await yes.click();
+  await expect(ask).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(ask).toHaveCount(0);
+  // Nothing changed, on the card or on the calendar, and nothing was sent.
   await expect(card).toBeVisible();
   await expect(yes).toHaveAttribute('aria-pressed', 'false');
+  expect(writes).toEqual([]);
   await page.reload();
   await chip(page, 'Ledgerly board meeting').click();
   await expect(yes).toHaveAttribute('aria-pressed', 'false');
@@ -279,6 +327,16 @@ test('Going? asks whether to tell the organizer, and Cancel writes nothing', asy
   await ask.getByRole('button', { name: "Don't send" }).click();
   await expect(page.getByText('Saved.')).toBeVisible();
   await expect(maybe).toHaveAttribute('aria-pressed', 'true');
+  expect(writes).toHaveLength(1);
+  expect(writes[0]!.method).toBe('PATCH');
+  expect(writes[0]!.body).toEqual({
+    kind: 'respond',
+    calendarId: expect.any(String),
+    eventId: 'demoteamboard',
+    scope: 'this',
+    response: 'tentative',
+    notify: 'dont_send',
+  });
   await page.reload();
   await chip(page, 'Ledgerly board meeting').click();
   await expect(maybe).toHaveAttribute('aria-pressed', 'true');
@@ -302,6 +360,7 @@ test('Email guests opens a draft to the guests; nothing sends without its own ta
   page,
 }) => {
   await page.goto(`/calendar?view=day&date=${dayFromToday(0)}`);
+  const writes = recordWrites(page);
   await chip(page, 'Founder office hours').click();
   await page
     .getByRole('dialog', { name: 'Founder office hours' })
@@ -316,6 +375,8 @@ test('Email guests opens a draft to the guests; nothing sends without its own ta
   await expect(compose.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
   await compose.getByRole('button', { name: 'Close' }).click();
   await expect(compose).toHaveCount(0);
+  // Opening and closing the draft sent nothing anywhere.
+  expect(writes).toEqual([]);
 });
 
 test('the quick editor opens beside the dragged slot, which stays drawn', async ({ page }) => {
