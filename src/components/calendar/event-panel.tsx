@@ -22,7 +22,6 @@ import {
   Video,
   X,
 } from 'lucide-react';
-import { gmailThreadUrl } from '@/lib/deals/links';
 import { RSVP_CHOICES, type EventOptions, type RsvpResponse } from '@/lib/calendar/event-actions';
 import {
   descriptionParts,
@@ -38,6 +37,7 @@ import { cn } from '@/lib/util/cn';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SkeletonText } from '@/components/ui/feedback';
+import { ThreadLinks } from '@/components/email/thread-links';
 import { AnchoredCard } from './anchored-card';
 import { fetchContext, fetchSeries, type MeetingContext } from './calendar-api';
 import { swatchStyle } from './event-style';
@@ -797,28 +797,18 @@ function ContextBox({
         <div>
           <p className="text-xs font-medium text-[var(--fg-muted)]">Latest emails with them</p>
           <ul className="mt-0.5 space-y-0.5">
-            {recent.map((t) => {
-              const href = gmailThreadUrl(t.id, mailbox);
-              return (
-                <li key={t.id} className="text-xs">
-                  {href ? (
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline"
-                    >
-                      {t.subject} <ExternalLink className="size-3" aria-hidden />
-                    </a>
-                  ) : (
-                    t.subject
-                  )}
+            {recent.map((t) => (
+              <li key={t.id} className="flex flex-wrap items-center gap-x-2 text-xs">
+                <span className="min-w-0 break-words">
+                  {t.subject}
                   {t.at ? (
                     <span className="text-[var(--fg-subtle)]"> · {formatDate(t.at, timeZone)}</span>
                   ) : null}
-                </li>
-              );
-            })}
+                </span>
+                {/* The thread in Copilot's Inbox, or in Gmail, as on the day list. */}
+                <ThreadLinks id={t.id} mailbox={mailbox} label={t.subject} variant="text" />
+              </li>
+            ))}
           </ul>
         </div>
       ) : null}
