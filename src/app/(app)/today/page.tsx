@@ -15,6 +15,7 @@ import { gatherTodayData, generateDailyBrief, getTodaysBrief } from '@/lib/servi
 import { getTaskRelayStatus, pullTaskRelays } from '@/lib/services/task-relay';
 import { readTodayGlance } from '@/lib/services/task-glance';
 import { readAffinityExitTodayLine } from '@/lib/services/affinity-exit';
+import { readMoneyLegal, readTaskPeople } from '@/lib/services/money-legal';
 import { readFollowUps, todayLead } from '@/lib/services/follow-ups';
 import { classifyMeeting, meetingFromStoredEvent } from '@/lib/calendar/meetings';
 import { gmailThreadUrl } from '@/lib/deals/links';
@@ -120,7 +121,9 @@ async function TodayContent({
   // Pull any routine post that is waiting in the Slack relay first, so a card
   // posted a minute ago shows now rather than after the next scheduled sync.
   await pullBriefingsFromSlack(getStore(), auth.organizationId).catch(() => 0);
-  const [routineBrief, routineDossier, followUps, glance, affinityExit] = await Promise.all([
+  const dueTasks = [...data.overdueTasks, ...data.dueTodayTasks];
+  const [routineBrief, routineDossier, followUps, glance, affinityExit, money, people] =
+    await Promise.all([
     getCurrentBrief(getStore(), auth.organizationId).catch(() => null),
     getCurrentDossier(getStore(), auth.organizationId).catch(() => null),
     // Same rule as the briefings: a Slack fault only hides the card.
@@ -135,6 +138,10 @@ async function TodayContent({
     readAffinityExitTodayLine(getStore(), auth.organizationId, now, auth.profile.timezone).catch(
       () => null,
     ),
+    // The row menus' money marks and people. Neither throws: a fault only
+    // leaves the menus plainer.
+    readMoneyLegal(getStore(), auth.organizationId, dueTasks),
+    readTaskPeople(auth.organizationId),
   ]);
   // Top priorities leads the page whenever it has a list. Today's list is the
   // to-do list, so Do now steps aside for it; with no list, or only an older
@@ -330,7 +337,7 @@ async function TodayContent({
           }
         >
           <ul>
-            {[...data.overdueTasks, ...data.dueTodayTasks].map((task) => (
+            {dueTasks.map((task) => (
               <li
                 key={task.id}
                 className="flex items-start justify-between gap-3 border-b border-[var(--border)] py-2.5 last:border-b-0"
@@ -364,7 +371,17 @@ async function TodayContent({
                     </p>
                   ) : null}
                 </div>
-                <TaskControls taskId={task.id} />
+                <TaskControls
+                  taskId={task.id}
+                  task={{
+                    title: task.title,
+                    detail: task.detail,
+                    dueAt: task.due_at,
+                    assignedTo: task.assigned_to,
+                    moneyLegal: Boolean(money.states.get(task.id)?.on),
+                  }}
+                  people={people}
+                />
               </li>
             ))}
           </ul>

@@ -2,9 +2,15 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { TaskControls, UnsnoozeTaskButton } from '@/components/today/today-actions';
+import {
+  TaskControls,
+  UnsnoozeTaskButton,
+  type TaskControlsTask,
+} from '@/components/today/today-actions';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/feedback';
+import { useTasksWho } from './tasks-tabs';
+import { MoneyBadges } from './todo-tasks';
 import { useFocusAfterRemoval } from './use-row-focus';
 
 /** A snoozed task as the server prepared it: the wake line already worked out. */
@@ -19,12 +25,16 @@ export interface SnoozedTaskItem {
   /** "Due 1d from now, before it wakes", flagged when the deadline comes first. */
   due: { text: string; beforeWake: boolean } | null;
   snoozedUntil: string | null;
+  /** Set for a money or legal task. */
+  money?: { why: string; stale: string | null; needsProof: boolean } | null;
+  controls?: TaskControlsTask;
 }
 
 /** The Snoozed tab: tasks still asleep, soonest to wake first. */
 export function SnoozedTasks({ items }: { items: SnoozedTaskItem[] }) {
   const root = React.useRef<HTMLDivElement>(null);
   const leaving = useFocusAfterRemoval(items, root);
+  const { people } = useTasksWho();
 
   if (items.length === 0) {
     return (
@@ -77,6 +87,7 @@ export function SnoozedTasks({ items }: { items: SnoozedTaskItem[] }) {
                   {item.due.text}
                 </p>
               ) : null}
+              {item.money ? <MoneyBadges money={item.money} /> : null}
             </div>
             <div className="flex shrink-0 items-center gap-1">
               <UnsnoozeTaskButton
@@ -90,6 +101,8 @@ export function SnoozedTasks({ items }: { items: SnoozedTaskItem[] }) {
                 restore={{ status: 'snoozed', snoozedUntil: item.snoozedUntil }}
                 snooze={false}
                 onDone={() => leaving(item.id, index)}
+                task={item.controls}
+                people={people}
               />
             </div>
           </li>

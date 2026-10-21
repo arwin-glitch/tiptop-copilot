@@ -159,12 +159,16 @@ test('Unsnooze moves the task to To do, and Undo snoozes it again until the same
 
 test('PageDown and PageUp switch tabs as they move focus', async ({ page }) => {
   await gotoTasks(page);
-  const { todo, completed, todoPanel, completedPanel } = tabs(page);
+  const { todo, todoPanel } = tabs(page);
+  // Money & legal is the last tab.
+  const money = page.getByRole('tab', { name: /^Money & legal/ });
+  // Let the load settle first, as the tab-switching test in tasks-completed does.
+  await page.waitForLoadState('networkidle');
   await todo.focus();
   await page.keyboard.press('PageDown');
-  await expect(completed).toBeFocused();
-  await expect(completed).toHaveAttribute('aria-selected', 'true');
-  await expect(completedPanel).toBeVisible();
+  await expect(money).toBeFocused();
+  await expect(money).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tabpanel', { name: /^Money & legal/ })).toBeVisible();
   await page.keyboard.press('PageUp');
   await expect(todo).toBeFocused();
   await expect(todo).toHaveAttribute('aria-selected', 'true');

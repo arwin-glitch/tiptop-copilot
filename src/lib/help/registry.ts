@@ -276,6 +276,12 @@ export const HELP_PAGES: readonly HelpPage[] = [
         blurb: 'What got done, by day, with Reopen.',
         href: '/tasks?view=completed',
       },
+      {
+        key: 'money',
+        label: 'Money & legal',
+        blurb: 'Wires, signatures, filings and invoices, kept until closed with proof.',
+        href: '/tasks?view=money',
+      },
     ],
     steps: [
       navStep('/tasks', 'Your to-do list', 'Tasks holds what you owe someone, with due dates.'),
@@ -283,6 +289,12 @@ export const HELP_PAGES: readonly HelpPage[] = [
         target: 'tasks-tabs',
         title: 'Open, snoozed, done',
         body: "Switch between what's still open, what's snoozed and what's finished.",
+        placement: 'bottom',
+      },
+      {
+        target: 'tasks-money',
+        title: 'Money and legal, kept',
+        body: 'Wires, signatures, filings and invoices stay here until closed with proof.',
         placement: 'bottom',
       },
       {
@@ -295,7 +307,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'task-controls',
         title: 'Finish or snooze',
-        body: 'Tick to complete, or snooze for three days. Undo is offered each time.',
+        body: 'Tick to complete, or snooze three days. The menu edits, assigns, snoozes to a day or deletes.',
         placement: 'left',
       },
       {
@@ -308,6 +320,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
     sketch: [
       ...header('page-actions'),
       { x: 1, y: 3.8, w: 10, h: 1, tone: 'tabs', pin: 'tasks-tabs' },
+      { x: 11.5, y: 3.8, w: 4.5, h: 1, tone: 'tabs', pin: 'tasks-money' },
       { x: 1, y: 5.8, w: 22, h: 9.4, tone: 'card', pin: 'tasks-list' },
       ...lines(2, 6.8, 14, 5),
       { x: 19.5, y: 6.7, w: 0.9, h: 0.9, tone: 'check', pin: 'task-controls' },

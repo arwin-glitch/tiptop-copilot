@@ -2,21 +2,40 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { toast } from 'sonner';
-import { AlarmClockOff, Check, Clock, Plus, RefreshCw, RotateCcw } from 'lucide-react';
 import {
+  AlarmClockOff,
+  CalendarClock,
+  Check,
+  Clock,
+  Ellipsis,
+  Pencil,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Scale,
+  Trash2,
+  UserRound,
+} from 'lucide-react';
+import {
+  assignTaskAction,
   createTaskAction,
+  deleteTaskAction,
   refreshOutlookAction,
   restoreTaskAction,
+  setMoneyLegalAction,
   snoozeTaskAction,
   updateTaskStatusAction,
 } from '@/app/actions';
 import { useReportRefresh } from '@/components/shell/refresh-status';
 import { useTaskActionHost } from '@/components/tasks/task-action-host';
+import { EditTaskDialog, ProofDialog, SnoozeUntilDialog } from '@/components/tasks/task-dialogs';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Field, Input, Textarea } from '@/components/ui/form';
 import { defaultDueDate, dueDateToInstant } from '@/lib/tasks/due';
+import type { TaskPerson } from '@/lib/tasks/task-people';
 import type { TaskRestore } from '@/lib/tasks/tasks-view';
 
 export function RefreshOutlookButton() {
@@ -162,56 +181,108 @@ export function CreateFollowUpButton({
 const BACK_OPEN: TaskRestore = { status: 'open' };
 const UNDO_MS = 8_000;
 
+/** What a row's menu needs to know about its task. */
+export interface TaskControlsTask {
+  title: string;
+  detail: string | null;
+  dueAt: string | null;
+  assignedTo: string | null;
+  /** On the Money & legal tab: Mark complete asks for proof. */
+  moneyLegal: boolean;
+}
+
+type ActionOutcome = { ok: boolean; error?: { message: string; code?: string } };
+
+const MENU_ITEM =
+  'flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-[var(--bg-hover)]';
+
 /**
- * Mark complete and Snooze for a task on a list. Each toast carries an Undo,
- * run by the layout's `TaskActionHost` because this row is gone by the time
- * anyone clicks it. `restore` is where Undo puts a completed task back: open,
- * or (from the Snoozed tab) snoozed until the same time.
+ * Mark complete and Snooze for a task on a list, and, given the task, a menu
+ * to edit it, snooze it to a chosen day, assign it, mark it money & legal or
+ * delete it. Each toast that takes the row away carries an Undo, run by the
+ * layout's `TaskActionHost` because this row is gone by the time anyone
+ * clicks it. `restore` is where Undo puts a completed or deleted task back:
+ * open, or (from the Snoozed tab) snoozed until the same time.
+ *
+ * A money or legal task closes on proof: Mark complete opens the proof
+ * dialog, also when the server is the one that knows (a page that did not
+ * pass the task).
  */
 export function TaskControls({
   taskId,
   restore = BACK_OPEN,
   snooze = true,
   onDone,
+  task,
+  people,
 }: {
   taskId: string;
   restore?: TaskRestore;
   snooze?: boolean;
-  /** Called once the action succeeded, before the refresh takes the row away. */
+  /** Called once an action that takes the row away succeeded, before the refresh does. */
   onDone?: () => void;
+  /** Turns on the menu. */
+  task?: TaskControlsTask;
+  /** Who a task can be assigned to; the menu leaves assigning out without them. */
+  people?: readonly TaskPerson[];
 }) {
   const [pending, startTransition] = React.useTransition();
   // On Tasks, whose tabs hold their URL writes while this refreshes.
   const reportRefresh = useReportRefresh(pending);
   const router = useRouter();
   const host = useTaskActionHost();
+  const [dialog, setDialog] = React.useState<'edit' | 'snooze' | 'proof' | null>(null);
+  // Set while a menu item opens a dialog, so the closing menu leaves focus to it.
+  const toDialog = React.useRef(false);
 
+  /** `undo` null: the row stays, so no Undo and no `onDone`. */
   const run = (
-    fn: () => Promise<{ ok: boolean; error?: { message: string } }>,
+    fn: () => Promise<ActionOutcome>,
     success: string,
-    undo: TaskRestore,
+    undo: TaskRestore | null,
+    after?: (ok: boolean) => void,
   ) => {
     reportRefresh();
     startTransition(async () => {
       const result = await fn();
       if (result.ok) {
-        toast.success(success, {
-          duration: UNDO_MS,
-          action: {
-            label: 'Undo',
-            onClick: () =>
-              host.run(() => restoreTaskAction(taskId, undo), {
-                success: undo.status === 'snoozed' ? 'Snoozed again' : 'Back on your list',
-                error: 'Could not undo',
-              }),
-          },
-        });
-        onDone?.();
+        toast.success(
+          success,
+          undo
+            ? {
+                duration: UNDO_MS,
+                action: {
+                  label: 'Undo',
+                  onClick: () =>
+                    host.run(() => restoreTaskAction(taskId, undo), {
+                      success: undo.status === 'snoozed' ? 'Snoozed again' : 'Back on your list',
+                      error: 'Could not undo',
+                    }),
+                },
+              }
+            : undefined,
+        );
+        after?.(true);
+        if (undo) onDone?.();
         router.refresh();
+      } else if (result.error?.code === 'proof_required') {
+        after?.(false);
+        setDialog('proof');
       } else {
+        after?.(false);
         toast.error(result.error?.message ?? 'That did not work');
       }
     });
+  };
+
+  // A snooze from To do comes back open; from the Snoozed tab, to its old wake time.
+  const snoozeUndo = snooze ? BACK_OPEN : restore;
+  const openDialog = (which: 'edit' | 'snooze') => () => {
+    toDialog.current = true;
+    setDialog(which);
+  };
+  const close = (open: boolean) => {
+    if (!open) setDialog(null);
   };
 
   return (
@@ -221,10 +292,12 @@ export function TaskControls({
         size="sm"
         disabled={pending}
         onClick={() =>
-          run(() => updateTaskStatusAction(taskId, 'complete'), 'Marked complete', restore)
+          task?.moneyLegal
+            ? setDialog('proof')
+            : run(() => updateTaskStatusAction(taskId, 'complete'), 'Marked complete', restore)
         }
         aria-label="Mark complete"
-        title="Mark complete"
+        title={task?.moneyLegal ? 'Close with proof' : 'Mark complete'}
       >
         <Check aria-hidden="true" />
       </Button>
@@ -240,6 +313,129 @@ export function TaskControls({
           <Clock aria-hidden="true" />
         </Button>
       ) : null}
+      {task ? (
+        <DropdownMenu.Root modal={false}>
+          <DropdownMenu.Trigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={pending}
+              aria-label="More actions"
+              title="Edit, snooze to a day, assign, delete"
+              data-tour="task-more"
+            >
+              <Ellipsis aria-hidden="true" />
+            </Button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="end"
+              sideOffset={6}
+              onCloseAutoFocus={(event) => {
+                if (toDialog.current) event.preventDefault();
+                toDialog.current = false;
+              }}
+              className="shadow-overlay z-[var(--z-overlay)] w-60 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)] p-1"
+            >
+              <DropdownMenu.Item className={MENU_ITEM} onSelect={openDialog('edit')}>
+                <Pencil className="size-4" aria-hidden="true" />
+                Edit…
+              </DropdownMenu.Item>
+              <DropdownMenu.Item className={MENU_ITEM} onSelect={openDialog('snooze')}>
+                <CalendarClock className="size-4" aria-hidden="true" />
+                Snooze until…
+              </DropdownMenu.Item>
+              <DropdownMenu.CheckboxItem
+                className={MENU_ITEM}
+                checked={task.moneyLegal}
+                onCheckedChange={(on) =>
+                  run(
+                    () => setMoneyLegalAction(taskId, on === true),
+                    on === true ? 'Marked money & legal' : 'Taken off Money & legal',
+                    null,
+                  )
+                }
+              >
+                <Scale className="size-4" aria-hidden="true" />
+                <span className="flex-1">Money &amp; legal</span>
+                <DropdownMenu.ItemIndicator>
+                  <Check className="size-4" aria-hidden="true" />
+                </DropdownMenu.ItemIndicator>
+              </DropdownMenu.CheckboxItem>
+              {people && people.length > 0 ? (
+                <>
+                  <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+                  <DropdownMenu.Label className="px-2 py-1 text-xs text-[var(--fg-subtle)]">
+                    Assigned to
+                  </DropdownMenu.Label>
+                  <DropdownMenu.RadioGroup
+                    value={task.assignedTo ?? 'none'}
+                    onValueChange={(value) => {
+                      const to = value === 'none' ? null : value;
+                      const who = people.find((p) => p.id === to)?.short;
+                      run(
+                        () => assignTaskAction(taskId, to),
+                        who ? `Assigned to ${who}` : 'Assigned to no one',
+                        null,
+                      );
+                    }}
+                  >
+                    {[
+                      ...people.map((p) => ({ value: p.id, label: p.name })),
+                      { value: 'none', label: 'No one' },
+                    ].map((option) => (
+                      <DropdownMenu.RadioItem
+                        key={option.value}
+                        value={option.value}
+                        className={MENU_ITEM}
+                      >
+                        <UserRound className="size-4" aria-hidden="true" />
+                        <span className="flex-1">{option.label}</span>
+                        <DropdownMenu.ItemIndicator>
+                          <Check className="size-4" aria-hidden="true" />
+                        </DropdownMenu.ItemIndicator>
+                      </DropdownMenu.RadioItem>
+                    ))}
+                  </DropdownMenu.RadioGroup>
+                </>
+              ) : null}
+              <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+              <DropdownMenu.Item
+                className={`${MENU_ITEM} text-[var(--danger)]`}
+                onSelect={() => run(() => deleteTaskAction(taskId), 'Task deleted', restore)}
+              >
+                <Trash2 className="size-4" aria-hidden="true" />
+                Delete
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      ) : null}
+      {task ? (
+        <>
+          <EditTaskDialog
+            open={dialog === 'edit'}
+            onOpenChange={close}
+            taskId={taskId}
+            task={task}
+            run={(fn, success, after) => run(fn, success, null, after)}
+          />
+          <SnoozeUntilDialog
+            open={dialog === 'snooze'}
+            onOpenChange={close}
+            taskId={taskId}
+            run={(fn, success, after) => run(fn, success, snoozeUndo, after)}
+          />
+        </>
+      ) : null}
+      <ProofDialog
+        open={dialog === 'proof'}
+        onOpenChange={close}
+        taskId={taskId}
+        title={task?.title}
+        people={people}
+        run={(fn, success, after) => run(fn, success, restore, after)}
+      />
     </div>
   );
 }

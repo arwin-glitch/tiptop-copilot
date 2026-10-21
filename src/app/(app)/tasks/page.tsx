@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { after } from 'next/server';
-import { AlertTriangle } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { dueAndOverdue, listCompletedTasks, listSnoozedTasks } from '@/lib/services/tasks';
 import { listDrafts } from '@/lib/services/drafts';
@@ -12,16 +11,25 @@ import {
   autoCloseView,
   linkMailbox,
 } from '@/lib/services/task-close';
+import {
+  moneyLegalBadges,
+  needsProofView,
+  proofView,
+  readMoneyLegal,
+  readTaskPeople,
+} from '@/lib/services/money-legal';
 import { getTaskRelayStatus, pullTaskRelays, readTasksVersion } from '@/lib/services/task-relay';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { VersionWatcher } from '@/components/shell/version-watcher';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState, PlainText } from '@/components/ui/feedback';
-import { CreateFollowUpButton, TaskControls } from '@/components/today/today-actions';
+import { CreateFollowUpButton, type TaskControlsTask } from '@/components/today/today-actions';
 import { CompletedTasks, type CompletedTaskItem } from '@/components/tasks/completed-tasks';
+import { MoneyLegalTasks, type MoneyLegalItem } from '@/components/tasks/money-legal-tasks';
 import { SnoozedTasks, type SnoozedTaskItem } from '@/components/tasks/snoozed-tasks';
 import { TasksTabs } from '@/components/tasks/tasks-tabs';
+import { TodoTasks, type TodoTaskItem } from '@/components/tasks/todo-tasks';
 import {
   completedAt,
   completedGroup,
@@ -31,6 +39,7 @@ import {
   taskHref,
   wakeLabel,
 } from '@/lib/tasks/tasks-view';
+import { personShort } from '@/lib/tasks/task-people';
 import type { Task } from '@/lib/types/domain';
 import { settlesWithin } from '@/lib/util/settle';
 import { relativeTime } from '@/lib/util/time';
@@ -64,7 +73,8 @@ export default async function TasksPage() {
     listCompletedTasks(orgId),
     listDrafts(orgId, { limit: 20 }),
   ]);
-  const [autos, mailbox, version] = await Promise.all([
+  const openTasks = [...overdue, ...dueToday, ...upcoming];
+  const [autos, mailbox, version, money, people] = await Promise.all([
     autoCloseInfo(
       store,
       orgId,
@@ -72,7 +82,29 @@ export default async function TasksPage() {
     ),
     linkMailbox(store, orgId),
     readTasksVersion(store, orgId, now),
+    // Never throws: a fault here hides the money and legal marks, not the page.
+    readMoneyLegal(store, orgId, [...openTasks, ...snoozedTasks, ...completed]),
+    readTaskPeople(orgId, store),
   ]);
+  const timeZone = auth.profile.timezone;
+  // Names on rows only when there is more than one person to tell apart.
+  const assignee = (task: Task) =>
+    people.length > 1 ? personShort(people, task.assigned_to) : null;
+  const controls = (task: Task): TaskControlsTask => ({
+    title: task.title,
+    detail: task.detail,
+    dueAt: task.due_at,
+    assignedTo: task.assigned_to,
+    moneyLegal: Boolean(money.states.get(task.id)?.on),
+  });
+  const badges = (task: Task, asleep: boolean) => {
+    const marks = moneyLegalBadges(task, money.states.get(task.id), now, asleep);
+    return marks ? { ...marks, needsProof: money.claims.has(task.id) } : null;
+  };
+  const proofOf = (task: Task) => {
+    const proof = money.proofs.get(task.id);
+    return proof ? { ...proofView(proof, people), auto: false } : undefined;
+  };
   const statusLine = autoCheckStatusLine(
     getTaskRelayStatus(orgId).lastRun,
     now,
@@ -94,6 +126,7 @@ export default async function TasksPage() {
       completedLabel: completedLabel(at, group, now, auth.profile.timezone),
       group,
       ...(auto ? { auto: autoCloseView(auto, auth.profile.timezone, mailbox) } : {}),
+      ...(proofOf(task) ? { proof: proofOf(task) } : {}),
     };
   });
   const snoozedItems: SnoozedTaskItem[] = snoozedTasks.map((task) => ({
@@ -105,7 +138,88 @@ export default async function TasksPage() {
     wakeLabel: wakeLabel(task.snoozed_until, now, auth.profile.timezone),
     due: snoozedDueLabel(task.due_at, task.snoozed_until, now),
     snoozedUntil: task.snoozed_until,
+    money: badges(task, true),
+    controls: controls(task),
   }));
+
+  const todoItem = (task: Task, section: TodoTaskItem['section']): TodoTaskItem => ({
+    id: task.id,
+    title: task.title,
+    detail: task.detail,
+    href: taskHref(task),
+    suggested: task.source === 'suggested',
+    section,
+    dueLabel: dueLine(task, now),
+    assignee: assignee(task),
+    assignedTo: task.assigned_to,
+    money: badges(task, false),
+    controls: controls(task),
+  });
+  const todoItems: TodoTaskItem[] = [
+    ...overdue.map((task) => todoItem(task, 'overdue')),
+    ...dueToday.map((task) => todoItem(task, 'today')),
+    ...upcoming.map((task) => todoItem(task, 'upcoming')),
+  ];
+
+  // Money & legal: needs proof, then open (overdue and soonest due first, as
+  // on To do, then the snoozed ones), then the newest closed.
+  const onMoney = (task: Task) => Boolean(money.states.get(task.id)?.on);
+  const asleepIds = new Set(snoozedTasks.map((task) => task.id));
+  const moneyOpen = [...openTasks, ...snoozedTasks].filter(onMoney);
+  const moneyClosed = sortCompleted(completed.filter(onMoney));
+  const moneyItems: MoneyLegalItem[] = [
+    ...moneyOpen.map((task): MoneyLegalItem => {
+      const asleep = asleepIds.has(task.id);
+      const claim = money.claims.get(task.id);
+      return {
+        id: task.id,
+        title: task.title,
+        detail: task.detail,
+        href: taskHref(task),
+        suggested: task.source === 'suggested',
+        group: claim ? 'needs_proof' : 'open',
+        when: asleep ? wakeLabel(task.snoozed_until, now, timeZone) : dueLine(task, now),
+        whenDanger: !asleep && isPastDue(task, now),
+        assignee: assignee(task),
+        assignedTo: task.assigned_to,
+        money: badges(task, asleep) ?? { why: '', stale: null, needsProof: false },
+        claim: claim ? needsProofView(claim, timeZone) : null,
+        proof: null,
+        restore: asleep
+          ? { status: 'snoozed', snoozedUntil: task.snoozed_until }
+          : { status: 'open' },
+        controls: controls(task),
+      };
+    }),
+    ...moneyClosed.slice(0, MONEY_CLOSED_SHOWN).map((task): MoneyLegalItem => {
+      const at = completedAt(task);
+      const group = completedGroup(at, now, timeZone);
+      const auto = autos.get(task.id);
+      const autoView = auto ? autoCloseView(auto, timeZone, mailbox) : null;
+      return {
+        id: task.id,
+        title: task.title,
+        detail: task.detail,
+        href: taskHref(task),
+        suggested: task.source === 'suggested',
+        group: 'closed',
+        when: completedLabel(at, group, now, timeZone),
+        whenDanger: false,
+        assignee: assignee(task),
+        assignedTo: task.assigned_to,
+        money: { why: '', stale: null, needsProof: false },
+        claim: null,
+        proof:
+          proofOf(task) ??
+          (autoView
+            ? { label: autoView.label, href: autoView.href, note: autoView.reason, auto: true }
+            : null),
+        restore: { status: 'open' },
+        controls: controls(task),
+      };
+    }),
+  ];
+  const moneyCount = moneyOpen.length;
 
   const todo = (
     <>
@@ -119,33 +233,7 @@ export default async function TasksPage() {
           action={{ label: 'Go to Deals', href: '/deals' }}
         />
       ) : (
-        <div className="space-y-8" data-tour="tasks-list">
-          {overdue.length > 0 ? (
-            <section>
-              <SectionHeading count={overdue.length}>
-                <span className="flex items-center gap-2 text-[var(--danger)]">
-                  <AlertTriangle className="size-4" aria-hidden="true" />
-                  Overdue
-                </span>
-              </SectionHeading>
-              <TaskList tasks={overdue} now={now} overdue />
-            </section>
-          ) : null}
-
-          {dueToday.length > 0 ? (
-            <section>
-              <SectionHeading count={dueToday.length}>Due today</SectionHeading>
-              <TaskList tasks={dueToday} now={now} />
-            </section>
-          ) : null}
-
-          {upcoming.length > 0 ? (
-            <section>
-              <SectionHeading count={upcoming.length}>Upcoming</SectionHeading>
-              <TaskList tasks={upcoming} now={now} />
-            </section>
-          ) : null}
-        </div>
+        <TodoTasks items={todoItems} />
       )}
 
       {drafts.length > 0 ? (
@@ -209,65 +297,29 @@ export default async function TasksPage() {
         todoCount={openCount}
         snoozedCount={snoozedItems.length}
         completedCount={completedItems.length}
+        moneyCount={moneyCount}
         todo={todo}
         snoozed={<SnoozedTasks items={snoozedItems} />}
         completed={<CompletedTasks items={completedItems} />}
+        money={<MoneyLegalTasks items={moneyItems} closedTotal={moneyClosed.length} />}
+        people={people}
       />
     </PageShell>
   );
 }
 
-function TaskList({ tasks, now, overdue }: { tasks: Task[]; now: Date; overdue?: boolean }) {
-  return (
-    <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
-      {tasks.map((task) => (
-        <li key={task.id} className="flex items-start justify-between gap-3 px-4 py-3">
-          <div className="min-w-0 break-words">
-            <p className="text-sm font-medium">
-              {task.deal_id ? (
-                <Link
-                  href={`/deals/${task.deal_id}`}
-                  className="underline-offset-2 hover:underline"
-                >
-                  {task.title}
-                </Link>
-              ) : task.portfolio_company_id ? (
-                <Link
-                  href={`/portfolio/${task.portfolio_company_id}`}
-                  className="underline-offset-2 hover:underline"
-                >
-                  {task.title}
-                </Link>
-              ) : (
-                task.title
-              )}
-              {task.source === 'suggested' ? (
-                <Badge tone="outline" className="ml-2">
-                  Suggested
-                </Badge>
-              ) : null}
-            </p>
-            {task.detail ? (
-              <p className="mt-0.5 text-sm text-[var(--fg-muted)]">{task.detail}</p>
-            ) : null}
-            {task.due_at ? (
-              <p
-                className={
-                  overdue
-                    ? 'mt-1 text-xs font-medium text-[var(--danger)]'
-                    : 'mt-1 text-xs text-[var(--fg-subtle)]'
-                }
-              >
-                {overdue ? 'Overdue — was due ' : 'Due '}
-                {relativeTime(task.due_at, now)}
-              </p>
-            ) : (
-              <p className="mt-1 text-xs text-[var(--fg-subtle)]">No due date</p>
-            )}
-          </div>
-          <TaskControls taskId={task.id} />
-        </li>
-      ))}
-    </ul>
-  );
+/** How many closed money and legal tasks the tab shows; the rest are on Completed. */
+const MONEY_CLOSED_SHOWN = 5;
+
+function isPastDue(task: Task, now: Date): boolean {
+  const due = task.due_at ? Date.parse(task.due_at) : Number.NaN;
+  return !Number.isNaN(due) && due < now.getTime();
+}
+
+/** "Overdue — was due 2d ago", "Due 1d from now" or "No due date". */
+function dueLine(task: Task, now: Date): string {
+  if (!task.due_at) return 'No due date';
+  return isPastDue(task, now)
+    ? `Overdue — was due ${relativeTime(task.due_at, now)}`
+    : `Due ${relativeTime(task.due_at, now)}`;
 }

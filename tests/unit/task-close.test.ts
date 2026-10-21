@@ -493,7 +493,7 @@ describe('matching a close to a task', () => {
   });
 
   it('leaves a task a person already completed alone', async () => {
-    const task = await human('ZZ Pay the invoice');
+    const task = await human('ZZ Send the onboarding notes');
     await updateTaskStatus(harness.auth, task.id, 'complete');
     at('2026-09-22T18:00:00Z');
     const counts = await applyWindow([

@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/feedback';
 import { COMPLETED_PAGE, completedSections, type CompletedGroupKey } from '@/lib/tasks/tasks-view';
+import { ProofLine } from './money-legal-tasks';
 import { useFocusAfterRemoval } from './use-row-focus';
 
 /** A completed task as the server prepared it: labels already worked out. */
@@ -29,6 +30,8 @@ export interface CompletedTaskItem {
     href: string | null;
     reason: string | null;
   };
+  /** What a person closed it on: a link, or who confirmed it. */
+  proof?: { label: string; href: string | null; note: string | null; auto: boolean };
 }
 
 /** The Completed tab: newest first, under Today / Yesterday / Earlier headings. */
@@ -163,6 +166,7 @@ function CompletedRow({
             ) : null}
           </div>
         ) : null}
+        {item.proof ? <ProofLine proof={item.proof} /> : null}
       </div>
       <ReopenTaskButton taskId={item.id} title={item.title} onReopened={onReopened} />
     </li>
