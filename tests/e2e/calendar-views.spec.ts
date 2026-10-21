@@ -214,6 +214,48 @@ test('drag on the grid to make an event, then edit its guests: Google’s questi
   await expect(page.getByText('Deleted.')).toBeVisible();
 });
 
+test('drag an event to move it, and its bottom edge to change its length', async ({ page }) => {
+  const day = dayFromToday(5);
+  const title = `Move check ${Date.now()}`;
+  await page.goto(`/calendar?view=day&date=${day}`);
+  await dragOnColumn(page, day, 9, 10);
+  const quick = page.getByRole('dialog', { name: 'New event' });
+  await quick.getByLabel('Title').fill(title);
+  await quick.getByRole('button', { name: 'Save' }).click();
+  const event = chip(page, title);
+  await expect(event).toHaveAccessibleName(/9am – 10am/);
+
+  // Move: grab it and drop it two hours later. No guests, so no question.
+  const box = (await event.boundingBox())!;
+  const x = box.x + box.width / 2;
+  await page.mouse.move(x, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(x, box.y + 10 + 48, { steps: 5 });
+  await page.mouse.move(x, box.y + 10 + 96, { steps: 5 });
+  await page.mouse.up();
+  await expect(event).toHaveAccessibleName(/11am – 12pm/);
+
+  // Resize: the bottom edge down an hour.
+  const moved = (await event.boundingBox())!;
+  await page.mouse.move(x, moved.y + moved.height - 2);
+  await page.mouse.down();
+  await page.mouse.move(x, moved.y + moved.height - 2 + 24, { steps: 4 });
+  await page.mouse.move(x, moved.y + moved.height - 2 + 48, { steps: 4 });
+  await page.mouse.up();
+  await expect(event).toHaveAccessibleName(/11am – 1pm/);
+
+  // A reload reads it back from the calendar where it was put.
+  await page.reload();
+  await expect(chip(page, title)).toHaveAccessibleName(/11am – 1pm/);
+  await chip(page, title).click();
+  await page.getByRole('dialog', { name: title }).getByRole('button', { name: 'Delete' }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete this event?' })
+    .getByRole('button', { name: 'Delete' })
+    .click();
+  await expect(chip(page, title)).toHaveCount(0);
+});
+
 test('an event without guests is deleted after a plain confirm', async ({ page }) => {
   const day = dayFromToday(4);
   const title = `Solo block ${Date.now()}`;
