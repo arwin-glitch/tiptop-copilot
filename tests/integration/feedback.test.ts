@@ -292,6 +292,14 @@ describe('desktop alerts for new feedback', () => {
       after(NIGHT, -MIN),
     );
     if (!night.ok) throw new Error(night.error.message);
+    const kept = await recordFeedback(
+      store,
+      auth.organizationId,
+      sender(),
+      { text: 'Also: bigger dates on the cards.' },
+      after(NIGHT, -MIN),
+    );
+    if (!kept.ok) throw new Error(kept.error.message);
     expect(feedbackOnly((await desktopAlertsFor(store, readerComputer, NIGHT)).alerts)).toEqual([]);
 
     await setFeedbackStatus(
@@ -301,9 +309,13 @@ describe('desktop alerts for new feedback', () => {
       { id: night.value.id, status: 'done' },
       NIGHT,
     );
+    // In the morning the note still open pings; the one marked done does not.
     const morning = new Date('2026-10-08T12:30:00Z'); // 07:30 Chicago
-    expect(feedbackOnly((await desktopAlertsFor(store, readerComputer, morning)).alerts)).toEqual(
-      [],
+    const [alert, ...rest] = feedbackOnly(
+      (await desktopAlertsFor(store, readerComputer, morning)).alerts,
     );
+    expect(rest).toEqual([]);
+    expect(alert?.keys).toEqual([`feedback:${kept.value.id}`]);
+    expect(alert?.body).toBe('Avery: Also: bigger dates on the cards.');
   });
 });
