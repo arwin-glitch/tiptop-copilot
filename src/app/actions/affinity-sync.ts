@@ -55,6 +55,7 @@ export async function syncAffinityNowAction(): Promise<ActionResult<PublicAffini
         done: true,
         busy: false,
         rateLimited: false,
+        stopped: false,
         phase: 'done',
         listsDone: 12,
         listsTotal: 12,

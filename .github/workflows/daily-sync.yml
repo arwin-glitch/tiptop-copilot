@@ -103,6 +103,11 @@ jobs:
         # The repository is public, so this prints counts only: jq picks the
         # booleans, the phase and the numbers out of the response, and the body
         # itself is never echoed.
+        #
+        # When Affinity refuses the key (revoked, or the subscription ended),
+        # the endpoint answers done:true, stopped:true: the sync stopped
+        # cleanly, so this step ends green with one line saying so, every
+        # morning, until the key is replaced or deleted.
         # Runs even when the mail job above failed: the two are independent.
         if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 11 * * *') }}
         run: |
@@ -112,6 +117,7 @@ jobs:
             jq -c '{
               configured: (.configured == true),
               done: (.done == true),
+              stopped: (.stopped == true),
               busy: (.busy == true),
               phase: (if (.phase | IN("lists", "notes", "done")) then .phase else null end),
               lists: [(.listsDone // 0 | numbers), (.listsTotal // 0 | numbers)],
@@ -152,6 +158,10 @@ jobs:
 
             if [ "$(jq -r '.configured == false' affinity.json)" = "true" ]; then
               echo "AFFINITY_API_KEY is not set on Render; nothing to sync."
+              break
+            fi
+            if [ "$(jq -r '.stopped == true' affinity.json)" = "true" ]; then
+              echo "Affinity refused the API key, so the sync is stopped; nothing to do until the key is replaced (Knowledge > Affinity import)."
               break
             fi
             if [ "$(jq -r '.done == true' affinity.json)" = "true" ]; then

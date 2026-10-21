@@ -901,16 +901,80 @@ describe('syncing Affinity into the CRM', () => {
     expect(await entriesOf((await affinityList('7001')).id)).toHaveLength(3);
   });
 
-  it('never stops at a rate limit or a refused key: those wait or need a person', async () => {
+  it('never moves past a page because of a refused key: it stops cleanly instead', async () => {
     const fake = fakeAffinity(world());
     fake.reject((url) => url.pathname === '/v2/lists/7001/fields', 401);
-    for (let i = 0; i < 4; i++) {
-      const result = await runAffinitySyncStep(store, org, options(fake));
-      expect(!result.ok && result.error.code).toBe('provider_unauthorized');
-      clock += 1000;
+    const step = value(await runAffinitySyncStep(store, org, options(fake)));
+    // A finished call, not a failure: the daily job ends green.
+    expect(step).toMatchObject({ done: true, stopped: true });
+    const state = await readAffinitySyncState(store, org);
+    expect(state?.stopped).toMatchObject({ code: 'provider_unauthorized' });
+    expect(state?.lastError).toBeNull();
+    expect(state?.leaseUntil).toBeNull();
+    // The run keeps its place: nothing was skipped or moved past.
+    expect(state?.run).toMatchObject({ listIndex: 0, recoveries: 0, counts: { refused: 0 } });
+  });
+
+  it('stays stopped without writing a row or an error while the key is refused', async () => {
+    const fake = fakeAffinity(world());
+    fake.reject(() => true, 401);
+    expect(value(await runAffinitySyncStep(store, org, options(fake)))).toMatchObject({
+      done: true,
+      stopped: true,
+    });
+    const rows = async () =>
+      (
+        await store.list('audit_events', org, {
+          eq: { action: AFFINITY_SYNC_ACTION, entity_type: AFFINITY_SYNC_ENTITY },
+        })
+      ).length;
+    const written = await rows();
+    fake.calls.length = 0;
+    for (let i = 0; i < 3; i++) {
+      clock += 24 * 60 * 60_000;
+      const step = value(await runAffinitySyncStep(store, org, options(fake)));
+      expect(step).toMatchObject({ done: true, stopped: true });
     }
-    const run = (await readAffinitySyncState(store, org))?.run;
-    expect(run).toMatchObject({ listIndex: 0, recoveries: 0, counts: { refused: 0 } });
+    // One light request a call asks whether the key works again; nothing is saved.
+    expect(fake.calls).toEqual(['/v2/lists?limit=1', '/v2/lists?limit=1', '/v2/lists?limit=1']);
+    expect(await rows()).toBe(written);
+    expect((await readAffinitySyncState(store, org))?.lastError).toBeNull();
+  });
+
+  it('stops when Affinity will not even list the lists, and resumes once the key works', async () => {
+    const fake = fakeAffinity(world());
+    fake.reject((url) => url.pathname === '/v2/lists', 403, 1);
+    expect(value(await runAffinitySyncStep(store, org, options(fake)))).toMatchObject({
+      done: true,
+      stopped: true,
+    });
+    expect((await readAffinitySyncState(store, org))?.stopped).toMatchObject({
+      code: 'forbidden',
+    });
+
+    // The key works again (replaced on Render): the next call carries on to the end.
+    clock += 60_000;
+    const steps = await syncToEnd(fake);
+    expect(steps.at(-1)).toMatchObject({ done: true, stopped: false });
+    expect(steps.at(-1)!.counts.entries.inserted).toBe(6);
+    expect((await readAffinitySyncState(store, org))?.stopped).toBeNull();
+  });
+
+  it('carries a stopped run on from where it stopped once the key is replaced', async () => {
+    const fake = fakeAffinity(world());
+    // The first list syncs, then the key is refused halfway through the second.
+    fake.reject((url) => url.pathname === '/v2/lists/7002/fields', 401, 1);
+    const stopped = value(await runAffinitySyncStep(store, org, options(fake)));
+    expect(stopped).toMatchObject({ stopped: true });
+    expect((await readAffinitySyncState(store, org))?.run?.listIndex).toBe(1);
+
+    clock += 60_000;
+    fake.calls.length = 0;
+    const steps = await syncToEnd(fake);
+    expect(steps.at(-1)).toMatchObject({ done: true, stopped: false });
+    // The first list was not read again.
+    expect(fake.calls.some((c) => c.startsWith('/v2/lists/7001/list-entries'))).toBe(false);
+    expect(await entriesOf((await affinityList('7002')).id)).toHaveLength(2);
   });
 
   it('keeps the notes watermark when a notes page was skipped, so the next run reads it', async () => {
@@ -1127,6 +1191,23 @@ describe('POST /api/cron/affinity-sync', () => {
     expect(await readAffinitySyncState(store, org)).toBeNull();
   });
 
+  it('answers a refused key as a finished, stopped step, so the job stays green', async () => {
+    process.env.CRON_SECRET = 'test-cron-secret-0000';
+    process.env.AFFINITY_API_KEY = KEY;
+    resetEnvCache();
+    const fake = fakeAffinity(world(), 100);
+    fake.reject(() => true, 401);
+    vi.stubGlobal('fetch', fake.fetch);
+    const response = await call('test-cron-secret-0000');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      configured: true,
+      done: true,
+      stopped: true,
+    });
+  });
+
   it('runs a step and answers with counts only', async () => {
     process.env.CRON_SECRET = 'test-cron-secret-0000';
     process.env.AFFINITY_API_KEY = KEY;
@@ -1169,7 +1250,23 @@ describe('the status the Affinity import tab shows', () => {
 
   it('shows an invented example in the demo', async () => {
     const status = await getAffinitySyncStatus(store, org);
-    expect(status).toMatchObject({ demo: true, configured: true });
+    expect(status).toMatchObject({ demo: true, configured: true, stopped: null });
     expect(status.lastRun?.lists).toBeGreaterThan(0);
+  });
+
+  it('says the sync stopped when Affinity refused the key, with when', async () => {
+    process.env.DEMO_MODE = 'false';
+    process.env.AFFINITY_API_KEY = KEY;
+    resetEnvCache();
+    try {
+      const fake = fakeAffinity(world());
+      fake.reject(() => true, 401);
+      await runAffinitySyncStep(store, org, options(fake));
+      const status = await getAffinitySyncStatus(store, org);
+      expect(status.stopped).toEqual({ at: new Date(clock).toISOString(), reason: 'unauthorized' });
+      expect(status.lastError).toBeNull();
+    } finally {
+      process.env.DEMO_MODE = 'true';
+    }
   });
 });

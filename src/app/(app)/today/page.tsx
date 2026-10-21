@@ -14,6 +14,7 @@ import {
 import { gatherTodayData, generateDailyBrief, getTodaysBrief } from '@/lib/services/brief';
 import { getTaskRelayStatus, pullTaskRelays } from '@/lib/services/task-relay';
 import { readTodayGlance } from '@/lib/services/task-glance';
+import { readAffinityExitTodayLine } from '@/lib/services/affinity-exit';
 import { readFollowUps, todayLead } from '@/lib/services/follow-ups';
 import { classifyMeeting, meetingFromStoredEvent } from '@/lib/calendar/meetings';
 import { gmailThreadUrl } from '@/lib/deals/links';
@@ -32,6 +33,7 @@ import { TopPrioritiesCard } from '@/components/today/top-priorities';
 import { BriefingWatcher } from '@/components/today/briefing-watcher';
 import { WelcomeBack } from '@/components/today/welcome-back';
 import { TodayGlance } from '@/components/today/today-glance';
+import { AffinityExitLine } from '@/components/today/affinity-exit-line';
 import {
   CreateFollowUpButton,
   RefreshOutlookButton,
@@ -118,7 +120,7 @@ async function TodayContent({
   // Pull any routine post that is waiting in the Slack relay first, so a card
   // posted a minute ago shows now rather than after the next scheduled sync.
   await pullBriefingsFromSlack(getStore(), auth.organizationId).catch(() => 0);
-  const [routineBrief, routineDossier, followUps, glance] = await Promise.all([
+  const [routineBrief, routineDossier, followUps, glance, affinityExit] = await Promise.all([
     getCurrentBrief(getStore(), auth.organizationId).catch(() => null),
     getCurrentDossier(getStore(), auth.organizationId).catch(() => null),
     // Same rule as the briefings: a Slack fault only hides the card.
@@ -128,6 +130,11 @@ async function TodayContent({
       now,
       timeZone: auth.profile.timezone,
     }).catch(() => null),
+    // The Affinity exit reminder: a line in the last two weeks before the
+    // notice date, and nothing at all on a fault.
+    readAffinityExitTodayLine(getStore(), auth.organizationId, now, auth.profile.timezone).catch(
+      () => null,
+    ),
   ]);
   // Top priorities leads the page whenever it has a list. Today's list is the
   // to-do list, so Do now steps aside for it; with no list, or only an older
@@ -188,6 +195,8 @@ async function TodayContent({
       {glance && glanceCards.length > 0 ? (
         <TodayGlance glance={glance} cards={glanceCards} footnote={glanceFootnote} />
       ) : null}
+
+      {affinityExit ? <AffinityExitLine countdown={affinityExit} /> : null}
 
       {routineBrief || routineDossier ? (
         <div
