@@ -102,6 +102,12 @@ export const PORTFOLIO_TABS = define({
         'What portfolio companies asked for, one card per email, including the asks read from their own update emails, and who in your network could help, with why.',
     },
     {
+      key: 'jobs',
+      label: 'Jobs',
+      blurb:
+        'Open roles founders list in their updates and hiring emails, from a weekly scan: status, how often each was sent, who to send candidates to, and a blurb to share.',
+    },
+    {
       key: 'numbers',
       label: 'Numbers',
       blurb:

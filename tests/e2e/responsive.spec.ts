@@ -47,6 +47,7 @@ const PAGES = [
   // The Records pages' other subtabs, which hold the long lists and tables.
   '/updates?tab=fresh',
   '/portfolio?tab=companies',
+  '/portfolio?tab=jobs',
   '/fund-ii?tab=pipeline',
   '/network?tab=people',
   '/meetings?tab=notes',
@@ -126,6 +127,14 @@ test.describe('mobile layout', () => {
     await email.getByRole('button', { name: 'Show full email' }).click();
     await email.getByRole('button', { name: /^Show earlier messages/ }).click();
     await email.locator('ol > li > button[aria-expanded="false"]').first().click();
+    await expectNoSidewaysScroll(page);
+  });
+
+  test('a Jobs role with its source emails open never scrolls sideways', async ({ page }) => {
+    await page.goto('/portfolio?tab=jobs&status=all');
+    const jobs = page.getByRole('region', { name: 'Open roles at portfolio companies' });
+    for (const summary of await jobs.locator('details > summary').all()) await summary.click();
+    await expect(jobs.getByRole('list', { name: /^Source emails for VP Sales/ })).toBeVisible();
     await expectNoSidewaysScroll(page);
   });
 

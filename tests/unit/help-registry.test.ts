@@ -175,7 +175,7 @@ describe('subtabs', () => {
     const portfolio = helpPage('portfolio');
     const step = portfolio?.steps.find((s) => s.target === 'subtabs');
     expect(step?.body).toBe(
-      'Health · Requests · Numbers · Companies · Founders · Angel. Tap one to switch.',
+      'Health · Requests · Jobs · Numbers · Companies · Founders · Angel. Tap one to switch.',
     );
   });
 
