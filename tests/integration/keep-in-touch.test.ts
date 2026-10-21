@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHarness, type Harness } from '../helpers/harness';
+import { makeLiveTeam } from '../helpers/live-team';
 import type { DataStore } from '@/lib/db/store';
+import { DEMO_TEAMMATE } from '@/lib/demo/fixtures';
 import { demoCrmId, DEMO_IDS } from '@/lib/demo/ids';
 import { getRecord } from '@/lib/services/crm';
 import {
@@ -208,19 +210,31 @@ describe('check-in tasks', () => {
     expect(profile.status).toMatchObject({ basis: 'contact', state: 'overdue', daysUntilDue: -6 });
   });
 
-  it('gives a task made by the daily job to whoever set the cadence', async () => {
+  it('gives a task made by the daily job to the principal, made by whoever set the cadence', async () => {
     const ines = await addMember();
     await mailTo('felix@marrowgate.example', 10);
     // Not due yet when set, so nothing is made then.
     value(await setCadence(store, org, FELIX, { choice: 'monthly' }, ines, NOW));
     expect(await checkIns()).toEqual([]);
-    // The daily job has no actor; the task still goes to the setter, not the owner.
+    // The daily job has no actor. The relationship is the principal's (whose
+    // mailbox the demo reads), so the task is theirs, not the setter's and not
+    // the owner's; the setter stays its maker.
     resetRelationshipCache();
     expect((await sweepKeepInTouch(store, org, { now: later(25) })).created).toEqual([
       'Check in with Felix Garroway',
     ]);
     const [task] = await checkIns();
-    expect(task).toMatchObject({ assigned_to: ines.userId, created_by: ines.userId });
+    expect(task).toMatchObject({ assigned_to: DEMO_IDS.user, created_by: ines.userId });
+  });
+
+  it('gives the check-in to the principal when the owner who set the team up sets the cadence', async () => {
+    await makeLiveTeam(store, harness.auth);
+    await mailTo('felix@marrowgate.example', 45);
+    const setter = { userId: DEMO_TEAMMATE.id, name: DEMO_TEAMMATE.name };
+    const result = value(await setCadence(store, org, FELIX, { choice: 'monthly' }, setter, NOW));
+    expect(result.created).toEqual(['Check in with Felix Garroway']);
+    const [task] = await checkIns();
+    expect(task).toMatchObject({ assigned_to: DEMO_IDS.user, created_by: DEMO_TEAMMATE.id });
   });
 
   it('lists every cadence overdue first', async () => {

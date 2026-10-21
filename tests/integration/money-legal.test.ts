@@ -47,8 +47,8 @@ import type { AuditEvent, Task } from '@/lib/types/domain';
 
 const TICK = String.fromCharCode(96);
 const POSTER = DEFAULT_TASK_RELAY_POSTER_IDS[0]!;
-/** The demo owner's first name, from the fixtures. */
-const OWNER_FIRST = DEMO_USER.name.split(' ')[0]!;
+/** The demo principal's first name (whose mailbox the demo reads), from the fixtures. */
+const PRINCIPAL_FIRST = DEMO_USER.name.split(' ')[0]!;
 let harness: Harness;
 let org: string;
 
@@ -178,7 +178,7 @@ describe('closing a money or legal task', () => {
     expect(ok.ok).toBe(true);
     const read = await readMoneyLegal(harness.store, org, [await taskById(task.id)]);
     expect(proofView(read.proofs.get(task.id)!, people).label).toBe(
-      `Closed · ${OWNER_FIRST} confirmed`,
+      `Closed · ${PRINCIPAL_FIRST} confirmed`,
     );
   });
 
@@ -528,10 +528,10 @@ describe('snoozing to a chosen day', () => {
 });
 
 describe('assigning a task', () => {
-  it('lists the team owner first, by their own names', async () => {
+  it('lists the principal first, by their own names, though the teammate set the team up', async () => {
     const people = await listTaskPeople(org);
-    expect(people.map((p) => [p.short, p.owner])).toEqual([
-      [OWNER_FIRST, true],
+    expect(people.map((p) => [p.short, p.principal])).toEqual([
+      [PRINCIPAL_FIRST, true],
       ['Riley', false],
     ]);
   });

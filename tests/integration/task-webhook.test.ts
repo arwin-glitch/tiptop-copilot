@@ -4,6 +4,7 @@ import { addSecondOrganization, createHarness, type Harness } from '../helpers/h
 import { resetEnvCache } from '@/lib/config/env';
 import { POST as webhook } from '@/app/api/integrations/tasks/webhook/route';
 import { ingestTasksFromSlack, parseTaskRelayMessage } from '@/lib/services/task-ingest';
+import { DEMO_TEAMMATE } from '@/lib/demo/fixtures';
 import type { Task } from '@/lib/types/domain';
 
 /**
@@ -105,14 +106,15 @@ describe('validation', () => {
 });
 
 describe('add-only ingest', () => {
-  it('creates the task, attributed to the organization owner', async () => {
+  it("creates the task for the principal, attributed to the organization's owner", async () => {
     await webhook(post(TOKEN, PAYLOAD));
     const row = (await tasks()).find((t) => t.title === PAYLOAD.tasks[0]!.title);
+    // The demo's mailbox is the signed-in user's; the teammate set the team up.
     expect(row).toMatchObject({
       status: 'open',
       source: 'suggested',
       detail: 'From the Sep 21 call notes.',
-      created_by: harness.auth.userId,
+      created_by: DEMO_TEAMMATE.id,
       assigned_to: harness.auth.userId,
     });
   });

@@ -4,6 +4,7 @@ import { listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
 import { getStore } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
+import { readPrincipalId, readTeam } from '@/lib/tasks/principal';
 import { taskPeople, type TaskPerson } from '@/lib/tasks/task-people';
 import {
   isAsleep,
@@ -12,7 +13,7 @@ import {
   sortSnoozed,
   type TaskRestore,
 } from '@/lib/tasks/tasks-view';
-import type { OrganizationMember, Task, TaskStatus } from '@/lib/types/domain';
+import type { Task, TaskStatus } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { err, ok, type Result } from '@/lib/util/result';
 import { DEFAULT_TIMEZONE } from '@/lib/util/time';
@@ -33,9 +34,16 @@ export interface CreateTaskInput {
   source?: 'human' | 'suggested';
 }
 
+/**
+ * A follow-up added by a person, or by the chat assistant for one. It goes to the
+ * organization's principal (lib/tasks/principal.ts), whose work the
+ * organization's tasks are, whoever added it: the add dialog has no person
+ * to choose, and the row's menu hands it to someone else.
+ */
 export async function createTask(auth: AuthContext, input: CreateTaskInput): Promise<Result<Task>> {
   if (!input.title.trim()) return err('invalid_input', 'A task needs a title.');
   const store = getStore();
+  const assignee = (await readPrincipalId(store, auth.organizationId)) ?? auth.userId;
   const now = new Date().toISOString();
   const task: Task = {
     id: newId(),
@@ -48,7 +56,7 @@ export async function createTask(auth: AuthContext, input: CreateTaskInput): Pro
     deal_id: input.dealId ?? null,
     portfolio_company_id: input.portfolioCompanyId ?? null,
     email_message_id: input.emailMessageId ?? null,
-    assigned_to: auth.userId,
+    assigned_to: assignee,
     created_by: auth.userId,
     source: input.source ?? 'human',
     completed_at: null,
@@ -241,26 +249,20 @@ export async function assignTask(
   return ok(updated);
 }
 
-/** The organization's members, as a task can name them. */
+/** The organization's members, as a task can name them: the principal first. */
 export async function listTaskPeople(
   organizationId: string,
   store: DataStore = getStore(),
 ): Promise<TaskPerson[]> {
-  const members = (await store.list('organization_members', organizationId, {
-    eq: { organization_id: organizationId },
-  })) as OrganizationMember[];
-  const rows = await Promise.all(
-    members.map(async (member) => {
-      const profile = await store.userProfileById(member.user_id);
-      return {
-        id: member.user_id,
-        fullName: profile?.full_name ?? null,
-        email: profile?.email ?? null,
-        owner: member.role === 'owner',
-      };
-    }),
+  const { members, principal } = await readTeam(store, organizationId);
+  return taskPeople(
+    members.map((member) => ({
+      id: member.userId,
+      fullName: member.fullName,
+      email: member.email,
+      principal: member.userId === principal?.userId,
+    })),
   );
-  return taskPeople(rows);
 }
 
 export async function snoozeTask(

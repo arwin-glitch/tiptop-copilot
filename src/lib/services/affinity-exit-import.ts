@@ -24,7 +24,8 @@ import {
   type AffinityHttpOptions,
 } from '@/lib/services/affinity-client';
 import { CRM_MIGRATION_FILE, getCrmSetup, upsertRecords } from '@/lib/services/crm';
-import type { AuditEvent, CrmRecord, OrganizationMember, Task } from '@/lib/types/domain';
+import { readTeam } from '@/lib/tasks/principal';
+import type { AuditEvent, CrmRecord, Task } from '@/lib/types/domain';
 import { newId, sha256 } from '@/lib/util/hash';
 import { err, ok, type AppError, type Result } from '@/lib/util/result';
 
@@ -348,16 +349,21 @@ function stepOf(
   };
 }
 
-/** The person a reminder's tasks belong to: who pressed, else the workspace owner. */
-async function taskOwner(
+/**
+ * Who the tasks a press copies are for, and who made them. They are for the
+ * organization's principal (lib/tasks/principal.ts): the reminders are on the
+ * relationships of the person whose mail the app reads, whoever presses the
+ * button. They are made by whoever pressed, else by the workspace owner.
+ */
+async function reminderPeople(
   store: DataStore,
   organizationId: string,
   userId: string | null,
-): Promise<string | null> {
-  if (userId) return userId;
-  const members = (await store.list('organization_members', organizationId, {})) as
-    OrganizationMember[] | [];
-  return (members.find((m) => m.role === 'owner') ?? members[0])?.user_id ?? null;
+): Promise<{ assignee: string; creator: string } | null> {
+  const { members, principal } = await readTeam(store, organizationId);
+  const creator = userId ?? (members.find((m) => m.role === 'owner') ?? members[0])?.userId;
+  if (!principal || !creator) return null;
+  return { assignee: principal.userId, creator };
 }
 
 /**
@@ -483,8 +489,9 @@ export async function runAffinityExitImportStep(
       }
     }
 
-    const owner = kind === 'reminders' ? await taskOwner(store, organizationId, userId) : null;
-    if (kind === 'reminders' && !owner) {
+    const people =
+      kind === 'reminders' ? await reminderPeople(store, organizationId, userId) : null;
+    if (kind === 'reminders' && !people) {
       return await failed({
         code: 'conflict',
         message: 'No one in this workspace to give the tasks to, so nothing was copied.',
@@ -513,7 +520,14 @@ export async function runAffinityExitImportStep(
       const applied =
         kind === 'contacts'
           ? await applyContacts(store, organizationId, state, data)
-          : await applyReminders(store, organizationId, state, data, owner as string, now);
+          : await applyReminders(
+              store,
+              organizationId,
+              state,
+              data,
+              people as { assignee: string; creator: string },
+              now,
+            );
       if (!applied.ok) return await failed(applied.error);
       pages++;
 
@@ -641,7 +655,7 @@ async function applyReminders(
   organizationId: string,
   state: AffinityExitImportState,
   data: readonly unknown[],
-  owner: string,
+  people: { assignee: string; creator: string },
   now: () => number,
 ): Promise<Result<void>> {
   const reminders = data as AffinityApiReminder[];
@@ -680,8 +694,8 @@ async function applyReminders(
       deal_id: null,
       portfolio_company_id: null,
       email_message_id: null,
-      assigned_to: owner,
-      created_by: owner,
+      assigned_to: people.assignee,
+      created_by: people.creator,
       source: 'suggested',
       completed_at: null,
       created_at: at,

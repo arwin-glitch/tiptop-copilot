@@ -21,7 +21,7 @@ export interface TodoTaskItem {
   section: 'overdue' | 'today' | 'upcoming';
   /** "Overdue — was due 2d ago", "Due 1d from now" or "No due date". */
   dueLabel: string;
-  /** Who it is assigned to, by short name, when the team has more than one person. */
+  /** Who it is assigned to, by short name (see assigneeChip): not shown for the principal. */
   assignee: string | null;
   assignedTo: string | null;
   /** Set for a money or legal task. */
