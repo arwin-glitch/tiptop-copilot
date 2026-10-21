@@ -642,6 +642,28 @@ describe('taking a row off a list', () => {
     expect(value(await getCrmList(store, org, DEMO_IDS.crmListLps)).entry_count).toBe(lps.length);
   });
 
+  it('keeps a removed deal off when another deal with the same company is added', async () => {
+    const id = entry(1); // Cobaltline on the Deal Pipeline
+    const row = (await store.get('crm_list_entries', org, id))!;
+    value(await removeEntry(store, org, id, actor));
+    value(
+      await addEntry(
+        store,
+        org,
+        DEMO_IDS.crmListDeals,
+        { recordId: COBALTLINE, title: 'Cobaltline Series B' },
+        actor,
+      ),
+    );
+    expect(await store.list('crm_entry_tombstones', org, {})).toHaveLength(1);
+    const synced = value(
+      await upsertEntries(store, org, DEMO_IDS.crmListDeals, [
+        { externalId: row.external_id, title: row.title, recordId: row.record_id },
+      ]),
+    );
+    expect(synced).toMatchObject({ inserted: 0, skipped: 1 });
+  });
+
   it('refuses Undo when the person is already back on the list', async () => {
     const lps = await entriesOf(DEMO_IDS.crmListLps);
     const row = lps[0]!;

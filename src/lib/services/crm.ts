@@ -1389,8 +1389,12 @@ export async function addEntry(
       updated_at: now,
     };
     const saved = await store.insert('crm_list_entries', entry);
-    // Added back by hand: the sync may bring its Affinity copy again too.
-    if (record) await clearTombstones(store, organizationId, list.id, [record.id]);
+    // Added back by hand: the sync may bring its Affinity copy again too. Not
+    // on a deal list, where the record is the company a deal is with: a new
+    // deal with that company is not one of its removed deals coming back.
+    if (record && list.entity_type !== 'deal') {
+      await clearTombstones(store, organizationId, list.id, [record.id]);
+    }
     await audit(store, organizationId, actor, 'crm.entry_added', 'crm_list_entry', entry.id, {
       list_id: list.id,
       has_record: Boolean(record),
