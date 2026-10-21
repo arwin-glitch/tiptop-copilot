@@ -11,7 +11,7 @@ import {
 } from '@/lib/help/registry';
 import { CARD_GAP, EDGE_MARGIN, placeCard, visiblePart } from '@/lib/help/placement';
 import { GRAND_TOUR_ID, navTourId } from '@/lib/help/tour-ids';
-import { DEALS_TABS, RECORDS_TABS } from '@/lib/records-tabs';
+import { ASK_TABS, DEALS_TABS, RECORDS_TABS } from '@/lib/records-tabs';
 
 /**
  * The help centre and the guided tours are data (lib/help/registry.ts), and
@@ -169,6 +169,12 @@ describe('subtabs', () => {
       DEALS_TABS.tabs.map((t) => t.label),
     );
     expect(helpPage('deals')?.subtabs[0]?.href).toBe(DEALS_TABS.path);
+  });
+
+  it("give Ask Arwin the full Ask page's tabs, Feedback with its own link", () => {
+    const ask = helpPage('ask');
+    expect(ask?.subtabs.map((t) => t.label)).toEqual(ASK_TABS.tabs.map((t) => t.label));
+    expect(ask?.subtabs.map((t) => t.href)).toEqual(['/ask', '/ask?tab=feedback']);
   });
 
   it('word the subtab step from the same labels', () => {

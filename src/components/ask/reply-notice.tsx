@@ -10,17 +10,19 @@ import {
   type ReplyNotice,
 } from '@/lib/chat/reply-notice';
 import { cn } from '@/lib/util/cn';
+import { AiTag } from './ai-tag';
 
 /**
  * "Arwin replied": the pop-up for an answer that landed out of sight.
  *
- * Arwin's mark, the headline, the answer's first line and the question it
- * answers. It stays about three and a half seconds, then sinks away; a hover
- * or keyboard focus holds it, and leaving lets the clock run on. So does being
- * out of sight (its corner steps aside while another dialog, such as the inbox
- * composer, is open): the clock only runs while it can be read. Clicking it
- * opens the conversation; the X (or Esc on it) dismisses it. It never takes
- * focus: the launcher's dot and a polite announcement do the rest.
+ * Arwin's mark, the headline with its "AI" tag, the answer's first line and
+ * the question it answers. It stays about three and a half seconds, then
+ * sinks away; a hover or keyboard focus holds it, and leaving lets the clock
+ * run on. So does being out of sight (its corner steps aside while another
+ * dialog, such as the inbox composer, is open): the clock only runs while it
+ * can be read. Clicking it opens the conversation; the X (or Esc on it)
+ * dismisses it. It never takes focus: the launcher's dot and a polite
+ * announcement do the rest.
  *
  * - `launcher`: above the Ask Arwin launcher, its tail pointing at it.
  * - `panel`: over the top of the open panel, which is modal and covers the launcher.
@@ -162,7 +164,10 @@ export function ReplyNoticeCard({
           A
         </span>
         <span className="min-w-0 flex-1 pt-px">
-          <span className="block text-sm leading-snug font-semibold">{headline}</span>
+          <span className="flex items-center gap-1.5 text-sm leading-snug font-semibold">
+            {headline}
+            <AiTag />
+          </span>
           <span
             data-ask-reply-preview=""
             className="text-note mt-0.5 line-clamp-2 block text-[var(--fg-muted)]"

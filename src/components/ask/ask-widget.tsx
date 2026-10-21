@@ -4,10 +4,21 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
+import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { toast } from 'sonner';
-import { ChevronLeft, Maximize2, MessageCircleMore, Plus, RotateCw, X } from 'lucide-react';
+import {
+  ChevronLeft,
+  Maximize2,
+  MessageCircleMore,
+  MessageSquareText,
+  Plus,
+  RotateCw,
+  X,
+} from 'lucide-react';
 import { askFromWidgetAction, type WidgetAskResult } from '@/app/actions/ask';
 import type { ActionResult } from '@/app/actions';
+import { AiTag } from '@/components/ask/ai-tag';
+import { FeedbackForm } from '@/components/ask/feedback-form';
 import { AskComposer, ConversationMessage, WorkingMessage } from '@/components/ask/message-parts';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
@@ -27,6 +38,7 @@ import {
   type ThreadSummary,
 } from '@/lib/chat/thread-summary';
 import { pollDesktopAlertsSoon } from '@/lib/desktop/native';
+import { FEEDBACK_HREF } from '@/lib/feedback/shared';
 import { askAlertsShell, desktopAppVersion, DESKTOP_REPLIED_EVENT } from '@/lib/desktop/shared';
 import { ignoreTitleBarPointer } from '@/lib/desktop/title-bar';
 import type { ChatMessage } from '@/lib/types/domain';
@@ -47,9 +59,13 @@ import { useReplyNotices } from './use-reply-notices';
  * Ask Arwin: the assistant as a floating chat on every signed-in page.
  *
  * A launcher in the bottom-right corner (above the phone tab bar) opens a
- * panel with two views: the history of past conversations, and one
- * conversation with the composer. It runs on the same chat service as the
- * full Ask page, which stays as the fallback for deep links and long answers.
+ * panel with two tabs. Conversations has two views: the history of past
+ * conversations, and one conversation with the composer. It runs on the same
+ * chat service as the full Ask page, which stays as the fallback for deep
+ * links and long answers. Feedback is a box for what to change in Copilot,
+ * saved with the page under the panel (components/ask/feedback-form.tsx) and
+ * read on the full page's Feedback tab. Wherever the name shows, a small "AI"
+ * tag says this is the assistant, not the person (components/ask/ai-tag.tsx).
  *
  * In production an answer arrives asynchronously (a cloud routine answers via
  * Slack, usually within a couple of minutes), so a conversation with an answer
@@ -97,6 +113,13 @@ const WATCH_MAX_MS = 30 * 60_000;
  * groups at most ten answers (lib/services/ask-reply-alerts.ts).
  */
 const REPLIED_OTHERS_MAX = 9;
+
+/** The panel's two tabs: the conversations, and the feedback box. */
+type PanelTab = 'ask' | 'feedback';
+
+/** A tab in the panel: the look of `TabsTrigger`, a little denser. */
+const PANEL_TAB =
+  'relative -mb-px inline-flex min-h-10 items-center gap-1.5 border-b-2 border-transparent px-2.5 text-sm font-medium whitespace-nowrap text-[var(--fg-muted)] transition-colors duration-[var(--motion-fast)] hover:text-[var(--fg)] focus-visible:-outline-offset-2 data-[state=active]:border-[var(--accent)] data-[state=active]:text-[var(--fg)] [&_svg]:size-4 [&_svg]:shrink-0';
 
 interface DealScope {
   id: string;
@@ -168,6 +191,9 @@ export function AskWidget({
 
   const [open, setOpen] = React.useState(false);
   const [view, setView] = React.useState<'home' | 'thread'>('home');
+  const [tab, setTab] = React.useState<PanelTab>('ask');
+  /** A half-written feedback note, kept while the panel is closed. */
+  const [feedbackDraft, setFeedbackDraft] = React.useState('');
   const [history, setHistory] = React.useState<HistoryState>({
     threads: null,
     loading: false,
@@ -194,12 +220,15 @@ export function AskWidget({
   const openRef = React.useRef(false);
   const waitingRef = React.useRef(false);
   const viewRef = React.useRef(view);
+  /** Set with the tab itself (`chooseTab`), so focus can follow it in the same render. */
+  const tabRef = React.useRef<PanelTab>('ask');
   const convThreadRef = React.useRef<string | null>(null);
   const onAskPageRef = React.useRef(onAskPage);
   /** Every conversation with an answer on its way, shown or not. */
   const watchRef = React.useRef<Watched>(new Map());
   const launcherRef = React.useRef<HTMLButtonElement>(null);
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
+  const feedbackRef = React.useRef<HTMLTextAreaElement>(null);
   const newButtonRef = React.useRef<HTMLButtonElement>(null);
   const closeRef = React.useRef<HTMLButtonElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -236,7 +265,11 @@ export function AskWidget({
    * panel closed the one the full Ask page shows.
    */
   const onScreenThreadId = React.useCallback((): string | null => {
-    if (openRef.current) return viewRef.current === 'thread' ? convThreadRef.current : null;
+    if (openRef.current) {
+      return tabRef.current === 'ask' && viewRef.current === 'thread'
+        ? convThreadRef.current
+        : null;
+    }
     if (!onAskPageRef.current) return null;
     try {
       return new URLSearchParams(window.location.search).get('thread');
@@ -376,6 +409,11 @@ export function AskWidget({
 
   /* ------------------------------------------------------------- actions */
 
+  function chooseTab(next: PanelTab) {
+    tabRef.current = next;
+    setTab(next);
+  }
+
   /** The conversation on screen is being swapped out: its draft is kept. */
   function keepDraft() {
     const threadId = conv.threadId;
@@ -390,6 +428,7 @@ export function AskWidget({
     setConv(emptyConversation(key, dealId ? { id: dealId, name: null } : null));
     setQuestion('');
     setView('thread');
+    chooseTab('ask');
     if (dealId) void loadDeal(dealId, key);
     return key;
   }
@@ -401,6 +440,7 @@ export function AskWidget({
     setQuestion(draftsRef.current.get(threadId) ?? '');
     draftsRef.current.delete(threadId);
     setView('thread');
+    chooseTab('ask');
     viewedReply(threadId);
     setUnreadThread((u) => (u === threadId ? null : u));
     void loadThread(threadId, key);
@@ -409,6 +449,12 @@ export function AskWidget({
   function showHome() {
     setView('home');
     void loadHistory(history.threads !== null);
+  }
+
+  /** A tab picked in the panel. Back on Conversations, the history catches up. */
+  function switchTab(next: PanelTab) {
+    chooseTab(next);
+    if (next === 'ask' && view === 'home') void loadHistory(history.threads !== null);
   }
 
   /**
@@ -492,7 +538,11 @@ export function AskWidget({
         } else {
           // The demo and an in-app model answer within the request, which
           // may have outlasted the panel: Nick can close it while it runs.
-          const onScreen = stillShown && openRef.current && viewRef.current === 'thread';
+          const onScreen =
+            stillShown &&
+            openRef.current &&
+            tabRef.current === 'ask' &&
+            viewRef.current === 'thread';
           noteLanded(data.threadId, data.messages, onScreen);
         }
         if (stillShown) {
@@ -543,6 +593,7 @@ export function AskWidget({
     // An answer that landed while closed is shown, not just flagged.
     if (unseen && unseen === conv.threadId && !conv.error) {
       setView('thread');
+      chooseTab('ask');
       viewedReply(unseen);
       return;
     }
@@ -578,6 +629,7 @@ export function AskWidget({
     }
     if (ready) {
       setView('thread');
+      chooseTab('ask');
       viewedReply(threadId);
       setUnreadThread((u) => (u === threadId ? null : u));
     } else {
@@ -751,23 +803,25 @@ export function AskWidget({
 
   const historyWaiting = history.threads?.some((t) => t.status === 'waiting') ?? false;
   React.useEffect(() => {
-    if (!open || view !== 'home' || !historyWaiting) return;
+    if (!open || tab !== 'ask' || view !== 'home' || !historyWaiting) return;
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
       void loadHistory(true);
     }, HISTORY_POLL_MS);
     return () => window.clearInterval(interval);
-  }, [open, view, historyWaiting, loadHistory]);
+  }, [open, tab, view, historyWaiting, loadHistory]);
 
   /* ----------------------------------------------------- focus and scroll */
 
   const focusForView = React.useCallback(() => {
-    if (view === 'thread') (composerRef.current ?? closeRef.current)?.focus();
+    if (tabRef.current === 'feedback') (feedbackRef.current ?? closeRef.current)?.focus();
+    else if (view === 'thread') (composerRef.current ?? closeRef.current)?.focus();
     else (newButtonRef.current ?? closeRef.current)?.focus();
   }, [view]);
 
   // Moving between the two views moves focus with it, so a keyboard user is
-  // never left on a control that just disappeared.
+  // never left on a control that just disappeared. Switching tabs does not:
+  // focus stays on the tab, where the arrow keys move between them.
   React.useEffect(() => {
     if (openRef.current) focusForView();
   }, [view, conv.key, focusForView]);
@@ -781,16 +835,18 @@ export function AskWidget({
     const questions = el.querySelectorAll<HTMLElement>('[data-ask-question]');
     const latest = questions[questions.length - 1];
     el.scrollTop = latest ? latest.offsetTop - 12 : el.scrollHeight;
-  }, [conv.messages.length, sending, view, open]);
+  }, [conv.messages.length, sending, view, open, tab]);
 
   /* --------------------------------------------------------------- render */
 
   const fullPageHref =
-    view === 'thread' && conv.threadId
-      ? `/ask?thread=${encodeURIComponent(conv.threadId)}`
-      : view === 'thread' && conv.deal
-        ? `/ask?deal=${encodeURIComponent(conv.deal.id)}`
-        : '/ask';
+    tab === 'feedback'
+      ? FEEDBACK_HREF
+      : view === 'thread' && conv.threadId
+        ? `/ask?thread=${encodeURIComponent(conv.threadId)}`
+        : view === 'thread' && conv.deal
+          ? `/ask?deal=${encodeURIComponent(conv.deal.id)}`
+          : '/ask';
   const dealName = conv.deal ? (conv.deal.name ?? 'this deal') : null;
 
   return (
@@ -842,8 +898,8 @@ export function AskWidget({
             <button
               ref={launcherRef}
               type="button"
-              aria-label={unread ? 'Ask Arwin, new answer' : 'Ask Arwin'}
-              title="Ask Arwin"
+              aria-label={unread ? 'Ask Arwin (AI), new answer' : 'Ask Arwin (AI)'}
+              title="Ask Arwin (AI)"
               data-tour="ask-launcher"
               className="shadow-overlay pointer-events-auto relative flex size-14 items-center justify-center rounded-2xl bg-[var(--primary)] text-[var(--primary-fg)] ring-1 ring-[var(--gold)] transition-[background-color,transform] duration-[var(--motion-fast)] hover:bg-[var(--primary-hover)] active:scale-95"
             >
@@ -851,6 +907,17 @@ export function AskWidget({
                 <X className="size-6" aria-hidden="true" />
               ) : (
                 <MessageCircleMore className="size-6" aria-hidden="true" />
+              )}
+              {open ? null : (
+                // The launcher's "AI" tag, astride its lower edge; the button's
+                // name already says it.
+                <span
+                  aria-hidden="true"
+                  data-ai-tag=""
+                  className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded-[5px] border border-[var(--gold)] bg-[var(--bg-overlay)] px-1 font-sans text-[10px] leading-[13px] font-semibold tracking-[0.06em] text-[var(--label-gold)]"
+                >
+                  AI
+                </span>
               )}
               {unread ? (
                 <span
@@ -914,8 +981,9 @@ export function AskWidget({
           <header className="dark relative flex shrink-0 items-center gap-3 bg-[var(--bg-sidebar)] px-4 py-3 text-[var(--fg)] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-[linear-gradient(90deg,transparent,var(--gold)_25%,var(--gold)_75%,transparent)]">
             <ArwinAvatar online={aiAvailable} />
             <div className="min-w-0 flex-1 leading-tight">
-              <DialogPrimitive.Title className="text-title font-serif font-semibold">
+              <DialogPrimitive.Title className="text-title flex items-center gap-1.5 font-serif font-semibold">
                 Ask Arwin
+                <AiTag />
               </DialogPrimitive.Title>
               <p className="text-mini text-[var(--fg-muted)]">
                 {aiAvailable ? 'Online' : 'Read only'}
@@ -923,7 +991,7 @@ export function AskWidget({
             </div>
             <DialogPrimitive.Description className="sr-only">
               Ask about email, deals, portfolio, tasks and calendar. Past conversations are listed
-              here.
+              here, and the Feedback tab takes what to change in Copilot.
             </DialogPrimitive.Description>
             <Link
               href={fullPageHref}
@@ -946,142 +1014,187 @@ export function AskWidget({
             </DialogPrimitive.Close>
           </header>
 
-          {/* An answer to another conversation, while this one is open: the
-              panel covers the launcher, so the pop-up shows in here. It
-              floats over the top of the conversation rather than taking a
-              place in it, so nothing under it jumps as it comes and goes. */}
-          {replyNotice && open ? (
-            <div className="relative z-10 h-0 shrink-0">
-              <div className="absolute inset-x-3 top-3">
-                <ReplyNoticeCard
-                  notice={replyNotice}
-                  placement="panel"
-                  onOpen={openFromNotice}
-                  onDismiss={dismissReply}
-                  onFocusOut={focusAfterNotice}
-                />
-              </div>
-            </div>
-          ) : null}
+          <TabsPrimitive.Root
+            value={tab}
+            onValueChange={(next) => switchTab(next === 'feedback' ? 'feedback' : 'ask')}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <TabsPrimitive.List
+              aria-label="Chat or feedback"
+              className="flex shrink-0 gap-1 border-b border-[var(--border)] px-2"
+            >
+              <TabsPrimitive.Trigger value="ask" className={PANEL_TAB}>
+                <MessageCircleMore aria-hidden="true" />
+                Conversations
+              </TabsPrimitive.Trigger>
+              <TabsPrimitive.Trigger value="feedback" className={PANEL_TAB}>
+                <MessageSquareText aria-hidden="true" />
+                Feedback
+              </TabsPrimitive.Trigger>
+            </TabsPrimitive.List>
 
-          {view === 'home' ? (
-            <>
-              <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto">
-                <HistoryList
-                  history={history}
-                  timeZone={timeZone}
-                  onOpen={showThread}
-                  onRetry={() => void loadHistory()}
-                  suggestions={aiAvailable ? suggestions.slice(0, 3) : []}
-                  onSuggestion={(s) => {
-                    const key = startConversation(null);
-                    submit(s, { key, threadId: null, dealId: null });
-                  }}
-                />
-              </div>
-              {aiAvailable ? (
-                <div className="shrink-0 border-t border-[var(--border)] p-3">
-                  <button
-                    ref={newButtonRef}
-                    type="button"
-                    onClick={() => startConversation(null)}
-                    className={cn(buttonVariants({ variant: 'primary', size: 'lg' }), 'w-full')}
-                  >
-                    <Plus aria-hidden="true" />
-                    New conversation
-                  </button>
+            {/* An answer to another conversation, while this one is open: the
+                panel covers the launcher, so the pop-up shows in here. It
+                floats over the top of the conversation rather than taking a
+                place in it, so nothing under it jumps as it comes and goes. */}
+            {replyNotice && open ? (
+              <div className="relative z-10 h-0 shrink-0">
+                <div className="absolute inset-x-3 top-3">
+                  <ReplyNoticeCard
+                    notice={replyNotice}
+                    placement="panel"
+                    onOpen={openFromNotice}
+                    onDismiss={dismissReply}
+                    onFocusOut={focusAfterNotice}
+                  />
                 </div>
-              ) : (
-                <p className="text-mini shrink-0 border-t border-[var(--border)] px-4 py-3 text-[var(--fg-muted)]">
-                  Asking needs an AI provider, which is not connected. Past conversations are still
-                  here to read.
-                </p>
-              )}
-            </>
-          ) : (
-            <>
-              <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] px-2 py-1.5">
-                <button
-                  type="button"
-                  onClick={showHome}
-                  className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'px-2')}
-                >
-                  <ChevronLeft aria-hidden="true" />
-                  All conversations
-                </button>
-                {dealName ? (
-                  <Badge tone="accent" className="ml-auto max-w-[45%] truncate">
-                    About {dealName}
-                  </Badge>
-                ) : null}
               </div>
+            ) : null}
 
-              <div
-                ref={scrollRef}
-                // Focusable, so focus has somewhere to stay after a question
-                // is sent from a touch screen, and the arrow keys scroll it.
-                tabIndex={-1}
-                className="relative min-h-0 flex-1 scrollbar-thin overflow-y-auto p-3"
-              >
-                {conv.loading ? (
-                  <WorkingMessage label="Opening the conversation…" compact />
-                ) : conv.error ? (
-                  <div className="space-y-2 text-sm text-[var(--fg-muted)]">
-                    <p>{conv.error}</p>
-                    {conv.threadId ? (
+            <TabsPrimitive.Content
+              value="ask"
+              className="flex min-h-0 flex-1 flex-col focus-visible:-outline-offset-2"
+            >
+              {view === 'home' ? (
+                <>
+                  <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto">
+                    <HistoryList
+                      history={history}
+                      timeZone={timeZone}
+                      onOpen={showThread}
+                      onRetry={() => void loadHistory()}
+                      suggestions={aiAvailable ? suggestions.slice(0, 3) : []}
+                      onSuggestion={(s) => {
+                        const key = startConversation(null);
+                        submit(s, { key, threadId: null, dealId: null });
+                      }}
+                    />
+                  </div>
+                  {aiAvailable ? (
+                    <div className="shrink-0 border-t border-[var(--border)] p-3">
                       <button
+                        ref={newButtonRef}
                         type="button"
-                        onClick={() => {
-                          if (!conv.threadId) return;
-                          setConv((c) => ({ ...c, loading: true, error: null }));
-                          void loadThread(conv.threadId, conv.key);
-                        }}
-                        className={buttonVariants({ variant: 'secondary', size: 'sm' })}
+                        onClick={() => startConversation(null)}
+                        className={cn(buttonVariants({ variant: 'primary', size: 'lg' }), 'w-full')}
                       >
-                        <RotateCw aria-hidden="true" />
-                        Try again
+                        <Plus aria-hidden="true" />
+                        New conversation
                       </button>
+                    </div>
+                  ) : (
+                    <p className="text-mini shrink-0 border-t border-[var(--border)] px-4 py-3 text-[var(--fg-muted)]">
+                      Asking needs an AI provider, which is not connected. Past conversations are
+                      still here to read.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] px-2 py-1.5">
+                    <button
+                      type="button"
+                      onClick={showHome}
+                      className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'px-2')}
+                    >
+                      <ChevronLeft aria-hidden="true" />
+                      All conversations
+                    </button>
+                    {dealName ? (
+                      <Badge tone="accent" className="ml-auto max-w-[45%] truncate">
+                        About {dealName}
+                      </Badge>
                     ) : null}
                   </div>
-                ) : conv.messages.length === 0 && !sending ? (
-                  <EmptyConversation
-                    aiAvailable={aiAvailable}
-                    dealName={dealName}
-                    suggestions={
-                      !aiAvailable ? [] : dealName ? DEAL_SUGGESTIONS : suggestions.slice(0, 4)
-                    }
-                    onSuggestion={(s) => submit(s)}
-                  />
-                ) : (
-                  <ol className="space-y-3" aria-label="Conversation">
-                    {conv.messages.map((message) => (
-                      <li key={message.id} data-ask-question={message.role === 'user' || undefined}>
-                        <ConversationMessage message={message} compact pendingHint={PENDING_HINT} />
-                      </li>
-                    ))}
-                    {sending ? (
-                      <li>
-                        <WorkingMessage label="Searching your records…" compact />
-                      </li>
-                    ) : null}
-                  </ol>
-                )}
-              </div>
 
-              {aiAvailable ? (
-                <AskComposer
-                  className="shrink-0 border-t border-[var(--border)] p-2.5"
-                  compact
-                  textareaRef={composerRef}
-                  value={question}
-                  onChange={setQuestion}
-                  onSubmit={(text) => void submit(text)}
-                  pending={sending}
-                  placeholder={dealName ? `Ask about ${dealName}…` : 'Ask Arwin anything…'}
-                />
-              ) : null}
-            </>
-          )}
+                  <div
+                    ref={scrollRef}
+                    // Focusable, so focus has somewhere to stay after a question
+                    // is sent from a touch screen, and the arrow keys scroll it.
+                    tabIndex={-1}
+                    className="relative min-h-0 flex-1 scrollbar-thin overflow-y-auto p-3"
+                  >
+                    {conv.loading ? (
+                      <WorkingMessage label="Opening the conversation…" compact />
+                    ) : conv.error ? (
+                      <div className="space-y-2 text-sm text-[var(--fg-muted)]">
+                        <p>{conv.error}</p>
+                        {conv.threadId ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!conv.threadId) return;
+                              setConv((c) => ({ ...c, loading: true, error: null }));
+                              void loadThread(conv.threadId, conv.key);
+                            }}
+                            className={buttonVariants({ variant: 'secondary', size: 'sm' })}
+                          >
+                            <RotateCw aria-hidden="true" />
+                            Try again
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : conv.messages.length === 0 && !sending ? (
+                      <EmptyConversation
+                        aiAvailable={aiAvailable}
+                        dealName={dealName}
+                        suggestions={
+                          !aiAvailable ? [] : dealName ? DEAL_SUGGESTIONS : suggestions.slice(0, 4)
+                        }
+                        onSuggestion={(s) => submit(s)}
+                      />
+                    ) : (
+                      <ol className="space-y-3" aria-label="Conversation">
+                        {conv.messages.map((message) => (
+                          <li
+                            key={message.id}
+                            data-ask-question={message.role === 'user' || undefined}
+                          >
+                            <ConversationMessage
+                              message={message}
+                              compact
+                              pendingHint={PENDING_HINT}
+                            />
+                          </li>
+                        ))}
+                        {sending ? (
+                          <li>
+                            <WorkingMessage label="Searching your records…" compact />
+                          </li>
+                        ) : null}
+                      </ol>
+                    )}
+                  </div>
+
+                  {aiAvailable ? (
+                    <AskComposer
+                      className="shrink-0 border-t border-[var(--border)] p-2.5"
+                      compact
+                      textareaRef={composerRef}
+                      value={question}
+                      onChange={setQuestion}
+                      onSubmit={(text) => void submit(text)}
+                      pending={sending}
+                      placeholder={dealName ? `Ask about ${dealName}…` : 'Ask Arwin anything…'}
+                    />
+                  ) : null}
+                </>
+              )}
+            </TabsPrimitive.Content>
+
+            <TabsPrimitive.Content
+              value="feedback"
+              className="min-h-0 flex-1 scrollbar-thin overflow-y-auto p-3 focus-visible:-outline-offset-2"
+            >
+              <FeedbackForm
+                compact
+                fromPage
+                value={feedbackDraft}
+                onChange={setFeedbackDraft}
+                textareaRef={feedbackRef}
+              />
+            </TabsPrimitive.Content>
+          </TabsPrimitive.Root>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
 

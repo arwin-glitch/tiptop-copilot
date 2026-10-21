@@ -1491,3 +1491,57 @@ keeps the in-app and bridge answers from drifting apart.
   "who are you?" and "am I talking to a real person?" in Ask Arwin to check.
 - Demo mode's canned answers (`src/lib/ai/mock.ts`) carry no identity and
   are unchanged.
+
+### D-060 — Feedback in the Ask Arwin panel, and an "AI" tag on its name
+
+**Context.** Asked for in October 2026: a way to note what should change in
+Copilot while using it, by voice as well as by typing, and a marker so
+nobody mistakes the chatbot named Arwin for the person it is named after,
+without changing how it speaks (D-059).
+
+**Decision.**
+
+- **Feedback is a tab in the Ask Arwin panel**, not a second floating
+  button: Conversations, as before, and Feedback, a box for what to change.
+  It is typed, or dictated with the keyboard's own microphone (a phone's or
+  the computer's dictation). The page never records audio: that would mean
+  loosening the `microphone=()` Permissions-Policy (`src/proxy.ts`), storing
+  audio and transcribing it, and the app has no AI key for that.
+- **Each note carries its page**: the path and query of the page under the
+  panel (never the fragment or the origin; anything that is not plainly an
+  in-app path is kept as no page) and that page's name from its title
+  (`lib/feedback/shared.ts`). Sending is open to anyone signed in, and
+  revalidates nothing, like the widget's questions.
+- **Read and closed on the full Ask page's Feedback tab**, `/ask?tab=feedback`,
+  behind the same URL-synced subtab bar as the Records pages (`ASK_TABS`),
+  so the conversation stays the bare URL every `/ask` link opens. Open and
+  Done are two short lists, newest first; the open count sits on the tab.
+  Marking a note done (or open again) takes the member role. The widget no
+  longer catches a link to another tab of `/ask`: that is a page, not a
+  question.
+- **No schema change.** A note is an `audit_events` row (`feedback.note`),
+  written directly so the words arrive as typed; done or open again appends
+  `feedback.status`, newest wins. The email session's note button was looked
+  at first: its notes are `email.session_answer` rows keyed by a Gmail
+  message and read only for emails still in the session, so a note about the
+  app has nowhere to sit there. The same pattern is reused under its own
+  actions instead.
+- **Desktop alerts, opt-in, per person.** Desktop alerts already reach one
+  person's computers (D-058), so a note can ping the computers of whoever
+  turned on "Desktop alerts for new feedback" on that tab
+  (`feedback.alerts`, newest wins), never the sender's own, during the day
+  only, once per note (`feedback:<id>` in the computer's ledger), opening
+  the Feedback tab. No change to the desktop app. Phone alerts are left out:
+  the phone job sends its alerts to every subscribed phone, with no
+  per-person choice.
+- **The "AI" tag.** A small gold "AI" beside the name in the panel's header,
+  on the launcher (its name is "Ask Arwin (AI)"), on the full page's title
+  and in the "Arwin replied" pop-up. A screen reader hears "Ask Arwin (AI)".
+  A desktop notification has no room for a tag, so its title, built on the
+  server, says "Arwin (AI) replied". The persona block and its pinned hash
+  are untouched: the chatbot still calls itself Arwin.
+
+**Known limits.** Notes are listed 200 at a time, newest first. Feedback
+alerts need a desktop app with desktop alerts on, and someone to turn them
+on. The Help tour of Ask Arwin mentions Feedback but cannot point inside the
+panel, which a tour waits behind.

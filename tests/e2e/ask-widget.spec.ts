@@ -28,7 +28,7 @@ test.beforeAll(async ({ browser }, testInfo) => {
 
 test.use({ storageState: SIGNED_IN });
 
-const launcher = (page: Page) => page.getByRole('button', { name: 'Ask Arwin', exact: true });
+const launcher = (page: Page) => page.getByRole('button', { name: 'Ask Arwin (AI)', exact: true });
 const panel = (page: Page) => page.getByRole('dialog', { name: 'Ask Arwin' });
 
 test('the launcher is on every page; Ask is no longer a navigation tab', async ({ page }) => {

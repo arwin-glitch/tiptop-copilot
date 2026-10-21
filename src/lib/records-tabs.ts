@@ -298,6 +298,33 @@ export const KNOWLEDGE_TABS = define({
   ],
 });
 
+/**
+ * The full Ask page is not a Records page either, but it has two sections:
+ * the conversation (the bare URL, which every `/ask` link opens), and the
+ * feedback sent from the Ask Arwin panel's Feedback tab, where it is read and
+ * closed. A conversation link (`?thread=`, `?deal=`, `?q=`) always opens the
+ * conversation.
+ */
+export const ASK_TABS = define({
+  path: '/ask',
+  page: 'Ask Arwin',
+  navLabel: 'Ask Arwin sections',
+  defaultKey: 'conversations',
+  tabs: [
+    {
+      key: 'conversations',
+      label: 'Conversations',
+      blurb: 'Ask a question and read the answer, with your recent conversations beside it.',
+    },
+    {
+      key: 'feedback',
+      label: 'Feedback',
+      blurb:
+        'What to change in Copilot, sent from the Feedback tab of the chat with the page it was about. Open notes first; mark each done.',
+    },
+  ],
+});
+
 /** Knowledge's Affinity tabs, which the old `/lists` URLs redirect to. */
 export const AFFINITY_LISTS_HREF = '/knowledge?tab=lists';
 export const AFFINITY_IMPORT_HREF = '/knowledge?tab=import';

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ARWIN_AI_NAME,
   EMPTY_REPLY_STATE,
   REPLY_DEFER_MAX_MS,
   arriveReply,
@@ -182,6 +183,16 @@ describe('arriveReply', () => {
     expect(newestArrival(notice).threadId).toBe('t2');
     expect(replyHeadline(notice)).toBe('Arwin replied to 2 questions');
     expect(replyAnnouncement(notice)).toBe('Arwin replied to 2 questions. Newest: Answer a2');
+  });
+
+  it('names the assistant "Arwin (AI)" where no tag can sit beside the name', () => {
+    expect(ARWIN_AI_NAME).toBe('Arwin (AI)');
+    const one = { arrivals: [arrival('a1', 't1')] };
+    const two = { arrivals: [arrival('a1', 't1'), arrival('a2', 't2')] };
+    expect(replyHeadline(one, ARWIN_AI_NAME)).toBe('Arwin (AI) replied');
+    expect(replyHeadline(two, ARWIN_AI_NAME)).toBe('Arwin (AI) replied to 2 questions');
+    // The page draws its own tag, so its words keep the plain name.
+    expect(replyHeadline(one)).toBe('Arwin replied');
   });
 
   it('holds the pop-up while the tab is hidden and counts it for the title', () => {

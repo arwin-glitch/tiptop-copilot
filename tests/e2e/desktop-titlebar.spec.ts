@@ -495,7 +495,7 @@ test.describe('the Windows app (0.3.0)', () => {
 
     test('the Ask sheet, a tour card and a dialog all open below the bar', async ({ page }) => {
       await openInApp(page, '/today');
-      await page.getByRole('button', { name: 'Ask Arwin', exact: true }).click();
+      await page.getByRole('button', { name: 'Ask Arwin (AI)', exact: true }).click();
       const sheet = page.getByRole('dialog', { name: 'Ask Arwin' });
       await expect(sheet).toBeVisible();
       expect((await box(sheet)).y).toBeGreaterThanOrEqual(48);

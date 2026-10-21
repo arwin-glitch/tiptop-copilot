@@ -251,10 +251,10 @@ describe('the notification', () => {
     ...overrides,
   });
 
-  it('one answer: "Arwin replied", its first line, and its conversation', () => {
+  it('one answer: "Arwin (AI) replied", its first line, and its conversation', () => {
     expect(askReplyWords([arrival(1)])).toEqual({
       keys: ['ask:a-1'],
-      title: 'Arwin replied',
+      title: 'Arwin (AI) replied',
       body: PREVIEW,
       url: '/ask?thread=00000001-0000-4000-8000-000000000000',
     });
@@ -264,7 +264,7 @@ describe('the notification', () => {
     const newest = arrival(2, { preview: 'No. The round closes next week.' });
     expect(askReplyWords([arrival(1), newest])).toEqual({
       keys: ['ask:a-1', 'ask:a-2'],
-      title: 'Arwin replied to 2 questions',
+      title: 'Arwin (AI) replied to 2 questions',
       body: 'No. The round closes next week.',
       url: '/ask?thread=00000002-0000-4000-8000-000000000000',
     });

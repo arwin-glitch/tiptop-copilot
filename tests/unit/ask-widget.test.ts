@@ -151,6 +151,16 @@ describe('askRequestFromHref', () => {
   it('drops ids that are not ids', () => {
     expect(askRequestFromHref('/ask?deal=../../etc&thread=%3Cscript%3E', BASE)).toEqual({});
   });
+
+  it("leaves the full page's other tabs to open as pages", () => {
+    expect(askRequestFromHref('/ask?tab=feedback', BASE)).toBeNull();
+    expect(askRequestFromHref('/ask?tab=anything&q=Hello', BASE)).toBeNull();
+    // The conversation tab is still a request for the widget.
+    expect(askRequestFromHref('/ask?tab=conversations', BASE)).toEqual({});
+    expect(askRequestFromHref('/ask?tab=conversations&thread=abc-123', BASE)).toEqual({
+      threadId: 'abc-123',
+    });
+  });
 });
 
 describe('askRequestFromParam', () => {

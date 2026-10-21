@@ -250,10 +250,16 @@ export function newestArrival(notice: ReplyNotice): ReplyArrival {
   return notice.arrivals[notice.arrivals.length - 1] as ReplyArrival;
 }
 
-/** "Arwin replied", or "Arwin replied to 2 questions". */
-export function replyHeadline(notice: ReplyNotice): string {
+/**
+ * The assistant's name in a notification outside the app (desktop alerts),
+ * which has no room for the "AI" tag the page draws beside it.
+ */
+export const ARWIN_AI_NAME = 'Arwin (AI)';
+
+/** "Arwin replied", or "Arwin replied to 2 questions"; `name` stands in for "Arwin". */
+export function replyHeadline(notice: ReplyNotice, name = 'Arwin'): string {
   const count = notice.arrivals.length;
-  return count > 1 ? `Arwin replied to ${count} questions` : 'Arwin replied';
+  return count > 1 ? `${name} replied to ${count} questions` : `${name} replied`;
 }
 
 /** What a screen reader is told: the headline and the newest answer's first line. */
