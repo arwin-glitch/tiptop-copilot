@@ -5,6 +5,12 @@ import { createClient } from '@supabase/supabase-js';
 import { env } from '@/lib/config/env';
 import { signedValue, verifySignedValue } from '@/lib/security/crypto';
 import { err, ok, type Result } from '@/lib/util/result';
+import {
+  BUCKET_ALLOWED_MIME_TYPES,
+  bucketAccepts,
+  isMimeTypeRefusal,
+  mimeTypeRefusalMessage,
+} from './allowed-types';
 
 /**
  * Private object storage for attachments and uploaded documents.
@@ -16,6 +22,11 @@ import { err, ok, type Result } from '@/lib/util/result';
 
 export interface StorageProvider {
   readonly kind: 'supabase' | 'local';
+  /**
+   * Store an object. The bucket takes only the content types in
+   * `./allowed-types`; any other is refused with `unsupported_media_type`
+   * (never stored as something else).
+   */
   put(objectPath: string, data: Uint8Array, contentType: string): Promise<Result<string>>;
   get(objectPath: string): Promise<Result<Uint8Array>>;
   remove(objectPath: string): Promise<Result<true>>;
@@ -40,7 +51,12 @@ export class SupabaseStorageProvider implements StorageProvider {
     const { error } = await client.storage
       .from(env().supabaseStorageBucket)
       .upload(objectPath, data, { contentType, upsert: true });
-    if (error) return err('internal', `Upload failed: ${error.message}`);
+    if (error) {
+      // The bucket refusing the type is the caller's to explain (the file is
+      // the problem, not the service), so it gets its own code, not a 500.
+      if (isMimeTypeRefusal(error)) return storageRefusal(contentType);
+      return err('internal', `Upload failed: ${error.message}`);
+    }
     return ok(objectPath);
   }
 
@@ -73,13 +89,37 @@ export class SupabaseStorageProvider implements StorageProvider {
   }
 }
 
+/** The bucket refusing a content type, the same from either provider. */
+function storageRefusal(contentType: string) {
+  return err(
+    'unsupported_media_type',
+    `Storage refused it: ${mimeTypeRefusalMessage(contentType)}.`,
+    {
+      details: { contentType: contentType.slice(0, 100) },
+    },
+  );
+}
+
 /**
- * Filesystem-backed storage for demo mode. Signed URLs are HMAC-signed
- * app-relative paths served by an authenticated route, so the expiry and
- * authorization semantics match the real provider rather than being bypassed.
+ * Filesystem-backed storage for demo mode and tests. Signed URLs are
+ * HMAC-signed app-relative paths served by an authenticated route, so the
+ * expiry and authorization semantics match the real provider rather than
+ * being bypassed. It also refuses the content types the real bucket refuses
+ * (`./allowed-types`, which mirrors the migrations), so an upload production
+ * would turn away fails here too instead of passing every test.
  */
 export class LocalStorageProvider implements StorageProvider {
   readonly kind = 'local' as const;
+  private readonly allowedMimeTypes: readonly string[];
+
+  /**
+   * `allowedMimeTypes` defaults to the bucket's list with every migration
+   * applied; tests pass an earlier list to act as a bucket a migration has
+   * not reached yet.
+   */
+  constructor(options: { allowedMimeTypes?: readonly string[] } = {}) {
+    this.allowedMimeTypes = options.allowedMimeTypes ?? BUCKET_ALLOWED_MIME_TYPES;
+  }
 
   private root(): string {
     const base = env().demoDataDir;
@@ -98,7 +138,8 @@ export class LocalStorageProvider implements StorageProvider {
     return ok(full);
   }
 
-  async put(objectPath: string, data: Uint8Array): Promise<Result<string>> {
+  async put(objectPath: string, data: Uint8Array, contentType: string): Promise<Result<string>> {
+    if (!bucketAccepts(contentType, this.allowedMimeTypes)) return storageRefusal(contentType);
     const full = this.resolve(objectPath);
     if (!full.ok) return full;
     await mkdir(path.dirname(full.value), { recursive: true });

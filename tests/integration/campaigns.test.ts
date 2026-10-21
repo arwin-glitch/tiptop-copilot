@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { unsupportedAttachmentMessage } from '@/lib/campaigns/attachment-types';
 import { DemoCampaignSender } from '@/lib/campaigns/demo-sender';
 import { readTrackingToken, trackingToken } from '@/lib/campaigns/tokens';
 import type { DataStore } from '@/lib/db/store';
@@ -33,6 +34,7 @@ import {
 } from '@/lib/services/campaigns';
 import type { Campaign, CampaignRecipient, EmailMessage, EmailThread } from '@/lib/types/domain';
 import { processWide } from '@/lib/util/process-state';
+import { statusForError } from '@/lib/util/result';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
 import { PROCESS_ZONES, underProcessZone } from '../helpers/process-zone';
 
@@ -1512,6 +1514,109 @@ describe('attachments', () => {
       Buffer.from('abc'),
     );
     expect(short.ok).toBe(false);
+    expect((await harness.store.get('campaigns', org, campaign.id))?.attachments).toEqual([]);
+  });
+
+  /** The demo storage, noting the content type every piece was stored with. */
+  class RecordingStorage extends LocalStorageProvider {
+    readonly puts: string[] = [];
+
+    override async put(objectPath: string, data: Uint8Array, contentType: string) {
+      this.puts.push(contentType);
+      return super.put(objectPath, data, contentType);
+    }
+  }
+
+  function must<T>(result: { ok: true; value: T } | { ok: false; error: { message: string } }): T {
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value;
+  }
+
+  const attach = (
+    via: LocalStorageProvider,
+    campaignId: string,
+    name: string,
+    type: string,
+    bytes = Buffer.from('%PDF-1.4'),
+  ) =>
+    addAttachmentChunk(
+      harness.store,
+      via,
+      org,
+      campaignId,
+      { uploadId: crypto.randomUUID(), index: 0, count: 1, name, type, size: bytes.byteLength },
+      bytes,
+    );
+
+  it('refuse a type storage would refuse, saying what can go, never a 500', async () => {
+    // Storage takes only some types; these used to be stored as
+    // application/octet-stream (or their own type) and fail with a 500.
+    const campaign = await draftWithLps();
+    const recording = new RecordingStorage();
+    for (const [name, type] of [
+      ['Model.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+      ['Data room.zip', 'application/zip'],
+      ['Data room.zip', 'application/octet-stream'],
+      ['mystery', ''],
+    ] as const) {
+      const refused = await attach(recording, campaign.id, name, type, Buffer.from('PK..'));
+      expect(refused.ok).toBe(false);
+      if (refused.ok) continue;
+      expect(refused.error.code).toBe('unsupported_media_type');
+      expect(statusForError(refused.error.code)).toBe(415);
+      expect(refused.error.message).toBe(unsupportedAttachmentMessage(name));
+      expect(refused.error.message).toContain('PDF, Word (.docx), PowerPoint (.pptx)');
+    }
+    expect(recording.puts).toEqual([]);
+    expect((await harness.store.get('campaigns', org, campaign.id))?.attachments).toEqual([]);
+  });
+
+  it('store a supported file exactly as declared, and one of unknown type by its name', async () => {
+    const campaign = await draftWithLps();
+    const recording = new RecordingStorage();
+    must(await attach(recording, campaign.id, 'Deck.pdf', 'application/pdf'));
+    must(await attach(recording, campaign.id, 'Letter.pdf', ''));
+    const last = must(
+      await attach(
+        recording,
+        campaign.id,
+        'notes.md',
+        'application/octet-stream',
+        Buffer.from('# Notes'),
+      ),
+    );
+    // Excel on Windows labels a .csv application/vnd.ms-excel: a CSV all the same.
+    const csv = must(
+      await attach(
+        recording,
+        campaign.id,
+        'Contacts.csv',
+        'application/vnd.ms-excel',
+        Buffer.from('name,email'),
+      ),
+    );
+    expect(recording.puts).toEqual([
+      'application/pdf',
+      'application/pdf',
+      'text/markdown',
+      'text/csv',
+    ]);
+    expect(last.attachments.map((a) => [a.name, a.type])).toEqual([
+      ['Deck.pdf', 'application/pdf'],
+      ['Letter.pdf', 'application/pdf'],
+      ['notes.md', 'text/markdown'],
+    ]);
+    expect(csv.attachments.at(-1)).toMatchObject({ name: 'Contacts.csv', type: 'text/csv' });
+  });
+
+  it('a storage refusal is the same user error, not a 500', async () => {
+    const campaign = await draftWithLps();
+    const refusing = new LocalStorageProvider({ allowedMimeTypes: [] });
+    const refused = await attach(refusing, campaign.id, 'Deck.pdf', 'application/pdf');
+    expect(!refused.ok && refused.error).toMatchObject({
+      code: 'unsupported_media_type',
+      message: unsupportedAttachmentMessage('Deck.pdf'),
+    });
     expect((await harness.store.get('campaigns', org, campaign.id))?.attachments).toEqual([]);
   });
 });

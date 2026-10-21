@@ -5,6 +5,7 @@ import { MAX_ATTACHMENT_BYTES } from '@/lib/campaigns/limits';
 import type { OutgoingCampaignEmail } from '@/lib/campaigns/sender-types';
 import { trackingUrls } from '@/lib/campaigns/tokens';
 import type { DataStore } from '@/lib/db/store';
+import { BUCKET_BASE_MIME_TYPES, BUCKET_HEIC_MIGRATION_FILE } from '@/lib/storage/allowed-types';
 import { LocalStorageProvider } from '@/lib/storage/provider';
 import {
   CAMPAIGN_EXTRAS_MIGRATION_FILE,
@@ -33,7 +34,7 @@ import {
   type BatchDeps,
 } from '@/lib/services/campaigns';
 import type { Campaign, CampaignRecipient, EmailMessage, EmailThread } from '@/lib/types/domain';
-import { err, type ErrorCode } from '@/lib/util/result';
+import { err, statusForError, type ErrorCode } from '@/lib/util/result';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
 import { masterComposeCampaignEmail } from '../helpers/master-campaign-email';
 
@@ -1230,5 +1231,170 @@ describe('deleting and tenancy', () => {
     ).toBe(false);
     expect((await campaignManifest(harness.store, otherOrg, campaign.id)).ok).toBe(false);
     expect((await byEmail(campaign.id, 'jane@acme.example')).photo_id).toBe(photoId);
+  });
+});
+
+/** The demo storage, noting the content type every piece was stored with. */
+class RecordingStorage extends LocalStorageProvider {
+  readonly puts: { path: string; contentType: string }[] = [];
+
+  override async put(objectPath: string, data: Uint8Array, contentType: string) {
+    this.puts.push({ path: objectPath, contentType });
+    return super.put(objectPath, data, contentType);
+  }
+}
+
+describe('photos are stored with their real image type', () => {
+  // Production refused every photo: each piece was stored as
+  // application/octet-stream, which the bucket does not take, and the page
+  // answered with a 500. The demo storage now refuses what the bucket does.
+  const JPEG = Buffer.concat([
+    Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+    Buffer.from('an invented portrait, long enough to cut into pieces'),
+  ]);
+  const HEIC = Buffer.concat([
+    Buffer.from([0x00, 0x00, 0x00, 0x18]),
+    Buffer.from('ftypheic'),
+    Buffer.from('an invented phone photo'),
+  ]);
+
+  function upload(
+    via: LocalStorageProvider,
+    campaignId: string,
+    name: string,
+    type: string,
+    bytes: Buffer,
+  ) {
+    return addPhotoChunk(
+      harness.store,
+      via,
+      org,
+      campaignId,
+      { uploadId: randomUUID(), index: 0, count: 1, name, type, size: bytes.byteLength },
+      bytes,
+    );
+  }
+
+  it('stores every piece of a photo as its image type, never application/octet-stream', async () => {
+    const campaign = await draft();
+    const recording = new RecordingStorage();
+    const uploadId = randomUUID();
+    const meta = {
+      uploadId,
+      count: 3,
+      name: 'Jane Doe.jpg',
+      type: 'image/jpeg',
+      size: JPEG.byteLength,
+    };
+    const cuts = [0, 10, 30, JPEG.byteLength];
+    let last;
+    for (let index = 0; index < 3; index++) {
+      last = must(
+        await addPhotoChunk(
+          harness.store,
+          recording,
+          org,
+          campaign.id,
+          { ...meta, index },
+          JPEG.subarray(cuts[index], cuts[index + 1]),
+        ),
+      );
+    }
+    expect(recording.puts.map((p) => p.contentType)).toEqual([
+      'image/jpeg',
+      'image/jpeg',
+      'image/jpeg',
+    ]);
+    expect(last?.outcome?.matchedTo).toBe('Jane Doe');
+    expect(last?.photos?.map((p) => [p.name, p.type])).toEqual([['Jane Doe.jpg', 'image/jpeg']]);
+  });
+
+  it('a photo with no declared type is stored as what its name and bytes say', async () => {
+    const campaign = await draft();
+    const recording = new RecordingStorage();
+    // Windows sends a HEIC photo with no type; an old page sent octet-stream.
+    const heic = must(await upload(recording, campaign.id, 'IMG_0042.HEIC', '', HEIC));
+    const png = must(
+      await upload(recording, campaign.id, 'Sam Lee.png', 'application/octet-stream', PNG),
+    );
+    expect(heic.complete && png.complete).toBe(true);
+    expect(recording.puts.map((p) => p.contentType)).toEqual(['image/heic', 'image/png']);
+    expect(png.outcome?.matchedTo).toBe('Sam Lee');
+    expect(recording.puts.some((p) => p.contentType === 'application/octet-stream')).toBe(false);
+  });
+
+  it('a HEIC photo before the bucket allows it is a clear user error, never a 500', async () => {
+    const campaign = await draft();
+    const before = new LocalStorageProvider({ allowedMimeTypes: BUCKET_BASE_MIME_TYPES });
+    const refused = await upload(before, campaign.id, 'Wei Chen.heic', 'image/heic', HEIC);
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.error.code).toBe('unsupported_media_type');
+    expect(statusForError(refused.error.code)).toBe(415);
+    expect(refused.error.message).toBe(
+      `HEIC photos are not enabled yet, so Wei Chen.heic was not added. Use JPG or PNG instead (to enable HEIC, run ${BUCKET_HEIC_MIGRATION_FILE} in the Supabase SQL editor).`,
+    );
+    expect(await harness.store.count('campaign_photos', org, {})).toBe(0);
+    // The same bucket takes a JPG.
+    must(await upload(before, campaign.id, 'Jane Doe.jpg', 'image/jpeg', JPEG));
+    expect(await harness.store.count('campaign_photos', org, {})).toBe(1);
+  });
+
+  it('a HEIC photo once the bucket allows it joins and is matched', async () => {
+    const campaign = await draft();
+    const recording = new RecordingStorage();
+    const added = must(await upload(recording, campaign.id, 'Wei Chen.heic', 'image/heic', HEIC));
+    expect(added.outcome?.matchedTo).toBe('Wei Chen');
+    expect(recording.puts.map((p) => p.contentType)).toEqual(['image/heic']);
+    const [photo] = await harness.store.list('campaign_photos', org, {});
+    expect(photo?.type).toBe('image/heic');
+  });
+
+  it('a photo whose bytes are another kind than it declares is refused before it is stored', async () => {
+    const campaign = await draft();
+    const recording = new RecordingStorage();
+    const renamed = await upload(recording, campaign.id, 'Jane Doe.png', 'image/png', JPEG);
+    expect(!renamed.ok && renamed.error).toMatchObject({
+      code: 'unsupported_media_type',
+      message: 'Jane Doe.png is a JPG image inside, not a PNG. Reload the page and add it again.',
+    });
+    expect(recording.puts).toEqual([]);
+
+    // A last piece declaring another kind than the first piece's bytes: the
+    // pieces were not all stored as the one real type, so they all go.
+    const uploadId = randomUUID();
+    const meta = { uploadId, count: 2, name: 'Jane Doe.jpg', size: JPEG.byteLength };
+    must(
+      await addPhotoChunk(
+        harness.store,
+        recording,
+        org,
+        campaign.id,
+        { ...meta, index: 0, type: 'image/jpeg' },
+        JPEG.subarray(0, 10),
+      ),
+    );
+    const mixed = await addPhotoChunk(
+      harness.store,
+      recording,
+      org,
+      campaign.id,
+      { ...meta, index: 1, type: 'image/png' },
+      JPEG.subarray(10),
+    );
+    expect(!mixed.ok && mixed.error.code).toBe('unsupported_media_type');
+    expect((await recording.get(recording.puts[0]!.path)).ok).toBe(false);
+    expect(await harness.store.count('campaign_photos', org, {})).toBe(0);
+  });
+
+  it('storage refusing a photo is a user error naming it, not a 500', async () => {
+    const campaign = await draft();
+    const refusing = new LocalStorageProvider({ allowedMimeTypes: [] });
+    const refused = await upload(refusing, campaign.id, 'Jane Doe.png', 'image/png', PNG);
+    expect(!refused.ok && refused.error).toMatchObject({
+      code: 'unsupported_media_type',
+      message: 'Storage does not take PNG photos right now, so Jane Doe.png was not added.',
+    });
+    expect(await harness.store.count('campaign_photos', org, {})).toBe(0);
   });
 });

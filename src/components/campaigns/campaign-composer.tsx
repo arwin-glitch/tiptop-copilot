@@ -47,6 +47,7 @@ import { WouldCopyNote } from './campaign-copies';
 import { CampaignProgress } from './campaign-progress';
 import { EmailBody } from './email-preview';
 import { RecipientExtras, RecipientsExtrasPanel, type ComposerExtras } from './recipient-extras';
+import { UploadProblems } from './upload-problems';
 import { WhoGetsWhat } from './who-gets-what';
 
 export interface ListOption {
@@ -1033,6 +1034,8 @@ function Attachments({
   const [items, setItems] = React.useState(initial);
   const [uploading, setUploading] = React.useState<{ name: string; done: number } | null>(null);
   const [removing, setRemoving] = React.useState<string | null>(null);
+  /** Files from the last upload that were not attached, and why. */
+  const [problems, setProblems] = React.useState<string[]>([]);
   const inputRef = React.useRef<HTMLInputElement>(null);
   /** Aborted if this step goes away mid-upload: no piece is sent after that. */
   const abort = React.useRef<AbortController | null>(null);
@@ -1052,13 +1055,17 @@ function Attachments({
     const controller = new AbortController();
     abort.current = controller;
     onBusy('the upload');
+    setProblems([]);
+    const failures: string[] = [];
+    const refuse = (message: string) => {
+      failures.push(message);
+      toast.error(message);
+    };
     let total = used;
     for (const file of Array.from(files)) {
       if (controller.signal.aborted) break;
       if (total + file.size > MAX_ATTACHMENT_BYTES) {
-        toast.error(
-          `${file.name} would take attachments over ${formatBytes(MAX_ATTACHMENT_BYTES)}.`,
-        );
+        refuse(`${file.name} would take attachments over ${formatBytes(MAX_ATTACHMENT_BYTES)}.`);
         continue;
       }
       const uploadId = crypto.randomUUID();
@@ -1089,12 +1096,13 @@ function Attachments({
         if (!r.ok) failed = r.message;
         else if (r.data.complete) setItems(r.data.attachments);
       }
-      if (failed) toast.error(failed);
+      if (failed) refuse(failed);
       else total += file.size;
     }
     if (controller.signal.aborted) return;
     abort.current = null;
     setUploading(null);
+    setProblems(failures);
     onBusy(null);
     if (inputRef.current) inputRef.current.value = '';
     onChange();
@@ -1163,6 +1171,15 @@ function Attachments({
         {uploading ? null : <Paperclip aria-hidden="true" />}
         {uploading ? `Uploading ${uploading.name} (${uploading.done}%)` : 'Attach a file'}
       </Button>
+      <UploadProblems
+        title={
+          problems.length === 1
+            ? 'A file was not attached'
+            : `${problems.length} files were not attached`
+        }
+        problems={problems}
+        onDismiss={() => setProblems([])}
+      />
     </div>
   );
 }

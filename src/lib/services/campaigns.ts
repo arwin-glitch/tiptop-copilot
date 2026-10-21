@@ -7,6 +7,10 @@ import {
   withinScanWindow,
 } from '@/lib/campaigns/activity';
 import {
+  campaignAttachmentType,
+  unsupportedAttachmentMessage,
+} from '@/lib/campaigns/attachment-types';
+import {
   NO_COPIES,
   cleanBccMode,
   cleanCopyList,
@@ -44,11 +48,14 @@ import { checkExtras, type ExtrasCheck, type ManifestPhoto } from '@/lib/campaig
 import {
   MAX_PHOTOS,
   MAX_PHOTO_BYTES,
+  PHOTO_KIND_LABEL,
   PHOTO_MIME,
+  declaredPhotoKind,
   isPhotoName,
   isPhotoType,
   photoMatcher,
   sniffPhoto,
+  type PhotoKind,
   type CampaignPhotoView,
   type PhotoUploadOutcome,
 } from '@/lib/campaigns/photos';
@@ -84,6 +91,7 @@ import type { DataStore, Filter, Row, TableName } from '@/lib/db/store';
 import { recordAudit, type AuditAction } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
 import { updatePersonContact, type PersonContactField } from '@/lib/services/crm';
+import { BUCKET_HEIC_MIGRATION_FILE } from '@/lib/storage/allowed-types';
 import type { StorageProvider } from '@/lib/storage/provider';
 import type {
   Campaign,
@@ -1259,6 +1267,12 @@ export async function addAttachmentChunk(
       if (BLOCKED_EXTENSIONS.has(extension)) {
         return err('unsupported_media_type', `Gmail does not send .${extension} files.`);
       }
+      // The type it is stored and sent with. Storage takes only some types,
+      // so anything else is refused here, before a byte is written, rather
+      // than failing in storage (it used to be stored as
+      // application/octet-stream, which the bucket refuses outright).
+      const type = campaignAttachmentType(name, meta.type);
+      if (!type) return err('unsupported_media_type', unsupportedAttachmentMessage(name));
       const maxParts = Math.ceil(MAX_ATTACHMENT_BYTES / UPLOAD_CHUNK_BYTES) + 1;
       if (
         !Number.isInteger(meta.count) ||
@@ -1291,8 +1305,15 @@ export async function addAttachmentChunk(
       if (campaign.attachments.length >= MAX_ATTACHMENTS) return tooMany();
 
       const path = partPath(organizationId, campaign.id, meta.uploadId, meta.index);
-      const put = await storage.put(path, bytes, meta.type || 'application/octet-stream');
-      if (!put.ok) return put;
+      const put = await storage.put(path, bytes, type);
+      if (!put.ok) {
+        // Storage refusing the type after all (its list is the migrations',
+        // not this code's): the file's problem, said as such, not a 500.
+        if (put.error.code === 'unsupported_media_type') {
+          return err('unsupported_media_type', unsupportedAttachmentMessage(name));
+        }
+        return put;
+      }
       if (meta.index < meta.count - 1)
         return ok({ complete: false, attachments: campaign.attachments });
 
@@ -1333,7 +1354,7 @@ export async function addAttachmentChunk(
           {
             id: meta.uploadId,
             name,
-            type: (meta.type || 'application/octet-stream').slice(0, 200),
+            type,
             size: meta.size,
             parts,
           },
@@ -1663,6 +1684,27 @@ const photoPartPath = (
   index: number,
 ) => `campaigns/${organizationId}/${campaignId}/photos/${uploadId}/${index}`;
 
+/**
+ * Why storage turned a photo away. Every kind but HEIC is in the bucket's
+ * first list; HEIC needs 20261021001500_bucket_heic.sql, and until that is
+ * applied a HEIC photo is refused with this rather than a 500.
+ */
+function photoRefusedByStorage(name: string, kind: PhotoKind) {
+  return err(
+    'unsupported_media_type',
+    kind === 'heic'
+      ? `HEIC photos are not enabled yet, so ${name} was not added. Use JPG or PNG instead (to enable HEIC, run ${BUCKET_HEIC_MIGRATION_FILE} in the Supabase SQL editor).`
+      : `Storage does not take ${PHOTO_KIND_LABEL[kind]} photos right now, so ${name} was not added.`,
+  );
+}
+
+/** A photo whose bytes are another kind than the upload declared. */
+const photoKindMismatch = (name: string, inside: PhotoKind, declared: PhotoKind) =>
+  err(
+    'unsupported_media_type',
+    `${name} is a ${PHOTO_KIND_LABEL[inside]} image inside, not a ${PHOTO_KIND_LABEL[declared]}. Reload the page and add it again.`,
+  );
+
 /** A draft that can take photos and copies right now, or why not. */
 async function extrasDraft(
   store: DataStore,
@@ -1703,7 +1745,11 @@ export async function addPhotoChunk(
       const campaign = draft.value;
       if (!isUuid(meta.uploadId)) return err('invalid_input', 'That upload is not valid.');
       const name = cleanFilename(meta.name);
-      if (!isPhotoName(name) || !isPhotoType(meta.type)) {
+      // The kind every piece of this photo is stored as: its real image type,
+      // never application/octet-stream (which the bucket refuses). The first
+      // piece's bytes must say the same kind, below.
+      const declared = declaredPhotoKind(name, meta.type);
+      if (!isPhotoName(name) || !isPhotoType(meta.type) || !declared) {
         return err(
           'unsupported_media_type',
           `${name} is not a photo. Use JPG, PNG, GIF, WebP or HEIC files.`,
@@ -1736,11 +1782,15 @@ export async function addPhotoChunk(
           `With the ${formatBytes(shared)} of attachments every email carries, ${name} would take an email over ${formatBytes(MAX_ATTACHMENT_BYTES)}.`,
         );
       }
-      if (meta.index === 0 && !sniffPhoto(bytes)) {
-        return err(
-          'unsupported_media_type',
-          `${name} is not a JPG, PNG, GIF, WebP or HEIC image inside.`,
-        );
+      if (meta.index === 0) {
+        const inside = sniffPhoto(bytes);
+        if (!inside) {
+          return err(
+            'unsupported_media_type',
+            `${name} is not a JPG, PNG, GIF, WebP or HEIC image inside.`,
+          );
+        }
+        if (inside !== declared) return photoKindMismatch(name, inside, declared);
       }
       if (meta.index === 0) {
         const count = await store.count('campaign_photos', organizationId, {
@@ -1759,8 +1809,13 @@ export async function addPhotoChunk(
         return err('invalid_input', 'That upload is not valid.');
       }
       const path = photoPartPath(organizationId, campaign.id, meta.uploadId, meta.index);
-      const put = await storage.put(path, bytes, 'application/octet-stream');
-      if (!put.ok) return put;
+      const put = await storage.put(path, bytes, PHOTO_MIME[declared]);
+      if (!put.ok) {
+        if (put.error.code === 'unsupported_media_type') {
+          return photoRefusedByStorage(name, declared);
+        }
+        return put;
+      }
       if (meta.index < meta.count - 1) return ok({ complete: false });
 
       const parts = Array.from({ length: meta.count }, (_, i) =>
@@ -1779,6 +1834,12 @@ export async function addPhotoChunk(
         total += data.value.byteLength;
       }
       if (total !== meta.size || !kind) return incomplete();
+      if (kind !== declared) {
+        // The last piece declared another kind than the first one's bytes:
+        // its pieces were not all stored as the one real type.
+        await removeParts(storage, parts);
+        return photoKindMismatch(name, kind, declared);
+      }
 
       const latest = await loadCampaign(store, organizationId, campaign.id);
       if (!latest || latest.status !== 'draft') {

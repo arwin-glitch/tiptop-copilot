@@ -16,6 +16,12 @@ const PNG = Buffer.concat([
   Buffer.from('an invented photo for the e2e run'),
 ]);
 
+// And a JPEG's: what the page and the server read a photo's kind from.
+const JPEG = Buffer.concat([
+  Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+  Buffer.from('an invented portrait for the e2e run'),
+]);
+
 test.beforeAll(async ({ browser }, testInfo) => {
   const context = await browser.newContext({
     baseURL: testInfo.project.use.baseURL,
@@ -203,4 +209,105 @@ test('an unsubscribed CC stops the send; removing a photo takes it off its perso
   await expect(review.getByTestId('who-gets-what-summary')).toHaveText(
     '0 with photo, 1 without, 0 problems; CC: hana@riverlight.example; BCC: none; 0 people have their own CC.',
   );
+});
+
+test('one photo joins and matches its person by name; a failed upload says why on the page', async ({
+  page,
+}) => {
+  await page.goto('/fund-ii?tab=campaigns');
+  await page.getByRole('button', { name: 'New campaign' }).first().click();
+  await page.waitForURL(/\/fund-ii\/campaigns\/[0-9a-f-]{36}$/);
+  await page.getByLabel('Email addresses').fill('Priya Raman <priya@northwind.example>');
+  await page.getByRole('button', { name: 'Add 1 pasted' }).click();
+  await expect(page.getByText('Added 1 person.')).toBeVisible();
+
+  const section = page.getByRole('region', { name: /Photos, one per person/ });
+  const count = section.getByText('1 photo', { exact: true });
+  await page
+    .getByLabel('Add photos')
+    .setInputFiles([{ name: 'Priya Raman.jpg', mimeType: 'image/jpeg', buffer: JPEG }]);
+  await expect(page.getByText(/^1 photo added: 1 matched \(Priya Raman\)/)).toBeVisible();
+  await expect(count).toBeVisible();
+  await expect(section.getByRole('list', { name: 'Photos' }).getByRole('listitem')).toContainText(
+    'For Priya Raman',
+  );
+  await expect(
+    page.getByRole('button', { name: 'Photo for Priya Raman: Priya Raman.jpg' }),
+  ).toBeVisible();
+  await expect(section.getByRole('alert')).toHaveCount(0);
+
+  // A file that is no image inside: refused, and the page says why.
+  await page
+    .getByLabel('Add photos')
+    .setInputFiles([
+      { name: 'notes.png', mimeType: 'image/png', buffer: Buffer.from('%PDF-1.4 invented notes') },
+    ]);
+  const problem = section.getByRole('alert');
+  await expect(problem).toContainText('A photo was not added');
+  await expect(problem).toContainText(
+    'notes.png is not a JPG, PNG, GIF, WebP or HEIC image inside.',
+  );
+  await expect(count).toBeVisible();
+
+  // The server refusing an upload, as production did: its own words stay on
+  // the page, and the count stays where it was.
+  await page.route('**/api/campaigns/*/photos', (route) =>
+    route.request().method() === 'POST'
+      ? route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            error: {
+              code: 'internal',
+              message: 'Upload failed: mime type application/octet-stream is not supported',
+            },
+          }),
+        })
+      : route.fallback(),
+  );
+  await page
+    .getByLabel('Add photos')
+    .setInputFiles([{ name: 'Priya at the offsite.png', mimeType: 'image/png', buffer: PNG }]);
+  await expect(problem).toContainText(
+    'Upload failed: mime type application/octet-stream is not supported',
+  );
+  await expect(problem).not.toContainText('notes.png');
+  await expect(count).toBeVisible();
+  await page.unroute('**/api/campaigns/*/photos');
+  await problem.getByRole('button', { name: /^Dismiss/ }).click();
+  await expect(section.getByRole('alert')).toHaveCount(0);
+});
+
+test('a file campaigns cannot carry is refused with what they can; a PDF still attaches', async ({
+  page,
+}) => {
+  await page.goto('/fund-ii?tab=campaigns');
+  await page.getByRole('button', { name: 'New campaign' }).first().click();
+  await page.waitForURL(/\/fund-ii\/campaigns\/[0-9a-f-]{36}$/);
+  await page.getByLabel('Email addresses').fill('Priya Raman <priya@northwind.example>');
+  await page.getByRole('button', { name: 'Add 1 pasted' }).click();
+  await expect(page.getByText('Added 1 person.')).toBeVisible();
+  await page.getByRole('button', { name: 'Next: the message' }).click();
+
+  await page.getByLabel('Attach files').setInputFiles([
+    {
+      name: 'Model.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.from('PK invented spreadsheet'),
+    },
+  ]);
+  const problem = page.getByRole('alert').filter({ hasText: 'A file was not attached' });
+  await expect(problem).toContainText(
+    'Model.xlsx cannot be attached: campaigns carry PDF, Word (.docx), PowerPoint (.pptx), plain text, Markdown, CSV, HTML, JSON, PNG, JPG, GIF or WebP files.',
+  );
+  await expect(page.getByRole('list', { name: 'Attachments' })).toHaveCount(0);
+
+  await page
+    .getByLabel('Attach files')
+    .setInputFiles([
+      { name: 'Deck.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 invented') },
+    ]);
+  await expect(page.getByRole('list', { name: 'Attachments' })).toContainText('Deck.pdf');
+  await expect(problem).toHaveCount(0);
 });

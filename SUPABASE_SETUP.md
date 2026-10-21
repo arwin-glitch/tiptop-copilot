@@ -41,7 +41,7 @@ dashboard immediately.
 
 ## 3. Apply the migrations
 
-Twenty-three files in `supabase/migrations/`, applied in filename order.
+Twenty-five files in `supabase/migrations/`, applied in filename order.
 
 ### With the Supabase CLI (recommended)
 
@@ -81,6 +81,7 @@ Open **SQL Editor** in the dashboard and run each file's contents in order:
 20261017000000_desktop_handoffs.sql
 20261021000300_crm_writes.sql
 20261021001100_campaign_photos_cc.sql
+20261021001500_bucket_heic.sql
 ```
 
 Order matters — later files reference objects created earlier. Every statement is
@@ -101,9 +102,15 @@ What they create:
 
 Each later file adds one feature's tables or columns, and opens with a comment
 saying what it adds and what the app does until it is applied. The newest,
-`20261021001100_campaign_photos_cc.sql`, adds per-recipient photos and CC /
+`20261021001500_bucket_heic.sql`, lets the private bucket take HEIC photos
+(it adds `image/heic` and `image/heif` to its allowed types, only if missing,
+and changes nothing else); until it is applied a HEIC campaign photo is
+refused with "HEIC photos are not enabled yet", and JPG, PNG, GIF and WebP
+photos work. Re-running `…000700` on its own resets the bucket's type list,
+so run this file again after it. Before it,
+`20261021001100_campaign_photos_cc.sql` adds per-recipient photos and CC /
 BCC to campaigns (the `campaign_photos` table and a few columns); until it is
-applied those stay hidden and campaigns send exactly as before. Before it,
+applied those stay hidden and campaigns send exactly as before. Before that,
 `20261021000300_crm_writes.sql` keeps rows taken off a CRM list from coming
 back with the daily Affinity sync; until it is applied, "Remove from list"
 says to run it and removes nothing, and everything else in the CRM works.
@@ -144,6 +151,13 @@ invested" and "there is no send capability".
 
 Migration `…000700` creates the `deal-attachments` bucket, **private**, with
 policies keyed on the organization prefix of the object path.
+
+The bucket takes only the content types it lists (PDF, DOCX, PPTX, plain
+text, Markdown, CSV, HTML, JSON, PNG, JPEG, GIF, WebP, and HEIC once
+`20261021001500_bucket_heic.sql` is applied) and refuses any other upload.
+`src/lib/storage/allowed-types.ts` mirrors that list, and the app refuses other
+file types itself, with a message saying what it takes; widen the list with a
+migration first, then that file.
 
 Confirm under **Storage** that the bucket exists and is not public. If it is
 public, make it private before storing anything — attachments are pitch decks

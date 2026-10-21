@@ -10,11 +10,14 @@ import { MAX_ATTACHMENT_BYTES, UPLOAD_CHUNK_BYTES, formatBytes } from '@/lib/cam
 import {
   MAX_PHOTO_BYTES,
   PHOTO_ACCEPT,
+  PHOTO_MIME,
   isPhotoName,
+  sniffPhoto,
   type CampaignPhotoView,
   type PhotoUploadOutcome,
 } from '@/lib/campaigns/photos';
 import { campaignCall, jsonBody } from './campaign-api';
+import { UploadProblems } from './upload-problems';
 
 /** Someone a photo can be given to. */
 export interface PhotoRecipient {
@@ -25,6 +28,21 @@ export interface PhotoRecipient {
 
 /** Photos listed before "Show all": the set is a list to check, not a page to scroll. */
 const SHOWN = 12;
+
+/**
+ * What a file really is, from its first bytes (the same check the server
+ * makes): null when it is no photo a campaign takes, undefined when the
+ * bytes could not be read here (the server then decides). The upload
+ * declares this kind, so a renamed photo (a JPEG saved as .png) is stored as
+ * what it is.
+ */
+async function photoKindOf(file: File) {
+  try {
+    return sniffPhoto(new Uint8Array(await file.slice(0, 16).arrayBuffer()));
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * The campaign's photos, one per person: upload them (matched to people by
@@ -62,6 +80,8 @@ export function PhotoSet({
   const [uploading, setUploading] = React.useState<{ name: string; done: number } | null>(null);
   const [working, setWorking] = React.useState<string | null>(null);
   const [showAll, setShowAll] = React.useState(false);
+  /** Files from the last upload that did not join the set, and why. */
+  const [problems, setProblems] = React.useState<string[]>([]);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const abort = React.useRef<AbortController | null>(null);
 
@@ -83,23 +103,35 @@ export function PhotoSet({
     const controller = new AbortController();
     abort.current = controller;
     onBusy('the photo upload');
+    setProblems([]);
     const outcomes: PhotoUploadOutcome[] = [];
+    const failures: string[] = [];
+    const refuse = (message: string) => {
+      failures.push(message);
+      toast.error(message);
+    };
     for (const file of Array.from(files)) {
       if (controller.signal.aborted) break;
       if (!isPhotoName(file.name)) {
-        toast.error(`${file.name} is not a photo. Use JPG, PNG, GIF, WebP or HEIC files.`);
+        refuse(`${file.name} is not a photo. Use JPG, PNG, GIF, WebP or HEIC files.`);
         continue;
       }
       if (file.size > MAX_PHOTO_BYTES) {
-        toast.error(`${file.name} is over ${formatBytes(MAX_PHOTO_BYTES)}.`);
+        refuse(`${file.name} is over ${formatBytes(MAX_PHOTO_BYTES)}.`);
         continue;
       }
       if (sharedBytes + file.size > MAX_ATTACHMENT_BYTES) {
-        toast.error(
+        refuse(
           `With the shared attachments, ${file.name} would take an email over ${formatBytes(MAX_ATTACHMENT_BYTES)}.`,
         );
         continue;
       }
+      const kind = await photoKindOf(file);
+      if (kind === null) {
+        refuse(`${file.name} is not a JPG, PNG, GIF, WebP or HEIC image inside.`);
+        continue;
+      }
+      const type = kind ? PHOTO_MIME[kind] : file.type || 'application/octet-stream';
       const uploadId = crypto.randomUUID();
       const count = Math.max(1, Math.ceil(file.size / UPLOAD_CHUNK_BYTES));
       let failed: string | null = null;
@@ -119,7 +151,7 @@ export function PhotoSet({
             'x-chunk-index': String(index),
             'x-chunk-count': String(count),
             'x-file-name': encodeURIComponent(file.name),
-            'x-file-type': file.type || 'application/octet-stream',
+            'x-file-type': type,
             'x-file-size': String(file.size),
           },
           body: file.slice(index * UPLOAD_CHUNK_BYTES, (index + 1) * UPLOAD_CHUNK_BYTES),
@@ -131,11 +163,12 @@ export function PhotoSet({
           if (r.data.outcome) outcomes.push(r.data.outcome);
         }
       }
-      if (failed) toast.error(failed);
+      if (failed) refuse(failed);
     }
     if (controller.signal.aborted) return;
     abort.current = null;
     setUploading(null);
+    setProblems(failures);
     onBusy(null);
     if (inputRef.current) inputRef.current.value = '';
     if (outcomes.length) {
@@ -327,6 +360,15 @@ export function PhotoSet({
               </Button>
             ) : null}
           </div>
+          <UploadProblems
+            title={
+              problems.length === 1
+                ? 'A photo was not added'
+                : `${problems.length} photos were not added`
+            }
+            problems={problems}
+            onDismiss={() => setProblems([])}
+          />
         </section>
       </CardContent>
     </Card>
