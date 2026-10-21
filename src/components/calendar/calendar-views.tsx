@@ -387,7 +387,8 @@ export function CalendarViews(props: CalendarViewsProps) {
     openCreate(newDraft(start, new Date(start.getTime() + 3_600_000), timeZone), 'full');
   };
 
-  async function saveNew(draft: EventDraft, calendarId: string) {
+  /** `heading` is the editor's own (Duplicate event), kept if it has to reopen. */
+  async function saveNew(draft: EventDraft, calendarId: string, heading?: string) {
     const prompt = guestPrompt('create', [], draft.guests ?? []);
     let notify: GuestChoice = 'dont_send';
     if (prompt) {
@@ -406,7 +407,8 @@ export function CalendarViews(props: CalendarViewsProps) {
     if (!res.ok) {
       putEvent(tempKey, null);
       toast.error(res.message);
-      setEditor({ mode: 'full', event: null, draft, calendarId });
+      // Reopened as it was: a failed Duplicate is still "Duplicate event".
+      setEditor({ mode: 'full', event: null, draft, calendarId, ...(heading ? { heading } : {}) });
       return;
     }
     putEvent(tempKey, res.value.event);
@@ -1010,7 +1012,7 @@ export function CalendarViews(props: CalendarViewsProps) {
         onSave={(draft, calendarId) => {
           const event = editor?.event ?? null;
           if (event) void saveEdit(event, draft, calendarId);
-          else void saveNew(draft, calendarId);
+          else void saveNew(draft, calendarId, editor?.heading);
         }}
         onMoreOptions={(draft, calendarId) =>
           setEditor({ mode: 'full', event: null, draft, calendarId })

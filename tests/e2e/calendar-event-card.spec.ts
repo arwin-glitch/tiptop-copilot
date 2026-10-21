@@ -276,6 +276,41 @@ test('Duplicate opens the editor prefilled and saves a new event; with guests it
   expect(writes.filter((w) => w.method === 'POST')).toHaveLength(1);
 });
 
+test('a Duplicate that fails to save reopens as "Duplicate event", with what was typed', async ({
+  page,
+}) => {
+  const day = dayFromToday(6);
+  const title = `Dup fail ${Date.now()}`;
+  await newEvent(page, day, 12, title);
+  // The save is refused before it reaches even the demo calendar.
+  await page.route('**/api/calendar/events', (route) =>
+    route.request().method() === 'POST'
+      ? route.fulfill({
+          status: 502,
+          json: { ok: false, error: { message: 'Google Calendar did not answer. Try again.' } },
+        })
+      : route.continue(),
+  );
+  await chip(page, title).click();
+  await page
+    .getByRole('dialog', { name: title })
+    .getByRole('button', { name: 'Duplicate' })
+    .click();
+  const editor = page.getByRole('dialog', { name: 'Duplicate event' });
+  await editor.getByLabel('Title').fill(`${title} copy`);
+  await editor.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Google Calendar did not answer. Try again.')).toBeVisible();
+  // Back as it was: still the duplicate, not a new event.
+  await expect(editor).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'New event' })).toHaveCount(0);
+  await expect(editor.getByLabel('Title')).toHaveValue(`${title} copy`);
+  await editor.getByRole('button', { name: 'Cancel' }).click();
+  await expect(chip(page, `${title} copy`)).toHaveCount(0);
+  await page.unroute('**/api/calendar/events');
+  await deleteEvent(page, title);
+  await expect(chip(page, title)).toHaveCount(0);
+});
+
 test('Going? asks whether to tell the organizer, and Cancel writes nothing', async ({ page }) => {
   await page.goto(`/calendar?view=day&date=${dayFromToday(1)}`);
   await chip(page, 'Ledgerly board meeting').click();
