@@ -15,7 +15,8 @@ import { relativeTime } from '@/lib/util/time';
  *
  * Connected, it says when Affinity was last copied in and how much, with a
  * "Sync now" for the owner. Not connected, it says the three steps that
- * connect it. Nothing else: Nick reads one line, not a paragraph.
+ * connect it. Stopped (Affinity refused the key), it says so once, calmly,
+ * and what restarts it. Nothing else: one line to read, not a paragraph.
  *
  * "Sync now" runs the sync one bounded step at a time (the server action),
  * calling again until the run is done and showing how far it has got, the
@@ -41,6 +42,8 @@ export interface AffinitySyncPanelStatus {
     skipped?: number;
   } | null;
   lastError: { at: string; message: string } | null;
+  /** Affinity refused the key and the sync stopped cleanly; null while it runs. */
+  stopped?: { at: string; reason: 'unauthorized' | 'forbidden' } | null;
 }
 
 interface Progress {
@@ -92,6 +95,11 @@ export function AffinitySyncPanel({
           return;
         }
         const data = result.data;
+        if (data.stopped) {
+          setError('Affinity still refuses the API key, so the sync stays stopped.');
+          router.refresh();
+          return;
+        }
         if (data.done) {
           const c = data.counts;
           const changed =
@@ -120,6 +128,7 @@ export function AffinitySyncPanel({
   }
 
   const last = status.lastRun;
+  const stopped = status.configured && !status.demo ? (status.stopped ?? null) : null;
   const shown: Progress | null =
     progress ??
     (status.running && status.phase
@@ -136,6 +145,8 @@ export function AffinitySyncPanel({
             </h3>
             {status.demo ? (
               <Badge tone="outline">Demo</Badge>
+            ) : stopped ? (
+              <Badge tone="warn">Stopped</Badge>
             ) : status.configured ? (
               <Badge tone="ok">Connected</Badge>
             ) : (
@@ -223,6 +234,20 @@ export function AffinitySyncPanel({
           <p className="mt-1 text-xs text-[var(--fg-subtle)]">
             Only the workspace owner can start a sync by hand.
           </p>
+        ) : null}
+
+        {stopped && !running && !finished ? (
+          <Notice className="mt-3">
+            <span suppressHydrationWarning>
+              Stopped {relativeTime(stopped.at)}:{' '}
+              {stopped.reason === 'forbidden'
+                ? 'the Affinity key may no longer read the workspace.'
+                : 'Affinity refused the API key.'}
+            </span>{' '}
+            Nothing more is copied, and the daily job no longer fails. A new key in{' '}
+            <code className="rounded bg-[var(--bg-sunken)] px-1 text-[13px]">AFFINITY_API_KEY</code>{' '}
+            plus Sync now carries on where it stopped.
+          </Notice>
         ) : null}
 
         {error ? (

@@ -84,6 +84,14 @@ import { err, ok, type AppError, type Result } from '@/lib/util/result';
  * destination overrides in `crm-destinations.ts`. Every step writes two rows:
  * one taking the lease (so a "Sync now" and the daily job never work the same
  * page at once) and one with the progress.
+ *
+ * How it stops: when Affinity refuses the key (it was revoked, or the
+ * subscription ended), the sync records that it stopped and answers
+ * `done: true, stopped: true` — a finished call, not a failure, so the daily
+ * job ends green instead of failing every morning. While stopped, each call
+ * asks Affinity once whether it still refuses the key and writes nothing if
+ * it does; a replaced key resumes the run where it stopped. Deleting
+ * AFFINITY_API_KEY stops it too (the cron route then does nothing at all).
  */
 
 export const AFFINITY_SYNC_ACTION = 'crm.affinity_sync' as const;
@@ -175,6 +183,9 @@ export interface AffinitySyncLastRun {
   counts: AffinitySyncCounts;
 }
 
+/** Why the sync stopped: Affinity refused the key, or may no longer read the workspace. */
+export type AffinitySyncStopCode = 'provider_unauthorized' | 'forbidden';
+
 export interface AffinitySyncState {
   version: typeof STATE_VERSION;
   run: AffinitySyncRun | null;
@@ -182,6 +193,12 @@ export interface AffinitySyncState {
   notesWatermark: string | null;
   leaseUntil: string | null;
   lastError: { at: string; code: string; message: string } | null;
+  /**
+   * Set when Affinity refused the key: the sync stopped cleanly and does
+   * nothing until a call finds the key accepted again. Absent from states
+   * saved before it existed, which read as not stopped.
+   */
+  stopped: { at: string; code: AffinitySyncStopCode } | null;
 }
 
 /** What one step did, and how far the run has got. Counts only, never data. */
@@ -191,6 +208,11 @@ export interface AffinitySyncStep {
   busy: boolean;
   /** Affinity's rate limit ended the step early; call again. */
   rateLimited: boolean;
+  /**
+   * Affinity refused the key, so the sync stopped cleanly (`done` is true):
+   * calling again does nothing until the key is replaced.
+   */
+  stopped: boolean;
   phase: 'lists' | 'notes' | 'done';
   listsDone: number;
   listsTotal: number;
@@ -224,6 +246,7 @@ function emptyState(): AffinitySyncState {
     notesWatermark: null,
     leaseUntil: null,
     lastError: null,
+    stopped: null,
   };
 }
 
@@ -310,6 +333,14 @@ export function parseAffinitySyncState(raw: unknown): AffinitySyncState | null {
           at: str(e.at) as string,
           code: str(e.code) ?? 'internal',
           message: str(e.message) as string,
+        }
+      : null;
+  const stop = raw.stopped;
+  state.stopped =
+    isObject(stop) && str(stop.at)
+      ? {
+          at: str(stop.at) as string,
+          code: stop.code === 'forbidden' ? 'forbidden' : 'provider_unauthorized',
         }
       : null;
   return state;
@@ -457,6 +488,7 @@ function stepOf(state: AffinitySyncState, pages: number, extra: Partial<Affinity
         done: false,
         busy: false,
         rateLimited: false,
+        stopped: false,
         phase: run.phase,
         listsDone: Math.min(run.listIndex, run.lists.length),
         listsTotal: run.lists.length,
@@ -467,6 +499,7 @@ function stepOf(state: AffinitySyncState, pages: number, extra: Partial<Affinity
         done: true,
         busy: false,
         rateLimited: false,
+        stopped: false,
         phase: 'done',
         listsDone: state.last?.counts.listsDone ?? 0,
         listsTotal: state.last?.counts.listsDone ?? 0,
@@ -566,14 +599,54 @@ export async function runAffinitySyncStep(
     }
     return { ok: false, error };
   };
+  /**
+   * Affinity refused the key: stop cleanly instead of failing. The run keeps
+   * its place, so a replaced key carries on from here; the step answers as
+   * finished, so the daily job ends without an error, every morning, until
+   * someone replaces or deletes the key.
+   */
+  const stop = async (error: AppError): Promise<Result<AffinitySyncStep>> => {
+    countRequests();
+    state.leaseUntil = null;
+    state.lastError = null;
+    state.stopped = {
+      at: iso(now()),
+      code: error.code === 'forbidden' ? 'forbidden' : 'provider_unauthorized',
+    };
+    log.warn('Affinity refused the API key; the sync stopped until it is replaced', {
+      code: error.code,
+    });
+    try {
+      await save(state);
+    } catch {
+      // Not saved: the next call meets the refusal again and stops again.
+    }
+    return ok(stepOf(state, 0, { done: true, stopped: true }));
+  };
 
   try {
+    // Stopped by a refused key: one light request asks whether Affinity
+    // still refuses it, and while it does nothing is written at all, so a
+    // stopped sync adds no rows and no errors however often it is called.
+    if (state.stopped) {
+      const probe = await http.get<AffinityApiPage<AffinityApiList>>('/v2/lists', { limit: 1 });
+      if (!probe.ok && isKeyRefusal(probe.error)) {
+        return ok(stepOf(state, 0, { done: true, stopped: true }));
+      }
+      if (!probe.ok && probe.error.code === 'rate_limited') {
+        return ok(stepOf(state, 0, { rateLimited: true }));
+      }
+      if (!probe.ok) return await failed(probe.error);
+      state.stopped = null;
+    }
+
     if (!state.run) {
       const lists = await fetchAll<AffinityApiList>(http, '/v2/lists');
       if (!lists.ok && lists.error.code === 'rate_limited') {
         // Nothing has started yet; the next call starts the run.
         return ok(stepOf(state, 0, { done: false, phase: 'lists', rateLimited: true }));
       }
+      if (!lists.ok && isKeyRefusal(lists.error)) return await stop(lists.error);
       if (!lists.ok) return await failed(lists.error);
       state.run = {
         id: newId(),
@@ -610,6 +683,7 @@ export async function runAffinitySyncStep(
           rateLimited = true;
           break;
         }
+        if (handled.error.code === 'provider_unauthorized') return await stop(handled.error);
         return await failed(handled.error);
       }
       pages += handled.value.pages;
@@ -652,6 +726,16 @@ function finish(state: AffinitySyncState, run: AffinitySyncRun, at: number) {
     state.notesWatermark = iso(Date.parse(run.startedAt) - NOTES_OVERLAP_MS);
   }
   state.run = null;
+}
+
+/**
+ * Whether Affinity refused the key itself: a 401 anywhere, or a 403 on the
+ * list of lists, which any working key may read, so a 403 there means the key
+ * may no longer read the workspace at all. (A 403 on one list is that list
+ * made private, and only that list is skipped.)
+ */
+function isKeyRefusal(error: AppError): boolean {
+  return error.code === 'provider_unauthorized' || error.code === 'forbidden';
 }
 
 /* ------------------------------------------------------------------ lists */
@@ -705,6 +789,8 @@ const FETCH_ATTEMPTS = 3;
 type FetchRecovery =
   /** Report the error; the next call tries the same page again. */
   | 'retry'
+  /** Affinity refused the key: report it, and the step stops the sync (`stop`). */
+  | 'stop'
   /** The run's place was moved (see `recoverFetch`); carry on from there. */
   | 'moved'
   /** Nothing left to fall back to: give the notes up for this run. */
@@ -712,7 +798,8 @@ type FetchRecovery =
 
 /**
  * A page Affinity would not send. A rate limit or a refused key is never
- * worked around: the first waits, the second needs a person. A refusal (a
+ * worked around: the first waits, the second needs a person, so the sync
+ * stops cleanly and stays stopped until the key is replaced. A refusal (a
  * 4xx: an expired or invalid cursor, a filter Affinity no longer takes) is the
  * same every time, so it is acted on at once; an outage (a 5xx, the network)
  * only on the third call running at the same page, so a passing blip costs
@@ -725,7 +812,8 @@ type FetchRecovery =
  * that is always refused cannot loop, and no run can be stuck on one.
  */
 function recoverFetch(run: AffinitySyncRun, page: string, error: AppError): FetchRecovery {
-  if (error.code === 'rate_limited' || error.code === 'provider_unauthorized') return 'retry';
+  if (error.code === 'provider_unauthorized') return 'stop';
+  if (error.code === 'rate_limited') return 'retry';
   if (error.retryable) {
     run.fetchFailures = run.fetchFailedAt === page ? run.fetchFailures + 1 : 1;
     run.fetchFailedAt = page;
@@ -769,7 +857,7 @@ function pageArrived(run: AffinitySyncRun) {
 /** A failed fetch as a step's result: moved on, or the error to report. */
 function afterFetchFailure(run: AffinitySyncRun, page: string, error: AppError): Result<Progress> {
   const recovery = recoverFetch(run, page, error);
-  if (recovery === 'retry') return { ok: false, error };
+  if (recovery === 'retry' || recovery === 'stop') return { ok: false, error };
   return ok(recovery === 'give-up' ? { pages: 0, finished: true } : NOTHING);
 }
 
@@ -1246,6 +1334,7 @@ export function publicAffinitySyncStep(step: AffinitySyncStep) {
     done: step.done,
     busy: step.busy,
     rateLimited: step.rateLimited,
+    stopped: step.stopped,
     phase: step.phase,
     listsDone: step.listsDone,
     listsTotal: step.listsTotal,
@@ -1292,6 +1381,11 @@ export interface AffinitySyncStatus {
     skipped: number;
   } | null;
   lastError: { at: string; message: string } | null;
+  /**
+   * Affinity refused the key and the sync stopped cleanly; null while it
+   * runs. `reason` says which refusal: a 401, or a 403 on the list of lists.
+   */
+  stopped: { at: string; reason: 'unauthorized' | 'forbidden' } | null;
 }
 
 function changedIn(c: AffinitySyncCounts): number {
@@ -1337,6 +1431,7 @@ export async function getAffinitySyncStatus(
         skipped: 0,
       },
       lastError: null,
+      stopped: null,
     };
   }
   const state = await readAffinitySyncState(store, organizationId);
@@ -1363,6 +1458,12 @@ export async function getAffinitySyncStatus(
       : null,
     lastError: state?.lastError
       ? { at: state.lastError.at, message: state.lastError.message }
+      : null,
+    stopped: state?.stopped
+      ? {
+          at: state.stopped.at,
+          reason: state.stopped.code === 'forbidden' ? 'forbidden' : 'unauthorized',
+        }
       : null,
   };
 }
