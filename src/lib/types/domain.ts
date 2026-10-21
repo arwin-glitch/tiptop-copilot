@@ -816,6 +816,12 @@ export type CampaignPauseReason = 'manual' | 'left' | 'capped' | 'failures' | 'r
 /** Whose signature goes under the email; both send from the connected mailbox. */
 export type CampaignFromIdentity = 'nick' | 'arwin';
 
+/**
+ * Where a campaign's Bcc goes: on every email, or on the first email it
+ * actually sends, once (a sample copy for the records).
+ */
+export type CampaignBccMode = 'every' | 'first';
+
 /** A file sent with every email of a campaign, kept in the private storage bucket. */
 export interface CampaignAttachment {
   id: string;
@@ -868,6 +874,41 @@ export interface Campaign {
   updated_at: IsoDateTime;
   /** When the last recipient was sent to. */
   sent_at: IsoDateTime | null;
+  // Photos and copies (20261021001100_campaign_photos_cc.sql). Absent on a row
+  // read before that file was applied: then they stay hidden, and the
+  // campaign sends exactly as it did without them (services/campaigns.ts,
+  // extrasAvailable). Every reader treats absent as empty.
+  /** Addresses copied (Cc) on every email. Lowercased, at most ten. */
+  cc?: string[];
+  /** Addresses blind-copied (Bcc), on every email or the first only (bcc_mode). */
+  bcc?: string[];
+  bcc_mode?: CampaignBccMode;
+  /**
+   * When the one "first email only" Bcc copy was claimed for an email: set
+   * just before it goes, cleared only if Gmail refused it, never set twice.
+   */
+  bcc_sample_at?: IsoDateTime | null;
+}
+
+/**
+ * A photo a campaign can attach to one recipient's email (or to several,
+ * picked by hand), kept in the private storage bucket in pieces like an
+ * attachment.
+ */
+export interface CampaignPhoto {
+  /** The upload id the page chose; its pieces share it. */
+  id: Uuid;
+  organization_id: Uuid;
+  campaign_id: Uuid;
+  /** The cleaned file name: the attachment's name, and what the match by name reads. */
+  name: string;
+  /** MIME type, read from the file's own first bytes. */
+  type: string;
+  /** Bytes. */
+  size: number;
+  /** Object paths in the storage bucket, in order. */
+  parts: string[];
+  created_at: IsoDateTime;
 }
 
 /**
@@ -910,6 +951,18 @@ export interface CampaignRecipient {
   unsubscribed_at: IsoDateTime | null;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
+  // Photos and copies (20261021001100_campaign_photos_cc.sql); absent before
+  // that file is applied, and read as none.
+  /**
+   * The recipient's photo, a CampaignPhoto id. Not a foreign key: one that
+   * no longer exists reads as "photo missing" (blocked at review, failed at
+   * send), never as no photo.
+   */
+  photo_id?: Uuid | null;
+  /** Extra addresses copied on this recipient's email only. */
+  cc?: string[];
+  /** CC and BCC addresses this email also went to: each counts toward the 24-hour cap. */
+  copy_count?: number;
 }
 
 /** `resubscribe` undoes an earlier unsubscribe for that address: the latest of the two wins. */

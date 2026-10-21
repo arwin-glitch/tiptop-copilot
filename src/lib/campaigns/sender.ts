@@ -65,6 +65,9 @@ class GmailCampaignSender implements CampaignSender {
       text: email.text,
       attachments: email.attachments,
       listUnsubscribe: email.listUnsubscribe,
+      // Undefined unless the campaign copies someone: then no Cc/Bcc header.
+      cc: email.cc,
+      bcc: email.bcc,
     });
   }
 }

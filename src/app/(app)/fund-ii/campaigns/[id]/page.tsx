@@ -3,15 +3,19 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
+import { cleanCopyList } from '@/lib/campaigns/copies';
 import { PHASE_LABEL, campaignPhase } from '@/lib/campaigns/status';
 import { statusFieldOf } from '@/lib/crm/fields';
 import { getStore } from '@/lib/runtime';
 import {
   CAMPAIGNS_MIGRATION_FILE,
   checkReplies,
+  copySettingsOf,
   dailyCapNow,
+  extrasAvailable,
   getCampaign,
   isCampaignsNotSetUp,
+  listCampaignPhotos,
   recipientState,
 } from '@/lib/services/campaigns';
 import { isCrmNotSetUp, listCrmLists } from '@/lib/services/crm';
@@ -103,6 +107,14 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
       : listsResult.ok
         ? null
         : 'Lists could not be read just now. Paste addresses, or reload.';
+    // Photos and copies only once their migration is applied (and readable):
+    // otherwise the composer shows exactly what it showed before them.
+    const photosResult = extrasAvailable(store, campaign)
+      ? await listCampaignPhotos(store, auth.organizationId, campaign.id)
+      : null;
+    const photos = photosResult?.ok ? photosResult.value : null;
+    const photoNames = new Map((photos ?? []).map((p) => [p.id, p.name] as const));
+    const copies = copySettingsOf(campaign);
     return (
       <PageShell>
         {back}
@@ -128,10 +140,26 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
             email: r.email,
             name: r.name,
             merge: r.merge,
+            ...(photos
+              ? {
+                  photoId: r.photo_id ?? null,
+                  photoName: r.photo_id ? (photoNames.get(r.photo_id) ?? null) : null,
+                  cc: cleanCopyList(r.cc),
+                }
+              : {}),
           }))}
           lists={lists}
           listsNote={listsNote}
           me={auth.profile.email}
+          extras={
+            photos
+              ? {
+                  photos,
+                  copies: { cc: copies.cc, bcc: copies.bcc, bccMode: copies.bccMode },
+                  sharedBytes: campaign.attachments.reduce((sum, a) => sum + a.size, 0),
+                }
+              : null
+          }
         />
       </PageShell>
     );

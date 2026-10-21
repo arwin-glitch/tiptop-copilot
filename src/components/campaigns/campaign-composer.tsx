@@ -34,8 +34,11 @@ import type {
   CrmEntityType,
 } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
+import { WouldCopyNote } from './campaign-copies';
 import { CampaignProgress } from './campaign-progress';
 import { EmailBody } from './email-preview';
+import { RecipientExtras, RecipientsExtrasPanel, type ComposerExtras } from './recipient-extras';
+import { WhoGetsWhat } from './who-gets-what';
 
 export interface ListOption {
   id: string;
@@ -50,6 +53,10 @@ export interface ComposerRecipient {
   email: string;
   name: string | null;
   merge: CampaignMerge;
+  /** Their photo and own CC (photos and copies; absent while those are not set up). */
+  photoId?: string | null;
+  photoName?: string | null;
+  cc?: string[];
 }
 
 export interface ComposerCampaign {
@@ -149,12 +156,15 @@ export function CampaignComposer({
   lists,
   listsNote,
   me,
+  extras = null,
 }: {
   campaign: ComposerCampaign;
   recipients: ComposerRecipient[];
   lists: ListOption[];
   listsNote: string | null;
   me: string;
+  /** Photos and copies; null hides them (their migration is not applied). */
+  extras?: ComposerExtras | null;
 }) {
   const router = useRouter();
   const [step, setStep] = React.useState<Step>(recipients.length ? 'message' : 'recipients');
@@ -313,6 +323,7 @@ export function CampaignComposer({
           onDone={() => void go('message')}
           refresh={() => router.refresh()}
           onBusy={setBusy}
+          extras={extras}
         />
       ) : step === 'message' ? (
         <MessageStep
@@ -328,6 +339,7 @@ export function CampaignComposer({
           saveState={saveState}
           busy={busy}
           me={me}
+          extras={extras}
           onBusy={setBusy}
           onTrack={(v) => {
             setTrack(v);
@@ -380,6 +392,7 @@ function RecipientsStep({
   onDone,
   refresh,
   onBusy,
+  extras,
 }: {
   campaignId: string;
   recipients: ComposerRecipient[];
@@ -388,6 +401,7 @@ function RecipientsStep({
   onDone: () => void;
   refresh: () => void;
   onBusy: (what: string | null) => void;
+  extras: ComposerExtras | null;
 }) {
   const [listId, setListId] = React.useState(lists[0]?.id ?? '');
   const [statuses, setStatuses] = React.useState<string[]>([]);
@@ -574,7 +588,7 @@ function RecipientsStep({
               className="divide-y divide-[var(--border)] rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]"
             >
               {shown.map((r) => (
-                <li key={r.id} className="flex items-center gap-3 px-3 py-2">
+                <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{r.name ?? r.email}</p>
                     <p className="truncate text-xs text-[var(--fg-muted)]">
@@ -582,6 +596,16 @@ function RecipientsStep({
                       {r.merge.company ? `${r.name ? ' · ' : ''}${r.merge.company}` : null}
                     </p>
                   </div>
+                  {extras ? (
+                    <RecipientExtras
+                      campaignId={campaignId}
+                      recipient={r}
+                      photos={extras.photos}
+                      disabled={busy !== null}
+                      onChange={refresh}
+                      onBusy={onBusy}
+                    />
+                  ) : null}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -607,6 +631,16 @@ function RecipientsStep({
           </>
         )}
       </section>
+
+      {extras && recipients.length ? (
+        <RecipientsExtrasPanel
+          campaignId={campaignId}
+          extras={extras}
+          recipients={recipients}
+          onChange={refresh}
+          onBusy={onBusy}
+        />
+      ) : null}
 
       <div className="flex justify-end">
         <Button variant="primary" onClick={onDone} disabled={!recipients.length || busy !== null}>
@@ -639,6 +673,7 @@ function MessageStep({
   saveState,
   busy,
   me,
+  extras,
   onBusy,
   onTrack,
   onUnsubscribeLink,
@@ -663,6 +698,7 @@ function MessageStep({
   saveState: 'saved' | 'saving' | 'unsaved' | 'error';
   busy: string | null;
   me: string;
+  extras: ComposerExtras | null;
   onBusy: (what: string | null) => void;
   onTrack: (v: boolean) => void;
   onUnsubscribeLink: (v: boolean) => void;
@@ -704,7 +740,7 @@ function MessageStep({
   const sendTest = async () => {
     if (!(await flush())) return;
     setTesting(true);
-    const r = await call<{ to: string; demo: boolean }>(
+    const r = await call<{ to: string; demo: boolean; photo?: string | null }>(
       `/api/campaigns/${campaign.id}/test`,
       jsonInit('POST', { recipientId: sample?.id ?? null }),
     );
@@ -713,10 +749,11 @@ function MessageStep({
       toast.error(r.message);
       return;
     }
+    const photo = r.data.photo ? ` It carries ${r.data.photo}.` : '';
     toast.success(
       r.data.demo
-        ? `Demo: a test to ${r.data.to} was made, but nothing leaves the demo.`
-        : `Test sent to ${r.data.to}.`,
+        ? `Demo: a test to ${r.data.to} was made, but nothing leaves the demo.${photo}`
+        : `Test sent to ${r.data.to}.${photo}`,
     );
   };
 
@@ -925,6 +962,7 @@ function MessageStep({
             nothing).
           </span>
         </div>
+        {extras && sample ? <WouldCopyNote copies={extras.copies} recipient={sample} /> : null}
       </section>
 
       <div className="flex justify-between gap-2 lg:col-span-2">
@@ -1265,6 +1303,8 @@ function ReviewStep({
           </dl>
         </CardContent>
       </Card>
+
+      <WhoGetsWhat campaignId={campaignId} version={review.version} />
 
       {review.sample ? (
         <section aria-labelledby="sample-heading" className="space-y-2">

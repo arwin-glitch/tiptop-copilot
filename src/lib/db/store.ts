@@ -4,6 +4,7 @@ import type {
   CalendarEvent,
   Campaign,
   CampaignEvent,
+  CampaignPhoto,
   CampaignRecipient,
   CampaignSendLock,
   ChatMessage,
@@ -91,6 +92,7 @@ export interface TableMap {
   campaign_recipients: CampaignRecipient;
   campaign_events: CampaignEvent;
   campaign_send_locks: CampaignSendLock;
+  campaign_photos: CampaignPhoto;
   thesis_versions: ThesisVersion;
   daily_briefs: DailyBrief;
   routine_briefings: RoutineBriefing;

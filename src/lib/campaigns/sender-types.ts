@@ -12,6 +12,18 @@ export interface OutgoingCampaignEmail {
   attachments: { filename: string; mimeType: string; data: Buffer }[];
   /** The one-click unsubscribe URL for the List-Unsubscribe header, when there is one. */
   listUnsubscribe: string | null;
+  /**
+   * Addresses copied on this email (the campaign's CC and the recipient's
+   * own). Absent when nobody is: then the email has no Cc header at all.
+   * Never set on a test send.
+   */
+  cc?: string[];
+  /**
+   * Addresses blind-copied on this email. Absent when nobody is. Goes only
+   * into the message's own Bcc header (see buildCampaignMime), never into
+   * the body or anything a recipient sees. Never set on a test send.
+   */
+  bcc?: string[];
 }
 
 /**
