@@ -36,7 +36,9 @@ import { INTRODUCTION_ACTION } from './introductions';
  *
  * A person none of these knows keeps their name and no address; the compose
  * window says so. A side that is only a firm ("Northwind Capital") stays a
- * firm: Copilot never picks someone there.
+ * firm: Copilot never picks someone there. A side that names only founders
+ * of a portfolio company gets all its founders, so every co-founder is
+ * addressed.
  *
  * Never fails: a source that cannot be read (the CRM not set up yet, a
  * fault) is left out and logged, and the intro still gets its draft.
@@ -222,6 +224,7 @@ async function readKnowledge(
     ),
   ]);
   const portfolio = uniqueBy(companies, (c) => crmNameKey(c.name));
+  const contactsByName = uniqueBy(contacts, (c) => crmNameKey(c.name));
 
   const sideKeys = sides.flatMap((s) => [
     crmNameKey(s.who),
@@ -230,11 +233,15 @@ async function readKnowledge(
   ]);
   const firstPass = await recordsByName(store, organizationId, sideKeys);
 
-  // Founders of the portfolio companies a side names: saved contacts first,
-  // then the people the imported founder lists tie to the company.
+  // Founders of the portfolio companies a side names, or a saved contact of
+  // a side works at: saved contacts first, then the people the imported
+  // founder lists tie to the company.
   const named = new Map<string, PortfolioCompany>();
   for (const key of sideKeys) {
-    const company = portfolio.get(key);
+    const contact = contactsByName.get(key);
+    const company =
+      portfolio.get(key) ??
+      (contact ? companies.find((c) => c.id === contact.portfolio_company_id) : undefined);
     if (company) named.set(company.id, company);
   }
   const fromLists = await portfolioCrmPeople(
@@ -300,39 +307,37 @@ async function readKnowledge(
     people,
     companies: crmCompanies,
     portfolio,
-    contacts: uniqueBy(contacts, (c) => crmNameKey(c.name)),
+    contacts: contactsByName,
     founders,
     introEmails,
   };
 }
 
-function resolvePerson(
-  input: PersonInput,
-  org: string | null,
-  k: Knowledge,
-): { person: IntroPerson; companyName: string | null } {
+/** The portfolio company a saved contact of this name is at, or null. */
+function contactCompany(name: string, k: Knowledge): string | null {
+  const contact = k.contacts.get(crmNameKey(name));
+  if (!contact) return null;
+  return [...k.portfolio.values()].find((c) => c.id === contact.portfolio_company_id)?.name ?? null;
+}
+
+function resolvePerson(input: PersonInput, org: string | null, k: Knowledge): IntroPerson {
   const key = crmNameKey(input.name);
   const record = k.people.get(key);
   const contact = k.contacts.get(key);
   const fromIntro = org ? k.introEmails.get(`${crmNameKey(org)}|${key}`) : undefined;
-  const companyOfContact = contact
-    ? ([...k.portfolio.values()].find((c) => c.id === contact.portfolio_company_id)?.name ?? null)
-    : null;
+  const companyOfContact = contactCompany(input.name, k);
   // A founder of this side's company, not of some other one with the same name about.
   const sameCompany =
     !org || (companyOfContact !== null && crmNameKey(companyOfContact) === crmNameKey(org));
   return {
-    person: {
-      name: input.name.trim(),
-      email:
-        cleanEmail(input.email) ??
-        (record ? recordEmail(record) : null) ??
-        cleanEmail(contact?.email) ??
-        cleanEmail(fromIntro),
-      linkedin: toLinkedInUrl(input.linkedin) ?? (record ? linkedInOf(record) : null),
-      founder: Boolean(contact?.is_founder) && sameCompany,
-    },
-    companyName: companyOfContact,
+    name: input.name.trim(),
+    email:
+      cleanEmail(input.email) ??
+      (record ? recordEmail(record) : null) ??
+      cleanEmail(contact?.email) ??
+      cleanEmail(fromIntro),
+    linkedin: toLinkedInUrl(input.linkedin) ?? (record ? linkedInOf(record) : null),
+    founder: Boolean(contact?.is_founder) && sameCompany,
   };
 }
 
@@ -356,32 +361,36 @@ function resolveSide(input: SideInput, k: Knowledge): IntroSide {
     }
   }
 
-  const portfolioCompany = org ? k.portfolio.get(crmNameKey(org)) : undefined;
-  if (people.length === 0 && portfolioCompany) {
-    people = (k.founders.get(portfolioCompany.id) ?? []).map((p) => ({
-      name: p.name,
-      email: p.email,
-    }));
-  }
-
-  const founderNames = new Set(
-    portfolioCompany
-      ? (k.founders.get(portfolioCompany.id) ?? []).map((p) => crmNameKey(p.name))
-      : [],
-  );
-  const resolved = people.map((p) => resolvePerson(p, org, k));
-  if (!org) {
+  if (!org && people.length > 0) {
     // A person known only by name may be a saved portfolio contact: their company.
-    const companies = new Set(resolved.map((r) => r.companyName));
+    const companies = new Set(people.map((p) => contactCompany(p.name, k)));
     if (companies.size === 1 && !companies.has(null)) org = [...companies][0]!;
   }
+
+  const portfolioCompany = org ? k.portfolio.get(crmNameKey(org)) : undefined;
+  const companyFounders = portfolioCompany ? (k.founders.get(portfolioCompany.id) ?? []) : [];
+  const founderNames = new Set(companyFounders.map((p) => crmNameKey(p.name)));
+  if (people.length === 0 && portfolioCompany) {
+    people = companyFounders.map((p) => ({ name: p.name, email: p.email }));
+  } else if (people.length > 0 && people.every((p) => founderNames.has(crmNameKey(p.name)))) {
+    // Every co-founder is addressed: a row naming one founder of a portfolio
+    // company brings the others along. Anyone else named keeps it as written.
+    const named = new Set(people.map((p) => crmNameKey(p.name)));
+    people = [
+      ...people,
+      ...companyFounders
+        .filter((p) => !named.has(crmNameKey(p.name)))
+        .map((p) => ({ name: p.name, email: p.email })),
+    ];
+  }
+
   return {
     label: input.label,
     org,
-    people: resolved.map(({ person }) => ({
-      ...person,
-      founder: person.founder || founderNames.has(crmNameKey(person.name)),
-    })),
+    people: people.map((p) => {
+      const person = resolvePerson(p, org, k);
+      return { ...person, founder: person.founder || founderNames.has(crmNameKey(person.name)) };
+    }),
   };
 }
 

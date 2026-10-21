@@ -3,12 +3,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHarness, type Harness } from '../helpers/harness';
 import type { DataStore } from '@/lib/db/store';
 import { demoFollowUps } from '@/lib/demo/follow-ups-fixtures';
-import { demoCrmId } from '@/lib/demo/ids';
+import { DEMO_IDS, demoCrmId } from '@/lib/demo/ids';
 import { SIGN_OFF_NAME } from '@/lib/email/signatures';
 import type { IntroItem } from '@/lib/services/follow-ups';
 import { introDrafts, linkedInOf } from '@/lib/services/intro-drafts';
 import { introductionRows } from '@/lib/services/introductions';
-import type { CrmRecord } from '@/lib/types/domain';
+import type { CrmRecord, PortfolioContact } from '@/lib/types/domain';
 
 /**
  * "Write the intro" over the demo store's invented companies and people:
@@ -56,6 +56,19 @@ function personRecord(name: string, email: string, fields: CrmRecord['fields'] =
   };
 }
 
+function contact(name: string, email: string, is_founder: boolean): PortfolioContact {
+  return {
+    id: randomUUID(),
+    organization_id: org,
+    portfolio_company_id: DEMO_IDS.pcLedgerly,
+    name,
+    role: is_founder ? 'CTO' : 'VP Sales',
+    email,
+    is_founder,
+    created_at: new Date().toISOString(),
+  };
+}
+
 describe('intro drafts', () => {
   it('drafts the demo intro from Portfolio, the CRM and the tracker row', async () => {
     const intros = demoFollowUps(new Date()).intros!.intros;
@@ -97,6 +110,36 @@ describe('intro drafts', () => {
     expect(draft.hints).toContain('No email on file for Kit Morrow. Add it to To before sending.');
   });
 
+  it('addresses every co-founder when the row names only one of them', async () => {
+    await store.insert('portfolio_contacts', contact('Theo Park', 'theo@ledgerly.demo', true));
+    const drafts = await introDrafts(store, org, [
+      owed('Maya Chen (Ledgerly)', 'Hana Kuroda (Riverlight Ventures)'),
+      owed('Maya Chen', 'Kit Morrow'),
+    ]);
+    const draft = drafts['Maya Chen (Ledgerly) → Hana Kuroda (Riverlight Ventures)']!;
+    expect(draft.subject).toBe('Intro: Hana (Riverlight Ventures) <> Maya & Theo (Ledgerly)');
+    expect(draft.to).toBe(
+      'Hana Kuroda <hana@riverlight.example>, Maya Chen <maya@ledgerly.demo>, Theo Park <theo@ledgerly.demo>',
+    );
+    expect(draft.body.split('\n')[0]).toBe('Hi Hana, Maya & Theo,');
+    expect(draft.body).toContain('Hana - meet Maya Chen and Theo Park, co-founders at Ledgerly.');
+    // A founder named without the company: the company comes from Portfolio.
+    expect(drafts['Maya Chen → Kit Morrow']!.subject).toBe('Intro: Kit <> Maya & Theo (Ledgerly)');
+  });
+
+  it('keeps a row that names someone other than a founder as written', async () => {
+    await store.insertMany('portfolio_contacts', [
+      contact('Theo Park', 'theo@ledgerly.demo', true),
+      contact('Iris Quell', 'iris@ledgerly.demo', false),
+    ]);
+    const drafts = await introDrafts(store, org, [
+      owed('Iris Quell (Ledgerly)', 'Hana Kuroda (Riverlight Ventures)'),
+    ]);
+    const draft = drafts['Iris Quell (Ledgerly) → Hana Kuroda (Riverlight Ventures)']!;
+    expect(draft.subject).toBe('Intro: Hana (Riverlight Ventures) <> Iris (Ledgerly)');
+    expect(draft.body).toContain('Hana - meet Iris Quell at Ledgerly.');
+  });
+
   it('gives no address for a name two records share', async () => {
     await store.insertMany('crm_records', [
       personRecord('Rowan Vale', 'rowan@one.example'),
@@ -112,7 +155,7 @@ describe('intro drafts', () => {
         for_org: 'Pellucid',
         for_people: [
           { name: 'Ola Brightwater', email: 'ola@pellucid.demo' },
-          { name: 'Tamsin Reyes', email: null },
+          { name: 'Tamsin Marlowe', email: null },
         ],
       }),
     ]);
@@ -123,7 +166,7 @@ describe('intro drafts', () => {
     );
     expect(draft.body.split('\n')[0]).toBe('Hi Hana, Ola & Tamsin,');
     expect(draft.hints).toContain(
-      'No email on file for Tamsin Reyes. Add it to To before sending.',
+      'No email on file for Tamsin Marlowe. Add it to To before sending.',
     );
   });
 

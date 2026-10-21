@@ -146,9 +146,9 @@ describe('introBody', () => {
   it('calls two or more founders co-founders', () => {
     const team: IntroSide = {
       ...FOUNDERS,
-      people: [...FOUNDERS.people, person('Tamsin Reyes', { founder: true })],
+      people: [...FOUNDERS.people, person('Tamsin Marlowe', { founder: true })],
     };
-    expect(introBody(INVESTORS, team)).toContain('Tamsin Reyes, co-founders at Pellucid.');
+    expect(introBody(INVESTORS, team)).toContain('Tamsin Marlowe, co-founders at Pellucid.');
     expect(introBody(INVESTORS, team).split('\n')[0]).toBe('Hi Wren, Juno, Ola & Tamsin,');
   });
 
