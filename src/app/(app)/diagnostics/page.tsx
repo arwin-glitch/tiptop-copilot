@@ -106,9 +106,9 @@ async function FeedsTab() {
 
 /**
  * The calendar parity check: the day list's read and the new views' read of
- * the main calendar, compared day by day. It only reads; it is here, signed
- * in, so it can run on the real calendar before the new views become the
- * default.
+ * the main calendar, compared day by day. It only reads. It ran on the real
+ * calendar before the new views became the default (D-069) and stays, signed
+ * in, to check again whenever either reader changes.
  */
 async function ParityTab({ from, days }: { from: string | null; days: string | null }) {
   const auth = await requireAuth();
@@ -122,10 +122,11 @@ async function ParityTab({ from, days }: { from: string | null; days: string | n
           <div>
             <CardTitle as="h2">Calendar parity</CardTitle>
             <p className="mt-1 text-sm text-[var(--fg-muted)]">
-              The new calendar views stay behind their switch until they show the same events as the
-              day list. This reads both for the main calendar, day by day, and lists every event one
-              shows and the other does not, and every changed title, time or meeting/block verdict.
-              It only reads: nothing is changed and nobody is emailed.
+              The Day, Week and Month views are the Calendar tab&apos;s default, and the day list is
+              one switch away: both must show the same events. This reads both for the main
+              calendar, day by day, and lists every event one shows and the other does not, and
+              every changed title, time or meeting/block verdict. It only reads: nothing is changed
+              and nobody is emailed.
             </p>
           </div>
         </CardHeader>

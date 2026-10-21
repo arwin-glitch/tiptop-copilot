@@ -160,9 +160,9 @@ test.describe('guided tours', () => {
     await page.goto('/calendar?tour=calendar');
     await expectStep(page, /Calendar · 1 of 6/i, 'Your calendar, live');
     await next(page).click();
-    await expectStep(page, /2 of 6/, 'Pick a day');
+    await expectStep(page, /2 of 6/, 'Day, week or month');
     await page.reload();
-    await expectStep(page, /2 of 6/, 'Pick a day');
+    await expectStep(page, /2 of 6/, 'Day, week or month');
     await card(page).getByRole('button', { name: 'End tour' }).click();
     await expect(card(page)).toHaveCount(0);
   });

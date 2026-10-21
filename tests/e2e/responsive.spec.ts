@@ -82,8 +82,10 @@ const PAGES = [
   '/diagnostics',
   '/diagnostics?tab=feeds',
   // Rows whose email links offer Copilot and Gmail side by side (the
-  // calendar's day list among them), and the new calendar views by address.
+  // calendar's day list among them), and the calendar's views: the default
+  // and each one by address.
   '/calendar',
+  '/calendar?view=list',
   '/portfolio?tab=requests',
   '/portfolio?tab=numbers',
   '/network?tab=cold',

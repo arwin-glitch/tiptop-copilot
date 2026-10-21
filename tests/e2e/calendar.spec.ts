@@ -1,11 +1,14 @@
 import { expect, test } from '@playwright/test';
 
-/** The Calendar tab marks every entry as a meeting or a block, and says why. */
+/**
+ * The Calendar tab's day list (one switch, or ?view=list, away from the Day,
+ * Week and Month views) marks every entry as a meeting or a block, and says why.
+ */
 test('Calendar labels meetings and blocks with a reason', async ({ page }) => {
   await page.goto('/login');
   await page.getByRole('button', { name: 'Enter demo workspace' }).click();
   await page.waitForURL(/\/today/);
-  await page.goto('/calendar');
+  await page.goto('/calendar?view=list');
 
   await expect(page.getByRole('heading', { name: 'Calendar', level: 1 })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Day' }).getByRole('link')).toHaveCount(7);

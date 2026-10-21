@@ -10,10 +10,10 @@ import { savePrefs } from './calendar-api';
 export const PHONE_QUERY = '(max-width: 639px)';
 
 /**
- * The switch between the day list (the default) and the new Day, Week and
- * Month views, remembered per person. On the day list it opens the new views
+ * The "New calendar" switch: the Day, Week and Month views (the default) or
+ * the day list, remembered per person. On the day list it opens the new views
  * on the same day (on a phone, `phoneHref`: Day view); on the new views it
- * goes back to the day list.
+ * goes back to the day list, for anyone who prefers it.
  */
 export function PreviewSwitch({
   on,
@@ -39,7 +39,7 @@ export function PreviewSwitch({
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" data-tour="calendar-switch">
       <Switch
         id={id}
         checked={on}
@@ -48,11 +48,11 @@ export function PreviewSwitch({
         aria-describedby={`${id}-hint`}
       />
       <label htmlFor={id} className="text-sm font-medium whitespace-nowrap">
-        New calendar (preview)
+        New calendar
       </label>
       <span id={`${id}-hint`} className="sr-only">
         {on
-          ? 'On: day, week and month views. Turn off to go back to the day list.'
+          ? 'On: day, week and month views. Turn off for the day list.'
           : 'Off: the day list. Turn on for day, week and month views.'}
       </span>
     </div>

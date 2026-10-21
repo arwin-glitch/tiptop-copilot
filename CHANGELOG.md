@@ -10,25 +10,37 @@ throughout.
 
 ## [Unreleased]
 
-- **Calendar: Day, Week and Month, like Google Calendar (preview).** Behind
-  the **New calendar (preview)** switch on the Calendar tab; the day list
-  stays the default and nothing changes for anyone who doesn't switch it on.
-  The new views go to any date (back, ahead, Today, a date picker), show all
-  of Nick's calendars in Google's own names and colours with a toggle each,
-  and keep the Meeting/Block verdict (a hold stays a block, tagged Hold).
+- **Calendar: Day, Week and Month, like Google Calendar.** The Calendar tab
+  now opens on them: the view last used, else Week on a computer and Day on
+  a phone. The **New calendar** switch goes back to the day list for anyone
+  who prefers it, and the choice is remembered (whoever turned the preview
+  off before keeps the day list); `?view=list` and old `?day=` links still
+  open the day list. A busy day is laid out the way Google Calendar does it:
+  events that start together share the width side by side, and one that
+  starts later is drawn over the earlier one, shifted right and nearly full
+  width, with a thin outline, so long blocks (travel, a conference day,
+  holds) never squeeze a meeting into a sliver. No event is drawn narrower
+  than 36px on a computer; what does not fit folds into a "+N" that lists
+  it. Titles never break inside a word: they wrap over whole words where
+  there is room, and a narrow event shows the start of its title with an
+  ellipsis. The views go to any date (back, ahead, Today, a date picker),
+  show all of Nick's calendars in Google's own names and colours with a
+  toggle each, and keep the Meeting/Block verdict (a hold stays a block,
+  tagged Hold).
   A click on an event opens Google Calendar's event card beside it (a sheet
   from the bottom on a phone): Edit, Delete, Duplicate, Email guests (opens
   the compose window), its colour, Going? Yes / No / Maybe, Join with Google
   Meet, Copy Meet link, the location in Maps, and Open in Google Calendar for
   anything else. Drag to create, move or resize; the quick editor opens next
   to the slot dragged, and a drag across days makes a multi-day event in
-  Month and in Week's all-day row. Titles wrap in narrow columns. Changing
-  anything needs **Turn on calendar editing** (Google's `calendar.events`
-  only; without it the views are read-only). A colour change never emails
+  Month and in Week's all-day row. Changing anything needs **Turn on
+  calendar editing** (Google's `calendar.events` only; without it the views
+  are read-only). A colour change never emails
   anyone; Going? asks "Send your response to the organizer?" and changes
   with guests ask Send / Don't send every time. Diagnostics › Event parity
   checks, read-only, that the new views show the same events as the day
-  list (D-066, D-067).
+  list; it matched Nick's real calendar event for event before they became
+  the default (D-066, D-067, D-069).
 
 - **Every email link opens in Copilot or Gmail.** Wherever Copilot links to an
   email or thread, it now offers two places to read it: **Copilot**, which

@@ -74,9 +74,10 @@ import { PHONE_QUERY, PreviewSwitch } from './preview-switch';
 import { TimeGrid, type GridChange } from './time-grid';
 
 /**
- * The new Calendar views (behind the "New calendar (preview)" switch): Day,
- * Week and Month like Google Calendar, any date past or future, Today and
- * back and forward, a date picker, all in the address (?view=&date=). Nick's
+ * The Calendar tab's Day, Week and Month views, the default (the "New
+ * calendar" switch goes back to the day list): like Google Calendar, any
+ * date past or future, Today and back and forward, a date picker, all in the
+ * address (?view=&date=). Nick's
  * calendars down the side with Google's own names and colours, each one on or
  * off. Every event keeps Copilot's Meeting/Block verdict, and a click on it
  * opens Google Calendar's event card beside it (event-panel.tsx): Edit,

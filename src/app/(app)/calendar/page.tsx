@@ -42,7 +42,7 @@ export default async function CalendarPage({
     <PageShell>
       <PageHeader
         title="Calendar"
-        subtitle="Nick's calendar, live. Every entry says whether it is a meeting or a block, and why. Meetings ping his phone 5 minutes before; blocks never do."
+        subtitle="Nick's calendar, live, by day, week or month. Every event says whether it is a meeting or a block, and why. Meetings ping his phone 5 minutes before; blocks never do."
       />
       <Suspense
         key={`${view ?? ''}|${day ?? date ?? 'today'}`}
@@ -55,11 +55,12 @@ export default async function CalendarPage({
 }
 
 /**
- * Which calendar to show. The day list stays the default until the parity
- * check (Diagnostics › Event parity) shows the new views read the same events;
- * the new Day, Week and Month views open from the "New calendar (preview)"
- * switch, which is remembered per person, or from an address that names one
- * (?view=day|week|month). ?view=list, or an old ?day= link, is the day list.
+ * Which calendar to show. The Day, Week and Month views are the default
+ * (D-069, after the parity check matched Nick's real calendar): the person's
+ * saved view, Week to start with (a phone opens on Day, in the browser). The
+ * "New calendar" switch turned off, remembered per person, keeps the day
+ * list instead; an address that names a view (?view=day|week|month) opens it
+ * either way, and ?view=list, or an old ?day= link, is the day list.
  */
 async function CalendarBody({
   day,
@@ -76,7 +77,9 @@ async function CalendarBody({
     ? (view as CalendarViewKind)
     : null;
   const useViews = named !== null || (view !== 'list' && day === null && prefs.preview);
-  if (!useViews) return <CalendarContent day={day} previewView={prefs.view} />;
+  if (!useViews) {
+    return <CalendarContent day={day} previewView={prefs.view} viewsDefault={prefs.preview} />;
+  }
   return <NewCalendar view={named ?? prefs.view} date={date} shown={prefs.shown} />;
 }
 
@@ -140,9 +143,12 @@ function weekdayShort(dateKey: string) {
 async function CalendarContent({
   day,
   previewView,
+  viewsDefault,
 }: {
   day: string | null;
   previewView: CalendarViewKind;
+  /** The new views open at a plain /calendar, so the day list's own Today link names the list. */
+  viewsDefault: boolean;
 }) {
   const auth = await requireAuth();
   const tz = auth.profile.timezone;
@@ -163,7 +169,9 @@ async function CalendarContent({
           {days.map((d, i) => (
             <Link
               key={d}
-              href={i === 0 ? '/calendar' : `/calendar?day=${d}`}
+              href={
+                i > 0 ? `/calendar?day=${d}` : viewsDefault ? '/calendar?view=list' : '/calendar'
+              }
               aria-current={d === dateKey ? 'date' : undefined}
               className={cn(
                 'rounded-md border px-3 py-1.5 text-sm',
@@ -176,13 +184,11 @@ async function CalendarContent({
             </Link>
           ))}
         </nav>
-        <div data-tour="calendar-views">
-          <PreviewSwitch
-            on={false}
-            openHref={`/calendar?view=${previewView}&date=${dateKey}`}
-            phoneHref={`/calendar?view=day&date=${dateKey}`}
-          />
-        </div>
+        <PreviewSwitch
+          on={false}
+          openHref={`/calendar?view=${previewView}&date=${dateKey}`}
+          phoneHref={`/calendar?view=day&date=${dateKey}`}
+        />
       </div>
 
       {result.state === 'not_connected' ? (

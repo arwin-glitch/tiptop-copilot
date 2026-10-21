@@ -1880,7 +1880,8 @@ the real calendar or email anyone while it is built.
   (preview)" opens the new views (`?view=day|week|month&date=`) and is
   remembered per person, with the view and the calendar toggles, as a
   `calendar.prefs_set` audit row (newest wins, no migration). `?view=list`
-  or an old `?day=` link is the day list.
+  or an old `?day=` link is the day list. (Since D-069 the new views are the
+  default and the switch, now "New calendar", is the way back.)
 - **A parity check before it can be the default.** Diagnostics › Event parity
   reads each day exactly as the day list does (`readCalendarDayEvents`, split
   out of `readCalendarDay` unchanged and pinned by a test) and the same range
@@ -1996,3 +1997,66 @@ removing a Meet link, a guest's note with the answer, proposing a new time,
 removing an invitation from the calendar without answering, Duplicate of a
 whole series (the copy is one event), notifications per event, and the
 "modern" colour shades.
+
+### D-069 — Calendar: Google's overlap layout, and the new views as the default
+
+**Context.** The new Day, Week and Month views went live behind their switch,
+and a read-only parity check against Nick's real calendar matched 141 of 141
+events over 31 days. A look at Week on his real calendar showed the one real
+problem: on busy days several long blocks overlap (travel, conference days,
+holds), the layout split the day into strict side-by-side lanes of 15-25px,
+and titles wrapped one letter per line. Arwin wanted it "like Google
+Calendar", and the new views to be what the tab opens on.
+
+**Decision.**
+
+- **Overlaps as Google draws them** (`layoutOverlaps` in
+  `lib/calendar/grid.ts`, pure and tested). Events that overlap and start
+  less than 45 minutes apart (`SIDE_BY_SIDE_MINUTES`, about a title's
+  height), and any chained to them that way, form a row and share the width
+  side by side. A row that starts later than events already drawn beneath it
+  cascades: it is drawn on top of the topmost of them (the leftmost of
+  equals, so it stays wide), shifted right by a tenth of the column (6 to
+  40px), out to the column's right edge, with a 1px outline in the page's
+  colour. Later starts are drawn on top. So a conference day never squeezes
+  a meeting: the meeting sits over it, nearly full width.
+- **A hard minimum width.** No chip is drawn narrower than 36px on a
+  computer (`MIN_CHIP_PX`; half a column on a phone's seven narrow columns).
+  A cascade too deep moves back left instead; a row with more side-by-side
+  events than fit shows what fits and folds the rest into a "+N" in the last
+  slot, as tall as the time it covers, which lists them (each opens its own
+  card). One left over on its own is drawn in that slot rather than as "+1".
+- **No word is ever broken.** Titles are `word-break: normal` and
+  `overflow-wrap: normal` (no `break-words`/`anywhere`). Where a chip is wide
+  and tall enough, the title wraps over whole words, each word kept whole and
+  ended with an ellipsis if it alone is too long; a chip under 52px shows one
+  line, the start of its title and an ellipsis (no time, Hold tag or bell);
+  under 16px only its colour. Chip content now sits at the top, as in Google
+  (a button centred it). Everything else is kept: colours, the dashed edge of
+  a block, the Hold tag, the ping bell, click for the card, drag and resize,
+  keyboard focus (a focused chip rises above the stack).
+- **The new views are the default.** A plain `/calendar` opens them for
+  anyone who has not chosen: their saved view, else Week (a phone opens on
+  Day, in the browser, as the switch already did). The switch stays, as
+  "New calendar", for anyone who prefers the day list; `?view=list` and old
+  `?day=` links still open the day list, and an address naming a view opens
+  it either way. The Today page, the meeting pings and the classifier are
+  untouched. The parity tab stays, to check again whenever a reader changes.
+- **Earlier choices are kept.** Settings rows now carry `v: 2`, and their
+  `preview` is the person's own choice. Older rows always stored `preview`,
+  false unless the switch was on, so an older false is kept only when the
+  switch set it: the row before had it on, or nothing else changed (the
+  switch turned off on views opened by address). A false that came with a
+  calendar toggle was never a choice and reads as the new default. No
+  migration: the next save writes a `v: 2` row with the resolved value.
+- **A busy demo day** (twelve days out in the mock calendar: a flight, a
+  conference day and holds under short meetings, three at noon, a one-word
+  title too long for its chip) is what the layout is tested and
+  screenshotted on.
+
+**Known limits.**
+
+- Google's exact threshold and indent are not published; 45 minutes and a
+  tenth of the column are close to what it draws, not a copy of it.
+- The column width is measured in the browser; the server draws with a
+  typical width, so a very busy day can shift once as the page loads.

@@ -2,14 +2,14 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * The new Calendar views, behind the "New calendar (preview)" switch, over
- * the demo's in-memory mock calendar: nothing here can reach Google. The day
- * list stays the default; the switch opens Day, Week and Month like Google
- * Calendar; events are made by dragging, edited, deleted; and every change
- * that involves guests asks whether to email them.
+ * The Calendar tab's Day, Week and Month views (the default; the "New
+ * calendar" switch goes back to the day list), over the demo's in-memory mock
+ * calendar: nothing here can reach Google. Events are made by dragging,
+ * edited, deleted; and every change that involves guests asks whether to
+ * email them.
  *
- * The switch is remembered for the demo user, so the last test turns it off
- * again and the day list's own specs find the day list.
+ * The switch is remembered for the demo user, so the last test leaves it on
+ * (the default) for the specs that follow.
  */
 
 const SIGNED_IN = path.resolve('test-results', 'calendar-views-state.json');
@@ -56,15 +56,16 @@ async function dragOnColumn(page: Page, date: string, fromHour: number, toHour: 
   await page.mouse.up();
 }
 
-test('the day list stays the default, and the switch opens the new views and is remembered', async ({
+test('the switch on the day list opens the new views on the same day, and is remembered', async ({
   page,
 }) => {
-  await page.goto('/calendar');
+  await page.goto('/calendar?view=list');
   await expect(page.getByRole('navigation', { name: 'Day' }).getByRole('link')).toHaveCount(7);
-  await page.getByRole('switch', { name: 'New calendar (preview)' }).click();
+  await expect(page.getByRole('switch', { name: 'New calendar' })).not.toBeChecked();
+  await page.getByRole('switch', { name: 'New calendar' }).click();
   await page.waitForURL(/\/calendar\?view=week&date=\d{4}-\d{2}-\d{2}$/);
   await expect(grid(page, 'week')).toBeVisible();
-  await expect(page.getByRole('switch', { name: 'New calendar (preview)' })).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'New calendar' })).toBeChecked();
 
   // Google's calendars down the side: the main one first, Google's own names.
   const list = page.locator('[data-tour="calendar-list"]');
@@ -75,7 +76,7 @@ test('the day list stays the default, and the switch opens the new views and is 
 
   await page.screenshot({ path: 'test-results/calendar-views-week.png', fullPage: true });
 
-  // A plain /calendar now opens the new views: the switch is remembered.
+  // A plain /calendar opens the new views.
   await page.goto('/calendar');
   await expect(grid(page, 'week')).toBeVisible();
 });
@@ -421,26 +422,26 @@ test('the parity check compares the two readers and changes nothing', async ({ p
 
 test('the switch goes back to the day list, and that is remembered too', async ({ page }) => {
   await page.goto('/calendar?view=week');
-  await page.getByRole('switch', { name: 'New calendar (preview)' }).click();
+  await page.getByRole('switch', { name: 'New calendar' }).click();
   await page.waitForURL(/\/calendar$/);
   await expect(page.getByRole('navigation', { name: 'Day' }).getByRole('link')).toHaveCount(7);
   await page.goto('/calendar');
   await expect(page.getByRole('navigation', { name: 'Day' })).toBeVisible();
 });
 
-test('on a phone the switch opens the new views on Day, and turns off again', async ({ page }) => {
+test('on a phone the switch opens the new views on Day', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  // The day list, remembered from the test before.
   await page.goto('/calendar');
   await expect(page.getByRole('navigation', { name: 'Day' }).getByRole('link')).toHaveCount(7);
-  await page.getByRole('switch', { name: 'New calendar (preview)' }).click();
+  await page.getByRole('switch', { name: 'New calendar' }).click();
   // Day, like Google Calendar's app, not seven narrow columns of Week.
   await page.waitForURL(
     (url) => url.pathname === '/calendar' && url.search === `?view=day&date=${dayFromToday(0)}`,
   );
   await expect(grid(page, 'day')).toBeVisible();
   await expect(grid(page, 'week')).toHaveCount(0);
-  // Off again, so the day list's own specs find the day list.
-  await page.getByRole('switch', { name: 'New calendar (preview)' }).click();
-  await page.waitForURL(/\/calendar$/);
-  await expect(page.getByRole('navigation', { name: 'Day' }).getByRole('link')).toHaveCount(7);
+  // Left on, the default, for the specs that follow.
+  await page.goto('/calendar');
+  await expect(grid(page, 'day')).toBeVisible();
 });

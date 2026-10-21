@@ -12,8 +12,9 @@ import {
 import type { RangeEvent } from './range-types';
 
 /**
- * The parity check: before the new views can become the default, they must
- * show the same events as the day list for Nick's main calendar. For each day
+ * The parity check: the new views (the default since D-069, after this matched
+ * Nick's real calendar) must show the same events as the day list, one
+ * switch away, for Nick's main calendar. For each day
  * in a range this reads the day exactly as the day list does
  * (readCalendarDayEvents, the same call the page makes) and the same days
  * through the new range reader, and lists every difference: an event one
