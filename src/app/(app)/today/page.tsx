@@ -124,25 +124,25 @@ async function TodayContent({
   const dueTasks = [...data.overdueTasks, ...data.dueTodayTasks];
   const [routineBrief, routineDossier, followUps, glance, affinityExit, money, people] =
     await Promise.all([
-    getCurrentBrief(getStore(), auth.organizationId).catch(() => null),
-    getCurrentDossier(getStore(), auth.organizationId).catch(() => null),
-    // Same rule as the briefings: a Slack fault only hides the card.
-    readFollowUps(getStore(), auth.organizationId, { now }).catch(() => null),
-    // And a store fault only hides the glance cards.
-    readTodayGlance(getStore(), auth.organizationId, {
-      now,
-      timeZone: auth.profile.timezone,
-    }).catch(() => null),
-    // The Affinity exit reminder: a line in the last two weeks before the
-    // notice date, and nothing at all on a fault.
-    readAffinityExitTodayLine(getStore(), auth.organizationId, now, auth.profile.timezone).catch(
-      () => null,
-    ),
-    // The row menus' money marks and people. Neither throws: a fault only
-    // leaves the menus plainer.
-    readMoneyLegal(getStore(), auth.organizationId, dueTasks),
-    readTaskPeople(auth.organizationId),
-  ]);
+      getCurrentBrief(getStore(), auth.organizationId).catch(() => null),
+      getCurrentDossier(getStore(), auth.organizationId).catch(() => null),
+      // Same rule as the briefings: a Slack fault only hides the card.
+      readFollowUps(getStore(), auth.organizationId, { now }).catch(() => null),
+      // And a store fault only hides the glance cards.
+      readTodayGlance(getStore(), auth.organizationId, {
+        now,
+        timeZone: auth.profile.timezone,
+      }).catch(() => null),
+      // The Affinity exit reminder: a line in the last two weeks before the
+      // notice date, and nothing at all on a fault.
+      readAffinityExitTodayLine(getStore(), auth.organizationId, now, auth.profile.timezone).catch(
+        () => null,
+      ),
+      // The row menus' money marks and people. Neither throws: a fault only
+      // leaves the menus plainer.
+      readMoneyLegal(getStore(), auth.organizationId, dueTasks),
+      readTaskPeople(auth.organizationId),
+    ]);
   // Top priorities leads the page whenever it has a list. Today's list is the
   // to-do list, so Do now steps aside for it; with no list, or only an older
   // one, all three glance cards show and the page still has a live to-do list.
