@@ -59,9 +59,11 @@ describe('the allowed types mirror the migrations', () => {
       const type = BUCKET_HEIC_MIME_TYPES[i]!;
       const flat = statement.replace(/\s+/g, ' ');
       // Only the type list of the one bucket, and only when the type is not
-      // already there: re-running is harmless and nothing else changes.
+      // already there: re-running is harmless and nothing else changes. A
+      // null or empty list (Supabase allows every type for both) is left
+      // alone: appending to an empty list would make the bucket HEIC-only.
       expect(flat).toBe(
-        `update storage.buckets set allowed_mime_types = allowed_mime_types || array['${type}']::text[] where id = 'deal-attachments' and allowed_mime_types is not null and not ('${type}' = any (allowed_mime_types))`,
+        `update storage.buckets set allowed_mime_types = allowed_mime_types || array['${type}']::text[] where id = 'deal-attachments' and allowed_mime_types is not null and cardinality(allowed_mime_types) > 0 and not ('${type}' = any (allowed_mime_types))`,
       );
     });
   });
