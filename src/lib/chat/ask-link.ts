@@ -40,6 +40,10 @@ export function askRequestFromHref(href: string, base: string): AskRequest | nul
   }
   if (url.origin !== origin) return null;
   if (url.pathname !== '/ask' && url.pathname !== '/ask/') return null;
+  // Another section of the full page (`?tab=feedback`) is a page to open,
+  // not a question for the widget.
+  const tab = url.searchParams.get('tab');
+  if (tab !== null && tab !== 'conversations') return null;
 
   const request: AskRequest = {};
   const question = url.searchParams.get('q')?.trim();

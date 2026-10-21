@@ -195,7 +195,7 @@ describe('an answer to your own question', () => {
     expect(askAlerts(due.alerts)).toEqual([
       {
         keys: [`ask:${ANSWER_ID}`],
-        title: 'Arwin replied',
+        title: 'Arwin (AI) replied',
         body: PREVIEW,
         url: `/ask?thread=${THREAD}`,
         urgent: false,
@@ -231,7 +231,7 @@ describe('an answer to your own question', () => {
     const now = after(NOON_ISH, 3 * MIN);
     expect(askAlerts((await desktopAlertsFor(store, me, now, ASK)).alerts)).toEqual([]);
     expect(askAlerts((await desktopAlertsFor(store, theirs, now, ASK)).alerts)).toMatchObject([
-      { keys: [`ask:${ANSWER_ID}`], title: 'Arwin replied' },
+      { keys: [`ask:${ANSWER_ID}`], title: 'Arwin (AI) replied' },
     ]);
   });
 
@@ -277,7 +277,7 @@ describe('an answer to your own question', () => {
     expect(askAlerts(due.alerts)).toEqual([
       {
         keys: [`ask:${ANSWER_ID}`, `ask:${ANSWER_ID_2}`],
-        title: 'Arwin replied to 2 questions',
+        title: 'Arwin (AI) replied to 2 questions',
         body: 'No. The round closes next week.',
         url: `/ask?thread=${THREAD_2}`,
         urgent: false,
@@ -416,7 +416,7 @@ describe('an answer waiting in the Slack relay', () => {
     await asked(auth, { askedAt: after(now, -2 * MIN), answeredAt: null });
     const due = await desktopAlertsFor(store, me, now, ASK);
     expect(askAlerts(due.alerts)).toMatchObject([
-      { keys: [`ask:${ANSWER_ID}`], title: 'Arwin replied', body: PREVIEW },
+      { keys: [`ask:${ANSWER_ID}`], title: 'Arwin (AI) replied', body: PREVIEW },
     ]);
     expect(
       fetchMock.mock.calls.some(([url]) => String(url).includes('conversations.history')),

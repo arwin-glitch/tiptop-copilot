@@ -1,4 +1,5 @@
 import {
+  ASK_TABS,
   DEALS_TABS,
   FUND_II_TABS,
   KNOWLEDGE_TABS,
@@ -761,7 +762,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
     name: 'Ask Arwin',
     href: null,
     purpose: 'The green button on every page. Ask anything, get a short answer.',
-    subtabs: [],
+    subtabs: recordsSubtabs(ASK_TABS),
     steps: [
       {
         target: 'ask-launcher',
@@ -786,6 +787,12 @@ export const HELP_PAGES: readonly HelpPage[] = [
         target: 'ask-launcher',
         title: 'Gold dot means news',
         body: 'Close the chat anytime. When an answer lands, "Arwin replied" pops up here and a gold dot stays.',
+        placement: 'left',
+      },
+      {
+        target: 'ask-launcher',
+        title: 'Feedback on the app',
+        body: 'In the chat, tap Feedback to type or dictate what should change. The page goes with it.',
         placement: 'left',
       },
     ],

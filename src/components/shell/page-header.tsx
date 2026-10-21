@@ -10,6 +10,7 @@ export function PageShell({ className, ...props }: React.HTMLAttributes<HTMLDivE
 
 export function PageHeader({
   title,
+  titleTag,
   subtitle,
   actions,
   eyebrow,
@@ -17,6 +18,8 @@ export function PageHeader({
   className,
 }: {
   title: string;
+  /** A small tag after the title, inside the heading (Ask Arwin's "AI"). */
+  titleTag?: React.ReactNode;
   subtitle?: string;
   eyebrow?: string;
   actions?: React.ReactNode;
@@ -69,6 +72,7 @@ export function PageHeader({
         <div className="flex items-center gap-2.5">
           <h1 className="sm:text-display min-w-0 font-serif text-2xl leading-tight font-semibold">
             {title}
+            {titleTag}
           </h1>
           <PageTourButton />
         </div>

@@ -235,6 +235,14 @@ notes restart from page 1, then the notes are read in full, then skipped. The
 watermark only moves when the run saw every changed note, so a skipped notes
 page is read again by the next run. No column or migration is involved.
 
+In-app feedback is kept the same way (D-060): a note is a `feedback.note`
+row (`entity_type = 'feedback'`, `entity_id` its own id, `user_id` the
+sender, metadata `{text, path, title, by}`), marking it done or open again
+appends a `feedback.status` row (`entity_id` the note, metadata
+`{status: 'open' | 'done', by}`, the newest wins), and a person's choice of
+desktop alerts for new feedback is a `feedback.alerts` row (`entity_type =
+'user'`, `entity_id` their user id, metadata `{on}`, the newest wins).
+
 Today's "At a glance" cards keep each task's short label and card the same
 way, as `task.glance_set` rows (`entity_type = 'task'`, `entity_id` the task):
 metadata `{v: 1, by, source?, short? (≤ 40 characters, ≤ 6 words, one line),

@@ -212,15 +212,17 @@ test.describe('guided tours', () => {
   test('the Ask Arwin tour runs on the page that is open', async ({ page }) => {
     await page.goto('/help');
     await page.getByRole('link', { name: 'Show me Ask Arwin' }).click();
-    await expectStep(page, /Ask Arwin · 1 of 4/i, 'Ask Arwin anything');
+    await expectStep(page, /Ask Arwin · 1 of 5/i, 'Ask Arwin anything');
     await expect(page).toHaveURL(/\/help$/);
     // The launcher stays on screen for its own tour.
-    await expect(page.getByRole('button', { name: 'Ask Arwin', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Ask Arwin (AI)', exact: true })).toBeVisible();
     await next(page).click();
-    await expectStep(page, /2 of 4/, 'A quick hello');
+    await expectStep(page, /2 of 5/, 'A quick hello');
     // "Ask about today" is only on Today: skipped here.
     await next(page).click();
-    await expectStep(page, /4 of 4/, 'Gold dot means news');
+    await expectStep(page, /4 of 5/, 'Gold dot means news');
+    await next(page).click();
+    await expectStep(page, /5 of 5/, 'Feedback on the app');
     await next(page).click();
     await expect(card(page)).toHaveCount(0);
   });
@@ -232,12 +234,12 @@ test.describe('tours and the other overlays', () => {
   }) => {
     await page.goto('/help');
     await page.getByRole('link', { name: 'Show me Ask Arwin' }).click();
-    await expectStep(page, /Ask Arwin · 1 of 4/i, 'Ask Arwin anything');
+    await expectStep(page, /Ask Arwin · 1 of 5/i, 'Ask Arwin anything');
 
     // Doing what the step says: tap the green button.
-    await page.getByRole('button', { name: 'Ask Arwin', exact: true }).click();
-    // Exact: the tour card's own name, "Ask Arwin anything", contains it.
-    const chat = page.getByRole('dialog', { name: 'Ask Arwin', exact: true });
+    await page.getByRole('button', { name: 'Ask Arwin (AI)', exact: true }).click();
+    // Exact: the tour card's own name, "Ask Arwin anything", starts the same.
+    const chat = page.getByRole('dialog', { name: 'Ask Arwin (AI)', exact: true });
     await expect(chat).toBeVisible();
     // No card or scrim over the chat, which is usable as it is.
     await expect(card(page)).toHaveCount(0);
@@ -247,11 +249,11 @@ test.describe('tours and the other overlays', () => {
     // Esc is the chat's: it closes the chat, and the tour is back at its step.
     await page.keyboard.press('Escape');
     await expect(chat).toBeHidden();
-    await expectStep(page, /Ask Arwin · 1 of 4/i, 'Ask Arwin anything');
+    await expectStep(page, /Ask Arwin · 1 of 5/i, 'Ask Arwin anything');
     // Opening the chat dismissed the greeting, and "Ask about today" is only
     // on Today: both skipped.
     await next(page).click();
-    await expectStep(page, /4 of 4/, 'Gold dot means news');
+    await expectStep(page, /4 of 5/, 'Gold dot means news');
     await page.keyboard.press('Escape');
     await expect(card(page)).toHaveCount(0);
   });

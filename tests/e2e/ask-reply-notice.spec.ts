@@ -31,8 +31,9 @@ test.beforeAll(async ({ browser }, testInfo) => {
 
 test.use({ storageState: SIGNED_IN });
 
-const launcher = (page: Page) => page.getByRole('button', { name: /^Ask Arwin(, new answer)?$/ });
-const marked = (page: Page) => page.getByRole('button', { name: 'Ask Arwin, new answer' });
+const launcher = (page: Page) =>
+  page.getByRole('button', { name: /^Ask Arwin \(AI\)(, new answer)?$/ });
+const marked = (page: Page) => page.getByRole('button', { name: 'Ask Arwin (AI), new answer' });
 const panel = (page: Page) => page.getByRole('dialog', { name: 'Ask Arwin' });
 const notice = (page: Page) => page.locator('[data-ask-reply]');
 
@@ -152,7 +153,7 @@ test('clicking the pop-up opens the panel on that conversation', async ({ page }
 
   // Opened, the dot is gone.
   await dialog.getByRole('button', { name: 'Close' }).click();
-  await expect(page.getByRole('button', { name: 'Ask Arwin', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Ask Arwin (AI)', exact: true })).toBeVisible();
 });
 
 test('a hover holds it; the X dismisses it and leaves the dot', async ({ page }) => {
@@ -294,7 +295,7 @@ test('on the full Ask page, a conversation opened there clears the dot', async (
   // Read there, so the launcher elsewhere has nothing new to point at.
   await todayLink().click();
   await page.waitForURL(/\/today/);
-  await expect(page.getByRole('button', { name: 'Ask Arwin', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Ask Arwin (AI)', exact: true })).toBeVisible();
 
   // Back to the page; this time the pop-up is dismissed and the conversation
   // opened from the page's Recent list instead.
@@ -312,7 +313,7 @@ test('on the full Ask page, a conversation opened there clears the dot', async (
   await page.waitForURL((url) => url.searchParams.get('thread') === second);
   await todayLink().click();
   await page.waitForURL(/\/today/);
-  await expect(page.getByRole('button', { name: 'Ask Arwin', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Ask Arwin (AI)', exact: true })).toBeVisible();
 });
 
 test('with reduced motion it appears and goes without animating', async ({ page }) => {

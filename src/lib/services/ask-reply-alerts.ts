@@ -1,6 +1,7 @@
 import 'server-only';
 import type { DataStore } from '@/lib/db/store';
 import {
+  ARWIN_AI_NAME,
   REPLY_DEFER_MAX_MS,
   replyArrival,
   replyHeadline,
@@ -12,9 +13,9 @@ import type { ChatMessage, ChatThread } from '@/lib/types/domain';
 import { settleAnswersFromSlack } from './ask-routine';
 
 /**
- * Ask Arwin answers as desktop alerts (desktop 0.4.1, D-058): "Arwin replied"
- * on the computers of whoever asked, worked out when the shell asks, like the
- * rest of desktop-alerts.ts. Nothing is queued.
+ * Ask Arwin answers as desktop alerts (desktop 0.4.1, D-058): "Arwin (AI)
+ * replied" on the computers of whoever asked, worked out when the shell asks,
+ * like the rest of desktop-alerts.ts. Nothing is queued.
  *
  * - Who: only the person who asked. A thread's `user_id` is its asker, and a
  *   computer's is whoever turned it on; nobody else's computer, Nick's
@@ -173,10 +174,10 @@ export async function askRepliesFor(
 
 /**
  * One notification for the answers that landed, as the in-page pop-up groups
- * them: "Arwin replied" (or "Arwin replied to 2 questions"), the newest
- * answer's first line, and a click that opens its conversation. The question
- * stands in when the answer has no plain first line (a code block). Null for
- * none. Pure.
+ * them: "Arwin (AI) replied" (or "Arwin (AI) replied to 2 questions"), the
+ * newest answer's first line, and a click that opens its conversation. The
+ * question stands in when the answer has no plain first line (a code block).
+ * Null for none. Pure.
  */
 export function askReplyWords(
   arrivals: readonly ReplyArrival[],
@@ -187,7 +188,8 @@ export function askReplyWords(
   return {
     // At most THREADS_MAX keys, well inside the shell's 50.
     keys: arrivals.map((a) => askReplyKey(a.answerId)),
-    title: replyHeadline({ arrivals: [...arrivals] }),
+    // "Arwin (AI) replied": a notification has no tag beside the name.
+    title: replyHeadline({ arrivals: [...arrivals] }, ARWIN_AI_NAME),
     body:
       newest.preview ||
       (newest.question ? `You asked: ${newest.question}` : 'The answer is ready to read.'),
