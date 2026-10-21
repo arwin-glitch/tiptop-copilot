@@ -1,11 +1,16 @@
 import 'server-only';
-import { isDemoMode } from '@/lib/config/env';
+import { env, isDemoMode, type AppEnv } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
+import { DEMO_USER } from '@/lib/demo/fixtures';
+import { demoFollowUpThread } from '@/lib/demo/follow-up-emails-fixtures';
+import { demoSourceThread } from '@/lib/demo/source-emails-fixtures';
 import { isFromMailbox } from '@/lib/email/addresses';
+import { gmailFailCode, type GmailReadOptions } from '@/lib/google/gmail-get';
 import {
   displayName,
   listThreadPage,
   readLabelNames,
+  readMessageThreadId,
   readThreadFull,
   readThreadMeta,
   type AttachmentRef,
@@ -21,9 +26,10 @@ import {
   type MailLabel,
 } from '@/lib/email/inbox-actions';
 import type { EmailMessage, EmailThread, Integration } from '@/lib/types/domain';
+import { log } from '@/lib/security/redact';
 import { scanForInjection } from '@/lib/security/injection';
 import { processWide } from '@/lib/util/process-state';
-import { err, ok, type Result } from '@/lib/util/result';
+import { err, ok, type AppError, type Err, type Result } from '@/lib/util/result';
 import { getPrimaryIntegration } from './inbox';
 
 /**
@@ -332,6 +338,130 @@ export function toLiveThread(
   };
 }
 
+/* ------------------------------------------------------ opened by a link */
+
+/**
+ * A conversation opened from a link (`/inbox?thread=<id>`), and the row the
+ * reading pane shows it under; or why it could not be opened. `requested` is
+ * the id the link carried, which may be a message's rather than the thread's.
+ */
+export type OpenedThread =
+  | { requested: string; row: LiveThreadRow; thread: LiveThread; error?: undefined }
+  | { requested: string; error: string; row?: undefined; thread?: undefined };
+
+/** A deep link waits this long on Gmail before saying it could not open the email. */
+const OPEN_DEADLINE_MS = 6_000;
+
+const NOT_OPENED = {
+  invalid: "That link doesn't point at an email.",
+  notFound:
+    "That email isn't in the mailbox: it may have been deleted, or the link is from another account.",
+  notConnected:
+    "No mailbox is connected, so the email can't be opened here. Connect Google in Settings › Integrations.",
+  busy: 'Gmail is busy right now. Try the link again in a minute.',
+  noAnswer: "Gmail didn't answer. Try the link again in a minute.",
+};
+
+/** A failed open in words a person can act on, never Gmail's own. */
+function openFailure(error: AppError): Err<AppError> {
+  if (error.code === 'provider_unauthorized') {
+    return err(
+      'provider_unauthorized',
+      'Gmail needs reconnecting in Settings › Integrations before the email can be opened here.',
+    );
+  }
+  switch (gmailFailCode(error)) {
+    case 'rate_limited':
+    case 'deadline':
+      return err('rate_limited', NOT_OPENED.busy, { retryable: true });
+    case 'not_found':
+      return err('not_found', NOT_OPENED.notFound);
+    case 'gmail_4xx':
+      return err('provider_unavailable', 'Gmail would not open this email here. Open it in Gmail.');
+    default:
+      return err('provider_unavailable', NOT_OPENED.noAnswer, { retryable: true });
+  }
+}
+
+/**
+ * One conversation for a link: a thread id, or a message id resolved to its
+ * thread, wherever it is filed (archived, any label, not only the inbox).
+ * Read scope only: nothing changes in Gmail, not even read or unread. Never
+ * throws; a failure comes back as words a person can act on.
+ */
+export async function openLiveThread(
+  store: DataStore,
+  organizationId: string,
+  id: string,
+  options: { now?: Date; e?: AppEnv } = {},
+): Promise<Result<LiveThread>> {
+  try {
+    if (!THREAD_ID.test(id)) return err('invalid_input', NOT_OPENED.invalid);
+    if ((options.e ?? env()).demoMode) {
+      const demo = await demoThread(store, organizationId, id);
+      return demo.ok ? demo : err('not_found', NOT_OPENED.notFound);
+    }
+    const integration = await getPrimaryIntegration(store, organizationId).catch(() => null);
+    if (!integration || integration.status === 'disconnected') {
+      return err('not_configured', NOT_OPENED.notConnected);
+    }
+    // Someone is waiting on it: one short deadline for every step, ahead of background reads.
+    const opts: GmailReadOptions = {
+      retry: { deadline: Date.now() + OPEN_DEADLINE_MS, front: true },
+    };
+    let full = await readThreadFull(store, integration, id, opts);
+    if (!full.ok && full.error.details?.status === 404) {
+      // A link may carry a message id: find its thread (read scope).
+      const threadId = await readMessageThreadId(store, integration, id, opts);
+      if (!threadId.ok) return openFailure(threadId.error);
+      // The same id again would only 404 again.
+      if (threadId.value !== id) {
+        full = await readThreadFull(store, integration, threadId.value, opts);
+      }
+    }
+    if (!full.ok) return openFailure(full.error);
+    const names = await labelNames(store, integration, (options.now ?? new Date()).getTime(), {
+      seen: full.value.labelIds,
+    });
+    return ok(toLiveThread(full.value, names, integration.account_email ?? ''));
+  } catch {
+    // No id in the line: it could say whose mail was opened.
+    log.warn('Opening an email from a link failed unexpectedly');
+    return err('internal', NOT_OPENED.noAnswer, { retryable: true });
+  }
+}
+
+/** The list row for a conversation opened by a link, which may not be in any list. */
+export function liveRowFromThread(thread: LiveThread): LiveThreadRow {
+  const last = thread.messages.at(-1);
+  return {
+    id: thread.id,
+    who: last?.fromName ?? '',
+    subject: thread.subject,
+    snippet: (last?.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 160),
+    at: last?.at ?? null,
+    unread: thread.unread,
+    starred: thread.starred,
+    inInbox: thread.inInbox,
+    labels: thread.labels,
+    labelIds: thread.labelIds,
+    lastFromUs: last?.fromUs ?? false,
+    flagged: thread.messages.some((m) => m.flagged),
+  };
+}
+
+/** What the Inbox page hands the reading pane for `?thread=<id>`. Never throws. */
+export async function openFromLink(
+  store: DataStore,
+  organizationId: string,
+  requested: string,
+): Promise<OpenedThread> {
+  const opened = await openLiveThread(store, organizationId, requested);
+  return opened.ok
+    ? { requested, row: liveRowFromThread(opened.value), thread: opened.value }
+    : { requested, error: opened.error.message };
+}
+
 function decodeEntities(text: string): string {
   return text
     .replace(/&#39;/g, "'")
@@ -419,7 +549,15 @@ async function demoThread(
 ): Promise<Result<LiveThread>> {
   const { threads, byThread } = await demoData(store, organizationId);
   const thread = threads.find((t) => demoId(t) === id.toLowerCase());
-  if (!thread) return err('not_found', 'That conversation no longer exists.');
+  if (!thread) {
+    // The emails behind the demo's Follow-ups and routine snapshots, which a
+    // link from those pages opens here.
+    const now = new Date();
+    const fixture = demoFollowUpThread(id, now) ?? demoSourceThread(id, now);
+    return fixture
+      ? ok(toLiveThread(fixture, new Map(), DEMO_USER.email))
+      : err('not_found', 'That conversation no longer exists.');
+  }
   const list = byThread.get(thread.id) ?? [];
   return ok({
     id,

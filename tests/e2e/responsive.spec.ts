@@ -48,6 +48,10 @@ const PAGES = [
   '/updates?tab=fresh',
   '/portfolio?tab=companies',
   '/portfolio?tab=jobs',
+  '/portfolio?tab=students',
+  '/portfolio?tab=students&status=all',
+  // A conversation opened by a link: the reading pane alone on a phone.
+  '/inbox?thread=0f00000000005102',
   '/fund-ii?tab=pipeline',
   '/network?tab=people',
   '/meetings?tab=notes',
@@ -140,6 +144,34 @@ test.describe('mobile layout', () => {
     for (const summary of await jobs.locator('details > summary').all()) await summary.click();
     await expect(jobs.getByRole('list', { name: /^Source emails for VP Sales/ })).toBeVisible();
     await expectNoSidewaysScroll(page);
+  });
+
+  test('a Students item with its earlier emails open never scrolls sideways', async ({ page }) => {
+    await page.goto('/portfolio?tab=students&status=all');
+    const students = page.getByRole('region', { name: 'Students and interns' });
+    for (const summary of await students.locator('details > summary').all()) await summary.click();
+    await expect(
+      students.getByRole('list', { name: 'Earlier emails about Tessa Marlow' }),
+    ).toBeVisible();
+    // The two links stay thumb-sized beside each subject.
+    const copilot = students.getByRole('link', { name: /^Open in Copilot/ }).first();
+    expect((await copilot.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(32);
+    await expectNoSidewaysScroll(page);
+  });
+
+  test('a conversation opened by a link fills the phone, and Back shows the list', async ({
+    page,
+  }) => {
+    await page.goto('/inbox?thread=0f00000000005102');
+    const pane = page.getByRole('region', { name: 'Reading pane' });
+    const list = page.getByRole('region', { name: 'Conversations' });
+    await expect(pane.getByRole('heading', { level: 2 })).toHaveText('Mentoring this fall');
+    // One column on a phone: the list waits behind the conversation.
+    await expect(list).toBeHidden();
+    await expectNoSidewaysScroll(page);
+    await pane.getByRole('button', { name: 'Back to the list' }).click();
+    await expect(list).toBeVisible();
+    await expect.poll(() => new URL(page.url()).search).toBe('');
   });
 
   test('the bottom navigation is present and thumb-sized', async ({ page }) => {

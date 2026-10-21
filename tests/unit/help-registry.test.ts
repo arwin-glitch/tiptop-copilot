@@ -181,7 +181,8 @@ describe('subtabs', () => {
     const portfolio = helpPage('portfolio');
     const step = portfolio?.steps.find((s) => s.target === 'subtabs');
     expect(step?.body).toBe(
-      'Health · Requests · Jobs · Numbers · Companies · Founders · Angel. Tap one to switch.',
+      // Over twenty words with the hint, so the step lists the tabs alone.
+      'Health · Requests · Jobs · Students & interns · Numbers · Companies · Founders · Angel.',
     );
   });
 

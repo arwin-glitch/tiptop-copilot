@@ -4,8 +4,8 @@ import { expect, test } from '@playwright/test';
 /**
  * Portfolio > Jobs over the invented demo workspace: open roles founders keep
  * sending, from the weekly jobs scan's snapshot. Filters live in the URL, a
- * role's blurb copies for sharing, its source emails open in Gmail, and a
- * company's page counts its open roles and links to them.
+ * role's blurb copies for sharing, its source emails open in Copilot's Inbox
+ * or in Gmail, and a company's page counts its open roles and links to them.
  */
 
 const SIGNED_IN = path.resolve('test-results', 'portfolio-jobs-state.json');
@@ -58,12 +58,20 @@ test('Jobs lists active roles first, filters by status and search, all in the UR
     'https://stonebridgeops.demo/jobs/founding-engineer',
   );
 
-  // Source emails open in Nick's mailbox in Gmail.
+  // Each source email offers both places to read it: Copilot's Inbox and Gmail.
   await founding.getByText('Source emails (3)').click();
   const sources = founding.getByRole('list', { name: /^Source emails for Founding Engineer/ });
-  await expect(sources.getByRole('link').first()).toHaveAttribute(
+  await expect(sources.getByRole('link', { name: /^Open in Copilot/ }).first()).toHaveAttribute(
+    'href',
+    '/inbox?thread=0f0000000000b201',
+  );
+  await expect(sources.getByRole('link', { name: /^Open in Gmail/ }).first()).toHaveAttribute(
     'href',
     /^https:\/\/mail\.google\.com\/mail\/\?authuser=.+#all\/0f0000000000b201$/,
+  );
+  await expect(sources.getByRole('link', { name: /^Open in Gmail/ }).first()).toHaveAttribute(
+    'target',
+    '_blank',
   );
 
   await status.getByRole('link', { name: /^Filled/ }).click();
