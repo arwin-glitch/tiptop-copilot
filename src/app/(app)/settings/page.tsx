@@ -12,6 +12,7 @@ import { listDesktopDevices } from '@/lib/services/desktop-alerts';
 import { configuredCriteria, getActiveThesis } from '@/lib/services/thesis';
 import { googleConfigured } from '@/lib/google/oauth';
 import { canSend } from '@/lib/google/gmail-send';
+import { canEditCalendar } from '@/lib/calendar/edit-access';
 import { PageHeader, PageShell, DataRow } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -117,7 +118,8 @@ export default async function SettingsPage() {
                 <p className="mt-1 text-sm text-[var(--fg-muted)]">
                   Gmail and Calendar, read-only by default. Sending is a separate switch below: once
                   it is on, the email session can send a reply from this mailbox when someone taps
-                  Send. Nothing ever sends on its own.
+                  Send. Nothing ever sends on its own. Calendar editing is another, for changing
+                  events from the Calendar tab.
                 </p>
               </div>
               {integration ? (
@@ -183,6 +185,38 @@ export default async function SettingsPage() {
                         className="inline-flex h-9 items-center rounded-md bg-[var(--primary)] px-3.5 text-sm font-medium text-[var(--primary-fg)] hover:bg-[var(--primary-hover)]"
                       >
                         Turn on sending
+                      </a>
+                    </WebOnly>
+                  )}
+                </div>
+              ) : null}
+
+              {integration && !demo ? (
+                <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-[var(--border)] p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">Edit the calendar from Copilot</p>
+                    <p className="text-sm text-[var(--fg-muted)]">
+                      {canEditCalendar(integration)
+                        ? 'On. Events change from the Calendar tab only when someone saves, moves or deletes one; guests are emailed only when they choose Send.'
+                        : 'Off. The calendar is view-only here. The mailbox owner turns it on once; Google asks to approve changing calendar events.'}
+                    </p>
+                  </div>
+                  {canEditCalendar(integration) ? (
+                    <Badge tone="ok">On</Badge>
+                  ) : (
+                    <WebOnly
+                      serverVersion={desktopVersion}
+                      fallback={
+                        <span className="text-sm text-[var(--fg-muted)]">
+                          Turn this on from Copilot in your web browser.
+                        </span>
+                      }
+                    >
+                      <a
+                        href="/api/integrations/google/start?calendar=1&from=settings"
+                        className="inline-flex h-9 items-center rounded-md bg-[var(--primary)] px-3.5 text-sm font-medium text-[var(--primary-fg)] hover:bg-[var(--primary-hover)]"
+                      >
+                        Turn on calendar editing
                       </a>
                     </WebOnly>
                   )}

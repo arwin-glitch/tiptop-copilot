@@ -27,6 +27,26 @@ throughout.
   reassigned, each with an audit row, done tasks left alone, and running it
   twice moves nothing.
 
+- **Calendar: Day, Week and Month, like Google Calendar (preview).** Behind
+  the **New calendar (preview)** switch on the Calendar tab; the day list
+  stays the default and nothing changes for anyone who doesn't switch it on.
+  The new views go to any date (back, ahead, Today, a date picker), show all
+  of Nick's calendars in Google's own names and colours with a toggle each,
+  and keep the Meeting/Block verdict (a hold stays a block, tagged Hold).
+  A click on an event opens Google Calendar's event card beside it (a sheet
+  from the bottom on a phone): Edit, Delete, Duplicate, Email guests (opens
+  the compose window), its colour, Going? Yes / No / Maybe, Join with Google
+  Meet, Copy Meet link, the location in Maps, and Open in Google Calendar for
+  anything else. Drag to create, move or resize; the quick editor opens next
+  to the slot dragged, and a drag across days makes a multi-day event in
+  Month and in Week's all-day row. Titles wrap in narrow columns. Changing
+  anything needs **Turn on calendar editing** (Google's `calendar.events`
+  only; without it the views are read-only). A colour change never emails
+  anyone; Going? asks "Send your response to the organizer?" and changes
+  with guests ask Send / Don't send every time. Diagnostics › Event parity
+  checks, read-only, that the new views show the same events as the day
+  list (D-066, D-067).
+
 - **Every email link opens in Copilot or Gmail.** Wherever Copilot links to an
   email or thread, it now offers two places to read it: **Copilot**, which
   opens the thread in the Inbox's reading pane (`/inbox?thread=<id>`), and

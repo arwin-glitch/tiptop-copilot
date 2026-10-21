@@ -77,7 +77,10 @@ broken, and several are enforced at the database level.
    no `sendDraft()`. The one send path is the email session's Send button
    (Follow-ups), behind a separate opt-in Google grant (`gmail.modify`, named
    only in `src/lib/google/send-scopes.ts`) and a person's tap; AI tools, cron
-   jobs and routines cannot reach it (pinned by tests).
+   jobs and routines cannot reach it (pinned by tests). Changing a calendar
+   event works the same way: the Calendar tab's new views, a separate opt-in
+   grant (`calendar.events`, in the same file) and a person's tap; guests are
+   emailed only when that person picks Send.
 7. **Untrusted content is fenced, never obeyed.** Email, attachment, document
    and web text is wrapped in a labelled block that the system prompt declares
    to be data. Detection *annotates*; a false positive must never make an email

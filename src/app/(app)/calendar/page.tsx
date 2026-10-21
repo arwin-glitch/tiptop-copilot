@@ -3,11 +3,19 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { Bell, BellOff, MapPin, Video } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
+import { isDateKey, viewRange } from '@/lib/calendar/grid';
 import { physicalLocation } from '@/lib/calendar/meetings';
+import { calendarSource, readCalendarRange } from '@/lib/calendar/range-reader';
+import { CALENDAR_VIEWS, type CalendarViewKind } from '@/lib/calendar/range-types';
+import { calendarEditAccess } from '@/lib/calendar/edit-access';
 import { getStore } from '@/lib/runtime';
 import { readCalendarDay, type CalendarEntry } from '@/lib/services/calendar-view';
+import { readCalendarPrefs } from '@/lib/services/calendar-prefs';
+import { mailboxCanSend } from '@/lib/services/docsend-follow-up';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
+import { CalendarViews } from '@/components/calendar/calendar-views';
+import { PreviewSwitch } from '@/components/calendar/preview-switch';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { ThreadLinks } from '@/components/email/thread-links';
@@ -28,16 +36,98 @@ export default async function CalendarPage({
   const params = await searchParams;
   const day =
     typeof params.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : null;
+  const view = typeof params.view === 'string' ? params.view : null;
+  const date = typeof params.date === 'string' && isDateKey(params.date) ? params.date : null;
   return (
     <PageShell>
       <PageHeader
         title="Calendar"
         subtitle="Nick's calendar, live. Every entry says whether it is a meeting or a block, and why. Meetings ping his phone 5 minutes before; blocks never do."
       />
-      <Suspense key={day ?? 'today'} fallback={<SkeletonText lines={10} />}>
-        <CalendarContent day={day} />
+      <Suspense
+        key={`${view ?? ''}|${day ?? date ?? 'today'}`}
+        fallback={<SkeletonText lines={10} />}
+      >
+        <CalendarBody day={day} view={view} date={date} />
       </Suspense>
     </PageShell>
+  );
+}
+
+/**
+ * Which calendar to show. The day list stays the default until the parity
+ * check (Diagnostics › Event parity) shows the new views read the same events;
+ * the new Day, Week and Month views open from the "New calendar (preview)"
+ * switch, which is remembered per person, or from an address that names one
+ * (?view=day|week|month). ?view=list, or an old ?day= link, is the day list.
+ */
+async function CalendarBody({
+  day,
+  view,
+  date,
+}: {
+  day: string | null;
+  view: string | null;
+  date: string | null;
+}) {
+  const auth = await requireAuth();
+  const prefs = await readCalendarPrefs(getStore(), auth.organizationId, auth.userId);
+  const named = CALENDAR_VIEWS.includes(view as CalendarViewKind)
+    ? (view as CalendarViewKind)
+    : null;
+  const useViews = named !== null || (view !== 'list' && day === null && prefs.preview);
+  if (!useViews) return <CalendarContent day={day} previewView={prefs.view} />;
+  return <NewCalendar view={named ?? prefs.view} date={date} shown={prefs.shown} />;
+}
+
+async function NewCalendar({
+  view,
+  date,
+  shown,
+}: {
+  view: CalendarViewKind;
+  date: string | null;
+  shown: Record<string, boolean>;
+}) {
+  const auth = await requireAuth();
+  const tz = auth.profile.timezone;
+  const today = localDateKey(new Date(), tz);
+  const dateKey = date ?? today;
+  const store = getStore();
+  // Day view reads its whole week, so stepping through the week reads nothing more.
+  const window = viewRange(view === 'day' ? 'week' : view, dateKey);
+  const [initial, found] = await Promise.all([
+    readCalendarRange(store, auth.organizationId, {
+      from: window.from,
+      to: window.to,
+      timeZone: tz,
+      ownEmail: auth.profile.email,
+      shown,
+    }),
+    calendarSource(store, auth.organizationId, auth.profile.email),
+  ]);
+  const access = found.ok
+    ? calendarEditAccess(found.source)
+    : { allowed: false, reason: 'Connect Google in Settings first.', demo: false };
+  return (
+    <CalendarViews
+      initial={initial}
+      view={view}
+      date={dateKey}
+      today={today}
+      timeZone={tz}
+      shown={shown}
+      ownEmails={found.ok ? found.source.ownEmails : [auth.profile.email]}
+      mailbox={DEFAULT_MAILBOX}
+      editing={access}
+      turnOnHref={
+        !access.allowed && found.ok && !access.demo
+          ? '/api/integrations/google/start?calendar=1'
+          : null
+      }
+      // "Email guests" opens the compose window: Send needs the opt-in grant.
+      canSend={found.ok && mailboxCanSend(found.source.integration) && !auth.isDemo}
+    />
   );
 }
 
@@ -47,7 +137,13 @@ function weekdayShort(dateKey: string) {
   );
 }
 
-async function CalendarContent({ day }: { day: string | null }) {
+async function CalendarContent({
+  day,
+  previewView,
+}: {
+  day: string | null;
+  previewView: CalendarViewKind;
+}) {
   const auth = await requireAuth();
   const tz = auth.profile.timezone;
   const today = localDateKey(new Date(), tz);
@@ -62,23 +158,32 @@ async function CalendarContent({ day }: { day: string | null }) {
 
   return (
     <div className="space-y-4">
-      <nav aria-label="Day" data-tour="calendar-days" className="flex flex-wrap gap-1">
-        {days.map((d, i) => (
-          <Link
-            key={d}
-            href={i === 0 ? '/calendar' : `/calendar?day=${d}`}
-            aria-current={d === dateKey ? 'date' : undefined}
-            className={cn(
-              'rounded-md border px-3 py-1.5 text-sm',
-              d === dateKey
-                ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-fg)]'
-                : 'border-[var(--border)] hover:bg-[var(--bg-hover)]',
-            )}
-          >
-            {i === 0 ? 'Today' : `${weekdayShort(d)} ${Number(d.slice(8))}`}
-          </Link>
-        ))}
-      </nav>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <nav aria-label="Day" data-tour="calendar-days" className="flex flex-wrap gap-1">
+          {days.map((d, i) => (
+            <Link
+              key={d}
+              href={i === 0 ? '/calendar' : `/calendar?day=${d}`}
+              aria-current={d === dateKey ? 'date' : undefined}
+              className={cn(
+                'rounded-md border px-3 py-1.5 text-sm',
+                d === dateKey
+                  ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-fg)]'
+                  : 'border-[var(--border)] hover:bg-[var(--bg-hover)]',
+              )}
+            >
+              {i === 0 ? 'Today' : `${weekdayShort(d)} ${Number(d.slice(8))}`}
+            </Link>
+          ))}
+        </nav>
+        <div data-tour="calendar-views">
+          <PreviewSwitch
+            on={false}
+            openHref={`/calendar?view=${previewView}&date=${dateKey}`}
+            phoneHref={`/calendar?view=day&date=${dateKey}`}
+          />
+        </div>
+      </div>
 
       {result.state === 'not_connected' ? (
         <Notice tone="warn">

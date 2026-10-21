@@ -71,6 +71,7 @@ const DRAWS_THREAD_LINKS = [
   'app/(app)/portfolio/[id]/page.tsx',
   'app/(app)/today/page.tsx',
   'components/ask/linked-text.tsx',
+  'components/calendar/event-panel.tsx',
   'components/campaigns/campaign-report.tsx',
   'components/evidence/source-drawer.tsx',
   'components/followups/full-email.tsx',
