@@ -328,6 +328,28 @@ describe('changing an event', () => {
     expect(state.writes).toEqual([]);
   });
 
+  it('will not delete an event only its organizer can change, or move one onto a calendar it can only read', async () => {
+    const board = await deleteCalendarEvent(context(), {
+      calendarId: MOCK_TEAM_CALENDAR,
+      eventId: 'demoteamboard',
+      scope: 'this',
+      notify: 'send',
+    });
+    expect(board.ok).toBe(false);
+    if (!board.ok) expect(board.error.code).toBe('forbidden');
+    const onto = await updateCalendarEvent(context(), {
+      calendarId: MOCK_TEAM_CALENDAR,
+      eventId: 'demoteamportfolio',
+      scope: 'this',
+      notify: 'dont_send',
+      changes: {},
+      destinationCalendarId: MOCK_HOLIDAY_CALENDAR,
+    });
+    expect(onto.ok).toBe(false);
+    if (!onto.ok) expect(onto.error.code).toBe('forbidden');
+    expect(state.writes).toEqual([]);
+  });
+
   it('a repeating event: "This event" changes the instance, "All events" shifts the series', async () => {
     const instance = 'demoteampartners_20261102T160000Z';
     await updateCalendarEvent(context(), {
