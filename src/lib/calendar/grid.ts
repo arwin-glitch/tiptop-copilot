@@ -315,6 +315,208 @@ export function layoutColumns(
   return out;
 }
 
+/* ------------------------------------------- overlaps, as Google draws them */
+
+/**
+ * Events that start less than this far apart share the width side by side;
+ * one that starts later is drawn over the earlier one instead, shifted right.
+ * Roughly the height of a chip's title, so the earlier title stays readable.
+ */
+export const SIDE_BY_SIDE_MINUTES = 45;
+/** The narrowest an event is drawn on a computer, in px: more than fit fold into "+N". */
+export const MIN_CHIP_PX = 36;
+
+/** How far a cascaded event sits right of the one beneath it: a tenth of the column, 6 to 40px. */
+export function cascadeIndentPx(columnPx: number): number {
+  return Math.round(Math.max(6, Math.min(40, columnPx * 0.1)));
+}
+
+export interface OverlapOptions {
+  /** The day column's width in px. */
+  columnPx: number;
+  /** The narrowest a chip may be drawn, in px (MIN_CHIP_PX by default). */
+  minChipPx?: number;
+  /** How far a cascaded event is shifted right, in px (cascadeIndentPx by default). */
+  indentPx?: number;
+  sideBySideMinutes?: number;
+  minDuration?: number;
+}
+
+export interface ChipPlacement {
+  /** Left edge and width, as fractions of the day column. */
+  left: number;
+  width: number;
+  /** Stacking order, from 1: an event that starts later is drawn on top. */
+  z: number;
+  /** How many events it sits on top of in a cascade: 0 for none. */
+  depth: number;
+  /** Drawn over an earlier event, so it gets a thin outline in the page's colour. */
+  cascaded: boolean;
+}
+
+/** Events with no room left beside the others, shown as one "+N" that lists them. */
+export interface FoldedChips {
+  key: string;
+  /** The events folded away, earliest first. */
+  keys: string[];
+  /** Minutes past midnight the "+N" covers: its events' earliest start to latest end. */
+  start: number;
+  end: number;
+  left: number;
+  width: number;
+  z: number;
+}
+
+export interface OverlapLayout {
+  chips: Map<string, ChipPlacement>;
+  folds: FoldedChips[];
+}
+
+/**
+ * Where each timed event of a day goes, the way Google Calendar lays out a
+ * busy day:
+ *
+ * - Events that overlap and start less than `sideBySideMinutes` apart (and
+ *   any chained to them that way) form a row and share the width side by
+ *   side (layoutColumns within the row).
+ * - A row that starts later than events already drawn beneath it cascades:
+ *   it is drawn on top of the topmost of them, shifted right by an indent,
+ *   and runs to the column's right edge. A long block (a conference day,
+ *   travel, a hold) therefore never squeezes a short meeting into a sliver:
+ *   the meeting sits over it, nearly full width.
+ * - No chip is narrower than `minChipPx`: a cascade too deep moves left
+ *   again; a row with more side-by-side events than fit shows what fits and
+ *   folds the rest into a "+N" in the last slot.
+ *
+ * Later starts are drawn on top. Every event is either placed or in exactly
+ * one fold, and the result does not depend on the order the events come in.
+ */
+export function layoutOverlaps(
+  items: readonly LayoutItem[],
+  options: OverlapOptions,
+): OverlapLayout {
+  const near = options.sideBySideMinutes ?? SIDE_BY_SIDE_MINUTES;
+  const minDuration = options.minDuration ?? MIN_DRAWN_MINUTES;
+  const columnPx = Math.max(1, options.columnPx);
+  const minFrac = Math.min(1, Math.max(1, options.minChipPx ?? MIN_CHIP_PX) / columnPx);
+  const indent = (options.indentPx ?? cascadeIndentPx(columnPx)) / columnPx;
+  const maxCols = Math.max(1, Math.floor(1 / minFrac + 1e-9));
+
+  const seen = new Set<string>();
+  const sorted = items
+    .filter((i) => (seen.has(i.key) ? false : (seen.add(i.key), true)))
+    .map((i) => ({ key: i.key, start: i.start, end: Math.max(i.end, i.start + minDuration) }))
+    .sort((a, b) => a.start - b.start || b.end - a.end || a.key.localeCompare(b.key));
+  const chips = new Map<string, ChipPlacement>();
+  const folds: FoldedChips[] = [];
+
+  // Rows: events joined by "overlaps and starts close by", through any chain.
+  const root = sorted.map((_, i) => i);
+  const find = (i: number): number => {
+    while (root[i] !== i) {
+      root[i] = root[root[i]!]!;
+      i = root[i]!;
+    }
+    return i;
+  };
+  for (let i = 0; i < sorted.length; i++) {
+    for (let j = i + 1; j < sorted.length; j++) {
+      // Sorted by start: once one starts too late, every one after it does.
+      if (sorted[j]!.start - sorted[i]!.start >= near) break;
+      if (sorted[j]!.start < sorted[i]!.end) {
+        const a = find(i);
+        const b = find(j);
+        if (a !== b) root[Math.max(a, b)] = Math.min(a, b);
+      }
+    }
+  }
+  const rows = new Map<number, number[]>();
+  sorted.forEach((_, i) => {
+    const r = find(i);
+    rows.set(r, [...(rows.get(r) ?? []), i]);
+  });
+
+  // What is drawn so far, for the rows that cascade over it.
+  const drawn: { start: number; end: number; left: number; depth: number }[] = [];
+  const overlapsSpan = (a: { start: number; end: number }, b: { start: number; end: number }) =>
+    a.start < b.end && b.start < a.end;
+
+  for (const leader of [...rows.keys()].sort((a, b) => a - b)) {
+    const indexes = rows.get(leader)!;
+    const members = indexes.map((i) => sorted[i]!);
+    const columns = layoutColumns(members, 0);
+    const cols = columns.get(members[0]!.key)?.cols ?? 1;
+
+    let base = 0;
+    let depth = 0;
+    const under = drawn.filter((d) => members.some((m) => overlapsSpan(m, d)));
+    if (under.length) {
+      // On top of the topmost event beneath it; of equals, the leftmost, so it stays wide.
+      const top = under.reduce((best, d) =>
+        d.depth > best.depth || (d.depth === best.depth && d.left < best.left) ? d : best,
+      );
+      depth = top.depth + 1;
+      base = top.left + indent;
+    }
+    const shown = Math.min(cols, maxCols);
+    base = Math.max(0, Math.min(base, 1 - shown * minFrac));
+    const colWidth = (1 - base) / shown;
+    // With more columns than fit, the last slot holds the "+N".
+    const chipCols = cols > maxCols ? shown - 1 : shown;
+
+    const hidden = members.filter((m) => columns.get(m.key)!.col >= chipCols);
+    members.forEach((m, n) => {
+      const place = columns.get(m.key)!;
+      if (place.col >= chipCols) return;
+      let endCol = Math.min(place.col + place.span, shown);
+      if (endCol > chipCols && hidden.some((h) => overlapsSpan(h, m))) endCol = chipCols;
+      const left = base + place.col * colWidth;
+      chips.set(m.key, {
+        left,
+        width: (endCol - place.col) * colWidth,
+        z: indexes[n]! + 1,
+        depth,
+        cascaded: depth > 0,
+      });
+      drawn.push({ start: m.start, end: m.end, left, depth });
+    });
+
+    // The folded events, one "+N" per stretch of them that overlaps; one on
+    // its own in a stretch has the slot to itself, so it is drawn there.
+    let group: typeof hidden = [];
+    let groupEnd = -Infinity;
+    const flush = () => {
+      if (!group.length) return;
+      const left = base + chipCols * colWidth;
+      const start = group[0]!.start;
+      const z = Math.max(...group.map((g) => sorted.indexOf(g))) + 1;
+      if (group.length === 1) {
+        chips.set(group[0]!.key, { left, width: colWidth, z, depth, cascaded: depth > 0 });
+      } else {
+        folds.push({
+          key: `fold-${group[0]!.key}`,
+          keys: group.map((g) => g.key),
+          start,
+          end: groupEnd,
+          left,
+          width: colWidth,
+          z,
+        });
+      }
+      drawn.push({ start, end: groupEnd, left, depth });
+      group = [];
+      groupEnd = -Infinity;
+    };
+    for (const h of hidden) {
+      if (h.start >= groupEnd) flush();
+      group.push(h);
+      groupEnd = Math.max(groupEnd, h.end);
+    }
+    flush();
+  }
+  return { chips, folds };
+}
+
 /* ---------------------------------------------------------- month weeks */
 
 export interface PackItem {

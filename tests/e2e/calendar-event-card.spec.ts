@@ -180,14 +180,23 @@ test('a click on an event opens Google’s card beside it, with Google’s optio
   await expect(other).toHaveCount(0);
 });
 
-test('titles wrap over several lines in narrow side-by-side columns', async ({ page }) => {
-  await page.goto(`/calendar?view=week&date=${dayFromToday(0)}`);
-  // Office hours and the portfolio check-in overlap, so each has half a day's width.
-  const title = chip(page, 'Founder office hours').locator('[data-chip-title]');
-  await expect(title).toBeVisible();
-  const box = (await title.boundingBox())!;
-  expect(box.height).toBeGreaterThan(20);
-  await expect(title).toHaveCSS('white-space', 'normal');
+test('titles wrap over whole words where a chip has room, and take one line where it is narrow', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // The demo's conference day, twelve days out.
+  await page.goto(`/calendar?view=week&date=${dayFromToday(12)}`);
+  // The flight is tall and nearly a column wide: its title wraps, word by word.
+  const wide = chip(page, 'Travel: flight to Denver').locator('[data-chip-title]');
+  await expect(wide).toBeVisible();
+  expect((await wide.boundingBox())!.height).toBeGreaterThan(20);
+  await expect(wide).toHaveCSS('white-space', 'normal');
+  await expect(wide).toHaveCSS('overflow-wrap', 'normal');
+  await expect(wide).toHaveCSS('word-break', 'normal');
+  // Three meetings at noon share the width: a narrow chip's title is one line, cut with an ellipsis.
+  const narrow = chip(page, 'LP check-in: Harborview').locator('[data-chip-title]');
+  await expect(narrow).toHaveCSS('white-space', 'nowrap');
+  await expect(narrow).toHaveCSS('text-overflow', 'ellipsis');
 });
 
 test('a colour from the card changes it at once, asks nothing, and stays', async ({ page }) => {

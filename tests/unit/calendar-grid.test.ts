@@ -1,18 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
   addMonthsToKey,
+  cascadeIndentPx,
   daySpan,
   instantAt,
   isDateKey,
   layoutColumns,
+  layoutOverlaps,
   minutesIntoDay,
   monthWeeks,
   packWeek,
   rangeLabel,
   segmentOnDay,
+  SIDE_BY_SIDE_MINUTES,
   snap,
   stepDate,
   viewRange,
+  type LayoutItem,
+  type OverlapLayout,
   type PackItem,
 } from '@/lib/calendar/grid';
 
@@ -164,6 +169,196 @@ describe('overlapping events side by side, as Google lays them out', () => {
     ]);
     expect(out.get('a')?.cols).toBe(2);
     expect(out.get('b')?.col).toBe(1);
+  });
+});
+
+describe('a busy day laid out as Google Calendar does: cascading, side by side, "+N"', () => {
+  const at = (h: number, m = 0) => h * 60 + m;
+  const item = (key: string, from: number, to: number): LayoutItem => ({
+    key,
+    start: from,
+    end: to,
+  });
+  // A week column on a laptop, the same indent and minimum the grid uses.
+  const WEEK = { columnPx: 120, minChipPx: 39 };
+  const px = (fraction: number, columnPx = WEEK.columnPx) => fraction * columnPx;
+
+  /** Every event exactly once: drawn as a chip or folded into one "+N". */
+  function expectAllAccountedFor(items: LayoutItem[], layout: OverlapLayout) {
+    const folded = layout.folds.flatMap((f) => f.keys);
+    const all = [...layout.chips.keys(), ...folded].sort();
+    expect(all).toEqual(items.map((i) => i.key).sort());
+  }
+
+  it('gives an event on its own the whole column', () => {
+    const layout = layoutOverlaps([item('a', at(9), at(10))], WEEK);
+    expect(layout.chips.get('a')).toEqual({ left: 0, width: 1, z: 1, depth: 0, cascaded: false });
+    expect(layout.folds).toEqual([]);
+  });
+
+  it('puts events that start together side by side, sharing the width', () => {
+    const layout = layoutOverlaps(
+      [item('long', at(9), at(11)), item('short', at(9, 15), at(10))],
+      WEEK,
+    );
+    expect(layout.chips.get('long')).toMatchObject({ left: 0, width: 0.5, cascaded: false });
+    expect(layout.chips.get('short')).toMatchObject({ left: 0.5, width: 0.5, cascaded: false });
+  });
+
+  it('draws one that starts later over the earlier one, shifted right and nearly full width', () => {
+    const layout = layoutOverlaps(
+      [item('conference', at(8), at(18)), item('meeting', at(10), at(10, 30))],
+      WEEK,
+    );
+    const indent = cascadeIndentPx(WEEK.columnPx) / WEEK.columnPx;
+    expect(layout.chips.get('conference')).toEqual({
+      left: 0,
+      width: 1,
+      z: 1,
+      depth: 0,
+      cascaded: false,
+    });
+    const meeting = layout.chips.get('meeting')!;
+    expect(meeting).toMatchObject({ depth: 1, cascaded: true, z: 2 });
+    expect(meeting.left).toBeCloseTo(indent);
+    expect(meeting.width).toBeCloseTo(1 - indent);
+  });
+
+  it('shares the width below the threshold and cascades from it on', () => {
+    const near = layoutOverlaps(
+      [item('a', at(9), at(10)), item('b', at(9) + SIDE_BY_SIDE_MINUTES - 1, at(10, 30))],
+      WEEK,
+    );
+    expect(near.chips.get('b')).toMatchObject({ left: 0.5, cascaded: false });
+    const later = layoutOverlaps(
+      [item('a', at(9), at(10)), item('b', at(9) + SIDE_BY_SIDE_MINUTES, at(10, 30))],
+      WEEK,
+    );
+    expect(later.chips.get('a')?.width).toBe(1);
+    expect(later.chips.get('b')).toMatchObject({ cascaded: true, depth: 1 });
+  });
+
+  it('never squeezes a short meeting into a sliver under long overlapping blocks', () => {
+    // Travel, a conference day, two holds: each starts an hour or more after the last.
+    const items = [
+      item('travel', at(6), at(12)),
+      item('conference', at(8), at(18)),
+      item('booth', at(10), at(15)),
+      item('hotel', at(12), at(23)),
+      item('call', at(13), at(13, 30)),
+    ];
+    const layout = layoutOverlaps(items, WEEK);
+    expectAllAccountedFor(items, layout);
+    const lefts = ['travel', 'conference', 'booth', 'hotel', 'call'].map(
+      (k) => layout.chips.get(k)!.left,
+    );
+    // A staircase: each one sits a little right of the one beneath it.
+    for (let i = 1; i < lefts.length; i++) expect(lefts[i]!).toBeGreaterThan(lefts[i - 1]!);
+    for (const chip of layout.chips.values()) {
+      expect(px(chip.width)).toBeGreaterThanOrEqual(WEEK.minChipPx);
+    }
+    // The call stays wide: more than half the column, not a fifth of it.
+    expect(layout.chips.get('call')!.width).toBeGreaterThan(0.5);
+    // Later starts are drawn on top.
+    expect(layout.chips.get('call')!.z).toBeGreaterThan(layout.chips.get('hotel')!.z);
+  });
+
+  it('moves a cascade too deep back left rather than drawing it narrower than the minimum', () => {
+    const items = Array.from({ length: 12 }, (_, i) => item(`block${i}`, at(6 + i), at(23)));
+    const layout = layoutOverlaps(items, { columnPx: 80, minChipPx: 36 });
+    expectAllAccountedFor(items, layout);
+    for (const chip of layout.chips.values()) {
+      expect(px(chip.width, 80)).toBeGreaterThanOrEqual(36 - 1e-9);
+      expect(chip.left + chip.width).toBeCloseTo(1);
+    }
+  });
+
+  it('folds what does not fit beside the others into a "+N" no narrower than the minimum', () => {
+    const items = ['a', 'b', 'c', 'd', 'e'].map((k) => item(k, at(12), at(12, 45)));
+    const layout = layoutOverlaps(items, { columnPx: 100, minChipPx: 39 });
+    expectAllAccountedFor(items, layout);
+    // Two slots fit: one event and a "+4".
+    expect([...layout.chips.keys()]).toEqual(['a']);
+    expect(layout.chips.get('a')).toMatchObject({ left: 0, width: 0.5 });
+    expect(layout.folds).toEqual([
+      {
+        key: 'fold-b',
+        keys: ['b', 'c', 'd', 'e'],
+        start: at(12),
+        end: at(12, 45),
+        left: 0.5,
+        width: 0.5,
+        z: 5,
+      },
+    ]);
+  });
+
+  it('folds each stretch of crowded time on its own, and shows a lone one as itself', () => {
+    // Three at once at 9:15, so the last slot folds ("x" drawn 20 minutes long, to 9:35);
+    // at 9:40 only one is left over.
+    const items = [
+      item('a', at(9), at(11)),
+      item('b', at(9, 10), at(9, 30)),
+      item('x', at(9, 15), at(9, 25)),
+      item('c', at(9, 40), at(10)),
+    ];
+    const layout = layoutOverlaps(items, { columnPx: 100, minChipPx: 50 });
+    expectAllAccountedFor(items, layout);
+    expect(layout.folds).toEqual([
+      {
+        key: 'fold-b',
+        keys: ['b', 'x'],
+        start: at(9, 10),
+        end: at(9, 35),
+        left: 0.5,
+        width: 0.5,
+        z: 3,
+      },
+    ]);
+    // "a" keeps out of the slot the "+2" covers; "c", alone in its stretch, is drawn there.
+    expect(layout.chips.get('a')).toMatchObject({ left: 0, width: 0.5 });
+    expect(layout.chips.get('c')).toMatchObject({ left: 0.5, width: 0.5, z: 4 });
+  });
+
+  it('lays out the same however the events come in', () => {
+    const items = [
+      item('travel', at(6), at(11, 30)),
+      item('summit', at(8), at(18)),
+      item('coffee', at(9), at(9, 30)),
+      item('booth', at(10), at(15)),
+      item('pitch', at(11), at(11, 45)),
+      item('lp', at(12), at(12, 45)),
+      item('panel', at(12), at(12, 30)),
+      item('sync', at(12, 15), at(12, 45)),
+      item('word', at(13, 30), at(14, 30)),
+      item('intro', at(14), at(14, 30)),
+      item('hotel', at(15), at(23)),
+      item('riley', at(16), at(16, 30)),
+      item('maple', at(16, 15), at(17)),
+      item('dinner', at(18, 30), at(21, 30)),
+    ];
+    const snapshot = (list: LayoutItem[]) => {
+      const layout = layoutOverlaps(list, WEEK);
+      expectAllAccountedFor(items, layout);
+      return JSON.stringify({ chips: [...layout.chips.entries()].sort(), folds: layout.folds });
+    };
+    const first = snapshot(items);
+    const reversed = snapshot([...items].reverse());
+    const shuffled = snapshot([...items].sort((a, b) => a.key.localeCompare(b.key)));
+    expect(reversed).toBe(first);
+    expect(shuffled).toBe(first);
+    for (const chip of layoutOverlaps(items, WEEK).chips.values()) {
+      expect(px(chip.width)).toBeGreaterThanOrEqual(WEEK.minChipPx - 1e-9);
+    }
+  });
+
+  it('counts a very short event as the room it takes, and keeps one key once', () => {
+    const layout = layoutOverlaps(
+      [item('a', at(9), at(9, 5)), item('a', at(15), at(16)), item('b', at(9, 10), at(9, 15))],
+      WEEK,
+    );
+    expect([...layout.chips.keys()]).toEqual(['a', 'b']);
+    expect(layout.chips.get('b')).toMatchObject({ left: 0.5, cascaded: false });
   });
 });
 

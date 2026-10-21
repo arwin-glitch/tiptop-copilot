@@ -21,7 +21,8 @@ import type {
  * The main calendar holds the demo's own synced events (the ones the current
  * day list reads in demo mode), so the parity check agrees in the demo until
  * something is changed here. The other calendars carry what the new views
- * need to show off: overlaps, a recurring series, holds, a busy day, an event
+ * need to show off: overlaps, a recurring series, holds, a busy day, a
+ * conference day of long overlapping blocks under short meetings, an event
  * only its organizer can change, and calendars this account can only read.
  */
 
@@ -32,6 +33,8 @@ export const MOCK_PERSONAL_CALENDAR = 'c_personal-demo@group.calendar.google.com
 export const MOCK_HOLIDAY_CALENDAR = 'c_demo-holidays@group.v.calendar.google.com';
 export const MOCK_DEALS_CALENDAR = 'c_deal-flow-shared@group.calendar.google.com';
 export const MOCK_HIDDEN_CALENDAR = 'c_old-project@group.calendar.google.com';
+/** The busy demo day, this many days after today: long overlapping blocks and short meetings. */
+export const BUSY_DAY_OFFSET = 12;
 
 /** Google's colour palettes as its colors endpoint returns them. */
 export const MOCK_COLORS: GCalColors = {
@@ -327,6 +330,41 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
     },
   ];
 
+  // A conference day twelve days out: long blocks that overlap each other
+  // (travel, the conference, holds) under short meetings, some starting
+  // together, the way a real busy day stacks up. It is what the overlap
+  // layout (cascading, side by side, "+N") is checked and screenshotted on.
+  const busy = day(BUSY_DAY_OFFSET);
+  const busyBlocks: GCalEvent[] = [
+    ['demobusytravel', 'Travel: flight to Denver', [6, 0], [11, 30]],
+    ['demobusysummit', 'Demo Summit: conference day', [8, 0], [18, 0]],
+    ['demobusybooth', 'Hold: summit booth shifts', [10, 0], [15, 0]],
+    ['demobusyhotel', 'Hotel check-in window', [15, 0], [23, 0]],
+    ['demobusydinner', 'Hold: investor dinner', [18, 30], [21, 30]],
+  ].map(([id, summary, from, to]) => ({
+    id: id as string,
+    summary: summary as string,
+    ...timed(busy, from as [number, number], to as [number, number]),
+    ...ownedBy(MOCK_PERSONAL_CALENDAR),
+  }));
+  const busyMeetings: GCalEvent[] = [
+    ['demobusycoffee', 'Coffee with Avery Brooks', [9, 0], [9, 30]],
+    ['demobusypitch', 'Founder pitch: Northwind Robotics', [11, 0], [11, 45]],
+    ['demobusylp', 'LP check-in: Harborview', [12, 0], [12, 45]],
+    ['demobusypanel', 'Panel run-through', [12, 0], [12, 30]],
+    ['demobusysync', 'Quick sync: Jordan', [12, 15], [12, 45]],
+    ['demobusyroundtable', 'Superconductivityroundtable', [13, 30], [14, 30]],
+    ['demobusyintro', 'Intro call: Quinn Labs', [14, 0], [14, 30]],
+    ['demobusyriley', 'Call: Riley Park', [16, 0], [16, 30]],
+    ['demobusymaple', 'Office hours: Maple founders', [16, 15], [17, 0]],
+  ].map(([id, summary, from, to]) => ({
+    id: id as string,
+    summary: summary as string,
+    ...timed(busy, from as [number, number], to as [number, number]),
+    ...ownedBy(MOCK_TEAM_CALENDAR),
+    attendees: [me(), guest('avery@northwind.demo', 'Avery Brooks')],
+  }));
+
   const holidays: GCalEvent[] = [
     {
       id: 'demoholidayfounders',
@@ -379,8 +417,8 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
     colors: MOCK_COLORS,
     events: new Map([
       [MOCK_OWN_EMAIL, all(primary, MOCK_OWN_EMAIL)],
-      [MOCK_TEAM_CALENDAR, all(team, MOCK_TEAM_CALENDAR)],
-      [MOCK_PERSONAL_CALENDAR, all(personal, MOCK_PERSONAL_CALENDAR)],
+      [MOCK_TEAM_CALENDAR, all([...team, ...busyMeetings], MOCK_TEAM_CALENDAR)],
+      [MOCK_PERSONAL_CALENDAR, all([...personal, ...busyBlocks], MOCK_PERSONAL_CALENDAR)],
       [MOCK_HOLIDAY_CALENDAR, all(holidays, MOCK_HOLIDAY_CALENDAR)],
       [MOCK_DEALS_CALENDAR, all(deals, MOCK_DEALS_CALENDAR)],
       [MOCK_HIDDEN_CALENDAR, []],

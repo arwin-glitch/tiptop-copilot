@@ -7,7 +7,8 @@ import {
   hourLabel,
   inAllDayRow,
   instantAt,
-  layoutColumns,
+  layoutOverlaps,
+  MIN_CHIP_PX,
   MINUTES_PER_DAY,
   packItemOf,
   packWeek,
@@ -20,12 +21,18 @@ import {
 import type { CalendarInfo, RangeEvent } from '@/lib/calendar/range-types';
 import { cn } from '@/lib/util/cn';
 import { addDaysToKey, localClock, localDateKey } from '@/lib/util/time';
-import { chipLabel, chipStyle, HOLD_TAG_CLASS } from './event-style';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { chipLabel, chipStyle, HOLD_TAG_CLASS, swatchStyle } from './event-style';
 
 /**
  * The Day and Week views: an hour gutter, one column per day, an all-day row
- * on top and a line at the current time. Overlapping events share their
- * column side by side (lib/calendar/grid.ts, layoutColumns). With editing on,
+ * on top and a line at the current time. Overlapping events are laid out as
+ * Google Calendar does (lib/calendar/grid.ts, layoutOverlaps): events that
+ * start together share the width side by side, and one that starts later is
+ * drawn over the earlier one, shifted right and nearly full width, with a thin
+ * outline in the page's colour. No chip is narrower than MIN_CHIP_PX on a
+ * computer; when more than that fit, the rest fold into a "+N" that lists
+ * them. With editing on,
  * as in Google Calendar: drag across empty time to create, drag an event to
  * move it (to another day too, in Week), drag its bottom edge to change its
  * length, all on a 15-minute snap; drag across days in the all-day row for an
@@ -33,17 +40,46 @@ import { chipLabel, chipStyle, HOLD_TAG_CLASS } from './event-style';
  * quick editor is open beside it. A plain click opens the event's card; on a
  * touch screen a tap does, and dragging is left to scrolling.
  *
- * Titles wrap over as many lines as the event's height allows (narrow
- * overlapping columns included), with the time below when there is room.
+ * Titles wrap over as many lines as the event's height allows, with the time
+ * below when there is room. A title never breaks inside a word: a word too
+ * long for its chip ends in an ellipsis, a narrow chip shows only the start of
+ * its title, and a sliver on a phone only its colour.
  */
 
 export const HOUR_PX = 48;
 const GUTTER_PX = 52;
-const MIN_CHIP_PX = 18;
+const MIN_CHIP_HEIGHT_PX = 18;
 const DRAG_THRESHOLD_PX = 4;
 const ALL_DAY_LANE_PX = 22;
 /** One line of a chip's 12px text, for how many lines of title fit. */
 const CHIP_LINE_PX = 15;
+/** The room between a chip and its neighbour, in px (1px left, 2px right). */
+const CHIP_GAP_PX = 3;
+/** Narrower than this a chip shows one line of title; narrower still, only its colour. */
+const ONE_LINE_CHIP_PX = 52;
+const COLOUR_ONLY_CHIP_PX = 16;
+/**
+ * Chips stack by start (1 up); a chip being dragged goes above them all, under
+ * only the new event's placeholder (900), the time line (910) and a focused
+ * chip (930). The grid is its own stacking context, so none of this reaches
+ * past it.
+ */
+const Z_DRAGGING = 920;
+
+/** A title as words, each kept whole: one too long for the chip ends in an ellipsis. */
+function TitleWords({ title }: { title: string }) {
+  const words = title.split(/\s+/).filter(Boolean);
+  return (
+    <>
+      {words.map((word, i) => (
+        <React.Fragment key={i}>
+          {i ? ' ' : null}
+          <span className="inline-block max-w-full truncate align-top">{word}</span>
+        </React.Fragment>
+      ))}
+    </>
+  );
+}
 
 export interface GridChange {
   start: Date;
@@ -143,6 +179,26 @@ export function TimeGrid({
   const editable = (e: RangeEvent) => canEdit && e.canModify;
   const single = days.length === 1;
 
+  // A day column's width, for the overlap layout's minimum chip width. Until
+  // the page is in the browser a typical width stands in, the same on both
+  // sides, so the server's page and the browser's first draw agree.
+  const [columnPx, setColumnPx] = React.useState(single ? 640 : 120);
+  React.useLayoutEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    // What a chip's percentages are of: a column's inside, past its 1px left border.
+    const measure = () => {
+      const width = (el.getBoundingClientRect().width - GUTTER_PX) / days.length - 1;
+      if (width > 0) setColumnPx(width);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [days.length]);
+  // At least MIN_CHIP_PX drawn; on a phone's narrow week columns, two to a column.
+  const minChipPx = Math.min(MIN_CHIP_PX + CHIP_GAP_PX, Math.floor(columnPx / 2));
+
   // Esc drops a drag where it started, as in Google Calendar; nothing is saved.
   const dragging = drag !== null;
   React.useEffect(() => {
@@ -220,7 +276,9 @@ export function TimeGrid({
 
   function onPointerDownEmpty(e: React.PointerEvent<HTMLDivElement>) {
     if (!canEdit || e.button !== 0) return;
-    if ((e.target as HTMLElement).closest('[data-event-chip]')) return;
+    // A press in a "+N" list (drawn elsewhere on the page) is not a press on the grid.
+    if (!(e.target instanceof Node) || !contentRef.current?.contains(e.target)) return;
+    if ((e.target as HTMLElement).closest('[data-event-chip], [data-event-fold]')) return;
     // The hour labels are not a day: a click there makes nothing.
     const rect = contentRef.current?.getBoundingClientRect();
     if (!rect || e.clientX - rect.left < GUTTER_PX) return;
@@ -425,7 +483,7 @@ export function TimeGrid({
       >
         <div
           ref={contentRef}
-          className={cn('relative grid select-none', canEdit && 'cursor-cell')}
+          className={cn('relative isolate grid select-none', canEdit && 'cursor-cell')}
           style={{ gridTemplateColumns: columns, height: 24 * HOUR_PX }}
           onPointerDown={onPointerDownEmpty}
           onPointerMove={onPointerMove}
@@ -451,9 +509,11 @@ export function TimeGrid({
               .filter((s): s is { event: RangeEvent; seg: { start: number; end: number } } =>
                 Boolean(s.seg),
               );
-            const placements = layoutColumns(
+            const layout = layoutOverlaps(
               segments.map((s) => ({ key: s.event.key, start: s.seg.start, end: s.seg.end })),
+              { columnPx, minChipPx },
             );
+            const byKey = new Map(segments.map((s) => [s.event.key, s.event]));
             const creating = drag?.mode === 'create' && drag.day === d ? drag : null;
             const held =
               !creating && newSlot && !newSlot.allDay
@@ -473,9 +533,13 @@ export function TimeGrid({
                 }}
               >
                 {segments.map(({ event, seg }) => {
-                  const place = placements.get(event.key)!;
+                  const place = layout.chips.get(event.key);
+                  if (!place) return null; // folded into a "+N"
                   const top = (seg.start / 60) * HOUR_PX;
-                  const height = Math.max(MIN_CHIP_PX, ((seg.end - seg.start) / 60) * HOUR_PX - 1);
+                  const height = Math.max(
+                    MIN_CHIP_HEIGHT_PX,
+                    ((seg.end - seg.start) / 60) * HOUR_PX - 1,
+                  );
                   // The bottom edge to drag is on the day the event really ends.
                   const endsHere =
                     event.endsAt !== null &&
@@ -485,6 +549,11 @@ export function TimeGrid({
                   const past =
                     nowMs !== null && event.endsAt !== null && Date.parse(event.endsAt) < nowMs;
                   const compact = height < 34;
+                  // How wide it is drawn: a narrow chip gets one line, a sliver only its colour.
+                  const widthPx = place.width * columnPx - CHIP_GAP_PX;
+                  const narrow = widthPx < ONE_LINE_CHIP_PX;
+                  const colourOnly = widthPx < COLOUR_ONLY_CHIP_PX;
+                  const oneLine = compact || narrow;
                   // As many lines of title as the height allows; the time follows if room is left.
                   const titleLines = Math.max(1, Math.floor((height - 4) / CHIP_LINE_PX));
                   return (
@@ -493,6 +562,7 @@ export function TimeGrid({
                       type="button"
                       data-event-chip
                       data-event-key={event.key}
+                      data-cascaded={place.cascaded ? '' : undefined}
                       onPointerDown={(e) => onChipPointerDown(e, event)}
                       onClick={(e) => onOpen(event, e.currentTarget)}
                       aria-label={chipLabel(
@@ -501,60 +571,72 @@ export function TimeGrid({
                         calendars.get(event.calendarId)?.name ?? null,
                       )}
                       className={cn(
-                        'absolute overflow-hidden rounded-[5px] border px-1.5 text-left text-[12px] leading-tight transition-shadow focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]',
+                        'absolute z-[var(--chip-z)] flex flex-col overflow-hidden rounded-[5px] border text-left text-[12px] leading-tight [overflow-wrap:normal] [word-break:normal] transition-shadow focus-visible:z-[930] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]',
+                        narrow ? 'px-0.5' : 'px-1.5',
                         compact ? 'py-0' : 'py-0.5',
                         editable(event) && 'cursor-grab active:cursor-grabbing',
                         past && !dragging && 'opacity-75',
                       )}
-                      style={{
+                      style={chipBoxStyle(event, {
                         top,
                         height,
-                        left: `calc(${(place.col / place.cols) * 100}% + 1px)`,
-                        width: `calc(${(place.span / place.cols) * 100}% - 3px)`,
-                        ...chipStyle(event, { dragging: Boolean(dragging) }),
-                      }}
+                        left: place.left,
+                        width: place.width,
+                        z: dragging ? Z_DRAGGING : place.z,
+                        dragging: Boolean(dragging),
+                        cascaded: place.cascaded,
+                      })}
                     >
-                      <span
-                        className={cn('flex min-w-0 items-start gap-1', compact && 'items-center')}
-                      >
+                      {colourOnly ? null : (
                         <span
-                          data-chip-title=""
                           className={cn(
-                            'min-w-0 flex-1',
-                            compact ? 'truncate' : 'break-words',
-                            event.verdict.meeting ? 'font-semibold' : 'font-medium',
+                            'flex min-w-0 items-start gap-1',
+                            oneLine && 'items-center',
                           )}
-                          style={
-                            compact
-                              ? undefined
-                              : {
-                                  display: '-webkit-box',
-                                  WebkitBoxOrient: 'vertical',
-                                  WebkitLineClamp: titleLines,
-                                  overflow: 'hidden',
-                                }
-                          }
                         >
-                          {event.title}
-                          {compact ? (
-                            <span className="font-normal opacity-80">
-                              , {shortTime(event.startsAt!, timeZone)}
-                            </span>
+                          <span
+                            data-chip-title=""
+                            className={cn(
+                              'min-w-0 flex-1',
+                              oneLine && 'truncate',
+                              event.verdict.meeting ? 'font-semibold' : 'font-medium',
+                            )}
+                            style={
+                              oneLine
+                                ? undefined
+                                : {
+                                    display: '-webkit-box',
+                                    WebkitBoxOrient: 'vertical',
+                                    WebkitLineClamp: titleLines,
+                                    overflow: 'hidden',
+                                  }
+                            }
+                          >
+                            {oneLine ? event.title : <TitleWords title={event.title} />}
+                            {compact && !narrow ? (
+                              <span className="font-normal opacity-80">
+                                , {shortTime(event.startsAt!, timeZone)}
+                              </span>
+                            ) : null}
+                          </span>
+                          {event.hold && !narrow ? (
+                            <span className={HOLD_TAG_CLASS}>Hold</span>
+                          ) : null}
+                          {event.verdict.meeting && !narrow ? (
+                            // A phone's week columns are narrow: the title gets the room.
+                            <Bell
+                              className={cn(
+                                'mt-0.5 size-3 shrink-0 opacity-80',
+                                !single && 'max-sm:hidden',
+                              )}
+                              aria-hidden
+                            />
                           ) : null}
                         </span>
-                        {event.hold ? <span className={HOLD_TAG_CLASS}>Hold</span> : null}
-                        {event.verdict.meeting ? (
-                          // A phone's week columns are narrow: the title gets the room.
-                          <Bell
-                            className={cn(
-                              'mt-0.5 size-3 shrink-0 opacity-80',
-                              !single && 'max-sm:hidden',
-                            )}
-                            aria-hidden
-                          />
-                        ) : null}
-                      </span>
-                      {!compact ? <span className="block truncate opacity-80">{when}</span> : null}
+                      )}
+                      {!compact && !narrow ? (
+                        <span className="block truncate opacity-80">{when}</span>
+                      ) : null}
                       {editable(event) && endsHere ? (
                         <span
                           aria-hidden
@@ -566,13 +648,35 @@ export function TimeGrid({
                   );
                 })}
 
+                {layout.folds.map((fold) => (
+                  <FoldChip
+                    key={fold.key}
+                    events={fold.keys
+                      .map((k) => byKey.get(k))
+                      .filter((e): e is RangeEvent => Boolean(e))}
+                    top={(fold.start / 60) * HOUR_PX}
+                    height={Math.max(
+                      MIN_CHIP_HEIGHT_PX,
+                      ((fold.end - fold.start) / 60) * HOUR_PX - 1,
+                    )}
+                    left={fold.left}
+                    width={fold.width}
+                    z={fold.z}
+                    timeZone={timeZone}
+                    onOpen={onOpen}
+                  />
+                ))}
+
                 {held ? (
                   <div
                     data-new-event=""
-                    className="pointer-events-none absolute inset-x-0.5 z-[3] overflow-hidden rounded-[5px] border border-[var(--primary)] bg-[var(--primary)]/30 px-1.5 py-0.5 text-[12px] leading-tight font-medium text-[var(--fg)] shadow-[var(--elevation-lifted)]"
+                    className="pointer-events-none absolute inset-x-0.5 z-[900] overflow-hidden rounded-[5px] border border-[var(--primary)] bg-[var(--primary)]/30 px-1.5 py-0.5 text-[12px] leading-tight font-medium text-[var(--fg)] shadow-[var(--elevation-lifted)]"
                     style={{
                       top: (held.start / 60) * HOUR_PX,
-                      height: Math.max(MIN_CHIP_PX, ((held.end - held.start) / 60) * HOUR_PX - 1),
+                      height: Math.max(
+                        MIN_CHIP_HEIGHT_PX,
+                        ((held.end - held.start) / 60) * HOUR_PX - 1,
+                      ),
                     }}
                   >
                     (No title)
@@ -584,11 +688,11 @@ export function TimeGrid({
 
                 {creating ? (
                   <div
-                    className="pointer-events-none absolute inset-x-0.5 rounded-[5px] border border-[var(--primary)] bg-[var(--primary)]/25 px-1.5 py-0.5 text-[12px] font-medium text-[var(--fg)]"
+                    className="pointer-events-none absolute inset-x-0.5 z-[900] rounded-[5px] border border-[var(--primary)] bg-[var(--primary)]/25 px-1.5 py-0.5 text-[12px] font-medium text-[var(--fg)]"
                     style={{
                       top: (snap(Math.min(creating.anchor, creating.current)) / 60) * HOUR_PX,
                       height: Math.max(
-                        MIN_CHIP_PX,
+                        MIN_CHIP_HEIGHT_PX,
                         (Math.max(
                           SNAP_MINUTES,
                           snap(Math.max(creating.anchor, creating.current)) -
@@ -606,7 +710,7 @@ export function TimeGrid({
                 {nowMin !== null && d === today ? (
                   <div
                     aria-hidden
-                    className="pointer-events-none absolute inset-x-0 z-[4] h-0.5 bg-[var(--danger)]"
+                    className="pointer-events-none absolute inset-x-0 z-[910] h-0.5 bg-[var(--danger)]"
                     style={{ top: (nowMin / 60) * HOUR_PX }}
                   >
                     <span className="absolute -top-[5px] -left-[6px] size-3 rounded-full bg-[var(--danger)]" />
@@ -618,6 +722,108 @@ export function TimeGrid({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A grid chip's box: where the overlap layout put it, in the event's colours,
+ * stacked by `z` (through a variable, so a focused chip can still rise above).
+ * One drawn over an earlier event gets a 1px outline in the page's colour.
+ */
+function chipBoxStyle(
+  event: RangeEvent,
+  box: {
+    top: number;
+    height: number;
+    left: number;
+    width: number;
+    z: number;
+    dragging: boolean;
+    cascaded: boolean;
+  },
+): React.CSSProperties {
+  const { zIndex: _ignored, ...colours } = chipStyle(event, { dragging: box.dragging });
+  return {
+    top: box.top,
+    height: box.height,
+    left: `calc(${box.left * 100}% + 1px)`,
+    width: `calc(${box.width * 100}% - ${CHIP_GAP_PX}px)`,
+    ['--chip-z' as string]: box.z,
+    ...colours,
+    ...(box.cascaded && !box.dragging ? { boxShadow: '0 0 0 1px var(--bg-raised)' } : {}),
+  };
+}
+
+/**
+ * The "+N" for events with no room left beside the others: as tall as the
+ * time they cover, and a click lists them, each opening its own card.
+ */
+function FoldChip({
+  events,
+  top,
+  height,
+  left,
+  width,
+  z,
+  timeZone,
+  onOpen,
+}: {
+  events: RangeEvent[];
+  top: number;
+  height: number;
+  left: number;
+  width: number;
+  z: number;
+  timeZone: string;
+  onOpen: (event: RangeEvent, element: HTMLElement) => void;
+}) {
+  const first = events[0];
+  if (!first?.startsAt) return null;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-event-fold=""
+          aria-label={`${events.length} more events from ${shortTime(first.startsAt, timeZone)}`}
+          className="absolute z-[var(--chip-z)] flex flex-col items-center overflow-hidden rounded-[5px] border border-[var(--border-strong)] bg-[var(--bg-hover)] px-0.5 py-0.5 text-center text-[12px] leading-tight font-semibold whitespace-nowrap text-[var(--fg)] hover:bg-[var(--bg-raised)] focus-visible:z-[930] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]"
+          style={{
+            top,
+            height,
+            left: `calc(${left * 100}% + 1px)`,
+            width: `calc(${width * 100}% - ${CHIP_GAP_PX}px)`,
+            ['--chip-z' as string]: z,
+            boxShadow: '0 0 0 1px var(--bg-raised)',
+          }}
+        >
+          +{events.length}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64">
+        <ul className="space-y-0.5">
+          {events.map((e) => (
+            <li key={e.key}>
+              <button
+                type="button"
+                onClick={(ev) => onOpen(e, ev.currentTarget)}
+                className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-sm hover:bg-[var(--bg-hover)]"
+              >
+                <span
+                  aria-hidden
+                  className="size-2 shrink-0 rounded-full border"
+                  style={swatchStyle(e.color.background, !e.verdict.meeting)}
+                />
+                <span className="shrink-0 text-xs text-[var(--fg-muted)] tabular-nums">
+                  {e.startsAt ? shortTime(e.startsAt, timeZone) : ''}
+                </span>
+                <span className="min-w-0 truncate">{e.title}</span>
+                {e.hold ? <span className={HOLD_TAG_CLASS}>Hold</span> : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
   );
 }
 
