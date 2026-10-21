@@ -22,7 +22,10 @@ export const CAMPAIGN_ATTACHMENT_KINDS =
 /**
  * The type a file with no useful declared type is taken to be, by its
  * ending: browsers send none (or application/octet-stream) for a type the
- * computer does not know, as Windows often does for Markdown.
+ * computer does not know, as Windows often does for Markdown, and some
+ * computers label a supported file with a type the bucket does not list
+ * (with Excel installed, Windows labels every .csv
+ * application/vnd.ms-excel).
  */
 const TYPE_BY_EXTENSION: Record<string, string> = {
   pdf: 'application/pdf',
@@ -47,14 +50,14 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
  * The content type a shared attachment is stored and sent with, or null when
  * a campaign cannot carry it. A declared type the bucket takes is kept (as a
  * browser sends it: lowercased, no parameters), so a supported file is stored
- * and sent exactly as before; with no declared type, or
- * application/octet-stream, the file name's ending decides.
+ * and sent exactly as before. Any other declared type (none,
+ * application/octet-stream, or a label like application/vnd.ms-excel on a
+ * .csv) says nothing the bucket can use, so the file name's ending decides:
+ * a .csv goes as CSV, while an .xlsx, a .zip or an unknown ending is refused.
  */
 export function campaignAttachmentType(name: string, declaredType: string): string | null {
   const declared = normalizeMimeType(declaredType);
-  if (declared && declared !== 'application/octet-stream') {
-    return CAMPAIGN_ATTACHMENT_TYPES.includes(declared) ? declared : null;
-  }
+  if (CAMPAIGN_ATTACHMENT_TYPES.includes(declared)) return declared;
   const dot = name.lastIndexOf('.');
   const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
   return TYPE_BY_EXTENSION[extension] ?? null;

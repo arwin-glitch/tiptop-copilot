@@ -31,6 +31,16 @@ describe('campaignAttachmentType', () => {
     expect(campaignAttachmentType('photo.JPG', '')).toBe('image/jpeg');
   });
 
+  it('reads a supported file the computer labels with another type from its name', () => {
+    // With Excel installed, Windows labels every .csv as a spreadsheet: it is
+    // still a CSV, and refusing it with "campaigns carry ... CSV" would make
+    // no sense.
+    expect(campaignAttachmentType('Contacts.csv', 'application/vnd.ms-excel')).toBe('text/csv');
+    expect(campaignAttachmentType('notes.md', 'text/x-markdown')).toBe('text/markdown');
+    expect(campaignAttachmentType('photo.jpg', 'image/pjpeg')).toBe('image/jpeg');
+    expect(campaignAttachmentType('Letter.pdf', 'application/x-pdf')).toBe('application/pdf');
+  });
+
   it('refuses what storage would refuse: spreadsheets, zips, unknown types', () => {
     for (const [name, type] of [
       ['model.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],

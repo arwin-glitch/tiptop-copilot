@@ -1585,12 +1585,28 @@ describe('attachments', () => {
         Buffer.from('# Notes'),
       ),
     );
-    expect(recording.puts).toEqual(['application/pdf', 'application/pdf', 'text/markdown']);
+    // Excel on Windows labels a .csv application/vnd.ms-excel: a CSV all the same.
+    const csv = must(
+      await attach(
+        recording,
+        campaign.id,
+        'Contacts.csv',
+        'application/vnd.ms-excel',
+        Buffer.from('name,email'),
+      ),
+    );
+    expect(recording.puts).toEqual([
+      'application/pdf',
+      'application/pdf',
+      'text/markdown',
+      'text/csv',
+    ]);
     expect(last.attachments.map((a) => [a.name, a.type])).toEqual([
       ['Deck.pdf', 'application/pdf'],
       ['Letter.pdf', 'application/pdf'],
       ['notes.md', 'text/markdown'],
     ]);
+    expect(csv.attachments.at(-1)).toMatchObject({ name: 'Contacts.csv', type: 'text/csv' });
   });
 
   it('a storage refusal is the same user error, not a 500', async () => {
