@@ -377,17 +377,34 @@ export async function archiveThread(
   return res.ok ? ok(true) : res;
 }
 
-/** The only labels the inbox may change: read state, star, and inbox (archive / move back). */
+/** The only system labels the inbox may change: read state, star, and inbox (archive / move back). */
 export type InboxLabel = 'UNREAD' | 'STARRED' | 'INBOX';
 
-/** Add or remove those labels on a whole thread. Refuses without the send grant. */
+/**
+ * A label of the person's own (Gmail ids them `Label_…`). The caller checks
+ * it is one of theirs and plans the change (lib/email/inbox-actions.ts).
+ */
+export type UserLabelId = `Label_${string}`;
+
+/** Everything this module will put on or take off a thread: no other system label. */
+const WRITABLE_LABEL = /^(UNREAD|STARRED|INBOX|Label_[0-9A-Za-z]{1,40})$/;
+
+/**
+ * Add or remove those labels on a whole thread, from a person's tap in the
+ * Inbox tab. Refuses without the send grant, and refuses any label id that is
+ * neither one of the three above nor a label of the person's own.
+ */
 export async function setThreadLabels(
   store: DataStore,
   integration: Integration,
   id: string,
-  change: { add?: InboxLabel[]; remove?: InboxLabel[] },
+  change: { add?: (InboxLabel | UserLabelId)[]; remove?: (InboxLabel | UserLabelId)[] },
 ): Promise<Result<true>> {
   if (!canSend(integration)) return err('forbidden', 'This needs sending turned on.');
+  const labels = [...(change.add ?? []), ...(change.remove ?? [])];
+  if (labels.length === 0 || labels.some((l) => !WRITABLE_LABEL.test(l))) {
+    return err('invalid_input', 'That label cannot be changed from the app.');
+  }
   const threadId = await resolveThreadId(store, integration, id);
   if (!threadId.ok) return threadId;
   const res = await gmail<unknown>(store, integration, `/threads/${threadId.value}/modify`, {

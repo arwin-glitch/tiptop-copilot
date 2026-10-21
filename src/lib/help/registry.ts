@@ -373,7 +373,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'inbox',
     name: 'Inbox',
     href: '/inbox',
-    purpose: 'Your Gmail, live. Read, reply, archive and star without leaving.',
+    purpose: 'Your Gmail, live. Read, reply, archive, star and label without leaving.',
     subtabs: [
       { key: 'primary', label: 'Primary', blurb: 'The main inbox, as in Gmail.' },
       { key: 'other', label: 'Other tabs', blurb: 'Promotions, Updates and the other Gmail tabs.' },
@@ -384,7 +384,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       navStep(
         '/inbox',
         'Your Gmail, live',
-        'Inbox is your Gmail: read, reply, archive and star right here.',
+        'Inbox is your Gmail: read, reply, archive, star and label right here.',
       ),
       {
         target: 'inbox-tabs',
@@ -401,7 +401,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'inbox-list',
         title: 'Conversations',
-        body: 'Tap a thread to read it. Star or archive straight from the row.',
+        body: 'Tap a thread to read it. Star, label or archive straight from the row.',
         placement: 'right',
         grand: true,
       },

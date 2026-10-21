@@ -334,6 +334,7 @@ describe('toFollowUpEmail', () => {
     starred: false,
     inInbox: true,
     labels: [],
+    labelIds: [],
     messages,
   });
 
