@@ -419,6 +419,44 @@ test('Email guests opens a draft to the guests; nothing sends without its own ta
   expect(writes).toEqual([]);
 });
 
+test('a meeting’s latest emails offer Copilot or Gmail, as on the day list', async ({ page }) => {
+  // The demo mailbox has no email with these guests, so the context answer is
+  // stubbed with a fictional thread; the card draws whatever the route says.
+  await page.route('**/api/calendar/context?**', (route) =>
+    route.fulfill({
+      json: {
+        ok: true,
+        found: true,
+        context: {
+          dossier: null,
+          prep: null,
+          recent: [
+            {
+              id: '18f0a1b2c3d4e5f6',
+              subject: 'Reference call notes',
+              at: new Date().toISOString(),
+            },
+          ],
+        },
+      },
+    }),
+  );
+  await page.goto(`/calendar?view=day&date=${dayFromToday(0)}`);
+  const title = 'Girder AI — reference call debrief';
+  await chip(page, title).click();
+  const card = page.getByRole('dialog', { name: title });
+  await expect(card.getByText('Latest emails with them', { exact: true })).toBeVisible();
+  await expect(
+    card.getByRole('link', { name: 'Open in Copilot: Reference call notes' }),
+  ).toHaveAttribute('href', '/inbox?thread=18f0a1b2c3d4e5f6');
+  const gmail = card.getByRole('link', { name: 'Open in Gmail: Reference call notes' });
+  await expect(gmail).toHaveAttribute(
+    'href',
+    /^https:\/\/mail\.google\.com\/mail\/\?authuser=[^#]+#all\/18f0a1b2c3d4e5f6$/,
+  );
+  await expect(gmail).toHaveAttribute('target', '_blank');
+});
+
 test('the quick editor opens beside the dragged slot, which stays drawn', async ({ page }) => {
   const day = '2027-03-10';
   await page.goto(`/calendar?view=week&date=${day}`);
