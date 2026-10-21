@@ -9,7 +9,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/feedback';
 import { COMPLETED_PAGE, completedSections, type CompletedGroupKey } from '@/lib/tasks/tasks-view';
+import type { ProofCheckView } from '@/lib/tasks/proof';
+import { CompanyChip, type TaskCompanyChip } from './company-chip';
 import { ProofLine } from './money-legal-tasks';
+import { ConfirmProofButton, ProofCheckNote } from './proof-check';
 import { useFocusAfterRemoval } from './use-row-focus';
 
 /** A completed task as the server prepared it: labels already worked out. */
@@ -32,6 +35,13 @@ export interface CompletedTaskItem {
   };
   /** What a person closed it on: a link, or who confirmed it. */
   proof?: { label: string; href: string | null; note: string | null; auto: boolean };
+  /**
+   * For a deliverable a person ticked: "Seen sent" once it showed up, or
+   * "Ticked, not seen sent" when its window passed with nothing.
+   */
+  proofCheck?: ProofCheckView | null;
+  /** The deal, portfolio or CRM company it is about. */
+  company?: TaskCompanyChip | null;
 }
 
 /** The Completed tab: newest first, under Today / Yesterday / Earlier headings. */
@@ -112,11 +122,17 @@ function CompletedRow({
   index: number;
   onReopened: () => void;
 }) {
+  // A flagged row carries two buttons; on a phone they go under the text.
+  const flagged = item.proofCheck?.state === 'flagged';
   return (
     <li
       data-index={index}
       tabIndex={-1}
-      className="flex items-start justify-between gap-3 px-4 py-3"
+      className={
+        flagged
+          ? 'flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-3'
+          : 'flex items-start justify-between gap-3 px-4 py-3'
+      }
     >
       <div className="min-w-0 break-words">
         <p className="text-sm font-medium">
@@ -127,6 +143,7 @@ function CompletedRow({
           ) : (
             item.title
           )}
+          <CompanyChip company={item.company} />
           {item.suggested ? (
             <Badge tone="outline" className="ml-2">
               Suggested
@@ -167,8 +184,14 @@ function CompletedRow({
           </div>
         ) : null}
         {item.proof ? <ProofLine proof={item.proof} /> : null}
+        <ProofCheckNote view={item.proofCheck} />
       </div>
-      <ReopenTaskButton taskId={item.id} title={item.title} onReopened={onReopened} />
+      <div className="flex shrink-0 flex-wrap items-center gap-1 sm:justify-end">
+        {item.proofCheck?.state === 'flagged' ? (
+          <ConfirmProofButton taskId={item.id} title={item.title} />
+        ) : null}
+        <ReopenTaskButton taskId={item.id} title={item.title} onReopened={onReopened} />
+      </div>
     </li>
   );
 }

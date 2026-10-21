@@ -10,6 +10,7 @@ import { autoCloseStatesProof } from '@/lib/tasks/money-legal';
 import { formatMonthDay, formatTime, localClock, localDateKey } from '@/lib/util/time';
 import { isMoneyLegalTask, recordNeedsProof } from './money-legal-records';
 import { normalizeTitle } from './task-ingest';
+import { applyProofEvidence, listAwaitingProof, type TaskProofCheck } from './task-proof';
 
 /**
  * Closing tasks that are already done, from evidence.
@@ -103,7 +104,7 @@ export type ParsedTaskCloseMessage =
   | { kind: 'run'; run: TaskCloserRun };
 
 /** Null and empty-string fields are "absent", as the routine may spell either. */
-function dropBlank(value: unknown): unknown {
+export function dropBlank(value: unknown): unknown {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
   const out: Record<string, unknown> = {};
   for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
@@ -114,7 +115,8 @@ function dropBlank(value: unknown): unknown {
   return out;
 }
 
-function markerOf(clean: string): string {
+/** A relay post's first line: its marker. */
+export function markerOf(clean: string): string {
   return (clean.split('\n', 1)[0] ?? '').trim();
 }
 
@@ -396,10 +398,12 @@ export interface TaskCloseCounts {
   closed: number;
   skipped: Partial<Record<TaskCloseSkip, number>>;
   rejected: number;
+  /** Closes for a task a person already ticked, kept as its proof ("Seen sent"). */
+  proofs: number;
 }
 
 export function zeroCloseCounts(): TaskCloseCounts {
-  return { closed: 0, skipped: {}, rejected: 0 };
+  return { closed: 0, skipped: {}, rejected: 0, proofs: 0 };
 }
 
 const SNAPSHOT_TITLE_MAX = 200;
@@ -414,7 +418,7 @@ export function snapshotTitle(title: string): string {
  * Titles as compared: case and spacing aside, and without the scheme Slack
  * adds when it auto-links a bare domain or address in a post.
  */
-function titleKey(title: string): string {
+export function titleKey(title: string): string {
   return normalizeTitle(title.replace(/\b(?:https?:\/\/|mailto:)/gi, ''));
 }
 
@@ -425,6 +429,11 @@ function titleKey(title: string): string {
  * when exactly one matches. A task a person created closes by id or not at
  * all. A person can edit a title, which is a touch of its own: a close still
  * naming the old title is skipped, the safe way round.
+ *
+ * A close for a task a person already ticked by hand is never applied, but
+ * when that tick is still waiting for its proof (see task-proof.ts), the
+ * close's sent email or meeting is that proof: by id, or by title among the
+ * ticked tasks still waiting, when exactly one matches.
  */
 export async function applyTaskCloses(
   store: DataStore,
@@ -450,6 +459,37 @@ export async function applyTaskCloses(
     byTitle.set(key, [...(byTitle.get(key) ?? []), task]);
   }
   const closedHere = new Set<string>();
+  // Ticked tasks still waiting for their proof, read once, only if a close needs them.
+  let awaiting: Promise<{ task: Task; check: TaskProofCheck }[]> | null = null;
+  // A fault reading them only means no close counts as a proof this pull.
+  const waitingFor = () =>
+    (awaiting ??= listAwaitingProof(store, organizationId, now).catch(() => []));
+  const asProof = async (task: Task, close: TaskClose, postedAt: string, slackTs: string) => {
+    if (task.status !== 'complete' || closedHere.has(task.id)) return false;
+    const waiting = (await waitingFor()).find((row) => row.task.id === task.id);
+    if (!waiting) return false;
+    const applied = await applyProofEvidence(
+      store,
+      organizationId,
+      waiting.task,
+      {
+        source: 'task-closer',
+        evidence_type: close.evidence.type,
+        evidence_id: close.evidence.id,
+        evidence_at: new Date(evidenceTime(close.evidence_at, postedAt)).toISOString(),
+        thread_id: close.evidence.thread_id ?? null,
+        reason: close.reason,
+        slack_ts: slackTs,
+        posted_at: postedAt,
+      },
+      waiting.check,
+    );
+    if (applied === 'seen') {
+      counts.proofs++;
+      waiting.check.state = 'seen';
+    }
+    return applied === 'seen' || applied === 'already_applied';
+  };
 
   for (const { close, postedAt, slackTs } of closes) {
     const title = titleKey(close.title);
@@ -470,6 +510,13 @@ export async function applyTaskCloses(
     if (!task) {
       const candidates = (byTitle.get(title) ?? []).filter((t) => !closedHere.has(t.id));
       if (candidates.length === 0) {
+        const ticked = (await waitingFor()).filter(
+          (row) =>
+            titleKey(row.task.title) === title || titleKey(snapshotTitle(row.task.title)) === title,
+        );
+        if (ticked.length === 1 && (await asProof(ticked[0]!.task, close, postedAt, slackTs))) {
+          continue;
+        }
         skip('no_open_match');
         continue;
       }
@@ -481,7 +528,7 @@ export async function applyTaskCloses(
     }
 
     if (!isOpenOrSnoozed(task)) {
-      skip('not_open');
+      if (!(await asProof(task, close, postedAt, slackTs))) skip('not_open');
       continue;
     }
     const evidenceMs = evidenceTime(close.evidence_at, postedAt);

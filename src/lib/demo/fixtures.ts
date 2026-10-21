@@ -1,4 +1,5 @@
 import { joinPages } from '@/lib/documents/pages';
+import { proofJudgeAfter } from '@/lib/tasks/proof';
 import { sha256 } from '@/lib/util/hash';
 import { normalizeCompanyName, snippet } from '@/lib/util/text';
 import { localDateKey } from '@/lib/util/time';
@@ -1803,6 +1804,117 @@ runway_months,19,16,14`,
       created_at: daysAgo(now, 3),
       updated_at: daysAgo(now, 3),
     },
+    // Ticked by hand: deliverables the proof check looks for. This one's
+    // email to Maya was seen (its audit rows below); the next two were never
+    // sent, so once the app's check runs (on the first Tasks view) both show
+    // "Ticked, not seen sent" on Completed and on Today.
+    proofTicked(
+      ID.taskProofSeen,
+      'Send Maya the Series A investor shortlist',
+      null,
+      ID.pcLedgerly,
+      6,
+      hoursAgo(now, 50),
+    ),
+    proofTicked(
+      ID.taskProofFlaggedDone,
+      'Review the Q3 LP letter draft so Riley can send it',
+      null,
+      null,
+      9,
+      daysAgo(now, 5),
+    ),
+    proofTicked(
+      ID.taskProofFlaggedReopen,
+      'Reply to Tom about the Girder AI reference list',
+      ID.dealGirder,
+      null,
+      8,
+      daysAgo(now, 6),
+    ),
+  ];
+
+  /** A task a person ticked `completedAt`, created `createdDaysAgo` days ago. */
+  function proofTicked(
+    id: string,
+    title: string,
+    dealId: string | null,
+    portfolioId: string | null,
+    createdDaysAgo: number,
+    completedAt: string,
+  ): Task {
+    return {
+      ...task(id, title, daysAgo(now, createdDaysAgo - 2), dealId, portfolioId, null),
+      status: 'complete',
+      completed_at: completedAt,
+      created_at: daysAgo(now, createdDaysAgo),
+      updated_at: completedAt,
+    };
+  }
+
+  /** The note a person's tick writes for a deliverable (see services/task-proof.ts). */
+  function proofExpected(
+    auditId: string,
+    taskId: string,
+    kind: string,
+    recipients: string[],
+    completedAt: string,
+  ): AuditEvent {
+    return {
+      id: auditId,
+      organization_id: ORG,
+      user_id: USER,
+      action: 'task.proof_expected',
+      entity_type: 'task',
+      entity_id: taskId,
+      metadata: {
+        v: 1,
+        kind,
+        recipients,
+        proof: ['gmail_sent', 'slack_message'],
+        completed_at: completedAt,
+        judge_after: proofJudgeAfter(new Date(completedAt), 'America/Chicago').toISOString(),
+        time_zone: 'America/Chicago',
+        email_message_id: null,
+      },
+      ip_hash: null,
+      created_at: completedAt,
+    };
+  }
+  const proofAuditEvents: AuditEvent[] = [
+    proofExpected(ID.auditProofSeenExpected, ID.taskProofSeen, 'send', ['Maya'], hoursAgo(now, 50)),
+    {
+      id: ID.auditProofSeen,
+      organization_id: ORG,
+      user_id: null,
+      action: 'task.proof_seen',
+      entity_type: 'task',
+      entity_id: ID.taskProofSeen,
+      metadata: {
+        v: 1,
+        expected_id: ID.auditProofSeenExpected,
+        source: 'app-sent-check',
+        evidence_type: 'gmail_sent',
+        evidence_id: '18c0de0a1b2c3d60',
+        evidence_at: hoursAgo(now, 52),
+      },
+      ip_hash: null,
+      created_at: hoursAgo(now, 49),
+    },
+    proofExpected(
+      ID.auditProofFlaggedDoneExpected,
+      ID.taskProofFlaggedDone,
+      'review',
+      ['Riley'],
+      daysAgo(now, 5),
+    ),
+    proofExpected(
+      ID.auditProofFlaggedReopenExpected,
+      ID.taskProofFlaggedReopen,
+      'reply',
+      ['Tom'],
+      daysAgo(now, 6),
+    ),
   ];
 
   const audit_events: AuditEvent[] = [
@@ -1848,6 +1960,7 @@ runway_months,19,16,14`,
       ip_hash: null,
       created_at: hoursAgo(now, 20),
     },
+    ...proofAuditEvents,
   ];
 
   function task(

@@ -92,6 +92,14 @@ export const DEMO_IDS = {
   taskSideLetter: id(908),
   taskWireCheck: id(909),
   auditWireNeedsProof: id(910),
+  // Ticked by hand, with the proof check's verdicts (Tasks → Completed, Today)
+  taskProofSeen: id(911),
+  auditProofSeenExpected: id(912),
+  auditProofSeen: id(913),
+  taskProofFlaggedDone: id(914),
+  auditProofFlaggedDoneExpected: id(915),
+  taskProofFlaggedReopen: id(916),
+  auditProofFlaggedReopenExpected: id(917),
 
   // Thesis
   thesisV1: id(1000),

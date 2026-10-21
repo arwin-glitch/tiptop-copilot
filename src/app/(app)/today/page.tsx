@@ -19,7 +19,10 @@ import { readMoneyLegal, readTaskPeople } from '@/lib/services/money-legal';
 import { readFollowUps, todayLead } from '@/lib/services/follow-ups';
 import { classifyMeeting, meetingFromStoredEvent } from '@/lib/calendar/meetings';
 import { gmailThreadUrl } from '@/lib/deals/links';
-import { autoCheckStatusLine, DEFAULT_MAILBOX } from '@/lib/services/task-close';
+import { autoCheckStatusLine, DEFAULT_MAILBOX, gmailMessageHref } from '@/lib/services/task-close';
+import { proofCheckView, readFlaggedProofTasks } from '@/lib/services/task-proof';
+import { readTaskCompanies } from '@/lib/services/task-company';
+import { taskHref } from '@/lib/tasks/tasks-view';
 import { todayGlanceCards } from '@/lib/tasks/glance';
 import { isAutoAsk, requestLabel } from '@/lib/portfolio/requests';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
@@ -35,6 +38,8 @@ import { BriefingWatcher } from '@/components/today/briefing-watcher';
 import { WelcomeBack } from '@/components/today/welcome-back';
 import { TodayGlance } from '@/components/today/today-glance';
 import { AffinityExitLine } from '@/components/today/affinity-exit-line';
+import { CompanyChip } from '@/components/tasks/company-chip';
+import { NotSeenSentCard, type NotSeenSentItem } from '@/components/tasks/proof-check';
 import {
   CreateFollowUpButton,
   RefreshOutlookButton,
@@ -122,7 +127,7 @@ async function TodayContent({
   // posted a minute ago shows now rather than after the next scheduled sync.
   await pullBriefingsFromSlack(getStore(), auth.organizationId).catch(() => 0);
   const dueTasks = [...data.overdueTasks, ...data.dueTodayTasks];
-  const [routineBrief, routineDossier, followUps, glance, affinityExit, money, people] =
+  const [routineBrief, routineDossier, followUps, glance, affinityExit, money, people, flagged] =
     await Promise.all([
       getCurrentBrief(getStore(), auth.organizationId).catch(() => null),
       getCurrentDossier(getStore(), auth.organizationId).catch(() => null),
@@ -142,7 +147,31 @@ async function TodayContent({
       // leaves the menus plainer.
       readMoneyLegal(getStore(), auth.organizationId, dueTasks),
       readTaskPeople(auth.organizationId),
+      // Ticked tasks whose deliverable was never seen sent. Never throws.
+      readFlaggedProofTasks(getStore(), auth.organizationId, now),
     ]);
+  // Never throws: a fault only leaves the rows without company chips.
+  const companies = await readTaskCompanies(getStore(), auth.organizationId, [
+    ...dueTasks,
+    ...flagged.map(({ task }) => task),
+  ]);
+  const notSeenSent: NotSeenSentItem[] = flagged.flatMap(({ task, check }) => {
+    const view = proofCheckView(check, {
+      timeZone: auth.profile.timezone,
+      messageHref: (id) => gmailMessageHref(DEFAULT_MAILBOX, id),
+    });
+    return view?.state === 'flagged'
+      ? [
+          {
+            id: task.id,
+            title: task.title,
+            href: taskHref(task),
+            company: companies.get(task.id) ?? null,
+            detail: view.detail,
+          },
+        ]
+      : [];
+  });
   // Top priorities leads the page whenever it has a list. Today's list is the
   // to-do list, so Do now steps aside for it; with no list, or only an older
   // one, all three glance cards show and the page still has a live to-do list.
@@ -204,6 +233,8 @@ async function TodayContent({
       ) : null}
 
       {affinityExit ? <AffinityExitLine countdown={affinityExit} /> : null}
+
+      <NotSeenSentCard items={notSeenSent} />
 
       {routineBrief || routineDossier ? (
         <div
@@ -354,6 +385,7 @@ async function TodayContent({
                     ) : (
                       task.title
                     )}
+                    <CompanyChip company={companies.get(task.id)} />
                   </p>
                   {task.detail ? (
                     <p className="mt-0.5 text-sm text-[var(--fg-muted)]">{task.detail}</p>
@@ -379,6 +411,7 @@ async function TodayContent({
                     dueAt: task.due_at,
                     assignedTo: task.assigned_to,
                     moneyLegal: Boolean(money.states.get(task.id)?.on),
+                    company: companies.get(task.id) ?? null,
                   }}
                   people={people}
                 />

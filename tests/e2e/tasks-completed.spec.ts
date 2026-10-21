@@ -14,6 +14,15 @@ const LOOMSTACK = 'Send LoomStack pass note';
 const RECRUITER = 'Introduce Dev to a founding-engineer recruiter';
 // The demo's one task closed automatically; it stays completed throughout.
 const AUTO_CLOSED = 'Answer the LP question on the Q3 reporting timeline';
+// The demo's tasks ticked by hand for the proof check (Tasks → Completed): they stay
+// completed throughout, like the auto-closed one.
+const PROOF_TICKED = [
+  'Send Maya the Series A investor shortlist',
+  'Review the Q3 LP letter draft so Riley can send it',
+  'Reply to Tom about the Girder AI reference list',
+];
+/** Completed rows that belong to the demo and are never reopened by clean-up. */
+const DEMO_DONE = new RegExp([AUTO_CLOSED, ...PROOF_TICKED].join('|'));
 
 // One demo sign-in for the whole file: demo entry is capped at 60 a minute
 // across the suite.
@@ -36,7 +45,7 @@ test.beforeAll(async ({ browser }, testInfo) => {
 
 test.use({ storageState: SIGNED_IN });
 
-// Tests begin with only the auto-closed demo task completed. Reopen whatever a
+// Tests begin with only the demo's own tasks completed. Reopen whatever a
 // test left completed, even one that failed partway, so a retry and the specs
 // after it start clean.
 test.afterEach(async ({ page }) => {
@@ -44,7 +53,7 @@ test.afterEach(async ({ page }) => {
   await gotoTasks(page, '/tasks?view=completed');
   const reopen = tabs(page)
     .completedPanel.getByRole('listitem')
-    .filter({ hasNotText: AUTO_CLOSED })
+    .filter({ hasNotText: DEMO_DONE })
     .getByRole('button', { name: /^Reopen / });
   for (let left = await reopen.count(); left > 0; left--) {
     await reopen.first().click();
@@ -78,15 +87,17 @@ function isTasksRsc(request: Request): boolean {
   );
 }
 
-test('?view=completed opens the Completed tab, with only the auto-closed task', async ({
+test("?view=completed opens the Completed tab, with only the demo's completed tasks", async ({
   page,
 }) => {
   await gotoTasks(page, '/tasks?view=completed');
   const { todo, completed, todoPanel, completedPanel } = tabs(page);
   await expect(completed).toHaveAttribute('aria-selected', 'true');
   await expect(todo).toHaveAttribute('aria-selected', 'false');
-  await expect(completedPanel.getByRole('listitem')).toHaveCount(1);
-  await expect(completedPanel.getByRole('listitem')).toContainText(AUTO_CLOSED);
+  await expect(completedPanel.getByRole('listitem')).toHaveCount(1 + PROOF_TICKED.length);
+  await expect(completedPanel.getByRole('listitem').filter({ hasText: AUTO_CLOSED })).toHaveCount(
+    1,
+  );
   await expect(todoPanel).toBeHidden();
   // The page-level empty state belongs to To do alone.
   await expect(page.getByText('Nothing outstanding')).toBeHidden();
@@ -98,13 +109,13 @@ test('a completed task moves to Completed, and Reopen brings it back to To do', 
   await gotoTasks(page);
   const { completed, todo, todoPanel, completedPanel } = tabs(page);
   await expect(todo).toHaveAttribute('aria-selected', 'true');
-  await expect(completed).toHaveAccessibleName(/^Completed 1$/);
+  await expect(completed).toHaveAccessibleName(/^Completed 4$/);
 
   const open = todoPanel.getByRole('listitem').filter({ hasText: LOOMSTACK });
   await open.getByRole('button', { name: 'Mark complete' }).click();
   await expect(page.getByText('Marked complete', { exact: true })).toBeVisible();
   await expect(open).toHaveCount(0);
-  await expect(completed).toHaveAccessibleName(/^Completed 2$/);
+  await expect(completed).toHaveAccessibleName(/^Completed 5$/);
 
   await completed.click();
   await expect(page).toHaveURL(/\/tasks\?view=completed$/);
@@ -118,7 +129,7 @@ test('a completed task moves to Completed, and Reopen brings it back to To do', 
   await done.getByRole('button', { name: `Reopen ${LOOMSTACK}` }).click();
   await expect(page.getByText('Reopened', { exact: true })).toBeVisible();
   await expect(done).toHaveCount(0);
-  await expect(completed).toHaveAccessibleName(/^Completed 1$/);
+  await expect(completed).toHaveAccessibleName(/^Completed 4$/);
   // Reopening does not switch tabs; the task is waiting on To do. Focus, left
   // behind by the vanished button, goes to the row that took its place.
   await expect(completed).toHaveAttribute('aria-selected', 'true');

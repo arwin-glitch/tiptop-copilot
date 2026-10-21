@@ -289,6 +289,42 @@ A deleted task is `status = 'cancelled'`: off every list and out of search,
 but still in the table, so the suggest routine's title check never adds it
 again.
 
+The proof check for tasks a person ticks by hand, and the company a task is
+about, are kept the same way (see D-065). None of these is a "person touched
+it" action, and none ever changes a task's status:
+
+- `task.proof_expected` (the person who ticked it): written with a person's
+  completion of a deliverable (a reply, a send, feedback, an intro, a
+  signature, a payment; the rules are in `lib/tasks/proof.ts`).
+  `{v: 1, kind, recipients: [names as the task gives them], proof:
+  [evidence types], completed_at, judge_after, time_zone, email_message_id}`.
+  It applies only while `tasks.completed_at` equals its `completed_at`, so an
+  Undo or a Reopen ends it. Not written for a close that carried proof (money
+  and legal), an automatic close, or a Nick-only counterparty.
+- `task.proof_seen` (no user): `{v: 1, expected_id, source:
+  'app-sent-check' | 'task-closer', evidence_type, evidence_id, evidence_at,
+  thread_id?, channel?, reason?, slack_ts?}`. One per expectation. Written by
+  the app's look at synced sent mail, by a `TASK_PROOF_V1` post, or by a
+  `TASK_CLOSE_V1` close for an already-ticked task (a post only when posted
+  after the tick). Its `evidence_id`, like a `task.auto_completed` row's for
+  the same task, never proves a later completion of that task.
+- `task.proof_missing` (no user): `{v: 1, expected_id, judged_at,
+  addressed, to}`, once, when `judge_after` (two business days in the ticker's
+  time zone) passed with nothing seen and the Google connection is working
+  and has synced past `judge_after`, for a task the mailbox owner does (its
+  assignee, or whoever ticked it unassigned). Shows "Ticked, not seen sent".
+  `addressed` is false when no recipient could be matched to an address;
+  `to` names who it should have reached (a reply's sender, for one made from
+  an email). A reply to the mailbox's own message, or to a no-reply sender,
+  is never judged.
+- `task.proof_confirmed` (a person): `{v: 1, expected_id}`, "It's done".
+- `task.company_set` (a person): `{v: 1, kind: 'deal' | 'portfolio' | 'crm' |
+  null, id, name, previous}`, beside the write to `tasks.deal_id` /
+  `tasks.portfolio_company_id` (a deal or portfolio choice sets its column
+  and clears the other; a CRM choice or none clears both). A CRM company has
+  no column, so its chip comes from the newest row while both columns are
+  empty.
+
 ### `ai_usage`
 
 Recorded for **failed** calls too, with the error code and zero cost. A failed

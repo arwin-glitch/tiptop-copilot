@@ -1770,3 +1770,95 @@ built together in one branch.
   assignment) as activity; a marked-only change (the toggle, a proof) is not.
 - The task-closer's snapshot does not carry the money or legal flag yet, so
   the routine itself cannot tell; the app decides when the close arrives.
+
+### D-065 — A proof check for tasks ticked by hand, and a company chip on tasks
+
+**Context.** A tick took the person's word for it. Many tasks are only done
+when something reaches someone (a reply, a document, feedback handed back,
+an intro, a signature, a payment), and a task ticked but never sent simply
+disappeared: the task-closer and the "Reply to" check only look at tasks
+still open, and the suggester never adds a completed title back (D-052).
+Separately, rows did not say which company a task was about ("Send the
+data-room checklist (Brightkiln)"), although most tasks are linked to a deal
+or a portfolio company already.
+
+**Decision.**
+
+- **Deliverables, by rule.** When a person completes a task
+  (`writeTaskStatus`, every hand tick), `lib/tasks/proof.ts` decides from the
+  title whether it is a deliverable: a verb (reply, send, share, forward,
+  tell, review-and-return, intro, sign, pay) and a named recipient, or, for a
+  reply made from an email, that email's sender. Conservative on purpose: a
+  to-do like "Prepare LPAC agenda", "Review the Ridgeline agreement" or
+  "Follow up with Dana" is never one, and neither is a call, an invite, a
+  meeting, anything said to go by Slack, phone or in person, an idiom ("pay
+  attention to", "sign up for", "connect with") or a Title Case noun where a
+  name would be ("Send Monthly Update"). The tick then writes
+  `task.proof_expected`, with the recipients as named and the end of a grace
+  window of two business days (Monday to Friday in the ticker's time zone).
+  Ticking a task that is already complete (a stale tab) is not a new
+  completion: it keeps its time, its automatic close and its proof check.
+- **One notion of proof.** A money or legal close already carries its proof
+  (D-064), so it writes no expectation and is never flagged; an automatic
+  close is not a hand tick. Whatever proves a tick is a `task.proof_seen`.
+- **The app looks first.** The Tasks pull (`pullTaskRelays`, every view, the
+  open-tab watcher and the daily job) runs the proof check at most every five
+  minutes: a real send (the "Reply to" rule, now in
+  `lib/tasks/real-reply.ts`) from the connected mailbox to a recipient after
+  the task was created marks it seen. A reply is read as strictly as the
+  "Reply to" check reads one; any other deliverable may end on a question or
+  pass a document along, and an intro may loop someone in. Recipients are
+  matched to addresses from the team, portfolio contacts, the network, CRM
+  people and senders in the mailbox, or a company's domain; a first name two
+  people share stays unmatched (a wrong "Seen sent" would hide a real miss)
+  unless exactly one of them is at the company the task is linked to. Before
+  flagging, the check also asks for sent mail to the task's own recipients,
+  past the newest-500 scan. Nothing is judged with no mailbox connected,
+  with a broken connection, or before the mailbox has synced past the end
+  of the window: until then a missing email may only be unsynced. Only the
+  mailbox owner's deliverables are flagged from it (the task's assignee, or
+  whoever ticked an unassigned one): a teammate's goes out from their own
+  mailbox, which the app cannot see. A send it does see still proves one.
+- **Evidence is used once.** Evidence that proved an earlier completion of
+  the same task, or an automatic close a person then reopened, never proves
+  a later tick: the person reopening said that was not it. A task-closer
+  post counts only if it was posted after the tick, so re-reading an old
+  post every run can never prove a new one, and only evidence of a kind the
+  deliverable lists (`proof`) counts: a payment confirmation proves a
+  payment, not a reply.
+- **The routine adds what the app cannot see.** Slack DMs and payment or
+  signature notices come from the task-closer as `TASK_PROOF_V1` in
+  #deal-relay, mirroring `TASK_CLOSE_V1`: the same channel and window, the
+  same trusted posters, the first line exactly the marker, add-only and
+  idempotent. A proof only marks a ticked task seen; it never closes,
+  reopens or changes a task, and one for an open task is ignored. A
+  `TASK_CLOSE_V1` for an already-ticked task is taken as its proof too. The
+  open-task snapshot lists ticked tasks still waiting as `status: "ticked"`
+  with what should have gone out, for the routine to look (inert until the
+  Slack app has `chat:write`, like the rest of the snapshot). The prompt
+  addition lives outside the repo and is applied by hand.
+- **The app points; the person decides.** Past the window with nothing seen,
+  the check writes `task.proof_missing` once: Completed shows a "Ticked, not
+  seen sent" chip and why, and Today shows a small card (outside Top
+  priorities, only when something is flagged), each with "It's done"
+  (`task.proof_confirmed`, the flag goes for good) and "Reopen" (the task
+  back on To do; a new tick starts a new window). Nothing is reopened or sent
+  on its own, and a proof that turns up late still turns the flag into
+  "Seen sent". Reopen is the only way back to open: the suggester's
+  never-resurrect rule is unchanged.
+- **The company chip** reads the existing links (`deal_id`, then
+  `portfolio_company_id`); a CRM company, which has no column on a task, is a
+  `task.company_set` row. The edit dialog searches portfolio companies, deals
+  and CRM companies to choose one, or clears it. Not a touch.
+- **No migration.** Everything new is an audit row beside the task, as in
+  D-052, D-053 and D-064; every read degrades to "nothing to show".
+
+**Known limits.**
+
+- Any real email to the recipient after the task was made counts, whatever
+  it says: the check proves something reached them, not that it was the
+  deliverable.
+- A recipient the app cannot match to an address can only be proved by the
+  routine; until then it is flagged, and the row says no address was found.
+- The rules read English titles and will miss some deliverables; a miss
+  only means no check, which is how every task worked before.

@@ -46,6 +46,9 @@ import {
   readTaskPeople,
   setMoneyLegal,
 } from '@/lib/services/money-legal';
+import { confirmTaskProof } from '@/lib/services/task-proof';
+import { searchTaskCompanies, setTaskCompany } from '@/lib/services/task-company';
+import type { TaskCompanyKind, TaskCompanyOption } from '@/lib/tasks/task-company';
 import type { TaskProof } from '@/lib/tasks/money-legal';
 import type { TaskPerson } from '@/lib/tasks/task-people';
 import type { TaskRestore } from '@/lib/tasks/tasks-view';
@@ -324,6 +327,50 @@ export async function dismissNeedsProofAction(taskId: string): Promise<ActionRes
   if (!result.ok) return fail(result.error);
   revalidatePath('/tasks');
   return succeed();
+}
+
+/**
+ * "It's done" on a task ticked by hand whose deliverable was never seen sent:
+ * the person vouches for it, and the flag goes for good. The task stays done.
+ */
+export async function confirmTaskProofAction(taskId: string): Promise<ActionResult> {
+  const auth = await requireAuth();
+  const id = TASK_ID.safeParse(taskId);
+  if (!id.success) return fail(BAD_TASK);
+  const result = await confirmTaskProof(auth, id.data);
+  if (!result.ok) return fail(result.error);
+  revalidateTasks();
+  return succeed();
+}
+
+const COMPANY_CHOICE = z
+  .object({ kind: z.enum(['deal', 'portfolio', 'crm']), id: TASK_ID })
+  .nullable();
+
+/** The company a task is about (a deal, a portfolio company or a CRM company), or none. */
+export async function setTaskCompanyAction(
+  taskId: string,
+  choice: { kind: TaskCompanyKind; id: string } | null,
+): Promise<ActionResult> {
+  const auth = await requireAuth();
+  const id = TASK_ID.safeParse(taskId);
+  const parsed = COMPANY_CHOICE.safeParse(choice);
+  if (!id.success || !parsed.success) return fail(BAD_TASK);
+  const result = await setTaskCompany(auth, id.data, parsed.data);
+  if (!result.ok) return fail(result.error);
+  revalidateTasks();
+  return succeed();
+}
+
+/** Companies to link a task to, for the edit dialog's picker. Rate-limited per person. */
+export async function searchTaskCompaniesAction(
+  query: string,
+): Promise<ActionResult<TaskCompanyOption[]>> {
+  const auth = await requireAuth();
+  const limited = rateLimit(`task-company-search:${auth.userId}`, 60, 60_000);
+  if (!limited.ok) return fail(limited.error);
+  if (typeof query !== 'string') return succeed([]);
+  return succeed(await searchTaskCompanies(getStore(), auth.organizationId, query));
 }
 
 /**
