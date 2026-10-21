@@ -12,9 +12,11 @@ import { refreshPortfolioAsksOnView } from '@/lib/services/portfolio-asks';
 import { loadPortfolioContacts } from '@/lib/services/portfolio-contacts';
 import { pullPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
 import { peekPortfolioJobs, readPortfolioJobs } from '@/lib/services/portfolio-jobs';
+import { peekPortfolioStudents, readPortfolioStudents } from '@/lib/services/portfolio-students';
 import { cachedJobLinkVerdicts, jobLinkVerdicts } from '@/lib/services/job-liveness';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { applyJobLiveness, parseJobFilters } from '@/lib/portfolio/jobs';
+import { isOpenStudentItem, parseStudentFilters } from '@/lib/portfolio/students';
 import { helpersForRequests, type RequestHelper } from '@/lib/services/network-helpers';
 import { PORTFOLIO_TABS, SNAPSHOT_WAIT_MS, landsOnSnapshot, openingTab } from '@/lib/records-tabs';
 import { CARD_CONTACTS, provenanceLabel } from '@/lib/portfolio/contacts';
@@ -41,6 +43,7 @@ import { PageTabs } from '@/components/ui/page-tabs';
 import { ShowMore } from '@/components/ui/show-more';
 import { PortfolioNumbers } from '@/components/portfolio/portfolio-numbers';
 import { PortfolioJobsView } from '@/components/portfolio/portfolio-jobs';
+import { PortfolioStudentsView } from '@/components/portfolio/portfolio-students';
 import {
   AddPortfolioButton,
   DismissAskButton,
@@ -106,9 +109,14 @@ export default async function PortfolioPage({
   const activeRoles = applyJobLiveness(peeked, cachedJobLinkVerdicts(peeked)).filter(
     (r) => r.status === 'active',
   ).length;
+  // Open students items the same way: from memory, never a read.
+  const openStudents = (peekPortfolioStudents(auth.organizationId)?.items ?? []).filter(
+    isOpenStudentItem,
+  ).length;
   const counts: Partial<Record<string, number>> = {
     requests: groups?.length ? groups.length : undefined,
     jobs: activeRoles ? activeRoles : undefined,
+    students: openStudents ? openStudents : undefined,
     companies: companyCount,
   };
 
@@ -140,6 +148,8 @@ export default async function PortfolioPage({
           <RequestsTab auth={auth} groups={groups} shownRaw={params[SHOW_PARAM]} />
         ) : tab === 'jobs' ? (
           <JobsTab auth={auth} params={params} />
+        ) : tab === 'students' ? (
+          <StudentsTab auth={auth} params={params} />
         ) : tab === 'numbers' ? (
           <NumbersTab auth={auth} />
         ) : tab === 'companies' ? (
@@ -512,6 +522,53 @@ async function JobsTab({
       roles={applyJobLiveness(jobs.snapshot.roles, verdicts)}
       filters={parseJobFilters(params)}
       companies={companies}
+      mailbox={DEFAULT_MAILBOX}
+      now={now}
+      timeZone={auth.profile.timezone}
+      shownRaw={params[SHOW_PARAM]}
+    />
+  );
+}
+
+/**
+ * Students Nick mentors, schools and programs inviting TipTop in, and intern
+ * or advice requests, from the twice-weekly students routine's snapshot in
+ * #deal-relay. Each source links to its email in Copilot's Inbox or in Gmail;
+ * no email text is shown here.
+ */
+async function StudentsTab({
+  auth,
+  params,
+}: {
+  auth: AuthContext;
+  params: Record<string, string | string[] | undefined>;
+}) {
+  const now = new Date();
+  const students = await readPortfolioStudents(getStore(), auth.organizationId, { now }).catch(
+    () => null,
+  );
+  if (students?.state !== 'ok') {
+    return (
+      <EmptyState
+        title="Nothing from students to show"
+        description={snapshotUnavailable(students?.state)}
+        action={{ label: 'See companies', href: COMPANIES_HREF }}
+      />
+    );
+  }
+  if (!students.snapshot) {
+    return (
+      <EmptyState
+        title="No students scan yet"
+        description="Every Monday and Thursday a scan reads the mailbox for students Nick mentors, schools and programs inviting TipTop to take part, and students asking to intern or for advice: what each wants, what Nick agreed to, any deadline, and the next step. They show here after its first run."
+        action={{ label: 'See companies', href: COMPANIES_HREF }}
+      />
+    );
+  }
+  return (
+    <PortfolioStudentsView
+      snapshot={students.snapshot}
+      filters={parseStudentFilters(params)}
       mailbox={DEFAULT_MAILBOX}
       now={now}
       timeZone={auth.profile.timezone}

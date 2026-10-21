@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { ExternalLink, Mail } from 'lucide-react';
-import { gmailThreadUrl } from '@/lib/deals/links';
 import {
   JOB_FUNCTION_LABELS,
   JOB_STATUS_FILTERS,
@@ -25,6 +24,7 @@ import { SHOW_PARAM, showMoreHref, shownCount } from '@/lib/util/page-tabs';
 import { formatDate, formatMonthDay, relativeTime } from '@/lib/util/time';
 import type { PortfolioCompany } from '@/lib/types/domain';
 import { LinkChips, pageHref, type LinkChip } from '@/components/crm/link-chips';
+import { ThreadLinks } from '@/components/email/thread-links';
 import { SectionHeading } from '@/components/shell/page-header';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,8 @@ import { CopyBlurbButton } from './copy-blurb-button';
  * The Jobs tab on Portfolio: open roles founders keep sending, from the
  * weekly jobs routine's snapshot. Filters live in the URL (`status`,
  * `company`, `fn`, `q`) and the server renders the result, like the tabs.
- * Every value is plain text; Gmail links are rebuilt from validated ids.
+ * Every value is plain text; a source email is its subject and date with the
+ * two places to read it (Copilot's Inbox, or Gmail), rebuilt from its id.
  */
 
 const TAB = 'jobs';
@@ -360,35 +361,27 @@ function JobCard({
                 : `Source emails (${role.sources.length})`}
             </summary>
             <ul className="mt-2 space-y-1.5" aria-label={`Source emails for ${name}`}>
-              {role.sources.map((s) => {
-                const href = gmailThreadUrl(s.message_id, mailbox);
-                return (
-                  <li key={s.message_id} className="flex items-start gap-2 text-sm">
+              {role.sources.map((s) => (
+                <li
+                  key={s.message_id}
+                  className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 text-sm"
+                >
+                  <span className="flex min-w-0 items-start gap-2">
                     <Mail
                       className="mt-0.5 size-3.5 shrink-0 text-[var(--fg-subtle)]"
                       aria-hidden="true"
                     />
                     <span className="min-w-0 break-words">
-                      {href ? (
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline-offset-2 hover:underline"
-                        >
-                          {s.subject}
-                        </a>
-                      ) : (
-                        s.subject
-                      )}
+                      {s.subject}
                       <span className="text-xs text-[var(--fg-subtle)]">
                         {' '}
                         · {formatDate(s.date, timeZone)}
                       </span>
                     </span>
-                  </li>
-                );
-              })}
+                  </span>
+                  <ThreadLinks id={s.message_id} mailbox={mailbox} label={s.subject} />
+                </li>
+              ))}
             </ul>
           </details>
         ) : null}

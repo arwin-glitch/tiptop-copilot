@@ -27,12 +27,15 @@ import { swapSignOff } from '@/components/followups/email-session-client';
 import { Composer, type ComposeDraft } from '@/components/inbox/composer';
 import { MessageItem, longTime } from '@/components/inbox/message-view';
 import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
+import { Notice } from '@/components/ui/feedback';
+import { INBOX_THREAD_PARAM, isGmailId } from '@/lib/email/thread-links';
 import { cn } from '@/lib/util/cn';
 import type {
   InboxTab,
   LiveThread,
   LiveThreadList,
   LiveThreadRow,
+  OpenedThread,
 } from '@/lib/services/inbox-live';
 
 // The message pieces live in message-view.tsx (Follow-ups shows the full email
@@ -88,14 +91,38 @@ const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
   (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
-export function LiveInbox({ initial }: { initial: LiveThreadList }) {
+/** Drop `?thread=` from the address once its conversation is closed, so a reload shows the list. */
+function forgetThreadParam(): void {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has(INBOX_THREAD_PARAM)) return;
+  url.searchParams.delete(INBOX_THREAD_PARAM);
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+export function LiveInbox({
+  initial,
+  opened = null,
+}: {
+  initial: LiveThreadList;
+  /**
+   * A conversation a link asked for (`/inbox?thread=<id>`), opened in the
+   * reading pane whether or not it is in the list; or why it could not be.
+   * Opening it this way never marks it read.
+   */
+  opened?: OpenedThread | null;
+}) {
   const [tab, setTab] = React.useState<InboxTab>('primary');
   const [query, setQuery] = React.useState('');
   const [searched, setSearched] = React.useState('');
   const [list, setList] = React.useState<LiveThreadList>(initial);
   const [loading, setLoading] = React.useState(false);
   const [loadingMore, setLoadingMore] = React.useState(false);
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [selectedId, setSelectedId] = React.useState<string | null>(opened?.row?.id ?? null);
+  // The linked conversation's row, kept apart from the list it may not be in.
+  const [linked, setLinked] = React.useState<LiveThreadRow | null>(opened?.row ?? null);
+  const [linkError, setLinkError] = React.useState<{ requested: string; error: string } | null>(
+    opened?.error !== undefined ? { requested: opened.requested, error: opened.error } : null,
+  );
   const [checked, setChecked] = React.useState<Set<string>>(new Set());
   const [replyOpen, setReplyOpen] = React.useState(false);
   const [compose, setCompose] = React.useState<{ title: string; draft: ComposeDraft } | null>(null);
@@ -171,6 +198,7 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
       ...cur,
       rows: cur.rows.map((r) => (ids.includes(r.id) ? { ...r, ...patch } : r)),
     }));
+    setLinked((cur) => (cur && ids.includes(cur.id) ? { ...cur, ...patch } : cur));
   }, []);
 
   const inInboxView = !searched && (tab === 'primary' || tab === 'other');
@@ -236,7 +264,19 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
 
   const rows = list.rows;
   const index = rows.findIndex((r) => r.id === selectedId);
-  const selected = index >= 0 ? rows[index]! : null;
+  // The list's own row when the linked conversation is in it, else the linked row.
+  const selected = index >= 0 ? rows[index]! : linked && linked.id === selectedId ? linked : null;
+
+  // The linked conversation as the server read it, shown without a second read the first
+  // time only: once it is closed, opening it again reads it fresh.
+  const [seed, setSeed] = React.useState<LiveThread | null>(opened?.thread ?? null);
+  if (seed && selectedId !== seed.id) setSeed(null);
+
+  // Once the linked conversation is closed, the address goes back to the plain Inbox.
+  const linkedId = opened?.row?.id ?? null;
+  React.useEffect(() => {
+    if (linkedId && selectedId !== linkedId) forgetThreadParam();
+  }, [linkedId, selectedId]);
 
   // Gmail's keys: j/k move, o/Enter open, e archive, s star, Shift+U unread,
   // r reply, u back to the list, / search, x select. Never while something is
@@ -400,6 +440,43 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
         <p className="text-sm text-[var(--danger)]">{list.message ?? 'Gmail did not answer.'}</p>
       ) : null}
 
+      {linkError ? (
+        <div role="alert">
+          <Notice tone="warn">
+            <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
+              <p className="min-w-0 flex-1">
+                <span className="font-medium">Couldn&rsquo;t open that email.</span>{' '}
+                {linkError.error}
+              </p>
+              <span className="flex items-center gap-1">
+                {isGmailId(linkError.requested) ? (
+                  <Button asChild size="sm" variant="ghost">
+                    <a
+                      href={gmailUrl(linkError.requested, mailbox)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <ExternalLink className="size-4" aria-hidden /> Try in Gmail
+                    </a>
+                  </Button>
+                ) : null}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label="Dismiss"
+                  onClick={() => {
+                    setLinkError(null);
+                    forgetThreadParam();
+                  }}
+                >
+                  <X className="size-4" aria-hidden />
+                </Button>
+              </span>
+            </div>
+          </Notice>
+        </div>
+      ) : null}
+
       <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <section
           aria-label="Conversations"
@@ -482,6 +559,7 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
             <ThreadView
               key={selected.id}
               row={selected}
+              initialThread={seed?.id === selected.id ? seed : undefined}
               canAct={canAct}
               mailbox={mailbox}
               replyOpen={replyOpen}
@@ -615,6 +693,7 @@ function ThreadRow({
 
 function ThreadView({
   row,
+  initialThread,
   canAct,
   mailbox,
   replyOpen,
@@ -625,6 +704,8 @@ function ThreadView({
   onForward,
 }: {
   row: LiveThreadRow;
+  /** The conversation already read on the server (a link opened it): shown without a second read. */
+  initialThread?: LiveThread;
   canAct: boolean;
   mailbox: string | null;
   replyOpen: boolean;
@@ -634,11 +715,17 @@ function ThreadView({
   onSent: () => void;
   onForward: (draft: ComposeDraft) => void;
 }) {
-  const [thread, setThread] = React.useState<LiveThread | null>(null);
+  const [thread, setThread] = React.useState<LiveThread | null>(initialThread ?? null);
   const [error, setError] = React.useState<string | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
+  // Read once on the server already: the first look needs no second read of Gmail.
+  const seeded = React.useRef(Boolean(initialThread));
 
   React.useEffect(() => {
+    if (seeded.current) {
+      seeded.current = false;
+      return;
+    }
     let cancelled = false;
     fetch(`/api/inbox/thread?id=${row.id}`)
       .then(async (r) => {

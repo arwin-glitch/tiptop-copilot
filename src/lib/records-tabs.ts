@@ -108,6 +108,12 @@ export const PORTFOLIO_TABS = define({
         'Open roles founders list in their updates and hiring emails, from a weekly scan: status, how often each was sent, who to send candidates to, and a blurb to share.',
     },
     {
+      key: 'students',
+      label: 'Students & interns',
+      blurb:
+        'Students Nick mentors, schools and programs inviting TipTop in, and intern or advice requests, from a scan every Monday and Thursday: status, deadlines, the next step and whose it is.',
+    },
+    {
       key: 'numbers',
       label: 'Numbers',
       blurb:

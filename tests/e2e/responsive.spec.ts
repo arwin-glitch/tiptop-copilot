@@ -48,6 +48,10 @@ const PAGES = [
   '/updates?tab=fresh',
   '/portfolio?tab=companies',
   '/portfolio?tab=jobs',
+  '/portfolio?tab=students',
+  '/portfolio?tab=students&status=all',
+  // A conversation opened by a link: the reading pane alone on a phone.
+  '/inbox?thread=0f00000000005102',
   '/fund-ii?tab=pipeline',
   '/network?tab=people',
   '/meetings?tab=notes',
@@ -135,6 +139,19 @@ test.describe('mobile layout', () => {
     const jobs = page.getByRole('region', { name: 'Open roles at portfolio companies' });
     for (const summary of await jobs.locator('details > summary').all()) await summary.click();
     await expect(jobs.getByRole('list', { name: /^Source emails for VP Sales/ })).toBeVisible();
+    await expectNoSidewaysScroll(page);
+  });
+
+  test('a Students item with its earlier emails open never scrolls sideways', async ({ page }) => {
+    await page.goto('/portfolio?tab=students&status=all');
+    const students = page.getByRole('region', { name: 'Students and interns' });
+    for (const summary of await students.locator('details > summary').all()) await summary.click();
+    await expect(
+      students.getByRole('list', { name: 'Earlier emails about Tessa Marlow' }),
+    ).toBeVisible();
+    // The two links stay thumb-sized beside each subject.
+    const copilot = students.getByRole('link', { name: /^Open in Copilot/ }).first();
+    expect((await copilot.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(32);
     await expectNoSidewaysScroll(page);
   });
 
