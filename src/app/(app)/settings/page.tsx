@@ -213,7 +213,7 @@ export default async function SettingsPage() {
                       }
                     >
                       <a
-                        href="/api/integrations/google/start?calendar=1"
+                        href="/api/integrations/google/start?calendar=1&from=settings"
                         className="inline-flex h-9 items-center rounded-md bg-[var(--primary)] px-3.5 text-sm font-medium text-[var(--primary-fg)] hover:bg-[var(--primary-hover)]"
                       >
                         Turn on calendar editing

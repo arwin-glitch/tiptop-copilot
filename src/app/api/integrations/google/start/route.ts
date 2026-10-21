@@ -22,7 +22,8 @@ export const OAUTH_STATE_COOKIE = 'tiptop_oauth_state';
  * the send scope. Only the email session's Send button uses it.
  *
  * `?calendar=1` is the "Turn on calendar editing" button: the same flow, also
- * asking for the event-editing scope, and back to the Calendar tab after.
+ * asking for the event-editing scope, and back to the Calendar tab after
+ * (or to Settings, with `&from=settings`, when it was started there).
  */
 export async function GET(request: NextRequest) {
   const auth = await authOrError();
@@ -53,6 +54,7 @@ export async function GET(request: NextRequest) {
 
   const send = request.nextUrl.searchParams.get('send') === '1';
   const calendar = request.nextUrl.searchParams.get('calendar') === '1';
+  const fromSettings = request.nextUrl.searchParams.get('from') === 'settings';
 
   const nonce = randomToken(24);
   const statePayload = JSON.stringify({
@@ -62,7 +64,7 @@ export async function GET(request: NextRequest) {
     issuedAt: Date.now(),
     // A fixed page, never one taken from the request: the callback only
     // honours values on its own list.
-    ...(calendar ? { returnTo: '/calendar' } : {}),
+    ...(calendar && !fromSettings ? { returnTo: '/calendar' } : {}),
   });
   const state = signedValue(statePayload);
 

@@ -467,7 +467,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
         // The preview switch on the day list; the views bar on the new calendar.
         target: 'calendar-views',
         title: 'Day, week or month',
-        body: 'Switch views, step back or ahead, or jump to any date. Today brings you back.',
+        body: 'The new calendar switch opens Day, Week and Month: step back or ahead, jump anywhere, Today brings you back.',
         placement: 'bottom',
       },
       {
