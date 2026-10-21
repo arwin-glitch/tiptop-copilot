@@ -11,6 +11,10 @@ import { listPortfolio, openRequests } from '@/lib/services/portfolio';
 import { refreshPortfolioAsksOnView } from '@/lib/services/portfolio-asks';
 import { loadPortfolioContacts } from '@/lib/services/portfolio-contacts';
 import { pullPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
+import { peekPortfolioJobs, readPortfolioJobs } from '@/lib/services/portfolio-jobs';
+import { cachedJobLinkVerdicts, jobLinkVerdicts } from '@/lib/services/job-liveness';
+import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
+import { applyJobLiveness, parseJobFilters } from '@/lib/portfolio/jobs';
 import { helpersForRequests, type RequestHelper } from '@/lib/services/network-helpers';
 import { PORTFOLIO_TABS, SNAPSHOT_WAIT_MS, landsOnSnapshot, openingTab } from '@/lib/records-tabs';
 import { CARD_CONTACTS, provenanceLabel } from '@/lib/portfolio/contacts';
@@ -36,6 +40,7 @@ import { EmptyState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
 import { ShowMore } from '@/components/ui/show-more';
 import { PortfolioNumbers } from '@/components/portfolio/portfolio-numbers';
+import { PortfolioJobsView } from '@/components/portfolio/portfolio-jobs';
 import {
   AddPortfolioButton,
   DismissAskButton,
@@ -96,8 +101,14 @@ export default async function PortfolioPage({
       .catch(() => undefined),
   ]);
   const groups = open ? groupRequests(open) : null;
+  // Open roles only when the jobs snapshot is already in memory: never a read.
+  const peeked = peekPortfolioJobs(auth.organizationId)?.roles ?? [];
+  const activeRoles = applyJobLiveness(peeked, cachedJobLinkVerdicts(peeked)).filter(
+    (r) => r.status === 'active',
+  ).length;
   const counts: Partial<Record<string, number>> = {
     requests: groups?.length ? groups.length : undefined,
+    jobs: activeRoles ? activeRoles : undefined,
     companies: companyCount,
   };
 
@@ -127,6 +138,8 @@ export default async function PortfolioPage({
       <Suspense key={tab} fallback={<SkeletonText lines={8} />}>
         {tab === 'requests' ? (
           <RequestsTab auth={auth} groups={groups} shownRaw={params[SHOW_PARAM]} />
+        ) : tab === 'jobs' ? (
+          <JobsTab auth={auth} params={params} />
         ) : tab === 'numbers' ? (
           <NumbersTab auth={auth} />
         ) : tab === 'companies' ? (
@@ -453,6 +466,57 @@ function HelperList({ helpers, label }: { helpers: RequestHelper[]; label: strin
         );
       })}
     </ul>
+  );
+}
+
+/**
+ * Open roles at portfolio companies, from the weekly jobs routine's snapshot
+ * in #deal-relay. Postings on boards with a public API are checked (cached a
+ * day); a slow board never holds the tab, it fills in for the next view.
+ */
+async function JobsTab({
+  auth,
+  params,
+}: {
+  auth: AuthContext;
+  params: Record<string, string | string[] | undefined>;
+}) {
+  const now = new Date();
+  const store = getStore();
+  const [jobs, companies] = await Promise.all([
+    readPortfolioJobs(store, auth.organizationId, { now }).catch(() => null),
+    listPortfolio(auth.organizationId).catch(() => []),
+  ]);
+  if (jobs?.state !== 'ok') {
+    return (
+      <EmptyState
+        title="No open roles to show"
+        description={snapshotUnavailable(jobs?.state)}
+        action={{ label: 'See companies', href: COMPANIES_HREF }}
+      />
+    );
+  }
+  if (!jobs.snapshot) {
+    return (
+      <EmptyState
+        title="No jobs scan yet"
+        description="Once a week a scan reads founders' investor updates and their “we're hiring, know anyone?” emails for open roles: what each role is, how far along, who to send candidates to. They show here after its first run."
+        action={{ label: 'See companies', href: COMPANIES_HREF }}
+      />
+    );
+  }
+  const verdicts = await jobLinkVerdicts(jobs.snapshot.roles, { now });
+  return (
+    <PortfolioJobsView
+      snapshot={jobs.snapshot}
+      roles={applyJobLiveness(jobs.snapshot.roles, verdicts)}
+      filters={parseJobFilters(params)}
+      companies={companies}
+      mailbox={DEFAULT_MAILBOX}
+      now={now}
+      timeZone={auth.profile.timezone}
+      shownRaw={params[SHOW_PARAM]}
+    />
   );
 }
 

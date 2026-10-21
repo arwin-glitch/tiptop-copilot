@@ -165,6 +165,7 @@ test('every Records tab renders', async ({ page }) => {
   // Each tab URL opens with its own link marked current and no error page.
   const tabs: [string, string, RegExp][] = [
     ['/portfolio?tab=requests', 'Portfolio sections', /^Requests/],
+    ['/portfolio?tab=jobs', 'Portfolio sections', /^Jobs/],
     ['/portfolio?tab=companies', 'Portfolio sections', /^Companies/],
     ['/fund-ii?tab=passed', 'Fund II sections', /^Passed/],
     ['/network?tab=cold', 'Network sections', /^Going cold/],

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/auth/session';
 import { getAI, getStore } from '@/lib/runtime';
@@ -8,6 +9,10 @@ import { getPortfolioDetail } from '@/lib/services/portfolio';
 import { affinityForCompany } from '@/lib/services/crm-pages';
 import { isAutoAsk, requestLabel } from '@/lib/portfolio/requests';
 import { loadPortfolioContacts } from '@/lib/services/portfolio-contacts';
+import { readPortfolioJobsWithin } from '@/lib/services/portfolio-jobs';
+import { cachedJobLinkVerdicts } from '@/lib/services/job-liveness';
+import { applyJobLiveness, jobPlace, roleIsAtCompany } from '@/lib/portfolio/jobs';
+import { SNAPSHOT_WAIT_MS } from '@/lib/records-tabs';
 import { PROFILE_CONTACTS, provenanceLabel } from '@/lib/portfolio/contacts';
 import { CompanyAffinitySection } from '@/components/crm/company-affinity';
 import { MeetingNoteList } from '@/components/meetings/meeting-note-list';
@@ -16,8 +21,10 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, FieldLabel } from '@/components/ui/card';
 import { EmptyState, PlainText } from '@/components/ui/feedback';
 import { ClassifyEmailButton, RequestActions } from '@/components/portfolio/portfolio-client';
+import { jobsTabHref } from '@/components/portfolio/portfolio-jobs';
 import { CreateFollowUpButton, TaskControls } from '@/components/today/today-actions';
 import { formatDate, relativeTime } from '@/lib/util/time';
+import type { PortfolioCompany } from '@/lib/types/domain';
 import { isOpenNow } from '@/lib/tasks/tasks-view';
 
 export const dynamic = 'force-dynamic';
@@ -212,6 +219,11 @@ export default async function PortfolioCompanyPage({
             </CardContent>
           </Card>
 
+          {/* Streams in: the jobs scan is read from Slack and never holds the page. */}
+          <Suspense fallback={null}>
+            <OpenRolesCard organizationId={auth.organizationId} company={company} />
+          </Suspense>
+
           <Card>
             <CardContent className="pt-4">
               <FieldLabel as="h2">Contacts</FieldLabel>
@@ -289,6 +301,69 @@ export default async function PortfolioCompanyPage({
         </aside>
       </div>
     </PageShell>
+  );
+}
+
+/** Shown on a company's page: its open roles from the weekly jobs scan. */
+const ROLES_ON_PAGE = 3;
+
+async function OpenRolesCard({
+  organizationId,
+  company,
+}: {
+  organizationId: string;
+  company: PortfolioCompany;
+}) {
+  // The weekly jobs scan, if it answers in time; hidden when it cannot be read.
+  const jobs = await readPortfolioJobsWithin(getStore(), organizationId, SNAPSHOT_WAIT_MS);
+  if (jobs?.state !== 'ok' || !jobs.snapshot) return null;
+  const atCompany = jobs.snapshot.roles.filter((r) => roleIsAtCompany(r, company));
+  const roles = applyJobLiveness(atCompany, cachedJobLinkVerdicts(atCompany)).filter(
+    (r) => r.status === 'active',
+  );
+  const href = jobsTabHref(atCompany[0]?.company ?? company.name);
+  return (
+    <Card>
+      <CardContent className="pt-4">
+        <FieldLabel as="h2">
+          {/* Underlined at rest: colour alone would not mark the label as a link. */}
+          <Link
+            href={href}
+            className="text-[var(--accent)] underline decoration-[color:var(--link-underline)] underline-offset-4 hover:decoration-current"
+          >
+            Open roles ({roles.length})
+          </Link>
+        </FieldLabel>
+        {roles.length === 0 ? (
+          <p className="mt-2 text-sm text-[var(--fg-subtle)]">
+            None in the latest weekly scan of founders&rsquo; emails.
+          </p>
+        ) : (
+          <ul className="mt-2 space-y-1.5" aria-label="Open roles">
+            {roles.slice(0, ROLES_ON_PAGE).map((r) => {
+              const place = jobPlace(r);
+              return (
+                <li key={r.id} className="text-sm">
+                  <span className="font-medium">{r.title}</span>
+                  {place ? <span className="text-[var(--fg-muted)]"> · {place}</span> : null}
+                  {r.status_note ? (
+                    <p className="text-xs break-words text-[var(--fg-subtle)]">{r.status_note}</p>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {roles.length > ROLES_ON_PAGE ? (
+          <Link
+            href={href}
+            className="mt-2 inline-block text-xs text-[var(--accent)] underline-offset-2 hover:underline"
+          >
+            {roles.length - ROLES_ON_PAGE} more on Jobs
+          </Link>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
