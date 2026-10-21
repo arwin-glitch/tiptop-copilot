@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { ExternalLink, Loader2, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ThreadLinksForHref } from '@/components/email/thread-links';
 import type {
   AffinityAtTarget,
   WarmPaths as WarmPathsResult,
@@ -263,16 +264,26 @@ function PersonLine({ person: p, withThem }: { person: WarmPerson; withThem: boo
           {p.lastAt ? ` · last ${relativeTime(p.lastAt)}` : ''}
         </span>
       </p>
+      {/* Their newest shared thread, in Copilot's Inbox or in Gmail. */}
       {p.href ? (
-        <a
-          href={p.href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex max-w-full items-center gap-1 text-xs text-[var(--accent)] underline-offset-2 hover:underline"
-        >
-          <span className="truncate">{p.subject}</span>
-          <ExternalLink className="size-3 shrink-0" aria-hidden />
-        </a>
+        <p className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs">
+          <span className="min-w-0 truncate text-[var(--fg-muted)]">{p.subject}</span>
+          <ThreadLinksForHref
+            href={p.href}
+            label={p.subject || '(no subject)'}
+            variant="text"
+            fallback={
+              <a
+                href={p.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline"
+              >
+                Open <ExternalLink className="size-3 shrink-0" aria-hidden />
+              </a>
+            }
+          />
+        </p>
       ) : null}
     </li>
   );

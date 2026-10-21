@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { ThreadLinksForHref } from '@/components/email/thread-links';
 import { cn } from '@/lib/util/cn';
 import { safeHref } from '@/lib/updates/mrkdwn';
 import type { Block, Seg } from '@/lib/updates/types';
@@ -10,14 +11,29 @@ import type { Block, Seg } from '@/lib/updates/types';
  * `javascript:` URL onto the page.
  */
 
+/** Link words that only say "open it", which the two links already say. */
+const GENERIC_LINK_TEXT = /^(open( in)?( gmail)?|gmail|link|view|here|https?:\/\/\S+)$/i;
+
 function SegView({ seg }: { seg: Seg }) {
   let node: ReactNode = seg.text;
   const href = seg.href ? safeHref(seg.href) : null;
   if (href) {
-    node = (
+    const plain = (
       <a href={href} target="_blank" rel="noreferrer" className="link-inline">
         {node}
       </a>
+    );
+    // A link to one Gmail email: its words, then Copilot's Inbox and Gmail.
+    const words = seg.text.trim();
+    node = (
+      <ThreadLinksForHref
+        href={href}
+        text={GENERIC_LINK_TEXT.test(words) ? undefined : node}
+        label={GENERIC_LINK_TEXT.test(words) ? undefined : words}
+        variant="text"
+        className="align-middle"
+        fallback={plain}
+      />
     );
   }
   if (seg.code) node = <code className="font-mono text-[0.92em]">{node}</code>;

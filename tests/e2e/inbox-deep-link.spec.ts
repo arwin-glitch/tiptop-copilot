@@ -80,3 +80,51 @@ test("a bad or unknown id says it couldn't open the email, never an error page",
   await expect(unknown).toHaveCount(0);
   await expect.poll(() => new URL(page.url()).search).toBe('');
 });
+
+/** The demo's Vetrix deal and its intro email (Copilot's own synced ids). */
+const VETRIX_DEAL = '00000000-0000-4000-8000-000000000064';
+const VETRIX_INTRO = '00000000-0000-4000-8000-000000000190';
+
+test("a deal's source email opens in Copilot by its synced id, where it was a dead link", async ({
+  page,
+}) => {
+  await page.goto(`/deals/${VETRIX_DEAL}`);
+  await page.getByRole('tab', { name: 'Sources' }).click();
+  const copilot = page.getByRole('link', { name: /^Open in Copilot: Intro: Vetrix/ }).first();
+  await expect(copilot).toHaveAttribute('href', `/inbox?thread=${VETRIX_INTRO}`);
+  await expect(
+    page.getByRole('link', { name: /^Open in Gmail: Intro: Vetrix/ }).first(),
+  ).toHaveAttribute('href', `/inbox?thread=${VETRIX_INTRO}&open=gmail`);
+
+  await copilot.click();
+  await page.waitForURL((url) => url.pathname === '/inbox');
+  const pane = page.getByRole('region', { name: 'Reading pane' });
+  await expect(pane.getByRole('heading', { level: 2 })).toHaveText(
+    'Intro: Vetrix (vertical AI for veterinary practice)',
+  );
+});
+
+test('a synced email\u2019s Gmail link goes on to Gmail, and an old ?message= link still opens', async ({
+  page,
+}) => {
+  const res = await page.request.get(`/inbox?thread=${VETRIX_INTRO}&open=gmail`, {
+    maxRedirects: 0,
+  });
+  expect([302, 303, 307, 308]).toContain(res.status());
+  expect(res.headers()['location']).toMatch(
+    /^https:\/\/mail\.google\.com\/mail\/\?authuser=.+#all\/[0-9a-f]{16}$/,
+  );
+
+  // A brief or bookmark saved before the Inbox read ?thread=.
+  await page.goto(`/inbox?message=${VETRIX_INTRO}`);
+  const pane = page.getByRole('region', { name: 'Reading pane' });
+  await expect(pane.getByRole('heading', { level: 2 })).toHaveText(
+    'Intro: Vetrix (vertical AI for veterinary practice)',
+  );
+
+  // A synced id nothing has: said plainly, with no Gmail to try.
+  await page.goto('/inbox?thread=00000000-0000-4000-8000-00000000ffff&open=gmail');
+  const unknown = page.getByRole('alert').filter({ hasText: 'Couldn’t open that email.' });
+  await expect(unknown).toContainText("That email isn't in the mailbox");
+  await expect(unknown.getByRole('link', { name: 'Try in Gmail' })).toHaveCount(0);
+});

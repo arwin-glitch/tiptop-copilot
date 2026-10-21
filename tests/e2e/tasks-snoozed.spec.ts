@@ -222,12 +222,18 @@ test('Completed says why a task closed automatically, beside Reopen', async ({ p
   await gotoTasks(page, '/tasks?view=completed');
   const row = tabs(page).completedPanel.getByRole('listitem').filter({ hasText: AUTO_CLOSED });
   await expect(row.getByText('Suggested', { exact: true })).toBeVisible();
-  const evidence = row.getByRole('link', { name: /^Closed automatically · email sent / });
+  // The email it closed on, in Copilot or in Gmail.
+  const evidence = row.getByRole('link', {
+    name: /^Open in Gmail: Closed automatically · email sent /,
+  });
   await expect(evidence).toHaveAttribute(
     'href',
-    'https://mail.google.com/mail/?authuser=nick@tiptop.demo#all/18c0de0a1b2c3d4e',
+    'https://mail.google.com/mail/?authuser=nick%40tiptop.demo#all/18c0de0a1b2c3d4e',
   );
   await expect(evidence).toHaveAttribute('target', '_blank');
+  await expect(
+    row.getByRole('link', { name: /^Open in Copilot: Closed automatically · email sent / }),
+  ).toHaveAttribute('href', '/inbox?thread=18c0de0a1b2c3d4e');
   await expect(row).toContainText('Sent the LP the Q3 reporting dates; they replied with thanks.');
   await expect(row.getByRole('button', { name: `Reopen ${AUTO_CLOSED}` })).toBeVisible();
 });

@@ -5,6 +5,7 @@ import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Stat, StatGroup } from '@/components/ui/stat';
 import { FilterChip, FilterChipRow } from '@/components/ui/toolbar';
+import { ThreadLinks } from '@/components/email/thread-links';
 import { campaignReceipt, issuesFilter, type ReceiptVariant } from '@/lib/campaigns/receipt';
 import type { CampaignCounts, RecipientState } from '@/lib/services/campaigns';
 import { CampaignReceipt } from './campaign-receipt';
@@ -19,6 +20,8 @@ export interface ReportRow {
   /** The latest thing that happened, ISO. */
   lastAt: string | null;
   error: string | null;
+  /** The sent email's Gmail thread, once they replied: their reply is read there. */
+  replyThreadId?: string | null;
 }
 
 const STATE_LABEL: Record<RecipientState, string> = {
@@ -90,10 +93,13 @@ export function CampaignReport({
   tracking = true,
   receipt = null,
   progress = null,
+  mailbox = null,
 }: {
   counts: CampaignCounts;
   rows: ReportRow[];
   timezone: string;
+  /** The mailbox the campaign sent from, for the reply links' Gmail side. */
+  mailbox?: string | null;
   /** Whether opens and clicks were tracked for this campaign. */
   tracking?: boolean;
   /** Finished (or stopped after some went out): the receipt up top, and when. */
@@ -232,6 +238,16 @@ export function CampaignReport({
                   ) : null}
                   {r.lastAt ? <span className="hidden sm:inline">{fmt(r.lastAt)}</span> : null}
                   <Badge tone={STATE_TONE[r.state]}>{STATE_LABEL[r.state]}</Badge>
+                  {/* Their reply, in Copilot's Inbox or in Gmail. */}
+                  {r.state === 'replied' ? (
+                    <ThreadLinks
+                      id={r.replyThreadId}
+                      mailbox={mailbox}
+                      label={`the reply from ${r.name ?? r.email}`}
+                      variant="icons"
+                      className="-my-1"
+                    />
+                  ) : null}
                 </div>
               </li>
             ))}

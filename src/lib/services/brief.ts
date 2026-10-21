@@ -23,6 +23,7 @@ import type {
 import { newId } from '@/lib/util/hash';
 import { relativeTime, todayWindow } from '@/lib/util/time';
 import { truncate } from '@/lib/util/text';
+import { copilotThreadHref, emailLinkId } from '@/lib/email/thread-links';
 import { err, ok, type Result } from '@/lib/util/result';
 import { latestAnalysesByDeal } from './deal-analysis';
 import { readSidecars } from './deal-ingest';
@@ -372,7 +373,8 @@ export async function generateDailyBrief(
       title: `${email.from_name ?? email.from_address}: ${email.subject ?? '(no subject)'}`,
       detail: truncate(email.snippet, 280),
       source_id: id,
-      href: `/inbox?message=${email.id}`,
+      // The email in the Inbox's reading pane; the row offers Gmail beside it.
+      href: copilotThreadHref(emailLinkId(email)) ?? '/inbox',
       occurred_at: email.sent_at,
     });
   }

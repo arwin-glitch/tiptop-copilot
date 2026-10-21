@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
-import { CalendarClock, ExternalLink, HeartHandshake, Hourglass, NotebookPen } from 'lucide-react';
+import { CalendarClock, HeartHandshake, Hourglass, NotebookPen } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
-import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import {
@@ -19,6 +18,7 @@ import { mailboxOwnerPresence, type MailboxOwnerPresence } from '@/lib/services/
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { EmailSessionCard } from '@/components/followups/email-session-card';
 import { FollowUpEmailRow } from '@/components/followups/full-email';
+import { ThreadLinks } from '@/components/email/thread-links';
 import { AutoRefresh } from '@/components/shell/auto-refresh';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -212,19 +212,9 @@ function EmptyLine({ children }: { children: React.ReactNode }) {
   return <p className="text-sm text-[var(--fg-subtle)]">{children}</p>;
 }
 
-function ThreadLink({ threadId }: { threadId: string | null | undefined }) {
-  const href = threadId ? gmailThreadUrl(threadId, DEFAULT_MAILBOX) : null;
-  if (!href) return null;
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-xs text-[var(--accent)] underline-offset-2 hover:underline"
-    >
-      Open in Gmail <ExternalLink className="size-3" aria-hidden />
-    </a>
-  );
+/** The row's thread, in Copilot's Inbox or in Gmail. */
+function ThreadLink({ threadId, label }: { threadId: string | null | undefined; label: string }) {
+  return <ThreadLinks id={threadId} mailbox={DEFAULT_MAILBOX} label={label} variant="text" />;
 }
 
 const KIND_LABEL: Record<RelationshipItem['kind'], string> = {
@@ -244,7 +234,7 @@ function OnYouRow({ item, tz }: { item: RelationshipItem; tz: string }) {
           id={item.thread_id}
           who={item.who}
           timeZone={tz}
-          aside={<ThreadLink threadId={item.thread_id} />}
+          aside={<ThreadLink threadId={item.thread_id} label={item.who} />}
         >
           <HeartHandshake className="mt-0.5 size-4 shrink-0 text-[var(--warn)]" aria-hidden />
           <div className="min-w-0 flex-1">
@@ -283,7 +273,7 @@ function WaitingRow({ item, tz }: { item: FollowUpItem; tz: string }) {
           who={item.who}
           timeZone={tz}
           showSubject={false}
-          aside={<ThreadLink threadId={item.thread_id} />}
+          aside={<ThreadLink threadId={item.thread_id} label={`${item.subject} (${item.who})`} />}
         >
           <Hourglass className="mt-0.5 size-4 shrink-0 text-[var(--fg-subtle)]" aria-hidden />
           <div className="min-w-0 flex-1">
@@ -341,7 +331,7 @@ function MeetingRow({ meeting, tz }: { meeting: MeetingFollowUp; tz: string }) {
               <p className="mt-1 text-xs text-[var(--fg-subtle)]">{meeting.note}</p>
             ) : null}
           </div>
-          <ThreadLink threadId={meeting.thread_id} />
+          <ThreadLink threadId={meeting.thread_id} label={meeting.title} />
         </CardContent>
       </Card>
     </li>
@@ -357,7 +347,7 @@ function SchedulingRow({ item, tz }: { item: SchedulingItem; tz: string }) {
           who={item.who}
           timeZone={tz}
           showSubject={false}
-          aside={<ThreadLink threadId={item.thread_id} />}
+          aside={<ThreadLink threadId={item.thread_id} label={`${item.subject} (${item.who})`} />}
         >
           <CalendarClock className="mt-0.5 size-4 shrink-0 text-[var(--fg-subtle)]" aria-hidden />
           <div className="min-w-0 flex-1">

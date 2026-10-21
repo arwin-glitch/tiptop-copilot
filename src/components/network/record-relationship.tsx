@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ArrowUpRight, CalendarDays, Mail, Snowflake } from 'lucide-react';
 import { WarmPaths } from '@/components/fund-ii/warm-paths';
+import { ThreadLinksForHref } from '@/components/email/thread-links';
 import { StrengthBadge } from '@/components/network/strength-badge';
 import { SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -220,24 +221,29 @@ function TimelineRow({ item, now, tz }: { item: TimelineItem; now: Date; tz: str
     <li className="flex items-start gap-2.5 py-2">
       <Icon className="mt-0.5 size-3.5 shrink-0 text-[var(--fg-subtle)]" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        {item.href ? (
-          <a
-            href={item.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex max-w-full items-center gap-1 text-sm font-medium underline-offset-2 hover:underline"
-          >
-            <span className="truncate">{item.title}</span>
-            <ArrowUpRight className="size-3 shrink-0 text-[var(--accent)]" aria-hidden="true" />
-            <span className="sr-only"> (opens Gmail)</span>
-          </a>
-        ) : (
-          <span className="block truncate text-sm font-medium">{item.title}</span>
-        )}
+        <span className="block truncate text-sm font-medium">{item.title}</span>
         <p className="text-mini text-[var(--fg-muted)]">
           {item.upcoming ? <span className="text-[var(--accent)]">Upcoming · </span> : null}
           {item.detail}
         </p>
+        {/* A thread, in Copilot's Inbox or in Gmail. */}
+        <ThreadLinksForHref
+          href={item.href}
+          label={item.title}
+          variant="text"
+          fallback={
+            item.href ? (
+              <a
+                href={item.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-mini inline-flex items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline"
+              >
+                Open <ArrowUpRight className="size-3 shrink-0" aria-hidden="true" />
+              </a>
+            ) : null
+          }
+        />
       </div>
       <time
         dateTime={item.at}
@@ -347,19 +353,29 @@ export async function WhoCanIntro({
                       {p.threads} shared {p.threads === 1 ? 'thread' : 'threads'}
                     </span>
                   </div>
-                  {p.href ? (
-                    <a
+                  <p className="text-mini flex min-w-0 flex-wrap items-center gap-x-2">
+                    <span className="min-w-0 truncate text-[var(--fg-muted)]">
+                      {p.subject || '(no subject)'}
+                    </span>
+                    {/* Their shared thread, in Copilot's Inbox or in Gmail. */}
+                    <ThreadLinksForHref
                       href={p.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-mini inline-flex max-w-full items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline"
-                    >
-                      <span className="truncate">{p.subject || '(no subject)'}</span>
-                      <ArrowUpRight className="size-3 shrink-0" aria-hidden="true" />
-                    </a>
-                  ) : (
-                    <p className="text-mini truncate text-[var(--fg-muted)]">{p.subject}</p>
-                  )}
+                      label={p.subject || '(no subject)'}
+                      variant="text"
+                      fallback={
+                        p.href ? (
+                          <a
+                            href={p.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline"
+                          >
+                            Open <ArrowUpRight className="size-3 shrink-0" aria-hidden="true" />
+                          </a>
+                        ) : null
+                      }
+                    />
+                  </p>
                 </li>
               ))}
             </ul>

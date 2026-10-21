@@ -22,6 +22,7 @@ import { isCrmNotSetUp, listCrmLists } from '@/lib/services/crm';
 import { FUND_II_TABS } from '@/lib/records-tabs';
 import { tabHref } from '@/lib/util/page-tabs';
 import { formatDateTime } from '@/lib/util/time';
+import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import type { CampaignRecipient } from '@/lib/types/domain';
 import { CampaignComposer, type ListOption } from '@/components/campaigns/campaign-composer';
 import { PHASE_TONE } from '@/components/campaigns/campaign-list';
@@ -178,6 +179,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
       r.status === 'failed' || r.status === 'skipped' || r.status === 'unconfirmed'
         ? r.error
         : null,
+    replyThreadId: r.gmail_thread_id,
   }));
   const when = campaign.sent_at ?? campaign.confirmed_at;
   const phase = campaignPhase(campaign);
@@ -210,6 +212,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         counts={counts}
         rows={rows}
         timezone={tz}
+        mailbox={DEFAULT_MAILBOX}
         tracking={campaign.track_activity}
         receipt={receipt}
         progress={

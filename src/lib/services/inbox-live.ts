@@ -5,6 +5,8 @@ import { DEMO_USER } from '@/lib/demo/fixtures';
 import { demoFollowUpThread } from '@/lib/demo/follow-up-emails-fixtures';
 import { demoSourceThread } from '@/lib/demo/source-emails-fixtures';
 import { isFromMailbox } from '@/lib/email/addresses';
+import { isGmailId, isSyncedEmailId } from '@/lib/email/thread-links';
+import { gmailThreadUrl } from '@/lib/deals/links';
 import { gmailFailCode, type GmailReadOptions } from '@/lib/google/gmail-get';
 import {
   displayName,
@@ -450,16 +452,81 @@ export function liveRowFromThread(thread: LiveThread): LiveThreadRow {
   };
 }
 
+/**
+ * The Gmail id behind Copilot's own id for a synced email or thread (what
+ * Today, a deal's sources and citations hold): the message's own Gmail id,
+ * else its thread's. In the demo, the demo Inbox's id for that conversation.
+ * Null when nothing synced has that id in this workspace. Never throws.
+ */
+async function syncedGmailId(
+  store: DataStore,
+  organizationId: string,
+  id: string,
+  demo: boolean,
+): Promise<string | null> {
+  try {
+    const message = (await store.get('email_messages', organizationId, id)) as EmailMessage | null;
+    if (message && !demo && isGmailId(message.provider_message_id)) {
+      return message.provider_message_id;
+    }
+    const thread = (await store.get(
+      'email_threads',
+      organizationId,
+      message?.thread_id ?? id,
+    )) as EmailThread | null;
+    if (!thread) return null;
+    if (demo) return demoId(thread);
+    return isGmailId(thread.provider_thread_id) ? thread.provider_thread_id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The Gmail id a link's id stands for: as given, or looked up for a synced email. */
+async function linkGmailId(
+  store: DataStore,
+  organizationId: string,
+  requested: string,
+): Promise<string | null> {
+  if (isGmailId(requested)) return requested;
+  if (!isSyncedEmailId(requested)) return null;
+  return syncedGmailId(store, organizationId, requested, isDemoMode());
+}
+
 /** What the Inbox page hands the reading pane for `?thread=<id>`. Never throws. */
 export async function openFromLink(
   store: DataStore,
   organizationId: string,
   requested: string,
 ): Promise<OpenedThread> {
-  const opened = await openLiveThread(store, organizationId, requested);
+  let id = requested;
+  if (isSyncedEmailId(requested)) {
+    const found = await linkGmailId(store, organizationId, requested);
+    if (!found) return { requested, error: NOT_OPENED.notFound };
+    id = found;
+  }
+  const opened = await openLiveThread(store, organizationId, id);
   return opened.ok
     ? { requested, row: liveRowFromThread(opened.value), thread: opened.value }
     : { requested, error: opened.error.message };
+}
+
+/**
+ * Where `/inbox?thread=<id>&open=gmail` goes: the conversation in Gmail, in
+ * the connected mailbox. Used for a synced email's "Gmail" link, whose Gmail
+ * id only the server can look up. Null when the id stands for no email, so
+ * the Inbox says it could not open it instead. Never throws.
+ */
+export async function gmailHrefForLink(
+  store: DataStore,
+  organizationId: string,
+  requested: string,
+): Promise<string | null> {
+  const id = await linkGmailId(store, organizationId, requested);
+  if (!id) return null;
+  if (isDemoMode()) return gmailThreadUrl(id, DEMO_USER.email);
+  const integration = await getPrimaryIntegration(store, organizationId).catch(() => null);
+  return gmailThreadUrl(id, integration?.account_email ?? null);
 }
 
 function decodeEntities(text: string): string {

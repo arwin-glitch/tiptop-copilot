@@ -1,6 +1,4 @@
-import { ExternalLink } from 'lucide-react';
 import { digestedAt, digestIndex, type CompanyUpdate } from '@/lib/company-updates/classify';
-import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { readCompanyUpdates } from '@/lib/services/company-updates';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
@@ -9,6 +7,7 @@ import { formatMonthDay, relativeTime } from '@/lib/util/time';
 import { SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { ThreadLinks } from '@/components/email/thread-links';
 
 const SHOWN = 8;
 
@@ -119,7 +118,6 @@ function UpdateRow({
   now: Date;
   timeZone: string;
 }) {
-  const href = gmailThreadUrl(u.threadId, DEFAULT_MAILBOX);
   const title = u.company ?? u.sender;
   return (
     <li>
@@ -148,16 +146,14 @@ function UpdateRow({
               {u.bcc ? ' · you were bcc’d' : ''}
             </p>
           </div>
-          {href ? (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--accent)] underline-offset-2 hover:underline"
-            >
-              Open in Gmail <ExternalLink className="size-3" aria-hidden />
-            </a>
-          ) : null}
+          {/* The update email, in Copilot's Inbox or in Gmail. */}
+          <ThreadLinks
+            id={u.threadId}
+            mailbox={DEFAULT_MAILBOX}
+            label={`${u.subject} (${title})`}
+            variant="text"
+            className="max-sm:flex-col max-sm:items-end max-sm:gap-1"
+          />
         </CardContent>
       </Card>
     </li>

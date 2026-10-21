@@ -11,6 +11,7 @@ import { ReopenTaskButton } from '@/components/today/today-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { ThreadLinksForHref } from '@/components/email/thread-links';
 import type { ProofCheckView } from '@/lib/tasks/proof';
 import { CompanyChip, type TaskCompanyChip } from './company-chip';
 
@@ -29,20 +30,29 @@ export function ProofCheckNote({ view }: { view: ProofCheckView | null | undefin
     return (
       <p className="mt-1 flex items-start gap-1.5 text-xs text-[var(--fg-subtle)]">
         <MailCheck className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-        {view.href ? (
-          <a
-            href={view.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:decoration-solid"
-          >
-            {view.label}
-            <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
-            <span className="sr-only">(opens Gmail in a new tab)</span>
-          </a>
-        ) : (
-          <span>{view.label}</span>
-        )}
+        {/* The sent email, in Copilot or in Gmail. */}
+        <ThreadLinksForHref
+          href={view.href}
+          text={view.label}
+          label={view.label}
+          variant="text"
+          fallback={
+            view.href ? (
+              <a
+                href={view.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:decoration-solid"
+              >
+                {view.label}
+                <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
+                <span className="sr-only">(opens in a new tab)</span>
+              </a>
+            ) : (
+              <span>{view.label}</span>
+            )
+          }
+        />
       </p>
     );
   }

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { AlertTriangle, ExternalLink, Link2, Mail, Paperclip } from 'lucide-react';
+import { AlertTriangle, Link2, Mail, Paperclip } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { env } from '@/lib/config/env';
 import { getAI, getStore } from '@/lib/runtime';
@@ -9,7 +9,8 @@ import { notesForDeal } from '@/lib/services/meetings';
 import { getDealDetail, factHistory } from '@/lib/services/deals';
 import { readSidecar, routineOwnsDealStage } from '@/lib/services/deal-ingest';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
-import { gmailThreadUrl, httpUrl, websiteHref } from '@/lib/deals/links';
+import { httpUrl, websiteHref } from '@/lib/deals/links';
+import { emailLinkId, isGmailId } from '@/lib/email/thread-links';
 import { RoutineCard } from '@/components/deals/routine-card';
 import { CompanyAffinitySection } from '@/components/crm/company-affinity';
 import { affinityForCompany } from '@/lib/services/crm-pages';
@@ -23,6 +24,7 @@ import { EmptyState, Notice, PlainText } from '@/components/ui/feedback';
 import { Stat, StatGroup } from '@/components/ui/stat';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CitationList, GeneratedMeta, SourceDrawer } from '@/components/evidence/source-drawer';
+import { ThreadLinks } from '@/components/email/thread-links';
 import {
   AddNoteButton,
   CorrectFieldButton,
@@ -150,17 +152,17 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
   ]);
   const siteHref = websiteHref(deal.website ?? deal.domain);
 
-  // Sources that live outside the app: Gmail threads the deal-sorter found,
-  // and web or manual links. Hrefs are rebuilt from validated identifiers.
-  const threadLinks = detail.sources
-    .filter((s) => s.kind === 'email_thread' && s.ref_id)
+  // Sources that live outside the app: Gmail threads the deal-sorter found
+  // (read in Copilot's Inbox or in Gmail), and web or manual links. Links are
+  // rebuilt from validated identifiers.
+  const threadSources = detail.sources
+    .filter((s) => s.kind === 'email_thread' && isGmailId(s.ref_id))
     .map((s) => ({
       id: s.id,
+      threadId: s.ref_id ?? '',
       label: s.label,
       occurredAt: s.occurred_at,
-      href: gmailThreadUrl(s.ref_id ?? '', integration?.account_email),
-    }))
-    .filter((s): s is typeof s & { href: string } => Boolean(s.href));
+    }));
   const webLinks = detail.sources
     .filter((s) => s.kind === 'web' || s.kind === 'manual')
     .map((s) => ({ id: s.id, label: s.label, href: httpUrl(s.url) }))
@@ -168,7 +170,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
   const noSources =
     messages.length === 0 &&
     attachments.length === 0 &&
-    threadLinks.length === 0 &&
+    threadSources.length === 0 &&
     webLinks.length === 0;
 
   return (
@@ -745,33 +747,34 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                 />
               ) : (
                 <>
-                  {threadLinks.length > 0 ? (
+                  {threadSources.length > 0 ? (
                     <div className="mb-5">
-                      <FieldLabel as="h3">Gmail threads</FieldLabel>
+                      <FieldLabel as="h3">Email threads</FieldLabel>
                       <ul className="mt-2 space-y-2">
-                        {threadLinks.map((t) => (
-                          <li key={t.id} className="rounded-md border border-[var(--border)] p-3">
-                            <a
-                              href={t.href}
-                              target="_blank"
-                              rel="noopener noreferrer nofollow"
-                              className="flex items-center gap-2 text-sm font-medium break-words underline-offset-2 hover:underline"
-                            >
-                              <Mail
-                                className="size-3.5 shrink-0 text-[var(--fg-subtle)]"
-                                aria-hidden="true"
-                              />
-                              <span className="min-w-0">{t.label}</span>
-                              <ExternalLink
-                                className="size-3 shrink-0 text-[var(--fg-subtle)]"
-                                aria-hidden="true"
-                              />
-                            </a>
-                            {t.occurredAt ? (
-                              <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
-                                {formatDate(t.occurredAt, auth.profile.timezone)} · opens in Gmail
+                        {threadSources.map((t) => (
+                          <li
+                            key={t.id}
+                            className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 rounded-md border border-[var(--border)] p-3"
+                          >
+                            <div className="min-w-0">
+                              <p className="flex items-center gap-2 text-sm font-medium break-words">
+                                <Mail
+                                  className="size-3.5 shrink-0 text-[var(--fg-subtle)]"
+                                  aria-hidden="true"
+                                />
+                                <span className="min-w-0">{t.label}</span>
                               </p>
-                            ) : null}
+                              {t.occurredAt ? (
+                                <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
+                                  {formatDate(t.occurredAt, auth.profile.timezone)}
+                                </p>
+                              ) : null}
+                            </div>
+                            <ThreadLinks
+                              id={t.threadId}
+                              mailbox={integration?.account_email}
+                              label={t.label}
+                            />
                           </li>
                         ))}
                       </ul>
@@ -806,19 +809,27 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                   <ul className="mt-2 space-y-2">
                     {messages.map((m) => (
                       <li key={m.id} className="rounded-md border border-[var(--border)] p-3">
-                        <p className="flex items-center gap-2 text-sm font-medium">
-                          <Mail className="size-3.5 text-[var(--fg-subtle)]" aria-hidden="true" />
-                          <Link
-                            href={`/inbox?message=${m.id}`}
-                            className="underline-offset-2 hover:underline"
-                          >
-                            {m.subject ?? '(no subject)'}
-                          </Link>
-                          {m.injection_flagged ? <Badge tone="danger">Flagged</Badge> : null}
-                        </p>
-                        <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
-                          {m.from_name ?? m.from_address} · {relativeTime(m.sent_at)}
-                        </p>
+                        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+                          <div className="min-w-0">
+                            <p className="flex items-center gap-2 text-sm font-medium break-words">
+                              <Mail
+                                className="size-3.5 shrink-0 text-[var(--fg-subtle)]"
+                                aria-hidden="true"
+                              />
+                              <span className="min-w-0">{m.subject ?? '(no subject)'}</span>
+                              {m.injection_flagged ? <Badge tone="danger">Flagged</Badge> : null}
+                            </p>
+                            <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
+                              {m.from_name ?? m.from_address} · {relativeTime(m.sent_at)}
+                            </p>
+                          </div>
+                          {/* The email in Copilot's Inbox, or in Gmail. */}
+                          <ThreadLinks
+                            id={emailLinkId(m)}
+                            mailbox={integration?.account_email}
+                            label={m.subject ?? '(no subject)'}
+                          />
+                        </div>
                         <PlainText
                           text={m.body_text ?? m.snippet}
                           className="mt-2 text-[var(--fg-muted)]"

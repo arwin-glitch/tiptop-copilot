@@ -1,6 +1,7 @@
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { ExternalLink, Inbox } from 'lucide-react';
-import { threadLinks } from '@/lib/email/thread-links';
+import { parseGmailThreadUrl, threadLinks } from '@/lib/email/thread-links';
 import { cn } from '@/lib/util/cn';
 
 /**
@@ -9,17 +10,23 @@ import { cn } from '@/lib/util/cn';
  * opens it in Gmail in a new tab. Arwin's rule: every email or thread link in
  * the app offers both, and a link never brings the email's text with it.
  *
- * Works in server and client components alike (no hooks, no state). Renders
- * nothing for an id that is not a Gmail id, so a caller can pass whatever it
- * holds. Accessible names are "Open in Copilot" and "Open in Gmail", with the
- * `label` after a colon when one is given, so a list of them stays telling
- * apart for a screen reader; the visible words are always just the place.
+ * Works in server and client components alike (no hooks, no state). Takes a
+ * Gmail thread or message id, or Copilot's own id for a synced email (which
+ * the Inbox looks up), and renders nothing for anything else, so a caller can
+ * pass whatever it holds. Accessible names are "Open in Copilot" and "Open in
+ * Gmail", with the `label` after a colon when one is given, so a list of them
+ * stays telling apart for a screen reader; the visible words are always just
+ * the place.
  */
 
 export interface ThreadLinksProps {
-  /** A Gmail thread id or message id (hex). Anything else renders nothing. */
+  /** A Gmail thread or message id (hex), or a synced email's UUID. Anything else renders nothing. */
   id: string | null | undefined;
-  /** The mailbox the thread is in, for Gmail's `authuser` (DEFAULT_MAILBOX on the server). */
+  /**
+   * The mailbox the thread is in, for Gmail's `authuser` (DEFAULT_MAILBOX on
+   * the server). Null where it is not known: Gmail then goes by way of the
+   * Inbox, which knows the connected mailbox.
+   */
   mailbox: string | null | undefined;
   /** What the email is (its subject, or who it is from), added to both accessible names. */
   label?: string;
@@ -85,6 +92,37 @@ export function ThreadLinks({
         <ExternalLink className={cn(icon, 'shrink-0')} aria-hidden="true" />
         {variant === 'icons' ? null : 'Gmail'}
       </a>
+    </span>
+  );
+}
+
+/**
+ * The two links for a link that was built earlier as a Gmail URL (a task's
+ * "Seen sent" proof, a routine's link in a post, a warm path's sample
+ * thread): when it points at one Gmail email, both places to read it, after
+ * `text` when given; otherwise `fallback`, unchanged. A Gmail search, a
+ * label, Gmail's newer opaque ids and every other site keep their own link.
+ */
+export function ThreadLinksForHref({
+  href,
+  text,
+  fallback,
+  ...rest
+}: Omit<ThreadLinksProps, 'id' | 'mailbox'> & {
+  href: string | null | undefined;
+  /** Words shown before the two links (what the email is). */
+  text?: ReactNode;
+  /** What to render when the href is not one Gmail email (often the plain link). */
+  fallback: ReactNode;
+}) {
+  const ref = parseGmailThreadUrl(href);
+  if (!ref) return <>{fallback}</>;
+  const links = <ThreadLinks id={ref.id} mailbox={ref.mailbox} {...rest} />;
+  if (text === undefined) return links;
+  return (
+    <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span className="min-w-0 break-words">{text}</span>
+      {links}
     </span>
   );
 }

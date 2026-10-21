@@ -18,6 +18,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/feedback';
+import { ThreadLinksForHref } from '@/components/email/thread-links';
 import { matchesWho, type TaskRestore } from '@/lib/tasks/tasks-view';
 import { CompanyChip, type TaskCompanyChip } from './company-chip';
 import { useTasksWho, WhoFilter } from './tasks-tabs';
@@ -219,20 +220,29 @@ export function ProofLine({
     <div className="mt-1 text-xs text-[var(--fg-muted)]">
       <p className="flex items-start gap-1.5">
         <Icon className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-        {proof.href ? (
-          <a
-            href={proof.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:decoration-solid"
-          >
-            {proof.label}
-            <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
-            <span className="sr-only">(opens in a new tab)</span>
-          </a>
-        ) : (
-          <span>{proof.label}</span>
-        )}
+        {/* A proof that is one Gmail email reads in Copilot or Gmail; any other link stays as it is. */}
+        <ThreadLinksForHref
+          href={proof.href}
+          text={proof.label}
+          label={proof.label}
+          variant="text"
+          fallback={
+            proof.href ? (
+              <a
+                href={proof.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:decoration-solid"
+              >
+                {proof.label}
+                <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
+                <span className="sr-only">(opens in a new tab)</span>
+              </a>
+            ) : (
+              <span>{proof.label}</span>
+            )
+          }
+        />
       </p>
       {proof.note ? (
         <p

@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
-import { CalendarDays, ExternalLink, FileText } from 'lucide-react';
-import { gmailThreadUrl } from '@/lib/deals/links';
+import { CalendarDays, FileText } from 'lucide-react';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import type {
   FollowUpsState,
@@ -18,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { WriteIntroButton } from '@/components/followups/write-intro-button';
 import { StaleHint } from '@/components/feeds/stale-hint';
+import { ThreadLinks } from '@/components/email/thread-links';
 import { formatDate, formatTime, formatWeekdayLong, relativeTime } from '@/lib/util/time';
 
 /**
@@ -25,19 +25,16 @@ import { formatDate, formatTime, formatWeekdayLong, relativeTime } from '@/lib/u
  * link is rebuilt from a validated Gmail thread id, never taken from a post.
  */
 
+/** A row's thread as two icons, Copilot's Inbox and Gmail; `label` says what the thread is. */
 function GmailLink({ threadId, label }: { threadId: string | null | undefined; label: string }) {
-  const href = threadId ? gmailThreadUrl(threadId, DEFAULT_MAILBOX) : null;
-  if (!href) return null;
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={label}
-      className="mt-0.5 shrink-0 text-[var(--accent)]"
-    >
-      <ExternalLink className="size-3.5" aria-hidden />
-    </a>
+    <ThreadLinks
+      id={threadId}
+      mailbox={DEFAULT_MAILBOX}
+      label={label}
+      variant="icons"
+      className="-mt-1 -mr-1 flex-nowrap"
+    />
   );
 }
 
@@ -124,7 +121,7 @@ export function PortfolioHealthCard({
                   </p>
                 ) : null}
               </div>
-              <GmailLink threadId={c.thread_id} label={`Open ${c.name}'s latest update in Gmail`} />
+              <GmailLink threadId={c.thread_id} label={`${c.name}'s latest update`} />
             </li>
           ))}
         </ul>
@@ -203,7 +200,10 @@ export function IntrosCard({
                     </div>
                   ) : null}
                 </div>
-                <GmailLink threadId={i.thread_id} label={`Open the intro thread in Gmail`} />
+                <GmailLink
+                  threadId={i.thread_id}
+                  label={`the intro thread, ${i.for_who} to ${i.to_who}`}
+                />
               </li>
             );
           })}
@@ -300,10 +300,7 @@ export function WeekAheadCard({
                       <p className="mt-0.5 text-sm text-[var(--fg-muted)]">{e.prep}</p>
                     ) : null}
                   </div>
-                  <GmailLink
-                    threadId={e.thread_id}
-                    label={`Open the thread for ${e.title} in Gmail`}
-                  />
+                  <GmailLink threadId={e.thread_id} label={`the thread for ${e.title}`} />
                 </li>
               ))}
             </ul>
@@ -317,9 +314,6 @@ export function WeekAheadCard({
 /* ------------------------------ LP update ------------------------------ */
 
 export function LpUpdateCard({ draft, now }: { draft: LpUpdateDraft; now: Date }) {
-  const href = draft.draft_thread_id
-    ? gmailThreadUrl(draft.draft_thread_id, DEFAULT_MAILBOX)
-    : null;
   return (
     <Card className="mb-6">
       <CardContent className="flex flex-wrap items-start justify-between gap-3 pt-4">
@@ -340,16 +334,12 @@ export function LpUpdateCard({ draft, now }: { draft: LpUpdateDraft; now: Date }
             ) : null}
           </div>
         </div>
-        {href ? (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-[var(--accent)] underline-offset-2 hover:underline"
-          >
-            Open the draft in Gmail
-          </a>
-        ) : null}
+        {/* The draft's thread: read it in Copilot's Inbox, edit and send it in Gmail. */}
+        <ThreadLinks
+          id={draft.draft_thread_id}
+          mailbox={DEFAULT_MAILBOX}
+          label={`the ${draft.period} LP update draft`}
+        />
       </CardContent>
     </Card>
   );

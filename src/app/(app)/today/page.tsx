@@ -18,7 +18,7 @@ import { readAffinityExitTodayLine } from '@/lib/services/affinity-exit';
 import { readMoneyLegal, readTaskPeople } from '@/lib/services/money-legal';
 import { readFollowUps, todayLead } from '@/lib/services/follow-ups';
 import { classifyMeeting, meetingFromStoredEvent } from '@/lib/calendar/meetings';
-import { gmailThreadUrl } from '@/lib/deals/links';
+import { emailLinkId } from '@/lib/email/thread-links';
 import { autoCheckStatusLine, DEFAULT_MAILBOX, gmailMessageHref } from '@/lib/services/task-close';
 import { proofCheckView, readFlaggedProofTasks } from '@/lib/services/task-proof';
 import { readTaskCompanies } from '@/lib/services/task-company';
@@ -39,6 +39,7 @@ import { WelcomeBack } from '@/components/today/welcome-back';
 import { TodayGlance } from '@/components/today/today-glance';
 import { AffinityExitLine } from '@/components/today/affinity-exit-line';
 import { CompanyChip } from '@/components/tasks/company-chip';
+import { ThreadLinks } from '@/components/email/thread-links';
 import { NotSeenSentCard, type NotSeenSentItem } from '@/components/tasks/proof-check';
 import {
   CreateFollowUpButton,
@@ -465,21 +466,17 @@ async function TodayContent({
                   </ul>
                 ) : null}
                 {prep.lastInteraction ? (
-                  <p className="mt-1.5 text-xs text-[var(--fg-subtle)]">
-                    Last email from them:{' '}
-                    {lastEmailHref(prep.lastInteraction.provider_message_id) ? (
-                      <a
-                        href={lastEmailHref(prep.lastInteraction.provider_message_id)!}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="underline-offset-2 hover:underline"
-                      >
-                        {prep.lastInteraction.subject ?? '(no subject)'}
-                      </a>
-                    ) : (
-                      (prep.lastInteraction.subject ?? '(no subject)')
-                    )}{' '}
-                    · {relativeTime(prep.lastInteraction.sent_at, now)}
+                  <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-[var(--fg-subtle)]">
+                    <span className="min-w-0 break-words">
+                      Last email from them: {prep.lastInteraction.subject ?? '(no subject)'} ·{' '}
+                      {relativeTime(prep.lastInteraction.sent_at, now)}
+                    </span>
+                    <ThreadLinks
+                      id={emailLinkId(prep.lastInteraction)}
+                      mailbox={DEFAULT_MAILBOX}
+                      label={prep.lastInteraction.subject ?? '(no subject)'}
+                      variant="text"
+                    />
                   </p>
                 ) : null}
               </li>
@@ -512,12 +509,7 @@ async function TodayContent({
                       className="size-3.5 shrink-0 text-[var(--fg-subtle)]"
                       aria-hidden="true"
                     />
-                    <Link
-                      href={`/inbox?message=${message.id}`}
-                      className="truncate underline-offset-2 hover:underline"
-                    >
-                      {message.subject ?? '(no subject)'}
-                    </Link>
+                    <span className="truncate">{message.subject ?? '(no subject)'}</span>
                     {message.is_unread ? <Badge tone="info">Unread</Badge> : null}
                     {message.injection_flagged ? <Badge tone="danger">Flagged</Badge> : null}
                   </p>
@@ -528,6 +520,13 @@ async function TodayContent({
                   <p className="mt-1 line-clamp-2 text-sm text-[var(--fg-muted)]">
                     {message.snippet}
                   </p>
+                  <ThreadLinks
+                    id={emailLinkId(message)}
+                    mailbox={DEFAULT_MAILBOX}
+                    label={message.subject ?? '(no subject)'}
+                    variant="text"
+                    className="mt-1"
+                  />
                 </div>
               </li>
             ))}
@@ -681,12 +680,9 @@ async function TodayContent({
                   key={message.id}
                   className="border-b border-[var(--border)] py-2.5 last:border-b-0"
                 >
-                  <Link
-                    href={`/inbox?message=${message.id}`}
-                    className="text-sm font-medium underline-offset-2 hover:underline"
-                  >
+                  <p className="text-sm font-medium break-words">
                     {message.subject ?? '(no subject)'}
-                  </Link>
+                  </p>
                   <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
                     {message.from_name ?? message.from_address} ·{' '}
                     {relativeTime(message.sent_at, now)}
@@ -694,6 +690,13 @@ async function TodayContent({
                   <p className="mt-1 line-clamp-2 text-sm text-[var(--fg-muted)]">
                     {message.snippet}
                   </p>
+                  <ThreadLinks
+                    id={emailLinkId(message)}
+                    mailbox={DEFAULT_MAILBOX}
+                    label={message.subject ?? '(no subject)'}
+                    variant="text"
+                    className="mt-1"
+                  />
                 </li>
               ))}
             </ul>
@@ -716,9 +719,4 @@ async function TodayContent({
       </div>
     </>
   );
-}
-
-/** Gmail link for a synced message id; demo and malformed ids get no link. */
-function lastEmailHref(providerMessageId: string): string | null {
-  return gmailThreadUrl(providerMessageId, DEFAULT_MAILBOX);
 }

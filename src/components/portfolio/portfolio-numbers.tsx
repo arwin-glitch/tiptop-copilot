@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { after } from 'next/server';
-import { ExternalLink } from 'lucide-react';
 import type { CompanyLike } from '@/lib/company-updates/classify';
 import {
   formatMoney,
@@ -10,7 +9,6 @@ import {
   type MetricPoint,
   type Sourced,
 } from '@/lib/company-updates/metrics';
-import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { loadPortfolioNumbers, refreshSettled } from '@/lib/services/portfolio-numbers';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
@@ -18,6 +16,7 @@ import { formatDate, formatDateTime } from '@/lib/util/time';
 import { SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { ThreadLinks } from '@/components/email/thread-links';
 
 /**
  * Portfolio: the numbers each company reported in its own update emails.
@@ -185,7 +184,6 @@ function MetricCell({
   extra?: ReactNode;
   wide?: boolean;
 }) {
-  const href = gmailThreadUrl(sourced.threadId, DEFAULT_MAILBOX);
   return (
     <div className={wide ? 'min-w-0 sm:col-span-2 lg:col-span-1' : 'min-w-0'}>
       <dt className="text-mini font-medium tracking-wide text-[var(--fg-subtle)] uppercase">
@@ -198,21 +196,15 @@ function MetricCell({
           </span>
           {extra}
         </span>
-        <span className="block text-xs text-[var(--fg-subtle)]">
-          as of {formatDate(sourced.asOf, timeZone)}
-          {href ? (
-            <>
-              {' · '}
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-0.5 text-[var(--accent)] underline-offset-2 hover:underline"
-              >
-                Source email <ExternalLink className="size-3" aria-hidden />
-              </a>
-            </>
-          ) : null}
+        <span className="flex flex-wrap items-center gap-x-2 text-xs text-[var(--fg-subtle)]">
+          <span>as of {formatDate(sourced.asOf, timeZone)}</span>
+          {/* The source email, in Copilot's Inbox or in Gmail. */}
+          <ThreadLinks
+            id={sourced.threadId}
+            mailbox={DEFAULT_MAILBOX}
+            label={`source email for ${label}`}
+            variant="text"
+          />
         </span>
       </dd>
     </div>

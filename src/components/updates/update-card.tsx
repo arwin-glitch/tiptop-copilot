@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Blocks, Mrkdwn } from '@/components/updates/mrkdwn';
+import { ThreadLinksForHref } from '@/components/email/thread-links';
 import { IconChip, postStyle } from '@/components/updates/style';
 import { cn } from '@/lib/util/cn';
 import { formatDate, relativeTime } from '@/lib/util/time';
@@ -436,9 +437,13 @@ function ItemRow({ item }: { item: DigestItem }) {
         {item.links.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {item.links.map((l, i) => (
-              <ExternalButton key={i} href={l.href}>
-                {l.label}
-              </ExternalButton>
+              // A link to one Gmail email offers Copilot's Inbox too.
+              <ThreadLinksForHref
+                key={i}
+                href={safeHref(l.href)}
+                label={/\(([^)]+)\)$/.exec(l.label)?.[1]}
+                fallback={<ExternalButton href={l.href}>{l.label}</ExternalButton>}
+              />
             ))}
           </div>
         ) : null}

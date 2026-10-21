@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/util/cn';
 import { CitationList, SourceDrawer } from '@/components/evidence/source-drawer';
+import { ThreadLinks } from '@/components/email/thread-links';
+import { emailIdFromInboxHref } from '@/lib/email/thread-links';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { BriefItem, Citation } from '@/lib/types/domain';
@@ -87,11 +89,12 @@ export function BriefItemRow({
   citations: Citation[];
   trailing?: React.ReactNode;
 }) {
+  const emailId = emailIdFromInboxHref(item.href);
   return (
     <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] py-2.5 last:border-b-0">
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">
-          {item.href ? (
+          {item.href && !emailId ? (
             <Link href={item.href} className="underline-offset-2 hover:underline">
               {item.title}
             </Link>
@@ -105,6 +108,14 @@ export function BriefItemRow({
           ) : null}
         </p>
         <p className="mt-1 text-sm text-[var(--fg-muted)]">{item.detail}</p>
+        {/* An email item: in Copilot's Inbox or in Gmail. */}
+        <ThreadLinks
+          id={emailId}
+          mailbox={null}
+          label={item.title}
+          variant="text"
+          className="mt-1"
+        />
         <div className="mt-1.5">
           <CitationList
             ids={item.citation_ids}

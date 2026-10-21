@@ -10,6 +10,37 @@ throughout.
 
 ## [Unreleased]
 
+- **Every email link opens in Copilot or Gmail.** Wherever Copilot links to an
+  email or thread, it now offers two places to read it: **Copilot**, which
+  opens the thread in the Inbox's reading pane (`/inbox?thread=<id>`), and
+  **Gmail**, which opens it in Gmail in a new tab. That covers Calendar's
+  latest emails, a deal's email threads and source emails, every Follow-ups
+  row (and the session when an email can't load), Fund II's LP cards, DocSend
+  readers and warm paths, a campaign's replies, Today's important and LP
+  emails and last-email lines, Portfolio requests, numbers and company emails,
+  Network's going cold, intros and relationship timelines, Reports' fresh
+  updates and the Gmail links in routine posts, Gmail links in Ask answers,
+  sources in the evidence drawer, and the Seen sent, auto-close and money &
+  legal proofs on Tasks. Links that went nowhere now work: Today's email
+  rows, a deal's source emails, a company's related email and email citations
+  pointed at an Inbox address it never read, and now open the email. The
+  Inbox also opens Copilot's own id for a synced email, and the older
+  `?message=` links. Opening by link never marks an email read. The Top
+  priorities card keeps its single Gmail link, a Gmail search stays a search,
+  and the Inbox keeps its own Open in Gmail. Nothing sends, no new scopes.
+
+- **Network › Students & interns**, after Keep in touch: students Nick
+  mentors, schools and programs inviting TipTop in (fellowships, PE/VC labs,
+  alumni mentor programs), and students asking to intern or for advice. A
+  scan reads the mailbox every Monday and Thursday and posts to #deal-relay
+  (`STUDENTS_V1`). Filter by kind, status (open by default) and whose next
+  step it is, or search; the filters stay in the link. Deadlines in the next
+  two weeks are flagged, and items on Arwin are marked in gold and counted at
+  the top. Each item links to its emails (Copilot or Gmail) and never shows
+  their text. The tab says the scan is overdue after five days, and
+  Diagnostics › Feeds watches it too. An old `/portfolio?tab=students` link
+  opens the tab on Network. No migration, nothing sent.
+
 - **Tasks: a proof check for deliverables ticked by hand, and a company chip
   on every task.** When someone ticks a task that is only done once something
   reaches someone (a reply, a document sent, feedback handed back, an intro, a
@@ -48,8 +79,8 @@ throughout.
   (`JOBS_V1`). Active roles show by default; filter by status, team and
   company, or search, and the filters stay in the link. Each role shows the
   founder's own status note, when it was first and last seen, how often it
-  came up, who to send candidates to, the job posting, its source emails in
-  Gmail, and a Copy blurb button for sharing. A posting that is gone from
+  came up, who to send candidates to, the job posting, its source emails (in
+  Copilot or Gmail), and a Copy blurb button for sharing. A posting that is gone from
   Greenhouse, Lever or Ashby (checked daily) closes the role. Each company's
   page shows Open roles (n), linking to its roles. Diagnostics › Feeds watches
   the weekly scan and calls it late after 10 days. The tab explains the scan

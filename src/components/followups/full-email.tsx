@@ -1,12 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import { ChevronDown, ChevronUp, ExternalLink, Loader2, Mail, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronUp, Loader2, Mail, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/feedback';
 import { MessageBody, MessageItem, longTime } from '@/components/inbox/message-view';
-import { gmailThreadUrl } from '@/lib/deals/links';
+import { ThreadLinks } from '@/components/email/thread-links';
 import { addressOf } from '@/lib/email/addresses';
 import { relativeTime } from '@/lib/util/time';
 import type { FollowUpEmail } from '@/lib/services/follow-up-email';
@@ -154,10 +154,10 @@ export function sameSubject(a: string, b: string | null | undefined): boolean {
 
 interface PanelProps {
   id: string;
-  /** For Open in Gmail on an error (the session only; a list row has its own link). */
+  /** For the Copilot and Gmail links on an error (the session only; a list row has its own). */
   mailbox?: string;
   timeZone: string;
-  /** The session: loaded on mount, a stale copy checked again, Open in Gmail on an error. */
+  /** The session: loaded on mount, a stale copy checked again, Copilot and Gmail on an error. */
   auto: boolean;
   clampLines: number;
   /** True, false, or on a phone only (where the row's own subject line is cut short). */
@@ -248,11 +248,12 @@ function EmailPanel({
   }
 
   if (!result.ok) {
-    const gmail = auto ? gmailThreadUrl(id, mailbox) : null;
+    // The session offers the thread elsewhere: Copilot's Inbox reads it its own way, or Gmail.
+    const elsewhere = auto && isEmailId(id);
     return (
       <div className={BOX} role="status">
         <p className="text-sm text-[var(--danger)]">{result.message}</p>
-        {result.retryable || gmail ? (
+        {result.retryable || elsewhere ? (
           <div className="mt-2 flex flex-wrap items-center gap-3">
             {result.retryable ? (
               <Button
@@ -266,15 +267,8 @@ function EmailPanel({
                 <RefreshCw aria-hidden /> Try again
               </Button>
             ) : null}
-            {gmail ? (
-              <a
-                href={gmail}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] underline-offset-2 hover:underline"
-              >
-                Open in Gmail <ExternalLink className="size-3" aria-hidden />
-              </a>
+            {elsewhere ? (
+              <ThreadLinks id={id} mailbox={mailbox} label={knownSubject} variant="text" />
             ) : null}
           </div>
         ) : null}
@@ -456,7 +450,7 @@ export function FollowUpEmailRow({
   timeZone: string;
   /** False where the row already shows the subject (cut short on a phone, so shown there). */
   showSubject?: boolean;
-  /** The row's own links (Open in Gmail), stacked above the toggle. */
+  /** The row's own links (Copilot and Gmail), stacked above the toggle. */
   aside?: React.ReactNode;
   children: React.ReactNode;
 }) {

@@ -8,6 +8,7 @@ import { ReopenTaskButton } from '@/components/today/today-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/feedback';
+import { ThreadLinksForHref } from '@/components/email/thread-links';
 import { COMPLETED_PAGE, completedSections, type CompletedGroupKey } from '@/lib/tasks/tasks-view';
 import type { ProofCheckView } from '@/lib/tasks/proof';
 import { CompanyChip, type TaskCompanyChip } from './company-chip';
@@ -158,20 +159,29 @@ function CompletedRow({
           <div className="mt-1 text-xs text-[var(--fg-muted)]">
             <p className="flex items-start gap-1.5">
               <Sparkles className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-              {item.auto.href ? (
-                <a
-                  href={item.auto.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:decoration-solid"
-                >
-                  {item.auto.label}
-                  <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
-                  <span className="sr-only">(opens Gmail in a new tab)</span>
-                </a>
-              ) : (
-                <span>{item.auto.label}</span>
-              )}
+              {/* The email it closed on, in Copilot or in Gmail. */}
+              <ThreadLinksForHref
+                href={item.auto.href}
+                text={item.auto.label}
+                label={item.auto.label}
+                variant="text"
+                fallback={
+                  item.auto.href ? (
+                    <a
+                      href={item.auto.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                    >
+                      {item.auto.label}
+                      <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
+                      <span className="sr-only">(opens in a new tab)</span>
+                    </a>
+                  ) : (
+                    <span>{item.auto.label}</span>
+                  )
+                }
+              />
             </p>
             {item.auto.reason ? (
               <p

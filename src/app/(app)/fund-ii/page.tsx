@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
-import { ExternalLink } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import {
   AffinityLpLists,
@@ -9,7 +8,6 @@ import {
   affinityLpCount,
   type LpSource,
 } from '@/components/fund-ii/affinity-lps';
-import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { LpUpdateCard } from '@/components/followups/relay-cards';
 import { CampaignList } from '@/components/campaigns/campaign-list';
@@ -38,6 +36,7 @@ import { NotConfigured } from '@/components/ui/not-configured';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { ThreadLinks } from '@/components/email/thread-links';
 import { EmptyState, ErrorState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
 import { StaleHint } from '@/components/feeds/stale-hint';
@@ -367,7 +366,6 @@ function isStale(lp: LpItem, now: Date): boolean {
 }
 
 function LpCard({ lp, now, tz }: { lp: LpItem; now: Date; tz: string }) {
-  const href = lp.thread_id ? gmailThreadUrl(lp.thread_id, DEFAULT_MAILBOX) : null;
   const stale = lp.stage !== 'committed' && lp.stage !== 'passed' && isStale(lp, now);
   const firm = searchableFirm(lp.firm);
   const canAskIntro = Boolean(lp.thread_id || firm);
@@ -380,17 +378,14 @@ function LpCard({ lp, now, tz }: { lp: LpItem; now: Date; tz: string }) {
               <p className="text-sm font-medium">{lp.who}</p>
               {lp.firm ? <p className="text-xs text-[var(--fg-muted)]">{lp.firm}</p> : null}
             </div>
-            {href ? (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={`Open the thread with ${lp.who} in Gmail`}
-                className="text-[var(--accent)]"
-              >
-                <ExternalLink className="size-3.5" aria-hidden />
-              </a>
-            ) : null}
+            {/* The thread with them, in Copilot's Inbox or in Gmail. */}
+            <ThreadLinks
+              id={lp.thread_id}
+              mailbox={DEFAULT_MAILBOX}
+              label={`the thread with ${lp.who}`}
+              variant="icons"
+              className="-mt-1 -mr-1"
+            />
           </div>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             <Badge tone="neutral">{KIND_LABEL[lp.kind]}</Badge>

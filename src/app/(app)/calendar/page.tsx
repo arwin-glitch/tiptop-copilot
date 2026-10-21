@@ -1,16 +1,16 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { Bell, BellOff, ExternalLink, MapPin, Video } from 'lucide-react';
+import { Bell, BellOff, MapPin, Video } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { physicalLocation } from '@/lib/calendar/meetings';
-import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { readCalendarDay, type CalendarEntry } from '@/lib/services/calendar-view';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { ThreadLinks } from '@/components/email/thread-links';
 import { Notice, SkeletonText } from '@/components/ui/feedback';
 import { cn } from '@/lib/util/cn';
 import { addDaysToKey, formatDate, formatTime, localDateKey } from '@/lib/util/time';
@@ -244,28 +244,23 @@ function EntryCard({
                   Latest emails with them
                 </p>
                 <ul className="mt-0.5 space-y-0.5">
-                  {recent.map((t) => {
-                    const href = gmailThreadUrl(t.id, DEFAULT_MAILBOX);
-                    return (
-                      <li key={t.id} className="text-xs">
-                        {href ? (
-                          <a
-                            href={href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline"
-                          >
-                            {t.subject} <ExternalLink className="size-3" aria-hidden />
-                          </a>
-                        ) : (
-                          t.subject
-                        )}
+                  {recent.map((t) => (
+                    <li key={t.id} className="flex flex-wrap items-center gap-x-2 text-xs">
+                      <span className="min-w-0 break-words">
+                        {t.subject}
                         {t.at ? (
                           <span className="text-[var(--fg-subtle)]"> · {formatDate(t.at, tz)}</span>
                         ) : null}
-                      </li>
-                    );
-                  })}
+                      </span>
+                      {/* The thread in Copilot's Inbox, or in Gmail. */}
+                      <ThreadLinks
+                        id={t.id}
+                        mailbox={DEFAULT_MAILBOX}
+                        label={t.subject}
+                        variant="text"
+                      />
+                    </li>
+                  ))}
                 </ul>
               </div>
             ) : null}

@@ -6,7 +6,8 @@ import { ExternalLink, FileText, Quote } from 'lucide-react';
 import { Dialog, DialogTrigger, Drawer } from '@/components/ui/dialog';
 import { Badge, ProvenanceBadge } from '@/components/ui/badge';
 import { PlainText } from '@/components/ui/feedback';
-import { citationHref, citationLabel, citationProvenance } from '@/lib/ai/citations';
+import { citationEmail, citationHref, citationLabel, citationProvenance } from '@/lib/ai/citations';
+import { ThreadLinks } from '@/components/email/thread-links';
 import type { Citation } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
 import { formatDateTime } from '@/lib/util/time';
@@ -113,6 +114,8 @@ export function SourceDrawer({
             {ordered.map((citation, index) => {
               const href = citationHref(citation);
               const external = citation.kind === 'web';
+              // An email offers both places to read it, Copilot and Gmail.
+              const email = citationEmail(citation);
               return (
                 <li
                   key={`${citation.id}-${index}`}
@@ -146,7 +149,15 @@ export function SourceDrawer({
                     </blockquote>
                   ) : null}
 
-                  {href ? (
+                  {email ? (
+                    <ThreadLinks
+                      id={email.id}
+                      mailbox={email.mailbox}
+                      label={citation.label}
+                      variant="text"
+                      className="mt-2"
+                    />
+                  ) : href ? (
                     external ? (
                       <a
                         href={href}

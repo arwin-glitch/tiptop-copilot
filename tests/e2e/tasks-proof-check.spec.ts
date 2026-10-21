@@ -95,11 +95,16 @@ test('Completed says what was seen sent, and flags what was not', async ({ page 
   await expect(t.completed).toHaveAccessibleName(/^Completed 4$/);
 
   const seen = row(t.completedPanel, SEEN);
+  // The sent email, in Copilot or in Gmail.
+  await expect(seen).toContainText(/Seen sent · email to Maya, [A-Z][a-z]{2} \d{1,2}/);
   const seenNote = seen.getByRole('link', {
-    name: /^Seen sent · email to Maya, [A-Z][a-z]{2} \d{1,2} \(opens Gmail in a new tab\)$/,
+    name: /^Open in Gmail: Seen sent · email to Maya, [A-Z][a-z]{2} \d{1,2}$/,
   });
   await expect(seenNote).toBeVisible();
   await expect(seenNote).toHaveAttribute('href', /^https:\/\/mail\.google\.com\/mail\/\?authuser=/);
+  await expect(
+    seen.getByRole('link', { name: /^Open in Copilot: Seen sent · email to Maya/ }),
+  ).toHaveAttribute('href', /^\/inbox\?thread=[0-9a-f]+$/);
   await expect(seen.getByText('Ticked, not seen sent')).toHaveCount(0);
   await expect(seen.getByRole('button', { name: /^It's done/ })).toHaveCount(0);
   await expect(chip(seen)).toHaveText('Ledgerly');

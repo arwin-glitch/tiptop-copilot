@@ -1,7 +1,13 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHarness, type Harness } from '../helpers/harness';
-import { listLiveThreads, openFromLink, openLiveThread } from '@/lib/services/inbox-live';
+import { DEMO_IDS } from '@/lib/demo/ids';
+import {
+  gmailHrefForLink,
+  listLiveThreads,
+  openFromLink,
+  openLiveThread,
+} from '@/lib/services/inbox-live';
 import { err, ok } from '@/lib/util/result';
 
 /**
@@ -65,6 +71,39 @@ describe('opening a demo conversation from a link', () => {
     });
     const unknown = await openFromLink(store, auth.organizationId, '0f00000000009999');
     expect(unknown.error).toMatch(/^That email isn't in the mailbox/);
+  });
+
+  it("opens a synced email by Copilot's own id, as Today, a deal's sources and citations hold", async () => {
+    const { store, auth } = harness;
+    const org = auth.organizationId;
+    // The demo Inbox's id for a thread: the last 16 hex digits of its UUID.
+    const demoThreadId = DEMO_IDS.threadVetrix.replace(/-/g, '').slice(-16);
+
+    const byMessage = await openFromLink(store, org, DEMO_IDS.msgVetrixIntro);
+    expect(byMessage.error).toBeUndefined();
+    expect(byMessage.requested).toBe(DEMO_IDS.msgVetrixIntro);
+    expect(byMessage.row?.id).toBe(demoThreadId);
+
+    const byThread = await openFromLink(store, org, DEMO_IDS.threadVetrix);
+    expect(byThread.row?.id).toBe(demoThreadId);
+
+    // A UUID nothing synced has: said plainly, never a throw.
+    const unknown = await openFromLink(store, org, '00000000-0000-4000-8000-00000000ffff');
+    expect(unknown.error).toMatch(/^That email isn't in the mailbox/);
+  });
+
+  it("sends a 'Gmail' link on to Gmail, looking up a synced email's Gmail id", async () => {
+    const { store, auth } = harness;
+    const org = auth.organizationId;
+    const demoThreadId = DEMO_IDS.threadVetrix.replace(/-/g, '').slice(-16);
+    const href = await gmailHrefForLink(store, org, DEMO_IDS.msgVetrixIntro);
+    expect(href?.startsWith('https://mail.google.com/mail/?authuser=')).toBe(true);
+    expect(href?.endsWith(`#all/${demoThreadId}`)).toBe(true);
+    expect(await gmailHrefForLink(store, org, '0f00000000005201')).toMatch(
+      /#all\/0f00000000005201$/,
+    );
+    expect(await gmailHrefForLink(store, org, '00000000-0000-4000-8000-00000000ffff')).toBeNull();
+    expect(await gmailHrefForLink(store, org, 'not-an-email')).toBeNull();
   });
 
   it('serves the same emails to the reading pane route', async () => {

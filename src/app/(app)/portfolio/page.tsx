@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { after } from 'next/server';
 import { Suspense } from 'react';
-import { ExternalLink } from 'lucide-react';
 import { requireAuth, type AuthContext } from '@/lib/auth/session';
 import { readFollowUps, readFollowUpsWithin } from '@/lib/services/follow-ups';
 import { PortfolioHealthCard, snapshotUnavailable } from '@/components/followups/relay-cards';
@@ -55,6 +54,8 @@ import {
   RequestActions,
 } from '@/components/portfolio/portfolio-client';
 import { CitationList } from '@/components/evidence/source-drawer';
+import { ThreadLinks } from '@/components/email/thread-links';
+import { citationEmail } from '@/lib/ai/citations';
 import type { PortfolioCompany, PortfolioUpdate } from '@/lib/types/domain';
 import { relativeTime } from '@/lib/util/time';
 
@@ -281,6 +282,7 @@ function RequestCard({
   const asks = group.updates.filter(isAutoAsk);
   const lead = group.updates[0] as PortfolioUpdate;
   const source = asks[0]?.citations[0] ?? null;
+  const sourceEmail = source ? citationEmail(source) : null;
   const companyName = company?.name ?? 'this company';
   const emailMessageId = group.updates.find((u) => u.email_message_id)?.email_message_id ?? null;
   const occurredAt = group.updates.reduce(
@@ -370,22 +372,20 @@ function RequestCard({
         {asks.length > 0 ? (
           <>
             {source ? (
-              <p className="mt-2 text-xs text-[var(--fg-subtle)]">
-                Under &ldquo;{source.section ?? 'Asks'}&rdquo; in{' '}
-                {source.url ? (
-                  <a
-                    href={source.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[var(--accent)] underline-offset-2 hover:underline"
-                  >
-                    {source.label}
-                    <ExternalLink className="size-3" aria-hidden="true" />
-                  </a>
-                ) : (
-                  <>&ldquo;{source.label}&rdquo;</>
-                )}
-                {source.publisher ? ` from ${source.publisher}` : ''}
+              <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--fg-subtle)]">
+                <span className="min-w-0 break-words">
+                  Under &ldquo;{source.section ?? 'Asks'}&rdquo; in &ldquo;{source.label}&rdquo;
+                  {source.publisher ? ` from ${source.publisher}` : ''}
+                </span>
+                {/* The update email, in Copilot's Inbox or in Gmail. */}
+                {sourceEmail ? (
+                  <ThreadLinks
+                    id={sourceEmail.id}
+                    mailbox={sourceEmail.mailbox ?? DEFAULT_MAILBOX}
+                    label={source.label}
+                    variant="text"
+                  />
+                ) : null}
               </p>
             ) : null}
             <ul className="mt-2 space-y-2" aria-label={`Asks from ${companyName}`}>

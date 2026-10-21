@@ -1,3 +1,4 @@
+import { copilotThreadHref, isEmailLinkId, parseGmailThreadUrl } from '@/lib/email/thread-links';
 import type { Citation } from '@/lib/types/domain';
 import type { CitationRef } from './schemas';
 
@@ -80,13 +81,29 @@ function isPagedKind(kind: Citation['kind']): boolean {
   return kind === 'attachment' || kind === 'document';
 }
 
-/** In-app route that opens the record a citation points at. */
+/**
+ * The email a citation points at, for its two links (Copilot and Gmail):
+ * the Gmail thread in its own link when it carries one, else its id (Gmail's,
+ * or Copilot's for the synced copy, which the Inbox looks up). Null for any
+ * other kind, and for an email citation with no id a link can carry.
+ */
+export function citationEmail(citation: Citation): { id: string; mailbox: string | null } | null {
+  if (citation.kind !== 'email' && citation.kind !== 'email_thread') return null;
+  const linked = parseGmailThreadUrl(citation.url);
+  if (linked) return linked;
+  return isEmailLinkId(citation.ref_id) ? { id: citation.ref_id, mailbox: null } : null;
+}
+
+/**
+ * In-app route that opens the record a citation points at. An email opens in
+ * the Inbox's reading pane (`/inbox?thread=`); the source drawer offers it in
+ * Gmail too, through `citationEmail`.
+ */
 export function citationHref(citation: Citation): string | null {
   switch (citation.kind) {
     case 'email':
-      return `/inbox?message=${encodeURIComponent(citation.ref_id)}`;
     case 'email_thread':
-      return `/inbox?thread=${encodeURIComponent(citation.ref_id)}`;
+      return copilotThreadHref(citationEmail(citation)?.id);
     case 'attachment':
       return `/inbox?attachment=${encodeURIComponent(citation.ref_id)}`;
     case 'document':

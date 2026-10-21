@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CitationRegistry,
+  citationEmail,
   citationHref,
   citationLabel,
   citationProvenance,
@@ -12,6 +13,10 @@ import type { Citation } from '@/lib/types/domain';
  * never in the prompt is dropped and reported — it never reaches the UI, where
  * it would make a wrong answer look sourced.
  */
+
+/** A synced copy's id and a Gmail id, both fictional. */
+const SYNCED = '00000000-0000-4000-8000-000000000400';
+const GMAIL = '18f3a2b4c5d6e7f1';
 
 function citation(over: Partial<Citation> & { id: string }): Citation {
   return {
@@ -158,11 +163,12 @@ describe('registry bookkeeping', () => {
 
 describe('citationHref', () => {
   it('routes every citation kind to a real in-app location', () => {
-    expect(citationHref(citation({ id: 'e', kind: 'email', ref_id: 'm1' }))).toBe(
-      '/inbox?message=m1',
+    // An email opens in the Inbox's reading pane, by the synced copy's id or Gmail's.
+    expect(citationHref(citation({ id: 'e', kind: 'email', ref_id: SYNCED }))).toBe(
+      `/inbox?thread=${SYNCED}`,
     );
-    expect(citationHref(citation({ id: 'e', kind: 'email_thread', ref_id: 't1' }))).toBe(
-      '/inbox?thread=t1',
+    expect(citationHref(citation({ id: 'e', kind: 'email_thread', ref_id: GMAIL }))).toBe(
+      `/inbox?thread=${GMAIL}`,
     );
     expect(citationHref(citation({ id: 'a', kind: 'attachment', ref_id: 'a1' }))).toBe(
       '/inbox?attachment=a1',
@@ -180,6 +186,29 @@ describe('citationHref', () => {
     expect(citationHref(citation({ id: 'n', kind: 'note', ref_id: 'd1' }))).toBe(
       '/deals/d1?tab=notes',
     );
+  });
+
+  it('gives an email citation no link when it has no id a link can carry', () => {
+    // Was `/inbox?message=m1`, which the Inbox never read: a link to nowhere.
+    expect(citationHref(citation({ id: 'e', kind: 'email', ref_id: 'm1' }))).toBeNull();
+    expect(citationEmail(citation({ id: 'e', kind: 'email', ref_id: 'm1' }))).toBeNull();
+    expect(citationEmail(citation({ id: 'd', kind: 'deal', ref_id: SYNCED }))).toBeNull();
+  });
+
+  it("prefers the Gmail thread in an email citation's own link, mailbox and all", () => {
+    const asked = citation({
+      id: 'e',
+      kind: 'email',
+      ref_id: SYNCED,
+      url: `https://mail.google.com/mail/?authuser=nick%40tiptop.demo#all/${GMAIL}`,
+    });
+    expect(citationEmail(asked)).toEqual({ id: GMAIL, mailbox: 'nick@tiptop.demo' });
+    expect(citationHref(asked)).toBe(`/inbox?thread=${GMAIL}`);
+    // A synced copy alone: the Inbox looks it up.
+    expect(citationEmail(citation({ id: 'e', kind: 'email', ref_id: SYNCED }))).toEqual({
+      id: SYNCED,
+      mailbox: null,
+    });
   });
 
   it('includes the page for a document citation', () => {

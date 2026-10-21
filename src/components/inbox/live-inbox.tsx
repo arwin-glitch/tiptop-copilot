@@ -40,7 +40,12 @@ import {
   type MailLabel,
   type PendingChange,
 } from '@/lib/email/inbox-actions';
-import { INBOX_THREAD_PARAM, isGmailId } from '@/lib/email/thread-links';
+import {
+  INBOX_MESSAGE_PARAM,
+  INBOX_OPEN_PARAM,
+  INBOX_THREAD_PARAM,
+  isGmailId,
+} from '@/lib/email/thread-links';
 import { cn } from '@/lib/util/cn';
 import { formatDate, formatMonthDay, formatTime, localDateKey } from '@/lib/util/time';
 import type {
@@ -125,8 +130,9 @@ const isTyping = (target: EventTarget | null) =>
 /** Drop `?thread=` from the address once its conversation is closed, so a reload shows the list. */
 function forgetThreadParam(): void {
   const url = new URL(window.location.href);
-  if (!url.searchParams.has(INBOX_THREAD_PARAM)) return;
-  url.searchParams.delete(INBOX_THREAD_PARAM);
+  const names = [INBOX_THREAD_PARAM, INBOX_MESSAGE_PARAM, INBOX_OPEN_PARAM];
+  if (!names.some((name) => url.searchParams.has(name))) return;
+  for (const name of names) url.searchParams.delete(name);
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
 }
 

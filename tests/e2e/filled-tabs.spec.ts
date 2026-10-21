@@ -63,10 +63,13 @@ test('Portfolio > Requests shows asks read from an update, with who could help',
   await expect(card).toHaveCount(1);
   await expect(card).toContainText('Read from their update · 2 asks');
   await expect(card).toContainText('Under “Asks” in');
-  await expect(card.getByRole('link', { name: /Ledgerly October update/ })).toHaveAttribute(
-    'href',
-    /mail\.google\.com/,
-  );
+  // The update email offers both places to read it.
+  await expect(
+    card.getByRole('link', { name: /^Open in Gmail: .*Ledgerly October update/ }),
+  ).toHaveAttribute('href', /mail\.google\.com/);
+  await expect(
+    card.getByRole('link', { name: /^Open in Copilot: .*Ledgerly October update/ }),
+  ).toHaveAttribute('href', /^\/inbox\?thread=[0-9a-f]+$/);
   // One reply to the thread, and one click closes every ask on the card.
   await expect(card.getByRole('button', { name: 'Draft reply' })).toHaveCount(1);
   await expect(card.getByRole('button', { name: 'Dismiss all' })).toBeVisible();

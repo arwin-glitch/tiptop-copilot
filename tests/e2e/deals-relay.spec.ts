@@ -198,7 +198,9 @@ test('Clear filters brings the list back in place and keeps keyboard focus', asy
   ).toBeFocused();
 });
 
-test('the deal page shows the Deal-sorter card and links the Gmail thread', async ({ page }) => {
+test('the deal page shows the Deal-sorter card and links the thread in Copilot and Gmail', async ({
+  page,
+}) => {
   await page.goto(`/deals/${DEMO.tidewell}`);
   await expect(page.getByRole('heading', { name: 'Deal-sorter' })).toBeVisible();
   await expect(page.getByText('Kept in sync automatically')).toBeVisible();
@@ -208,11 +210,14 @@ test('the deal page shows the Deal-sorter card and links the Gmail thread', asyn
   await expect(page.getByText('Ask for the data room after the intro call')).toBeVisible();
 
   await page.getByRole('tab', { name: 'Sources' }).click();
-  const thread = page.getByRole('link', { name: /Intro: Tidewell and TipTop/ });
+  const thread = page.getByRole('link', { name: /^Open in Gmail: Intro: Tidewell and TipTop/ });
   await expect(thread).toBeVisible();
   const href = (await thread.getAttribute('href')) ?? '';
   expect(href).toContain('#all/18f3a2b4c5d6e7f1');
   expect(href).toContain('authuser=nick%40tiptop.demo');
+  await expect(
+    page.getByRole('link', { name: /^Open in Copilot: Intro: Tidewell and TipTop/ }),
+  ).toHaveAttribute('href', '/inbox?thread=18f3a2b4c5d6e7f1');
 });
 
 test('a retraction shows a banner with a human "Not a deal" button', async ({ page }) => {

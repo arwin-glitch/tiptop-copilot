@@ -1,10 +1,10 @@
-import { ExternalLink, HeartHandshake, Snowflake } from 'lucide-react';
-import { gmailThreadUrl } from '@/lib/deals/links';
+import { HeartHandshake, Snowflake } from 'lucide-react';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import type { RelationshipItem, Relationships } from '@/lib/services/follow-ups';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { StaleHint } from '@/components/feeds/stale-hint';
+import { ThreadLinks } from '@/components/email/thread-links';
 import { relativeTime } from '@/lib/util/time';
 
 const KIND_LABEL: Record<RelationshipItem['kind'], string> = {
@@ -95,42 +95,33 @@ function AlertList({
         <p className="text-sm text-[var(--fg-subtle)]">{empty}</p>
       ) : (
         <ul className="space-y-2">
-          {items.map((item) => {
-            const href = item.thread_id ? gmailThreadUrl(item.thread_id, DEFAULT_MAILBOX) : null;
-            return (
-              <li key={`${item.who}-${item.since}`} className="flex items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-sm font-medium">
-                      {item.who}
-                      {item.company ? (
-                        <span className="font-normal text-[var(--fg-muted)]">
-                          {' '}
-                          · {item.company}
-                        </span>
-                      ) : null}
-                    </span>
-                    <Badge tone="neutral">{KIND_LABEL[item.kind]}</Badge>
-                  </div>
-                  <p className="text-xs text-[var(--fg-subtle)]">
-                    {item.days} {item.days === 1 ? 'day' : 'days'} {unit}
-                    {item.note ? ` · ${item.note}` : ''}
-                  </p>
+          {items.map((item) => (
+            <li key={`${item.who}-${item.since}`} className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-sm font-medium">
+                    {item.who}
+                    {item.company ? (
+                      <span className="font-normal text-[var(--fg-muted)]"> · {item.company}</span>
+                    ) : null}
+                  </span>
+                  <Badge tone="neutral">{KIND_LABEL[item.kind]}</Badge>
                 </div>
-                {href ? (
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={`Open the thread with ${item.who} in Gmail`}
-                    className="mt-0.5 text-[var(--accent)]"
-                  >
-                    <ExternalLink className="size-3.5" aria-hidden />
-                  </a>
-                ) : null}
-              </li>
-            );
-          })}
+                <p className="text-xs text-[var(--fg-subtle)]">
+                  {item.days} {item.days === 1 ? 'day' : 'days'} {unit}
+                  {item.note ? ` · ${item.note}` : ''}
+                </p>
+              </div>
+              {/* The thread with them, in Copilot's Inbox or in Gmail. */}
+              <ThreadLinks
+                id={item.thread_id}
+                mailbox={DEFAULT_MAILBOX}
+                label={`the thread with ${item.who}`}
+                variant="icons"
+                className="-mt-1 flex-nowrap"
+              />
+            </li>
+          ))}
         </ul>
       )}
     </section>

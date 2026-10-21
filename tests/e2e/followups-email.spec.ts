@@ -172,7 +172,7 @@ test('on a phone the sender keeps to one line, the subject shows, the toggle is 
   await page.goto('/follow-ups');
   const priya = row(page, "You're waiting on", 'Priya Natarajan');
   const show = priya.getByRole('button', { name: /^Show email/ });
-  const gmail = priya.getByRole('link', { name: /Open in Gmail/ });
+  const gmail = priya.getByRole('link', { name: /^Open in Gmail/ });
   // Hit-testing needs it on screen, clear of the bottom navigation.
   await show.evaluate((el) => el.scrollIntoView({ block: 'center' }));
   const showBox = (await show.boundingBox())!;
@@ -191,7 +191,7 @@ test('on a phone the sender keeps to one line, the subject shows, the toggle is 
   expect(await hit(cx, showBox.y - 8)).toBe('Show email');
   expect(await hit(cx, showBox.y + showBox.height + 8)).toBe('Show email');
   expect(await hit(gmailBox.x + gmailBox.width / 2, gmailBox.y + gmailBox.height - 2)).toBe(
-    'Open in Gmail',
+    'Gmail',
   );
 
   await show.click();
@@ -221,7 +221,8 @@ test('a failed read says so, offers Try again only when it can help', async ({ p
   await page.goto('/follow-ups/session');
   const card = page.getByRole('article', { name: /^Email from / });
   await expect(card.getByText("Gmail didn't answer.")).toBeVisible();
-  await expect(card.getByRole('link', { name: /Open in Gmail/ })).toBeVisible();
+  await expect(card.getByRole('link', { name: /^Open in Gmail/ })).toBeVisible();
+  await expect(card.getByRole('link', { name: /^Open in Copilot/ })).toBeVisible();
   await page.unroute(EMAIL_API);
   await card.getByRole('button', { name: 'Try again' }).click();
   await expect(card.getByRole('region', { name: /^Email: / })).toBeVisible();

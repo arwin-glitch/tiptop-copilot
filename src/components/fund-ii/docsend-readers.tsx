@@ -1,6 +1,5 @@
-import { ExternalLink, Flame } from 'lucide-react';
+import { Flame } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
-import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { buildReaders, readDocSendViews, type DocSendReader } from '@/lib/services/docsend';
 import { followUpDraft, readFollowUpContext } from '@/lib/services/docsend-follow-up';
@@ -8,6 +7,7 @@ import { readFollowUps, type LpStage } from '@/lib/services/follow-ups';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { FollowUpButton } from '@/components/fund-ii/follow-up-button';
 import { WarmPaths } from '@/components/fund-ii/warm-paths';
+import { ThreadLinks } from '@/components/email/thread-links';
 import { SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -170,7 +170,6 @@ function ReaderRow({
   /** False when his sent mail could not be checked for this reader. */
   sentChecked: boolean;
 }) {
-  const href = gmailThreadUrl(r.threadId, DEFAULT_MAILBOX);
   return (
     <li>
       <Card>
@@ -219,16 +218,14 @@ function ReaderRow({
               <WarmPaths email={r.email} />
             </div>
           </div>
-          {href ? (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--accent)] underline-offset-2 hover:underline"
-            >
-              Open in Gmail <ExternalLink className="size-3" aria-hidden />
-            </a>
-          ) : null}
+          {/* The DocSend notice's thread, in Copilot's Inbox or in Gmail. */}
+          <ThreadLinks
+            id={r.threadId}
+            mailbox={DEFAULT_MAILBOX}
+            label={`the DocSend notice for ${r.name ?? r.email}`}
+            variant="text"
+            className="max-sm:flex-col max-sm:items-end max-sm:gap-1"
+          />
         </CardContent>
       </Card>
     </li>

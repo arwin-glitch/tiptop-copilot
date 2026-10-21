@@ -14,7 +14,10 @@ import { cachedJobLinkVerdicts } from '@/lib/services/job-liveness';
 import { applyJobLiveness, jobPlace, roleIsAtCompany } from '@/lib/portfolio/jobs';
 import { SNAPSHOT_WAIT_MS } from '@/lib/records-tabs';
 import { PROFILE_CONTACTS, provenanceLabel } from '@/lib/portfolio/contacts';
+import { emailLinkId } from '@/lib/email/thread-links';
+import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { CompanyAffinitySection } from '@/components/crm/company-affinity';
+import { ThreadLinks } from '@/components/email/thread-links';
 import { MeetingNoteList } from '@/components/meetings/meeting-note-list';
 import { PageHeader, PageShell, DataRow, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -164,16 +167,21 @@ export default async function PortfolioCompanyPage({
                 {emails.map((m) => (
                   <li key={m.id} className="rounded-md border border-[var(--border)] p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <Link
-                        href={`/inbox?message=${m.id}`}
-                        className="text-sm font-medium underline-offset-2 hover:underline"
-                      >
+                      <span className="min-w-0 text-sm font-medium break-words">
                         {m.subject ?? '(no subject)'}
-                      </Link>
-                      {/* Same model call as the Inbox actions, so it is gated
-                          the same way rather than left as the one button on
-                          the site that still fails. */}
-                      {aiAvailable ? <ClassifyEmailButton messageId={m.id} /> : null}
+                      </span>
+                      <span className="flex flex-wrap items-center gap-2">
+                        {/* The email in Copilot's Inbox, or in Gmail. */}
+                        <ThreadLinks
+                          id={emailLinkId(m)}
+                          mailbox={DEFAULT_MAILBOX}
+                          label={m.subject ?? '(no subject)'}
+                        />
+                        {/* Same model call as the Inbox actions, so it is gated
+                            the same way rather than left as the one button on
+                            the site that still fails. */}
+                        {aiAvailable ? <ClassifyEmailButton messageId={m.id} /> : null}
+                      </span>
                     </div>
                     <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
                       {m.from_name ?? m.from_address} · {relativeTime(m.sent_at)}
