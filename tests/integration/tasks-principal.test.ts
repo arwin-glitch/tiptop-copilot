@@ -222,9 +222,7 @@ describe('the backfill for tasks already filed under the owner', () => {
     const wire = await taskByTitle(WIRE);
 
     const moves = await plan();
-    expect(moves.map((m) => m.taskId).sort()).toEqual(
-      [open.id, snoozed.id, done.id, wire.id].sort(),
-    );
+    expect(moves.map((m) => m.taskId).sort()).toEqual([open.id, snoozed.id, wire.id].sort());
     for (const move of moves) {
       expect(move).toMatchObject({ from: ASSISTANT, to: PRINCIPAL });
       expect(move.audit).toEqual({
@@ -236,7 +234,9 @@ describe('the backfill for tasks already filed under the owner', () => {
         metadata: { from: ASSISTANT, to: PRINCIPAL, reason: DEFAULT_OWNER_FIX_REASON },
       });
     }
-    for (const kept of [deleted, typed, chosen]) {
+    // Done is history: moving it would set the proof check judging work
+    // someone else did from their own mailbox.
+    for (const kept of [done, deleted, typed, chosen]) {
       expect(moves.some((m) => m.taskId === kept.id)).toBe(false);
     }
     expect(moves.some((m) => m.taskId === already.id)).toBe(false);

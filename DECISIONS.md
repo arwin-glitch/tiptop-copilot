@@ -1916,14 +1916,21 @@ for the owner's confirmation first.
 - **The owner role keeps its meaning for permissions** (owner-only actions,
   the daily job's acting user, the alert time zone); none of that changed.
 - **Tasks already filed under the owner** are moved by
-  `supabase/migrations/20261021002000_tasks_to_principal.sql`, run by hand in
-  the SQL editor after its read-only preview: a task assigned to an owner who
-  is not the principal, `source` not `human`, with no `task.assigned` row
-  (nobody chose), open, snoozed or complete. Each move writes a
-  `task.assigned` row (`reason: 'default owner fix'`), which also makes a
-  second run move nothing; `updated_at` is kept. Its selection is pinned in
-  TypeScript (`lib/tasks/principal-backfill.ts`) and the SQL is checked
-  against it by structure, since the repo has no Postgres to run it.
+  `supabase/data-fixes/20261021002000_tasks_to_principal.sql`, run by hand in
+  the SQL editor after its two read-only previews (who the principal is, and
+  the tasks one by one): a task assigned to an owner who is not the
+  principal, `source` not `human`, with no `task.assigned` row (nobody
+  chose), open or snoozed. Done tasks stay where they are: they are history,
+  Completed has no person filter, and moving them would set the proof check
+  judging work an assistant already sent from their own mailbox. Each move
+  writes a `task.assigned` row (`reason: 'default owner fix'`), which also
+  makes a second run move nothing; only `assigned_to` changes, and
+  `updated_at` is kept. It lives in `supabase/data-fixes/`, not
+  `migrations/`, so `supabase db push` never runs it unreviewed. Its
+  selection is pinned in TypeScript (`lib/tasks/principal-backfill.ts`), the
+  SQL is checked against it by structure, and in review its real text was
+  run (translated to SQLite) against 20,000 random teams with no difference
+  from the TypeScript, since the repo has no Postgres.
 - **The demo** mirrors a real team: the teammate is the first owner, listed
   first; the demo user, whose mailbox the demo reads, is the principal (and
   keeps the owner role, so owner-only pages stay testable).
@@ -1932,9 +1939,12 @@ for the owner's confirmation first.
 
 - A follow-up an assistant adds by hand for themselves now starts on the
   principal; they hand it to themselves from the row's menu.
-- Done tasks moved by the backfill are judged by the proof check against the
-  principal's mailbox; one an assistant ticked after sending it from their
-  own mailbox can be flagged "Ticked, not seen sent" ("It's done" clears it).
-- The backfill matches the mailbox address to the member's sign-in address
-  in `auth.users` or their profile; the app reads the profile only. The two
-  are the same address unless a profile was edited by hand.
+- The rule and the backfill match the mailbox address to the member's
+  profile address (`user_profiles.email`), the only one the app reads. If
+  the mailbox person's profile has a different address from the mailbox,
+  the rule falls to whoever connected it: the backfill's preview shows how
+  the principal was found, and anything but "mailbox address" needs a look
+  before applying it.
+- A task an assistant asked the chat to add (`create_task`, source
+  `suggested`) was filed under them, and moves to the principal like the
+  rest; the second preview names who asked.

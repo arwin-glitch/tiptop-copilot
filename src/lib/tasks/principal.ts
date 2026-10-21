@@ -32,7 +32,7 @@ import type {
  * (`needs_reauth`, `error`) or was disconnected is still that person's
  * mailbox: the routines go on reading their mail, so their tasks must not
  * fall back to the owner until someone reconnects it. The backfill for tasks already filed
- * under the owner (supabase/migrations/20261021002000_tasks_to_principal.sql)
+ * under the owner (supabase/data-fixes/20261021002000_tasks_to_principal.sql)
  * applies the same rule in SQL.
  */
 

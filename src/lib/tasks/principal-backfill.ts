@@ -2,7 +2,7 @@ import type { Task } from '@/lib/types/domain';
 import { choosePrincipal, type MailboxRow, type TeamMember } from './principal';
 
 /**
- * What supabase/migrations/20261021002000_tasks_to_principal.sql moves, said
+ * What supabase/data-fixes/20261021002000_tasks_to_principal.sql moves, said
  * in TypeScript so tests can pin it (the repo has no Postgres to run SQL
  * against). The file is the one-off fix for tasks filed under the
  * organization's owner before tasks went to the principal by default; the
@@ -11,13 +11,17 @@ import { choosePrincipal, type MailboxRow, type TeamMember } from './principal';
  * A task moves to its organization's principal when it is assigned to an
  * owner-role member who is not the principal, was not added by a person
  * (`source` is not 'human'), nobody ever chose its assignee (no
- * `task.assigned` audit row), and it is open, snoozed or complete. Each move
- * writes a `task.assigned` audit row as the app's own assign does, which is
- * also why a second run moves nothing.
+ * `task.assigned` audit row), and it is open or snoozed. Each move writes a
+ * `task.assigned` audit row as the app's own assign does, which is also why
+ * a second run moves nothing.
  */
 
-/** The statuses the fix moves; a deleted (cancelled) task is left alone. */
-export const DEFAULT_OWNER_FIX_STATUSES = ['open', 'snoozed', 'complete'] as const;
+/**
+ * The statuses the fix moves. A done task stays: it is history, and moving
+ * it would set the proof check judging work someone else already did from
+ * their own mailbox. A deleted (cancelled) one stays too.
+ */
+export const DEFAULT_OWNER_FIX_STATUSES = ['open', 'snoozed'] as const;
 
 /** The `reason` on each move's audit row. */
 export const DEFAULT_OWNER_FIX_REASON = 'default owner fix';

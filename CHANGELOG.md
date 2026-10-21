@@ -20,10 +20,12 @@ throughout.
   reconnecting. The person filter lists them first, a money or legal close
   asks for their confirmation by default, and a row only names who it is for
   when it is someone else (or "No one"). Handing a task to someone from its
-  menu still works and always sticks. Tasks already filed the old way move
-  with `supabase/migrations/20261021002000_tasks_to_principal.sql`, run by
-  hand in the SQL editor after its preview query: only tasks no person added
-  or reassigned, each with an audit row, and running it twice moves nothing.
+  menu still works and always sticks. Open and snoozed tasks already filed
+  the old way move with
+  `supabase/data-fixes/20261021002000_tasks_to_principal.sql`, run by hand in
+  the SQL editor after its two preview queries: only tasks no person added or
+  reassigned, each with an audit row, done tasks left alone, and running it
+  twice moves nothing.
 
 - **Every email link opens in Copilot or Gmail.** Wherever Copilot links to an
   email or thread, it now offers two places to read it: **Copilot**, which

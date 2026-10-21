@@ -17,21 +17,28 @@ import {
 
 const FILE = path.resolve(
   import.meta.dirname,
-  '../../supabase/migrations/20261021002000_tasks_to_principal.sql',
+  '../../supabase/data-fixes/20261021002000_tasks_to_principal.sql',
 );
 const SQL = readFileSync(FILE, 'utf8');
 const LINES = SQL.split(/\r?\n/);
 const isComment = (line: string) => line.trim().startsWith('--');
 /** The statements that run, without comments. */
 const CODE = LINES.filter((line) => !isComment(line)).join('\n');
-/** The commented-out preview, uncommented. */
-const PREVIEW = (() => {
-  const start = LINES.findIndex((line) => /^-- -+ PREVIEW$/.test(line));
+/** Where a commented-out preview starts and ends, by its banner. */
+function previewBounds(name: string): [number, number] {
+  const start = LINES.findIndex((line) => new RegExp(`^-- -+ PREVIEW ${name}$`).test(line));
   const end = LINES.findIndex((line, i) => i > start && /^-- -+$/.test(line));
+  if (start < 0 || end < 0) throw new Error(`no preview ${name}`);
+  return [start, end];
+}
+/** A commented-out preview, uncommented: as it is pasted into the editor. */
+function preview(name: string): string {
+  const [start, end] = previewBounds(name);
   return LINES.slice(start + 1, end)
     .map((line) => line.replace(/^-- ?/, ''))
     .join('\n');
-})();
+}
+const PREVIEWS = { people: preview('1: PEOPLE'), tasks: preview('2: TASKS') };
 const squash = (text: string) => text.replace(/\s+/g, ' ').trim();
 
 /** One CTE's body, `name as ( … )`, by balanced parentheses. */
@@ -91,10 +98,13 @@ describe('the default-owner backfill SQL', () => {
       "order by i.organization_id, case i.status when 'connected' then 0 when 'disconnected' then 2 else 1 end, i.created_at, i.id",
     );
     expect(mailbox).toContain('lower(btrim(i.account_email))');
+    // The address on the member's profile, the only one the app can read.
+    const byAddress = cte(CODE, 'by_address');
+    expect(byAddress).toContain('join public.user_profiles p on p.id = m.user_id');
+    expect(byAddress).toContain('lower(btrim(p.email)) = mb.address');
+    expect(SQL).not.toMatch(/auth\.users/);
     // Members in team order: oldest membership, then id.
-    expect(cte(CODE, 'by_address')).toContain(
-      'order by m.organization_id, m.created_at, m.user_id',
-    );
+    expect(byAddress).toContain('order by m.organization_id, m.created_at, m.user_id');
     expect(cte(CODE, 'by_owner')).toContain("m.role = 'owner'");
     // (a) address, then (b) who connected it, then (c) the owner.
     expect(cte(CODE, 'principal')).toContain('coalesce(a.user_id, c.user_id, w.user_id)');
@@ -113,8 +123,14 @@ describe('the default-owner backfill SQL', () => {
     expect(where).toContain('not exists');
     expect(where).toContain("e.action = 'task.assigned'");
     expect(where).toContain('e.entity_id = t.id::text');
-    // Only a row nobody changed since it was read is moved.
-    expect(squash(CODE)).toContain('where t.id = mv.id and t.assigned_to = mv.from_id');
+    // Only a row nobody changed since it was read is moved, and only its assignee.
+    expect(squash(CODE)).toContain(
+      'where t.id = mv.id and t.organization_id = mv.organization_id and t.assigned_to = mv.from_id',
+    );
+    expect(squash(CODE)).toContain(
+      'update public.tasks t set assigned_to = mv.to_id from moves mv',
+    );
+    expect(CODE.match(/\bset\b/gi)).toHaveLength(1);
   });
 
   it('writes the audit row the app writes for an assignment', () => {
@@ -146,17 +162,27 @@ describe('the default-owner backfill SQL', () => {
     }
   });
 
-  it('previews the same selection, and the preview only reads', () => {
-    for (const name of ['mailbox', 'by_address', 'by_connector', 'by_owner']) {
-      expect(cte(PREVIEW, name)).toBe(cte(CODE, name));
+  it('previews the same selection, and the previews only read', () => {
+    for (const [label, text] of Object.entries(PREVIEWS)) {
+      for (const name of ['mailbox', 'by_address', 'by_connector', 'by_owner', 'moves']) {
+        expect(cte(text, name), `${label}: ${name}`).toBe(cte(CODE, name));
+      }
+      expect(cte(text, 'principal'), label).toContain(
+        'coalesce(a.user_id, c.user_id, w.user_id) as principal_id',
+      );
+      expect(selection(text), label).toBe(selection(CODE));
+      expect(text, label).not.toMatch(
+        /\b(update|insert|alter|delete|drop|create|truncate|grant|begin|commit)\b/i,
+      );
+      // One statement each, so the editor shows its result.
+      expect(text.trim().endsWith(';'), label).toBe(true);
+      expect(text.match(/;/g), label).toHaveLength(1);
     }
-    expect(selection(PREVIEW)).toBe(selection(CODE));
-    expect(PREVIEW).not.toMatch(/\b(update|insert|alter|delete|drop|create|begin|commit)\b/i);
-    expect(PREVIEW.trim().endsWith(';')).toBe(true);
-    // Every preview line is commented out, so running the file never runs it twice.
-    const start = LINES.findIndex((line) => /^-- -+ PREVIEW$/.test(line));
-    const end = LINES.findIndex((line, i) => i > start && /^-- -+$/.test(line));
-    expect(LINES.slice(start, end + 1).every(isComment)).toBe(true);
-    expect(start).toBeLessThan(LINES.indexOf('begin;'));
+    // Every preview line is commented out, so running the file never runs one.
+    for (const name of ['1: PEOPLE', '2: TASKS']) {
+      const [start, end] = previewBounds(name);
+      expect(LINES.slice(start, end + 1).every(isComment)).toBe(true);
+      expect(start).toBeLessThan(LINES.indexOf('begin;'));
+    }
   });
 });
