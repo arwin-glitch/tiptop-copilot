@@ -135,12 +135,6 @@ export const PORTFOLIO_TABS = define({
         'Open roles founders list in their updates and hiring emails, from a weekly scan: status, how often each was sent, who to send candidates to, and a blurb to share.',
     },
     {
-      key: 'students',
-      label: 'Students & interns',
-      blurb:
-        'Students Nick mentors, schools and programs inviting TipTop in, and intern or advice requests, from a scan every Monday and Thursday: status, deadlines, the next step and whose it is.',
-    },
-    {
       key: 'numbers',
       label: 'Numbers',
       blurb:
@@ -251,6 +245,12 @@ export const NETWORK_TABS = define({
       key: 'keep',
       label: 'Keep in touch',
       blurb: 'Everyone with a check-in cadence set on their profile: overdue, due soon, on track.',
+    },
+    {
+      key: 'students',
+      label: 'Students & interns',
+      blurb:
+        'Students Nick mentors, schools and programs inviting TipTop in, and intern or advice requests, from a scan every Monday and Thursday: status, deadlines, the next step and whose it is.',
     },
     {
       key: 'people',
@@ -369,6 +369,27 @@ export const ASK_TABS = define({
     },
   ],
 });
+
+/**
+ * Students & interns, on Network. It started on Portfolio, so an old
+ * `/portfolio?tab=students` link redirects here.
+ */
+export const STUDENTS_HREF = `${NETWORK_TABS.path}?tab=students`;
+
+/**
+ * Where an old Portfolio link to Students & interns goes now: the same tab on
+ * Network with every other param (its filters, search and paging) kept. Null
+ * for any other Portfolio URL.
+ */
+export function movedStudentsHref(params: Params): string | null {
+  if (single(params.tab) !== 'students') return null;
+  const query = new URLSearchParams({ tab: 'students' });
+  for (const [name, value] of Object.entries(params)) {
+    if (name === 'tab' || value === undefined) continue;
+    for (const v of Array.isArray(value) ? value : [value]) query.append(name, v);
+  }
+  return `${NETWORK_TABS.path}?${query.toString()}`;
+}
 
 /** Knowledge's Affinity tabs, which the old `/lists` URLs redirect to. */
 export const AFFINITY_LISTS_HREF = '/knowledge?tab=lists';

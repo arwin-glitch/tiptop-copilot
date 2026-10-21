@@ -10,6 +10,7 @@ import {
 } from '@/lib/feeds/status';
 import { expectedWords } from '@/lib/feeds/words';
 import { JOBS_CADENCE_DAYS, JOBS_MARKER, JOBS_STALE_AFTER_DAYS } from '@/lib/portfolio/jobs';
+import { STUDENTS_MARKER, STUDENTS_STALE_AFTER_DAYS } from '@/lib/portfolio/students';
 
 /**
  * The feed watchdog's status logic: on time, late after the grace period,
@@ -218,6 +219,30 @@ describe('the registry', () => {
     );
     // Two weekly runs missed is a stopped feed.
     expect(cadenceStatus(jobs.cadence, lastRun, daysAfter(18), TZ)).toBe('stopped');
+  });
+
+  it('reads the twice-weekly students scan as late exactly when the Students tab calls it overdue', () => {
+    const students = feedDef('students');
+    expect(students.source).toBe('deal-relay');
+    expect(students.fills).toEqual(['Network: Students & interns']);
+    expect(FEED_MARKERS.students).toEqual([STUDENTS_MARKER]);
+    // Monday and Thursday: at most four days apart, counted on every day.
+    expect(students.cadence).toMatchObject({ kind: 'every', hours: 4 * 24 });
+    expect(students.cadence).not.toHaveProperty('days');
+    expect(expectedWords(students.cadence)).toBe('at least every 4 days');
+    // A Thursday run, and the Monday one not in yet late on Monday: on time.
+    const lastRun = '2026-10-15T13:00:00Z';
+    const daysAfter = (days: number) => new Date(Date.parse(lastRun) + days * 86_400_000);
+    expect(cadenceStatus(students.cadence, lastRun, daysAfter(4.4), TZ)).toBe('ok');
+    expect(
+      cadenceStatus(students.cadence, lastRun, daysAfter(STUDENTS_STALE_AFTER_DAYS - 0.1), TZ),
+    ).toBe('ok');
+    expect(
+      cadenceStatus(students.cadence, lastRun, daysAfter(STUDENTS_STALE_AFTER_DAYS + 0.1), TZ),
+    ).toBe('late');
+    // Monday's and the next Thursday's runs both missed: stopped.
+    expect(cadenceStatus(students.cadence, lastRun, daysAfter(8), TZ)).toBe('late');
+    expect(cadenceStatus(students.cadence, lastRun, daysAfter(9.1), TZ)).toBe('stopped');
   });
 
   it('reads a Reports channel as late exactly when the Reports tab calls it overdue', () => {

@@ -181,8 +181,13 @@ describe('subtabs', () => {
     const portfolio = helpPage('portfolio');
     const step = portfolio?.steps.find((s) => s.target === 'subtabs');
     expect(step?.body).toBe(
-      // Over twenty words with the hint, so the step lists the tabs alone.
-      'Health · Requests · Jobs · Students & interns · Numbers · Companies · Founders · Angel.',
+      'Health · Requests · Jobs · Numbers · Companies · Founders · Angel. Tap one to switch.',
+    );
+    // Students & interns lives on Network, after Keep in touch. Over twenty
+    // words even without the hint, so the tabs are listed with commas.
+    const network = helpPage('network')?.steps.find((s) => s.target === 'subtabs');
+    expect(network?.body).toBe(
+      'Intros, Going cold, Keep in touch, Students & interns, People, Investors, Service providers, Operators, Events.',
     );
   });
 

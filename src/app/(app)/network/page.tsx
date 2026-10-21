@@ -6,6 +6,9 @@ import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { buildRelationshipList } from '@/lib/services/network';
 import { readFollowUps, readFollowUpsWithin } from '@/lib/services/follow-ups';
 import { introDrafts } from '@/lib/services/intro-drafts';
+import { peekPortfolioStudents, readPortfolioStudents } from '@/lib/services/portfolio-students';
+import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
+import { isOpenStudentItem, parseStudentFilters } from '@/lib/portfolio/students';
 import { mailboxCanSend } from '@/lib/services/docsend-follow-up';
 import {
   fundAddresses,
@@ -26,7 +29,7 @@ import {
   type SortDirection,
 } from '@/lib/network/relationship-view';
 import { NETWORK_TABS, SNAPSHOT_WAIT_MS, landsOnSnapshot, openingTab } from '@/lib/records-tabs';
-import { PAGE_PARAM, single, tabHref } from '@/lib/util/page-tabs';
+import { PAGE_PARAM, SHOW_PARAM, single, tabHref } from '@/lib/util/page-tabs';
 import type { CrmDestination } from '@/lib/crm/destinations';
 import type { AuthContext } from '@/lib/auth/session';
 import { AffinityEntries } from '@/components/crm/affinity-entries';
@@ -44,6 +47,7 @@ import { Stat, StatGroup } from '@/components/ui/stat';
 import { NetworkTable } from '@/components/network/network-table';
 import { NetworkFilterBar } from '@/components/network/network-client';
 import { KeepInTouchTab } from '@/components/network/keep-in-touch-tab';
+import { StudentsInternsView } from '@/components/network/students-interns';
 
 export const metadata: Metadata = { title: 'Network' };
 export const dynamic = 'force-dynamic';
@@ -57,12 +61,12 @@ export default async function NetworkPage({
 }) {
   const params = await searchParams;
   const q = single(params.q) ?? '';
+  const auth = await requireAuth();
 
   // Intros are only the routine's snapshot from Slack. A bare URL opens there
   // when it lists an intro and on People otherwise, never on an empty page.
   let introsShow = false;
   if (landsOnSnapshot(NETWORK_TABS, params)) {
-    const auth = await requireAuth();
     const landing = await readFollowUpsWithin(getStore(), auth.organizationId, SNAPSHOT_WAIT_MS);
     introsShow = landing?.state === 'ok' && (landing.snapshot.intros?.intros.length ?? 0) > 0;
   }
@@ -72,17 +76,28 @@ export default async function NetworkPage({
   const source: PeopleSource = single(params.source) === 'affinity' ? 'affinity' : 'mail';
   const list = single(params.list) ?? null;
   const page = params[PAGE_PARAM];
+  // The Students & interns badge counts open items, from memory only: never a read.
+  const openStudents = (peekPortfolioStudents(auth.organizationId)?.items ?? []).filter(
+    isOpenStudentItem,
+  ).length;
+  const counts: Partial<Record<string, number>> = {
+    students: openStudents ? openStudents : undefined,
+  };
 
   return (
     <PageShell>
       <PageHeader
         title="Network"
-        subtitle="Everyone you have actually corresponded or sat down with, counted from your own mail and calendar, plus the investors, providers, operators and events carried over from Affinity. Every strength shows the evidence it was counted from."
+        subtitle="Everyone you have actually corresponded or sat down with, counted from your own mail and calendar, students and interns from a twice-weekly mailbox scan, plus the investors, providers, operators and events carried over from Affinity. Every strength shows the evidence it was counted from."
       />
       <PageTabs
         label={NETWORK_TABS.navLabel}
         path={NETWORK_TABS.path}
-        tabs={NETWORK_TABS.tabs.map((t) => ({ key: t.key, label: t.label }))}
+        tabs={NETWORK_TABS.tabs.map((t) => ({
+          key: t.key,
+          label: t.label,
+          count: counts[t.key],
+        }))}
         active={tab}
         defaultKey={home}
       />
@@ -99,6 +114,8 @@ export default async function NetworkPage({
           <ColdTab days={goingColdDays(single(params.days))} />
         ) : tab === 'keep' ? (
           <KeepInTouchTab />
+        ) : tab === 'students' ? (
+          <StudentsTab params={params} />
         ) : (
           <IntrosTab />
         )}
@@ -261,6 +278,48 @@ async function IntrosTab() {
       empty={none}
       drafts={drafts}
       canSend={mailboxCanSend(integration) && !auth.isDemo}
+    />
+  );
+}
+
+/**
+ * Students Nick mentors, schools and programs inviting TipTop in, and intern
+ * or advice requests, from the twice-weekly students routine's snapshot in
+ * #deal-relay. Each source links to its email in Copilot's Inbox or in Gmail;
+ * no email text is shown here.
+ */
+async function StudentsTab({ params }: { params: Record<string, string | string[] | undefined> }) {
+  const auth = await requireAuth();
+  const now = new Date();
+  const students = await readPortfolioStudents(getStore(), auth.organizationId, { now }).catch(
+    () => null,
+  );
+  if (students?.state !== 'ok') {
+    return (
+      <EmptyState
+        title="Nothing from students to show"
+        description={snapshotUnavailable(students?.state)}
+        action={{ label: 'See people', href: PEOPLE_HREF }}
+      />
+    );
+  }
+  if (!students.snapshot) {
+    return (
+      <EmptyState
+        title="No students scan yet"
+        description="Every Monday and Thursday a scan reads the mailbox for students Nick mentors, schools and programs inviting TipTop to take part, and students asking to intern or for advice: what each wants, what Nick agreed to, any deadline, and the next step. They show here on Network after its first run."
+        action={{ label: 'See people', href: PEOPLE_HREF }}
+      />
+    );
+  }
+  return (
+    <StudentsInternsView
+      snapshot={students.snapshot}
+      filters={parseStudentFilters(params)}
+      mailbox={DEFAULT_MAILBOX}
+      now={now}
+      timeZone={auth.profile.timezone}
+      shownRaw={params[SHOW_PARAM]}
     />
   );
 }

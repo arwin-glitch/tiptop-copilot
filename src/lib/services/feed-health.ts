@@ -14,6 +14,7 @@ import {
 } from '@/lib/feeds/registry';
 import { cadenceStatus, STATUS_ORDER, type FeedStatus } from '@/lib/feeds/status';
 import { JOBS_MARKER } from '@/lib/portfolio/jobs';
+import { STUDENTS_MARKER } from '@/lib/portfolio/students';
 import { getUpdatesFeed } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
@@ -49,6 +50,7 @@ import {
 } from './follow-ups';
 import { parsePortfolioRelayMessage } from './portfolio-ingest';
 import { parseJobsMessage } from './portfolio-jobs';
+import { parseStudentsMessage } from './portfolio-students';
 import { parseTaskCloseMessage, TASK_CLOSER_RUN_MARKER } from './task-close';
 import { parseTaskRelayMessage } from './task-ingest';
 import { readUpdates } from './updates';
@@ -358,6 +360,12 @@ export function dealRelayRules(e: Pick<AppEnv, 'dealRelayPosterIds' | 'taskRelay
   // can read is the run seen.
   rules.set(JOBS_MARKER, {
     read: (text) => ({ feeds: ['portfolio-jobs'], valid: parseJobsMessage(text) !== null }),
+    posters: e.dealRelayPosterIds,
+    skipSubtypes: true,
+  });
+  // The twice-weekly students scan, numbered parts and all, the same way.
+  rules.set(STUDENTS_MARKER, {
+    read: (text) => ({ feeds: ['students'], valid: parseStudentsMessage(text) !== null }),
     posters: e.dealRelayPosterIds,
     skipSubtypes: true,
   });

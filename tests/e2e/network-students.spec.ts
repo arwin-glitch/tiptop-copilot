@@ -2,14 +2,15 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 
 /**
- * Portfolio > Students & interns over the invented demo workspace: the
+ * Network > Students & interns over the invented demo workspace: the
  * twice-weekly students scan's snapshot. Open items show by default, what is
  * on Arwin stands out and filters to itself, a close deadline is flagged,
  * filters live in the URL, and every source is only its two links (Copilot
- * or Gmail), never the email's text.
+ * or Gmail), never the email's text. The tab started on Portfolio, so an old
+ * Portfolio link lands here with its filters.
  */
 
-const SIGNED_IN = path.resolve('test-results', 'portfolio-students-state.json');
+const SIGNED_IN = path.resolve('test-results', 'network-students-state.json');
 
 test.beforeAll(async ({ browser }, testInfo) => {
   const context = await browser.newContext({
@@ -26,16 +27,24 @@ test.beforeAll(async ({ browser }, testInfo) => {
 
 test.use({ storageState: SIGNED_IN });
 
-test('Students sits right after Jobs and shows what is open, with what is on Arwin first to see', async ({
+test('Students sits on Network after Keep in touch and shows what is open, with what is on Arwin first to see', async ({
   page,
 }) => {
-  await page.goto('/portfolio?tab=jobs');
-  const tabs = page.getByRole('navigation', { name: 'Portfolio sections' });
+  await page.goto('/network?tab=keep');
+  const tabs = page.getByRole('navigation', { name: 'Network sections' });
   const labels = (await tabs.getByRole('link').allInnerTexts()).map((t) => t.trim());
-  const jobsAt = labels.findIndex((l) => l.startsWith('Jobs'));
-  expect(labels[jobsAt + 1]).toMatch(/^Students & interns/);
+  expect(labels.slice(0, 5).map((l) => l.replace(/\s*\d+$/, ''))).toEqual([
+    'Intros',
+    'Going cold',
+    'Keep in touch',
+    'Students & interns',
+    'People',
+  ]);
   await tabs.getByRole('link', { name: /^Students & interns/ }).click();
-  await page.waitForURL((url) => url.searchParams.get('tab') === 'students');
+  await page.waitForURL(
+    (url) => url.pathname === '/network' && url.searchParams.get('tab') === 'students',
+  );
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Network');
 
   const students = page.getByRole('region', { name: 'Students and interns' });
   for (const who of ['Tessa Marlow', 'Brightwater University', 'Lena Hart', 'Rafael Ortiz']) {
@@ -62,11 +71,41 @@ test('Students sits right after Jobs and shows what is open, with what is on Arw
   await page.waitForURL((url) => url.searchParams.get('owner') === 'arwin');
   await expect(students.getByRole('heading', { level: 3 })).toHaveCount(1);
   await expect(students.getByRole('heading', { name: 'Tessa Marlow' })).toBeVisible();
-  await page.screenshot({ path: 'test-results/portfolio-students.png', fullPage: true });
+  await page.screenshot({ path: 'test-results/network-students.png', fullPage: true });
+});
+
+test('Portfolio no longer has the tab, and an old Portfolio link lands on Network with its filters', async ({
+  page,
+}) => {
+  await page.goto('/portfolio?tab=jobs');
+  const portfolioTabs = page.getByRole('navigation', { name: 'Portfolio sections' });
+  await expect(portfolioTabs.getByRole('link', { name: /^Jobs/ })).toBeVisible();
+  await expect(portfolioTabs.getByRole('link', { name: /^Students/ })).toHaveCount(0);
+
+  await page.goto('/portfolio?tab=students&kind=intern_request&status=all');
+  await page.waitForURL((url) => url.pathname === '/network');
+  const url = new URL(page.url());
+  expect(url.searchParams.get('tab')).toBe('students');
+  expect(url.searchParams.get('kind')).toBe('intern_request');
+  expect(url.searchParams.get('status')).toBe('all');
+  const tabs = page.getByRole('navigation', { name: 'Network sections' });
+  await expect(tabs.getByRole('link', { name: /^Students & interns/ })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  const students = page.getByRole('region', { name: 'Students and interns' });
+  await expect(students.getByRole('heading', { level: 3 })).toHaveCount(2);
+
+  // A bare old link opens the tab with its defaults.
+  await page.goto('/portfolio?tab=students');
+  await page.waitForURL(
+    (url) => url.pathname === '/network' && url.searchParams.get('tab') === 'students',
+  );
+  await expect(students.getByRole('heading', { name: 'Tessa Marlow' })).toBeVisible();
 });
 
 test('kind, status and search filters live in the URL', async ({ page }) => {
-  await page.goto('/portfolio?tab=students');
+  await page.goto('/network?tab=students');
   const students = page.getByRole('region', { name: 'Students and interns' });
 
   await students
@@ -82,11 +121,11 @@ test('kind, status and search filters live in the URL', async ({ page }) => {
   await expect(lena).toContainText('New');
   await expect(lena).toContainText('No reply from Nick yet');
 
-  await page.goto('/portfolio?tab=students&status=done');
+  await page.goto('/network?tab=students&status=done');
   await expect(students.getByRole('heading', { name: 'Halden Business School' })).toBeVisible();
   await expect(students.getByRole('heading', { level: 3 })).toHaveCount(1);
 
-  await page.goto('/portfolio?tab=students&status=all');
+  await page.goto('/network?tab=students&status=all');
   await page.getByRole('searchbox', { name: 'Search students and programs' }).fill('coffee');
   await page.waitForURL((url) => url.searchParams.get('q') === 'coffee');
   await expect(students.getByRole('heading', { level: 3 })).toHaveCount(1);
@@ -97,7 +136,7 @@ test('kind, status and search filters live in the URL', async ({ page }) => {
 test("a source is only its two links, and Copilot opens the thread in the Inbox's reading pane", async ({
   page,
 }) => {
-  await page.goto('/portfolio?tab=students');
+  await page.goto('/network?tab=students');
   const students = page.getByRole('region', { name: 'Students and interns' });
   const tessa = students.getByRole('listitem').filter({ hasText: 'Tessa Marlow' }).first();
 

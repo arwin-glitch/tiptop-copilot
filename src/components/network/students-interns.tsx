@@ -28,7 +28,7 @@ import {
   type StudentStatusFilter,
   type StudentsSnapshot,
 } from '@/lib/portfolio/students';
-import { PORTFOLIO_TABS } from '@/lib/records-tabs';
+import { NETWORK_TABS } from '@/lib/records-tabs';
 import { SHOW_PARAM, showMoreHref, shownCount } from '@/lib/util/page-tabs';
 import { formatDate, formatMonthDay, relativeTime } from '@/lib/util/time';
 import { cn } from '@/lib/util/cn';
@@ -42,11 +42,11 @@ import { LiveSearch } from '@/components/ui/live-search';
 import { ShowMore } from '@/components/ui/show-more';
 
 /**
- * The "Students & interns" tab on Portfolio: students Nick mentors, schools
+ * The "Students & interns" tab on Network: students Nick mentors, schools
  * and programs inviting TipTop in, and people asking to intern or for
  * advice, from the twice-weekly students routine's snapshot. Filters live in
  * the URL (`kind`, `status`, `owner`, `q`) and the server renders the result,
- * like Jobs beside it.
+ * like Portfolio's Jobs.
  *
  * Every value is plain text. A source is only ever its subject and date with
  * the two places to read it (Copilot's Inbox, or Gmail): never the email's
@@ -82,9 +82,9 @@ const STATUS_CHIP_ORDER: readonly StudentStatus[] = [
 
 function hrefFor(filters: StudentFilters): string {
   return pageHref(
-    PORTFOLIO_TABS.path,
+    NETWORK_TABS.path,
     { tab: TAB, ...studentFilterParams(filters) },
-    PORTFOLIO_TABS.defaultKey,
+    NETWORK_TABS.defaultKey,
   );
 }
 
@@ -93,7 +93,7 @@ export function studentsTabHref(filters: Partial<StudentFilters> = {}): string {
   return hrefFor({ kind: null, status: 'open', owner: null, q: '', ...filters });
 }
 
-export function PortfolioStudentsView({
+export function StudentsInternsView({
   snapshot,
   filters,
   mailbox,
@@ -231,7 +231,7 @@ export function PortfolioStudentsView({
         <LinkChips label="Filter by status" chips={statusChips} />
         <LinkChips label="Filter by next step" chips={ownerChips} />
         <LiveSearch
-          path={PORTFOLIO_TABS.path}
+          path={NETWORK_TABS.path}
           keep={keep}
           reset={[SHOW_PARAM]}
           value={filters.q}
@@ -270,7 +270,7 @@ export function PortfolioStudentsView({
             total={visible.length}
             step={STEP}
             href={showMoreHref(
-              PORTFOLIO_TABS.path,
+              NETWORK_TABS.path,
               { tab: TAB, ...studentFilterParams(filters) },
               shown,
               STEP,

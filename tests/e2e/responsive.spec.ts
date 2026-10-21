@@ -48,8 +48,8 @@ const PAGES = [
   '/updates?tab=fresh',
   '/portfolio?tab=companies',
   '/portfolio?tab=jobs',
-  '/portfolio?tab=students',
-  '/portfolio?tab=students&status=all',
+  '/network?tab=students',
+  '/network?tab=students&status=all',
   // A conversation opened by a link: the reading pane alone on a phone.
   '/inbox?thread=0f00000000005102',
   '/fund-ii?tab=pipeline',
@@ -147,7 +147,7 @@ test.describe('mobile layout', () => {
   });
 
   test('a Students item with its earlier emails open never scrolls sideways', async ({ page }) => {
-    await page.goto('/portfolio?tab=students&status=all');
+    await page.goto('/network?tab=students&status=all');
     const students = page.getByRole('region', { name: 'Students and interns' });
     for (const summary of await students.locator('details > summary').all()) await summary.click();
     await expect(

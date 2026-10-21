@@ -19,7 +19,7 @@ import {
  * mentor programs, university venture events), and students or early-career
  * people asking to intern at TipTop or for advice. A cloud routine reads the
  * mail twice a week (Monday and Thursday) and posts one deduplicated list;
- * the Portfolio page's "Students & interns" tab reads it back.
+ * the Network page's "Students & interns" tab reads it back.
  *
  * Pure: the post's shape, the dedupe key, the filters and the display rules.
  * The Slack read is `src/lib/services/portfolio-students.ts`. Every value is

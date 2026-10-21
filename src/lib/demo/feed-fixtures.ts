@@ -21,6 +21,8 @@ export function demoFeedInputs(now: Date): FeedInputs {
     'portfolio-health': seen(8),
     // The weekly jobs scan, two days ago (as the demo Jobs tab says).
     'portfolio-jobs': seen(50),
+    // The twice-weekly students scan, yesterday (as the demo Students tab says).
+    students: seen(30),
     intros: seen(9),
     'week-ahead': seen(9),
     'email-queue': seen(10),

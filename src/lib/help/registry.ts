@@ -96,13 +96,16 @@ function recordsSubtabs(config: RecordsPageTabs): HelpSubtab[] {
 
 /** The step on a Records page's subtab bar, worded from the bar's own labels. */
 function subtabStep(config: RecordsPageTabs): TourStep {
-  const labels = config.tabs.map((t) => t.label).join(' · ');
+  const names = config.tabs.map((t) => t.label);
+  const labels = names.join(' · ');
   const full = `${labels}. Tap one to switch.`;
+  const fits = (text: string) => text.split(/\s+/).length <= 20;
   return {
     target: 'subtabs',
     title: 'Switch sections',
-    // A long bar drops the hint rather than break the twenty-word rule.
-    body: full.split(/\s+/).length <= 20 ? full : `${labels}.`,
+    // A long bar drops the hint rather than break the twenty-word rule, and
+    // a longer one still lists its tabs with commas, every tab still named.
+    body: fits(full) ? full : fits(`${labels}.`) ? `${labels}.` : `${names.join(', ')}.`,
     placement: 'bottom',
   };
 }
@@ -584,7 +587,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'network',
     name: 'Network',
     href: '/network',
-    purpose: 'Intros owed and made, relationships going cold, and everyone you know.',
+    purpose:
+      'Intros owed and made, relationships going cold, students and interns, and everyone you know.',
     subtabs: recordsSubtabs(NETWORK_TABS),
     steps: [
       navStep(

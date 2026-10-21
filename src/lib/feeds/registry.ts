@@ -61,6 +61,7 @@ export type StaticFeedId =
   | 'lp-pipeline'
   | 'portfolio-health'
   | 'portfolio-jobs'
+  | 'students'
   | 'intros'
   | 'week-ahead'
   | 'email-queue'
@@ -111,6 +112,13 @@ const DAILY_JOB = { kind: 'every', hours: 12, graceHours: 6 } as const;
  * scan overdue (`JOBS_STALE_AFTER_DAYS`), and stopped once two runs are missed.
  */
 const WEEKLY = { kind: 'every', hours: 7 * 24, graceHours: 3 * 24 } as const;
+/**
+ * Mondays and Thursdays: at most four days between runs (Thursday to
+ * Monday), late after five, the age at which the Students tab calls its scan
+ * overdue (`STUDENTS_STALE_AFTER_DAYS`), and stopped once two runs are missed.
+ * No `days` here: the gap is counted on every day, not only on run days.
+ */
+const TWICE_WEEKLY = { kind: 'every', hours: 4 * 24, graceHours: 24 } as const;
 
 /**
  * The fixed feeds, in the order the Diagnostics page lists feeds of the same
@@ -207,6 +215,16 @@ export const FEEDS: readonly FeedDef[] = [
     // A run split into parts repeats its run_at on every part, and any part
     // the Jobs tab can read counts as the run being seen.
     cadence: WEEKLY,
+  },
+  {
+    id: 'students',
+    name: 'Students & interns',
+    source: 'deal-relay',
+    fills: ['Network: Students & interns'],
+    schedule: 'Twice a week, Monday and Thursday morning; a long list comes in numbered parts',
+    // Like Jobs: every part repeats its run_at, and any part the tab can read
+    // counts as the run being seen.
+    cadence: TWICE_WEEKLY,
   },
   {
     id: 'lp-pipeline',
@@ -368,6 +386,7 @@ export const FEED_MARKERS: Partial<Record<StaticFeedId, readonly string[]>> = {
   'lp-pipeline': ['LP_PIPELINE_V1'],
   'portfolio-health': ['PORTFOLIO_HEALTH_V1'],
   'portfolio-jobs': ['JOBS_V1'],
+  students: ['STUDENTS_V1'],
   intros: ['INTROS_V1'],
   'week-ahead': ['WEEK_AHEAD_V1'],
   'email-queue': ['EMAIL_QUEUE_V1'],

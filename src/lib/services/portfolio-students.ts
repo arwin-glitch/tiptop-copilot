@@ -23,7 +23,7 @@ import {
 } from './relay-snapshot';
 
 /**
- * The Portfolio page's "Students & interns" tab: mentoring, programs and
+ * The Network page's "Students & interns" tab: mentoring, programs and
  * intern requests, read live from the students routine's `STUDENTS_V1`
  * snapshot in the private #deal-relay channel, exactly as Jobs reads
  * `JOBS_V1` (`relay-snapshot.ts`: the envelope, the parts, the newest

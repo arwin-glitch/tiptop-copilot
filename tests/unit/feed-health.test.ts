@@ -133,6 +133,40 @@ describe('relay sightings', () => {
     });
   });
 
+  it('read the twice-weekly students scan: any readable part of a split run is the run seen', () => {
+    const students = (body: unknown) => relay('STUDENTS_V1', body);
+    const seen = collectSightings(
+      [
+        // Part 1 of 2 is in, part 2 is not yet: the routine still ran.
+        post(
+          '2026-10-19T13:20:00Z',
+          students({ run_at: '2026-10-19T13:00:00Z', part: 1, parts: 2, items: [] }),
+        ),
+        post('2026-10-15T13:10:00Z', students({ run_at: '2026-10-15T13:00:00Z', items: [] })),
+        // Not from an allowed poster, so not the routine.
+        post('2026-10-20T13:10:00Z', students({ run_at: '2026-10-20T13:00:00Z', items: [] }), {
+          user: STRANGER,
+        }),
+      ],
+      DEAL_RULES,
+    );
+    expect(seen.students).toEqual({ at: '2026-10-19T13:20:00.000Z', unreadableAt: null });
+    // A Jobs post is never the students scan, and the other way round.
+    expect(seen['portfolio-jobs']).toBeUndefined();
+
+    const broken = collectSightings(
+      [
+        post('2026-10-19T13:20:00Z', 'STUDENTS_V1\n`{"run_at": broken`'),
+        post('2026-10-15T13:10:00Z', students({ run_at: '2026-10-15T13:00:00Z', items: [] })),
+      ],
+      DEAL_RULES,
+    );
+    expect(broken.students).toEqual({
+      at: '2026-10-15T13:10:00.000Z',
+      unreadableAt: '2026-10-19T13:20:00.000Z',
+    });
+  });
+
   it("tell the morning brief and the afternoon recap apart, through Slack's link markup", () => {
     const briefing = (kind: string, dateKey: string) =>
       `BRIEFING_PAYLOAD_V1\n\`{"kind":"${kind}","date_key":"${dateKey}","title":"Example brief","summary":"Two fictional items.","source_url":"<https://example.com/brief|https://example.com/brief>"}\``;

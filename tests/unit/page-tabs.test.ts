@@ -18,9 +18,11 @@ import {
   NETWORK_TABS,
   PORTFOLIO_TABS,
   RECORDS_TABS,
+  STUDENTS_HREF,
   UPDATES_TABS,
   fundTwoLpHref,
   landsOnSnapshot,
+  movedStudentsHref,
   openingTab,
   resolvePageTab,
 } from '@/lib/records-tabs';
@@ -134,6 +136,28 @@ describe('the Records pages', () => {
     expect(resolvePageTab(NETWORK_TABS, { dir: 'asc' })).toBe('people');
     expect(resolvePageTab(NETWORK_TABS, { tab: 'cold', q: 'Ada' })).toBe('cold');
     expect(resolvePageTab(NETWORK_TABS, {})).toBe('intros');
+    // Students & interns searches with its own q and stays put.
+    expect(resolvePageTab(NETWORK_TABS, { tab: 'students', q: 'coffee' })).toBe('students');
+  });
+
+  it('put Students & interns on Network after Keep in touch, and off Portfolio', () => {
+    const keys = NETWORK_TABS.tabs.map((t) => t.key);
+    expect(keys.slice(0, 5)).toEqual(['intros', 'cold', 'keep', 'students', 'people']);
+    expect(PORTFOLIO_TABS.tabs.map((t) => t.key)).not.toContain('students');
+    expect(PORTFOLIO_TABS.tabs.map((t) => t.key)).toContain('jobs');
+    expect(STUDENTS_HREF).toBe('/network?tab=students');
+  });
+
+  it('send an old Portfolio link to Students & interns to Network, filters kept', () => {
+    expect(movedStudentsHref({ tab: 'students' })).toBe('/network?tab=students');
+    expect(
+      movedStudentsHref({ tab: 'students', kind: 'intern_request', status: 'all', q: 'a b' }),
+    ).toBe('/network?tab=students&kind=intern_request&status=all&q=a+b');
+    expect(movedStudentsHref({ tab: ['students', 'jobs'], show: '40' })).toBe(
+      '/network?tab=students&show=40',
+    );
+    expect(movedStudentsHref({ tab: 'jobs' })).toBeNull();
+    expect(movedStudentsHref({})).toBeNull();
   });
 
   it('keep the other inbound links on the default tab', () => {

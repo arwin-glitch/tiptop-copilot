@@ -344,7 +344,7 @@ test.describe('with reduced motion', () => {
     await next(page).click();
     await expectStep(page, /2 of 3/, 'Switch sections');
     await expect(card(page)).toContainText(
-      'Intros · Going cold · Keep in touch · People · Investors · Service providers · Operators · Events',
+      'Intros, Going cold, Keep in touch, Students & interns, People, Investors, Service providers, Operators, Events',
     );
   });
 });
