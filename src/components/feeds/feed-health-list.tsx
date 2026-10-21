@@ -1,6 +1,6 @@
 import { CheckCircle2, CircleAlert, CircleDashed, CircleOff, Clock3 } from 'lucide-react';
 import { STATUS_LABEL, type FeedStatus } from '@/lib/feeds/status';
-import { feedReportHeadline, feedRowSummary } from '@/lib/feeds/words';
+import { feedReportAllClear, feedReportHeadline, feedRowSummary } from '@/lib/feeds/words';
 import type { FeedReport, FeedRow } from '@/lib/services/feed-health';
 import { relativeTime } from '@/lib/util/time';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
@@ -79,7 +79,7 @@ export function FeedHealthList({
           </p>
         </Notice>
       ) : (
-        <Notice>Every scheduled feed is on time.</Notice>
+        <Notice>{feedReportAllClear(report.rows)}</Notice>
       )}
       <Card>
         <CardHeader>

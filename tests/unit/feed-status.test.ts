@@ -189,6 +189,18 @@ describe('the registry', () => {
     }
   });
 
+  it('does not call a twice-a-day feed late across its overnight gap', () => {
+    // An afternoon post at 3:40pm Chicago, and the next morning's not in yet
+    // at 7:10am: 15.5 hours, the longest gap a morning-and-afternoon routine has.
+    const afternoon = '2026-10-20T20:40:00Z';
+    const morning = at('2026-10-21T12:10:00Z');
+    expect(cadenceStatus(feedDef('priorities').cadence, afternoon, morning, TZ)).toBe('ok');
+    // Both of the next day's runs missed is a stopped feed.
+    expect(
+      cadenceStatus(feedDef('priorities').cadence, afternoon, at('2026-10-22T03:00:00Z'), TZ),
+    ).toBe('stopped');
+  });
+
   it('reads a Reports channel as late exactly when the Reports tab calls it overdue', () => {
     const weekly = reportFeed({
       key: 'example',

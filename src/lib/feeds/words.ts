@@ -65,6 +65,11 @@ export function feedRowSummary(row: RowLike, now: Date, timeZone: string): strin
     case 'unknown':
       return `Can't check right now. ${row.reason ?? ''}`.trim();
     case 'never':
+      if (def.source === 'webhook') return 'Nothing has arrived yet.';
+      if (def.cadence.kind === 'every' && def.cadence.hours > RELAY_WINDOW_DAYS * 24) {
+        // A quarterly feed is out of the window for most of the quarter.
+        return `No post in the last ${RELAY_WINDOW_DAYS} days, which is normal for a feed that runs less often than that.`;
+      }
       if (def.cadence.kind === 'event' || def.cadence.kind === 'on-demand') {
         return `No post in the last ${RELAY_WINDOW_DAYS} days, which is normal when there was nothing new.`;
       }
@@ -111,4 +116,14 @@ export function feedReportHeadline(rows: readonly Pick<FeedRow, 'status'>[]): st
     );
   }
   return lines.length ? `${lines.join(' and ')}.` : null;
+}
+
+/**
+ * What heads the tab when nothing is late or stopped. Never "on time" while
+ * some feed can't be checked: a read that failed has not shown it is.
+ */
+export function feedReportAllClear(rows: readonly Pick<FeedRow, 'status'>[]): string {
+  const unknown = rows.filter((r) => r.status === 'unknown').length;
+  if (!unknown) return 'Nothing looks late or stopped.';
+  return `Nothing looks late or stopped, but ${unknown} ${unknown === 1 ? "feed can't" : "feeds can't"} be checked right now.`;
 }

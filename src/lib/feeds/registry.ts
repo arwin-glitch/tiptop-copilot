@@ -29,7 +29,9 @@ export type FeedSource =
   /** The Reports tab's channels (`lib/updates/sources.ts`). */
   | 'reports'
   /** A scheduled job that calls the app. */
-  | 'job';
+  | 'job'
+  /** Deliveries to the app's own webhook, with a scheduled catch-up. */
+  | 'webhook';
 
 export type FeedCadence =
   /** Posts only when there is something new: quiet is normal, never late. */
@@ -71,6 +73,7 @@ export type StaticFeedId =
   | 'task-suggest'
   | 'portfolio-adds'
   | 'ask-answers'
+  | 'meeting-notes'
   | 'daily-job'
   | 'affinity-sync'
   | 'push-sender';
@@ -91,7 +94,12 @@ export interface FeedDef {
 }
 
 const DAILY = { kind: 'every', hours: 24, graceHours: 6 } as const;
-const TWICE_DAILY = { kind: 'every', hours: 12, graceHours: 3 } as const;
+/**
+ * Twice a day is rarely twelve hours apart: a morning and an afternoon run
+ * leave a gap of up to fifteen hours overnight, so the grace covers that and
+ * a late start on top.
+ */
+const TWICE_DAILY = { kind: 'every', hours: 12, graceHours: 6 } as const;
 /**
  * The daily job runs at 11:00 UTC and again at 21:30 and 22:30 UTC, and
  * GitHub starts scheduled runs late, sometimes by hours.
@@ -156,7 +164,7 @@ export const FEEDS: readonly FeedDef[] = [
     name: 'Email queue',
     source: 'deal-relay',
     fills: ['Follow-ups: the email session'],
-    schedule: 'Twice a day; each post carries only new or changed emails',
+    schedule: 'Through the day; each post carries only new or changed emails',
     // Each run posts only what changed, so a quiet inbox can skip a run.
     cadence: { kind: 'every', hours: 24, graceHours: 24 },
   },
@@ -255,6 +263,15 @@ export const FEEDS: readonly FeedDef[] = [
     fills: ['Ask', 'The chat bubble'],
     schedule: 'When a question is asked; usually answered within a minute or two',
     cadence: { kind: 'on-demand', lateAfterMinutes: 15, stoppedAfterMinutes: 60 },
+  },
+  {
+    id: 'meeting-notes',
+    name: 'Meeting notes',
+    source: 'webhook',
+    fills: ['Meetings: Notes', 'Calendar: meeting dossier', 'Ask'],
+    schedule: 'Minutes after each recorded meeting, with a catch-up every half hour',
+    // Arrives only when a meeting was recorded, so a quiet week is normal.
+    cadence: { kind: 'event' },
   },
   {
     id: 'daily-job',

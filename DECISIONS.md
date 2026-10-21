@@ -1508,7 +1508,7 @@ without a word. Nothing checked that the producers were still posting.
   interval and a grace period, optionally only on some weekdays or local
   hours, in a fixed timezone). Feeds that post only when there is something
   new (meeting recaps, scheduling drafts, task suggestions, new portfolio
-  companies) are never late. Ask answers are on demand: late after a
+  companies, meeting notes) are never late. Ask answers are on demand: late after a
   question has waited 15 minutes, stopped after an hour. The Reports
   channels are feeds too, late exactly when Reports calls them overdue.
 - **Status** (`lib/feeds/status.ts`): running, late (one run missed past the
@@ -1519,7 +1519,8 @@ without a word. Nothing checked that the producers were still posting.
 - **Read from what exists** (`lib/services/feed-health.ts`): each relay
   channel's own history (the newest post its consumer can read, and any newer
   one it could not), the Reports channels' newest report, the Affinity sync's
-  saved state and the Ask questions still pending. The daily job and the
+  saved state, the newest meeting note written and the Ask questions still
+  pending. The daily job and the
   alert sender leave no other trace, so their `/api/cron` routes now write one
   `feeds.heartbeat` row each in `audit_events`. No migration.
 - **Diagnostics gets subtabs**: Setup (the old page, still the bare URL) and

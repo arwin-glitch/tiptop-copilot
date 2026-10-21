@@ -18,12 +18,13 @@ import {
   readAskWaiting,
   readFeedInputs,
   readJobHeartbeats,
+  readNotesArrival,
   recordJobHeartbeat,
   recordJobHeartbeatForAll,
   resetFeedHealthState,
   setFeedNotices,
 } from '@/lib/services/feed-health';
-import type { ChatMessage, ChatThread, UserProfile } from '@/lib/types/domain';
+import type { ChatMessage, ChatThread, MeetingNote, UserProfile } from '@/lib/types/domain';
 import { ok } from '@/lib/util/result';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
 
@@ -382,6 +383,36 @@ describe('reading a live deployment', () => {
       reason: 'The Copilot Slack app is not a member of the relay channel.',
     });
     expect(rows.filter((r) => r.def.source !== 'job' && r.status === 'stopped')).toEqual([]);
+  });
+
+  it('reads when a meeting note last arrived from the notes themselves', async () => {
+    const e = { ...liveEnv(), askRelaySlackToken: undefined };
+    const arrived = after(NOON_ISH, -30 * MIN).toISOString();
+    const note: MeetingNote = {
+      id: '00000000-0000-4000-8000-00000000feed',
+      organization_id: auth.organizationId,
+      provider: 'granola',
+      external_id: 'note-feed-example-1',
+      title: 'Example intro call',
+      occurred_at: after(NOON_ISH, -90 * MIN).toISOString(),
+      attendees: [{ name: 'Avery Example', email: 'avery@northwind.example' }],
+      content: 'Fictional notes.',
+      source_url: null,
+      injection_flagged: false,
+      created_at: after(NOON_ISH, -24 * 60 * MIN).toISOString(),
+      // Redelivered with newer content since: that is the newest arrival.
+      updated_at: arrived,
+    };
+    await store.insert('meeting_notes', note);
+    expect(await readNotesArrival(store, auth.organizationId)).toBe(arrived);
+
+    const inputs = await readFeedInputs(store, auth.organizationId, { now: NOON_ISH, e });
+    expect(inputs.notes?.lastAt).toBe(arrived);
+    const rows = buildFeedReport(inputs, NOON_ISH, 'America/Chicago').rows;
+    expect(rows.find((r) => r.id === 'meeting-notes')).toMatchObject({
+      status: 'ok',
+      lastSeen: arrived,
+    });
   });
 
   it('is off without a Slack token', async () => {

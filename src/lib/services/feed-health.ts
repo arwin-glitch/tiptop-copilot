@@ -22,7 +22,7 @@ import {
   type RelayReadState,
   type SlackMessage,
 } from '@/lib/slack/relay-history';
-import type { AuditEvent, ChatMessage, Organization } from '@/lib/types/domain';
+import type { AuditEvent, ChatMessage, MeetingNote, Organization } from '@/lib/types/domain';
 import { UPDATE_SOURCES } from '@/lib/updates/sources';
 import { newId } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
@@ -31,7 +31,7 @@ import { localClock } from '@/lib/util/time';
 import { getAffinitySyncStatus } from './affinity-sync';
 import { parseAnswerMessage } from './ask-routine';
 import { parseBriefingRelayMessage } from './briefing';
-import { isRelayOrganization, parseDealRelayMessage } from './deal-relay';
+import { DEAL_HEARTBEAT_MARKER, isRelayOrganization, parseDealRelayMessage } from './deal-relay';
 import {
   EMAIL_QUEUE_MARKER,
   FOLLOWUPS_MARKER,
@@ -62,6 +62,7 @@ import { readUpdates } from './updates';
  *   pulls read it;
  * - the Reports channels' newest report (`readUpdates`, cached);
  * - the Affinity sync's saved state;
+ * - the newest meeting note written (`meeting_notes.updated_at`);
  * - unanswered Ask questions (`chat_messages` left pending);
  * - and, for the two jobs that leave no other trace, one `audit_events` row
  *   each (`feeds.heartbeat`, replaced on every write), noted by their
@@ -136,6 +137,8 @@ export interface FeedInputs {
   jobs: Partial<Record<JobId, string>> | null;
   /** null when the sync's state could not be read. */
   affinity: { configured: boolean; lastRunAt: string | null } | null;
+  /** When a meeting note was last written; null when the notes could not be read. */
+  notes: { configured: boolean; lastAt: string | null } | null;
   /** null when the questions could not be read. */
   ask: { configured: boolean; waitingSince: string | null } | null;
 }
@@ -220,6 +223,14 @@ function rowFor(def: FeedDef, inputs: FeedInputs, now: Date, tz: string): FeedRo
         return plain('off', inputs.affinity.lastRunAt, 'AFFINITY_API_KEY is not set.');
       }
       const at = inputs.affinity.lastRunAt;
+      return plain(cadenceStatus(def.cadence, at, now, tz), at);
+    }
+    case 'meeting-notes': {
+      if (!inputs.notes) return plain('unknown', null, 'The notes could not be read just now.');
+      const at = inputs.notes.lastAt;
+      if (!inputs.notes.configured && !at) {
+        return plain('off', null, 'No meeting-notes delivery is set up (see Setup).');
+      }
       return plain(cadenceStatus(def.cadence, at, now, tz), at);
     }
     default:
@@ -333,7 +344,7 @@ export function dealRelayRules(e: Pick<AppEnv, 'dealRelayPosterIds' | 'taskRelay
       skipSubtypes: true,
     });
   }
-  rules.set('DEAL_SORTER_RUN_V1', {
+  rules.set(DEAL_HEARTBEAT_MARKER, {
     read: (text) => ({
       feeds: ['deal-sorter'],
       valid: parseDealRelayMessage(text)?.kind === 'heartbeat',
@@ -482,6 +493,23 @@ export async function readJobHeartbeats(
 }
 
 /**
+ * When a meeting note last reached the app: the newest write, a new note or a
+ * redelivered one, by the webhook or its catch-up. Null when none has.
+ */
+export async function readNotesArrival(
+  store: DataStore,
+  organizationId: string,
+): Promise<string | null> {
+  const rows = (await store.list(
+    'meeting_notes',
+    organizationId,
+    {},
+    { orderBy: [{ field: 'updated_at', direction: 'desc' }], limit: 1 },
+  )) as MeetingNote[];
+  return rows[0]?.updated_at ?? null;
+}
+
+/**
  * When the oldest Ask question still waiting for the bridge was asked: the
  * oldest pending answer from the last day that is newer than the newest
  * answered one. A question left behind by one that was answered after it is
@@ -536,7 +564,7 @@ export async function readFeedInputs(
   const { now = new Date(), fetchImpl = fetch, e = env() } = options;
   if (e.demoMode) return demoFeedInputs(now);
   const unknown = (reason: string): RelayRead => ({ state: 'unknown', reason });
-  const [dealRelay, askRelay, reports, jobs, affinity, waiting] = await Promise.all([
+  const [dealRelay, askRelay, reports, jobs, affinity, notesAt, waiting] = await Promise.all([
     settled(async () => {
       if (e.askRelaySlackToken && !(await isRelayOrganization(store, organizationId))) {
         return {
@@ -553,6 +581,8 @@ export async function readFeedInputs(
       const status = await getAffinitySyncStatus(store, organizationId, now);
       return { configured: status.configured, lastRunAt: status.lastRun?.finishedAt ?? null };
     }, 'affinity sync'),
+    // Wrapped so a read that worked but found nothing is not the null of a failed one.
+    settled(async () => ({ at: await readNotesArrival(store, organizationId) }), 'meeting notes'),
     settled(() => readAskWaiting(store, organizationId, now), 'ask questions'),
   ]);
   return {
@@ -562,6 +592,13 @@ export async function readFeedInputs(
     reports: reports ?? [],
     jobs,
     affinity,
+    notes: notesAt
+      ? {
+          configured:
+            Boolean(e.granolaSigningSecret && e.granolaApiKey) || Boolean(e.granolaWebhookSecret),
+          lastAt: notesAt.at,
+        }
+      : null,
     ask: waiting
       ? { configured: Boolean(e.askRelaySlackToken), waitingSince: waiting.waitingSince }
       : null,

@@ -45,6 +45,7 @@ export function demoFeedInputs(now: Date): FeedInputs {
     })),
     jobs: { 'daily-job': hoursAgo(4), 'push-sender': hoursAgo(0.1) },
     affinity: { configured: true, lastRunAt: hoursAgo(3) },
+    notes: { configured: true, lastAt: hoursAgo(5) },
     ask: { configured: true, waitingSince: null },
   };
 }

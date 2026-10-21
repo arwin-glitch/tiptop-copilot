@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { demoFeedInputs } from '@/lib/demo/feed-fixtures';
 import { feedDef } from '@/lib/feeds/registry';
-import { feedReportHeadline, feedRowSummary } from '@/lib/feeds/words';
+import { feedReportAllClear, feedReportHeadline, feedRowSummary } from '@/lib/feeds/words';
 import {
   askRelayRules,
   buildFeedReport,
@@ -247,6 +247,35 @@ describe('the report', () => {
     ).rows;
     expect(row(noAsk, 'ask-answers')?.status).toBe('off');
   });
+
+  it('reads meeting notes as news: last seen, never late, off only when nothing can arrive', () => {
+    const base = freshInputs(now);
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 3_600_000).toISOString();
+    const quiet = buildFeedReport(
+      { ...base, notes: { configured: true, lastAt: weekAgo } },
+      now,
+      TZ,
+    ).rows;
+    expect(row(quiet, 'meeting-notes')).toMatchObject({ status: 'ok', lastSeen: weekAgo });
+
+    const none = (configured: boolean) =>
+      row(
+        buildFeedReport({ ...base, notes: { configured, lastAt: null } }, now, TZ).rows,
+        'meeting-notes',
+      );
+    expect(none(true)?.status).toBe('never');
+    expect(none(false)?.status).toBe('off');
+    // Notes already in, from a delivery since turned off: still last seen.
+    expect(
+      row(
+        buildFeedReport({ ...base, notes: { configured: false, lastAt: weekAgo } }, now, TZ).rows,
+        'meeting-notes',
+      )?.status,
+    ).toBe('ok');
+    expect(
+      row(buildFeedReport({ ...base, notes: null }, now, TZ).rows, 'meeting-notes'),
+    ).toMatchObject({ status: 'unknown' });
+  });
 });
 
 describe('the feed notice', () => {
@@ -363,6 +392,16 @@ describe('the Feeds tab in words', () => {
     expect(
       feedRowSummary({ ...base, def: feedDef('portfolio-adds'), status: 'never' }, now, TZ),
     ).toMatch(/normal when there was nothing new/);
+    // A quarterly feed is outside the 30 days read for most of its quarter.
+    expect(
+      feedRowSummary({ ...base, def: feedDef('lp-update'), status: 'never' }, now, TZ),
+    ).toMatch(/normal for a feed that runs less often than that/);
+    expect(
+      feedRowSummary({ ...base, def: feedDef('meeting-notes'), status: 'never' }, now, TZ),
+    ).toBe('Nothing has arrived yet.');
+    expect(
+      feedRowSummary({ ...base, def: feedDef('priorities'), status: 'never' }, now, TZ),
+    ).toMatch(/may not be set up yet, or it stopped before then/);
   });
 
   it('says how long a question has waited', () => {
@@ -388,6 +427,17 @@ describe('the Feeds tab in words', () => {
     expect(feedReportHeadline(rows(['late', 'late']))).toBe('2 feeds are late.');
     expect(feedReportHeadline(rows(['stopped', 'stopped', 'late']))).toBe(
       '2 feeds look stopped and 1 is late.',
+    );
+  });
+
+  it("never calls the feeds on time while some can't be checked", () => {
+    const rows = (statuses: FeedRow['status'][]) => statuses.map((status) => ({ status }));
+    expect(feedReportAllClear(rows(['ok', 'never', 'off']))).toBe('Nothing looks late or stopped.');
+    expect(feedReportAllClear(rows(['ok', 'unknown']))).toBe(
+      "Nothing looks late or stopped, but 1 feed can't be checked right now.",
+    );
+    expect(feedReportAllClear(rows(['unknown', 'unknown', 'off']))).toBe(
+      "Nothing looks late or stopped, but 2 feeds can't be checked right now.",
     );
   });
 });
