@@ -76,6 +76,12 @@ const PAGES = [
   // Diagnostics, and its feeds with their long schedule lines.
   '/diagnostics',
   '/diagnostics?tab=feeds',
+  // The calendar: the day list, and the new views by address.
+  '/calendar',
+  '/calendar?view=day',
+  '/calendar?view=week',
+  '/calendar?view=month',
+  '/diagnostics?tab=parity',
 ];
 
 /** No sideways scroll beyond a few pixels of rounding. */

@@ -25,6 +25,9 @@ const PAGES = [
   { path: '/tasks', marker: '[data-tour="tasks-list"]' },
   { path: '/follow-ups', marker: '[data-tour="followups-session"]' },
   { path: '/calendar', marker: '[data-tour="calendar-days"]' },
+  // The new views, by address (the switch is not touched, so nothing is remembered).
+  { path: '/calendar?view=week', marker: '[data-calendar-view="week"]' },
+  { path: '/calendar?view=month', marker: '[data-calendar-view="month"]' },
   { path: '/inbox', marker: '[data-tour="inbox-list"]' },
   // A sent campaign's report and receipt, and a draft in the composer.
   {
