@@ -691,6 +691,12 @@ export interface CrmField {
   name: string;
   type: CrmFieldType;
   options?: string[];
+  /**
+   * 'copilot' for a column someone added in Copilot. The Affinity sync and
+   * CSV re-imports never take one over by its label, so its values stay the
+   * team's own. Absent on imported columns.
+   */
+  origin?: 'copilot';
 }
 
 /**
@@ -771,6 +777,25 @@ export interface CrmListEntry {
   position: number;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
+}
+
+/**
+ * A row taken off a list in Copilot (20261021000300_crm_writes.sql). The
+ * daily Affinity sync and CSV re-imports skip incoming rows that match it, so
+ * the row stays off; Undo re-inserts `entry` and deletes the tombstone.
+ */
+export interface CrmEntryTombstone {
+  id: Uuid;
+  organization_id: Uuid;
+  list_id: Uuid;
+  entry_id: Uuid;
+  external_id: string | null;
+  record_id: Uuid | null;
+  title: string;
+  /** The row as it was when removed. */
+  entry: CrmListEntry;
+  removed_by: Uuid | null;
+  created_at: IsoDateTime;
 }
 
 /**

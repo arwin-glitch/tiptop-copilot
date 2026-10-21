@@ -1,6 +1,10 @@
 import 'server-only';
 import type { AuthContext } from '@/lib/auth/session';
+import { env } from '@/lib/config/env';
 import {
+  CRM_COPILOT_FIELD_TYPES,
+  CRM_OPTION_FIELD_TYPES,
+  crmFieldKey,
   crmNameKey,
   displayCrmValue,
   mergeCrmFields,
@@ -10,7 +14,12 @@ import {
   validateCrmValue,
   type CrmFieldInput,
 } from '@/lib/crm/fields';
-import { compileEntryFilter, type CrmViewCondition } from '@/lib/crm/saved-views';
+import { crmNoteLockReason } from '@/lib/crm/notes';
+import {
+  compileEntryFilter,
+  normalizeConditions,
+  type CrmViewCondition,
+} from '@/lib/crm/saved-views';
 import { sortStatusOptions } from '@/lib/crm/view';
 import { isMissingColumnError, isMissingTableError } from '@/lib/db/missing-table';
 import { chunk, listAllPages } from '@/lib/db/paging';
@@ -20,7 +29,9 @@ import { scanForInjection } from '@/lib/security/injection';
 import { log } from '@/lib/security/redact';
 import type {
   CrmEntityType,
+  CrmEntryTombstone,
   CrmField,
+  CrmFieldType,
   CrmList,
   CrmListEntry,
   CrmNote,
@@ -42,8 +53,11 @@ import { err, ok, type Result } from '@/lib/util/result';
  * a Result — nothing here throws to its caller:
  *
  *   - reads for the pages: lists, a page of entries, a record's profile, search
- *   - writes for the pages: create a list, set values, add an entry, add a note
- *   - import upserts for the CSV import route, idempotent on natural keys
+ *   - writes for the pages: create a list (empty, or saved from a view), set
+ *     values, add an entry (or many), add, edit and delete a note, add a
+ *     company or person, add a column, take a row off a list and put it back
+ *   - import upserts for the CSV import route and the daily Affinity sync,
+ *     idempotent on natural keys, which skip rows taken off a list in Copilot
  *
  * Every table here arrives by a hand-applied migration, and code has reached
  * production before its table before (the Sep 15 outage). So every function
@@ -58,6 +72,22 @@ export const CRM_TABLES = ['crm_lists', 'crm_records', 'crm_list_entries', 'crm_
 export type CrmTable = (typeof CRM_TABLES)[number];
 
 export const CRM_MIGRATION_FILE = 'supabase/migrations/20261015000000_crm.sql';
+
+/**
+ * The tombstones that keep a removed row off its list while the Affinity sync
+ * runs. Optional: everything else in the CRM works without it, and only
+ * taking a row off a list says to run it.
+ */
+export const CRM_WRITES_MIGRATION_FILE = 'supabase/migrations/20261021000300_crm_writes.sql';
+
+/**
+ * Whether the daily Affinity sync is on: its key is set (the demo plays one).
+ * Affinity's notes stay read-only while it is, since the sync rewrites them.
+ */
+export function affinitySyncIsOn(): boolean {
+  const e = env();
+  return e.demoMode || Boolean(e.affinityApiKey);
+}
 
 const NOT_SET_UP_READ = `The CRM is not set up yet: its tables do not exist. Run ${CRM_MIGRATION_FILE} in the Supabase SQL editor, then reload.`;
 const NOT_SET_UP_WRITE = `Nothing was saved: the CRM tables do not exist yet. Run ${CRM_MIGRATION_FILE} in the Supabase SQL editor, then try again.`;
@@ -1359,6 +1389,8 @@ export async function addEntry(
       updated_at: now,
     };
     const saved = await store.insert('crm_list_entries', entry);
+    // Added back by hand: the sync may bring its Affinity copy again too.
+    if (record) await clearTombstones(store, organizationId, list.id, [record.id]);
     await audit(store, organizationId, actor, 'crm.entry_added', 'crm_list_entry', entry.id, {
       list_id: list.id,
       has_record: Boolean(record),
@@ -1367,22 +1399,241 @@ export async function addEntry(
   });
 }
 
-/** Take a row off its list. The record and its notes are untouched. */
+/* ---- taking a row off a list, and Undo */
+
+const NOT_SET_UP_REMOVE = `Nothing was removed: taking a row off a list needs ${CRM_WRITES_MIGRATION_FILE}, which keeps the daily Affinity sync from adding it back. Run it in the Supabase SQL editor, then try again.`;
+const NOT_SET_UP_RESTORE = `Nothing was restored: ${CRM_WRITES_MIGRATION_FILE} has not been run, so there is no removed row to bring back.`;
+
+/** What `removeEntry` took off, and the tombstone Undo restores it from. */
+export interface CrmRemovedEntry {
+  id: string;
+  listId: string;
+  title: string;
+  tombstoneId: string;
+}
+
+/**
+ * A list's tombstones. None when the table does not exist yet: the sync and
+ * the CSV import read this for every page they write, and must carry on as
+ * before until the migration runs rather than fail.
+ */
+async function listTombstones(
+  store: DataStore,
+  organizationId: string,
+  listId: string,
+): Promise<CrmEntryTombstone[]> {
+  try {
+    return await listAllPages(store, 'crm_entry_tombstones', organizationId, {
+      eq: { list_id: listId },
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) return [];
+    throw error;
+  }
+}
+
+/** Forget the tombstones of these records on a list: someone added them back by hand. */
+async function clearTombstones(
+  store: DataStore,
+  organizationId: string,
+  listId: string,
+  recordIds: readonly string[],
+): Promise<void> {
+  try {
+    for (const group of chunk([...new Set(recordIds)], 100)) {
+      await store.removeWhere('crm_entry_tombstones', organizationId, {
+        eq: { list_id: listId },
+        in: { record_id: group },
+      });
+    }
+  } catch (error) {
+    // The row is added either way; a tombstone left behind only keeps the
+    // Affinity copy of the row off the list, next to the one added here.
+    if (!isMissingTableError(error)) {
+      log.warn('CRM tombstones could not be cleared', {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
+/**
+ * Whether an incoming import row is one someone took off the list: the same
+ * key as a tombstone, or on a company or person list the same company or
+ * person. A deal row can come back under another kind of key when the list
+ * is exported another way (by name, then with row ids), so on a deal list a
+ * tombstone's title also catches a row keyed by a different kind of id.
+ */
+export function removedRowMatcher(
+  list: Pick<CrmList, 'entity_type'>,
+  tombstones: readonly Pick<CrmEntryTombstone, 'external_id' | 'record_id' | 'title'>[],
+): (row: { externalId: string | null; recordId: string | null; title: string }) => boolean {
+  if (!tombstones.length) return () => false;
+  const deal = list.entity_type === 'deal';
+  const keys = new Set(tombstones.map((t) => t.external_id).filter((k): k is string => !!k));
+  const records = new Set(
+    deal ? [] : tombstones.map((t) => t.record_id).filter((id): id is string => !!id),
+  );
+  const titled = deal
+    ? tombstones
+        .filter((t) => t.external_id)
+        .map((t) => ({ title: crmNameKey(t.title), kind: entryKeyKind(t.external_id as string) }))
+    : [];
+  return (row) => {
+    if (row.externalId && keys.has(row.externalId)) return true;
+    if (row.recordId && records.has(row.recordId)) return true;
+    if (deal && row.externalId) {
+      const kind = entryKeyKind(row.externalId);
+      const title = crmNameKey(row.title);
+      return titled.some((t) => t.title === title && t.kind !== kind);
+    }
+    return false;
+  };
+}
+
+/**
+ * Take a row off its list. The record and its notes are untouched.
+ *
+ * A tombstone is written first (crm_entry_tombstones): the daily Affinity
+ * sync and CSV re-imports skip rows that match it, so the row stays off, and
+ * it keeps the row as it was for Undo (restoreEntry). Until that table exists
+ * nothing is removed: a row deleted without one would be back after the next
+ * morning's sync.
+ */
 export async function removeEntry(
   store: DataStore,
   organizationId: string,
   entryId: string,
   actor?: CrmActor,
-): Promise<Result<{ id: string }>> {
+): Promise<Result<CrmRemovedEntry>> {
   return guard('write', 'remove a CRM entry', async () => {
     if (!isUuid(entryId)) return err('not_found', 'That entry does not exist.');
     const entry = await store.get('crm_list_entries', organizationId, entryId);
     if (!entry) return err('not_found', 'That entry does not exist.');
+    const tombstone: CrmEntryTombstone = {
+      id: newId(),
+      organization_id: organizationId,
+      list_id: entry.list_id,
+      entry_id: entry.id,
+      external_id: entry.external_id,
+      record_id: entry.record_id,
+      title: entry.title,
+      entry,
+      removed_by: actor?.userId ?? null,
+      created_at: new Date().toISOString(),
+    };
+    try {
+      // One per row: a row removed, put back and removed again keeps one.
+      await store.removeWhere('crm_entry_tombstones', organizationId, {
+        eq: { list_id: entry.list_id, entry_id: entry.id },
+      });
+      await store.insert('crm_entry_tombstones', tombstone);
+    } catch (error) {
+      if (isMissingTableError(error)) {
+        return err('not_configured', NOT_SET_UP_REMOVE, {
+          stillUsable: 'Everything else on the list works as before.',
+          details: { operation: 'remove a CRM entry' },
+        });
+      }
+      throw error;
+    }
     await store.remove('crm_list_entries', organizationId, entry.id);
     await audit(store, organizationId, actor, 'crm.entry_removed', 'crm_list_entry', entry.id, {
       list_id: entry.list_id,
+      tombstone: tombstone.id,
     });
-    return ok({ id: entry.id });
+    return ok({
+      id: entry.id,
+      listId: entry.list_id,
+      title: entry.title,
+      tombstoneId: tombstone.id,
+    });
+  });
+}
+
+/**
+ * Undo a removal: the row goes back exactly as it was — same id, so the notes
+ * linked to it are linked again, same place, same values — and its tombstone
+ * is deleted, so the sync keeps the row current again. A company or person
+ * put back on the list by hand in the meantime is a conflict, not a second
+ * row.
+ */
+export async function restoreEntry(
+  store: DataStore,
+  organizationId: string,
+  tombstoneId: string,
+  actor?: CrmActor,
+): Promise<Result<CrmListEntry>> {
+  return guard('write', 'restore a CRM entry', async () => {
+    if (!isUuid(tombstoneId)) return err('not_found', 'There is nothing to undo.');
+    let tombstone: CrmEntryTombstone | null;
+    try {
+      tombstone = await store.get('crm_entry_tombstones', organizationId, tombstoneId);
+    } catch (error) {
+      if (isMissingTableError(error)) {
+        return err('not_configured', NOT_SET_UP_RESTORE, {
+          details: { operation: 'restore a CRM entry' },
+        });
+      }
+      throw error;
+    }
+    if (!tombstone) return err('not_found', 'That row is already back on its list.');
+    const found = tombstone;
+    const list = await store.get('crm_lists', organizationId, found.list_id);
+    if (!list) return err('not_found', 'That list no longer exists.');
+    const forget = () => store.remove('crm_entry_tombstones', organizationId, found.id);
+
+    const back = await store.get('crm_list_entries', organizationId, found.entry_id);
+    if (back) {
+      await forget();
+      return ok(back);
+    }
+    const snapshot = (found.entry ?? {}) as Partial<CrmListEntry>;
+    let recordId = snapshot.record_id ?? found.record_id ?? null;
+    if (recordId) {
+      const record = isUuid(recordId)
+        ? await store.get('crm_records', organizationId, recordId)
+        : null;
+      if (!record) {
+        recordId = null;
+      } else if (list.entity_type !== 'deal') {
+        const again = await store.findOne('crm_list_entries', organizationId, {
+          eq: { list_id: list.id, record_id: record.id },
+        });
+        if (again) {
+          await forget();
+          return err('conflict', `${record.name} is already back on ${list.name}.`);
+        }
+      }
+    }
+    const now = new Date().toISOString();
+    const entry: CrmListEntry = {
+      // Anything else the row carried (a column newer than this type) goes
+      // back with it.
+      ...(snapshot as CrmListEntry),
+      id: found.entry_id,
+      organization_id: organizationId,
+      list_id: list.id,
+      record_id: recordId,
+      title: (snapshot.title || found.title).slice(0, 500),
+      external_id: snapshot.external_id ?? null,
+      values: snapshot.values ?? {},
+      imported_values: snapshot.imported_values ?? null,
+      position:
+        typeof snapshot.position === 'number'
+          ? snapshot.position
+          : await nextPosition(store, organizationId, 'crm_list_entries', {
+              eq: { list_id: list.id },
+            }),
+      created_at: snapshot.created_at ?? now,
+      updated_at: now,
+    };
+    const saved = await store.insert('crm_list_entries', entry);
+    await forget();
+    await audit(store, organizationId, actor, 'crm.entry_restored', 'crm_list_entry', entry.id, {
+      list_id: list.id,
+    });
+    return ok(saved);
   });
 }
 
@@ -1466,6 +1717,499 @@ export async function addNote(
       entries: entryIds.length,
     });
     return ok(saved);
+  });
+}
+
+/** The note, if it may be changed now; why not otherwise (crmNoteLockReason). */
+async function changeableNote(
+  store: DataStore,
+  organizationId: string,
+  noteId: string,
+  affinitySyncOn: boolean,
+): Promise<Result<CrmNote>> {
+  if (!isUuid(noteId)) return err('not_found', 'That note does not exist.');
+  const note = await store.get('crm_notes', organizationId, noteId);
+  if (!note) return err('not_found', 'That note does not exist.');
+  const locked = crmNoteLockReason(note, affinitySyncOn);
+  if (locked) return err('forbidden', locked);
+  return ok(note);
+}
+
+/**
+ * Change a note's text (and title). A note written in Copilot always; one
+ * from Affinity only once the daily sync is off (`affinitySyncOn`, which the
+ * caller reads from affinitySyncIsOn), since the sync would rewrite it. The
+ * author and date stay as they were; the text is scanned again.
+ */
+export async function updateNote(
+  store: DataStore,
+  organizationId: string,
+  noteId: string,
+  input: { content: string; title?: string | null },
+  actor: CrmActor,
+  options: { affinitySyncOn: boolean },
+): Promise<Result<CrmNote>> {
+  return guard('write', 'edit a CRM note', async () => {
+    const found = await changeableNote(store, organizationId, noteId, options.affinitySyncOn);
+    if (!found.ok) return found;
+    const note = found.value;
+    const content = (input.content ?? '').trim();
+    if (!content) return err('invalid_input', 'A note needs some text. Delete it instead.');
+    if (content.length > CRM_NOTE_MAX_CHARS) return err('too_large', 'That note is too long.');
+    const title =
+      input.title === undefined ? note.title : input.title?.trim().slice(0, 500) || null;
+    if (content === note.content && title === note.title) return ok(note);
+    const updated = await store.update('crm_notes', organizationId, note.id, {
+      content,
+      title,
+      injection_flagged: scanForInjection(`${title ?? ''}\n${content}`).flagged,
+      updated_at: new Date().toISOString(),
+    });
+    await audit(store, organizationId, actor, 'crm.note_updated', 'crm_note', note.id, {
+      source: note.source,
+    });
+    return ok(updated);
+  });
+}
+
+/** Delete a note, under the same rule as editing one. */
+export async function deleteNote(
+  store: DataStore,
+  organizationId: string,
+  noteId: string,
+  actor: CrmActor,
+  options: { affinitySyncOn: boolean },
+): Promise<Result<{ id: string }>> {
+  return guard('write', 'delete a CRM note', async () => {
+    const found = await changeableNote(store, organizationId, noteId, options.affinitySyncOn);
+    if (!found.ok) return found;
+    await store.remove('crm_notes', organizationId, found.value.id);
+    await audit(store, organizationId, actor, 'crm.note_deleted', 'crm_note', found.value.id, {
+      source: found.value.source,
+    });
+    return ok({ id: found.value.id });
+  });
+}
+
+/* ---- new companies and people */
+
+export interface CreateCrmRecordInput {
+  kind: CrmRecordKind;
+  name?: string | null;
+  /** A company's website or domain, normalized to the bare domain. */
+  domain?: string | null;
+  /** A person's email address. */
+  email?: string | null;
+  /** Where they are; kept as the record's Location, which the finder searches. */
+  location?: string | null;
+}
+
+export interface CrmRecordCreated {
+  record: CrmRecord;
+  /**
+   * The CRM already had them — a company at that domain, a person with that
+   * address, or with neither, someone of that name — so this is that record,
+   * unchanged, and nothing was created.
+   */
+  existed: boolean;
+  matchedBy: 'domain' | 'email' | 'name' | null;
+}
+
+/**
+ * The record a new company or person would duplicate. A domain or an address
+ * is an identity: a company at another domain, or a person with another
+ * address, is someone else whatever the name. With neither, the name is all
+ * there is to go on.
+ */
+async function existingRecord(
+  store: DataStore,
+  organizationId: string,
+  kind: CrmRecordKind,
+  keys: { domain: string | null; email: string | null; nameKey: string },
+): Promise<{ record: CrmRecord; by: 'domain' | 'email' | 'name' } | null> {
+  const oldest: QueryOptions = { orderBy: [{ field: 'created_at', direction: 'asc' }], limit: 1 };
+  if (kind === 'company' && keys.domain) {
+    const [byDomain] = await store.list(
+      'crm_records',
+      organizationId,
+      { eq: { kind, domain: keys.domain } },
+      oldest,
+    );
+    return byDomain ? { record: byDomain, by: 'domain' } : null;
+  }
+  if (kind === 'person' && keys.email) {
+    const [byPrimary] = await store.list(
+      'crm_records',
+      organizationId,
+      { eq: { kind, primary_email: keys.email } },
+      oldest,
+    );
+    if (byPrimary) return { record: byPrimary, by: 'email' };
+    const [byAny] = await store.list(
+      'crm_records',
+      organizationId,
+      { eq: { kind }, arrayContains: { emails: keys.email } },
+      oldest,
+    );
+    return byAny ? { record: byAny, by: 'email' } : null;
+  }
+  const [byName] = await store.list(
+    'crm_records',
+    organizationId,
+    { eq: { kind, name_key: keys.nameKey } },
+    oldest,
+  );
+  return byName ? { record: byName, by: 'name' } : null;
+}
+
+/**
+ * A new company or person, made in Copilot now that Affinity is going.
+ *
+ * Keyed the way the daily Affinity sync matches records — a company on its
+ * domain, a person on their email — and stored with no external id, so while
+ * the sync still runs it adopts this record (takes it over under Affinity's
+ * id) instead of adding a second copy (upsertRecords). One that is already
+ * here is returned as it is (`existed`), for the page to open instead.
+ */
+export async function createRecord(
+  store: DataStore,
+  organizationId: string,
+  input: CreateCrmRecordInput,
+  actor?: CrmActor,
+): Promise<Result<CrmRecordCreated>> {
+  return guard<CrmRecordCreated>('write', 'create a CRM record', async () => {
+    const kind = input.kind;
+    if (kind !== 'company' && kind !== 'person') {
+      return err('invalid_input', 'A record is a company or a person.');
+    }
+    let domain: string | null = null;
+    let email: string | null = null;
+    if (kind === 'company' && input.domain?.trim()) {
+      domain = normalizeDomain(input.domain);
+      if (!domain) {
+        return err('invalid_input', 'That does not look like a website or domain (example.com).');
+      }
+    }
+    if (kind === 'person' && input.email?.trim()) {
+      const typed = input.email.trim().toLowerCase();
+      if (!EMAIL_RE.test(typed)) return err('invalid_input', 'That is not an email address.');
+      email = typed;
+    }
+    const name = (input.name?.trim() || (kind === 'person' ? email : domain) || '').slice(0, 500);
+    if (!name) {
+      return err(
+        'invalid_input',
+        kind === 'person'
+          ? 'A person needs a name or an email address.'
+          : 'A company needs a name or a website.',
+      );
+    }
+    const location = input.location?.trim().slice(0, 300) || null;
+
+    const nameKey = crmNameKey(name);
+    const found = await existingRecord(store, organizationId, kind, { domain, email, nameKey });
+    if (found) return ok({ record: found.record, existed: true, matchedBy: found.by });
+
+    const now = new Date().toISOString();
+    const record: CrmRecord = {
+      id: newId(),
+      organization_id: organizationId,
+      kind,
+      source: 'copilot',
+      external_id: null,
+      name,
+      name_key: nameKey,
+      domain,
+      emails: email ? [email] : [],
+      primary_email: email,
+      fields: location ? { Location: location } : {},
+      created_at: now,
+      updated_at: now,
+    };
+    const saved = await store.insert('crm_records', record);
+    await audit(store, organizationId, actor, 'crm.record_created', 'crm_record', record.id, {
+      kind,
+      has_domain: Boolean(domain),
+      has_email: Boolean(email),
+    });
+    return ok({ record: saved, existed: false, matchedBy: null });
+  });
+}
+
+/* ---- columns */
+
+/** The most columns a list can carry; an import's own cap is lower. */
+export const CRM_LIST_FIELDS_MAX = 150;
+/** The most choices a Copilot status or multi column can have. */
+export const CRM_COPILOT_OPTIONS_MAX = 200;
+
+export interface AddCrmFieldInput {
+  name: string;
+  type: CrmFieldType | string;
+  /** The choices of a status or multi column, in order. */
+  options?: readonly string[] | null;
+}
+
+/**
+ * A column added in Copilot (a custom field), at the end of the list's
+ * columns. Marked as Copilot's (`origin`), so neither the Affinity sync nor a
+ * CSV re-import ever takes it over by its label (mergeCrmFields,
+ * planAffinityColumns): its values are the team's own, set from the side
+ * panel like any other.
+ */
+export async function addListField(
+  store: DataStore,
+  organizationId: string,
+  listId: string,
+  input: AddCrmFieldInput,
+  actor?: CrmActor,
+): Promise<Result<{ list: CrmList; field: CrmField }>> {
+  return guard('write', 'add a CRM column', async () => {
+    if (!isUuid(listId)) return err('not_found', 'That list does not exist.');
+    const list = await store.get('crm_lists', organizationId, listId);
+    if (!list) return err('not_found', 'That list does not exist.');
+    const name = (input.name ?? '').trim().replace(/\s+/g, ' ');
+    if (!name) return err('invalid_input', 'A column needs a name.');
+    if (name.length > 200) return err('invalid_input', 'That column name is too long.');
+    const type = input.type as CrmFieldType;
+    if (!(CRM_COPILOT_FIELD_TYPES as readonly string[]).includes(type)) {
+      return err('invalid_input', 'That is not a kind of column Copilot can add.');
+    }
+    if (list.fields.some((f) => crmNameKey(f.name) === crmNameKey(name))) {
+      return err('conflict', `${list.name} already has a column called “${name}”.`);
+    }
+    if (list.fields.length >= CRM_LIST_FIELDS_MAX) {
+      return err('too_large', `${list.name} already has ${CRM_LIST_FIELDS_MAX} columns.`);
+    }
+    const field: CrmField = {
+      key: crmFieldKey(name, new Set(list.fields.map((f) => f.key))),
+      name,
+      type,
+      origin: 'copilot',
+    };
+    if (CRM_OPTION_FIELD_TYPES.has(type)) {
+      const options: string[] = [];
+      for (const raw of input.options ?? []) {
+        const option = typeof raw === 'string' ? raw.trim() : '';
+        if (!option) continue;
+        if (option.length > 200) return err('invalid_input', 'A choice can be 200 characters.');
+        if (options.some((o) => o.toLowerCase() === option.toLowerCase())) continue;
+        options.push(option);
+      }
+      if (!options.length) return err('invalid_input', 'Give the column at least one choice.');
+      if (options.length > CRM_COPILOT_OPTIONS_MAX) {
+        return err('too_large', `A column can have at most ${CRM_COPILOT_OPTIONS_MAX} choices.`);
+      }
+      field.options = options;
+    }
+    const updated = await store.update('crm_lists', organizationId, list.id, {
+      fields: [...list.fields, field],
+      updated_at: new Date().toISOString(),
+    });
+    await audit(store, organizationId, actor, 'crm.list_updated', 'crm_list', list.id, {
+      changed: ['fields'],
+      added_field: field.key,
+      type: field.type,
+    });
+    return ok({ list: updated, field });
+  });
+}
+
+/* ---- filling lists */
+
+/** The most rows one "Save as list" or "Add to list" writes. */
+export const CRM_BULK_ADD_MAX = 5000;
+
+export interface CrmBulkAdd {
+  /** Rows added. */
+  added: number;
+  /** Records already on the list, left as they were. */
+  already: number;
+  /** Ids that were not a company or person of the list's kind. */
+  skipped: number;
+}
+
+/**
+ * Put companies or people on a company or person list, at the end, in the
+ * order given; ones already on it are left alone. One request per hundred
+ * rows. Adding a record back clears the tombstone of an earlier removal.
+ */
+export async function addRecordsToList(
+  store: DataStore,
+  organizationId: string,
+  listId: string,
+  recordIds: readonly string[],
+  actor?: CrmActor,
+): Promise<Result<CrmBulkAdd>> {
+  return guard('write', 'add records to a CRM list', async () => {
+    if (!isUuid(listId)) return err('not_found', 'That list does not exist.');
+    const list = await store.get('crm_lists', organizationId, listId);
+    if (!list) return err('not_found', 'That list does not exist.');
+    if (list.entity_type === 'deal') {
+      return err('invalid_input', `${list.name} is a deal list: add a deal with “Add entry”.`);
+    }
+    const ids = [...new Set(recordIds)].filter(isUuid);
+    if (ids.length > CRM_BULK_ADD_MAX) {
+      return err('too_large', `At most ${CRM_BULK_ADD_MAX.toLocaleString('en-US')} at a time.`);
+    }
+    const kind: CrmRecordKind = list.entity_type === 'person' ? 'person' : 'company';
+    const records = new Map(
+      (ids.length
+        ? await listWhereIn(store, 'crm_records', organizationId, { eq: { kind } }, 'id', ids)
+        : []
+      ).map((r) => [r.id, r]),
+    );
+    const onList = new Set(
+      (ids.length
+        ? await listWhereIn(
+            store,
+            'crm_list_entries',
+            organizationId,
+            { eq: { list_id: list.id } },
+            'record_id',
+            ids,
+          )
+        : []
+      ).map((e) => e.record_id),
+    );
+    let position = await nextPosition(store, organizationId, 'crm_list_entries', {
+      eq: { list_id: list.id },
+    });
+    const now = new Date().toISOString();
+    const rows: CrmListEntry[] = [];
+    let already = 0;
+    let skipped = new Set(recordIds).size - ids.length;
+    for (const id of ids) {
+      const record = records.get(id);
+      if (!record) {
+        skipped++;
+        continue;
+      }
+      if (onList.has(id)) {
+        already++;
+        continue;
+      }
+      rows.push({
+        id: newId(),
+        organization_id: organizationId,
+        list_id: list.id,
+        record_id: record.id,
+        title: record.name.slice(0, 500),
+        external_id: null,
+        values: {},
+        imported_values: null,
+        position: position++,
+        created_at: now,
+        updated_at: now,
+      });
+    }
+    for (const group of chunk(rows, 100)) await store.insertMany('crm_list_entries', group);
+    if (rows.length) {
+      await clearTombstones(
+        store,
+        organizationId,
+        list.id,
+        rows.map((r) => r.record_id as string),
+      );
+      await audit(store, organizationId, actor, 'crm.entry_added', 'crm_list', list.id, {
+        list_id: list.id,
+        count: rows.length,
+      });
+    }
+    return ok({ added: rows.length, already, skipped });
+  });
+}
+
+export interface CrmSavedList {
+  list: CrmList;
+  added: number;
+  /** More rows matched than CRM_BULK_ADD_MAX; the first ones were saved. */
+  truncated: boolean;
+}
+
+/**
+ * "Save as list" from a list's view: a new list of the same kind holding the
+ * rows the view shows — its search, status chips and filters, applied in the
+ * database as the page applies them — in the view's order. Each row keeps its
+ * name and its company or person; the new list starts with no columns of its
+ * own, since the old list's columns are that list's. Rows about the same
+ * company or person are saved once.
+ */
+export async function saveViewAsList(
+  store: DataStore,
+  organizationId: string,
+  sourceListId: string,
+  input: {
+    name: string;
+    query?: Pick<
+      CrmEntryQuery,
+      'query' | 'statusIn' | 'statusKey' | 'conditions' | 'sortKey' | 'sortDir'
+    >;
+  },
+  actor?: CrmActor,
+): Promise<Result<CrmSavedList>> {
+  return guard('write', 'save a CRM view as a list', async () => {
+    if (!isUuid(sourceListId)) return err('not_found', 'That list does not exist.');
+    const source = await store.get('crm_lists', organizationId, sourceListId);
+    if (!source) return err('not_found', 'That list does not exist.');
+    const query = input.query ?? {};
+    const { filter } = entryQueryFilter(source, {
+      query: query.query ?? null,
+      statusIn: query.statusIn ?? null,
+      statusKey: query.statusKey ?? null,
+      conditions: normalizeConditions(query.conditions ?? [], source.fields),
+    });
+    const { orderBy } = entryOrder(source, query.sortKey ?? null, query.sortDir ?? null);
+    const entries: CrmListEntry[] = [];
+    for (let offset = 0; entries.length <= CRM_BULK_ADD_MAX; offset += 1000) {
+      const page = await store.list('crm_list_entries', organizationId, filter, {
+        orderBy,
+        limit: 1000,
+        offset,
+      });
+      entries.push(...page);
+      if (page.length < 1000) break;
+    }
+    const truncated = entries.length > CRM_BULK_ADD_MAX;
+
+    const created = await createList(
+      store,
+      organizationId,
+      { name: input.name, entityType: source.entity_type },
+      actor,
+    );
+    if (!created.ok) return created;
+    const list = created.value;
+
+    const seen = new Set<string>();
+    const now = new Date().toISOString();
+    const rows: CrmListEntry[] = [];
+    for (const entry of entries.slice(0, CRM_BULK_ADD_MAX)) {
+      if (entry.record_id && source.entity_type !== 'deal') {
+        if (seen.has(entry.record_id)) continue;
+        seen.add(entry.record_id);
+      }
+      rows.push({
+        id: newId(),
+        organization_id: organizationId,
+        list_id: list.id,
+        record_id: entry.record_id,
+        title: entry.title,
+        external_id: null,
+        values: {},
+        imported_values: null,
+        position: rows.length,
+        created_at: now,
+        updated_at: now,
+      });
+    }
+    for (const group of chunk(rows, 100)) await store.insertMany('crm_list_entries', group);
+    await audit(store, organizationId, actor, 'crm.entry_added', 'crm_list', list.id, {
+      list_id: list.id,
+      count: rows.length,
+      from_list: source.id,
+    });
+    return ok({ list, added: rows.length, truncated });
   });
 }
 
@@ -2073,7 +2817,9 @@ export async function upsertList(
       return ok({ list: await store.insert('crm_lists', list), created: true, updated: false });
     }
 
-    const fields = mergeCrmFields(existing.fields, incoming);
+    const fields = mergeCrmFields(existing.fields, incoming, {
+      keepCopilotColumns: existing.source !== 'copilot',
+    });
     const patch: Partial<CrmList> = {};
     if (!same(fields, existing.fields)) patch.fields = fields;
     // A list chosen by id keeps its name; one found by name takes the casing sent.
@@ -2246,6 +2992,10 @@ export async function upsertEntries(
       return { externalId: externalKey(row.externalId), title, recordId, values, position };
     });
 
+    // Rows someone took off this list in Copilot stay off, whoever sends
+    // them again: the daily sync or a CSV re-import.
+    const removed = removedRowMatcher(list, await listTombstones(store, organizationId, list.id));
+
     // In list order: rows created by one import share a timestamp, and the
     // file's row order is what pairs its rows with them again next time.
     const index = new Index<CrmListEntry>(
@@ -2291,6 +3041,12 @@ export async function upsertEntries(
     const claimed = new Set<string>();
     clean.forEach((row, i) => {
       if (!row.title) return batch.skip(i, 'No name and no linked record, so nothing to store.');
+      if (removed(row)) {
+        return batch.skip(
+          i,
+          `“${row.title}” was taken off ${list.name} in Copilot, so it was not added back. Add it again on the list to bring it back.`,
+        );
+      }
 
       const candidate = (accept: (e: CrmListEntry) => boolean): CrmListEntry | null => {
         const open = (e: CrmListEntry) => !claimed.has(e.id) && accept(e);

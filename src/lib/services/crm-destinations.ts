@@ -97,7 +97,7 @@ export async function readDestinationOverrides(
 export async function destinationForList(
   store: DataStore,
   organizationId: string,
-  list: Pick<CrmList, 'id' | 'name' | 'entity_type'>,
+  list: Pick<CrmList, 'id' | 'name' | 'entity_type'> & Partial<Pick<CrmList, 'source'>>,
 ): Promise<CrmListDestination> {
   const overrides = await readDestinationOverrides(store, organizationId);
   return resolveCrmListDestination(list, overrides[list.id]);

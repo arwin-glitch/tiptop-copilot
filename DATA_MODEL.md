@@ -267,6 +267,7 @@ map one-to-one (`20261015000000_crm.sql`; service `lib/services/crm.ts`).
 | `crm_records` | Companies and people (`kind`). `name_key` is the name trimmed and lowercased, written by the service, so imports can match names case-insensitively through PostgREST. Unique on `(organization_id, kind, source, external_id)`; indexed by `name_key`, `domain`, `primary_email`, GIN on `emails` and trigram on `name`. |
 | `crm_list_entries` | One row of one list: `record_id` (nullable, `on delete set null`), `title`, and `"values"` keyed by the list's field keys. `external_id` is Affinity's row id, `entity:<id>` (organization/person/opportunity id) or `name:<name>` (a deal list exported without ids). `imported_values` is what the last import wrote, so a re-import keeps a value someone changed in Copilot since. Unique on `(list_id, external_id)`. |
 | `crm_notes` | Notes on records and entries (`record_ids`, `entry_ids`, both GIN-indexed). Content is untrusted, verbatim, rendered as text only, with `injection_flagged` like meeting notes. An id-less CSV note is keyed by a hash of its date, author and content, not the entity it was exported under, so one note exported from two lists is one note (the names count only when a note has neither date nor author). |
+| `crm_entry_tombstones` | A row taken off a list in Copilot (`20261021000300_crm_writes.sql`): the list, the row's id, its `external_id` and `record_id` (what the sync matches on), and the row as it was (`entry`, jsonb) for Undo. Unique on `(list_id, entry_id)`; deleted with its list. |
 
 `source` is `'affinity' | 'copilot'` on every table. Imports upsert on these
 natural keys and write only rows that change, so importing the same export
@@ -329,6 +330,30 @@ and relationship fields (Industry, Description, Last Email…) go on the
 company or person record's `fields`, so a list stays a handful of columns.
 Nothing is deleted: a row removed in Affinity stays in Copilot. Its progress
 lives in `audit_events` (above).
+
+**Writing in Copilot** (so the CRM keeps growing once Affinity is cancelled).
+New companies and people (`createRecord`) are stored with `source = 'copilot'`
+and no `external_id`, keyed the way the sync matches: a company on its domain,
+a person on their email (primary or any), and with neither on the name. One
+already there is returned instead of a copy, and while the sync runs it adopts
+the record under Affinity's id (`upsertRecords`' adopt step) rather than adding
+a second. New lists are `source = 'copilot'` and never touched by the sync;
+"Save as list" copies the rows a view shows (titles and record links, no
+columns), and Knowledge → Find & save puts every match of a search on a new or
+existing list. A column added in Copilot is a `crm_lists.fields` entry with
+`origin: 'copilot'`: neither the sync (`planAffinityColumns`) nor a CSV
+re-import of an Affinity list (`mergeCrmFields`, `fieldKeys`) matches it by
+name or key, so an Affinity field of the same name becomes a column of its own
+or stays on the record. Notes written in Copilot can be edited and deleted;
+Affinity's are refused while the sync is on (`AFFINITY_API_KEY` set, or the
+demo), since the sync rewrites them. Taking a row off a list writes a
+`crm_entry_tombstones` row first, then deletes the row; `upsertEntries` (the
+sync and the CSV import alike) skips an incoming row matching a tombstone of
+its list — by key, by record on a company or person list, by title under a
+different kind of key on a deal list — and reports it. Undo re-inserts the row
+from the tombstone (same id, so its notes link again) and deletes the
+tombstone; adding the record back by hand clears it too. Without the
+tombstone table nothing is removed and the sync reads no tombstones.
 
 **Saved views** (`20261016010000_crm_views.sql`; `lib/crm/saved-views.ts`,
 `lib/services/crm-views.ts`) live on the list row as `crm_lists.views`, a jsonb

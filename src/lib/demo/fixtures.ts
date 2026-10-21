@@ -2249,7 +2249,7 @@ function demoCrm(now: Date): DemoCrmDb {
 
   /*
    * records: companies 0–15, people 16–27, 28 (a company Copilot also tracks),
-   * then 29–36 for the Records pages (see the end of the list).
+   * then 29–36 for the Records pages and 37–39 for Find & save (see the end of the list).
    */
   const companies: [string, string, Record<string, CrmValue>][] = [
     [
@@ -2365,6 +2365,45 @@ function demoCrm(now: Date): DemoCrmDb {
         ],
         [35, 'person', 'Noor Halloran', null, ['noor.halloran@mail.example'], {}],
         [36, 'company', 'Pebblecrest', 'pebblecrest.example', [], { Industry: ['Consumer'] }],
+        // 37–39 are people on no list, with where they are and Affinity's last
+        // contact on the record, for Knowledge → Find & save: two in Austin
+        // (one in touch months ago, one years ago) and one elsewhere.
+        [
+          37,
+          'person',
+          'Wren Calloway',
+          null,
+          ['wren@tallgrass-robotics.example'],
+          {
+            'Job Title': 'Founder',
+            Location: 'Austin, Texas, United States',
+            'Last Contact': day(200),
+          },
+        ],
+        [
+          38,
+          'person',
+          'Jonah Pelletier',
+          null,
+          ['jonah@pellworks.example'],
+          {
+            'Job Title': 'CEO',
+            Location: 'Austin, Texas, United States',
+            'Last Contact': day(1600),
+          },
+        ],
+        [
+          39,
+          'person',
+          'Ines Marquardt',
+          null,
+          ['ines@fernway.example'],
+          {
+            'Job Title': 'Founder',
+            Location: 'Denver, Colorado, United States',
+            'Last Contact': day(40),
+          },
+        ],
       ] as [number, CrmRecord['kind'], string, string | null, string[], Record<string, CrmValue>][]
     ).map(([n, kind, name, domain, emails, fields]): CrmRecord => ({
       id: demoCrmId('record', n),

@@ -7,7 +7,7 @@ import {
   type AffinityNotesImportResult,
   type AffinityNotesRequest,
 } from '@/lib/crm/affinity-csv';
-import { crmNameKey } from '@/lib/crm/fields';
+import { crmNameKey, isCopilotField } from '@/lib/crm/fields';
 import { isMissingTableError } from '@/lib/db/missing-table';
 import { chunk, listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
@@ -26,7 +26,7 @@ import {
   type CrmNoteRow,
   type CrmUpsertSummary,
 } from '@/lib/services/crm';
-import type { CrmField } from '@/lib/types/domain';
+import type { CrmField, CrmList } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
 
 /**
@@ -78,10 +78,12 @@ function tidy(problems: { row: number; message: string }[]) {
  * The list's key for each field the request sent. A re-imported column keeps
  * the key it was first stored under (mergeCrmFields matches by key, then by
  * label), so the request's keys are looked up the same way in the list the
- * upsert returned.
+ * upsert returned — passing over a column added in Copilot on an Affinity
+ * list, as mergeCrmFields does, so the file's values never land in it.
  */
-function fieldKeys(sent: readonly CrmField[], stored: readonly CrmField[]): Map<string, string> {
+function fieldKeys(sent: readonly CrmField[], list: CrmList): Map<string, string> {
   const out = new Map<string, string>();
+  const stored = list.fields.filter((f) => list.source === 'copilot' || !isCopilotField(f));
   for (const field of sent) {
     const label = field.name.trim().toLowerCase();
     const match =
@@ -126,7 +128,7 @@ export async function importAffinityList(
     }
   }
 
-  const keys = fieldKeys(request.list.fields, list.fields);
+  const keys = fieldKeys(request.list.fields, list);
   const rows: CrmEntryRow[] = request.entries.map((entry) => {
     const values: Record<string, string> = {};
     for (const [key, value] of Object.entries(entry.values ?? {})) {

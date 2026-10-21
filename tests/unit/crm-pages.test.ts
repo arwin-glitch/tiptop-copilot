@@ -473,7 +473,8 @@ describe('the page services', () => {
   it('lists people and notes a page at a time, with totals', async () => {
     const people = value(await listCrmPeople(store, org, { limit: 5 }));
     expect(people.people).toHaveLength(5);
-    expect(people.total).toBe(17);
+    // 17 on lists, and the three Find & save people on none.
+    expect(people.total).toBe(20);
     expect(people.people.every((p) => p.kind === 'person')).toBe(true);
     const ada = value(await listCrmPeople(store, org, { query: 'ada@brindle' }));
     expect(ada.people.map((p) => p.name)).toEqual(['Ada Brennan']);

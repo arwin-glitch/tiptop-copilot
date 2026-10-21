@@ -1491,3 +1491,41 @@ keeps the in-app and bridge answers from drifting apart.
   "who are you?" and "am I talking to a real person?" in Ask Arwin to check.
 - Demo mode's canned answers (`src/lib/ai/mock.ts`) carry no identity and
   are unchanged.
+
+### D-060 — Writing to the CRM in Copilot while the Affinity sync still runs
+
+**Context.** Affinity is cancelled before its renewal, and after that nothing
+else adds people, companies, lists, columns or notes. Until then the daily
+sync copies every Affinity list in again each morning by Affinity's ids and
+deletes nothing, so a write made in Copilot has to survive it: a person added
+here must not be duplicated when they also appear in Affinity, a column of
+the team's own must not be taken over by an Affinity field of the same name,
+and a row taken off a list must not come back the next day.
+
+**Decision.**
+
+- **Records are keyed the way the sync matches.** A new company is keyed on
+  its domain, a person on their email (with neither, the name), stored with
+  no external id. One already there is opened instead of copied, and the
+  sync's existing adopt step takes a Copilot record over under Affinity's id.
+- **Copilot columns carry `origin: 'copilot'`** on the list's `fields`. The
+  sync's column plan and the field merge never match one, by name or by key,
+  on a list that came from Affinity. No migration.
+- **Removal writes a tombstone first** (`crm_entry_tombstones`, the one new
+  table, `20261021000300_crm_writes.sql`). `upsertEntries`, which the sync
+  and the CSV import share, skips rows matching a tombstone of the list.
+  The tombstone holds the row, so Undo restores it with its id. Until the
+  table exists, removing says to run the file and removes nothing; the sync
+  reads no tombstones and carries on as before.
+- **Affinity's notes stay read-only while the sync is on**, and say why;
+  Copilot's notes can be edited and deleted.
+- **Find & save is a Knowledge tab, not list-view filters.** "In <city>,
+  in touch within N years" is matched on the record's place-like fields and
+  the later of Affinity's dates and Copilot's own mail and calendar, which
+  the database does not hold, so the search narrows in the database (name,
+  place or list) and finishes in memory over at most 5,000 records.
+
+**Known limits.** "Sync on" is read from `AFFINITY_API_KEY` (or the demo); a
+stopped-but-configured sync still locks Affinity's notes. A list saved from a
+view copies rows, not columns. Location matching reads single-word labels in
+the database pre-filter (Location, City, Headquarters…).

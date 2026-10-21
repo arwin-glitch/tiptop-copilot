@@ -25,6 +25,35 @@ export const CRM_ARRAY_FIELD_TYPES: ReadonlySet<CrmFieldType> = new Set([
 /** Field types that carry a fixed set of `options`. */
 export const CRM_OPTION_FIELD_TYPES: ReadonlySet<CrmFieldType> = new Set(['status', 'multi']);
 
+/**
+ * The kinds of column someone can add in Copilot, with how the "Add column"
+ * dialog names them. Person and company columns hold names an import
+ * matched; typed by hand they would be text, so they are left out.
+ */
+export const CRM_COPILOT_FIELD_TYPES = [
+  'text',
+  'number',
+  'money',
+  'date',
+  'status',
+  'multi',
+  'url',
+  'email',
+] as const satisfies readonly CrmFieldType[];
+
+export const CRM_FIELD_TYPE_LABELS: Record<CrmFieldType, string> = {
+  text: 'Text',
+  number: 'Number',
+  money: 'Amount ($)',
+  date: 'Date',
+  status: 'Dropdown (one choice)',
+  multi: 'Tags (several choices)',
+  url: 'Link',
+  email: 'Email',
+  person: 'People',
+  company: 'Companies',
+};
+
 export function isCrmFieldType(value: unknown): value is CrmFieldType {
   return typeof value === 'string' && (CRM_FIELD_TYPES as readonly string[]).includes(value);
 }
@@ -70,6 +99,13 @@ export interface CrmFieldInput {
   name: string;
   type?: CrmFieldType | string | null;
   options?: readonly string[] | null;
+  /** 'copilot' for a column added in Copilot (see CrmField.origin). */
+  origin?: 'copilot' | null;
+}
+
+/** A column someone added in Copilot, which no import takes over by its label. */
+export function isCopilotField(field: Pick<CrmField, 'origin'>): boolean {
+  return field.origin === 'copilot';
 }
 
 function cleanOptions(options: readonly string[] | null | undefined): string[] {
@@ -105,6 +141,7 @@ export function normalizeCrmFields(input: readonly CrmFieldInput[]): CrmField[] 
     }
     const field: CrmField = { key, name: name.slice(0, 200), type };
     if (CRM_OPTION_FIELD_TYPES.has(type)) field.options = cleanOptions(raw.options);
+    if (raw.origin === 'copilot') field.origin = 'copilot';
     out.push(field);
   }
   return out;
@@ -119,14 +156,25 @@ export function normalizeCrmFields(input: readonly CrmFieldInput[]): CrmField[] 
  * their existing order. Unmatched incoming fields are appended; existing
  * fields the import does not mention are kept. Callers key entry values by the
  * merged list's keys, not by the keys they sent.
+ *
+ * A column added in Copilot is never matched (`keepCopilotColumns`, the
+ * default, for a list that came from Affinity): an Affinity column that
+ * happens to share its name or key becomes a column of its own rather than
+ * taking over the team's column and its values. A list made in Copilot has
+ * only such columns, and an import someone points at it means to fill them.
  */
-export function mergeCrmFields(existing: readonly CrmField[], incoming: readonly CrmField[]) {
+export function mergeCrmFields(
+  existing: readonly CrmField[],
+  incoming: readonly CrmField[],
+  options: { keepCopilotColumns?: boolean } = {},
+) {
   const out = existing.map((f) => ({ ...f, options: f.options ? [...f.options] : undefined }));
   const taken = new Set(out.map((f) => f.key));
+  const open = (f: CrmField) => !(options.keepCopilotColumns ?? true) || !isCopilotField(f);
   for (const field of incoming) {
     const match =
-      out.find((f) => f.key === field.key) ??
-      out.find((f) => f.name.toLowerCase() === field.name.toLowerCase());
+      out.find((f) => open(f) && f.key === field.key) ??
+      out.find((f) => open(f) && f.name.toLowerCase() === field.name.toLowerCase());
     if (match) {
       match.name = field.name;
       match.type = field.type;
