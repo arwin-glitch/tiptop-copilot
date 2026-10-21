@@ -1,5 +1,12 @@
+import 'server-only';
 import type { DataStore } from '@/lib/db/store';
-import type { Integration, OrganizationMember, OrgRole, UserProfile } from '@/lib/types/domain';
+import type {
+  Integration,
+  IntegrationStatus,
+  OrganizationMember,
+  OrgRole,
+  UserProfile,
+} from '@/lib/types/domain';
 
 /**
  * Whose work is this organization's work: the PRINCIPAL.
@@ -12,15 +19,19 @@ import type { Integration, OrganizationMember, OrgRole, UserProfile } from '@/li
  * Nobody is named in code; the answer comes from the data:
  *
  *   (a) the member whose profile (sign-in) address is the address of the
- *       organization's mailbox: the oldest connected Google integration that
- *       reads Gmail;
+ *       organization's mailbox: the oldest Google integration that reads
+ *       Gmail, a connected one first, then one that needs reconnecting, then
+ *       a disconnected one;
  *   (b) else the member who connected that mailbox, while still a member;
  *   (c) else the member with the `owner` role;
  *   (d) else the first member.
  *
  * Members are taken oldest membership first, then by user id, so the answer
  * never depends on the order a store returns rows in. Addresses compare
- * without case or surrounding spaces. The backfill for tasks already filed
+ * without case or surrounding spaces. A mailbox whose Google grant lapsed
+ * (`needs_reauth`, `error`) or was disconnected is still that person's
+ * mailbox: the routines go on reading their mail, so their tasks must not
+ * fall back to the owner until someone reconnects it. The backfill for tasks already filed
  * under the owner (supabase/migrations/20261021002000_tasks_to_principal.sql)
  * applies the same rule in SQL.
  */
@@ -77,19 +88,29 @@ export function inTeamOrder<T extends Pick<TeamMember, 'userId' | 'createdAt'>>(
   );
 }
 
-/** The organization's mailbox: the oldest connected Google integration that reads Gmail. */
+/** Connected first, then a grant that needs renewing, then a disconnected mailbox. */
+const MAILBOX_STATUS_RANK: Record<IntegrationStatus, number> = {
+  connected: 0,
+  needs_reauth: 1,
+  error: 1,
+  disconnected: 2,
+};
+
+/**
+ * The organization's mailbox: the oldest Google integration that reads
+ * Gmail, a connected one before one that needs reconnecting, before a
+ * disconnected one.
+ */
 export function principalMailbox(integrations: readonly MailboxRow[]): MailboxRow | null {
-  const connected = integrations.filter(
-    (row) => row.provider === 'google' && row.status === 'connected' && row.kinds.includes('gmail'),
+  const rank = (row: MailboxRow) => MAILBOX_STATUS_RANK[row.status] ?? 1;
+  const oldest = byTime<MailboxRow>(
+    (row) => row.created_at,
+    (row) => row.id,
   );
-  return (
-    connected.sort(
-      byTime(
-        (row) => row.created_at,
-        (row) => row.id,
-      ),
-    )[0] ?? null
+  const gmail = integrations.filter(
+    (row) => row.provider === 'google' && (row.kinds ?? []).includes('gmail'),
   );
+  return gmail.sort((a, b) => rank(a) - rank(b) || oldest(a, b))[0] ?? null;
 }
 
 /**

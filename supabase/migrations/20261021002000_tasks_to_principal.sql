@@ -12,8 +12,9 @@
 --
 -- The principal of each organization, by the app's rule:
 --   (a) the member whose sign-in address (auth.users, or their profile) is
---       the address of the organization's mailbox: the oldest connected
---       Google integration that reads Gmail;
+--       the address of the organization's mailbox: the oldest Google
+--       integration that reads Gmail, a connected one first, then one that
+--       needs reconnecting, then a disconnected one;
 --   (b) else the member who connected that mailbox;
 --   (c) else the oldest owner-role member (and then nothing moves).
 --
@@ -50,8 +51,9 @@
 --     from public.integrations i
 --    where i.provider = 'google'
 --      and 'gmail' = any (i.kinds)
---      and i.status = 'connected'
---    order by i.organization_id, i.created_at, i.id
+--    order by i.organization_id,
+--             case i.status when 'connected' then 0 when 'disconnected' then 2 else 1 end,
+--             i.created_at, i.id
 -- ),
 -- by_address as (
 --   select distinct on (m.organization_id) m.organization_id, m.user_id
@@ -138,8 +140,9 @@ with mailbox as (
     from public.integrations i
    where i.provider = 'google'
      and 'gmail' = any (i.kinds)
-     and i.status = 'connected'
-   order by i.organization_id, i.created_at, i.id
+   order by i.organization_id,
+            case i.status when 'connected' then 0 when 'disconnected' then 2 else 1 end,
+            i.created_at, i.id
 ),
 by_address as (
   select distinct on (m.organization_id) m.organization_id, m.user_id

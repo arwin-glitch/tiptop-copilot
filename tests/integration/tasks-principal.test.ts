@@ -83,6 +83,17 @@ describe('tasks the code files by default', () => {
     });
   });
 
+  it('still goes to the principal while their mailbox needs reconnecting', async () => {
+    // Google's grant lapses by itself (the sync marks it needs_reauth); the
+    // routines go on reading the same person's mail meanwhile.
+    for (const status of ['needs_reauth', 'disconnected'] as const) {
+      await harness.store.update('integrations', org, DEMO_IDS.integrationGoogle, { status });
+      const title = `ZZ Send Kit the deck (${status})`;
+      await ingestTasks(harness.store, org, { source: 'test-routine', tasks: [{ title }] });
+      expect((await taskByTitle(title)).assigned_to, status).toBe(PRINCIPAL);
+    }
+  });
+
   it('a follow-up the owner adds goes to the principal, made by the owner', async () => {
     const created = await createTask(assistant, { title: 'ZZ Book the LP dinner venue' });
     expect(created.ok && created.value).toMatchObject({
@@ -237,14 +248,15 @@ describe('the backfill for tasks already filed under the owner', () => {
 
   it('moves nothing when the principal is the owner, or there is no owner to move from', async () => {
     await oldTask('ZZ Follow up with Dana on the SAFE');
-    // No mailbox: the owner is the principal.
+    // No mailbox (the one Google connection reads only the calendar): the
+    // owner is the principal.
     await harness.store.update('integrations', org, DEMO_IDS.integrationGoogle, {
-      status: 'disconnected',
+      kinds: ['calendar'],
     });
     expect(await plan()).toEqual([]);
     // A mailbox again, but no one holds the owner role.
     await harness.store.update('integrations', org, DEMO_IDS.integrationGoogle, {
-      status: 'connected',
+      kinds: ['gmail', 'calendar'],
     });
     const team = await readTeam(harness.store, org);
     expect(team.principal?.userId).toBe(PRINCIPAL);

@@ -16,7 +16,8 @@ throughout.
   on Tasks "Everyone" and that person showed the same list and the mailbox
   person showed nothing. They now go to the mailbox person: the member whose
   sign-in address is the connected Gmail address (else whoever connected it,
-  else the owner). The person filter lists them first, a money or legal close
+  else the owner), and they keep going there while that mailbox needs
+  reconnecting. The person filter lists them first, a money or legal close
   asks for their confirmation by default, and a row only names who it is for
   when it is someone else (or "No one"). Handing a task to someone from its
   menu still works and always sticks. Tasks already filed the old way move

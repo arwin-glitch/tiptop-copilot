@@ -1880,14 +1880,19 @@ for the owner's confirmation first.
 
 - **One rule, in `lib/tasks/principal.ts`:** the principal is (a) the member
   whose profile address is the address of the organization's mailbox, the
-  oldest connected Google integration with the `gmail` kind; else (b) the
-  member who connected that mailbox; else (c) the `owner` role member; else
-  (d) the first member. Members are read oldest membership first, then by id,
-  so no store order decides; addresses compare without case or spaces. The
-  oldest mailbox, not the newest, so a second person connecting their own
-  mailbox later never moves everyone's tasks. One read of members and
-  profiles (the reads Tasks' people already made) and one of the Google
-  integrations.
+  oldest Google integration with the `gmail` kind, a connected one first,
+  then one that needs reconnecting (`needs_reauth`, `error`), then a
+  disconnected one; else (b) the member who connected that mailbox; else (c)
+  the `owner` role member; else (d) the first member. Members are read
+  oldest membership first, then by id, so no store order decides; addresses
+  compare without case or spaces. The oldest mailbox, not the newest, so a
+  second person connecting their own mailbox later never moves everyone's
+  tasks. A lapsed or disconnected mailbox still counts because Google's
+  grant lapses by itself (the sync marks it `needs_reauth`) while the
+  routines go on reading the same person's mail: dropping it would send
+  every new task back to the owner until someone reconnects. One read of
+  members and profiles (the reads Tasks' people already made) and one of the
+  Google integrations.
 - **Who a task is for (`assigned_to`) is the principal** for a routine's
   suggestion, a follow-up added with no one chosen (the add dialog has no
   picker; Ask's `create_task` too), a keep-in-touch check-in and a copied

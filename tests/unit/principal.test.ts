@@ -128,17 +128,34 @@ describe('principalMailbox', () => {
     expect(choosePrincipal(TEAM, [newer, older])?.userId).toBe(LEAD);
   });
 
-  it('skips a mailbox that is not connected or does not read Gmail', () => {
+  it('takes a connected mailbox first, then one that needs reconnecting, then a disconnected one', () => {
     const rows = [
-      mailbox({ id: 'b-broken', status: 'needs_reauth', created_at: '2026-01-01T00:00:00.000Z' }),
-      mailbox({ id: 'b-off', status: 'disconnected', created_at: '2026-02-01T00:00:00.000Z' }),
-      mailbox({ id: 'b-cal', kinds: ['calendar'], created_at: '2026-03-01T00:00:00.000Z' }),
+      mailbox({ id: 'b-off', status: 'disconnected', created_at: '2026-01-01T00:00:00.000Z' }),
+      mailbox({ id: 'b-broken', status: 'needs_reauth', created_at: '2026-02-01T00:00:00.000Z' }),
+      mailbox({ id: 'b-error', status: 'error', created_at: '2026-03-01T00:00:00.000Z' }),
       mailbox({ id: 'b-good', created_at: '2026-04-01T00:00:00.000Z' }),
     ];
     expect(principalMailbox(rows)?.id).toBe('b-good');
-    expect(principalMailbox(rows.slice(0, 3))).toBeNull();
-    // With no usable mailbox, the owner decides.
-    expect(choosePrincipal(TEAM, rows.slice(0, 3))).toEqual({ userId: OPS, basis: 'owner' });
+    expect(principalMailbox(rows.slice(0, 3))?.id).toBe('b-broken');
+    expect(principalMailbox(rows.slice(0, 1))?.id).toBe('b-off');
+  });
+
+  it('keeps the principal while their mailbox needs reconnecting or is disconnected', () => {
+    // Google's grant lapses on its own; the routines still read the same
+    // person's mail, so their tasks must not fall back to the owner.
+    for (const status of ['needs_reauth', 'error', 'disconnected'] as const) {
+      expect(choosePrincipal(TEAM, [mailbox({ status })]), status).toEqual({
+        userId: LEAD,
+        basis: 'mailbox_address',
+      });
+    }
+  });
+
+  it('skips an integration that does not read Gmail', () => {
+    const calendarOnly = [mailbox({ id: 'b-cal', kinds: ['calendar'] })];
+    expect(principalMailbox(calendarOnly)).toBeNull();
+    // With no mailbox, the owner decides.
+    expect(choosePrincipal(TEAM, calendarOnly)).toEqual({ userId: OPS, basis: 'owner' });
   });
 
   it('breaks a tie in connection time by id', () => {

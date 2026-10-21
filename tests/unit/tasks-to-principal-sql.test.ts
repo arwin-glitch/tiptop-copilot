@@ -84,9 +84,12 @@ describe('the default-owner backfill SQL', () => {
     const mailbox = cte(CODE, 'mailbox');
     expect(mailbox).toContain("i.provider = 'google'");
     expect(mailbox).toContain("'gmail' = any (i.kinds)");
-    expect(mailbox).toContain("i.status = 'connected'");
-    // The oldest connected mailbox, ties by id.
-    expect(mailbox).toContain('order by i.organization_id, i.created_at, i.id');
+    // A mailbox that needs reconnecting, or was disconnected, still counts,
+    // after a connected one: as principalMailbox ranks them.
+    expect(mailbox).not.toContain('i.status =');
+    expect(mailbox).toContain(
+      "order by i.organization_id, case i.status when 'connected' then 0 when 'disconnected' then 2 else 1 end, i.created_at, i.id",
+    );
     expect(mailbox).toContain('lower(btrim(i.account_email))');
     // Members in team order: oldest membership, then id.
     expect(cte(CODE, 'by_address')).toContain(
