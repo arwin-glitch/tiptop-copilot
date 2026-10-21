@@ -210,6 +210,7 @@ export function LiveInbox({
         return false;
       }
       const before = list.rows;
+      const linkedBefore = linked;
       // Optimistic, then put it back if Gmail refuses.
       if (action === 'archive' && inInboxView) {
         setList((cur) => ({ ...cur, rows: cur.rows.filter((r) => !ids.includes(r.id)) }));
@@ -224,6 +225,7 @@ export function LiveInbox({
       const res = await postJson('/api/inbox/modify', { ids, action });
       if (!res.ok) {
         setList((cur) => ({ ...cur, rows: before }));
+        setLinked(linkedBefore);
         toast.error(await errorMessage(res, 'Gmail did not take that. Try again.'));
         return false;
       }
@@ -242,7 +244,7 @@ export function LiveInbox({
       }
       return true;
     },
-    [canAct, inInboxView, list.rows, patchRows, selectedId],
+    [canAct, inInboxView, linked, list.rows, patchRows, selectedId],
   );
 
   const open = React.useCallback(
