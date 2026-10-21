@@ -34,8 +34,10 @@ export function toLinkedInUrl(raw: string | null | undefined): string | null {
   if (host !== 'linkedin.com' && !host.endsWith('.linkedin.com')) return null;
   if (url.pathname === '/' || !url.pathname) return null;
   url.protocol = 'https:';
-  // Parentheses would end the `[name](url)` form early.
-  return url.toString().replace(/\(/g, '%28').replace(/\)/g, '%29');
+  // Parentheses would end the `[name](url)` form early, and a quote or an
+  // over-long URL would keep it from being read back as a link at all.
+  const href = url.toString().replace(/\(/g, '%28').replace(/\)/g, '%29').replace(/'/g, '%27');
+  return href.length <= 500 ? href : null;
 }
 
 /** `[Full Name](url)`, or the plain name when there is no usable LinkedIn URL. */

@@ -151,12 +151,15 @@ export function Composer({
         // Plain text names the links; the HTML copy pastes into Gmail with them.
         const text = `${head}\n\n${textWithLinks(body)}`;
         if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
-          await navigator.clipboard.write([
-            new ClipboardItem({
-              'text/plain': new Blob([text], { type: 'text/plain' }),
-              'text/html': new Blob([copyHtml(head, body)], { type: 'text/html' }),
-            }),
-          ]);
+          // A browser that refuses the HTML copy still gets the plain one.
+          await navigator.clipboard
+            .write([
+              new ClipboardItem({
+                'text/plain': new Blob([text], { type: 'text/plain' }),
+                'text/html': new Blob([copyHtml(head, body)], { type: 'text/html' }),
+              }),
+            ])
+            .catch(() => navigator.clipboard.writeText(text));
         } else {
           await navigator.clipboard.writeText(text);
         }
