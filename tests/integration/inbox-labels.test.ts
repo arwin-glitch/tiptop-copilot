@@ -92,10 +92,10 @@ beforeEach(async () => {
   live = false;
   names = new Map([
     ['INBOX', 'INBOX'],
-    ['Label_11', '1: Reply today'],
-    ['Label_12', '2: This week'],
-    ['Label_13', '3: Waiting on them'],
-    ['Label_21', 'Portfolio'],
+    ['Label_7101', '1: Reply today'],
+    ['Label_7102', '2: This week'],
+    ['Label_7103', '3: Waiting on them'],
+    ['Label_7201', 'Portfolio'],
   ]);
   labelReads.length = 0;
   setThreadLabels.mockClear();
@@ -170,41 +170,52 @@ describe('labels against Gmail', () => {
   });
 
   it("checks the change against the mailbox's own labels and writes through setThreadLabels", async () => {
-    const res = await call({ ids: ['aaaa000000000001'], action: 'label', add: ['Label_21'] });
+    const res = await call({ ids: ['aaaa000000000001'], action: 'label', add: ['Label_7201'] });
     expect(res.status).toBe(200);
     expect(setThreadLabels).toHaveBeenCalledTimes(1);
     expect(setThreadLabels.mock.calls[0]).toEqual([
       harness.store,
       INTEGRATION,
       'aaaa000000000001',
-      { add: ['Label_21'], remove: [] },
+      { add: ['Label_7201'], remove: [] },
     ]);
   });
 
   it('makes a numbered label a move on every thread it touches', async () => {
     const ids = ['aaaa000000000001', 'aaaa000000000002'];
-    const res = await call({ ids, action: 'label', add: ['Label_12'] });
+    const res = await call({ ids, action: 'label', add: ['Label_7102'] });
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ done: 2, remove: ['Label_11', 'Label_13'] });
+    expect(await res.json()).toMatchObject({ done: 2, remove: ['Label_7101', 'Label_7103'] });
     for (const [i, id] of ids.entries()) {
       expect(setThreadLabels.mock.calls[i]?.slice(2)).toEqual([
         id,
-        { add: ['Label_12'], remove: ['Label_11', 'Label_13'] },
+        { add: ['Label_7102'], remove: ['Label_7101', 'Label_7103'] },
       ]);
     }
   });
 
+  it('moves within a numbered family bigger than one tap may name', async () => {
+    for (let n = 4; n <= 14; n++) names.set(`Label_75${n}`, `${n}: Extra`);
+    const res = await call({ ids: ['aaaa000000000001'], action: 'label', add: ['Label_7102'] });
+    expect(res.status).toBe(200);
+    const change = setThreadLabels.mock.calls[0]?.[3] as { add: string[]; remove: string[] };
+    expect(change.add).toEqual(['Label_7102']);
+    expect(change.remove).toHaveLength(13);
+    expect(change.remove).not.toContain('Label_7102');
+    expect(change.remove).not.toContain('Label_7201');
+  });
+
   it('reads the labels again once for a label made in Gmail a moment ago', async () => {
-    await call({ ids: ['aaaa000000000001'], action: 'label', add: ['Label_21'] });
+    await call({ ids: ['aaaa000000000001'], action: 'label', add: ['Label_7201'] });
     expect(labelReads).toHaveLength(1);
-    names.set('Label_31', 'Board');
-    const res = await call({ ids: ['aaaa000000000001'], action: 'label', add: ['Label_31'] });
+    names.set('Label_7301', 'Board');
+    const res = await call({ ids: ['aaaa000000000001'], action: 'label', add: ['Label_7301'] });
     expect(res.status).toBe(200);
     expect(labelReads).toHaveLength(2);
   });
 
   it('refuses a label that is still not in Gmail after a fresh read, writing nothing', async () => {
-    const res = await call({ ids: ['aaaa000000000001'], action: 'label', add: ['Label_99'] });
+    const res = await call({ ids: ['aaaa000000000001'], action: 'label', add: ['Label_7999'] });
     expect(res.status).toBe(400);
     expect(labelReads).toHaveLength(2);
     expect(setThreadLabels).not.toHaveBeenCalled();
@@ -219,7 +230,7 @@ describe('labels against Gmail', () => {
     const scopes = INTEGRATION.scopes;
     INTEGRATION.scopes = [];
     try {
-      const res = await call({ ids: ['aaaa000000000001'], action: 'label', add: ['Label_21'] });
+      const res = await call({ ids: ['aaaa000000000001'], action: 'label', add: ['Label_7201'] });
       expect(res.status).toBe(409);
       expect(setThreadLabels).not.toHaveBeenCalled();
     } finally {

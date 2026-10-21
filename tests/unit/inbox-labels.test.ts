@@ -13,11 +13,11 @@ import { userLabelIds } from '@/lib/services/inbox-live';
 
 /** Fictional labels: a numbered family and two plain ones. */
 const LABELS: MailLabel[] = [
-  { id: 'Label_11', name: '1: Reply today' },
-  { id: 'Label_12', name: '2: This week' },
-  { id: 'Label_13', name: '3: Waiting on them' },
-  { id: 'Label_21', name: 'Portfolio' },
-  { id: 'Label_22', name: '2025: taxes' },
+  { id: 'Label_7101', name: '1: Reply today' },
+  { id: 'Label_7102', name: '2: This week' },
+  { id: 'Label_7103', name: '3: Waiting on them' },
+  { id: 'Label_7201', name: 'Portfolio' },
+  { id: 'Label_7202', name: '2025: taxes' },
 ];
 
 describe('numbered labels', () => {
@@ -57,37 +57,37 @@ describe('labelChoices', () => {
 
 describe('planLabelChange', () => {
   it('puts a plain label on and takes it off as asked', () => {
-    expect(planLabelChange(LABELS, { add: ['Label_21'], remove: [] })).toEqual({
+    expect(planLabelChange(LABELS, { add: ['Label_7201'], remove: [] })).toEqual({
       ok: true,
-      add: ['Label_21'],
+      add: ['Label_7201'],
       remove: [],
     });
-    expect(planLabelChange(LABELS, { add: [], remove: ['Label_21'] })).toEqual({
+    expect(planLabelChange(LABELS, { add: [], remove: ['Label_7201'] })).toEqual({
       ok: true,
       add: [],
-      remove: ['Label_21'],
+      remove: ['Label_7201'],
     });
   });
 
   it('makes picking a numbered label a move out of the rest of the family', () => {
-    const plan = planLabelChange(LABELS, { add: ['Label_12'], remove: [] });
-    expect(plan).toEqual({ ok: true, add: ['Label_12'], remove: ['Label_11', 'Label_13'] });
+    const plan = planLabelChange(LABELS, { add: ['Label_7102'], remove: [] });
+    expect(plan).toEqual({ ok: true, add: ['Label_7102'], remove: ['Label_7101', 'Label_7103'] });
   });
 
   it('leaves a year label alone when moving between numbered ones', () => {
-    const plan = planLabelChange(LABELS, { add: ['Label_11'], remove: [] });
-    expect(plan.ok && plan.remove).not.toContain('Label_22');
+    const plan = planLabelChange(LABELS, { add: ['Label_7101'], remove: [] });
+    expect(plan.ok && plan.remove).not.toContain('Label_7202');
   });
 
   it('refuses two numbered labels at once and a numbered label taken off alone', () => {
-    const two = planLabelChange(LABELS, { add: ['Label_11', 'Label_12'], remove: [] });
+    const two = planLabelChange(LABELS, { add: ['Label_7101', 'Label_7102'], remove: [] });
     expect(two).toMatchObject({ ok: false, reason: 'conflict' });
-    const bare = planLabelChange(LABELS, { add: [], remove: ['Label_13'] });
+    const bare = planLabelChange(LABELS, { add: [], remove: ['Label_7103'] });
     expect(bare).toMatchObject({ ok: false, reason: 'conflict' });
     // Swapping explicitly is fine.
-    expect(planLabelChange(LABELS, { add: ['Label_12'], remove: ['Label_13'] })).toMatchObject({
+    expect(planLabelChange(LABELS, { add: ['Label_7102'], remove: ['Label_7103'] })).toMatchObject({
       ok: true,
-      remove: ['Label_13', 'Label_11'],
+      remove: ['Label_7103', 'Label_7101'],
     });
   });
 
@@ -104,7 +104,7 @@ describe('planLabelChange', () => {
       ok: false,
       reason: 'nothing',
     });
-    expect(planLabelChange(LABELS, { add: ['Label_21'], remove: ['Label_21'] })).toMatchObject({
+    expect(planLabelChange(LABELS, { add: ['Label_7201'], remove: ['Label_7201'] })).toMatchObject({
       ok: false,
       reason: 'conflict',
     });
@@ -113,13 +113,16 @@ describe('planLabelChange', () => {
 
 describe('applying a plan on screen', () => {
   it('swaps the numbered label and keeps the rest in order', () => {
-    const plan = { add: ['Label_12'], remove: ['Label_11', 'Label_13'] };
-    expect(applyLabelPlan(['Label_21', 'Label_11'], plan)).toEqual(['Label_21', 'Label_12']);
-    expect(applyLabelPlan(['Label_12'], plan)).toEqual(['Label_12']);
+    const plan = { add: ['Label_7102'], remove: ['Label_7101', 'Label_7103'] };
+    expect(applyLabelPlan(['Label_7201', 'Label_7101'], plan)).toEqual([
+      'Label_7201',
+      'Label_7102',
+    ]);
+    expect(applyLabelPlan(['Label_7102'], plan)).toEqual(['Label_7102']);
   });
 
   it('names labels for display and skips ones Gmail no longer has', () => {
-    expect(labelNamesFor(['Label_12', 'Label_404', 'Label_21'], LABELS)).toEqual([
+    expect(labelNamesFor(['Label_7102', 'Label_404', 'Label_7201'], LABELS)).toEqual([
       '2: This week',
       'Portfolio',
     ]);

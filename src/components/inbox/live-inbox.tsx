@@ -139,6 +139,10 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
   React.useEffect(() => {
     view.current = { tab, q: searched };
   }, [tab, searched]);
+  // The first page came with the page itself: a quick tab switch is not stale.
+  React.useEffect(() => {
+    lastLoad.current = Date.now();
+  }, []);
   const { canAct, canLabel, mailbox, labelChoices } = list;
 
   const load = React.useCallback(
@@ -204,15 +208,19 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
     [],
   );
 
-  /** Hold a change made here over the lists Gmail answers for a while. */
+  /**
+   * Hold a change made here over the lists Gmail answers for a while.
+   * `removedFrom` left out keeps the view a thread left; null clears it (the
+   * thread is back in the inbox).
+   */
   const hold = React.useCallback(
-    (ids: string[], patch: Partial<LiveThreadRow>, removedFrom?: string) => {
+    (ids: string[], patch: Partial<LiveThreadRow>, removedFrom?: string | null) => {
       const until = Date.now() + PENDING_MS;
       for (const id of ids) {
         const prev = pending.current.get(id);
         pending.current.set(id, {
           patch: { ...prev?.patch, ...patch },
-          removedFrom: removedFrom ?? prev?.removedFrom,
+          removedFrom: removedFrom === undefined ? prev?.removedFrom : (removedFrom ?? undefined),
           until,
         });
       }
@@ -285,7 +293,8 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
         hold(ids, patch, viewKey(view.current));
       } else {
         patchRows(ids, patch);
-        hold(ids, patch);
+        // Moved back to the inbox: an archive held from before no longer hides it there.
+        hold(ids, patch, action === 'inbox' ? null : undefined);
       }
       setChecked(new Set());
 
@@ -305,7 +314,7 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
               void postJson('/api/inbox/modify', { ids, action: 'inbox' }).then((r) => {
                 if (r.ok) {
                   release(ids);
-                  hold(ids, { inInbox: true });
+                  hold(ids, { inInbox: true }, null);
                   setList((cur) => ({ ...cur, rows: before }));
                   settle();
                 } else toast.error('Could not move it back. Find it in All Mail in Gmail.');
@@ -343,11 +352,14 @@ export function LiveInbox({ initial }: { initial: LiveThreadList }) {
         rows: cur.rows.map((r) => (ids.includes(r.id) ? { ...r, ...relabel(r) } : r)),
       }));
 
+      // The route gets what was tapped, not the plan: it plans again against
+      // Gmail's own label list, and a numbered family's full removal list
+      // could pass the per-change cap the route holds a tap to.
       const res = await postJson('/api/inbox/modify', {
         ids,
         action: 'label',
-        add: plan.add,
-        remove: plan.remove,
+        add: change.add,
+        remove: change.remove,
       });
       if (!res.ok) {
         release(ids);

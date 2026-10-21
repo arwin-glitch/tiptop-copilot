@@ -50,7 +50,14 @@ test('Inbox labels a thread, moves it between numbered labels and keeps the chan
     'aria-pressed',
     'true',
   );
+  const move = page.waitForRequest(
+    (r) => r.url().endsWith('/api/inbox/modify') && r.method() === 'POST',
+  );
   await menu.getByRole('button', { name: '2: This week' }).click();
+  // The route plans the move: the tap sends only the label picked.
+  const sent = (await move).postDataJSON() as { action: string; add: string[]; remove: string[] };
+  expect(sent).toMatchObject({ action: 'label', remove: [] });
+  expect(sent.add).toHaveLength(1);
   await expect(first.getByText('2: This week')).toBeVisible();
   await expect(first.getByText('1: Reply today')).toHaveCount(0);
   await page.screenshot({ path: 'test-results/inbox-labels.png' });
