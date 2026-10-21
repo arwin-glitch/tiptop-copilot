@@ -361,7 +361,7 @@ export function buildDemoDb(now: Date = new Date()): DemoDb {
 
   // As in a real team, the person whose mailbox the app reads is not the one
   // who set the organization up: the teammate is the first owner, listed
-  // first, the member code that looks for "the owner" finds. The demo user
+  // first, so code that looks for "the owner" finds them. The demo user
   // keeps the owner role too, so the owner-only pages stay usable in the
   // demo, but the organization's work is theirs: they are the principal
   // (lib/tasks/principal.ts), by the mailbox address.

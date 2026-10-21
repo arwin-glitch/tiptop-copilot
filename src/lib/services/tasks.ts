@@ -35,8 +35,8 @@ export interface CreateTaskInput {
 }
 
 /**
- * A follow-up added by a person, or by the chat assistant for one. It goes to the
- * organization's principal (lib/tasks/principal.ts), whose work the
+ * A follow-up added by a person, or by the chat assistant for one. It goes
+ * to the organization's principal (lib/tasks/principal.ts), whose work the
  * organization's tasks are, whoever added it: the add dialog has no person
  * to choose, and the row's menu hands it to someone else.
  */
