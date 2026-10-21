@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DemoCampaignSender } from '@/lib/campaigns/demo-sender';
 import { MAX_ATTACHMENT_BYTES } from '@/lib/campaigns/limits';
+import type { OutgoingCampaignEmail } from '@/lib/campaigns/sender-types';
 import { trackingUrls } from '@/lib/campaigns/tokens';
 import type { DataStore } from '@/lib/db/store';
 import { LocalStorageProvider } from '@/lib/storage/provider';
@@ -32,6 +33,7 @@ import {
   type BatchDeps,
 } from '@/lib/services/campaigns';
 import type { Campaign, CampaignRecipient, EmailMessage, EmailThread } from '@/lib/types/domain';
+import { err, type ErrorCode } from '@/lib/util/result';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
 import { masterComposeCampaignEmail } from '../helpers/master-campaign-email';
 
@@ -69,6 +71,29 @@ const PEOPLE =
 
 function deps(sender: DemoCampaignSender, extra: Partial<BatchDeps> = {}): BatchDeps {
   return { sender, storage, appUrl: APP_URL, sleep: async () => {}, intervalMs: 0, ...extra };
+}
+
+/**
+ * The demo sender (it sends nothing), except that the first email to each
+ * listed address comes back with the given error, as Gmail's send path would
+ * answer. Keeps every attempt, failed or not, in `attempts`.
+ */
+class ScriptedSender extends DemoCampaignSender {
+  readonly attempts: OutgoingCampaignEmail[] = [];
+
+  constructor(private readonly failFirst: Map<string, { code: ErrorCode; message: string }>) {
+    super();
+  }
+
+  override async send(email: OutgoingCampaignEmail) {
+    this.attempts.push(email);
+    for (const [address, failure] of this.failFirst) {
+      if (!email.to.toLowerCase().includes(`<${address}>`)) continue;
+      this.failFirst.delete(address);
+      return err(failure.code, failure.message);
+    }
+    return super.send(email);
+  }
 }
 
 function must<T>(result: { ok: true; value: T } | { ok: false; error: { message: string } }): T {
@@ -609,8 +634,9 @@ describe('sending with photos and copies', () => {
     expect(sender.sent.map((e) => 'bcc' in e)).toEqual([true, false, false]);
   });
 
-  it('a refused first email gives the sample back for the next one to carry', async () => {
-    const campaign = await draft(`First Try <first@fail.example>\n${PEOPLE}`);
+  /** A first-only BCC campaign whose first email is to first@try.example, then Jane, Sam and Wei. */
+  async function firstOnlyWithFirstTry() {
+    const campaign = await draft(`First Try <first@try.example>\n${PEOPLE}`);
     must(
       await updateCampaignCopies(harness.store, org, campaign.id, {
         bcc: 'archive@fund.example',
@@ -618,11 +644,71 @@ describe('sending with photos and copies', () => {
       }),
     );
     await confirm(campaign.id);
-    const sender = new DemoCampaignSender();
-    must(await sendBatch(harness.store, org, campaign.id, deps(sender)));
-    expect((await byEmail(campaign.id, 'first@fail.example')).status).toBe('failed');
-    expect(sender.sent.map((e) => e.bcc ?? null)).toEqual([['archive@fund.example'], null, null]);
-  });
+    return campaign;
+  }
+  const sampleAt = async (campaignId: string) =>
+    (await harness.store.get('campaigns', org, campaignId))?.bcc_sample_at ?? null;
+  const carriers = (sender: ScriptedSender) =>
+    sender.attempts.filter((e) => e.bcc?.length).map((e) => e.to);
+
+  for (const [what, code, message] of [
+    [
+      'Gmail answered with a server error',
+      'provider_unavailable',
+      'Gmail is unavailable right now. Try again.',
+    ],
+    ['the connection dropped mid-request', 'provider_unavailable', 'Could not reach Gmail.'],
+    ['the request timed out', 'timeout', 'Gmail took too long to answer.'],
+  ] as const) {
+    it(`when ${what}, the email may have gone, so the sample stays used: no later email, nor its retry, carries a second`, async () => {
+      const campaign = await firstOnlyWithFirstTry();
+      const sender = new ScriptedSender(new Map([['first@try.example', { code, message }]]));
+      must(await sendBatch(harness.store, org, campaign.id, deps(sender)));
+      expect(await byEmail(campaign.id, 'first@try.example')).toMatchObject({
+        status: 'failed',
+        error: message,
+      });
+      const claimed = await sampleAt(campaign.id);
+      expect(claimed).toBeTruthy();
+      expect(carriers(sender)).toEqual(['"First Try" <first@try.example>']);
+      expect(sender.sent.map((e) => 'bcc' in e)).toEqual([false, false, false]);
+
+      // Retrying the failed one sends it again, without the sample.
+      must(await controlCampaign(harness.store, org, campaign.id, actor(), 'retry_failed'));
+      must(await sendBatch(harness.store, org, campaign.id, deps(sender)));
+      expect((await byEmail(campaign.id, 'first@try.example')).status).toBe('sent');
+      expect(sender.attempts).toHaveLength(5);
+      expect('bcc' in (sender.attempts[4] as OutgoingCampaignEmail)).toBe(false);
+      expect(carriers(sender)).toHaveLength(1);
+      expect(await sampleAt(campaign.id)).toBe(claimed);
+    });
+  }
+
+  for (const [code, message] of [
+    ['provider_unauthorized', 'Gmail refused. Sending may need to be turned on again.'],
+    ['forbidden', 'Sending is not turned on for this mailbox.'],
+  ] as const) {
+    it(`a refusal that certainly sent nothing (${code}) gives the sample back for the next email`, async () => {
+      const campaign = await firstOnlyWithFirstTry();
+      const sender = new ScriptedSender(new Map([['first@try.example', { code, message }]]));
+      const first = must(await sendBatch(harness.store, org, campaign.id, deps(sender)));
+      expect(first).toMatchObject({ state: 'paused', pauseReason: 'refused' });
+      expect(await sampleAt(campaign.id)).toBeNull();
+      expect(sender.sent).toHaveLength(0);
+
+      must(await controlCampaign(harness.store, org, campaign.id, actor(), 'resume'));
+      must(await sendBatch(harness.store, org, campaign.id, deps(sender)));
+      expect(sender.sent.map((e) => e.bcc ?? null)).toEqual([['archive@fund.example'], null, null]);
+      expect(await sampleAt(campaign.id)).toBeTruthy();
+      must(await controlCampaign(harness.store, org, campaign.id, actor(), 'retry_failed'));
+      must(await sendBatch(harness.store, org, campaign.id, deps(sender)));
+      expect((await byEmail(campaign.id, 'first@try.example')).status).toBe('sent');
+      // The refused attempt carried it but went nowhere; Jane's is the one sample sent.
+      expect(sender.sent.filter((e) => e.bcc?.length).map((e) => e.to)).toEqual([
+        '"Jane Doe" <jane@acme.example>',
+      ]);
+    });
+  }
 
   it('a photo that cannot be read fails that email with a reason, and the rest still go', async () => {
     const campaign = await draft();

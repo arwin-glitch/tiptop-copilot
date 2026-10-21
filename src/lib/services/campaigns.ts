@@ -93,7 +93,7 @@ import type {
 } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
-import { err, ok, type Result } from '@/lib/util/result';
+import { err, ok, type ErrorCode, type Result } from '@/lib/util/result';
 import { corporateEmailDomain, htmlToPlainText } from '@/lib/util/text';
 
 /**
@@ -2628,6 +2628,17 @@ export interface BatchProgress {
 }
 
 /**
+ * Gmail certainly did not send: it refused the request outright (no send
+ * grant, or the grant was taken back), before any email could go. The send
+ * loop pauses the campaign on it, and gives back a first-only BCC sample
+ * claimed for that email. Any other error (Gmail unavailable, a dropped
+ * connection) may have come after the email went.
+ */
+function gmailRefused(code: ErrorCode): boolean {
+  return code === 'provider_unauthorized' || code === 'forbidden';
+}
+
+/**
  * The send times the 24-hour cap counts: one per email, plus one more per
  * CC or BCC address it went to (copy_count), since Gmail counts each of
  * those as a recipient too. An email that copied nobody counts once, as it
@@ -3058,8 +3069,9 @@ export async function sendBatch(
         capBudget -= cost;
         // The BCC: on every email, or, first-only, on this one if it can
         // claim the sample (bcc_sample_at from empty to a time, once). The
-        // claim stands once the email may have gone; only a refusal from
-        // Gmail gives it back, for the next email to carry.
+        // claim stands once the email may have gone; only a refusal that
+        // certainly sent nothing (gmailRefused) gives it back, for the next
+        // email to carry.
         let bcc: string[] = [];
         let sampleClaim: string | null = null;
         if (copySettings && copies.bcc.length) {
@@ -3099,7 +3111,11 @@ export async function sendBatch(
           continue;
         }
 
-        if (sampleClaim) {
+        const refused = gmailRefused(result.error.code);
+        // Anything short of a refusal (Gmail unavailable, a dropped
+        // connection) may have come after the email went, sample and all, so
+        // the sample stays used and no later email can carry a second one.
+        if (sampleClaim && refused) {
           await store.updateWhere(
             'campaigns',
             organizationId,
@@ -3113,8 +3129,6 @@ export async function sendBatch(
           status: 'failed',
           error: result.error.message.slice(0, 500),
         });
-        const refused =
-          result.error.code === 'provider_unauthorized' || result.error.code === 'forbidden';
         if (refused || failuresInARow >= MAX_CONSECUTIVE_FAILURES) {
           await pauseFor(refused ? 'refused' : 'failures');
           message = refused
