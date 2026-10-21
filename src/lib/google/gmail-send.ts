@@ -1,4 +1,5 @@
 import 'server-only';
+import { isEmail } from '@/lib/campaigns/recipients';
 import type { DataStore } from '@/lib/db/store';
 import { getAccessToken } from '@/lib/google/oauth';
 import { log } from '@/lib/security/redact';
@@ -584,11 +585,35 @@ export function encodeAddressHeader(value: string): string {
 }
 
 /**
+ * Addresses for a Cc or Bcc header: bare addresses that pass the campaign
+ * address check, which already rules out spaces, commas, quotes and angle
+ * brackets, so nothing can split the header or smuggle in another one.
+ * Anything else is dropped rather than sent.
+ */
+function copyHeaderValue(addresses: readonly string[] | undefined): string {
+  const safe = (addresses ?? [])
+    .map((a) => a.replace(/[\r\n]+/g, '').trim())
+    .filter((a) => isEmail(a));
+  return [...new Set(safe)].join(', ');
+}
+
+/**
  * One campaign email as RFC 2822: plain and HTML alternatives (the HTML
  * already carries the signature and, when the campaign tracks, the pixel and
  * tracked links), attachments, and, only when the campaign has its
  * unsubscribe link switched on, the List-Unsubscribe headers mail providers
  * show as their own unsubscribe button. Exported for tests.
+ *
+ * Cc and Bcc appear only when the campaign copies someone; with none, there
+ * is no Cc or Bcc line at all and the message is byte for byte what it was
+ * before copies existed. The Bcc line is the only place a blind copy is
+ * named: Gmail's messages.send reads To, Cc and Bcc from the raw message to
+ * decide who it is delivered to, and is expected to strip the Bcc header
+ * from the copies it delivers (keeping it only on the sender's Sent copy).
+ * That stripping is Gmail's behaviour, not ours, and must be verified with an
+ * owned-inbox test (send to an inbox you control, BCC another you control,
+ * and check the To copy's raw headers show no Bcc) before a real campaign
+ * uses BCC.
  */
 export function buildCampaignMime(input: {
   from: string;
@@ -598,6 +623,8 @@ export function buildCampaignMime(input: {
   text: string;
   attachments?: MimeAttachment[];
   listUnsubscribe?: string | null;
+  cc?: readonly string[];
+  bcc?: readonly string[];
 }): string {
   const stamp = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
   const alt = `a_${stamp}`;
@@ -605,6 +632,8 @@ export function buildCampaignMime(input: {
   const clean = (v: string) => v.replace(/[\r\n]+/g, ' ').trim();
   const quoted = (v: string) => v.replace(/[\r\n"]+/g, ' ').trim();
   const wrap = (data: Buffer) => (data.toString('base64').match(/.{1,76}/g) ?? []).join('\r\n');
+  const cc = copyHeaderValue(input.cc);
+  const bcc = copyHeaderValue(input.bcc);
   const alternative = [
     `--${alt}`,
     'Content-Type: text/plain; charset="UTF-8"',
@@ -621,6 +650,8 @@ export function buildCampaignMime(input: {
   const headers = [
     `From: ${clean(input.from)}`,
     `To: ${clean(input.to)}`,
+    cc ? `Cc: ${cc}` : '',
+    bcc ? `Bcc: ${bcc}` : '',
     `Subject: ${encodeHeaderValue(input.subject)}`,
     input.listUnsubscribe ? `List-Unsubscribe: <${clean(input.listUnsubscribe)}>` : '',
     input.listUnsubscribe ? 'List-Unsubscribe-Post: List-Unsubscribe=One-Click' : '',
@@ -658,9 +689,11 @@ export function buildCampaignMime(input: {
 }
 
 /**
- * Send one campaign email to one recipient from the connected mailbox.
- * Called only by a campaign batch that a person confirmed and is driving from
- * their open page, or by "Send test to me". Refuses without the send grant.
+ * Send one campaign email to one recipient from the connected mailbox (plus
+ * whoever the campaign copies, when it copies anyone). Called only by a
+ * campaign batch that a person confirmed and is driving from their open page,
+ * or by "Send test to me", which never copies anyone. Refuses without the
+ * send grant.
  */
 export async function sendCampaignEmail(
   store: DataStore,
@@ -672,6 +705,8 @@ export async function sendCampaignEmail(
     text: string;
     attachments?: MimeAttachment[];
     listUnsubscribe?: string | null;
+    cc?: readonly string[];
+    bcc?: readonly string[];
   },
 ): Promise<Result<{ messageId: string; threadId: string }>> {
   if (!canSend(integration)) return err('forbidden', 'Sending is not turned on for this mailbox.');

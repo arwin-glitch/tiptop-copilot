@@ -80,6 +80,7 @@ Open **SQL Editor** in the dashboard and run each file's contents in order:
 20261016020000_mcp_tokens.sql
 20261017000000_desktop_handoffs.sql
 20261021000300_crm_writes.sql
+20261021001100_campaign_photos_cc.sql
 ```
 
 Order matters — later files reference objects created earlier. Every statement is
@@ -100,12 +101,15 @@ What they create:
 
 Each later file adds one feature's tables or columns, and opens with a comment
 saying what it adds and what the app does until it is applied. The newest,
-`20261017000000_desktop_handoffs.sql`, holds the desktop app's sign-in
-hand-offs; until it is applied, Sign in inside the desktop app says it is not
-available, and nothing else changes. `20261021000300_crm_writes.sql` keeps
-rows taken off a CRM list from coming back with the daily Affinity sync;
-until it is applied, "Remove from list" says to run it and removes nothing,
-and everything else in the CRM works.
+`20261021001100_campaign_photos_cc.sql`, adds per-recipient photos and CC /
+BCC to campaigns (the `campaign_photos` table and a few columns); until it is
+applied those stay hidden and campaigns send exactly as before. Before it,
+`20261021000300_crm_writes.sql` keeps rows taken off a CRM list from coming
+back with the daily Affinity sync; until it is applied, "Remove from list"
+says to run it and removes nothing, and everything else in the CRM works.
+And before that, `20261017000000_desktop_handoffs.sql` holds the desktop
+app's sign-in hand-offs; until it is applied, Sign in inside the desktop app
+says it is not available, and nothing else changes.
 
 ---
 

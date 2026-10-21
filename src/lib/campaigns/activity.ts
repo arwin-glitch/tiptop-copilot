@@ -85,3 +85,76 @@ export function isAutoReply(
   if (!sentAt) return false;
   return Date.parse(message.sent_at) - Date.parse(sentAt) <= AUTO_REPLY_WINDOW_MS;
 }
+
+/* Bounces. */
+
+/**
+ * A delivery report's own fields naming who could not be reached: RFC 3464's
+ * Final-Recipient and Original-Recipient (`rfc822; jane@acme.example`), and
+ * the X-Failed-Recipients line some servers add.
+ */
+const DSN_RECIPIENT_LINE =
+  /^[ \t>]*(?:final-recipient|original-recipient|x-failed-recipients)[ \t]*:(.*)$/gim;
+
+/** Where a bounce starts quoting the message it returns (Gmail, Exim, Postfix, Exchange). */
+const QUOTED_ORIGINAL =
+  /^[ \t>]*(?:-{2,}[ \t]*(?:original message|forwarded message|below this line is a copy of the message|this is a copy of the message)|original message headers[ \t]*:)/im;
+
+/**
+ * A header line of the returned message (To:, Cc: and the rest). It names
+ * that message's addressees, the recipient among them, whichever address
+ * actually bounced, so it says nothing about who bounced.
+ */
+const HEADER_LINE =
+  /^[ \t>]*(?:to|cc|bcc|from|reply-to|sender|delivered-to|return-path|received|subject|date|message-id|dkim-signature|arc-[\w-]+|x-[\w-]+)[ \t]*:.*$/gim;
+
+/** What may stand just before an address: anything an address cannot contain. */
+const BEFORE_ADDRESS = /[\s<>()[\]\\,;:"'`]/;
+/** What would carry an address on past its end: more of its domain. */
+const MORE_DOMAIN = /^\.?[a-z0-9-]/;
+
+/** Gmail's snippet escapes HTML: `&lt;jane@acme.example&gt;`. */
+const unescape = (text: string) =>
+  text
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;|&#x27;/gi, "'")
+    .replace(/&amp;/gi, '&');
+
+/** The exact address in the text, standing alone: not part of a longer one (ana@ in diana@). */
+function mentions(text: string, email: string): boolean {
+  const hay = text.toLowerCase();
+  for (let at = hay.indexOf(email); at >= 0; at = hay.indexOf(email, at + 1)) {
+    const before = at > 0 ? (hay[at - 1] as string) : ' ';
+    if (!BEFORE_ADDRESS.test(before)) continue;
+    if (MORE_DOMAIN.test(hay.slice(at + email.length, at + email.length + 2))) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a bounce names this exact address (any case) as one that could not
+ * be reached. A delivery report's own fields decide when it has them, since
+ * they are exact. Otherwise the bounce's own words do, up to where it starts
+ * quoting the returned message, leaving out header lines. Reads the snippet
+ * and, once fetched, the body. A bounce that names nobody it can be sure of
+ * names nobody.
+ */
+export function bounceNames(
+  message: { snippet: string | null; body_text: string | null },
+  email: string,
+): boolean {
+  const target = email.trim().toLowerCase();
+  if (!target.includes('@')) return false;
+  const texts = [message.snippet ?? '', message.body_text ?? ''].map(unescape);
+  const fields = texts.flatMap((text) =>
+    [...text.matchAll(DSN_RECIPIENT_LINE)].map((line) => line[1] ?? ''),
+  );
+  if (fields.length) return fields.some((field) => mentions(field, target));
+  return texts.some((text) => {
+    const cut = text.search(QUOTED_ORIGINAL);
+    return mentions((cut >= 0 ? text.slice(0, cut) : text).replace(HEADER_LINE, ''), target);
+  });
+}

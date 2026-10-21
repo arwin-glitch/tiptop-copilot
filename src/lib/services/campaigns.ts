@@ -1,10 +1,20 @@
 import 'server-only';
 import {
   CLICK_BURST_MS,
+  bounceNames,
   isAutoReply,
   isAutomatedAgent,
   withinScanWindow,
 } from '@/lib/campaigns/activity';
+import {
+  NO_COPIES,
+  cleanBccMode,
+  cleanCopyList,
+  copiesFor,
+  copyCount,
+  parseCopyAddresses,
+  type EmailCopies,
+} from '@/lib/campaigns/copies';
 import {
   BATCH_BUDGET_MS,
   BATCH_MAX,
@@ -30,6 +40,18 @@ import {
   type MergeValues,
   type MissingPerson,
 } from '@/lib/campaigns/missing-fields';
+import { checkExtras, type ExtrasCheck, type ManifestPhoto } from '@/lib/campaigns/manifest';
+import {
+  MAX_PHOTOS,
+  MAX_PHOTO_BYTES,
+  PHOTO_MIME,
+  isPhotoName,
+  isPhotoType,
+  photoMatcher,
+  sniffPhoto,
+  type CampaignPhotoView,
+  type PhotoUploadOutcome,
+} from '@/lib/campaigns/photos';
 import { isEmail, normalizeEmail, parsePastedRecipients } from '@/lib/campaigns/recipients';
 import type { CampaignSender, OutgoingCampaignEmail } from '@/lib/campaigns/sender-types';
 import {
@@ -66,18 +88,20 @@ import type { StorageProvider } from '@/lib/storage/provider';
 import type {
   Campaign,
   CampaignAttachment,
+  CampaignBccMode,
   CampaignEvent,
   CampaignEventKind,
   CampaignFromIdentity,
   CampaignMerge,
   CampaignPauseReason,
+  CampaignPhoto,
   CampaignRecipient,
   CampaignStatus,
   CrmRecord,
 } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
-import { err, ok, type Result } from '@/lib/util/result';
+import { err, ok, type ErrorCode, type Result } from '@/lib/util/result';
 import { corporateEmailDomain, htmlToPlainText } from '@/lib/util/text';
 import { DEFAULT_TIMEZONE, formatDate } from '@/lib/util/time';
 
@@ -115,6 +139,11 @@ import { DEFAULT_TIMEZONE, formatDate } from '@/lib/util/time';
  *     unless a person says so.
  *   - Unsubscribed addresses are left out when added and checked again just
  *     before each batch.
+ *
+ * Photos and copies (a photo per recipient, CC and BCC) are optional and off
+ * by default; see "photos and copies" below. A campaign that uses neither
+ * reviews, confirms and sends exactly as it did before they existed, and
+ * until their migration is applied they stay hidden.
  *
  * Every function returns a Result and runs inside `guard`, so a missing table
  * (the migration not applied yet) reads as "not set up yet", not a crash.
@@ -595,6 +624,14 @@ export async function deleteCampaign(
     );
     if (!claimed) return onlyDrafts();
     for (const attachment of claimed.attachments) await removeParts(storage, attachment.parts);
+    if (extrasAvailable(store, claimed)) {
+      for (const photo of await photosOf(store, organizationId, campaign.id)) {
+        await removeParts(storage, photo.parts);
+      }
+      await store.removeWhere('campaign_photos', organizationId, {
+        eq: { campaign_id: campaign.id },
+      });
+    }
     await store.removeWhere('campaign_recipients', organizationId, {
       eq: { campaign_id: campaign.id },
     });
@@ -1382,6 +1419,744 @@ async function loadAttachments(
   return ok(out);
 }
 
+/* ------------------------------------------------------- photos and copies */
+//
+// Two optional additions to a campaign, both empty by default:
+//
+//   - A photo per recipient. The campaign keeps a set of photos (uploaded in
+//     pieces to the private bucket, like attachments); each is given to the
+//     recipient its file name names, when exactly one does (lib/campaigns/
+//     photos.ts), or picked by hand. A recipient with a photo gets it as an
+//     attachment on their own email, beside the shared attachments; a
+//     recipient without one gets exactly the email they would have got.
+//     A photo that cannot be found, read or fit under the per-email limit
+//     stops the review, naming the person, and fails that one send mid-batch
+//     ("Photo could not be read, so this email was not sent"): an email that
+//     was meant to carry a photo never goes without it.
+//   - Copies. The campaign's CC on every email; its BCC on every email or on
+//     the first email it actually sends (claimed once, and kept claimed once
+//     that email may have gone: only an outright refusal gives it back); a
+//     recipient's own CC on their email only. To is
+//     always exactly one recipient. Every copy counts toward the daily cap.
+//
+// Every edit here is a draft edit that moves the campaign's version on, so a
+// review taken before it cannot be confirmed; per-recipient edits follow the
+// recipients' rule (write, then move the version; if the campaign was
+// confirmed in between, undo the write). Their columns come from
+// 20261021001100_campaign_photos_cc.sql; until it is applied the features
+// stay hidden and nothing here writes.
+
+export const CAMPAIGN_EXTRAS_MIGRATION_FILE =
+  'supabase/migrations/20261021001100_campaign_photos_cc.sql';
+
+const EXTRAS_NOT_SET_UP = () =>
+  err(
+    'not_configured',
+    `Photos and CC/BCC are not set up yet. Run ${CAMPAIGN_EXTRAS_MIGRATION_FILE} in the Supabase SQL editor, then reload.`,
+    { stillUsable: 'Campaigns send as before without them.' },
+  );
+
+/** Why a recipient with a photo was not sent to, as the report shows it. */
+export const PHOTO_UNREADABLE = 'Photo could not be read, so this email was not sent.';
+const PHOTO_MISSING = 'Photo is missing, so this email was not sent.';
+const PHOTO_INCOMPLETE = 'Photo is incomplete in storage, so this email was not sent.';
+const PHOTO_TOO_BIG = 'Photo is too big for this email, so it was not sent.';
+
+/**
+ * Whether this campaign's row has the photo and copy columns, i.e. whether
+ * 20261021001100_campaign_photos_cc.sql has been applied. Postgres returns
+ * every column of a row, so a row without `cc` comes from a table without
+ * it: then photos and copies stay hidden and nothing writes them. The demo
+ * store keeps no schema, so it always has them.
+ */
+export function extrasAvailable(
+  store: Pick<DataStore, 'kind'>,
+  campaign: Pick<Campaign, 'cc'>,
+): boolean {
+  return store.kind === 'demo' || Array.isArray(campaign.cc);
+}
+
+export interface CampaignCopySettings {
+  cc: string[];
+  bcc: string[];
+  bccMode: CampaignBccMode;
+  /** Set once the first-only BCC copy went (or is going) with an email. */
+  bccSampleAt: string | null;
+}
+
+/** A campaign's copies, cleaned: absent columns and stray values read as none. */
+export function copySettingsOf(
+  campaign: Pick<Campaign, 'cc' | 'bcc' | 'bcc_mode' | 'bcc_sample_at'>,
+): CampaignCopySettings {
+  return {
+    cc: cleanCopyList(campaign.cc),
+    bcc: cleanCopyList(campaign.bcc),
+    bccMode: cleanBccMode(campaign.bcc_mode),
+    bccSampleAt: campaign.bcc_sample_at ?? null,
+  };
+}
+
+/** Whether a campaign changes any email with a photo or a copy. */
+function usesExtras(campaign: Campaign, recipients: readonly CampaignRecipient[]): boolean {
+  const copies = copySettingsOf(campaign);
+  return (
+    copies.cc.length > 0 ||
+    copies.bcc.length > 0 ||
+    recipients.some(
+      (r) => r.status === 'pending' && (Boolean(r.photo_id) || cleanCopyList(r.cc).length > 0),
+    )
+  );
+}
+
+/** Every address a campaign copies anywhere, for the suppression check. */
+function copyAddressesOf(campaign: Campaign, recipients: readonly CampaignRecipient[]): string[] {
+  const copies = copySettingsOf(campaign);
+  return [
+    ...new Set([
+      ...copies.cc,
+      ...copies.bcc,
+      ...recipients.filter((r) => r.status === 'pending').flatMap((r) => cleanCopyList(r.cc)),
+    ]),
+  ];
+}
+
+async function photosOf(
+  store: DataStore,
+  organizationId: string,
+  campaignId: string,
+): Promise<CampaignPhoto[]> {
+  return listAllPages(
+    store,
+    'campaign_photos',
+    organizationId,
+    { eq: { campaign_id: campaignId } },
+    [
+      { field: 'created_at', direction: 'asc' },
+      { field: 'id', direction: 'asc' },
+    ],
+  );
+}
+
+/** What the review and the confirmation need to check photos and copies. */
+export interface ExtrasContext {
+  photos: ReadonlyMap<string, ManifestPhoto>;
+  /** Of the addresses the campaign copies, those currently unsubscribed. */
+  suppressed: ReadonlySet<string>;
+}
+
+/**
+ * The photos and suppression state a review checks, or undefined for a
+ * campaign that uses neither photos nor copies (or cannot yet): its review is
+ * then exactly the review it always had, with no extra reads.
+ */
+async function extrasContext(
+  store: DataStore,
+  organizationId: string,
+  campaign: Campaign,
+  recipients: readonly CampaignRecipient[],
+  always = false,
+): Promise<ExtrasContext | undefined> {
+  if (!extrasAvailable(store, campaign)) return undefined;
+  if (!always && !usesExtras(campaign, recipients)) return undefined;
+  const photos = new Map(
+    (await photosOf(store, organizationId, campaign.id)).map((p) => [p.id, p] as const),
+  );
+  const suppressed = await suppressedEmails(
+    store,
+    organizationId,
+    copyAddressesOf(campaign, recipients),
+  );
+  return { photos, suppressed };
+}
+
+/**
+ * One recipient's photo, read whole from storage and checked against what
+ * was uploaded. Any failure is that email's failure, with a reason the
+ * report can show; it is never sent without the photo.
+ */
+async function loadPhoto(
+  storage: StorageProvider,
+  photo: CampaignPhoto | null,
+  sharedBytes: number,
+): Promise<Result<OutgoingCampaignEmail['attachments'][number]>> {
+  if (!photo) return err('not_found', PHOTO_MISSING);
+  if (photo.size > MAX_PHOTO_BYTES || sharedBytes + photo.size > MAX_ATTACHMENT_BYTES) {
+    return err('too_large', PHOTO_TOO_BIG);
+  }
+  if (!photo.parts.length) return err('internal', PHOTO_INCOMPLETE);
+  const pieces: Uint8Array[] = [];
+  for (const part of photo.parts) {
+    const data = await storage.get(part);
+    if (!data.ok) return err('provider_unavailable', PHOTO_UNREADABLE, { retryable: true });
+    pieces.push(data.value);
+  }
+  const data = Buffer.concat(pieces.map((p) => Buffer.from(p)));
+  if (data.byteLength !== photo.size) return err('internal', PHOTO_INCOMPLETE);
+  return ok({ filename: photo.name, mimeType: photo.type, data });
+}
+
+const recipientLabel = (r: Pick<CampaignRecipient, 'name' | 'email'>) => r.name?.trim() || r.email;
+
+function photoViews(
+  photos: readonly CampaignPhoto[],
+  recipients: readonly CampaignRecipient[],
+): CampaignPhotoView[] {
+  const pending = recipients.filter((r) => r.status === 'pending');
+  const match = photoMatcher(pending);
+  const byId = new Map(pending.map((r) => [r.id, r] as const));
+  const names = new Map(photos.map((p) => [p.id, p.name] as const));
+  return photos.map((p) => {
+    const holders = pending
+      .filter((r) => r.photo_id === p.id)
+      .map((r) => ({ id: r.id, label: recipientLabel(r) }));
+    let unmatched: string | null = null;
+    if (!holders.length) {
+      const m = match(p.name);
+      if (m.kind === 'none') unmatched = 'No one on the list has this name or address.';
+      else if (m.kind === 'many') {
+        const who = m.recipientIds.map((id) => byId.get(id)).filter(Boolean) as CampaignRecipient[];
+        unmatched = `Matches ${who.length} people (${who
+          .slice(0, 3)
+          .map(recipientLabel)
+          .join(', ')}${who.length > 3 ? ', …' : ''}), so it was left for you to pick.`;
+      } else {
+        const r = byId.get(m.recipientId);
+        const theirs = r?.photo_id ? names.get(r.photo_id) : null;
+        unmatched = r
+          ? theirs
+            ? `Matches ${recipientLabel(r)}, who already has ${theirs}.`
+            : `Matches ${recipientLabel(r)}: use Match by file name.`
+          : 'No one on the list has this name or address.';
+      }
+    }
+    return { id: p.id, name: p.name, size: p.size, type: p.type, recipients: holders, unmatched };
+  });
+}
+
+/** The campaign's photos, for the composer. Empty until the migration is applied. */
+export async function listCampaignPhotos(
+  store: DataStore,
+  organizationId: string,
+  campaignId: string,
+): Promise<Result<CampaignPhotoView[]>> {
+  return guard('read', 'list campaign photos', async () => {
+    const campaign = await loadCampaign(store, organizationId, campaignId);
+    if (!campaign) return NOT_FOUND();
+    if (!extrasAvailable(store, campaign)) return ok([]);
+    const [photos, recipients] = await Promise.all([
+      photosOf(store, organizationId, campaign.id),
+      recipientsOf(store, organizationId, campaign.id),
+    ]);
+    return ok(photoViews(photos, recipients));
+  });
+}
+
+/**
+ * Where a photo's pieces are kept: a folder of their own beside the
+ * attachments' (partPath), so a photo upload can never land on an
+ * attachment's pieces, or an attachment upload on a photo's.
+ */
+const photoPartPath = (
+  organizationId: string,
+  campaignId: string,
+  uploadId: string,
+  index: number,
+) => `campaigns/${organizationId}/${campaignId}/photos/${uploadId}/${index}`;
+
+/** A draft that can take photos and copies right now, or why not. */
+async function extrasDraft(
+  store: DataStore,
+  organizationId: string,
+  campaignId: string,
+): Promise<Result<Campaign>> {
+  const campaign = await loadCampaign(store, organizationId, campaignId);
+  if (!campaign) return NOT_FOUND();
+  if (campaign.status !== 'draft') return NOT_DRAFT();
+  if (!extrasAvailable(store, campaign)) return EXTRAS_NOT_SET_UP();
+  return ok(campaign);
+}
+
+/**
+ * One piece of a photo. Pieces arrive in order like an attachment's; the
+ * photo joins the campaign's set when its last piece lands, the pieces add up
+ * to its size and its first bytes are really an image, and is then given to
+ * the one recipient its file name names, if exactly one does and they have no
+ * photo yet. All only while the campaign is a draft: a photo that finishes
+ * after the tap on Send is taken out again, with any match it made.
+ */
+export async function addPhotoChunk(
+  store: DataStore,
+  storage: StorageProvider,
+  organizationId: string,
+  campaignId: string,
+  meta: AttachmentChunk,
+  bytes: Uint8Array,
+): Promise<
+  Result<{ complete: boolean; photos?: CampaignPhotoView[]; outcome?: PhotoUploadOutcome }>
+> {
+  return guard<{ complete: boolean; photos?: CampaignPhotoView[]; outcome?: PhotoUploadOutcome }>(
+    'write',
+    'upload a campaign photo',
+    async () => {
+      const draft = await extrasDraft(store, organizationId, campaignId);
+      if (!draft.ok) return draft;
+      const campaign = draft.value;
+      if (!isUuid(meta.uploadId)) return err('invalid_input', 'That upload is not valid.');
+      const name = cleanFilename(meta.name);
+      if (!isPhotoName(name) || !isPhotoType(meta.type)) {
+        return err(
+          'unsupported_media_type',
+          `${name} is not a photo. Use JPG, PNG, GIF, WebP or HEIC files.`,
+        );
+      }
+      const maxParts = Math.ceil(MAX_PHOTO_BYTES / UPLOAD_CHUNK_BYTES) + 1;
+      if (
+        !Number.isInteger(meta.count) ||
+        !Number.isInteger(meta.index) ||
+        meta.count < 1 ||
+        meta.count > maxParts ||
+        meta.index < 0 ||
+        meta.index >= meta.count
+      ) {
+        return err('invalid_input', 'That upload is not valid.');
+      }
+      if (bytes.byteLength === 0) return err('invalid_input', 'That file is empty.');
+      if (bytes.byteLength > UPLOAD_CHUNK_BYTES)
+        return err('too_large', 'That piece is too large.');
+      if (!Number.isFinite(meta.size) || meta.size <= 0 || meta.size > MAX_PHOTO_BYTES) {
+        return err(
+          'too_large',
+          `${name} is ${formatBytes(Math.max(0, meta.size || 0))}; a photo can be ${formatBytes(MAX_PHOTO_BYTES)} at most.`,
+        );
+      }
+      const shared = campaign.attachments.reduce((sum, a) => sum + a.size, 0);
+      if (shared + meta.size > MAX_ATTACHMENT_BYTES) {
+        return err(
+          'too_large',
+          `With the ${formatBytes(shared)} of attachments every email carries, ${name} would take an email over ${formatBytes(MAX_ATTACHMENT_BYTES)}.`,
+        );
+      }
+      if (meta.index === 0 && !sniffPhoto(bytes)) {
+        return err(
+          'unsupported_media_type',
+          `${name} is not a JPG, PNG, GIF, WebP or HEIC image inside.`,
+        );
+      }
+      if (meta.index === 0) {
+        const count = await store.count('campaign_photos', organizationId, {
+          eq: { campaign_id: campaign.id },
+        });
+        if (count >= MAX_PHOTOS) {
+          return err('invalid_input', `A campaign can carry ${MAX_PHOTOS} photos at most.`);
+        }
+      }
+
+      // An id that is already a photo is refused before anything is written:
+      // its pieces sit at the same paths, so writing (or cleaning up after a
+      // refusal) would change or delete a photo someone already has, without
+      // moving the draft's version.
+      if (await store.get('campaign_photos', organizationId, meta.uploadId)) {
+        return err('invalid_input', 'That upload is not valid.');
+      }
+      const path = photoPartPath(organizationId, campaign.id, meta.uploadId, meta.index);
+      const put = await storage.put(path, bytes, 'application/octet-stream');
+      if (!put.ok) return put;
+      if (meta.index < meta.count - 1) return ok({ complete: false });
+
+      const parts = Array.from({ length: meta.count }, (_, i) =>
+        photoPartPath(organizationId, campaign.id, meta.uploadId, i),
+      );
+      const incomplete = async () => {
+        await removeParts(storage, parts);
+        return err('invalid_input', `${name} did not upload completely. Add it again.`);
+      };
+      let total = 0;
+      let kind: ReturnType<typeof sniffPhoto> = null;
+      for (const [i, part] of parts.entries()) {
+        const data = await storage.get(part);
+        if (!data.ok) return incomplete();
+        if (i === 0) kind = sniffPhoto(data.value);
+        total += data.value.byteLength;
+      }
+      if (total !== meta.size || !kind) return incomplete();
+
+      const latest = await loadCampaign(store, organizationId, campaign.id);
+      if (!latest || latest.status !== 'draft') {
+        await removeParts(storage, parts);
+        return latest ? NOT_DRAFT() : NOT_FOUND();
+      }
+      const existing = await photosOf(store, organizationId, campaign.id);
+      if (
+        existing.some((p) => p.id === meta.uploadId) ||
+        (await store.get('campaign_photos', organizationId, meta.uploadId))
+      ) {
+        // Another upload with this id finished first: these pieces are its
+        // pieces now, so they stay.
+        return err('invalid_input', 'That upload is not valid.');
+      }
+      const photo: CampaignPhoto = {
+        id: meta.uploadId,
+        organization_id: organizationId,
+        campaign_id: campaign.id,
+        name,
+        type: PHOTO_MIME[kind],
+        size: meta.size,
+        parts,
+        // After every photo already in the set, so the list keeps upload order.
+        created_at: new Date(
+          Math.max(Date.now(), ...existing.map((p) => Date.parse(p.created_at) + 1)),
+        ).toISOString(),
+      };
+      await store.insert('campaign_photos', photo);
+
+      // Given to whoever its name names, if that is exactly one person and
+      // they have no photo yet; anything else waits for a person to pick.
+      const recipients = await recipientsOf(store, organizationId, campaign.id);
+      const pending = recipients.filter((r) => r.status === 'pending');
+      const match = photoMatcher(pending)(name);
+      let matchedTo: CampaignRecipient | null = null;
+      if (match.kind === 'one') {
+        const [given] = await store.updateWhere(
+          'campaign_recipients',
+          organizationId,
+          {
+            eq: { id: match.recipientId, campaign_id: campaign.id, status: 'pending' },
+            isNull: ['photo_id'],
+          },
+          { photo_id: photo.id },
+        );
+        matchedTo = given ?? null;
+      }
+
+      if (!(await touchDraft(store, organizationId, latest))) {
+        // Confirmed while it went in: the reviewed campaign never had it.
+        if (matchedTo) {
+          await store.updateWhere(
+            'campaign_recipients',
+            organizationId,
+            { eq: { id: matchedTo.id, photo_id: photo.id } },
+            { photo_id: null },
+          );
+        }
+        await store.remove('campaign_photos', organizationId, photo.id);
+        await removeParts(storage, parts);
+        return draftConflict(store, organizationId, campaign.id);
+      }
+      const fresh = await recipientsOf(store, organizationId, campaign.id);
+      return ok({
+        complete: true,
+        photos: photoViews(await photosOf(store, organizationId, campaign.id), fresh),
+        outcome: {
+          photoId: photo.id,
+          name,
+          matchedTo: matchedTo ? recipientLabel(matchedTo) : null,
+        },
+      });
+    },
+  );
+}
+
+/**
+ * Take a photo out of the set, and off whoever had it (they then get the
+ * email without one, as a person asked). If the campaign was confirmed in
+ * the meantime, everything is put back as the review saw it.
+ */
+export async function removePhoto(
+  store: DataStore,
+  storage: StorageProvider,
+  organizationId: string,
+  campaignId: string,
+  photoId: string,
+): Promise<Result<CampaignPhotoView[]>> {
+  return guard('write', 'remove a campaign photo', async () => {
+    const draft = await extrasDraft(store, organizationId, campaignId);
+    if (!draft.ok) return draft;
+    const campaign = draft.value;
+    const photo = isUuid(photoId)
+      ? await store.findOne('campaign_photos', organizationId, {
+          eq: { id: photoId, campaign_id: campaign.id },
+        })
+      : null;
+    if (!photo) return err('not_found', 'That photo is not on this campaign.');
+    const holders = await store.updateWhere(
+      'campaign_recipients',
+      organizationId,
+      { eq: { campaign_id: campaign.id, photo_id: photo.id } },
+      { photo_id: null },
+    );
+    await store.remove('campaign_photos', organizationId, photo.id);
+    if (!(await touchDraft(store, organizationId, campaign))) {
+      await store.insert('campaign_photos', photo);
+      for (const group of chunk(
+        holders.map((r) => r.id),
+        100,
+      )) {
+        await store.updateWhere(
+          'campaign_recipients',
+          organizationId,
+          { in: { id: group }, isNull: ['photo_id'] },
+          { photo_id: photo.id },
+        );
+      }
+      return draftConflict(store, organizationId, campaign.id);
+    }
+    await removeParts(storage, photo.parts);
+    const recipients = await recipientsOf(store, organizationId, campaign.id);
+    return ok(photoViews(await photosOf(store, organizationId, campaign.id), recipients));
+  });
+}
+
+/**
+ * Give a recipient a photo from the set, change it, or clear it (null): the
+ * by-hand side of the match by file name.
+ */
+export async function assignPhoto(
+  store: DataStore,
+  organizationId: string,
+  campaignId: string,
+  input: { recipientId: string; photoId: string | null },
+): Promise<Result<CampaignPhotoView[]>> {
+  return guard('write', 'assign a campaign photo', async () => {
+    const draft = await extrasDraft(store, organizationId, campaignId);
+    if (!draft.ok) return draft;
+    const campaign = draft.value;
+    const recipient = isUuid(input.recipientId)
+      ? await store.findOne('campaign_recipients', organizationId, {
+          eq: { id: input.recipientId, campaign_id: campaign.id },
+        })
+      : null;
+    if (!recipient) return err('not_found', 'That person is not on this campaign.');
+    if (recipient.status !== 'pending') {
+      return err('conflict', 'That person is not waiting to be sent to.');
+    }
+    if (input.photoId !== null) {
+      const photo = isUuid(input.photoId)
+        ? await store.findOne('campaign_photos', organizationId, {
+            eq: { id: input.photoId, campaign_id: campaign.id },
+          })
+        : null;
+      if (!photo) return err('not_found', 'That photo is not on this campaign.');
+      const shared = campaign.attachments.reduce((sum, a) => sum + a.size, 0);
+      if (shared + photo.size > MAX_ATTACHMENT_BYTES) {
+        return err(
+          'too_large',
+          `With the shared attachments, ${photo.name} would take the email to ${recipientLabel(recipient)} over ${formatBytes(MAX_ATTACHMENT_BYTES)}.`,
+        );
+      }
+    }
+    const previous = recipient.photo_id ?? null;
+    if (previous !== input.photoId) {
+      const [changed] = await store.updateWhere(
+        'campaign_recipients',
+        organizationId,
+        { eq: { id: recipient.id, status: 'pending' } },
+        { photo_id: input.photoId },
+      );
+      if (!changed) return err('conflict', 'That person is not waiting to be sent to.');
+      if (!(await touchDraft(store, organizationId, campaign))) {
+        await store.updateWhere(
+          'campaign_recipients',
+          organizationId,
+          { eq: { id: recipient.id, photo_id: input.photoId } },
+          { photo_id: previous },
+        );
+        return draftConflict(store, organizationId, campaign.id);
+      }
+    }
+    const [photos, recipients] = await Promise.all([
+      photosOf(store, organizationId, campaign.id),
+      recipientsOf(store, organizationId, campaign.id),
+    ]);
+    return ok(photoViews(photos, recipients));
+  });
+}
+
+/**
+ * The match by file name again, for photos nobody has: after more people
+ * were added, or a photo was cleared. Gives each to the one person its name
+ * names when they have no photo yet; never moves a photo someone has.
+ */
+export async function matchPhotosByName(
+  store: DataStore,
+  organizationId: string,
+  campaignId: string,
+): Promise<Result<{ matched: number; photos: CampaignPhotoView[] }>> {
+  return guard('write', 'match campaign photos', async () => {
+    const draft = await extrasDraft(store, organizationId, campaignId);
+    if (!draft.ok) return draft;
+    const campaign = draft.value;
+    const [photos, recipients] = await Promise.all([
+      photosOf(store, organizationId, campaign.id),
+      recipientsOf(store, organizationId, campaign.id),
+    ]);
+    const pending = recipients.filter((r) => r.status === 'pending');
+    const held = new Set(pending.map((r) => r.photo_id).filter(Boolean));
+    const match = photoMatcher(pending);
+    const given: { recipientId: string; photoId: string }[] = [];
+    const taken = new Set<string>();
+    for (const photo of photos) {
+      if (held.has(photo.id)) continue;
+      const m = match(photo.name);
+      if (m.kind !== 'one' || taken.has(m.recipientId)) continue;
+      const [changed] = await store.updateWhere(
+        'campaign_recipients',
+        organizationId,
+        {
+          eq: { id: m.recipientId, campaign_id: campaign.id, status: 'pending' },
+          isNull: ['photo_id'],
+        },
+        { photo_id: photo.id },
+      );
+      if (changed) {
+        given.push({ recipientId: changed.id, photoId: photo.id });
+        taken.add(changed.id);
+      }
+    }
+    if (given.length && !(await touchDraft(store, organizationId, campaign))) {
+      for (const g of given) {
+        await store.updateWhere(
+          'campaign_recipients',
+          organizationId,
+          { eq: { id: g.recipientId, photo_id: g.photoId } },
+          { photo_id: null },
+        );
+      }
+      return draftConflict(store, organizationId, campaign.id);
+    }
+    const fresh = given.length
+      ? await recipientsOf(store, organizationId, campaign.id)
+      : recipients;
+    return ok({ matched: given.length, photos: photoViews(photos, fresh) });
+  });
+}
+
+/**
+ * The campaign's CC, its BCC and where the BCC goes. Each given list is
+ * replaced whole; a list that is not all real addresses, or too long, is
+ * refused whole. A compare-and-set on the draft like every other edit, so
+ * it makes any earlier review stale.
+ */
+export async function updateCampaignCopies(
+  store: DataStore,
+  organizationId: string,
+  campaignId: string,
+  input: { cc?: string; bcc?: string; bccMode?: CampaignBccMode },
+): Promise<Result<Campaign>> {
+  return guard('write', 'update campaign copies', async () => {
+    const draft = await extrasDraft(store, organizationId, campaignId);
+    if (!draft.ok) return draft;
+    const campaign = draft.value;
+    const patch: Partial<Campaign> = {};
+    for (const key of ['cc', 'bcc'] as const) {
+      const text = input[key];
+      if (text === undefined) continue;
+      const parsed = parseCopyAddresses(text);
+      if (!parsed.ok) return err('invalid_input', `${key.toUpperCase()}: ${parsed.message}`);
+      patch[key] = parsed.emails;
+    }
+    if (input.bccMode !== undefined) {
+      if (input.bccMode !== 'every' && input.bccMode !== 'first') {
+        return err('invalid_input', 'Choose every email or the first email only.');
+      }
+      patch.bcc_mode = input.bccMode;
+    }
+    if (!Object.keys(patch).length) return ok(campaign);
+    const [updated] = await store.updateWhere(
+      'campaigns',
+      organizationId,
+      { eq: { id: campaign.id, status: 'draft' } },
+      { ...patch, updated_at: nextVersion(campaign) },
+    );
+    if (!updated) return draftConflict(store, organizationId, campaign.id);
+    return ok(updated);
+  });
+}
+
+/** One recipient's own CC, replaced whole (empty text clears it). */
+export async function setRecipientCc(
+  store: DataStore,
+  organizationId: string,
+  campaignId: string,
+  input: { recipientId: string; cc: string },
+): Promise<Result<{ recipientId: string; cc: string[] }>> {
+  return guard('write', "update a recipient's CC", async () => {
+    const draft = await extrasDraft(store, organizationId, campaignId);
+    if (!draft.ok) return draft;
+    const campaign = draft.value;
+    const recipient = isUuid(input.recipientId)
+      ? await store.findOne('campaign_recipients', organizationId, {
+          eq: { id: input.recipientId, campaign_id: campaign.id },
+        })
+      : null;
+    if (!recipient) return err('not_found', 'That person is not on this campaign.');
+    if (recipient.status !== 'pending') {
+      return err('conflict', 'That person is not waiting to be sent to.');
+    }
+    const parsed = parseCopyAddresses(input.cc);
+    if (!parsed.ok) return err('invalid_input', `CC: ${parsed.message}`);
+    if (parsed.emails.includes(recipient.email)) {
+      return err('invalid_input', `${recipient.email} already gets this email; CC someone else.`);
+    }
+    const previous = cleanCopyList(recipient.cc);
+    if (previous.join(',') === parsed.emails.join(',')) {
+      return ok({ recipientId: recipient.id, cc: previous });
+    }
+    const [changed] = await store.updateWhere(
+      'campaign_recipients',
+      organizationId,
+      { eq: { id: recipient.id, status: 'pending' } },
+      { cc: parsed.emails },
+    );
+    if (!changed) return err('conflict', 'That person is not waiting to be sent to.');
+    if (!(await touchDraft(store, organizationId, campaign))) {
+      await store.update('campaign_recipients', organizationId, recipient.id, { cc: previous });
+      return draftConflict(store, organizationId, campaign.id);
+    }
+    return ok({ recipientId: recipient.id, cc: parsed.emails });
+  });
+}
+
+/** "Who gets what", as the review screen reads it. */
+export interface CampaignManifest {
+  /** The campaign version it was read at: the review's, when nothing changed between. */
+  version: string;
+  /** Whether photos and copies can be used here (their migration is applied). */
+  extras: boolean;
+  tracking: boolean;
+  unsubscribe: boolean;
+  check: ExtrasCheck;
+}
+
+/**
+ * Every pending recipient's email as it would go out, in send order, with
+ * the problems and the totals: the dry run before the tap on Send. Reads
+ * only.
+ */
+export async function campaignManifest(
+  store: DataStore,
+  organizationId: string,
+  campaignId: string,
+): Promise<Result<CampaignManifest>> {
+  return guard('read', 'read who gets what', async () => {
+    const campaign = await loadCampaign(store, organizationId, campaignId);
+    if (!campaign) return NOT_FOUND();
+    const recipients = await recipientsOf(store, organizationId, campaign.id);
+    const context = await extrasContext(store, organizationId, campaign, recipients, true);
+    return ok({
+      version: campaign.updated_at,
+      extras: Boolean(context),
+      tracking: campaign.track_activity,
+      unsubscribe: campaign.unsubscribe_link,
+      check: checkExtras({
+        campaign,
+        pending: recipients.filter((r) => r.status === 'pending'),
+        photos: context?.photos ?? new Map(),
+        suppressed: context?.suppressed ?? new Set(),
+      }),
+    });
+  });
+}
+
 /* ----------------------------------------------------------------- compose */
 
 /** The recipient's merge values, with their name filled in from the row when merge lacks it. */
@@ -1407,6 +2182,8 @@ export function formatAddress(name: string | null | undefined, email: string): s
  * List-Unsubscribe header (`unsubscribe_link`). With both off, or no URLs,
  * the email is a plain personal one: links as written, nothing of Copilot's.
  * A link whose text is itself an address is never rewritten (template.ts).
+ * Copies, when given, travel beside the email (its Cc and Bcc headers) and
+ * never touch its body; with none, the result carries no `cc` or `bcc` at all.
  * Exported for tests.
  */
 export function composeCampaignEmail(
@@ -1418,6 +2195,7 @@ export function composeCampaignEmail(
     parsed?: ParsedTemplate;
     attachments?: OutgoingCampaignEmail['attachments'];
     subjectPrefix?: string;
+    copies?: EmailCopies;
   },
 ): OutgoingCampaignEmail {
   const parsed = options.parsed ?? parseTemplate(campaign.body_template);
@@ -1449,6 +2227,8 @@ export function composeCampaignEmail(
     text,
     attachments: options.attachments ?? [],
     listUnsubscribe: unsubscribe,
+    ...(options.copies?.cc.length ? { cc: [...options.copies.cc] } : {}),
+    ...(options.copies?.bcc.length ? { bcc: [...options.copies.bcc] } : {}),
   };
 }
 
@@ -1467,6 +2247,13 @@ export interface CampaignReview {
   attachmentBytes: number;
   /** Echoed back by the confirmation, which refuses if anything changed since. */
   version: string;
+  /**
+   * Only for a campaign that uses photos or copies: the emails plus every
+   * copy (what the daily cap counts), and what is worth knowing but stops
+   * nothing (a CC who is also a recipient). Its blocking problems are in
+   * `issues` with the rest.
+   */
+  extras?: { effectiveTotal: number; warnings: string[] };
 }
 
 export interface ReviewOptions {
@@ -1478,11 +2265,16 @@ export interface ReviewOptions {
   appUrl?: string | null;
 }
 
-/** What the review screen shows and the confirmation checks, from the saved campaign. */
+/**
+ * What the review screen shows and the confirmation checks, from the saved
+ * campaign. `extras` (see extrasContext) is given only for a campaign that
+ * uses photos or copies; without it the review is exactly what it always was.
+ */
 export function reviewIssues(
   campaign: Campaign,
   recipients: readonly CampaignRecipient[],
   options: ReviewOptions = {},
+  extras?: ExtrasContext,
 ): Omit<CampaignReview, 'campaign' | 'version' | 'missing'> {
   const issues: string[] = [];
   const pending = recipients.filter((r) => r.status === 'pending');
@@ -1507,7 +2299,20 @@ export function reviewIssues(
       count: pending.filter((r) => missingMergeFields([field], mergeFor(r)).length > 0).length,
     }))
     .filter((f) => f.count > 0);
-  return { recipientCount: pending.length, issues, fallbacks, attachmentBytes };
+  const review = { recipientCount: pending.length, issues, fallbacks, attachmentBytes };
+  if (!extras) return review;
+  // Photos that cannot go and unsubscribed copies stop the send, naming who.
+  const check = checkExtras({
+    campaign,
+    pending,
+    photos: extras.photos,
+    suppressed: extras.suppressed,
+  });
+  issues.push(...check.issues);
+  return {
+    ...review,
+    extras: { effectiveTotal: check.summary.effectiveTotal, warnings: check.warnings },
+  };
 }
 
 export async function reviewCampaign(
@@ -1520,10 +2325,11 @@ export async function reviewCampaign(
     const campaign = await loadCampaign(store, organizationId, campaignId);
     if (!campaign) return NOT_FOUND();
     const recipients = await recipientsOf(store, organizationId, campaign.id);
+    const extras = await extrasContext(store, organizationId, campaign, recipients);
     return ok({
       campaign,
       version: campaign.updated_at,
-      ...reviewIssues(campaign, recipients, options),
+      ...reviewIssues(campaign, recipients, options, extras),
       missing: await missingPeople(store, organizationId, campaign, recipients),
     });
   });
@@ -1717,7 +2523,10 @@ export async function confirmCampaign(
       return err('conflict', 'This campaign was already started.');
     }
     const recipients = await recipientsOf(store, organizationId, campaign.id);
-    const review = reviewIssues(campaign, recipients, options);
+    // The same photo and copy checks the review made: a photo that went
+    // missing or an address that unsubscribed since refuses the tap too.
+    const extras = await extrasContext(store, organizationId, campaign, recipients);
+    const review = reviewIssues(campaign, recipients, options, extras);
     if (review.issues.length) return err('invalid_input', review.issues[0] as string);
     const stale = () =>
       err('conflict', 'The campaign changed since this review. Look it over again before sending.');
@@ -1774,12 +2583,23 @@ export async function confirmCampaign(
       },
     );
     if (!updated) return stale();
+    const copies = extras ? copySettingsOf(campaign) : null;
     await audit(store, organizationId, actor.userId, 'campaign.confirmed', campaign.id, {
       recipients: review.recipientCount,
       from: campaign.from_identity,
       attachments: campaign.attachments.length,
       tracking: campaign.track_activity,
       unsubscribe_link: campaign.unsubscribe_link,
+      // Counts only, never addresses: what the send carried besides the email.
+      ...(copies
+        ? {
+            photos: pending.filter((r) => r.photo_id).length,
+            cc: copies.cc.length,
+            bcc: copies.bcc.length,
+            bcc_mode: copies.bccMode,
+            personal_cc: pending.filter((r) => cleanCopyList(r.cc).length).length,
+          }
+        : {}),
     });
     return ok(updated);
   });
@@ -1978,16 +2798,37 @@ export interface BatchProgress {
   dailyRemaining: number;
 }
 
+/**
+ * Gmail certainly did not send: it refused the request outright (no send
+ * grant, or the grant was taken back), before any email could go. The send
+ * loop pauses the campaign on it, and gives back a first-only BCC sample
+ * claimed for that email. Any other error (Gmail unavailable, a dropped
+ * connection) may have come after the email went.
+ */
+function gmailRefused(code: ErrorCode): boolean {
+  return code === 'provider_unauthorized' || code === 'forbidden';
+}
+
+/**
+ * The send times the 24-hour cap counts: one per email, plus one more per
+ * CC or BCC address it went to (copy_count), since Gmail counts each of
+ * those as a recipient too. An email that copied nobody counts once, as it
+ * always did.
+ */
+function capTimes(rows: readonly Pick<CampaignRecipient, 'sent_at' | 'copy_count'>[]): string[] {
+  return rows.flatMap((r) => {
+    if (!r.sent_at) return [];
+    const copies = Number.isFinite(r.copy_count) ? Math.floor(r.copy_count as number) : 0;
+    return Array<string>(1 + Math.min(100, Math.max(0, copies))).fill(r.sent_at);
+  });
+}
+
 async function capState(store: DataStore, organizationId: string, now: Date, cap: number) {
   const since = new Date(now.getTime() - DAY_MS).toISOString();
   const recent = await listAllPages(store, 'campaign_recipients', organizationId, {
     gte: { sent_at: since },
   });
-  return dailyCapState(
-    recent.map((r) => r.sent_at).filter((s): s is string => Boolean(s)),
-    now,
-    cap,
-  );
+  return dailyCapState(capTimes(recent), now, cap);
 }
 
 /* The organization's send lease (see CampaignSendLock). */
@@ -2258,16 +3099,47 @@ export async function sendBatch(
         );
       }
 
-      const suppressed = await suppressedEmails(
-        store,
-        organizationId,
-        queue.map((r) => r.email),
+      // Photos and copies, read once per batch. A campaign that uses neither
+      // reads nothing more here, and every email below is the one it always
+      // sent: no photo, no copies.
+      const copySettings = extrasAvailable(store, campaign) ? copySettingsOf(campaign) : null;
+      const sharedBytes = campaign.attachments.reduce((sum, a) => sum + a.size, 0);
+      const photoIds = copySettings
+        ? [...new Set(queue.map((r) => r.photo_id).filter((id): id is string => Boolean(id)))]
+        : [];
+      const photos = new Map(
+        (photoIds.length
+          ? await listWhereIn(
+              store,
+              'campaign_photos',
+              organizationId,
+              { eq: { campaign_id: campaign.id } },
+              'id',
+              photoIds,
+            )
+          : []
+        ).map((p) => [p.id, p] as const),
       );
+      const copyAddresses = copySettings
+        ? [...copySettings.cc, ...copySettings.bcc, ...queue.flatMap((r) => cleanCopyList(r.cc))]
+        : [];
+
+      // Recipients and copies alike: an unsubscribed address is never emailed.
+      const suppressed = await suppressedEmails(store, organizationId, [
+        ...queue.map((r) => r.email),
+        ...copyAddresses,
+      ]);
 
       let sentNow = 0;
       let failedNow = 0;
       let failuresInARow = 0;
       let message: string | null = null;
+      // What the cap still allows in this batch. Each email costs one plus
+      // its copies; one that copies nobody costs one, and the queue is never
+      // longer than the cap allows, so a campaign without copies never stops
+      // here.
+      let capBudget = capNow.remaining;
+      let cappedByCopies = false;
       for (const recipient of queue) {
         if (suppressed.has(recipient.email)) {
           await store.updateWhere(
@@ -2283,6 +3155,57 @@ export async function sendBatch(
         campaign = await loadCampaign(store, organizationId, campaignId);
         if (!campaign || campaign.status !== 'sending') break;
 
+        // Their photo, read before anything is marked: one that cannot be
+        // read fails this email (never sent without it) and the batch goes
+        // on, unless it makes the failures in a row that pause it.
+        let photo: OutgoingCampaignEmail['attachments'][number] | null = null;
+        if (copySettings && recipient.photo_id) {
+          const loaded = await loadPhoto(
+            deps.storage,
+            photos.get(recipient.photo_id) ?? null,
+            sharedBytes,
+          );
+          if (!loaded.ok) {
+            const [failed] = await store.updateWhere(
+              'campaign_recipients',
+              organizationId,
+              { eq: { id: recipient.id, status: 'pending' }, isNull: ['attempted_at'] },
+              { status: 'failed', error: loaded.error.message },
+            );
+            if (!failed) continue;
+            failedNow += 1;
+            failuresInARow += 1;
+            log.warn('Campaign photo could not be attached', {
+              campaignId,
+              code: loaded.error.code,
+            });
+            if (failuresInARow >= MAX_CONSECUTIVE_FAILURES) {
+              await pauseFor('failures');
+              message = `${MAX_CONSECUTIVE_FAILURES} emails in a row did not send, so the campaign paused. Check the errors, then resume.`;
+              break;
+            }
+            continue;
+          }
+          photo = loaded.value;
+        }
+
+        // Their copies: the first-only BCC is offered while it is unclaimed,
+        // and claimed below, just before the send.
+        const copies: EmailCopies = copySettings
+          ? copiesFor(recipient.email, {
+              campaignCc: copySettings.cc,
+              personalCc: cleanCopyList(recipient.cc),
+              bcc:
+                copySettings.bccMode === 'every' || !campaign.bcc_sample_at ? copySettings.bcc : [],
+              suppressed,
+            })
+          : NO_COPIES;
+        const cost = 1 + copyCount(copies);
+        if (cost > capBudget) {
+          cappedByCopies = true;
+          break;
+        }
+
         const wait = Math.max(
           waitBeforeNext(campaign.last_sent_at, now().getTime(), intervalMs),
           waitBeforeNext(lease.lastSentAt, now().getTime(), intervalMs),
@@ -2295,7 +3218,8 @@ export async function sendBatch(
           signatureHtml,
           urls: urlsFor(recipient.id),
           parsed,
-          attachments: attachments.value,
+          attachments: photo ? [...attachments.value, photo] : attachments.value,
+          copies: { cc: copies.cc, bcc: [] },
         });
         // Still the organization's sender? A batch that stalled past its
         // lease stops here instead of sending alongside the one that took over.
@@ -2313,7 +3237,31 @@ export async function sendBatch(
           { attempted_at: now().toISOString() },
         );
         if (!claimed) continue;
-        const result = await deps.sender.send(email);
+        capBudget -= cost;
+        // The BCC: on every email, or, first-only, on this one if it can
+        // claim the sample (bcc_sample_at from empty to a time, once). The
+        // claim stands once the email may have gone; only a refusal that
+        // certainly sent nothing (gmailRefused) gives it back, for the next
+        // email to carry.
+        let bcc: string[] = [];
+        let sampleClaim: string | null = null;
+        if (copySettings && copies.bcc.length) {
+          if (copySettings.bccMode === 'every') bcc = copies.bcc;
+          else {
+            const claimAt = now().toISOString();
+            const [took] = await store.updateWhere(
+              'campaigns',
+              organizationId,
+              { eq: { id: campaignId }, isNull: ['bcc_sample_at'] },
+              { bcc_sample_at: claimAt },
+            );
+            if (took) {
+              bcc = copies.bcc;
+              sampleClaim = claimAt;
+            }
+          }
+        }
+        const result = await deps.sender.send(bcc.length ? { ...email, bcc } : email);
         const at = now().toISOString();
         lease.lastSentAt = at;
         await store.update('campaigns', organizationId, campaignId, { last_sent_at: at });
@@ -2321,24 +3269,37 @@ export async function sendBatch(
         if (result.ok) {
           sentNow += 1;
           failuresInARow = 0;
+          const copied = copies.cc.length + bcc.length;
           await store.update('campaign_recipients', organizationId, recipient.id, {
             status: 'sent',
             sent_at: at,
             gmail_message_id: result.value.messageId,
             gmail_thread_id: result.value.threadId,
             error: null,
+            // Written only when there were copies: the cap counts each.
+            ...(copied ? { copy_count: copied } : {}),
           });
           continue;
         }
 
+        const refused = gmailRefused(result.error.code);
+        // Anything short of a refusal (Gmail unavailable, a dropped
+        // connection) may have come after the email went, sample and all, so
+        // the sample stays used and no later email can carry a second one.
+        if (sampleClaim && refused) {
+          await store.updateWhere(
+            'campaigns',
+            organizationId,
+            { eq: { id: campaignId, bcc_sample_at: sampleClaim } },
+            { bcc_sample_at: null },
+          );
+        }
         failedNow += 1;
         failuresInARow += 1;
         await store.update('campaign_recipients', organizationId, recipient.id, {
           status: 'failed',
           error: result.error.message.slice(0, 500),
         });
-        const refused =
-          result.error.code === 'provider_unauthorized' || result.error.code === 'forbidden';
         if (refused || failuresInARow >= MAX_CONSECUTIVE_FAILURES) {
           await pauseFor(refused ? 'refused' : 'failures');
           message = refused
@@ -2350,6 +3311,16 @@ export async function sendBatch(
           });
           break;
         }
+      }
+      if (cappedByCopies) {
+        await pauseFor('capped');
+        return ok(
+          await progress('capped', {
+            sentNow,
+            failedNow,
+            message: `Daily limit reached: ${cap} emails in the last 24 hours, counting every CC and BCC copy. The campaign paused; resume once the next slot opens.`,
+          }),
+        );
       }
       return ok(await finish(sentNow, failedNow, message));
     } finally {
@@ -2373,7 +3344,24 @@ export async function sendBatch(
  * names the campaign rather than a recipient: they go through Copilot exactly
  * as the real email's do (so the test proves APP_URL works from outside) and
  * record nothing.
+ *
+ * Rendered as that recipient, it carries their photo too. It never carries
+ * a copy: no Cc and no Bcc, ever, so a test reaches the signed-in person and
+ * nobody else. Who the real email would copy comes back for the page to show
+ * as text (wouldCc, wouldBcc).
  */
+export interface TestSendResult {
+  to: string;
+  /** The recipient it was rendered as, if any. */
+  as: string | null;
+  /** The photo attached as theirs, if any. */
+  photo: string | null;
+  /** Who the real email to that recipient would copy; never copied on a test. */
+  wouldCc: string[];
+  wouldBcc: string[];
+  bccMode: CampaignBccMode;
+}
+
 export async function sendTest(
   store: DataStore,
   organizationId: string,
@@ -2383,7 +3371,7 @@ export async function sendTest(
     actor: CampaignActor;
     recipientId?: string | null;
   },
-): Promise<Result<{ to: string; as: string | null }>> {
+): Promise<Result<TestSendResult>> {
   return guard('write', 'send a campaign test', async () => {
     const campaign = await loadCampaign(store, organizationId, campaignId);
     if (!campaign) return NOT_FOUND();
@@ -2432,13 +3420,34 @@ export async function sendTest(
     }
     const attachments = await loadAttachments(deps.storage, campaign.attachments);
     if (!attachments.ok) return attachments;
+    const copySettings = extrasAvailable(store, campaign) ? copySettingsOf(campaign) : null;
+    // The recipient's photo, as their real email would carry it.
+    let photo: OutgoingCampaignEmail['attachments'][number] | null = null;
+    if (copySettings && sample?.photo_id) {
+      const found = await store.findOne('campaign_photos', organizationId, {
+        eq: { id: sample.photo_id, campaign_id: campaign.id },
+      });
+      const loaded = await loadPhoto(
+        deps.storage,
+        found,
+        campaign.attachments.reduce((sum, a) => sum + a.size, 0),
+      );
+      if (!loaded.ok) {
+        return err(
+          loaded.error.code,
+          `The photo for ${recipientLabel(sample)} could not be attached, so the test was not sent. ${loaded.error.message.replace(/, so this email was not sent\.$/, '.')}`,
+        );
+      }
+      photo = loaded.value;
+    }
+    // No `copies`: the test email has no Cc and no Bcc, whatever the campaign copies.
     const email = composeCampaignEmail(
       campaign,
       { email: to, name: sample?.name ?? null, merge: sample?.merge ?? {} },
       {
         signatureHtml,
         urls,
-        attachments: attachments.value,
+        attachments: photo ? [...attachments.value, photo] : attachments.value,
         subjectPrefix: '[Test] ',
       },
     );
@@ -2447,7 +3456,22 @@ export async function sendTest(
     await audit(store, organizationId, deps.actor.userId, 'campaign.test_sent', campaign.id, {
       as_recipient: Boolean(sample),
     });
-    return ok({ to, as: sample?.email ?? null });
+    const would =
+      copySettings && sample
+        ? copiesFor(sample.email, {
+            campaignCc: copySettings.cc,
+            personalCc: cleanCopyList(sample.cc),
+            bcc: copySettings.bcc,
+          })
+        : NO_COPIES;
+    return ok({
+      to,
+      as: sample?.email ?? null,
+      photo: photo?.filename ?? null,
+      wouldCc: would.cc,
+      wouldBcc: would.bcc,
+      bccMode: copySettings?.bccMode ?? 'every',
+    });
   });
 }
 
@@ -2722,6 +3746,29 @@ export async function unsubscribe(
 
 const BOUNCE_SENDER = /^(mailer-daemon|postmaster)@/i;
 
+/**
+ * Whether a sent email went with copies (CC or BCC). A bounce in its thread
+ * may then be about a dead copy address rather than the recipient, so it
+ * counts against the recipient only when it names their address (see
+ * checkReplies). copy_count says so for an email that sent normally; for one
+ * settled from Sent after an interruption, the copies it would have carried
+ * do: every email's CC and the person's own, BCC on every email, or the
+ * first-only sample on the email that claimed it, which claims it straight
+ * after that email's attempt is marked and before the next one's (they are
+ * at least the send interval apart).
+ */
+function sentWithCopies(r: CampaignRecipient, campaign: Campaign | undefined): boolean {
+  if ((r.copy_count ?? 0) > 0 || cleanCopyList(r.cc).length > 0) return true;
+  if (!campaign) return false;
+  const copies = copySettingsOf(campaign);
+  if (copies.cc.length) return true;
+  if (!copies.bcc.length) return false;
+  if (copies.bccMode === 'every') return true;
+  if (!copies.bccSampleAt || !r.attempted_at) return false;
+  const gap = Date.parse(copies.bccSampleAt) - Date.parse(r.attempted_at);
+  return gap >= 0 && gap < SEND_INTERVAL_MS;
+}
+
 /** Only the last few weeks of sends are checked; older ones have had their replies. */
 const REPLY_WINDOW_DAYS = 60;
 
@@ -2798,9 +3845,10 @@ async function settleUnconfirmed(
  * Replies and bounces, read from the synced mailbox: a message in a sent
  * email's Gmail thread, after it was sent, from that recipient (a reply,
  * unless it is an automatic one such as an out-of-office) or from a mail
- * server (a bounce). Also settles "may have gone out" sends whose copy turned
- * up in Sent. Reads the mailbox only; sends nothing. Run when a campaign is
- * viewed and from the daily job.
+ * server (a bounce; for an email that went with copies, only one naming the
+ * recipient's own address). Also settles "may have gone out" sends whose copy
+ * turned up in Sent. Reads the mailbox only; sends nothing. Run when a
+ * campaign is viewed and from the daily job.
  */
 export async function checkReplies(
   store: DataStore,
@@ -2854,6 +3902,18 @@ export async function checkReplies(
       list.push(m);
       byThread.set(m.thread_id, list);
     }
+    const campaigns = new Map(
+      (
+        await listWhereIn(
+          store,
+          'campaigns',
+          organizationId,
+          {},
+          'id',
+          open.map((r) => r.campaign_id),
+        )
+      ).map((c) => [c.id, c]),
+    );
 
     let replies = 0;
     let bounces = 0;
@@ -2864,7 +3924,15 @@ export async function checkReplies(
       const after = (byThread.get(threadId) ?? [])
         .filter((m) => Date.parse(m.sent_at) > Date.parse(r.sent_at as string))
         .sort((a, b) => a.sent_at.localeCompare(b.sent_at));
-      const bounce = after.find((m) => BOUNCE_SENDER.test(m.from_address));
+      // Without copies, any mail server's message in the thread is the
+      // recipient's bounce, as it always was. With copies it may be about a
+      // copy, so only one that names the recipient's own address counts: a
+      // dead CC never marks the recipient bounced or stops their replies
+      // being read.
+      const copied = sentWithCopies(r, campaigns.get(r.campaign_id));
+      const bounce = after.find(
+        (m) => BOUNCE_SENDER.test(m.from_address) && (!copied || bounceNames(m, r.email)),
+      );
       const fromThem = after.filter((m) => m.from_address.toLowerCase() === r.email);
       // An out-of-office is not a reply; a real one after it still counts.
       const reply = fromThem.find((m) => !isAutoReply(m, r.sent_at));

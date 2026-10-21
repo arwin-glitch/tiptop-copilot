@@ -479,6 +479,43 @@ full name (`crm_records.name`) and company (the field already holding one,
 else `fields.Company`) to that CRM person, naming any value it replaces; a
 first name stays with the campaign.
 
+### Photos and copies
+
+Optional, off by default (`20261021001100_campaign_photos_cc.sql`; the
+"photos and copies" section of `lib/services/campaigns.ts`, and the pure
+rules in `lib/campaigns/photos.ts`, `copies.ts` and `manifest.ts`). A
+campaign that uses neither sends exactly what it sent before: no Cc or Bcc
+header, the same attachments, the same review (pinned against frozen copies
+of the earlier code in `tests/helpers/master-campaign-email.ts`).
+
+| Table / column | Purpose |
+| --- | --- |
+| `campaign_photos` | A campaign's photo set: `name`, `type` (read from the file's own bytes: JPEG, PNG, GIF, WebP or HEIC only), `size` (10 MB each at most), `parts` in the private bucket, uploaded in pieces like attachments. RLS as for the campaign tables. |
+| `campaign_recipients.photo_id` | The recipient's photo. Matched on upload when the file name (lowercased, punctuation ignored) is exactly one person's address, address local part or full name; no match or two people leaves it for a person to pick. Deliberately not a foreign key: a photo that disappears reads as "photo missing" (the review blocks, naming the person; a batch fails that one email with "Photo could not be read, so this email was not sent"), never as no photo. |
+| `campaigns.cc`, `campaigns.bcc`, `campaigns.bcc_mode` | Copies on every email; BCC on every email (`every`) or on the first email the campaign actually sends (`first`). Ten addresses each at most, lowercased. |
+| `campaigns.bcc_sample_at` | The first-only BCC, claimed by compare-and-set just before its email goes and given back only when Gmail refused that email outright (no send grant: nothing went). After any other error (Gmail unavailable, a dropped connection) the email may have gone, so the claim stays and the email's retry goes without it: a pause, resume, retry or later batch never sends the sample twice. |
+| `campaign_recipients.cc` | Extra addresses on that one person's email. |
+| `campaign_recipients.copy_count` | CC and BCC addresses the email went to: the 24-hour cap counts each as one more email. |
+
+To is always exactly one recipient; their own address is never copied to
+them, a Bcc never repeats a Cc, and an unsubscribed address is left off
+(blocked at review, dropped at send). A CC who is also a recipient is a
+warning, not a block. Every photo or copy change moves the draft's version,
+so a review taken before it cannot be confirmed. The review screen's "Who
+gets what" lists each pending email (`/api/campaigns/<id>/manifest`, or
+`?format=csv`). "Send test to me" can render as a chosen recipient, photo
+included, but never carries a Cc or Bcc; the page shows who it would copy.
+The Bcc line is written into the raw message Gmail's `messages.send`
+delivers from; Gmail is expected to strip it from the delivered copies, which
+must be confirmed with an owned-inbox test before real use. A bounce in the
+thread of an email that went with copies counts against the recipient only
+when it names their own address (a delivery report's Final-Recipient or
+Original-Recipient, or the bounce's own words, not the returned message's
+quoted headers); one naming only a copy leaves them sent, their replies still
+read. An email without copies is read as before. Until the
+migration is applied, rows come back without these columns and the features
+stay hidden; nothing writes them.
+
 ---
 
 ## 7. Row-level security
