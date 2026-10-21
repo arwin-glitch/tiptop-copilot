@@ -10,6 +10,7 @@ import {
 } from '@/lib/util/page-tabs';
 import {
   DEALS_TABS,
+  DIAGNOSTICS_TABS,
   FUND_II_TABS,
   KNOWLEDGE_TABS,
   MEETINGS_TABS,
@@ -63,8 +64,8 @@ describe('tabHref', () => {
   });
 });
 
-/** Every page with a subtab bar: the Records pages, and Deals. */
-const TABBED_PAGES = [DEALS_TABS, ...RECORDS_TABS];
+/** Every page with a subtab bar: the Records pages, Deals and Diagnostics. */
+const TABBED_PAGES = [DEALS_TABS, DIAGNOSTICS_TABS, ...RECORDS_TABS];
 
 describe('the Records pages', () => {
   it('each open on a default that is one of their tabs', () => {

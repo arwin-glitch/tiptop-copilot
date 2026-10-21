@@ -7,6 +7,7 @@ import { generateDailyBrief } from '@/lib/services/brief';
 import { checkReplies } from '@/lib/services/campaigns';
 import { pullBriefingsFromSlack } from '@/lib/services/briefing';
 import { formatDealCronStatus, pullDealsFromSlack } from '@/lib/services/deal-relay';
+import { recordJobHeartbeat } from '@/lib/services/feed-health';
 import { ensureGmailWatch } from '@/lib/services/gmail-watch';
 import { syncMailbox } from '@/lib/services/inbox';
 import { listPortfolio } from '@/lib/services/portfolio';
@@ -98,6 +99,9 @@ export async function POST(request: NextRequest) {
   }
 
   for (const organization of organizations) {
+    // What the Feeds tab on Diagnostics reads to tell this job has stopped
+    // running (GitHub has started it hours late before). Never throws.
+    await recordJobHeartbeat(store, organization.id, 'daily-job');
     const members = (await store.list('organization_members', organization.id, {})) as
       OrganizationMember[] | [];
     const owner = members.find((m) => m.role === 'owner') ?? members[0];

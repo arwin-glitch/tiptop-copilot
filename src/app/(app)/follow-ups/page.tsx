@@ -23,6 +23,7 @@ import { AutoRefresh } from '@/components/shell/auto-refresh';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Notice, SkeletonText } from '@/components/ui/feedback';
+import { StaleHint } from '@/components/feeds/stale-hint';
 import { formatDate, formatDateTime, relativeTime } from '@/lib/util/time';
 
 export const metadata: Metadata = { title: 'Follow-ups' };
@@ -96,9 +97,15 @@ async function FollowUpsContent() {
         <p className="-mt-2 mb-3 text-sm text-[var(--fg-muted)]">
           LPs, portfolio founders, co-investors and founders in a live process who asked you for
           something and have not heard back.{' '}
-          {snapshot.relationships
-            ? `Checked ${relativeTime(snapshot.relationships.run_at, now)}.`
-            : 'The relationship radar has not posted yet.'}
+          {snapshot.relationships ? (
+            <>
+              Checked {relativeTime(snapshot.relationships.run_at, now)}
+              <StaleHint feed="relationships" checkedAt={snapshot.relationships.run_at} now={now} />
+              .
+            </>
+          ) : (
+            'The relationship radar has not posted yet.'
+          )}
         </p>
         {onYou.length === 0 ? (
           <EmptyLine>
@@ -119,9 +126,14 @@ async function FollowUpsContent() {
         </SectionHeading>
         <p className="-mt-2 mb-3 text-sm text-[var(--fg-muted)]">
           You wrote last and haven&apos;t heard back.{' '}
-          {snapshot.waiting
-            ? `Checked ${relativeTime(snapshot.waiting.runAt, now)}.`
-            : 'The tracker has not posted yet.'}
+          {snapshot.waiting ? (
+            <>
+              Checked {relativeTime(snapshot.waiting.runAt, now)}
+              <StaleHint feed="follow-ups" checkedAt={snapshot.waiting.runAt} now={now} />.
+            </>
+          ) : (
+            'The tracker has not posted yet.'
+          )}
         </p>
         {waiting.length === 0 ? (
           <EmptyLine>{snapshot.waiting ? 'Nobody is overdue a reply.' : 'Nothing yet.'}</EmptyLine>

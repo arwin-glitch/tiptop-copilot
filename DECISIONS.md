@@ -1491,3 +1491,66 @@ keeps the in-app and bridge answers from drifting apart.
   "who are you?" and "am I talking to a real person?" in Ask Arwin to check.
 - Demo mode's canned answers (`src/lib/ai/mock.ts`) carry no identity and
   are unchanged.
+
+### D-060 — A feed watchdog: Diagnostics > Feeds, and feed notices you opt into
+
+**Context.** The cards are filled by cloud routines that post to the Slack
+relay channels and by scheduled jobs that call `/api/cron`. When one stops,
+its card keeps the last copy it got, and only a small "checked 3d ago" says
+so. It has happened quietly before: a relay channel archived under the
+routines, a post Slack cut at its length cap, payloads a parser dropped
+without a word. Nothing checked that the producers were still posting.
+
+**Decision.**
+
+- **A registry in code** (`lib/feeds/registry.ts`): every feed's name, what
+  it fills, its schedule in plain words and the cadence it is held to (an
+  interval and a grace period, optionally only on some weekdays or local
+  hours, in a fixed timezone). Feeds that post only when there is something
+  new (meeting recaps, scheduling drafts, task suggestions, new portfolio
+  companies) are never late. Ask answers are on demand: late after a
+  question has waited 15 minutes, stopped after an hour. The Reports
+  channels are feeds too, late exactly when Reports calls them overdue.
+- **Status** (`lib/feeds/status.ts`): running, late (one run missed past the
+  grace), looks stopped (a second run missed), not seen, can't check, or off.
+  Time counts only on a producer's active days and hours, so a weekday-only
+  producer is not late on a Sunday and the alert sender is not late overnight.
+  A part that cannot be read is "can't check", never "stopped".
+- **Read from what exists** (`lib/services/feed-health.ts`): each relay
+  channel's own history (the newest post its consumer can read, and any newer
+  one it could not), the Reports channels' newest report, the Affinity sync's
+  saved state and the Ask questions still pending. The daily job and the
+  alert sender leave no other trace, so their `/api/cron` routes now write one
+  `feeds.heartbeat` row each in `audit_events`. No migration.
+- **Diagnostics gets subtabs**: Setup (the old page, still the bare URL) and
+  Feeds, worst first, in plain words.
+- **Feed notices are opt-in, per person, for their own computers.** A
+  `feeds.notify` row says who turned them on (`POST /api/feeds/notices`,
+  signed in and same-origin; nobody can turn them on for someone else). Their
+  computers with desktop alerts then get one notice a day per feed that looks
+  stopped, 8am to 8pm, through the desktop alerts they already have, ledgered
+  per computer like every other alert. Phones never get them, and nobody
+  else's computer does. Off by default.
+- **Cards say when they may be out of date**: beside its "checked" time, a
+  card whose own run time is past its feed's stopped threshold adds "· may be
+  out of date". The Today Top priorities card is left exactly as it is.
+
+**Why.** The person who keeps the routines running needs to hear first, and
+the phone alerts are for the mailbox owner, who should not get maintenance
+noise. Desktop computers already belong to whoever turned them on (D-057), and
+Ask answers already go to one person's computers only (D-058), so a notice can
+be targeted the same way without a new channel or a new scope. Opting in,
+rather than naming anyone in code, keeps the choice in the app.
+
+**Known limits.**
+
+- The cadences are copied from the routines' schedules, which live outside
+  the repo: when a schedule moves, change the registry too.
+- The relay channels are read 30 days back, at most 1,000 messages each; a
+  feed silent for longer reads as not seen rather than stopped.
+- The heartbeats start with this change: until each job's next run, the
+  daily job and the alert sender read "No run noted yet".
+- A feed that only posts when there is news cannot be told apart from one
+  that stopped, so those are never late.
+- The email queue posts only what changed, so it is given a day's grace.
+- Notices need desktop alerts on (the desktop app from 0.4.0).

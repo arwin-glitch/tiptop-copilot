@@ -12,8 +12,10 @@ import type {
   WeekAhead,
   WeekEvent,
 } from '@/lib/services/follow-ups';
+import type { StaticFeedId } from '@/lib/feeds/registry';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { StaleHint } from '@/components/feeds/stale-hint';
 import { formatDate, formatTime, formatWeekdayLong, relativeTime } from '@/lib/util/time';
 
 /**
@@ -52,8 +54,14 @@ export function snapshotUnavailable(state: FollowUpsState | null | undefined): s
   }
 }
 
-function Checked({ at, now }: { at: string; now: Date }) {
-  return <p className="text-xs text-[var(--fg-subtle)]">Checked {relativeTime(at, now)}</p>;
+/** "Checked 2h ago", and that it may be out of date once its feed looks stopped. */
+function Checked({ at, now, feed }: { at: string; now: Date; feed: StaticFeedId }) {
+  return (
+    <p className="text-xs text-[var(--fg-subtle)]">
+      Checked {relativeTime(at, now)}
+      <StaleHint feed={feed} checkedAt={at} now={now} />
+    </p>
+  );
 }
 
 /* ------------------------------ portfolio ------------------------------ */
@@ -87,7 +95,7 @@ export function PortfolioHealthCard({
       <CardHeader>
         <div>
           <CardTitle>Portfolio health</CardTitle>
-          <Checked at={health.run_at} now={now} />
+          <Checked at={health.run_at} now={now} feed="portfolio-health" />
         </div>
       </CardHeader>
       <CardContent>
@@ -156,6 +164,7 @@ export function IntrosCard({
           <CardTitle>Intros</CardTitle>
           <p className="text-xs text-[var(--fg-subtle)]">
             {owed > 0 ? `${owed} you still owe · ` : ''}checked {relativeTime(intros.run_at, now)}
+            <StaleHint feed="intros" checkedAt={intros.run_at} now={now} />
           </p>
         </div>
       </CardHeader>
@@ -245,7 +254,7 @@ export function WeekAheadCard({
           <CalendarDays className="size-4 text-[var(--fg-subtle)]" aria-hidden />
           <div>
             <CardTitle>The week ahead</CardTitle>
-            <Checked at={week.run_at} now={now} />
+            <Checked at={week.run_at} now={now} feed="week-ahead" />
           </div>
         </div>
       </CardHeader>

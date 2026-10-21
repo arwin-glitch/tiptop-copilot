@@ -4,6 +4,7 @@ import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import type { RelationshipItem, Relationships } from '@/lib/services/follow-ups';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { StaleHint } from '@/components/feeds/stale-hint';
 import { relativeTime } from '@/lib/util/time';
 
 const KIND_LABEL: Record<RelationshipItem['kind'], string> = {
@@ -44,6 +45,7 @@ export function RelationshipAlerts({
           <CardTitle>Relationship alerts</CardTitle>
           <p className="text-xs text-[var(--fg-subtle)]">
             Checked {relativeTime(relationships.run_at, now)}
+            <StaleHint feed="relationships" checkedAt={relationships.run_at} now={now} />
           </p>
         </div>
       </CardHeader>

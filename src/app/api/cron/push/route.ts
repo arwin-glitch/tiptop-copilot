@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
+import { recordJobHeartbeatForAll } from '@/lib/services/feed-health';
 import { buildOutbox, recordDelivery, vapidPublicKey } from '@/lib/services/push-alerts';
 
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,9 @@ export async function GET(request: NextRequest) {
   const denied = unauthorized(request);
   if (denied) return denied;
   const scope = request.nextUrl.searchParams.get('scope') === 'meetings' ? 'meetings' : 'all';
+  // Diagnostics > Feeds tells from this whether the sender is still calling;
+  // written at most every ten minutes, and never throws.
+  await recordJobHeartbeatForAll(getStore(), 'push-sender');
   const outbox = await buildOutbox(getStore(), new Date(), scope);
   return NextResponse.json(
     { ok: true, publicKey: vapidPublicKey(), outbox },

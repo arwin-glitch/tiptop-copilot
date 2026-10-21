@@ -40,6 +40,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState, ErrorState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
+import { StaleHint } from '@/components/feeds/stale-hint';
 import { Stat, StatGroup } from '@/components/ui/stat';
 import { formatDate, relativeTime } from '@/lib/util/time';
 
@@ -233,6 +234,7 @@ async function PipelineTab() {
       {lpUpdate}
       <p className="mb-4 text-sm text-[var(--fg-muted)]">
         {pipeline.fund} · checked {relativeTime(pipeline.run_at, now)}
+        <StaleHint feed="lp-pipeline" checkedAt={pipeline.run_at} now={now} />
       </p>
       <StatGroup className="mb-6" columns={4}>
         <Stat size="sm" label="In conversation" value={active} hint="not passed" />

@@ -235,6 +235,17 @@ notes restart from page 1, then the notes are read in full, then skipped. The
 watermark only moves when the run saw every changed note, so a skipped notes
 page is read again by the next run. No column or migration is involved.
 
+The feed watchdog (`lib/services/feed-health.ts`, D-060) keeps two kinds the
+same way. `feeds.heartbeat` is one row per job that leaves no other trace
+(`entity_id` `daily-job` or `push-sender`), replaced on every write, whose
+`created_at` is when that job last reached the app; the daily job writes it on
+each run, the alert sender at most every ten minutes. `feeds.notify` is one row
+per person who turned feed notices on for their own computers (`user_id` and
+`entity_id` both that person); turning them off removes it, and each change is
+also audited as `feeds.notices_on` or `feeds.notices_off`. A feed notice a
+computer showed is a `push.desktop_alerted` row like any other alert, keyed
+`feed:<feed id>:<local date>`.
+
 Today's "At a glance" cards keep each task's short label and card the same
 way, as `task.glance_set` rows (`entity_type = 'task'`, `entity_id` the task):
 metadata `{v: 1, by, source?, short? (≤ 40 characters, ≤ 6 words, one line),
