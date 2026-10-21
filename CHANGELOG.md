@@ -10,6 +10,20 @@ throughout.
 
 ## [Unreleased]
 
+- **Tasks go to the person whose mailbox Copilot reads.** Suggested tasks,
+  keep-in-touch check-ins, copied Affinity reminders and follow-ups added
+  without choosing someone used to land on whoever set the workspace up, so
+  on Tasks "Everyone" and that person showed the same list and the mailbox
+  person showed nothing. They now go to the mailbox person: the member whose
+  sign-in address is the connected Gmail address (else whoever connected it,
+  else the owner). The person filter lists them first, a money or legal close
+  asks for their confirmation by default, and a row only names who it is for
+  when it is someone else (or "No one"). Handing a task to someone from its
+  menu still works and always sticks. Tasks already filed the old way move
+  with `supabase/migrations/20261021002000_tasks_to_principal.sql`, run by
+  hand in the SQL editor after its preview query: only tasks no person added
+  or reassigned, each with an audit row, and running it twice moves nothing.
+
 - **Every email link opens in Copilot or Gmail.** Wherever Copilot links to an
   email or thread, it now offers two places to read it: **Copilot**, which
   opens the thread in the Inbox's reading pane (`/inbox?thread=<id>`), and

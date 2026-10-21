@@ -1862,3 +1862,74 @@ or a portfolio company already.
   routine; until then it is flagged, and the row says no address was found.
 - The rules read English titles and will miss some deliverables; a miss
   only means no check, which is how every task worked before.
+
+### D-068 — Tasks belong to the principal: the person whose mailbox Copilot reads
+
+**Context.** Copilot reads one person's mail, calendar and meetings, and the
+tasks it finds there are that person's work. The code filed them under the
+organization's `owner` role instead: every routine suggestion (task-ingest),
+the fallback for keep-in-touch check-ins, and every copied Affinity reminder
+when nobody pressed; a follow-up added by hand, a check-in and a copied
+reminder went to whoever added, set or pressed. In a real team the owner is
+whoever set the organization up, an assistant, say, not the person whose
+mailbox it is. So on Tasks, Everyone and the owner showed the same rows and
+the mailbox person showed "Nothing for …", and a money or legal close asked
+for the owner's confirmation first.
+
+**Decision.**
+
+- **One rule, in `lib/tasks/principal.ts`:** the principal is (a) the member
+  whose profile address is the address of the organization's mailbox, the
+  oldest connected Google integration with the `gmail` kind; else (b) the
+  member who connected that mailbox; else (c) the `owner` role member; else
+  (d) the first member. Members are read oldest membership first, then by id,
+  so no store order decides; addresses compare without case or spaces. The
+  oldest mailbox, not the newest, so a second person connecting their own
+  mailbox later never moves everyone's tasks. One read of members and
+  profiles (the reads Tasks' people already made) and one of the Google
+  integrations.
+- **Who a task is for (`assigned_to`) is the principal** for a routine's
+  suggestion, a follow-up added with no one chosen (the add dialog has no
+  picker; Ask's `create_task` too), a keep-in-touch check-in and a copied
+  Affinity reminder. Who made it (`created_by`) is unchanged: the owner for a
+  routine's task (the table needs a real person), whoever added, set or
+  pressed otherwise. A person's choice from the row's menu always stands.
+  Check-ins used to go to whoever set the cadence; they go to the principal
+  now, because the cadence is on a relationship of the person whose mail and
+  calendar decide when it comes due, and an assistant sets it for them.
+- **Tasks' people** carry a `principal` flag (the old `owner` flag is gone:
+  it only ever meant "first in the list" and "asked to confirm first"). The
+  principal is listed first, so the filter reads Everyone · principal ·
+  everyone else by name, and a money or legal close defaults to the
+  principal's confirmation. A row names its assignee only when that is not
+  the principal; an unassigned row says "No one", as the menu does, so a row
+  without a name is the principal's.
+- **The proof check (D-065)** still holds the assignee responsible
+  (`assigned_to ?? tickedBy`), and now knows the mailbox's owner by its
+  address too (rules a and b), so the principal's deliverables are judged
+  from their mailbox even when someone else connected it.
+- **The owner role keeps its meaning for permissions** (owner-only actions,
+  the daily job's acting user, the alert time zone); none of that changed.
+- **Tasks already filed under the owner** are moved by
+  `supabase/migrations/20261021002000_tasks_to_principal.sql`, run by hand in
+  the SQL editor after its read-only preview: a task assigned to an owner who
+  is not the principal, `source` not `human`, with no `task.assigned` row
+  (nobody chose), open, snoozed or complete. Each move writes a
+  `task.assigned` row (`reason: 'default owner fix'`), which also makes a
+  second run move nothing; `updated_at` is kept. Its selection is pinned in
+  TypeScript (`lib/tasks/principal-backfill.ts`) and the SQL is checked
+  against it by structure, since the repo has no Postgres to run it.
+- **The demo** mirrors a real team: the teammate is the first owner, listed
+  first; the demo user, whose mailbox the demo reads, is the principal (and
+  keeps the owner role, so owner-only pages stay testable).
+
+**Known limits.**
+
+- A follow-up an assistant adds by hand for themselves now starts on the
+  principal; they hand it to themselves from the row's menu.
+- Done tasks moved by the backfill are judged by the proof check against the
+  principal's mailbox; one an assistant ticked after sending it from their
+  own mailbox can be flagged "Ticked, not seen sent" ("It's done" clears it).
+- The backfill matches the mailbox address to the member's sign-in address
+  in `auth.users` or their profile; the app reads the profile only. The two
+  are the same address unless a profile was edited by hand.
