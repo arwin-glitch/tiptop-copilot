@@ -97,6 +97,27 @@ describe('matchPhoto', () => {
     expect(matchPhoto('pat@two.example.jpg', shared)).toEqual({ kind: 'one', recipientId: 'b' });
   });
 
+  it('a key that is one person’s address and another’s local part or name fits both', () => {
+    // With the punctuation gone, "jo@park.example" and "joparkexample" read
+    // the same: neither reading wins by being tried first.
+    const crossed: PhotoCandidate[] = [
+      { id: 'a', email: 'jo@park.example', name: null },
+      { id: 'b', email: 'joparkexample@mail.example', name: null },
+      { id: 'c', email: 'lee@kim.example', name: 'Lee Kim Example' },
+    ];
+    for (const name of ['joparkexample.jpg', 'jo@park.example.jpg']) {
+      expect(matchPhoto(name, crossed)).toEqual({ kind: 'many', recipientIds: ['a', 'b'] });
+    }
+    // One person whose address and name read the same is still one person.
+    expect(matchPhoto('Lee Kim Example.png', crossed)).toEqual({ kind: 'one', recipientId: 'c' });
+    expect(
+      matchPhoto('lee@kim.example.png', [
+        ...crossed,
+        { id: 'e', email: 'x@y.example', name: 'Lee Kim, Example' },
+      ]),
+    ).toEqual({ kind: 'many', recipientIds: ['c', 'e'] });
+  });
+
   it('one matcher answers many photos', () => {
     const match = photoMatcher(PEOPLE);
     expect(['Jane Doe.jpg', 'Wei Chen.png', 'nobody.png'].map((n) => match(n).kind)).toEqual([

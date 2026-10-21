@@ -134,11 +134,16 @@ export type PhotoMatch =
   | { kind: 'none' };
 
 /**
- * A matcher over a recipient list, built once and asked per photo. Two tiers:
- * a file named for the full address is matched on that alone; otherwise the
- * part of the address before the @ and the full name are tried together. A
- * key two people share (two Jane Does, jane@ at two firms) matches both, so
- * the photo is left for a person.
+ * A matcher over a recipient list, built once and asked per photo. A file's
+ * key is looked up as a full address, as the part of an address before the
+ * @, and as a full name, all at once: everyone it fits counts. A key two
+ * people share (two Jane Does, jane@ at two firms) matches both, so the photo
+ * is left for a person. A file named for one full address still goes to that
+ * person when the part before the @ is shared (pat@one and pat@two), since
+ * the full address's key carries the domain; but a key that is one person's
+ * full address and, with the punctuation gone, also another's name or local
+ * part ("jo@park.example" and "joparkexample@…") fits two people and is left
+ * for a person, never settled by which reading was tried first.
  */
 export function photoMatcher(
   candidates: readonly PhotoCandidate[],
@@ -162,15 +167,11 @@ export function photoMatcher(
   return (filename) => {
     const key = matchKey(fileStem(filename));
     if (!key) return { kind: 'none' };
-    for (const map of [byEmail, byNameOrLocal]) {
-      const ids = map.get(key);
-      if (!ids?.size) continue;
-      const list = [...ids];
-      return list.length === 1
-        ? { kind: 'one', recipientId: list[0] as string }
-        : { kind: 'many', recipientIds: list };
-    }
-    return { kind: 'none' };
+    const list = [...new Set([...(byEmail.get(key) ?? []), ...(byNameOrLocal.get(key) ?? [])])];
+    if (!list.length) return { kind: 'none' };
+    return list.length === 1
+      ? { kind: 'one', recipientId: list[0] as string }
+      : { kind: 'many', recipientIds: list };
   };
 }
 
