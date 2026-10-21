@@ -155,6 +155,21 @@ test.describe('mobile layout', () => {
     await expectNoSidewaysScroll(page);
   });
 
+  test('a conversation opened by a link fills the phone, and Back shows the list', async ({
+    page,
+  }) => {
+    await page.goto('/inbox?thread=0f00000000005102');
+    const pane = page.getByRole('region', { name: 'Reading pane' });
+    const list = page.getByRole('region', { name: 'Conversations' });
+    await expect(pane.getByRole('heading', { level: 2 })).toHaveText('Mentoring this fall');
+    // One column on a phone: the list waits behind the conversation.
+    await expect(list).toBeHidden();
+    await expectNoSidewaysScroll(page);
+    await pane.getByRole('button', { name: 'Back to the list' }).click();
+    await expect(list).toBeVisible();
+    await expect.poll(() => new URL(page.url()).search).toBe('');
+  });
+
   test('the bottom navigation is present and thumb-sized', async ({ page }) => {
     await page.goto('/today');
     const nav = page.getByRole('navigation', { name: 'Main' }).last();
