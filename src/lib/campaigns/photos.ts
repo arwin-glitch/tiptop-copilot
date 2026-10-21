@@ -64,6 +64,57 @@ export function isPhotoType(type: string): boolean {
   return !t || t === 'application/octet-stream' || t.startsWith('image/');
 }
 
+/** How a photo kind is named to a person. */
+export const PHOTO_KIND_LABEL: Record<PhotoKind, string> = {
+  jpeg: 'JPG',
+  png: 'PNG',
+  gif: 'GIF',
+  webp: 'WebP',
+  heic: 'HEIC',
+};
+
+/** The kind an image type names ("image/jpg" and "image/pjpeg" are JPEG, "image/heif" HEIC). */
+export function photoKindOfType(type: string): PhotoKind | null {
+  switch (type.split(';')[0]!.trim().toLowerCase()) {
+    case 'image/jpeg':
+    case 'image/jpg':
+    case 'image/pjpeg':
+      return 'jpeg';
+    case 'image/png':
+      return 'png';
+    case 'image/gif':
+      return 'gif';
+    case 'image/webp':
+      return 'webp';
+    case 'image/heic':
+    case 'image/heif':
+      return 'heic';
+    default:
+      return null;
+  }
+}
+
+/** The kind a file name's ending names (".jpg" and ".jpeg" are JPEG). */
+export function photoKindOfName(name: string): PhotoKind | null {
+  const extension = photoExtension(name);
+  if (extension === 'jpg' || extension === 'jpeg') return 'jpeg';
+  return (PHOTO_EXTENSIONS as readonly string[]).includes(extension)
+    ? (extension as PhotoKind)
+    : null;
+}
+
+/**
+ * The kind a photo upload says it is: the type it declares when that names a
+ * photo kind, else (no type, application/octet-stream as Windows sends HEIC,
+ * or an image type no campaign takes) its file name's ending. Every piece of
+ * one upload declares the same, so every piece is stored with the same
+ * content type; the first piece's bytes must then agree (see sniffPhoto). The
+ * composer declares what the bytes say, so for it they always do.
+ */
+export function declaredPhotoKind(name: string, type: string): PhotoKind | null {
+  return photoKindOfType(type) ?? photoKindOfName(name);
+}
+
 const startsWith = (bytes: Uint8Array, signature: readonly number[], offset = 0) =>
   bytes.length >= offset + signature.length && signature.every((b, i) => bytes[offset + i] === b);
 

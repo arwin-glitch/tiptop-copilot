@@ -10,6 +10,21 @@ throughout.
 
 ## [Unreleased]
 
+- **Fix: campaign photos would not upload.** Every photo was refused by file
+  storage (it was stored as `application/octet-stream`, a type the private
+  bucket does not take) and the page answered with an error the uploader did
+  not keep on screen, so the photo count just stayed at 0. Photos are now
+  stored as their real image type (what the file's own bytes say), and HEIC
+  photos work once migration `20261021001500_bucket_heic.sql` is applied;
+  until then a HEIC photo is refused with "HEIC photos are not enabled yet",
+  and JPG, PNG, GIF and WebP work. A shared attachment of a type storage does
+  not take (a spreadsheet, a zip, an unknown type) is now refused when it is
+  added, with the list of what campaigns can carry, instead of failing in
+  storage; supported files attach exactly as before. Upload problems, for
+  photos and attachments, now stay on the page under the uploader with the
+  reason. The demo and test storage refuses the same types the bucket does,
+  so a regression like this fails the tests.
+
 - **Tasks: a proof check for deliverables ticked by hand, and a company chip
   on every task.** When someone ticks a task that is only done once something
   reaches someone (a reply, a document sent, feedback handed back, an intro, a

@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { BUCKET_ALLOWED_MIME_TYPES } from '@/lib/storage/allowed-types';
 import {
+  PHOTO_MIME,
+  declaredPhotoKind,
   fileStem,
   isPhotoName,
   isPhotoType,
   matchKey,
   matchPhoto,
+  photoKindOfName,
+  photoKindOfType,
   photoMatcher,
   sniffPhoto,
   type PhotoCandidate,
@@ -153,5 +158,47 @@ describe('what counts as a photo', () => {
     expect(sniffPhoto(text('MZ\u0090\u0000'))).toBeNull();
     expect(sniffPhoto(text('\u0000\u0000\u0000\u0018ftypavif'))).toBeNull();
     expect(sniffPhoto(bytes())).toBeNull();
+  });
+});
+
+describe('the type a photo is stored with', () => {
+  it('is always a real image type the bucket takes, never application/octet-stream', () => {
+    for (const type of Object.values(PHOTO_MIME)) {
+      expect(type).toMatch(/^image\//);
+      expect(BUCKET_ALLOWED_MIME_TYPES).toContain(type);
+    }
+  });
+
+  it('reads the kind an image type names, aliases included', () => {
+    expect(photoKindOfType('image/jpeg')).toBe('jpeg');
+    expect(photoKindOfType('image/jpg')).toBe('jpeg');
+    expect(photoKindOfType('image/pjpeg')).toBe('jpeg');
+    expect(photoKindOfType('Image/PNG')).toBe('png');
+    expect(photoKindOfType('image/gif')).toBe('gif');
+    expect(photoKindOfType('image/webp')).toBe('webp');
+    expect(photoKindOfType('image/heic')).toBe('heic');
+    expect(photoKindOfType('image/heif')).toBe('heic');
+    for (const t of ['', 'application/octet-stream', 'image/bmp', 'application/pdf']) {
+      expect(photoKindOfType(t)).toBeNull();
+    }
+  });
+
+  it('reads the kind a file name ends in', () => {
+    expect(photoKindOfName('Jane Doe.JPG')).toBe('jpeg');
+    expect(photoKindOfName('jane.jpeg')).toBe('jpeg');
+    expect(photoKindOfName('jane.heic')).toBe('heic');
+    expect(photoKindOfName('jane.pdf')).toBeNull();
+    expect(photoKindOfName('jane')).toBeNull();
+  });
+
+  it('takes the declared type first, the file name when the type says nothing', () => {
+    // Windows sends a HEIC photo with no type, or application/octet-stream.
+    expect(declaredPhotoKind('IMG_0042.HEIC', '')).toBe('heic');
+    expect(declaredPhotoKind('IMG_0042.heic', 'application/octet-stream')).toBe('heic');
+    // The composer declares what the bytes say, whatever the name.
+    expect(declaredPhotoKind('Jane Doe.png', 'image/jpeg')).toBe('jpeg');
+    // An image type no campaign takes says nothing either.
+    expect(declaredPhotoKind('Jane Doe.png', 'image/x-png')).toBe('png');
+    expect(declaredPhotoKind('notes.pdf', '')).toBeNull();
   });
 });
