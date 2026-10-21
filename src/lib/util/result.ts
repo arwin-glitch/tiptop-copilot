@@ -22,6 +22,7 @@ export const ERROR_CODES = [
   'too_large',
   'unsupported_media_type',
   'conflict',
+  'proof_required',
   'not_configured',
   'timeout',
   'internal',

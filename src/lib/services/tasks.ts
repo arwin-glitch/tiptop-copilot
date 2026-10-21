@@ -4,6 +4,7 @@ import { listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
 import { getStore } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
+import { taskPeople, type TaskPerson } from '@/lib/tasks/task-people';
 import {
   isAsleep,
   isAwake,
@@ -11,9 +12,10 @@ import {
   sortSnoozed,
   type TaskRestore,
 } from '@/lib/tasks/tasks-view';
-import type { Task, TaskStatus } from '@/lib/types/domain';
+import type { OrganizationMember, Task, TaskStatus } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { err, ok, type Result } from '@/lib/util/result';
+import { isMoneyLegalTask } from './money-legal-records';
 
 /** Follow-ups and tasks. Deliberately small: a task is a title, a due date and a link. */
 
@@ -63,6 +65,17 @@ export async function createTask(auth: AuthContext, input: CreateTaskInput): Pro
   return ok(task);
 }
 
+/** The message a money or legal task gives when someone tries to close it without proof. */
+export const PROOF_REQUIRED_MESSAGE =
+  'This is a money or legal task. Add proof to close it: a link, or who confirmed it.';
+
+/**
+ * Changes a task's status. Completing a money or legal task needs proof
+ * (`completeTaskWithProof`), so a plain "Mark complete" on one is refused
+ * with `proof_required`, which the buttons answer by asking for it. A
+ * `cancelled` task is a deleted one: it leaves every list, and stays in the
+ * table so a suggestion with its title is never added again.
+ */
 export async function updateTaskStatus(
   auth: AuthContext,
   taskId: string,
@@ -71,8 +84,25 @@ export async function updateTaskStatus(
   const store = getStore();
   const task = (await store.get('tasks', auth.organizationId, taskId)) as Task | null;
   if (!task) return err('not_found', 'That task does not exist.');
+  if (
+    status === 'complete' &&
+    task.status !== 'complete' &&
+    (await isMoneyLegalTask(store, auth.organizationId, task))
+  ) {
+    return err('proof_required', PROOF_REQUIRED_MESSAGE);
+  }
+  return ok(await writeTaskStatus(store, auth, task, status));
+}
 
-  const updated = (await store.update('tasks', auth.organizationId, taskId, {
+/** The status write itself, audited as the person's; the proof check is the caller's. */
+export async function writeTaskStatus(
+  store: DataStore,
+  auth: AuthContext,
+  task: Task,
+  status: TaskStatus,
+  metadata: Record<string, unknown> = {},
+): Promise<Task> {
+  const updated = (await store.update('tasks', auth.organizationId, task.id, {
     status,
     completed_at: status === 'complete' ? new Date().toISOString() : null,
     snoozed_until: status === 'snoozed' ? task.snoozed_until : null,
@@ -83,10 +113,127 @@ export async function updateTaskStatus(
     userId: auth.userId,
     action: 'task.updated',
     entityType: 'task',
+    entityId: task.id,
+    metadata: { from: task.status, to: status, ...metadata },
+  });
+  return updated;
+}
+
+export interface EditTaskInput {
+  title: string;
+  detail: string | null;
+  dueAt: string | null;
+}
+
+const TITLE_MAX = 300;
+const DETAIL_MAX = 2000;
+
+/**
+ * A person's edit of a task's title, detail or due date. Audited as
+ * `task.edited`, a person's touch like any other, so evidence older than the
+ * edit never closes the task. A changed title keeps the old one in the audit
+ * row, so the task-suggest routine does not add the old wording back.
+ */
+export async function editTask(
+  auth: AuthContext,
+  taskId: string,
+  input: EditTaskInput,
+): Promise<Result<Task>> {
+  const title = input.title.replace(/\s+/g, ' ').trim();
+  if (!title) return err('invalid_input', 'A task needs a title.');
+  if (title.length > TITLE_MAX) {
+    return err('invalid_input', `Keep the title under ${TITLE_MAX} characters.`);
+  }
+  const detail = input.detail?.trim() || null;
+  if (detail && detail.length > DETAIL_MAX) {
+    return err('invalid_input', `Keep the detail under ${DETAIL_MAX} characters.`);
+  }
+  let dueAt: string | null = null;
+  if (input.dueAt) {
+    const ms = Date.parse(input.dueAt);
+    if (Number.isNaN(ms)) return err('invalid_input', 'That due date is not a date.');
+    dueAt = new Date(ms).toISOString();
+  }
+
+  const store = getStore();
+  const task = (await store.get('tasks', auth.organizationId, taskId)) as Task | null;
+  if (!task || task.status === 'cancelled') return err('not_found', 'That task does not exist.');
+
+  const sameDue =
+    (task.due_at ? Date.parse(task.due_at) : null) === (dueAt ? Date.parse(dueAt) : null);
+  const patch: Partial<Task> = {};
+  if (title !== task.title) patch.title = title;
+  if (detail !== (task.detail?.trim() || null)) patch.detail = detail;
+  if (!sameDue) patch.due_at = dueAt;
+  const fields = Object.keys(patch);
+  if (fields.length === 0) return ok(task);
+
+  const updated = (await store.update('tasks', auth.organizationId, taskId, patch)) as Task;
+  await recordAudit(store, {
+    organizationId: auth.organizationId,
+    userId: auth.userId,
+    action: 'task.edited',
+    entityType: 'task',
     entityId: taskId,
-    metadata: { from: task.status, to: status },
+    metadata: { fields, ...(patch.title ? { previous_title: task.title } : {}) },
   });
   return ok(updated);
+}
+
+/**
+ * Who a task is for: one of the organization's members, or no one. Not a
+ * touch for the task-closer, the same as moving a task between Today's cards:
+ * handing a task over says nothing about whether it is done.
+ */
+export async function assignTask(
+  auth: AuthContext,
+  taskId: string,
+  userId: string | null,
+): Promise<Result<Task>> {
+  const store = getStore();
+  const task = (await store.get('tasks', auth.organizationId, taskId)) as Task | null;
+  if (!task || task.status === 'cancelled') return err('not_found', 'That task does not exist.');
+  if (userId !== null) {
+    const people = await listTaskPeople(auth.organizationId, store);
+    if (!people.some((p) => p.id === userId)) {
+      return err('invalid_input', 'Tasks can only go to someone on the team.');
+    }
+  }
+  if (task.assigned_to === userId) return ok(task);
+  const updated = (await store.update('tasks', auth.organizationId, taskId, {
+    assigned_to: userId,
+  })) as Task;
+  await recordAudit(store, {
+    organizationId: auth.organizationId,
+    userId: auth.userId,
+    action: 'task.assigned',
+    entityType: 'task',
+    entityId: taskId,
+    metadata: { from: task.assigned_to, to: userId },
+  });
+  return ok(updated);
+}
+
+/** The organization's members, as a task can name them. */
+export async function listTaskPeople(
+  organizationId: string,
+  store: DataStore = getStore(),
+): Promise<TaskPerson[]> {
+  const members = (await store.list('organization_members', organizationId, {
+    eq: { organization_id: organizationId },
+  })) as OrganizationMember[];
+  const rows = await Promise.all(
+    members.map(async (member) => {
+      const profile = await store.userProfileById(member.user_id);
+      return {
+        id: member.user_id,
+        fullName: profile?.full_name ?? null,
+        email: profile?.email ?? null,
+        owner: member.role === 'owner',
+      };
+    }),
+  );
+  return taskPeople(rows);
 }
 
 export async function snoozeTask(

@@ -144,11 +144,11 @@ test.describe('guided tours', () => {
 
   test('Esc ends a tour at any step', async ({ page }) => {
     await page.goto('/tasks?tour=tasks');
-    await expectStep(page, /Tasks · 1 of 5/i, 'Your to-do list');
+    await expectStep(page, /Tasks · 1 of 6/i, 'Your to-do list');
     // The parameter is dropped, so a reload does not restart the tour.
     await expect(page).toHaveURL(/\/tasks$/);
     await next(page).click();
-    await expectStep(page, /2 of 5/, 'Open, snoozed, done');
+    await expectStep(page, /2 of 6/, 'Open, snoozed, done');
     await page.keyboard.press('Escape');
     await expect(card(page)).toHaveCount(0);
     await page.reload();

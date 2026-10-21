@@ -247,6 +247,29 @@ parse is ignored on its own. `task.glance_set` is not a "person touched it"
 action for the task-closer (D-052), so moving a task between cards never stops
 it closing itself. See D-053.
 
+Task basics and money and legal tasks are kept the same way, all with
+`entity_type = 'task'` and `entity_id` the task (see D-060):
+
+- `task.edited` (a person): `{fields, previous_title?}`. A "person touched it"
+  action like `task.updated`, so evidence older than an edit never closes the
+  task; `previous_title` keeps the task-suggest routine from adding the old
+  wording back.
+- `task.assigned` (a person): `{from, to}`, beside the write to
+  `tasks.assigned_to` (a member's id, or null). Not a touch.
+- `task.money_legal_set` (a person): `{on}`. The newest beats the keyword
+  rules in `lib/tasks/money-legal.ts`. Not a touch.
+- `task.proof_recorded` (a person): `{v: 1, kind: 'link', url, note?}` or
+  `{v: 1, kind: 'confirmed', confirmed_by, note?}`, written just before the
+  completion it explains (it counts only within ten minutes of
+  `completed_at`). Not a touch; the completion's own `task.updated` is.
+- `task.needs_proof` (no user): an automatic close of a money or legal task
+  that stated no proof (no reason, or no sent email), kept as a claim instead
+  of closing the task; metadata is the close's own. One per evidence id.
+
+A deleted task is `status = 'cancelled'`: off every list and out of search,
+but still in the table, so the suggest routine's title check never adds it
+again.
+
 ### `ai_usage`
 
 Recorded for **failed** calls too, with the error code and zero cost. A failed

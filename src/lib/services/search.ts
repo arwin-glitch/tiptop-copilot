@@ -177,6 +177,8 @@ export async function searchEverything(
     });
   }
   for (const t of tasks) {
+    // A deleted task stays in the table (so it is never suggested again), not in results.
+    if (t.status === 'cancelled') continue;
     results.push({
       kind: 'task',
       label: t.title,

@@ -6,7 +6,9 @@ import { log } from '@/lib/security/redact';
 import { slackTsToIso, type SlackMessage } from '@/lib/slack/relay-history';
 import type { AuditEvent, Integration, Task } from '@/lib/types/domain';
 import { unwrapSlackText } from '@/lib/util/slack-text';
+import { autoCloseStatesProof } from '@/lib/tasks/money-legal';
 import { formatMonthDay, formatTime, localClock, localDateKey } from '@/lib/util/time';
+import { isMoneyLegalTask, recordNeedsProof } from './money-legal-records';
 import { normalizeTitle } from './task-ingest';
 
 /**
@@ -20,7 +22,9 @@ import { normalizeTitle } from './task-ingest';
  * evidence: a Reopen, an Undo, a snooze or creating the task by hand all
  * outrank older evidence. Every close is a `task.auto_completed` audit row
  * with no user, so there is no migration, and the Completed tab shows where
- * each one came from.
+ * each one came from. A money or legal task closes only on a close that
+ * states its proof; any other close is kept beside it as a needs-proof claim
+ * for a person (see money-legal-records.ts).
  */
 
 export const TASK_CLOSE_MARKER = 'TASK_CLOSE_V1';
@@ -218,11 +222,11 @@ export function collectTaskCloses(
 
 /* --------------------------------------------------------- the person wins */
 
-const HUMAN_TOUCH_ACTIONS = ['task.created', 'task.updated'];
+const HUMAN_TOUCH_ACTIONS = ['task.created', 'task.updated', 'task.edited'];
 
 /**
- * The last time a person changed this task: the newest `task.created` or
- * `task.updated` audit row with a user. For a task a person created with no
+ * The last time a person changed this task: the newest `task.created`,
+ * `task.updated` or `task.edited` audit row with a user. For a task a person created with no
  * such row, its `created_at`. Null for a suggested task nobody has touched.
  */
 export async function latestHumanTaskTouch(
@@ -278,7 +282,8 @@ export type TaskCloseSkip =
   | 'not_open'
   | 'person_newer'
   | 'evidence_too_old'
-  | 'already_applied';
+  | 'already_applied'
+  | 'needs_proof';
 
 /** The time a close counts from: its evidence, but never later than the post that carried it. */
 export function evidenceTime(evidenceAt: string, postedAt: string | null): number {
@@ -348,6 +353,11 @@ export interface AutoCloseMetadata {
  * guard holds even if a Reopen's audit row was lost. There is no conditional
  * update in the store; the window between the read and the write is
  * milliseconds.
+ *
+ * A money or legal task is the exception: it closes only when the close
+ * states its proof (a reason and a sent email). Otherwise the task stays as
+ * it is and the close is kept as a needs-proof claim, which the Money & legal
+ * tab shows until a person closes it with proof or says it is not done.
  */
 export async function writeAutoClose(
   store: DataStore,
@@ -355,11 +365,14 @@ export async function writeAutoClose(
   taskId: string,
   metadata: AutoCloseMetadata,
   now: Date,
-): Promise<'closed' | 'not_open' | 'already_applied'> {
+): Promise<'closed' | 'not_open' | 'already_applied' | 'needs_proof'> {
   const fresh = (await store.get('tasks', organizationId, taskId)) as Task | null;
   if (!fresh || !isOpenOrSnoozed(fresh)) return 'not_open';
   if (await alreadyApplied(store, organizationId, taskId, metadata.evidence_id)) {
     return 'already_applied';
+  }
+  if (!autoCloseStatesProof(metadata) && (await isMoneyLegalTask(store, organizationId, fresh))) {
+    return recordNeedsProof(store, organizationId, taskId, { ...metadata });
   }
   await store.update('tasks', organizationId, taskId, {
     status: 'complete',
@@ -407,10 +420,11 @@ function titleKey(title: string): string {
 
 /**
  * Matches each close to one task and applies it. By `task_id` when the task
- * exists and its title agrees, as stored or as the snapshot showed it (titles
- * never change here); otherwise by title, among open or snoozed *suggested*
- * tasks only, and only when exactly one matches. A task a person created
- * closes by id or not at all.
+ * exists and its title agrees, as stored or as the snapshot showed it;
+ * otherwise by title, among open or snoozed *suggested* tasks only, and only
+ * when exactly one matches. A task a person created closes by id or not at
+ * all. A person can edit a title, which is a touch of its own: a close still
+ * naming the old title is skipped, the safe way round.
  */
 export async function applyTaskCloses(
   store: DataStore,

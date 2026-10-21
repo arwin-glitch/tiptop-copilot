@@ -17,11 +17,42 @@ import {
  * share one reading of `?view=` and the grouping can be tested on its own.
  */
 
-export type TasksView = 'todo' | 'snoozed' | 'completed';
+export type TasksView = 'todo' | 'snoozed' | 'completed' | 'money';
 
-/** `?view=snoozed` or `?view=completed` opens that tab; anything else, or nothing, is To do. */
+/**
+ * `?view=snoozed`, `?view=completed` or `?view=money` (Money & legal) opens
+ * that tab; anything else, or nothing, is To do.
+ */
 export function readTasksView(value: string | null | undefined): TasksView {
-  return value === 'completed' || value === 'snoozed' ? value : 'todo';
+  return value === 'completed' || value === 'snoozed' || value === 'money' ? value : 'todo';
+}
+
+/**
+ * Whose tasks the lists show, from `?who=`: everyone (the bare URL), one
+ * person's id, or `none` for tasks nobody is assigned to.
+ */
+export type TasksWho = 'all' | 'none' | (string & {});
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function readTasksWho(value: string | null | undefined): TasksWho {
+  if (value === 'none') return 'none';
+  return value && UUID_RE.test(value) ? value.toLowerCase() : 'all';
+}
+
+/** `search` with the person written in; everyone is the bare URL. Other keys are kept. */
+export function withTasksWho(search: string, who: TasksWho): URLSearchParams {
+  const next = new URLSearchParams(search);
+  if (who === 'all') next.delete('who');
+  else next.set('who', who);
+  return next;
+}
+
+/** Whether a task assigned to `assignedTo` is on the list for `who`. */
+export function matchesWho(assignedTo: string | null, who: TasksWho): boolean {
+  if (who === 'all') return true;
+  if (who === 'none') return !assignedTo;
+  return assignedTo?.toLowerCase() === who;
 }
 
 /** `search` with the view written in; To do is the bare URL. Other keys are kept. */

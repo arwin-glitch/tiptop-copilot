@@ -8,6 +8,7 @@ import { CalendarClock, Handshake, Zap, type LucideIcon } from 'lucide-react';
 import { restoreTaskAction, updateTaskStatusAction } from '@/app/actions';
 import { useReportRefresh } from '@/components/shell/refresh-status';
 import { useTaskActionHost } from '@/components/tasks/task-action-host';
+import { ProofDialog } from '@/components/tasks/task-dialogs';
 import { Card } from '@/components/ui/card';
 import type { Glance, GlanceBucket, GlanceCard, GlanceItem } from '@/lib/tasks/glance';
 import type { TaskRestore } from '@/lib/tasks/tasks-view';
@@ -70,7 +71,9 @@ function without<T>(set: ReadonlySet<T>, id: T): Set<T> {
  * steps aside while today's Top priorities is on the page.
  *
  * The server's answer to the tick already leaves the task out, so a ticked
- * row is held here, in its old place, until its fold has played.
+ * row is held here, in its old place, until its fold has played. A money or
+ * legal task closes on proof: its tick comes back unticked and the proof
+ * dialog opens instead.
  */
 export function TodayGlance({
   glance,
@@ -87,6 +90,7 @@ export function TodayGlance({
   const reportRefresh = useReportRefresh(pending);
   const router = useRouter();
   const host = useTaskActionHost();
+  const [proofFor, setProofFor] = React.useState<GlanceItem | null>(null);
 
   const forget = React.useCallback((id: string) => {
     setDone((prev) => without(prev, id));
@@ -109,7 +113,8 @@ export function TodayGlance({
       const result = await updateTaskStatusAction(item.id, 'complete');
       if (!result.ok) {
         forget(item.id);
-        toast.error(result.error?.message ?? 'Could not tick that off');
+        if (result.error?.code === 'proof_required') setProofFor(item);
+        else toast.error(result.error?.message ?? 'Could not tick that off');
         return;
       }
       toast.success('Done', {
@@ -164,6 +169,40 @@ export function TodayGlance({
         ))}
       </div>
       <p className="mt-2 text-xs text-[var(--fg-subtle)]">{footnote}</p>
+      <ProofDialog
+        open={proofFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setProofFor(null);
+        }}
+        taskId={proofFor?.id ?? ''}
+        title={proofFor?.fullTitle}
+        run={(fn, success, after) => {
+          const item = proofFor;
+          reportRefresh();
+          startTransition(async () => {
+            const result = await fn();
+            if (!result.ok || !item) {
+              after(false);
+              toast.error(result.error?.message ?? 'Could not close it');
+              return;
+            }
+            after(true);
+            toast.success(success, {
+              description: item.label,
+              duration: UNDO_MS,
+              action: {
+                label: 'Undo',
+                onClick: () =>
+                  host.run(() => restoreTaskAction(item.id, BACK_OPEN), {
+                    success: 'Back on your list',
+                    error: 'Could not undo',
+                  }),
+              },
+            });
+            router.refresh();
+          });
+        }}
+      />
     </section>
   );
 }

@@ -4,7 +4,7 @@ import { listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
-import type { OrganizationMember, Task } from '@/lib/types/domain';
+import type { AuditEvent, OrganizationMember, Task } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { unwrapSlackText } from '@/lib/util/slack-text';
 import { DEFAULT_TIMEZONE, wallTimeToUtc } from '@/lib/util/time';
@@ -128,6 +128,15 @@ export async function ingestTasks(
   // Every page: a title past the API's 1,000th row must still count as known.
   const known = (await listAllPages(store, 'tasks', organizationId)) as Task[];
   const seen = new Set(known.map((t) => normalizeTitle(t.title)));
+  // A title a person edited away still counts as known, or the routine would
+  // add the old wording back beside the edited task.
+  const edits = (await listAllPages(store, 'audit_events', organizationId, {
+    eq: { action: 'task.edited', entity_type: 'task' },
+  })) as AuditEvent[];
+  for (const edit of edits) {
+    const previous = edit.metadata?.previous_title;
+    if (typeof previous === 'string' && previous.trim()) seen.add(normalizeTitle(previous));
+  }
   const result: TaskIngestResult = { created: [], existing: [] };
 
   for (const input of payload.tasks) {

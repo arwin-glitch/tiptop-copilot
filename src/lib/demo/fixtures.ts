@@ -100,6 +100,13 @@ export const DEMO_USER = {
   name: 'Nick Tippmann',
 } as const;
 
+/** A second, invented person on the team: tasks can be assigned to them. */
+export const DEMO_TEAMMATE = {
+  id: ID.userTeammate,
+  email: 'riley@fund.demo',
+  name: 'Riley Moreno',
+} as const;
+
 function iso(d: Date): string {
   return d.toISOString();
 }
@@ -351,6 +358,13 @@ export function buildDemoDb(now: Date = new Date()): DemoDb {
       role: 'owner',
       created_at: daysAgo(now, 400),
     },
+    {
+      id: `${ORG}-m2`,
+      organization_id: ORG,
+      user_id: DEMO_TEAMMATE.id,
+      role: 'member',
+      created_at: daysAgo(now, 200),
+    },
   ];
 
   const user_profiles: UserProfile[] = [
@@ -362,6 +376,16 @@ export function buildDemoDb(now: Date = new Date()): DemoDb {
       timezone: 'America/Chicago',
       theme: 'system',
       created_at: daysAgo(now, 400),
+      updated_at: nowIso,
+    },
+    {
+      id: DEMO_TEAMMATE.id,
+      email: DEMO_TEAMMATE.email,
+      full_name: DEMO_TEAMMATE.name,
+      avatar_url: null,
+      timezone: 'America/Chicago',
+      theme: 'system',
+      created_at: daysAgo(now, 200),
       updated_at: nowIso,
     },
   ];
@@ -1739,6 +1763,38 @@ runway_months,19,16,14`,
       completed_at: hoursAgo(now, 26),
       updated_at: hoursAgo(now, 26),
     },
+    // Money & legal (matched by the keyword rules): untouched for ten days, so
+    // going stale. No due date, so neither is on Today's "Tasks due".
+    {
+      ...task(
+        ID.taskSideLetter,
+        'Countersign the Quarrystone side letter',
+        daysAgo(now, 0),
+        null,
+        null,
+        'The final draft came back from their side; it needs the GP signature.',
+      ),
+      due_at: null,
+      created_at: daysAgo(now, 10),
+      updated_at: daysAgo(now, 10),
+    },
+    // The task-closer called this done on a booked call, which proves no
+    // wire: its audit row below keeps it open as "needs proof".
+    {
+      ...task(
+        ID.taskWireCheck,
+        'Confirm the Tidewell pro-rata wire went out',
+        daysAgo(now, 0),
+        null,
+        null,
+        'Suggested from the inbox: the founders asked when the money lands.',
+      ),
+      due_at: null,
+      source: 'suggested',
+      assigned_to: DEMO_TEAMMATE.id,
+      created_at: daysAgo(now, 3),
+      updated_at: daysAgo(now, 3),
+    },
   ];
 
   const audit_events: AuditEvent[] = [
@@ -1762,6 +1818,27 @@ runway_months,19,16,14`,
       },
       ip_hash: null,
       created_at: hoursAgo(now, 26),
+    },
+    {
+      id: ID.auditWireNeedsProof,
+      organization_id: ORG,
+      user_id: null,
+      action: 'task.needs_proof',
+      entity_type: 'task',
+      entity_id: ID.taskWireCheck,
+      metadata: {
+        source: 'task-closer',
+        match: 'title',
+        kind: 'payment',
+        evidence_type: 'calendar_event',
+        evidence_id: 'demo-calendar-wire-call',
+        thread_id: null,
+        evidence_at: hoursAgo(now, 22),
+        reason: 'A call about the wire is booked for Thursday.',
+        slack_ts: null,
+      },
+      ip_hash: null,
+      created_at: hoursAgo(now, 20),
     },
   ];
 

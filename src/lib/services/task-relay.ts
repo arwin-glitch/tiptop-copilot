@@ -226,8 +226,9 @@ function iso(value: string | undefined): string {
 
 /**
  * A fingerprint of what /tasks shows, for the open-tab watcher: task count,
- * the newest change, the newest auto-close, how many snoozes have woken and
- * the newest run record. Hashed, so it carries no task content.
+ * the newest change, the newest auto-close or needs-proof claim, how many
+ * snoozes have woken and the newest run record. Hashed, so it carries no task
+ * content.
  */
 export async function readTasksVersion(
   store: DataStore,
@@ -245,7 +246,8 @@ export async function readTasksVersion(
     store.list(
       'audit_events',
       organizationId,
-      { eq: { action: 'task.auto_completed' } },
+      // A needs-proof claim changes the Money & legal tab the same way a close changes Completed.
+      { in: { action: ['task.auto_completed', 'task.needs_proof'] } },
       { orderBy: [{ field: 'created_at', direction: 'desc' }], limit: 1 },
     ) as Promise<AuditEvent[]>,
     listAllPages(store, 'tasks', organizationId, { eq: { status: 'snoozed' } }) as Promise<Task[]>,

@@ -333,8 +333,9 @@ describe('readTodayGlance on the demo workspace', () => {
       timeZone: harness.auth.profile.timezone,
     });
 
-    // The two overdue fixture tasks lead Do now, oldest first.
-    expect(glance.now.total).toBe(7);
+    // The two overdue fixture tasks lead Do now, oldest first. Its nine include
+    // the two undated money and legal tasks.
+    expect(glance.now.total).toBe(9);
     expect(glance.now.items).toHaveLength(4);
     expect(glance.now.items.slice(0, 2).map((i) => [i.label, i.overdue])).toEqual([
       ['Girder AI: reference calls', true],
@@ -397,7 +398,7 @@ describe('readTodayGlance on the demo workspace', () => {
       'upcoming',
     ]);
 
-    // No list (Slack not set up, or a failed read): all three, Do now with its seven.
+    // No list (Slack not set up, or a failed read): all three, Do now with its nine.
     for (const fallback of [read('not_configured'), read('error'), null]) {
       const none = todayLead(fallback, clock);
       expect(none.priorities).toBeNull();
@@ -407,7 +408,7 @@ describe('readTodayGlance on the demo workspace', () => {
         'upcoming',
       ]);
     }
-    expect(glance.now.total).toBe(7);
+    expect(glance.now.total).toBe(9);
   });
 
   it('renders three cards across with the overdue marks, or two without Do now', async () => {
@@ -450,6 +451,6 @@ describe('readTodayGlance on the demo workspace', () => {
       timeZone: harness.auth.profile.timezone,
     });
     expect(glance.upcoming.total).toBe(3);
-    expect(glance.now.total).toBe(8);
+    expect(glance.now.total).toBe(10);
   });
 });

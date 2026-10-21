@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/session';
 import { generateDailyBrief } from '@/lib/services/brief';
 import { ask } from '@/lib/services/chat';
@@ -31,7 +32,22 @@ import {
   setUpdateStatus,
 } from '@/lib/services/portfolio';
 import { deleteDocument, importNetworkCsv, uploadDocument } from '@/lib/services/knowledge';
-import { createTask, restoreTask, snoozeTask, updateTaskStatus } from '@/lib/services/tasks';
+import {
+  assignTask,
+  createTask,
+  editTask,
+  listTaskPeople,
+  restoreTask,
+  snoozeTask,
+  updateTaskStatus,
+} from '@/lib/services/tasks';
+import {
+  completeTaskWithProof,
+  dismissNeedsProof,
+  setMoneyLegal,
+} from '@/lib/services/money-legal';
+import type { TaskProof } from '@/lib/tasks/money-legal';
+import type { TaskPerson } from '@/lib/tasks/task-people';
 import type { TaskRestore } from '@/lib/tasks/tasks-view';
 import { setTaskGlance, type GlancePatch } from '@/lib/services/task-glance';
 import { updateThesis, type ThesisPatch } from '@/lib/services/thesis';
@@ -180,6 +196,132 @@ export async function restoreTaskAction(taskId: string, prev: TaskRestore): Prom
   const result = await restoreTask(auth, taskId, prev);
   if (!result.ok) return fail(result.error);
   revalidatePath('/today');
+  revalidatePath('/tasks');
+  return succeed();
+}
+
+/* ----------------------------------------------------- task basics, money */
+
+const TASK_ID = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+const BAD_TASK = { code: 'invalid_input', message: 'That task is not valid.' } as const;
+/** How far ahead a chosen snooze may go: a year and a little. */
+const MAX_SNOOZE_MS = 400 * 86_400_000;
+
+function revalidateTasks(): void {
+  revalidatePath('/today');
+  revalidatePath('/tasks');
+}
+
+const EDIT_TASK_SCHEMA = z.object({
+  title: z.string().max(1000),
+  detail: z.string().max(10_000).nullable(),
+  dueAt: z.string().max(40).nullable(),
+});
+
+/** A person's edit of a task's title, detail and due date. */
+export async function editTaskAction(
+  taskId: string,
+  input: { title: string; detail: string | null; dueAt: string | null },
+): Promise<ActionResult> {
+  const auth = await requireAuth();
+  const id = TASK_ID.safeParse(taskId);
+  const parsed = EDIT_TASK_SCHEMA.safeParse(input);
+  if (!id.success || !parsed.success) return fail(BAD_TASK);
+  const result = await editTask(auth, id.data, parsed.data);
+  if (!result.ok) return fail(result.error);
+  revalidateTasks();
+  return succeed();
+}
+
+/**
+ * Deletes a task: it leaves every list, and its toast's Undo puts it back.
+ * The row stays, cancelled, so a suggestion with the same title is never
+ * added again.
+ */
+export async function deleteTaskAction(taskId: string): Promise<ActionResult> {
+  const auth = await requireAuth();
+  const id = TASK_ID.safeParse(taskId);
+  if (!id.success) return fail(BAD_TASK);
+  const result = await updateTaskStatus(auth, id.data, 'cancelled');
+  if (!result.ok) return fail(result.error);
+  revalidateTasks();
+  return succeed();
+}
+
+/** Snooze until a chosen time: later than now, and no more than a year and a little ahead. */
+export async function snoozeTaskUntilAction(taskId: string, until: string): Promise<ActionResult> {
+  const auth = await requireAuth();
+  const id = TASK_ID.safeParse(taskId);
+  const at = z.string().max(40).safeParse(until);
+  if (!id.success || !at.success) return fail(BAD_TASK);
+  const ms = Date.parse(at.data);
+  const now = Date.now();
+  if (Number.isNaN(ms) || ms <= now) {
+    return fail({ code: 'invalid_input', message: 'Pick a date after today.' });
+  }
+  if (ms > now + MAX_SNOOZE_MS) {
+    return fail({ code: 'invalid_input', message: 'Pick a date within the next year.' });
+  }
+  const result = await snoozeTask(auth, id.data, new Date(ms).toISOString());
+  if (!result.ok) return fail(result.error);
+  revalidateTasks();
+  return succeed();
+}
+
+/** Who a task is for: someone on the team, or no one (null). */
+export async function assignTaskAction(
+  taskId: string,
+  userId: string | null,
+): Promise<ActionResult> {
+  const auth = await requireAuth();
+  const id = TASK_ID.safeParse(taskId);
+  const to = TASK_ID.nullable().safeParse(userId);
+  if (!id.success || !to.success) return fail(BAD_TASK);
+  const result = await assignTask(auth, id.data, to.data);
+  if (!result.ok) return fail(result.error);
+  revalidateTasks();
+  return succeed();
+}
+
+/** The organization's members, for the assign menu and the proof dialog. */
+export async function listTaskPeopleAction(): Promise<ActionResult<TaskPerson[]>> {
+  const auth = await requireAuth();
+  return succeed(await listTaskPeople(auth.organizationId));
+}
+
+/** Puts a task on the Money & legal tab, or takes it off, whatever the keyword rules say. */
+export async function setMoneyLegalAction(taskId: string, on: boolean): Promise<ActionResult> {
+  const auth = await requireAuth();
+  const id = TASK_ID.safeParse(taskId);
+  if (!id.success || typeof on !== 'boolean') return fail(BAD_TASK);
+  const result = await setMoneyLegal(auth, id.data, on);
+  if (!result.ok) return fail(result.error);
+  revalidatePath('/tasks');
+  return succeed();
+}
+
+/** Closes a task on proof: a link, or who confirmed it, with an optional note. */
+export async function completeTaskWithProofAction(
+  taskId: string,
+  proof: TaskProof,
+): Promise<ActionResult> {
+  const auth = await requireAuth();
+  const id = TASK_ID.safeParse(taskId);
+  if (!id.success) return fail(BAD_TASK);
+  // The proof's shape is checked by the service's schema, not trusted.
+  const result = await completeTaskWithProof(auth, id.data, proof);
+  if (!result.ok) return fail(result.error);
+  revalidateTasks();
+  return succeed();
+}
+
+/** "Not done": a money or legal task the auto-check called done without proof stays open. */
+export async function dismissNeedsProofAction(taskId: string): Promise<ActionResult> {
+  const auth = await requireAuth();
+  const id = TASK_ID.safeParse(taskId);
+  if (!id.success) return fail(BAD_TASK);
+  const result = await dismissNeedsProof(auth, id.data);
+  if (!result.ok) return fail(result.error);
   revalidatePath('/tasks');
   return succeed();
 }

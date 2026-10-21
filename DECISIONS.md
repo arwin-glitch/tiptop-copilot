@@ -1491,3 +1491,69 @@ keeps the in-app and bridge answers from drifting apart.
   "who are you?" and "am I talking to a real person?" in Ask Arwin to check.
 - Demo mode's canned answers (`src/lib/ai/mock.ts`) carry no identity and
   are unchanged.
+
+### D-060 — Task basics, and money and legal tasks that close only on proof
+
+**Context.** Tasks could not be edited, deleted, snoozed to a chosen day or
+assigned (the snooze was fixed at three days and `tasks.assigned_to` had no
+UI). Separately, money and legal items (a wire, a signature, a filing, an
+invoice) had no home of their own: a one-shot push alert fired once, and a
+task about one closed like any other, including automatically, on evidence
+that did not prove the money moved or the document was signed. Both were
+built together in one branch.
+
+**Decision.**
+
+- **Edit, delete, snooze until, assign**, from a "More actions" menu on each
+  row on Tasks (To do, Snoozed, Money & legal) and on Today's "Tasks due"
+  (Top priorities is untouched). Mark complete and the three-day snooze stay
+  where they were. An edit is `task.edited`, a person's touch (added to the
+  task-closer's touch actions), keeping the old title so the suggest routine
+  does not re-add it. Delete sets `status = 'cancelled'` with the usual Undo
+  toast: off every list and out of search, but the row stays, so a
+  suggestion with the same title is never added again. A chosen snooze wakes
+  at 9am, browser time, on the picked day, within a year. Assigning writes
+  `assigned_to` (a member of the organization, or no one) plus
+  `task.assigned`, which is not a touch: handing a task over says nothing
+  about whether it is done. To do and Money & legal filter by person
+  (`?who=`, in the browser, like the tabs). People are the organization's
+  members by their own profile names; no name is in code.
+- **Money & legal** is a fourth tab (`?view=money`, after Completed so the
+  existing tab order holds). A task is on it when a person marked it from
+  its menu (`task.money_legal_set`, newest wins), or else when its title or
+  detail matches the plain keyword rules in `lib/tasks/money-legal.ts`
+  (wire, capital call, distribution, K-1, tax forms, filing, signature or
+  e-sign, SAFE, side letter, subscription docs, SPV, term sheet, invoice,
+  payment, bank, contract, NDA, legal). The row says which rule matched.
+  An open item quiet for seven days or more (by `updated_at`) is marked
+  "Going stale"; a snoozed one is not, until it wakes. No mailbox is read:
+  the routines' all-folder sweep still feeds tasks, and the tab only keeps
+  them until really closed.
+- **Closing needs proof.** Mark complete on a money or legal task opens a
+  dialog for a web link (the confirmation email, a signed copy, a receipt)
+  or which team member confirmed it, plus an optional note
+  (`task.proof_recorded`, then the completion). The server refuses a plain
+  completion with `proof_required`, so a page that does not know the task is
+  money or legal (a deal page, Today's glance tick) opens the same dialog.
+  Completed and the tab show what each was closed on; Undo reopens it and
+  the old proof stops counting.
+- **Automatic closes.** In the one write the task-closer and the reply check
+  share, a money or legal task closes only on a close that states its
+  proof: a reason and a sent email, whose reason then shows as the proof.
+  Any other close (a booked meeting, no reason) leaves the task open and is
+  kept as a `task.needs_proof` claim, once per evidence id. The tab lists
+  those first, with "Close with proof" and "Not done"; "Not done" is a
+  person's touch, so the same evidence never claims the task again.
+- **No migration.** Everything new is an audit row beside the task, as in
+  D-052 and D-053, so nothing waits on a database change and every read
+  degrades to "no money or legal marks" rather than an error.
+
+**Known limits.**
+
+- The keyword rules will miss some items and catch a few that are not; the
+  per-task toggle is the fix either way, and the rule list is short enough
+  to read.
+- "Going stale" counts any change to the row (an edit, a snooze, an
+  assignment) as activity; a marked-only change (the toggle, a proof) is not.
+- The task-closer's snapshot does not carry the money or legal flag yet, so
+  the routine itself cannot tell; the app decides when the close arrives.

@@ -14,6 +14,8 @@ function id(n: number): string {
 export const DEMO_IDS = {
   org: id(1),
   user: id(2),
+  // A second person on the team, so tasks can be assigned and filtered.
+  userTeammate: id(3),
 
   // Deals
   dealVetrix: id(100),
@@ -86,6 +88,10 @@ export const DEMO_IDS = {
   taskGirderOnboarding: id(905),
   taskLpTimeline: id(906),
   auditLpTimelineClosed: id(907),
+  // Money and legal tasks (Tasks → Money & legal)
+  taskSideLetter: id(908),
+  taskWireCheck: id(909),
+  auditWireNeedsProof: id(910),
 
   // Thesis
   thesisV1: id(1000),
