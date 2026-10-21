@@ -64,6 +64,10 @@ Pure logic, no store, no harness.
 | `updates-render.test.ts` | Rendered Updates markup: no script, no handler, no `javascript:`, `rel`/`target` on every link; what each card keeps in view |
 | `updates-service.test.ts` | The Slack reader: access mapping, pagination, replies, cache, throttle, Retry-After, dropping a channel whose access was withdrawn, a post the parsers cannot read, and that demo mode makes no network calls |
 | `updates-refresh-action.test.ts` | The Refresh action: sign-in first, six a minute per user, nothing read while sign-in is unrestricted |
+| `calendar-grid.test.ts` | The new calendar views' arithmetic: Day/Week/Month ranges, stepping, labels, DST-safe placement, side-by-side overlaps, month packing with "+N more" |
+| `calendar-colors.test.ts` | Colours from Google: an event's colorId, else its calendar's; the palette and its names |
+| `calendar-edit-rules.test.ts` | Who may change an event, the guests prompt every time guests are involved, only Send becomes sendUpdates "all", recurring scopes, what a change sends |
+| `calendar-write-boundary.test.ts` | Only the Calendar tab's edit route reaches a calendar write; the readers, pings and parity check name none; nothing defaults to emailing guests |
 
 `env-boundary.test.ts` is worth singling out: it walks every file in `src/`,
 finds the ones marked `'use client'`, and asserts none imports a server-only
@@ -89,6 +93,10 @@ the model provider, and that one is deterministic rather than canned.
 | `authorization.test.ts` | Organization isolation across reads, writes, id lookups and tools |
 | `integration-disconnect.test.ts` | Token encryption, revoke-and-forget under every failure mode |
 | `portfolio.test.ts` | Update classification, the network-contact gate, CSV import |
+| `calendar-current-reader-pin.test.ts` | The day list reads exactly what it read before the new views (a pin) |
+| `calendar-pings-pin.test.ts` | The meeting pings' request and verdicts are unchanged (a pin) |
+| `calendar-range.test.ts` | The new views' reader over the mock calendar and Google's pages: calendars, recurring instances, all-day, colours, verdicts, caching; the parity check; per-person settings |
+| `calendar-edit.test.ts` | Writes against the mock calendar: create with Meet and guests, Send vs Don't send, move, resize, move calendars, delete with and without cancellations, recurring scopes, refusals without the grant or on view-only events |
 
 ### The harness
 

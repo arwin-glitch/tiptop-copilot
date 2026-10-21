@@ -249,7 +249,12 @@ it is broken; see the table in [TESTING.md](TESTING.md) §1.
    has `check (sent = false)`, no `sendDraft()`). The only send path is the
    email session's Send button, behind the opt-in "Turn on sending" grant
    (`gmail.modify`, only in `send-scopes.ts`) and a person's tap. Tests pin that
-   only the email session and Settings import `gmail-send.ts`.
+   only the email session and Settings import `gmail-send.ts`. Calendar
+   changes are the same kind of tap on the Calendar tab, behind the opt-in
+   "Turn on calendar editing" grant (`calendar.events`, also only in
+   `send-scopes.ts`); guests are emailed only when the person picks Send in
+   the prompt, and a test pins that only the Calendar tab's edit route imports
+   `lib/calendar/write.ts` (D-065).
 7. **Untrusted content is fenced, never obeyed.** Email/attachment/document/web
    text goes through `fenceUntrusted()` with `UNTRUSTED_CONTENT_RULE`. Detection
    *annotates*, never hides — a false positive must not make an email invisible.

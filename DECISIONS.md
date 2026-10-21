@@ -1770,3 +1770,66 @@ built together in one branch.
   assignment) as activity; a marked-only change (the toggle, a proof) is not.
 - The task-closer's snapshot does not carry the money or legal flag yet, so
   the routine itself cannot tell; the app decides when the close arrives.
+
+### D-065 — Calendar: Day, Week and Month views behind a switch, editing behind its own grant
+
+**Context.** The Calendar tab showed one day at a time, seven days ahead, and
+could change nothing. Arwin asked for Google Calendar's way of working (any
+date, Day/Week/Month, Today, back and forward, drag to create, overlaps side
+by side, edit, move and delete with guests, a Meet link) while keeping the
+Meeting/Block verdict and the meeting context, with Google's own colours and
+names, and with two rules: what the page reads must not change until a check
+on real data says the new reader shows the same events, and nothing may touch
+the real calendar or email anyone while it is built.
+
+**Decision.**
+
+- **Behind a switch.** The day list stays the default. "New calendar
+  (preview)" opens the new views (`?view=day|week|month&date=`) and is
+  remembered per person, with the view and the calendar toggles, as a
+  `calendar.prefs_set` audit row (newest wins, no migration). `?view=list`
+  or an old `?day=` link is the day list.
+- **A parity check before it can be the default.** Diagnostics › Event parity
+  reads each day exactly as the day list does (`readCalendarDayEvents`, split
+  out of `readCalendarDay` unchanged and pinned by a test) and the same range
+  through the new reader, for the main calendar, and lists every missing,
+  extra or changed event (title, start, end, all-day, verdict). Read-only.
+- **One reader for the views** (`lib/calendar/range-reader.ts`): one
+  events.list per visible calendar per range, all pages, single events, the
+  calendar list and Google's colours cached for minutes and a range for a
+  minute. Each event gets `classifyMeeting(toMeetingEvent(...))`, the pings'
+  own verdict; holds stay blocks, tagged Hold. `listMeetingEvents` and the
+  pings are untouched and pinned.
+- **Google's colours and names.** An event's colour is its colorId's in
+  Google's event palette, else its calendar's; a calendar's name is the
+  person's own name for it, else Google's. Every calendar on the list (not
+  Google's hidden ones), main first, starting from Google's own ticks.
+- **Editing is its own opt-in.** "Turn on calendar editing" asks for
+  `calendar.events` (event-level only, never the full calendar scope), named
+  in `send-scopes.ts` beside `gmail.modify`, through the same
+  include-granted-scopes flow as sending. Without it the views are read-only
+  and say how to turn it on. `lib/calendar/write.ts` refuses unless the grant
+  is there, the calendar is owner/writer, and the event is this account's or
+  its organizer lets guests change it. Only the edit route imports it (a test).
+- **Guests are asked every time.** Google's question ("Send … emails to
+  guests?", Send / Don't send / Cancel) comes up for every change that
+  involves guests: new guests, any change to an event with guests (a drag
+  too), a delete. Every request names `notify`; only `send` becomes
+  sendUpdates `all`. Nothing defaults to sending.
+- **Recurring events** offer "This event" and "All events". "This and
+  following" is left to Google Calendar: splitting a series correctly
+  (its rule, counts, exceptions) is easy to get wrong on a real calendar.
+  A Meet link can be added but not removed here; one instance of a series
+  cannot move to another calendar (Google does not allow it either).
+- **Demo and tests use a mock calendar** (`lib/calendar/mock-calendar.ts`):
+  fictional calendars and events in memory that answer like Google and
+  record every write with its sendUpdates and conference data.
+
+**Known limits.**
+
+- Google's API returns its classic palette; Google Calendar's web app can
+  draw the same colorId in its newer "modern" shade.
+- Weeks start on Sunday (Google's US default), not the account's own setting.
+- The parity check in demo mode compares the demo's synced rows with the mock
+  calendar, so it only proves the plumbing; the real proof is running it
+  against Nick's calendar.

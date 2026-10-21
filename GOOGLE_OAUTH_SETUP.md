@@ -27,6 +27,18 @@ sends it from their own client.
 `gmail.readonly` is a **restricted** scope in Google's classification. That has
 consequences for verification — see §6.
 
+Two write scopes exist, each asked for only when a person turns it on, on top
+of the read scopes, and both named only in `src/lib/google/send-scopes.ts`:
+
+```
+https://www.googleapis.com/auth/gmail.modify      # Settings › "Turn on sending"
+https://www.googleapis.com/auth/calendar.events   # "Turn on calendar editing"
+```
+
+If the consent screen lists its scopes, add these two there as well, or Google
+will refuse the opt-in. `calendar.events` changes events only; it cannot share,
+create or delete a calendar.
+
 ---
 
 ## 1. Create the project
