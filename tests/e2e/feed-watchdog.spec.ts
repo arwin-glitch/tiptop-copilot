@@ -68,6 +68,10 @@ test('Diagnostics keeps its setup report and puts the feeds one click away', asy
   await expect(feeds.locator('li[data-feed="portfolio-adds"]')).toContainText(
     'normal when there was nothing new',
   );
+  await expect(feeds.locator('li[data-feed="meeting-notes"]')).toContainText('Running');
+  await expect(feeds.locator('li[data-feed="lp-update"]')).toContainText(
+    'normal for a feed that runs less often than that',
+  );
 
   // Back returns to the setup report.
   await page.goBack();
