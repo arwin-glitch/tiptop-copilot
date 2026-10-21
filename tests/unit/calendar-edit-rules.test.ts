@@ -15,6 +15,7 @@ import {
   RECURRING_SCOPES,
   scopeTarget,
   sendUpdatesFor,
+  seriesGuestList,
   shiftSeries,
   timesProblem,
   type EventDraft,
@@ -125,7 +126,7 @@ describe('repeating events', () => {
     expect(scopeTarget({ id: 'single' }, 'all')).toEqual({ eventId: 'single', series: false });
   });
 
-  it('moves a whole series by as much as the instance moved, at its new length', () => {
+  it('gives a whole series the instance’s new time of day, at its new length', () => {
     const shifted = shiftSeries(
       {
         start: { dateTime: '2026-10-05T15:00:00Z', timeZone: 'America/Chicago' },
@@ -138,13 +139,72 @@ describe('repeating events', () => {
       start: { dateTime: '2026-10-05T15:30:00.000Z', timeZone: 'America/Chicago' },
       end: { dateTime: '2026-10-05T17:00:00.000Z', timeZone: 'America/Chicago' },
     });
+    // An all-day series can change its length; its first day stays.
+    expect(
+      shiftSeries(
+        { start: { date: '2026-10-05' }, end: { date: '2026-10-06' } },
+        { start: { date: '2026-10-26' }, end: { date: '2026-10-27' } },
+        { start: { date: '2026-10-26' }, end: { date: '2026-10-28' } },
+      ),
+    ).toEqual({ start: { date: '2026-10-05' }, end: { date: '2026-10-07' } });
+  });
+
+  it('keeps the wall-clock time across a daylight-saving change between the series and the event', () => {
+    // First on Oct 26 at 10:00 CDT; the instance on Nov 9 is 10:00 CST and moves to 11:00 CST.
+    expect(
+      shiftSeries(
+        {
+          start: { dateTime: '2026-10-26T15:00:00Z', timeZone: 'America/Chicago' },
+          end: { dateTime: '2026-10-26T16:00:00Z', timeZone: 'America/Chicago' },
+        },
+        {
+          start: { dateTime: '2026-11-09T16:00:00Z', timeZone: 'America/Chicago' },
+          end: { dateTime: '2026-11-09T17:00:00Z', timeZone: 'America/Chicago' },
+        },
+        { start: { dateTime: '2026-11-09T17:00:00Z' }, end: { dateTime: '2026-11-09T18:00:00Z' } },
+      ),
+    ).toEqual({
+      start: { dateTime: '2026-10-26T16:00:00.000Z', timeZone: 'America/Chicago' },
+      end: { dateTime: '2026-10-26T17:00:00.000Z', timeZone: 'America/Chicago' },
+    });
+  });
+
+  it('refuses to move a whole series to another day: its repeat rule would fall out of step', () => {
+    // A weekly-on-Monday series dragged to Wednesday, timed and all-day.
+    expect(
+      shiftSeries(
+        {
+          start: { dateTime: '2026-10-26T15:00:00Z', timeZone: 'America/Chicago' },
+          end: { dateTime: '2026-10-26T16:00:00Z', timeZone: 'America/Chicago' },
+        },
+        {
+          start: { dateTime: '2026-11-02T16:00:00Z', timeZone: 'America/Chicago' },
+          end: { dateTime: '2026-11-02T17:00:00Z', timeZone: 'America/Chicago' },
+        },
+        { start: { dateTime: '2026-11-04T16:00:00Z' }, end: { dateTime: '2026-11-04T17:00:00Z' } },
+      ),
+    ).toBeNull();
     expect(
       shiftSeries(
         { start: { date: '2026-10-05' }, end: { date: '2026-10-06' } },
         { start: { date: '2026-10-26' }, end: { date: '2026-10-27' } },
         { start: { date: '2026-10-28' }, end: { date: '2026-10-30' } },
       ),
-    ).toEqual({ start: { date: '2026-10-07' }, end: { date: '2026-10-09' } });
+    ).toBeNull();
+  });
+
+  it('a guest edit for "All events" adds and removes only the people named on that event', () => {
+    const series = [
+      { email: 'nick@acme.example', self: true },
+      { email: 'pat@example.org' },
+      { email: 'lee@example.org' },
+    ];
+    // This event was changed on its own before: Lee is not on it.
+    const instance = [{ email: 'nick@acme.example', self: true }, { email: 'pat@example.org' }];
+    expect(
+      seriesGuestList(series, instance, ['pat@example.org', 'new.person@example.org'], OWN),
+    ).toEqual(['pat@example.org', 'lee@example.org', 'new.person@example.org']);
+    expect(seriesGuestList(series, instance, [], OWN)).toEqual(['lee@example.org']);
   });
 
   it('refuses to turn a whole series between all-day and timed', () => {

@@ -1,4 +1,4 @@
-import { addDaysToKey } from '@/lib/util/time';
+import { addDaysToKey, localClock, wallTimeToUtc } from '@/lib/util/time';
 import type {
   GCalAttendee,
   GCalDateTime,
@@ -235,39 +235,82 @@ export function scopeTarget(
 }
 
 /**
- * A series' new start and end when one of its instances moves for "All
- * events": the series shifts by the same amount and takes the new length.
- * Timed and all-day both; a switch between the two is refused, as that
- * changes every instance's shape and is clearer to make in Google Calendar.
+ * A series' new start and end when one of its instances changes time for
+ * "All events": every event takes the instance's new time of day (on the
+ * series' own first date, in the series' own time zone, so a daylight-saving
+ * change between the two cannot shift it by an hour) and its new length.
+ *
+ * Refused (null), to be done in Google Calendar instead:
+ * - a move to another day, which would need the series' repeat rule rewritten
+ *   (its weekday, its day of the month); moving only the start leaves the
+ *   rule and the first date out of step, which Google does not define;
+ * - a switch between all-day and timed, which changes every instance's shape.
  */
 export function shiftSeries(
   series: { start: GCalDateTime; end: GCalDateTime },
   before: { start: GCalDateTime; end: GCalDateTime },
   after: { start: GCalDateTime; end: GCalDateTime },
+  fallbackTimeZone?: string | null,
 ): { start: GCalDateTime; end: GCalDateTime } | null {
   const timed = (d: GCalDateTime) => Boolean(d.dateTime);
   if (timed(series.start) !== timed(after.start) || timed(before.start) !== timed(after.start)) {
     return null;
   }
   if (timed(after.start)) {
-    const delta = Date.parse(after.start.dateTime!) - Date.parse(before.start.dateTime!);
-    const length = Date.parse(after.end.dateTime!) - Date.parse(after.start.dateTime!);
-    const start = Date.parse(series.start.dateTime!) + delta;
-    if (!Number.isFinite(start) || !Number.isFinite(length) || length < 0) return null;
+    const zone =
+      series.start.timeZone || before.start.timeZone || after.start.timeZone || fallbackTimeZone;
+    const seriesStart = Date.parse(series.start.dateTime!);
+    const was = Date.parse(before.start.dateTime!);
+    const startAt = Date.parse(after.start.dateTime!);
+    const length = Date.parse(after.end.dateTime!) - startAt;
+    if (!zone || ![seriesStart, was, startAt, length].every(Number.isFinite) || length <= 0) {
+      return null;
+    }
+    const wasClock = localClock(new Date(was), zone);
+    const nowClock = localClock(new Date(startAt), zone);
+    if (wasClock.dateKey !== nowClock.dateKey) return null;
+    const first = localClock(new Date(seriesStart), zone).dateKey;
+    const start = wallTimeToUtc(first, nowClock.hour, nowClock.minute, zone);
+    if (!start) return null;
+    const timeZone = series.start.timeZone || zone;
     return {
-      start: { dateTime: new Date(start).toISOString(), timeZone: series.start.timeZone },
+      start: { dateTime: start.toISOString(), timeZone },
       end: {
-        dateTime: new Date(start + length).toISOString(),
-        timeZone: series.end.timeZone ?? series.start.timeZone,
+        dateTime: new Date(start.getTime() + length).toISOString(),
+        timeZone: series.end.timeZone || timeZone,
       },
     };
   }
+  if (!series.start.date || !before.start.date || before.start.date !== after.start.date) {
+    return null;
+  }
   const days = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
-  const delta = days(before.start.date!, after.start.date!);
   const length = days(after.start.date!, after.end.date!);
-  if (!Number.isFinite(delta) || !Number.isFinite(length) || length < 1) return null;
-  const start = addDaysToKey(series.start.date!, delta);
-  return { start: { date: start }, end: { date: addDaysToKey(start, length) } };
+  if (!Number.isFinite(length) || length < 1) return null;
+  return {
+    start: { date: series.start.date },
+    end: { date: addDaysToKey(series.start.date, length) },
+  };
+}
+
+/**
+ * The guests of a whole series after a guest edit made on one of its events
+ * for "All events": the series gains the people added there and loses the
+ * people removed there, and nobody else. The guests prompt names exactly
+ * those people, so a guest the series has but this one event does not (an
+ * event changed on its own before) is never dropped without being named.
+ */
+export function seriesGuestList(
+  seriesAttendees: readonly Pick<GCalAttendee, 'email' | 'self' | 'resource'>[] | undefined,
+  instanceAttendees: readonly Pick<GCalAttendee, 'email' | 'self' | 'resource'>[] | undefined,
+  guests: readonly string[],
+  ownEmails: readonly string[] = [],
+): string[] {
+  const before = guestEmails(instanceAttendees, ownEmails);
+  const after = cleanGuestList(guests);
+  const removed = new Set(before.filter((e) => !after.includes(e)));
+  const kept = guestEmails(seriesAttendees, ownEmails).filter((e) => !removed.has(e));
+  return [...kept, ...after.filter((e) => !before.includes(e) && !kept.includes(e))];
 }
 
 /* ----------------------------------------------------------- the draft */

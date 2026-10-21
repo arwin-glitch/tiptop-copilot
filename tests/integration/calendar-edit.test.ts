@@ -364,6 +364,73 @@ describe('changing an event', () => {
     });
   });
 
+  it('"All events" will not move a series to another day, and writes nothing', async () => {
+    // Monday Nov 9, 10:00 CST, dragged to Wednesday Nov 11: the weekly rule would fall out of step.
+    const res = await updateCalendarEvent(context(), {
+      calendarId: MOCK_TEAM_CALENDAR,
+      eventId: 'demoteampartners_20261109T160000Z',
+      scope: 'all',
+      notify: 'dont_send',
+      changes: {
+        allDay: false,
+        start: '2026-11-11T16:00:00.000Z',
+        end: '2026-11-11T17:00:00.000Z',
+        timeZone: TZ,
+      },
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.message).toMatch(/another day/);
+    expect(state.writes).toEqual([]);
+  });
+
+  it('refuses a series named by its own id, so "This event" can never reach the whole series', async () => {
+    const update = await updateCalendarEvent(context(), {
+      calendarId: MOCK_TEAM_CALENDAR,
+      eventId: 'demoteampartners',
+      scope: 'this',
+      notify: 'dont_send',
+      changes: { title: 'Renamed' },
+    });
+    const remove = await deleteCalendarEvent(context(), {
+      calendarId: MOCK_TEAM_CALENDAR,
+      eventId: 'demoteampartners',
+      scope: 'this',
+      notify: 'dont_send',
+    });
+    expect(update.ok).toBe(false);
+    expect(remove.ok).toBe(false);
+    expect(state.writes).toEqual([]);
+  });
+
+  it('"All events" guest edits add and remove only the people changed on that event', async () => {
+    // Riley comes off one event on its own first.
+    const instance = 'demoteampartners_20261102T160000Z';
+    await updateCalendarEvent(context(), {
+      calendarId: MOCK_TEAM_CALENDAR,
+      eventId: instance,
+      scope: 'this',
+      notify: 'dont_send',
+      changes: { guests: ['jordan@tiptop.demo'] },
+    });
+    // Then a guest is added on that event, for every event in the series.
+    const res = await updateCalendarEvent(context(), {
+      calendarId: MOCK_TEAM_CALENDAR,
+      eventId: instance,
+      scope: 'all',
+      notify: 'dont_send',
+      changes: { guests: ['jordan@tiptop.demo', 'pat@example.org'] },
+    });
+    expect(res.ok).toBe(true);
+    const write = state.writes[1]!;
+    expect(write).toMatchObject({ op: 'patch', eventId: 'demoteampartners', sendUpdates: 'none' });
+    expect(write.body?.attendees?.map((a) => a.email)).toEqual([
+      MOCK_OWN_EMAIL,
+      'jordan@tiptop.demo',
+      'riley@tiptop.demo',
+      'pat@example.org',
+    ]);
+  });
+
   it('will not move one instance of a series to another calendar', async () => {
     const res = await updateCalendarEvent(context(), {
       calendarId: MOCK_TEAM_CALENDAR,

@@ -231,7 +231,9 @@ export function CalendarViews(props: CalendarViewsProps) {
       askChoice<RecurringScope>({
         title: action === 'edit' ? 'Change a repeating event' : 'Delete a repeating event',
         description:
-          'Apply this to this event only, or to every event in the series. To change this and the following events, use Google Calendar.',
+          action === 'edit'
+            ? 'Apply this to this event only, or to every event in the series. To change this and the following events, or to move the whole series to another day, use Google Calendar.'
+            : 'Delete this event only, or every event in the series. To delete this and the following events, use Google Calendar.',
         choices: RECURRING_SCOPES.map((s) => ({
           value: s.value,
           label: s.label,

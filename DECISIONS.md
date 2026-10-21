@@ -1821,6 +1821,15 @@ the real calendar or email anyone while it is built.
   (its rule, counts, exceptions) is easy to get wrong on a real calendar.
   A Meet link can be added but not removed here; one instance of a series
   cannot move to another calendar (Google does not allow it either).
+  "All events" gives the series the event's new time of day and length, on
+  the series' own first date in its own time zone (so a daylight-saving
+  change between them cannot shift it an hour). Moving a whole series to
+  another day, or between all-day and timed, is refused and left to Google
+  Calendar: it needs the repeat rule rewritten (its weekday, its day of the
+  month), and moving only the first date leaves the two out of step. A guest
+  edit for "All events" adds and removes only the people changed on that
+  event (the ones the guests prompt named). A write naming a series by its
+  own id is refused, so "This event" can never reach the whole series.
 - **Demo and tests use a mock calendar** (`lib/calendar/mock-calendar.ts`):
   fictional calendars and events in memory that answer like Google and
   record every write with its sendUpdates and conference data.

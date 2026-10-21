@@ -11,6 +11,7 @@ import {
   modifyRule,
   scopeTarget,
   sendUpdatesFor,
+  seriesGuestList,
   shiftSeries,
   timesProblem,
   type EventDraft,
@@ -193,6 +194,11 @@ async function changeableTarget(
 > {
   const instance = await ctx.source.provider.getEvent(calendar.id, eventId);
   if (!instance.ok) return instance;
+  // The views list single events, so a series itself never reaches the page.
+  // Named directly, its id would turn "This event" into the whole series.
+  if (instance.value.recurrence?.length && !instance.value.recurringEventId) {
+    return err('invalid_input', 'Open one event of the series to change it.');
+  }
   const rule = modifyRule(instance.value, calendar.accessRole);
   if (!rule.canModify) return refuse(rule.reason ?? 'This event is view-only here.');
   const target = scopeTarget(instance.value, scope);
@@ -230,23 +236,39 @@ export async function updateCalendarEvent(
   if (!found.ok) return found;
   const { instance, existing, targetId, series } = found.value;
 
-  const { body, conferenceDataVersion } = draftToWrite(input.changes, {
+  // "All events": the series' guests change by who was added and removed on
+  // this event (what the guests prompt named), not by this event's whole list.
+  const changes: Partial<EventDraft> =
+    series && input.changes.guests !== undefined
+      ? {
+          ...input.changes,
+          guests: seriesGuestList(
+            existing.attendees,
+            instance.attendees,
+            input.changes.guests,
+            ctx.source.ownEmails,
+          ),
+        }
+      : input.changes;
+
+  const { body, conferenceDataVersion } = draftToWrite(changes, {
     existing,
     ownEmails: ctx.source.ownEmails,
     requestId: newId(),
   });
 
-  // "All events": the series moves by as much as this instance did.
+  // "All events": every event takes this one's new time of day and length.
   if (series && body.start && body.end) {
     const shifted = shiftSeries(
       { start: existing.start ?? {}, end: existing.end ?? {} },
       { start: instance.start ?? {}, end: instance.end ?? {} },
       { start: asDateTime(body.start), end: asDateTime(body.end) },
+      input.changes.timeZone ?? null,
     );
     if (!shifted) {
       return err(
         'invalid_input',
-        'Change a whole series between all-day and timed in Google Calendar.',
+        'Move a whole series to another day, or between all-day and timed, in Google Calendar. This event alone can still be changed here.',
       );
     }
     const timed = Boolean(shifted.start.dateTime);
