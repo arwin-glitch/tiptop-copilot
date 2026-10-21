@@ -23,6 +23,13 @@ import {
   waitBeforeNext,
   type DailyCapState,
 } from '@/lib/campaigns/limits';
+import {
+  fillMerge,
+  mergeValuesProblem,
+  peopleMissingFields,
+  type MergeValues,
+  type MissingPerson,
+} from '@/lib/campaigns/missing-fields';
 import { isEmail, normalizeEmail, parsePastedRecipients } from '@/lib/campaigns/recipients';
 import type { CampaignSender, OutgoingCampaignEmail } from '@/lib/campaigns/sender-types';
 import {
@@ -48,12 +55,13 @@ import {
   type TrackingTarget,
   type TrackingUrls,
 } from '@/lib/campaigns/tokens';
-import { statusFieldOf } from '@/lib/crm/fields';
+import { personCompanyOf, statusFieldOf } from '@/lib/crm/fields';
 import { isMissingColumnError, isMissingTableError } from '@/lib/db/missing-table';
 import { chunk, listAllPages } from '@/lib/db/paging';
 import type { DataStore, Filter, Row, TableName } from '@/lib/db/store';
 import { recordAudit, type AuditAction } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
+import { updatePersonContact, type PersonContactField } from '@/lib/services/crm';
 import type { StorageProvider } from '@/lib/storage/provider';
 import type {
   Campaign,
@@ -1454,6 +1462,8 @@ export interface CampaignReview {
   issues: string[];
   /** Merge fields some recipients have no value for, and how many: they see the fallback. */
   fallbacks: { field: MergeField; count: number }[];
+  /** Who those are, with what each lacks and their CRM contact: the review fills them in. */
+  missing: MissingPerson[];
   attachmentBytes: number;
   /** Echoed back by the confirmation, which refuses if anything changed since. */
   version: string;
@@ -1473,7 +1483,7 @@ export function reviewIssues(
   campaign: Campaign,
   recipients: readonly CampaignRecipient[],
   options: ReviewOptions = {},
-): Omit<CampaignReview, 'campaign' | 'version'> {
+): Omit<CampaignReview, 'campaign' | 'version' | 'missing'> {
   const issues: string[] = [];
   const pending = recipients.filter((r) => r.status === 'pending');
   if (!pending.length) issues.push('Add at least one recipient.');
@@ -1514,7 +1524,160 @@ export async function reviewCampaign(
       campaign,
       version: campaign.updated_at,
       ...reviewIssues(campaign, recipients, options),
+      missing: await missingPeople(store, organizationId, campaign, recipients),
     });
+  });
+}
+
+/**
+ * The pending recipients who lack a merge field the email uses, each with
+ * their CRM contact when they came from one. The contacts are a nicety: if
+ * the CRM cannot be read (its tables not there yet, say) everyone reads as
+ * unlinked, and the review still works.
+ */
+async function missingPeople(
+  store: DataStore,
+  organizationId: string,
+  campaign: Pick<Campaign, 'subject' | 'body_template'>,
+  recipients: readonly CampaignRecipient[],
+): Promise<MissingPerson[]> {
+  const pending = recipients.filter((r) => r.status === 'pending');
+  const people = peopleMissingFields(
+    mergeFieldsUsed(campaign.subject, campaign.body_template),
+    pending.map((r) => ({ id: r.id, email: r.email, merge: mergeFor(r) })),
+  );
+  const recordOf = new Map(pending.map((r) => [r.id, r.record_id]));
+  const recordIds = people.map((p) => recordOf.get(p.id)).filter((id): id is string => isUuid(id));
+  if (!recordIds.length) return people;
+  let records = new Map<string, CrmRecord>();
+  try {
+    records = new Map(
+      (await listWhereIn(store, 'crm_records', organizationId, {}, 'id', recordIds)).map((r) => [
+        r.id,
+        r,
+      ]),
+    );
+  } catch (error) {
+    log.warn('Campaign review could not read CRM contacts', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return people.map((p) => {
+    const record = records.get(recordOf.get(p.id) ?? '');
+    if (record?.kind !== 'person') return p;
+    const name = record.name.trim();
+    return {
+      ...p,
+      contact: {
+        name: name && !name.includes('@') ? name : null,
+        company: personCompanyOf(record.fields)?.value ?? null,
+      },
+    };
+  });
+}
+
+/* -------------------------------------------------------- fill merge values */
+
+export interface FillMergeInput {
+  recipientId: string;
+  values: MergeValues;
+  /** Also write the full name and company to the recipient's CRM contact. Off unless asked. */
+  saveToContact?: boolean;
+}
+
+/** What happened on the CRM contact. */
+export type ContactSave =
+  /** Not asked for, or nothing typed that a contact holds. */
+  | { status: 'skipped' }
+  | { status: 'not_linked' }
+  | { status: 'unchanged' }
+  | { status: 'saved'; fields: PersonContactField[] }
+  | { status: 'failed'; message: string };
+
+export interface FillMergeResult {
+  /** The merge fields that were empty and now have the typed value. */
+  filled: MergeField[];
+  contact: ContactSave;
+}
+
+/**
+ * Fill in merge values a recipient is missing, from the review screen: the
+ * values go into that recipient's own merge for this campaign, so the
+ * preview, the review's counts and the send all use them. Only empty fields
+ * are filled, and only while the campaign is a draft; the draft's version
+ * moves on, so a review read before the change cannot be confirmed. With
+ * `saveToContact`, the full name and company also go to the CRM person the
+ * recipient came from; that never blocks the campaign's own save.
+ */
+export async function fillRecipientMerge(
+  store: DataStore,
+  organizationId: string,
+  campaignId: string,
+  actor: CampaignActor,
+  input: FillMergeInput,
+): Promise<Result<FillMergeResult>> {
+  return guard('write', 'fill in merge values', async () => {
+    const campaign = await loadCampaign(store, organizationId, campaignId);
+    if (!campaign) return NOT_FOUND();
+    if (campaign.status !== 'draft') return NOT_DRAFT();
+    const notOnIt = () => err('not_found', 'That person is not on this campaign.');
+    if (!isUuid(input.recipientId)) return notOnIt();
+    const recipient = await store.get('campaign_recipients', organizationId, input.recipientId);
+    if (!recipient || recipient.campaign_id !== campaign.id) return notOnIt();
+    const gone = () => err('conflict', 'This person is no longer waiting to get this campaign.');
+    if (recipient.status !== 'pending') return gone();
+    const problem = mergeValuesProblem(input.values);
+    if (problem) return err('invalid_input', problem);
+
+    const before = recipient.merge ?? {};
+    const { merge, filled } = fillMerge(before, mergeFor(recipient), input.values);
+    // Everything typed was filled meanwhile (another tab): nothing to change.
+    if (!filled.length) return ok({ filled, contact: { status: 'skipped' } });
+    const [updated] = await store.updateWhere(
+      'campaign_recipients',
+      organizationId,
+      { eq: { id: recipient.id, campaign_id: campaign.id, status: 'pending' } },
+      { merge, updated_at: new Date().toISOString() },
+    );
+    if (!updated) return gone();
+    if (!(await touchDraft(store, organizationId, campaign))) {
+      // Confirmed while this went in: put it back as the review showed it.
+      await store.updateWhere(
+        'campaign_recipients',
+        organizationId,
+        { eq: { id: recipient.id, status: 'pending' }, isNull: ['attempted_at'] },
+        { merge: before },
+      );
+      return draftConflict(store, organizationId, campaign.id);
+    }
+    await audit(store, organizationId, actor.userId, 'campaign.recipient_updated', campaign.id, {
+      fields: filled,
+    });
+
+    const forContact = {
+      name: filled.includes('name') ? (merge.name ?? null) : null,
+      company: filled.includes('company') ? (merge.company ?? null) : null,
+    };
+    let contact: ContactSave = { status: 'skipped' };
+    if (input.saveToContact && (forContact.name || forContact.company)) {
+      if (!recipient.record_id) {
+        contact = { status: 'not_linked' };
+      } else {
+        const saved = await updatePersonContact(
+          store,
+          organizationId,
+          recipient.record_id,
+          forContact,
+          { userId: actor.userId, name: null },
+        );
+        contact = !saved.ok
+          ? { status: 'failed', message: saved.error.message }
+          : saved.value.changed.length
+            ? { status: 'saved', fields: saved.value.changed }
+            : { status: 'unchanged' };
+      }
+    }
+    return ok({ filled, contact });
   });
 }
 

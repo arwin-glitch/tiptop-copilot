@@ -5,6 +5,7 @@ import { getStore } from '@/lib/runtime';
 import {
   addRecipientsFromList,
   addRecipientsFromPaste,
+  fillRecipientMerge,
   removeRecipients,
 } from '@/lib/services/campaigns';
 
@@ -59,4 +60,41 @@ export async function DELETE(request: NextRequest, context: Context) {
     'all' in parsed.data ? { all: true } : { ids: parsed.data.ids },
   );
   return respond(result, (r) => r);
+}
+
+const FILL = z.object({
+  recipientId: z.string().max(64),
+  values: z
+    .object({
+      first_name: z.string().max(1_000).optional(),
+      name: z.string().max(1_000).optional(),
+      company: z.string().max(1_000).optional(),
+    })
+    .strict(),
+  saveToContact: z.boolean().optional(),
+});
+
+/**
+ * Fill in merge values one recipient is missing (from the review), and with
+ * `saveToContact` also on the CRM person they came from. Changes the draft,
+ * so the review is read again before it can be confirmed.
+ */
+export async function PATCH(request: NextRequest, context: Context) {
+  const gate = await campaignAuth('edit');
+  if (!gate.ok) return gate.response;
+  const parsed = FILL.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return fail({ code: 'invalid_input', message: 'Type what to fill in.' });
+  const { id } = await context.params;
+  const result = await fillRecipientMerge(
+    getStore(),
+    gate.auth.organizationId,
+    id,
+    { userId: gate.auth.userId },
+    {
+      recipientId: parsed.data.recipientId,
+      values: parsed.data.values,
+      saveToContact: parsed.data.saveToContact === true,
+    },
+  );
+  return respond(result, ({ filled, contact }) => ({ filled, contact }));
 }

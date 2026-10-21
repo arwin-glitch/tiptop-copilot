@@ -13,6 +13,7 @@ import {
   controlCampaign,
   createCampaign,
   deleteCampaign,
+  fillRecipientMerge,
   getCampaign,
   listCampaigns,
   listUnsubscribes,
@@ -355,6 +356,230 @@ describe('review and the one confirmation', () => {
     expect(batch.ok && batch.value.state).toBe('done');
     expect(sender.sent.every((e) => !e.html.includes('copilot') && !e.listUnsubscribe)).toBe(true);
     expect(sender.sent[0]?.html).toContain(`href="${LINK}"`);
+  });
+});
+
+describe('filling in missing merge values from the review', () => {
+  const NEW_LP = 'dana.new@fill.example';
+  const LUCIA = 'lucia.ferraro@mail.example';
+
+  /** Lucia is a CRM person with no company; the new LP is a bare pasted address. */
+  async function draftToFill(): Promise<Campaign> {
+    const created = await createCampaign(harness.store, org, actor(), { name: 'Fill test' });
+    if (!created.ok) throw new Error(created.error.message);
+    const added = await addRecipientsFromPaste(
+      harness.store,
+      org,
+      created.value.id,
+      `${LUCIA}\n${NEW_LP}`,
+    );
+    if (!added.ok) throw new Error(added.error.message);
+    const updated = await updateCampaign(harness.store, org, created.value.id, {
+      subject: 'Hello {{first_name|there}}',
+      body_template: `A note for {{company|your firm}}: [read it](${LINK}).`,
+    });
+    if (!updated.ok) throw new Error(updated.error.message);
+    return updated.value;
+  }
+
+  async function reviewOf(campaignId: string) {
+    const review = await reviewCampaign(harness.store, org, campaignId);
+    if (!review.ok) throw new Error(review.error.message);
+    return review.value;
+  }
+
+  const recipientBy = async (campaignId: string, email: string) =>
+    (await recipients(campaignId)).find((r) => r.email === email) as CampaignRecipient;
+
+  const fill = (
+    campaignId: string,
+    recipientId: string,
+    values: Record<string, string>,
+    saveToContact = false,
+    store: DataStore = harness.store,
+  ) => fillRecipientMerge(store, org, campaignId, actor(), { recipientId, values, saveToContact });
+
+  it('the review lists who lacks which field, with their CRM contact', async () => {
+    const campaign = await draftToFill();
+    const review = await reviewOf(campaign.id);
+    expect(review.fallbacks).toEqual([
+      { field: 'first_name', count: 1 },
+      { field: 'company', count: 2 },
+    ]);
+    const lucia = review.missing.find((p) => p.email === LUCIA);
+    expect(lucia).toMatchObject({
+      name: 'Lucia Ferraro',
+      lacks: ['company'],
+      contact: { name: 'Lucia Ferraro', company: null },
+    });
+    expect(review.missing.find((p) => p.email === NEW_LP)).toMatchObject({
+      name: null,
+      lacks: ['first_name', 'name', 'company'],
+      contact: null,
+    });
+  });
+
+  it('a fill drops the counts, stales the old review, and is what the email says', async () => {
+    const campaign = await draftToFill();
+    const before = await expectation(harness.store, campaign.id);
+    const dana = await recipientBy(campaign.id, NEW_LP);
+    const saved = await fill(campaign.id, dana.id, { first_name: ' Dana ', company: 'Fillmore' });
+    expect(saved.ok && saved.value).toEqual({
+      filled: ['first_name', 'company'],
+      contact: { status: 'skipped' },
+    });
+    expect((await recipientBy(campaign.id, NEW_LP)).merge).toEqual({
+      first_name: 'Dana',
+      company: 'Fillmore',
+    });
+    const review = await reviewOf(campaign.id);
+    expect(review.fallbacks).toEqual([{ field: 'company', count: 1 }]);
+    expect(review.missing.map((p) => p.email)).toEqual([LUCIA]);
+    const audits = await harness.store.list('audit_events', org, {
+      eq: { action: 'campaign.recipient_updated' },
+    });
+    expect(audits[0]?.metadata).toMatchObject({ fields: ['first_name', 'company'] });
+
+    // The review read before the fill can no longer be confirmed.
+    const stale = await confirmCampaign(harness.store, org, campaign.id, actor(), before);
+    expect(stale.ok).toBe(false);
+    const confirmed = await confirm(campaign);
+    const sender = new DemoCampaignSender();
+    const batch = await sendBatch(harness.store, org, confirmed.id, deps(sender));
+    expect(batch.ok && batch.value.state).toBe('done');
+    const toDana = sender.sent.find((e) => e.to.includes(NEW_LP));
+    expect(toDana?.subject).toBe('Hello Dana');
+    expect(toDana?.text).toContain('A note for Fillmore');
+    // Lucia was left empty: she still gets the fallback.
+    const toLucia = sender.sent.find((e) => e.to.includes(LUCIA));
+    expect(toLucia?.text).toContain('A note for your firm');
+  });
+
+  it('fills only what is empty: a value already there stays', async () => {
+    const campaign = await draftToFill();
+    const lucia = await recipientBy(campaign.id, LUCIA);
+    const saved = await fill(campaign.id, lucia.id, { name: 'Someone Else', company: 'Ferro' });
+    expect(saved.ok && saved.value.filled).toEqual(['company']);
+    expect((await recipientBy(campaign.id, LUCIA)).merge).toMatchObject({
+      name: 'Lucia Ferraro',
+      company: 'Ferro',
+    });
+    const again = await fill(campaign.id, lucia.id, { company: 'Other' });
+    expect(again.ok && again.value).toEqual({ filled: [], contact: { status: 'skipped' } });
+  });
+
+  it('writes the CRM contact only when asked, naming what it changed', async () => {
+    const campaign = await draftToFill();
+    const lucia = await recipientBy(campaign.id, LUCIA);
+    const recordId = lucia.record_id as string;
+    const untouched = await harness.store.get('crm_records', org, recordId);
+
+    // Not asked: the campaign has it, the contact does not.
+    const quiet = await fill(campaign.id, lucia.id, { company: 'Ferro Partners' });
+    expect(quiet.ok && quiet.value.contact).toEqual({ status: 'skipped' });
+    expect(await harness.store.get('crm_records', org, recordId)).toEqual(untouched);
+
+    // Asked: the same value goes to the contact.
+    const second = await draftToFill();
+    const lucia2 = await recipientBy(second.id, LUCIA);
+    const asked = await fill(second.id, lucia2.id, { company: 'Ferro Partners' }, true);
+    expect(asked.ok && asked.value.contact).toEqual({ status: 'saved', fields: ['company'] });
+    const record = await harness.store.get('crm_records', org, recordId);
+    expect(record?.fields).toMatchObject({ Company: 'Ferro Partners' });
+    expect(record?.name).toBe('Lucia Ferraro');
+    const audits = await harness.store.list('audit_events', org, {
+      eq: { action: 'crm.record_updated' },
+    });
+    expect(audits[0]?.metadata).toEqual({ fields: ['company'] });
+
+    // The next review shows the contact's company beside the checkbox.
+    const third = await draftToFill();
+    const review = await reviewOf(third.id);
+    expect(review.missing.find((p) => p.email === LUCIA)?.contact).toEqual({
+      name: 'Lucia Ferraro',
+      company: 'Ferro Partners',
+    });
+  });
+
+  it('a full name and company replace the contact’s, a list of companies keeps the rest', async () => {
+    const campaign = await draftToFill();
+    const lucia = await recipientBy(campaign.id, LUCIA);
+    const recordId = lucia.record_id as string;
+    await harness.store.update('crm_records', org, recordId, {
+      name: LUCIA,
+      fields: { Organizations: ['Old Mill', 'Second Co'] },
+    });
+    // Her merge name was the address too, as a record without a name gives.
+    await harness.store.update('campaign_recipients', org, lucia.id, {
+      name: LUCIA,
+      merge: { name: LUCIA },
+    });
+    const saved = await fill(
+      campaign.id,
+      lucia.id,
+      { name: 'Lucia Ferraro-Ng', company: 'New Mill' },
+      true,
+    );
+    expect(saved.ok && saved.value).toEqual({
+      filled: ['name', 'company'],
+      contact: { status: 'saved', fields: ['name', 'company'] },
+    });
+    const record = await harness.store.get('crm_records', org, recordId);
+    expect(record).toMatchObject({
+      name: 'Lucia Ferraro-Ng',
+      name_key: 'lucia ferraro-ng',
+      fields: { Organizations: ['New Mill', 'Old Mill', 'Second Co'] },
+    });
+  });
+
+  it('a recipient with no contact is filled for the campaign alone', async () => {
+    const campaign = await draftToFill();
+    const dana = await recipientBy(campaign.id, NEW_LP);
+    const saved = await fill(campaign.id, dana.id, { name: 'Dana Newell' }, true);
+    expect(saved.ok && saved.value).toEqual({
+      filled: ['name'],
+      contact: { status: 'not_linked' },
+    });
+    // The full name fills the first name too.
+    const review = await reviewOf(campaign.id);
+    expect(review.fallbacks).toEqual([{ field: 'company', count: 2 }]);
+  });
+
+  it('refuses what cannot be filled', async () => {
+    const campaign = await draftToFill();
+    const dana = await recipientBy(campaign.id, NEW_LP);
+    const empty = await fill(campaign.id, dana.id, { first_name: '  ' });
+    expect(!empty.ok && empty.error.code).toBe('invalid_input');
+    const address = await fill(campaign.id, dana.id, { name: NEW_LP });
+    expect(!address.ok && address.error.message).toBe('A name cannot be an email address.');
+    const other = await draftToFill();
+    const elsewhere = await fill(other.id, dana.id, { first_name: 'Dana' });
+    expect(!elsewhere.ok && elsewhere.error.code).toBe('not_found');
+    const bogus = await fill(campaign.id, 'not-an-id', { first_name: 'Dana' });
+    expect(!bogus.ok && bogus.error.code).toBe('not_found');
+
+    await confirm(campaign);
+    const started = await fill(campaign.id, dana.id, { first_name: 'Dana' });
+    expect(!started.ok && started.error.code).toBe('conflict');
+    expect((await recipientBy(campaign.id, NEW_LP)).merge).toEqual({});
+  });
+
+  it('a fill racing the tap is put back, so the email sent is the one reviewed', async () => {
+    const campaign = await draftToFill();
+    const dana = await recipientBy(campaign.id, NEW_LP);
+    const store = racing(
+      (table, filter, patch) =>
+        table === 'campaigns' &&
+        filter.eq?.status === 'draft' &&
+        Object.keys(patch).join() === 'updated_at',
+      async () => {
+        await confirm(campaign);
+      },
+    );
+    const saved = await fill(campaign.id, dana.id, { first_name: 'Dana' }, false, store);
+    expect(saved.ok).toBe(false);
+    expect((await harness.store.get('campaigns', org, campaign.id))?.status).toBe('sending');
+    expect((await recipientBy(campaign.id, NEW_LP)).merge).toEqual({});
   });
 });
 

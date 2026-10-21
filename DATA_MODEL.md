@@ -470,6 +470,15 @@ Replies and bounces are read from the synced mailbox (a message in the sent
 email's thread, from the recipient, not an out-of-office, or from a mail
 server) when a campaign is viewed and by the daily job. Reads degrade to "not
 set up yet" until the migration is applied, as for the CRM.
+
+The review lists who lacks each merge field the email uses, and a value typed
+there fills only that recipient's empty `merge` keys for the campaign (a draft
+edit like any other: it moves the version). Ticking "Also save to their
+contact", on by default for a recipient with a `record_id`, also writes the
+full name (`crm_records.name`) and company (the field already holding one,
+else `fields.Company`) to that CRM person, naming any value it replaces; a
+first name stays with the campaign.
+
 ---
 
 ## 7. Row-level security
