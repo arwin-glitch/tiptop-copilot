@@ -11,6 +11,7 @@ import { isFundIiField, isMoneyField } from '@/lib/crm/stage-map';
 import { formatCrmValue } from '@/lib/crm/view';
 import { gmailSearchUrl, websiteHref } from '@/lib/deals/links';
 import {
+  affinitySyncIsOn,
   CRM_MIGRATION_FILE,
   findCopilotLinks,
   getRecord,
@@ -22,7 +23,8 @@ import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { getRecordRelationship, relationshipScope } from '@/lib/services/relationships';
 import { getActiveThesis } from '@/lib/services/thesis';
 import { CrmBreadcrumb } from '@/components/lists/crm-breadcrumb';
-import { CrmNoteList } from '@/components/lists/crm-note-list';
+import { CrmNotesPanel } from '@/components/lists/crm-notes-panel';
+import { AddRecordToListButton } from '@/components/lists/record-dialogs';
 import { ExportNotesLink } from '@/components/lists/export-notes-link';
 import { CrmValueView } from '@/components/lists/crm-value';
 import { RelationshipPanel, WhoCanIntro } from '@/components/network/record-relationship';
@@ -51,8 +53,10 @@ export async function generateMetadata({
 /**
  * A company's or person's profile: who they are, every list they are on and
  * where they stand on each, every note, and — for a company Copilot already
- * tracks as a deal or a portfolio company — a link across to it. Read-only
- * apart from the links out; the lists are where things are changed.
+ * tracks as a deal or a portfolio company — a link across to it. A member can
+ * put the record on a list ("Add to list") and add notes here; notes written
+ * in Copilot can be edited and deleted, Affinity's say why they cannot while
+ * the sync runs. A list's own values are changed on the list.
  */
 export default async function RecordProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -122,6 +126,7 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
     : new Map<string, string>();
 
   const isCompany = record.kind === 'company';
+  const canWrite = hasRole(auth, 'member');
   const site = isCompany ? websiteHref(record.domain) : null;
   const gmail = gmailSearchUrl(
     { domain: isCompany ? record.domain : null, emails: record.emails },
@@ -140,6 +145,15 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
       <PageHeader
         eyebrow={`${isCompany ? 'Company' : 'Person'} · ${record.source === 'affinity' ? 'from Affinity' : 'added in Copilot'}`}
         title={record.name}
+        actions={
+          canWrite ? (
+            <AddRecordToListButton
+              recordId={record.id}
+              recordName={record.name}
+              kind={record.kind}
+            />
+          ) : null
+        }
         meta={
           <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
             {isCompany && record.domain ? (
@@ -205,7 +219,7 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
             {memberships.length === 0 ? (
               <p className="text-sm text-[var(--fg-subtle)]">
                 Not on any list. {isCompany ? 'Companies' : 'People'} arrive on lists through an
-                Affinity import or “Add entry” on a list.
+                Affinity import, “Add entry” on a list, or “Add to list” above.
               </p>
             ) : (
               <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
@@ -260,17 +274,20 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
               count={notes.length}
               action={
                 // The export route serves members and above.
-                notes.length > 0 && hasRole(auth, 'member') ? (
+                notes.length > 0 && canWrite ? (
                   <ExportNotesLink recordId={record.id} recordName={record.name} />
                 ) : null
               }
             >
               <span id="profile-notes">Notes</span>
             </SectionHeading>
-            <CrmNoteList
+            <CrmNotesPanel
               notes={notes}
               timezone={timezone}
-              empty="No notes yet. Notes come across with an Affinity notes export, or are added from a list entry."
+              canWrite={canWrite}
+              affinitySyncOn={affinitySyncIsOn()}
+              attach={{ recordIds: [record.id] }}
+              empty="No notes yet. Add one above, or bring them across with an Affinity notes export."
             />
           </section>
         </div>
@@ -281,7 +298,7 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
               record={record}
               organizationId={org}
               timezone={timezone}
-              canEdit={hasRole(auth, 'member')}
+              canEdit={canWrite}
             />
           </Suspense>
 

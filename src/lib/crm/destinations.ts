@@ -1,4 +1,4 @@
-import type { CrmEntityType } from '@/lib/types/domain';
+import type { CrmEntityType, CrmSource } from '@/lib/types/domain';
 
 /**
  * Where each CRM list's data belongs in the app.
@@ -125,7 +125,8 @@ export const CRM_DESTINATION_INFO: Record<CrmDestination, CrmDestinationInfo> = 
     label: 'Reference only',
     page: 'Knowledge',
     href: '/knowledge?tab=lists',
-    blurb: 'Lists no rule recognised. Kept and searchable here; pick a destination to use one.',
+    blurb:
+      'Lists no rule recognised, and lists made in Copilot. Kept and searchable here; pick a destination to use one.',
   },
 };
 
@@ -260,11 +261,18 @@ export interface CrmClassification {
   rule: string;
 }
 
-/** Where a list's data belongs, from its name and entity type alone. */
+/**
+ * Where a list's data belongs, from its name and entity type alone. A list
+ * made in Copilot (`source`) stays here for reference until someone sends it
+ * somewhere: a view saved as a list repeats rows its own list already feeds,
+ * and an LP list saved that way would count every LP on Fund II twice.
+ */
 export function classifyCrmList(list: {
   name: string;
   entity_type: CrmEntityType;
+  source?: CrmSource;
 }): CrmClassification {
+  if (list.source === 'copilot') return { destination: 'archive', rule: 'made-in-copilot' };
   const text = destinationText(list.name);
   for (const rule of RULES) {
     if (rule.test(text, list.entity_type)) return { destination: rule.destination, rule: rule.id };
@@ -285,7 +293,7 @@ export interface CrmListDestination {
 
 /** The destination a list uses: an override when there is a valid one, else the rules. */
 export function resolveCrmListDestination(
-  list: { name: string; entity_type: CrmEntityType },
+  list: { name: string; entity_type: CrmEntityType; source?: CrmSource },
   override?: string | null,
 ): CrmListDestination {
   const { destination: auto, rule } = classifyCrmList(list);

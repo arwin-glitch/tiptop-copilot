@@ -39,6 +39,7 @@ import {
 } from '@/components/knowledge/knowledge-client';
 import { AffinityImportTab } from '@/components/knowledge/affinity-import-tab';
 import { AffinityLists } from '@/components/knowledge/affinity-lists';
+import { CrmFinderTab } from '@/components/knowledge/crm-finder';
 import { formatDate } from '@/lib/util/time';
 
 export const metadata: Metadata = { title: 'Knowledge' };
@@ -117,6 +118,8 @@ export default async function KnowledgePage({
           <AffinityLists auth={auth} q={q} />
         ) : tab === 'import' ? (
           <AffinityImportTab auth={auth} view={affinityImportView(params)} />
+        ) : tab === 'find' ? (
+          <CrmFinderTab auth={auth} params={params} />
         ) : (
           <DocumentsTab auth={auth} q={q} />
         )}

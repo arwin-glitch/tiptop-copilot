@@ -5,7 +5,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { setCrmEntryValuesAction } from '@/app/actions/crm';
+import {
+  removeCrmEntryAction,
+  restoreCrmEntryAction,
+  setCrmEntryValuesAction,
+} from '@/app/actions/crm';
+import { AddColumnDialog } from '@/components/lists/add-column-dialog';
 import { AddEntryDialog } from '@/components/lists/add-entry-dialog';
 import {
   ColumnPicker,
@@ -20,6 +25,7 @@ import {
   RelationshipColumnsPicker,
   useRelationshipColumns,
 } from '@/components/lists/relationship-columns';
+import { SaveAsListDialog } from '@/components/lists/save-as-list-dialog';
 import { StageEditor } from '@/components/lists/stage-editor';
 import { ConditionChips, FilterMenu } from '@/components/lists/view-filters';
 import { ViewTabs } from '@/components/lists/view-tabs';
@@ -57,6 +63,7 @@ import type {
   CrmSource,
   CrmValue,
 } from '@/lib/types/domain';
+import { finderHref } from '@/lib/crm/finder';
 import { cn } from '@/lib/util/cn';
 
 /** The list itself, as the page needs it. */
@@ -95,6 +102,8 @@ interface Pending {
 }
 
 const RESET_ON_SEARCH = ['page'] as const;
+/** How long a removal's Undo stays on screen. */
+const UNDO_MS = 8_000;
 
 /**
  * The list page below its header: the view tabs, search, filters, status
@@ -112,6 +121,10 @@ const RESET_ON_SEARCH = ['page'] as const;
  * counts and board columns catch up, and the optimistic value gives way to
  * the stored one — except for a change still saving, which a re-render
  * started by an earlier change must not undo.
+ *
+ * Writers also get "Save as list" (the view as a new list), "Add column" (a
+ * column of the team's own) and, from a row's side panel, "Remove from list"
+ * with an Undo on the message that follows.
  */
 export function ListView({
   list,
@@ -132,6 +145,7 @@ export function ListView({
   timezone,
   canWrite,
   canExportAll,
+  affinitySyncOn,
 }: {
   list: ListViewList;
   /** The page's state with its saved view applied (resolveListParams). */
@@ -162,6 +176,8 @@ export function ListView({
   canWrite: boolean;
   /** Owners may export the whole CRM. */
   canExportAll: boolean;
+  /** The daily Affinity sync is on, so Affinity's notes are read-only. */
+  affinitySyncOn: boolean;
 }) {
   const router = useRouter();
   const [navigating, startNavigation] = React.useTransition();
@@ -303,6 +319,40 @@ export function ListView({
     React.startTransition(() => router.refresh());
   };
 
+  const refresh = () => React.startTransition(() => router.refresh());
+
+  // Take a row off the list; the message that says so carries the Undo,
+  // which puts the row back exactly as it was.
+  const removeEntry = async (entry: CrmListEntry) => {
+    const result = await removeCrmEntryAction(entry.id).catch(() => null);
+    if (!result || !result.ok || !result.data) {
+      toast.error(result?.error?.message ?? 'The row could not be removed: no connection.', {
+        description: result?.error?.stillUsable,
+      });
+      return;
+    }
+    const { tombstoneId } = result.data;
+    setOpenEntry(null);
+    setAnnouncement(`${entry.title} was removed from ${list.name}.`);
+    toast.success(`Removed ${entry.title} from ${list.name}`, {
+      duration: UNDO_MS,
+      action: {
+        label: 'Undo',
+        onClick: async () => {
+          const undone = await restoreCrmEntryAction(tombstoneId).catch(() => null);
+          if (!undone || !undone.ok) {
+            toast.error(undone?.error?.message ?? 'Could not undo: no connection.');
+            return;
+          }
+          toast.success(`${entry.title} is back on ${list.name}`);
+          setAnnouncement(`${entry.title} is back on ${list.name}.`);
+          refresh();
+        },
+      },
+    });
+    refresh();
+  };
+
   // Columns: on the All view, showing and hiding is remembered in this
   // browser as before; moving a column, or any change on a saved view (or
   // to columns already spelled out), changes the view.
@@ -383,6 +433,12 @@ export function ListView({
             counts={params.q || params.conditions.length ? null : counts}
             onSaved={() => React.startTransition(() => router.refresh())}
           />
+        ) : null}
+        {canWrite ? (
+          <SaveAsListDialog list={list} params={params} total={table?.total ?? null} />
+        ) : null}
+        {canWrite ? (
+          <AddColumnDialog listId={list.id} listName={list.name} onAdded={refresh} />
         ) : null}
         {canWrite ? (
           <AddEntryDialog
@@ -475,9 +531,11 @@ export function ListView({
                 description={
                   filtered
                     ? 'Clear the search, the filters or the status chips to see more of the list.'
-                    : canWrite
-                      ? 'Add an entry, or import the list from Affinity to bring its rows across.'
-                      : 'Import the list from Affinity to bring its rows across.'
+                    : list.source === 'copilot' && list.entity_type !== 'deal'
+                      ? 'Add an entry, or find people and companies by name, place or last contact and add them all at once.'
+                      : canWrite
+                        ? 'Add an entry, or import the list from Affinity to bring its rows across.'
+                        : 'Import the list from Affinity to bring its rows across.'
                 }
                 action={
                   filtered
@@ -489,7 +547,14 @@ export function ListView({
                           conditions: [],
                         }),
                       }
-                    : { label: 'Import from Affinity', href: '/knowledge?tab=import' }
+                    : list.source === 'copilot' && list.entity_type !== 'deal'
+                      ? {
+                          label: 'Find people and companies',
+                          href: finderHref({
+                            kind: list.entity_type === 'company' ? 'company' : 'person',
+                          }),
+                        }
+                      : { label: 'Import from Affinity', href: '/knowledge?tab=import' }
                 }
               />
             ) : (
@@ -573,8 +638,14 @@ export function ListView({
         now={now}
         timezone={timezone}
         canWrite={canWrite}
+        affinitySyncOn={affinitySyncOn}
         onClose={() => setOpenEntry(null)}
         onStatusChange={(entry, next) => changeStatus(entry, next)}
+        onValuesSaved={(saved) => {
+          setOpenEntry((open) => (open?.id === saved.id ? saved : open));
+          refresh();
+        }}
+        onRemove={(entry) => void removeEntry(entry)}
       />
 
       <p role="status" aria-live="polite" className="sr-only">

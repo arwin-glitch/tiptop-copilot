@@ -3,10 +3,11 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { ArrowUpRight } from 'lucide-react';
-import { addCrmNoteAction, getCrmEntryAction } from '@/app/actions/crm';
-import { CrmNoteList } from '@/components/lists/crm-note-list';
+import { ArrowUpRight, ListX } from 'lucide-react';
+import { getCrmEntryAction, setCrmEntryValuesAction } from '@/app/actions/crm';
+import { CrmNotesPanel } from '@/components/lists/crm-notes-panel';
 import { CrmValueView } from '@/components/lists/crm-value';
+import { EditableCrmValue } from '@/components/lists/editable-value';
 import { ExportNotesLink } from '@/components/lists/export-notes-link';
 import { TimeInStatus } from '@/components/lists/list-table';
 import { StatusSelect } from '@/components/lists/status-select';
@@ -15,11 +16,13 @@ import { DataRow, SectionHeading } from '@/components/shell/page-header';
 import { Button } from '@/components/ui/button';
 import { Dialog, Drawer } from '@/components/ui/dialog';
 import { ErrorState, SkeletonText } from '@/components/ui/feedback';
-import { Textarea } from '@/components/ui/form';
+import { isCopilotField } from '@/lib/crm/fields';
 import { CRM_TIME_IN_STATUS_LABEL, type CrmTimeInStatus } from '@/lib/crm/saved-views';
 import type { CrmEntryDetail, CrmRecordSummary } from '@/lib/services/crm';
-import type { CrmField, CrmListEntry, CrmNote, CrmValue } from '@/lib/types/domain';
+import type { CrmField, CrmListEntry, CrmValue } from '@/lib/types/domain';
 import { formatDate } from '@/lib/util/time';
+
+const NO_NOTES: CrmEntryDetail['notes'] = [];
 
 interface Loaded {
   entryId: string;
@@ -37,6 +40,11 @@ interface Loaded {
  * panel opens, since a list page carries none of them. A note is attached to
  * the entry, and on a company or person list to the record too, so it shows
  * on the profile and on every list that record is on.
+ *
+ * A column added in Copilot (and every column of a list made in Copilot) is
+ * edited here in place; Affinity's columns stay as the sync writes them.
+ * Notes written in Copilot can be edited and deleted. "Remove from list"
+ * takes the row off, with Undo on the message that follows.
  */
 export function EntryDrawer({
   list,
@@ -50,8 +58,11 @@ export function EntryDrawer({
   timezone,
   canWrite,
   saving,
+  affinitySyncOn,
   onClose,
   onStatusChange,
+  onValuesSaved,
+  onRemove,
 }: {
   list: ListViewList;
   entry: CrmListEntry | null;
@@ -65,13 +76,18 @@ export function EntryDrawer({
   timezone: string;
   canWrite: boolean;
   saving: boolean;
+  /** Affinity's notes are read-only while the daily sync runs. */
+  affinitySyncOn: boolean;
   onClose: () => void;
   onStatusChange: (entry: CrmListEntry, next: string | null) => void;
+  /** A value edited here was saved: the entry as it is stored now. */
+  onValuesSaved: (entry: CrmListEntry) => void;
+  /** "Remove from list". */
+  onRemove: (entry: CrmListEntry) => void;
 }) {
   const entryId = entry?.id ?? null;
   const [loaded, setLoaded] = React.useState<Loaded | null>(null);
-  const [draft, setDraft] = React.useState('');
-  const [posting, startPosting] = React.useTransition();
+  const [noteCount, setNoteCount] = React.useState<{ entryId: string; count: number } | null>(null);
 
   React.useEffect(() => {
     if (!entryId) return;
@@ -102,45 +118,39 @@ export function EntryDrawer({
   const linked = record ?? current?.detail?.record ?? null;
   const values = entry ? valuesOf(entry) : {};
 
-  const addNote = () => {
-    if (!entry) return;
-    const content = draft.trim();
-    if (!content) return;
-    startPosting(async () => {
-      const result = await addCrmNoteAction({
-        content,
-        entryIds: [entry.id],
-        recordIds: list.entity_type !== 'deal' && entry.record_id ? [entry.record_id] : [],
-      }).catch(() => null);
-      if (!result) {
-        toast.error('The note could not be saved: no connection. Your text is still in the box.');
-        return;
-      }
-      if (!result.ok || !result.data) {
-        toast.error(result.error?.message ?? 'The note could not be saved.', {
-          description: result.error?.stillUsable,
-        });
-        return;
-      }
-      const note: CrmNote = result.data.note;
-      setDraft('');
-      setLoaded((prev) =>
-        prev && prev.entryId === entry.id && prev.detail
-          ? { ...prev, detail: { ...prev.detail, notes: [note, ...prev.detail.notes] } }
-          : prev,
-      );
-      toast.success('Note added');
-    });
+  const notesShown =
+    noteCount && noteCount.entryId === entryId ? noteCount.count : current?.detail?.notes.length;
+  // Columns the team owns: added in Copilot, or on a list made in Copilot.
+  const editable = (field: CrmField) =>
+    canWrite && (list.source === 'copilot' || isCopilotField(field));
+
+  const saveValue = async (
+    target: CrmListEntry,
+    field: CrmField,
+    next: string | string[] | null,
+  ): Promise<CrmValue | undefined> => {
+    const result = await setCrmEntryValuesAction(target.id, { [field.key]: next }).catch(
+      () => null,
+    );
+    if (!result) {
+      toast.error(`${field.name} could not be saved: no connection.`);
+      return undefined;
+    }
+    if (!result.ok || !result.data) {
+      toast.error(result.error?.message ?? `${field.name} could not be saved.`, {
+        description: result.error?.stillUsable,
+      });
+      return undefined;
+    }
+    onValuesSaved(result.data.entry);
+    return result.data.entry.values[field.key] ?? null;
   };
 
   return (
     <Dialog
       open={entry !== null}
       onOpenChange={(open) => {
-        if (!open) {
-          setDraft('');
-          onClose();
-        }
+        if (!open) onClose();
       }}
     >
       {entry ? (
@@ -206,7 +216,19 @@ export function EntryDrawer({
                   .filter((f) => f.key !== statusField?.key)
                   .map((field) => (
                     <DataRow key={field.key} label={field.name}>
-                      <CrmValueView field={field} value={values[field.key]} timezone={timezone} />
+                      {editable(field) ? (
+                        <EditableCrmValue
+                          // A fresh editor per row: a half-typed value never follows to another.
+                          key={`${entry.id}:${field.key}`}
+                          field={field}
+                          value={values[field.key]}
+                          timezone={timezone}
+                          entryTitle={entry.title}
+                          onSave={(next) => saveValue(entry, field, next)}
+                        />
+                      ) : (
+                        <CrmValueView field={field} value={values[field.key]} timezone={timezone} />
+                      )}
                     </DataRow>
                   ))}
                 {statusField ? (
@@ -220,44 +242,15 @@ export function EntryDrawer({
 
             <section aria-labelledby="entry-notes">
               <SectionHeading
-                count={current?.detail?.notes.length}
+                count={notesShown}
                 action={
-                  canWrite && linked && current?.detail?.notes.length ? (
+                  canWrite && linked && notesShown ? (
                     <ExportNotesLink recordId={linked.id} recordName={linked.name} />
                   ) : null
                 }
               >
                 <span id="entry-notes">Notes</span>
               </SectionHeading>
-              {canWrite ? (
-                <form
-                  className="mb-4 space-y-2"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    addNote();
-                  }}
-                >
-                  <Textarea
-                    aria-label="New note"
-                    placeholder="Add a note — a call, a decision, what happens next"
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    rows={3}
-                    maxLength={500_000}
-                  />
-                  <div className="flex justify-end">
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      size="sm"
-                      loading={posting}
-                      disabled={!draft.trim() || posting || !current?.detail}
-                    >
-                      Add note
-                    </Button>
-                  </div>
-                </form>
-              ) : null}
               {!current ? (
                 <SkeletonText lines={4} />
               ) : current.error ? (
@@ -267,13 +260,40 @@ export function EntryDrawer({
                   stillUsable="The fields above and the rest of the list."
                 />
               ) : (
-                <CrmNoteList
-                  notes={current.detail?.notes ?? []}
+                <CrmNotesPanel
+                  // A fresh box per row: a half-typed note never follows to another.
+                  key={entry.id}
+                  notes={current.detail?.notes ?? NO_NOTES}
                   timezone={timezone}
+                  canWrite={canWrite}
+                  affinitySyncOn={affinitySyncOn}
+                  attach={{
+                    entryIds: [entry.id],
+                    recordIds:
+                      list.entity_type !== 'deal' && entry.record_id ? [entry.record_id] : [],
+                  }}
+                  disabled={!current.detail}
                   empty="No notes on this entry yet."
+                  onCountChange={(count) => setNoteCount({ entryId: entry.id, count })}
                 />
               )}
             </section>
+
+            {canWrite ? (
+              <section
+                aria-label="Remove from list"
+                className="border-t border-[var(--border)] pt-4"
+              >
+                <Button variant="ghost" size="sm" onClick={() => onRemove(entry)}>
+                  <ListX aria-hidden="true" />
+                  Remove from {list.name}
+                </Button>
+                <p className="text-mini mt-1 text-[var(--fg-muted)]">
+                  Takes the row off this list only: the profile and its notes stay. Undo is on the
+                  message that follows, and the daily Affinity sync does not add it back.
+                </p>
+              </section>
+            ) : null}
           </div>
         </Drawer>
       ) : null}

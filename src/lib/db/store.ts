@@ -8,6 +8,7 @@ import type {
   CampaignSendLock,
   ChatMessage,
   ChatThread,
+  CrmEntryTombstone,
   CrmList,
   CrmListEntry,
   CrmNote,
@@ -87,6 +88,7 @@ export interface TableMap {
   crm_records: CrmRecord;
   crm_list_entries: CrmListEntry;
   crm_notes: CrmNote;
+  crm_entry_tombstones: CrmEntryTombstone;
   campaigns: Campaign;
   campaign_recipients: CampaignRecipient;
   campaign_events: CampaignEvent;

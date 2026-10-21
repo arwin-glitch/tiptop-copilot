@@ -13,6 +13,7 @@ import { EmptyState, ErrorState } from '@/components/ui/feedback';
 import { LiveSearch } from '@/components/ui/live-search';
 import { NotConfigured } from '@/components/ui/not-configured';
 import { DestinationSelect } from '@/components/lists/destination-select';
+import { NewListDialog } from '@/components/lists/new-list-dialog';
 
 const KIND: Record<CrmEntityType, string> = {
   deal: 'Deal list',
@@ -57,13 +58,21 @@ export async function AffinityLists({ auth, q }: { auth: AuthContext; q: string 
   }
 
   const all = result.value;
+  const canWrite = hasRole(auth, 'member');
   if (all.length === 0) {
     return (
-      <EmptyState
-        title="Nothing imported from Affinity yet"
-        description="In Affinity, open a list and choose “Export view as CSV”, and “Export all notes in view” for its notes. Drop the files on Affinity import and each list lands on the page that uses it."
-        action={{ label: 'Open Affinity import', href: AFFINITY_IMPORT_HREF }}
-      />
+      <div className="space-y-4">
+        {canWrite ? (
+          <div className="flex justify-end">
+            <NewListDialog />
+          </div>
+        ) : null}
+        <EmptyState
+          title="Nothing imported from Affinity yet"
+          description="In Affinity, open a list and choose “Export view as CSV”, and “Export all notes in view” for its notes. Drop the files on Affinity import and each list lands on the page that uses it. Or start a list of your own with New list."
+          action={{ label: 'Open Affinity import', href: AFFINITY_IMPORT_HREF }}
+        />
+      </div>
     );
   }
 
@@ -73,7 +82,6 @@ export async function AffinityLists({ auth, q }: { auth: AuthContext; q: string 
   const archived = matching.filter((l) => l.archived);
   const activity = await listActivity(store, auth.organizationId, matching);
   const lastChanged = activity.ok ? activity.value : {};
-  const canWrite = hasRole(auth, 'member');
   const now = new Date();
   const pages = groupByPage(live, (l) => l.destination.destination);
 
@@ -97,14 +105,17 @@ export async function AffinityLists({ auth, q }: { auth: AuthContext; q: string 
             </a>
           ))}
         </p>
-        <LiveSearch
-          path="/knowledge"
-          keep={LISTS_KEEP}
-          value={q}
-          placeholder="Filter by list name"
-          label="Filter Affinity lists"
-          className="w-full max-w-xs"
-        />
+        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+          <LiveSearch
+            path="/knowledge"
+            keep={LISTS_KEEP}
+            value={q}
+            placeholder="Filter by list name"
+            label="Filter Affinity lists"
+            className="w-full max-w-xs"
+          />
+          {canWrite ? <NewListDialog /> : null}
+        </div>
       </div>
 
       {matching.length === 0 ? (

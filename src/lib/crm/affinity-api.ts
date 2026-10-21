@@ -1,5 +1,5 @@
 import { affinityDomain } from '@/lib/crm/affinity-csv';
-import { CRM_OPTION_FIELD_TYPES, crmFieldKey, crmNameKey } from '@/lib/crm/fields';
+import { CRM_OPTION_FIELD_TYPES, crmFieldKey, crmNameKey, isCopilotField } from '@/lib/crm/fields';
 import type { CrmEntityType, CrmField, CrmFieldType } from '@/lib/types/domain';
 import { localClock } from '@/lib/util/time';
 
@@ -419,6 +419,10 @@ export interface AffinityListPlan {
  * url) and an unchanged list writes nothing. A new column gets its key from
  * its label; the pipeline field (a dropdown named Status or Stage) is keyed
  * `status`, as the CSV import keys it.
+ *
+ * A column someone added in Copilot is the team's, never Affinity's: no
+ * Affinity field is matched to it, so a global field with the same label
+ * stays on the record and a list field becomes a column of its own.
  */
 export function planAffinityColumns(
   metas: readonly AffinityApiFieldMeta[],
@@ -435,7 +439,9 @@ export function planAffinityColumns(
     const name = (meta.name ?? '').trim();
     if (!meta.id || !name || SKIPPED_FIELD_IDS.has(meta.id)) continue;
     const label = crmNameKey(name);
-    const match = existing.find((f) => crmNameKey(f.name) === label && !used.has(f.key));
+    const match = existing.find(
+      (f) => !isCopilotField(f) && crmNameKey(f.name) === label && !used.has(f.key),
+    );
     const dealLink = entityType === 'deal' && (meta.id === 'companies' || meta.id === 'persons');
     if (!match && meta.type !== 'list' && !dealLink) {
       recordFields.push({ fieldId: meta.id, name: name.slice(0, 100) });
