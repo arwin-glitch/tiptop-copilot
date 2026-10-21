@@ -1420,7 +1420,8 @@ async function loadAttachments(
 //     was meant to carry a photo never goes without it.
 //   - Copies. The campaign's CC on every email; its BCC on every email or on
 //     the first email it actually sends (claimed once, and kept claimed once
-//     that email went); a recipient's own CC on their email only. To is
+//     that email may have gone: only an outright refusal gives it back); a
+//     recipient's own CC on their email only. To is
 //     always exactly one recipient. Every copy counts toward the daily cap.
 //
 // Every edit here is a draft edit that moves the campaign's version on, so a

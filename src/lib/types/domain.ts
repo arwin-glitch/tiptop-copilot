@@ -885,7 +885,8 @@ export interface Campaign {
   bcc_mode?: CampaignBccMode;
   /**
    * When the one "first email only" Bcc copy was claimed for an email: set
-   * just before it goes, cleared only if Gmail refused it, never set twice.
+   * just before it goes, cleared only if Gmail refused it outright (nothing
+   * went), so the sample is never sent twice.
    */
   bcc_sample_at?: IsoDateTime | null;
 }
