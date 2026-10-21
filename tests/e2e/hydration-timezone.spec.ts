@@ -35,6 +35,12 @@ const PAGES = [
     path: '/fund-ii/campaigns/00000000-0000-4000-8000-0000000007d1',
     marker: 'nav[aria-label="Campaign steps"]',
   },
+  // Pages added or reworked since, that print times or dates as well.
+  { path: '/follow-ups/session', marker: '[aria-label="Time you have"]' },
+  { path: '/fund-ii', marker: '[data-tour="fund-readers"]' },
+  { path: '/portfolio?tab=numbers', marker: '[data-numbers-updated]' },
+  { path: '/deals', marker: '[data-tour="deals-pipeline"]' },
+  { path: '/updates', marker: '[data-tour="reports-latest"]' },
 ];
 
 const HYDRATION = /#418|#423|#425|hydrat|didn't match/i;
