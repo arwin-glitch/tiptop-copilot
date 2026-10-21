@@ -24,6 +24,7 @@ import {
   ASK_WAIT_POLL_SECONDS,
   NO_ASK_REPLIES,
 } from './ask-reply-alerts';
+import { feedNoticeFor } from './feed-health';
 import { feedbackAlertFor } from './feedback';
 import {
   alertsFromInputs,
@@ -38,8 +39,10 @@ import {
  * Desktop alerts: the alerts phones get (push-alerts.ts), shown by the
  * desktop app from 0.4.0 as Windows toasts and macOS notifications (D-057).
  * From desktop 0.4.1 also Ask Arwin answers, to the asker's own computers
- * only (ask-reply-alerts.ts, D-058). And new in-app feedback, to the
- * computers of whoever turned feedback alerts on (feedback.ts, D-060).
+ * only (ask-reply-alerts.ts, D-058). New in-app feedback, to the computers
+ * of whoever turned feedback alerts on (feedback.ts, D-060). And to anyone
+ * who turned feed notices on for themselves, a notice when a feed looks
+ * stopped (feed-health.ts, D-061).
  *
  *   page ── POST /api/push/desktop ──> token for this computer (once)
  *   page ── IPC alerts_turn_on(token) ──> shell keeps it in its app data
@@ -96,9 +99,10 @@ export const ALERT_KEYS_MAX = 50;
 /**
  * The kinds of key push-alerts.ts makes, Ask Arwin answers
  * (ask-reply-alerts.ts) and feedback notes (feedback.ts). Anything else a
- * computer reports is ignored.
+ * computer reports is ignored. Feed notices (feed-health.ts) are the `feed`
+ * kind.
  */
-const KEY_PREFIXES = /^(meeting|money|top3|wait|risk|docsend|campaign|ask|feedback):/;
+const KEY_PREFIXES = /^(meeting|money|top3|wait|risk|docsend|campaign|ask|feedback|feed):/;
 
 const DEVICE_RE = /^[0-9a-f]{32}$/;
 const TOKEN_RE = /^tcdsk_([0-9a-f]{32})_([0-9a-f]{32})_([A-Za-z0-9_-]{43})$/;
@@ -670,8 +674,9 @@ async function feedbackAlerts(
 /**
  * What one computer should show now, and when to ask again. Outside 6am-9pm
  * only Ask Arwin answers are worked out. Meetings first, then Ask Arwin
- * answers, then new feedback, then campaigns, then the rest, each without the
- * keys this computer must not alert.
+ * answers, then new feedback, then campaigns, then the rest, then a feed
+ * notice (only when the computer's owner turned feed notices on), each
+ * without the keys this computer must not alert.
  *
  * Ask Arwin answers (`askReplies`, for a shell from 0.4.1 only: the endpoint
  * decides by its User-Agent) come at any hour, to whoever asked, with a
@@ -703,12 +708,14 @@ export async function desktopAlertsFor(
   const inputs = await cachedInputs(store, caller.organizationId, now, timeZone);
   // Daytime only, like the phone alerts: feedback can wait for the morning.
   const feedback = await feedbackAlerts(store, caller, sent, now);
+  const feeds = await feedNoticeFor(store, caller, sent, now, timeZone);
   return {
     alerts: [
       ...meetings.map(toDesktopAlert),
       ...asked,
       ...feedback,
       ...alertsFromInputs(inputs, sent, now, timeZone).map(toDesktopAlert),
+      ...(feeds ? [{ ...feeds, urgent: false, quietWhenFocused: false }] : []),
     ],
     pollAfterSeconds,
   };

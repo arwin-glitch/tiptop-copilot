@@ -1,14 +1,21 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { CheckCircle2, CircleAlert, CircleDashed, FlaskConical } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { capabilityReport, envLimits, type CapabilityStatus } from '@/lib/config/env';
+import { DIAGNOSTICS_TABS, resolvePageTab } from '@/lib/records-tabs';
 import { getAI, getResearchProvider, getStore } from '@/lib/runtime';
 import { getUsageWindow } from '@/lib/security/limits';
+import { listDesktopDevices } from '@/lib/services/desktop-alerts';
+import { feedNoticesOn, readFeedHealth } from '@/lib/services/feed-health';
 import { taskCloserRuntime } from '@/lib/services/task-relay';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
+import { FeedHealthList } from '@/components/feeds/feed-health-list';
+import { FeedNoticesSetting } from '@/components/feeds/feed-notices';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Notice } from '@/components/ui/feedback';
+import { ErrorState, Notice, SkeletonText } from '@/components/ui/feedback';
+import { PageTabs } from '@/components/ui/page-tabs';
 import { TOOL_NAMES } from '@/lib/ai/tools/registry';
 import { PROMPT_VERSIONS } from '@/lib/ai/prompts';
 
@@ -16,12 +23,78 @@ export const metadata: Metadata = { title: 'Diagnostics' };
 export const dynamic = 'force-dynamic';
 
 /**
- * Configuration diagnostics.
+ * Configuration diagnostics, and whether every feed is still arriving.
  *
  * Reports presence and shape only. No environment variable *value* is read into
- * this page — a screenshot of it is safe to paste into a support thread.
+ * this page — a screenshot of it is safe to paste into a support thread. The
+ * Feeds tab shows times and names of routines, never anything they posted.
  */
-export default async function DiagnosticsPage() {
+export default async function DiagnosticsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const tab = resolvePageTab(DIAGNOSTICS_TABS, await searchParams);
+  return (
+    <PageShell>
+      <PageHeader
+        title="Diagnostics"
+        subtitle="What is configured, what is missing, and whether each feed is still arriving. Values are never shown — only whether a variable is present and correctly shaped."
+      />
+      <PageTabs
+        label={DIAGNOSTICS_TABS.navLabel}
+        path={DIAGNOSTICS_TABS.path}
+        tabs={DIAGNOSTICS_TABS.tabs.map((t) => ({ key: t.key, label: t.label }))}
+        active={tab}
+        defaultKey={DIAGNOSTICS_TABS.defaultKey}
+      />
+      {tab === 'feeds' ? (
+        <Suspense fallback={<SkeletonText lines={10} />}>
+          <FeedsTab />
+        </Suspense>
+      ) : (
+        <SetupTab />
+      )}
+    </PageShell>
+  );
+}
+
+/**
+ * When each feed was last seen, and the person's own feed notices. The read
+ * is cached for two minutes and never throws; a part that fails says so.
+ */
+async function FeedsTab() {
+  const auth = await requireAuth();
+  const store = getStore();
+  const now = new Date();
+  const timeZone = auth.profile.timezone;
+  const [report, noticesOn, computers] = await Promise.all([
+    readFeedHealth(store, auth.organizationId, { now, timeZone }).catch(() => null),
+    feedNoticesOn(store, auth.organizationId, auth.userId),
+    listDesktopDevices(store, auth.organizationId, { userId: auth.userId, admin: false }).catch(
+      () => null,
+    ),
+  ]);
+  return (
+    <div className="space-y-4">
+      <FeedNoticesSetting
+        initialOn={noticesOn}
+        computers={computers ? computers.filter((c) => c.mine).length : null}
+      />
+      {report ? (
+        <FeedHealthList report={report} now={now} timeZone={timeZone} />
+      ) : (
+        <ErrorState
+          title="The feeds could not be checked"
+          message="Reading when each feed was last seen failed unexpectedly. Try again in a minute."
+          stillUsable="The Setup tab, and every other page."
+        />
+      )}
+    </div>
+  );
+}
+
+async function SetupTab() {
   const auth = await requireAuth();
   const checks = capabilityReport({
     taskCloser: taskCloserRuntime(auth.organizationId, auth.profile.timezone),
@@ -35,12 +108,7 @@ export default async function DiagnosticsPage() {
   const blocking = checks.filter((c) => c.required && c.status === 'missing');
 
   return (
-    <PageShell>
-      <PageHeader
-        title="Diagnostics"
-        subtitle="What is configured and what is missing. Values are never shown — only whether a variable is present and correctly shaped."
-      />
-
+    <>
       {blocking.length > 0 ? (
         <Notice tone="warn" className="mb-5">
           <p className="font-medium">
@@ -191,7 +259,7 @@ export default async function DiagnosticsPage() {
           </p>
         </CardContent>
       </Card>
-    </PageShell>
+    </>
   );
 }
 

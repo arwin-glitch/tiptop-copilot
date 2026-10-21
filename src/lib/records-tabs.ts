@@ -84,6 +84,33 @@ export const DEALS_TABS = define({
   ],
 });
 
+/**
+ * Diagnostics is a System page, not a Records page, but its feed health sits
+ * behind the same kind of bar: the configuration report first (the bare
+ * URL, unchanged), then when each routine and job was last seen. A desktop
+ * feed notice opens `?tab=feeds`.
+ */
+export const DIAGNOSTICS_TABS = define({
+  path: '/diagnostics',
+  page: 'Diagnostics',
+  navLabel: 'Diagnostics sections',
+  defaultKey: 'setup',
+  tabs: [
+    {
+      key: 'setup',
+      label: 'Setup',
+      blurb:
+        'What is configured and what is missing. Values are never shown, only whether each is present.',
+    },
+    {
+      key: 'feeds',
+      label: 'Feeds',
+      blurb:
+        'When each routine and job that fills the cards was last seen, against how often it runs, in plain words.',
+    },
+  ],
+});
+
 export const PORTFOLIO_TABS = define({
   path: '/portfolio',
   page: 'Portfolio',

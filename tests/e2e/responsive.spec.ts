@@ -72,6 +72,9 @@ const PAGES = [
   // Follow-ups and the email session, whose full email is checked open below.
   '/follow-ups',
   '/follow-ups/session',
+  // Diagnostics, and its feeds with their long schedule lines.
+  '/diagnostics',
+  '/diagnostics?tab=feeds',
 ];
 
 /** No sideways scroll beyond a few pixels of rounding. */
