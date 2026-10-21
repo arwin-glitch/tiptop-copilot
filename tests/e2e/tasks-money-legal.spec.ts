@@ -81,10 +81,15 @@ function row(panel: Locator, title: string) {
   return panel.getByRole('listitem').filter({ hasText: title });
 }
 
-/** Opens a row's menu and picks an entry. */
+/**
+ * Opens a row's menu and picks an entry, from the keyboard: a menu opened on
+ * a low row ends under the bottom-right toasts (8-second Undo ones among
+ * them), and a pointer resting on a toast pauses it, so a click there would
+ * wait for a toast that never leaves.
+ */
 async function menu(page: Page, item: Locator, entry: string) {
   await item.getByRole('button', { name: 'More actions' }).click();
-  await page.getByRole('menuitem', { name: entry }).click();
+  await page.getByRole('menuitem', { name: entry }).press('Enter');
 }
 
 async function deleteAll(page: Page, panel: Locator) {
