@@ -152,11 +152,14 @@ export function WhoGetsWhat({ campaignId, version }: { campaignId: string; versi
             : '.'}
         </p>
       ) : null}
-      {copying && manifest.tracking ? (
-        <p className="text-xs text-[var(--fg-muted)]">
-          A copy is the same email, so opens and clicks by anyone copied
-          {manifest.unsubscribe ? ' (and its unsubscribe link)' : ''} count as the
-          recipient&rsquo;s.
+      {copying && (manifest.tracking || manifest.unsubscribe) ? (
+        // The unsubscribe line too, with tracking off: anyone copied who taps
+        // it (or their mail app's Unsubscribe button) unsubscribes the person
+        // the email is to, which keeps them out of every later campaign.
+        <p className="text-xs text-[var(--fg-muted)]" data-testid="who-gets-what-copy-note">
+          {manifest.tracking
+            ? `A copy is the same email, so opens and clicks by anyone copied count as the recipient’s${manifest.unsubscribe ? ', and its unsubscribe link unsubscribes the recipient, whoever taps it' : ''}.`
+            : 'A copy is the same email, so its unsubscribe link unsubscribes the recipient, whoever taps it.'}
         </p>
       ) : null}
       {manifest.warnings.length ? (

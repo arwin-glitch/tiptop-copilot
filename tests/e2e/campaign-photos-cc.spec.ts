@@ -182,9 +182,17 @@ test('an unsubscribed CC stops the send; removing a photo takes it off its perso
   await page.getByRole('button', { name: 'Next: the message' }).click();
   await page.getByLabel('Subject').fill('Hello');
   await page.getByLabel('Email', { exact: true }).fill('Hi {{first_name|there}},\n\nHello.');
+  // Tracking off and the unsubscribe line on: the copy still carries that link.
+  await page.getByRole('switch', { name: 'Track opens and clicks' }).click();
+  await page.getByRole('switch', { name: 'Add an unsubscribe link' }).click();
+  await expect(page.getByRole('switch', { name: 'Track opens and clicks' })).not.toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Add an unsubscribe link' })).toBeChecked();
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next: review' }).click();
   const review = page.getByRole('region', { name: 'Send to 1 person?' });
+  await expect(review.getByTestId('who-gets-what-copy-note')).toHaveText(
+    'A copy is the same email, so its unsubscribe link unsubscribes the recipient, whoever taps it.',
+  );
   await expect(review).toContainText('Fix these before sending:');
   await expect(review).toContainText(
     'hana@riverlight.example unsubscribed, so it cannot be copied: take it off CC.',
