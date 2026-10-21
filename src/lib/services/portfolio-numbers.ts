@@ -620,6 +620,11 @@ export function mergeSnapshot(
 export interface NumbersRefresh {
   state: PortfolioNumbersState;
   snapshot: NumbersSnapshot | null;
+  /**
+   * The next pass, when this one ran out of time and is being carried on in
+   * the background; null when the refresh is done. See `refreshSettled`.
+   */
+  next: Promise<NumbersRefresh> | null;
 }
 
 export type NumbersReader = (
@@ -636,61 +641,157 @@ const gmailReader: NumbersReader = (store, organizationId, companies, now) =>
  * The first read, the one the page waits on while nothing is stored: like a
  * page's own read it fails fast instead of waiting out Gmail's rate limit, so
  * the page shows what it could read within its budget. What it missed leaves
- * the snapshot partial, and the background refresh a view then starts reads
- * it with `gmailReader`.
+ * the snapshot partial, and the passes after it read the rest with
+ * `gmailReader`.
  */
 const gmailFirstReader: NumbersReader = (store, organizationId, companies, now) =>
   computeReads(store, organizationId, companies, now, REFRESH_DEADLINE_MS);
 
+/**
+ * A pass that runs out of time is followed by another, so a partial read
+ * finishes on its own instead of waiting for the next page view or the daily
+ * job. Each pass reads less than the one before (bodies and headers are kept
+ * in memory), and each one is stored as it ends. It stops once every company
+ * is read, after this many passes, or when a pass reads no company in full
+ * that no earlier pass had, so it cannot spin.
+ */
+const MAX_PASSES = 6;
+/** Between passes, to give Gmail's quota a moment to refill. */
+const PASS_PAUSE_MS = 15_000;
+
 const refreshState = processWide('portfolio-numbers-refresh', () => ({
+  /** The pass running now (or about to, after its pause), by organization. */
   inFlight: new Map<string, Promise<NumbersRefresh>>(),
   retryAt: new Map<string, number>(),
+  /** Bumped by the test reset; a refresh started before it stops at its next step. */
+  generation: 0,
 }));
 
-/** Test hook. */
+/**
+ * Test hook. A refresh still running (or waiting out its pause) stops at its
+ * next step: it reads nothing more, stores nothing more, and never takes the
+ * slot or sets a cooldown again, so it cannot leak into the next test.
+ */
 export function resetPortfolioNumbersRefresh(): void {
   refreshState.inFlight.clear();
   refreshState.retryAt.clear();
+  refreshState.generation += 1;
+}
+
+export interface RefreshOptions {
+  now?: () => Date;
+  read?: NumbersReader;
+  /**
+   * The first pass's reader, when it is not `read`: the page's first read
+   * fails fast (`gmailFirstReader`), and the passes after it read in the
+   * background.
+   */
+  firstRead?: NumbersReader;
+  /** Test hooks: how many passes at most, and the pause between them. */
+  maxPasses?: number;
+  pauseMs?: number;
 }
 
 /**
  * Read every company's mail afresh and store the result. One refresh per
- * organization at a time: a second call while one runs gets the same promise.
- * When Gmail cannot be read the stored snapshot is left as it was. Never throws.
+ * organization at a time: a second call while one runs gets the pass that is
+ * running. When Gmail cannot be read the stored snapshot is left as it was.
+ * The promise settles when this pass ends; a partial pass starts the next one
+ * in the background (`next`). Never throws.
  */
 export function refreshPortfolioNumbers(
   store: DataStore,
   organizationId: string,
   companies: readonly CompanyLike[],
-  options: { now?: () => Date; read?: NumbersReader } = {},
+  options: RefreshOptions = {},
 ): Promise<NumbersRefresh> {
   const running = refreshState.inFlight.get(organizationId);
   if (running) return running;
+  return startPass(store, organizationId, companies, options, 1, new Set(), 0);
+}
+
+function startPass(
+  store: DataStore,
+  organizationId: string,
+  companies: readonly CompanyLike[],
+  options: RefreshOptions,
+  pass: number,
+  /** Companies some earlier pass of this refresh read in full. */
+  readInFull: ReadonlySet<string>,
+  pauseMs: number,
+): Promise<NumbersRefresh> {
   const clock = options.now ?? (() => new Date());
-  const read = options.read ?? gmailReader;
+  const read = (pass === 1 ? options.firstRead : undefined) ?? options.read ?? gmailReader;
+  const maxPasses = options.maxPasses ?? MAX_PASSES;
+  // Only the test reset changes it (`resetPortfolioNumbersRefresh`): in the
+  // running app every pass is current.
+  const generation = refreshState.generation;
+  const current = () => refreshState.generation === generation;
   const run = (async (): Promise<NumbersRefresh> => {
     let previous: NumbersSnapshot | null = null;
     try {
+      if (pauseMs > 0) await new Promise((r) => setTimeout(r, pauseMs));
+      if (!current()) return { state: 'error', snapshot: null, next: null };
       previous = await readNumbersSnapshot(store, organizationId).catch(() => null);
       const computed = await read(store, organizationId, companies, clock());
+      if (!current()) return { state: 'error', snapshot: previous, next: null };
       if (computed.state !== 'ok') {
         refreshState.retryAt.set(organizationId, clock().getTime() + REFRESH_RETRY_MS);
-        return { state: computed.state, snapshot: previous };
+        return { state: computed.state, snapshot: previous, next: null };
       }
+      const done = new Set(readInFull);
+      for (const r of computed.reads) if (r.complete) done.add(r.companyId);
+      const progressed = pass === 1 || done.size > readInFull.size;
       const snapshot = mergeSnapshot(previous, computed, companies, clock());
       await writeNumbersSnapshot(store, organizationId, snapshot);
+      if (!current()) return { state: 'ok', snapshot, next: null };
       refreshState.retryAt.delete(organizationId);
-      return { state: 'ok', snapshot };
+      const carryOn = snapshot.partial && pass < maxPasses && progressed;
+      // Registered before this pass settles, so nobody sees a gap between passes.
+      const next = carryOn
+        ? startPass(
+            store,
+            organizationId,
+            companies,
+            options,
+            pass + 1,
+            done,
+            options.pauseMs ?? PASS_PAUSE_MS,
+          )
+        : null;
+      if (snapshot.partial) {
+        log.info('Portfolio numbers pass ended partial', {
+          pass,
+          readInFull: done.size,
+          companies: companies.length,
+          carryOn,
+        });
+      }
+      return { state: 'ok', snapshot, next };
     } catch (error) {
       log.warn('Portfolio numbers refresh failed', { reason: (error as Error)?.message });
-      refreshState.retryAt.set(organizationId, clock().getTime() + REFRESH_RETRY_MS);
-      return { state: 'error', snapshot: previous };
-    } finally {
-      refreshState.inFlight.delete(organizationId);
+      if (current()) {
+        refreshState.retryAt.set(organizationId, clock().getTime() + REFRESH_RETRY_MS);
+      }
+      return { state: 'error', snapshot: previous, next: null };
     }
   })();
   refreshState.inFlight.set(organizationId, run);
+  // Runs before anyone awaiting `run` resumes. A pass that started the next
+  // one has already handed it the slot, so this leaves it alone.
+  void run.then(() => {
+    if (refreshState.inFlight.get(organizationId) === run) {
+      refreshState.inFlight.delete(organizationId);
+    }
+  });
   return run;
+}
+
+/** The last pass of a refresh: follows `next` until the refresh is done. Never throws. */
+export async function refreshSettled(first: Promise<NumbersRefresh>): Promise<NumbersRefresh> {
+  let outcome = await first;
+  while (outcome.next) outcome = await outcome.next;
+  return outcome;
 }
 
 /** Whether stored numbers should be read again: old, partial, or read for another company list. */
@@ -745,13 +846,22 @@ export async function loadPortfolioNumbers(
   store: DataStore,
   organizationId: string,
   companies: readonly CompanyLike[],
-  options: { now?: Date; read?: NumbersReader; budgetMs?: number } = {},
+  options: {
+    now?: Date;
+    read?: NumbersReader;
+    budgetMs?: number;
+    maxPasses?: number;
+    pauseMs?: number;
+  } = {},
 ): Promise<StoredNumbers> {
   const now = options.now ?? new Date();
-  const start = (read?: NumbersReader) =>
+  const start = (firstRead?: NumbersReader) =>
     refreshPortfolioNumbers(store, organizationId, companies, {
-      read: options.read ?? read,
+      read: options.read,
+      firstRead: options.read ?? firstRead,
       now: options.now ? () => now : undefined,
+      maxPasses: options.maxPasses,
+      pauseMs: options.pauseMs,
     });
   const stored = await readNumbersSnapshot(store, organizationId).catch(() => null);
 
@@ -775,7 +885,8 @@ export async function loadPortfolioNumbers(
           partial: false,
           checkedAt: now.toISOString(),
         };
-    return { result, refreshing: false, pending: null };
+    // A first read that ran out of time carries on in the background.
+    return { result, refreshing: done.next !== null, pending: done.next };
   }
   return { result: { state: 'pending' }, refreshing: true, pending: run };
 }

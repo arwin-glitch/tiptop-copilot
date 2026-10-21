@@ -9,6 +9,7 @@ import { PlainText } from '@/components/ui/feedback';
 import { citationHref, citationLabel, citationProvenance } from '@/lib/ai/citations';
 import type { Citation } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
+import { formatDateTime } from '@/lib/util/time';
 
 /**
  * The evidence surface.
@@ -204,16 +205,22 @@ function kindToProvenance(
   }
 }
 
-/** Small banner shown above any generated block. */
+/**
+ * Small banner shown above any generated block. The time is in the reader's
+ * profile timezone, never the process's: the server and the browser can sit in
+ * different zones, and a date printed in each one's own would not hydrate.
+ */
 export function GeneratedMeta({
   model,
   promptVersion,
   generatedAt,
+  timeZone,
   className,
 }: {
   model: string | null;
   promptVersion: string | null;
   generatedAt: string | null;
+  timeZone: string;
   className?: string;
 }) {
   return (
@@ -228,7 +235,7 @@ export function GeneratedMeta({
       </Badge>
       {model ? <span className="font-mono">{model}</span> : null}
       {promptVersion ? <span className="font-mono">{promptVersion}</span> : null}
-      {generatedAt ? <span>{new Date(generatedAt).toLocaleString()}</span> : null}
+      {generatedAt ? <span>{formatDateTime(generatedAt, timeZone)}</span> : null}
     </div>
   );
 }

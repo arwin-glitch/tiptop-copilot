@@ -71,7 +71,9 @@ export default async function PortfolioCompanyPage({
         eyebrow="Portfolio"
         title={company.name}
         subtitle={company.description ?? company.key_metrics ?? undefined}
-        actions={<CreateFollowUpButton portfolioCompanyId={company.id} />}
+        actions={
+          <CreateFollowUpButton portfolioCompanyId={company.id} timeZone={auth.profile.timezone} />
+        }
       />
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">

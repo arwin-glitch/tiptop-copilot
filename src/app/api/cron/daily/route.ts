@@ -12,7 +12,7 @@ import { syncMailbox } from '@/lib/services/inbox';
 import { listPortfolio } from '@/lib/services/portfolio';
 import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
 import { refreshPortfolioAsks } from '@/lib/services/portfolio-asks';
-import { refreshPortfolioNumbers } from '@/lib/services/portfolio-numbers';
+import { refreshPortfolioNumbers, refreshSettled } from '@/lib/services/portfolio-numbers';
 import { formatTaskCronStatus, pullTaskRelays } from '@/lib/services/task-relay';
 import { sweepKeepInTouch } from '@/lib/services/keep-in-touch';
 import { settlesWithin } from '@/lib/util/settle';
@@ -245,11 +245,17 @@ export async function POST(request: NextRequest) {
         const done = await run;
         numbersStatus =
           done.state === 'ok'
-            ? `ok: ${done.snapshot?.companies.length ?? 0} with numbers${done.snapshot?.partial ? ', partial' : ''}`
+            ? `ok: ${done.snapshot?.companies.length ?? 0} with numbers${done.snapshot?.partial ? (done.next ? ', partial, continuing' : ', partial') : ''}`
             : `skipped: ${done.state}`;
+        const next = done.next;
+        if (next) {
+          after(async () => {
+            await refreshSettled(next);
+          });
+        }
       } else {
         after(async () => {
-          await run;
+          await refreshSettled(run);
         });
         numbersStatus = 'running';
       }

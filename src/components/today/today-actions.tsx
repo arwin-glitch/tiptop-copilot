@@ -16,6 +16,7 @@ import { useTaskActionHost } from '@/components/tasks/task-action-host';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Field, Input, Textarea } from '@/components/ui/form';
+import { defaultDueDate, dueDateToInstant } from '@/lib/tasks/due';
 import type { TaskRestore } from '@/lib/tasks/tasks-view';
 
 export function RefreshOutlookButton() {
@@ -55,6 +56,7 @@ export function CreateFollowUpButton({
   label = 'Create follow-up',
   size = 'sm',
   variant = 'secondary',
+  timeZone,
 }: {
   dealId?: string;
   portfolioCompanyId?: string;
@@ -63,11 +65,13 @@ export function CreateFollowUpButton({
   label?: string;
   size?: 'sm' | 'md';
   variant?: 'primary' | 'secondary' | 'ghost';
+  /** The reader's profile timezone: "today" and 5 PM on the due day are read in it. */
+  timeZone: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState(defaultTitle ?? '');
   const [detail, setDetail] = React.useState('');
-  const [dueAt, setDueAt] = React.useState(defaultDue());
+  const [dueAt, setDueAt] = React.useState(() => defaultDueDate(new Date(), timeZone));
   const [pending, startTransition] = React.useTransition();
   // On Tasks, whose tabs hold their URL writes while this refreshes.
   const reportRefresh = useReportRefresh(pending);
@@ -130,7 +134,7 @@ export function CreateFollowUpButton({
                 const result = await createTaskAction({
                   title,
                   detail: detail || undefined,
-                  dueAt: dueAt ? new Date(`${dueAt}T17:00:00`).toISOString() : undefined,
+                  dueAt: dueAt ? dueDateToInstant(dueAt, timeZone) : undefined,
                   dealId,
                   portfolioCompanyId,
                   emailMessageId,
@@ -153,12 +157,6 @@ export function CreateFollowUpButton({
       </DialogContent>
     </Dialog>
   );
-}
-
-function defaultDue(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 2);
-  return d.toISOString().slice(0, 10);
 }
 
 const BACK_OPEN: TaskRestore = { status: 'open' };

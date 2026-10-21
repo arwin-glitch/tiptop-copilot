@@ -196,7 +196,13 @@ export default async function TasksPage() {
       <PageHeader
         title="Tasks"
         subtitle="Things you owe someone. Who you are waiting on, and who is waiting on you, are on Follow-ups."
-        actions={<CreateFollowUpButton variant="primary" label="New follow-up" />}
+        actions={
+          <CreateFollowUpButton
+            variant="primary"
+            label="New follow-up"
+            timeZone={auth.profile.timezone}
+          />
+        }
       />
       <VersionWatcher version={version} endpoint="/api/tasks/version" />
       <TasksTabs

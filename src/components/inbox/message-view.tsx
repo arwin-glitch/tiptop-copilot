@@ -82,13 +82,13 @@ const LONG_TIME: Intl.DateTimeFormatOptions = {
 };
 
 /**
- * "Mon, Oct 19, 9:40 AM". In `timeZone` when one is given (Follow-ups passes
- * the profile's, so one thread never mixes two zones); without one, the
- * browser's own, as the Inbox has always shown it.
+ * "Mon, Oct 19, 9:40 AM", for a message header and a forward's Date line. In
+ * the reader's profile timezone and in en-US, never the process's own zone or
+ * locale: the Inbox renders on the server and hydrates in the browser, and the
+ * two can sit in different zones. One thread then never mixes two zones either.
  */
-export function longTime(iso: string | null, timeZone?: string): string {
+export function longTime(iso: string | null, timeZone: string): string {
   if (!iso) return '';
-  if (!timeZone) return new Date(iso).toLocaleString([], LONG_TIME);
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   return new Intl.DateTimeFormat('en-US', { timeZone, ...LONG_TIME }).format(d);
@@ -111,7 +111,7 @@ export function MessageItem({
 }: {
   message: ShownMessage;
   startOpen: boolean;
-  timeZone?: string;
+  timeZone: string;
   clampLines?: number;
 }) {
   const [open, setOpen] = React.useState(startOpen);

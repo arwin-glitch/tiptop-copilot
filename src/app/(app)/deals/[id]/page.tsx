@@ -253,6 +253,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                 model={analysis.model}
                 promptVersion={analysis.prompt_version}
                 generatedAt={analysis.generated_at}
+                timeZone={auth.profile.timezone}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -328,7 +329,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                 </Button>
               </SourceDrawer>
               <AddNoteButton dealId={deal.id} />
-              <CreateFollowUpButton dealId={deal.id} />
+              <CreateFollowUpButton dealId={deal.id} timeZone={auth.profile.timezone} />
             </div>
           </CardContent>
         </Card>
@@ -626,6 +627,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                           <span className="flex-1">{q}</span>
                           <CreateFollowUpButton
                             dealId={deal.id}
+                            timeZone={auth.profile.timezone}
                             defaultTitle={q}
                             label="Task"
                             variant="ghost"
@@ -924,7 +926,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
             <CardContent className="pt-4">
               <div className="flex flex-wrap gap-2">
                 <AddNoteButton dealId={deal.id} />
-                <CreateFollowUpButton dealId={deal.id} />
+                <CreateFollowUpButton dealId={deal.id} timeZone={auth.profile.timezone} />
               </div>
 
               <FieldLabel as="h3" className="mt-5">
@@ -1007,6 +1009,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                         model={a.model}
                         promptVersion={a.prompt_version}
                         generatedAt={a.generated_at}
+                        timeZone={auth.profile.timezone}
                       />
                     </li>
                   ))}
