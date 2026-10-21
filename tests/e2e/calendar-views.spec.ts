@@ -427,3 +427,20 @@ test('the switch goes back to the day list, and that is remembered too', async (
   await page.goto('/calendar');
   await expect(page.getByRole('navigation', { name: 'Day' })).toBeVisible();
 });
+
+test('on a phone the switch opens the new views on Day, and turns off again', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/calendar');
+  await expect(page.getByRole('navigation', { name: 'Day' }).getByRole('link')).toHaveCount(7);
+  await page.getByRole('switch', { name: 'New calendar (preview)' }).click();
+  // Day, like Google Calendar's app, not seven narrow columns of Week.
+  await page.waitForURL(
+    (url) => url.pathname === '/calendar' && url.search === `?view=day&date=${dayFromToday(0)}`,
+  );
+  await expect(grid(page, 'day')).toBeVisible();
+  await expect(grid(page, 'week')).toHaveCount(0);
+  // Off again, so the day list's own specs find the day list.
+  await page.getByRole('switch', { name: 'New calendar (preview)' }).click();
+  await page.waitForURL(/\/calendar$/);
+  await expect(page.getByRole('navigation', { name: 'Day' }).getByRole('link')).toHaveCount(7);
+});

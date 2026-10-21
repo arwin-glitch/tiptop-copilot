@@ -177,7 +177,11 @@ async function CalendarContent({
           ))}
         </nav>
         <div data-tour="calendar-views">
-          <PreviewSwitch on={false} openHref={`/calendar?view=${previewView}&date=${dateKey}`} />
+          <PreviewSwitch
+            on={false}
+            openHref={`/calendar?view=${previewView}&date=${dateKey}`}
+            phoneHref={`/calendar?view=day&date=${dateKey}`}
+          />
         </div>
       </div>
 

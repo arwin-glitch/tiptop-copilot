@@ -70,7 +70,7 @@ import { EventEditor, type EditorState } from './event-editor';
 import { EventPanel, type CardAnchor } from './event-panel';
 import { MiniMonth } from './mini-month';
 import { MonthGrid } from './month-grid';
-import { PreviewSwitch } from './preview-switch';
+import { PHONE_QUERY, PreviewSwitch } from './preview-switch';
 import { TimeGrid, type GridChange } from './time-grid';
 
 /**
@@ -130,8 +130,6 @@ function covers(
   const tried = new Set([...data.loaded, ...data.failed.map((f) => f.calendarId)]);
   return ids.every((id) => tried.has(id));
 }
-
-const PHONE_QUERY = '(max-width: 639px)';
 
 function usePhone(): boolean {
   return React.useSyncExternalStore(
