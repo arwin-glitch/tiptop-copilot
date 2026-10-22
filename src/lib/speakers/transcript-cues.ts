@@ -9,7 +9,7 @@ import { formatOffset } from '@/lib/notes/api';
  * elimination (calendar-elimination.ts); they never name a voice on their
  * own. Names are matched against the people we already know (the invite, the
  * CRM), never read out of the transcript: the spelling a suggestion carries
- * is the invite's, so a vendor's "Pria" can still point at "Priya Shah" only
+ * is the invite's, so a transcript's "Pria" can still point at "Priya Shah" only
  * when the words match, and a name nobody invited is never suggested.
  *
  * Pure and client-safe. The AI cue pass (lib/ai/prompts/meeting-notes.ts)

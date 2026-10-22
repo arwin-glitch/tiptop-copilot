@@ -3,11 +3,12 @@ import { MOCK_CALL_LINES } from '../../src/lib/transcribe/mock-script';
 
 /**
  * The web recorder in a real Chromium (D-076, WS3), against the demo speech
- * service. Chromium's fake devices stand in for the microphone and the
+ * engine. Chromium's fake devices stand in for the microphone and the
  * shared screen (a beeping tone on each), so the whole path runs: consent
- * step, both tracks through the AudioWorklet at 16 kHz, the mock vendor
- * hearing them, finished lines posted with a rising seq, reconnects, pause,
- * and the silence auto-stop. The demo call plays 8x faster than real time.
+ * step, both tracks through the AudioWorklet at 16 kHz, the demo engine
+ * hearing them, finished lines posted with a rising seq, going offline,
+ * pause, and the silence auto-stop. The demo call plays 8x faster than real
+ * time. The on-device Whisper engine has its own spec (capture-whisper.spec.ts).
  */
 
 test.use({
@@ -123,8 +124,8 @@ test('records a call: consent first, both meters move, lines upload in order', a
 
   expect(await peakLevel(page, 'meter-mic')).toBeGreaterThan(0);
   expect(await peakLevel(page, 'meter-system')).toBeGreaterThan(0);
-  await expect(page.getByTestId('socket-mic')).toHaveAttribute('data-socket', 'open');
-  await expect(page.getByTestId('socket-system')).toHaveAttribute('data-socket', 'open');
+  await expect(page.getByTestId('engine-mic')).toHaveAttribute('data-engine', 'open');
+  await expect(page.getByTestId('engine-system')).toHaveAttribute('data-engine', 'open');
 
   // The whole call: 134 s at 8x, about 17 s.
   await expect
@@ -145,27 +146,29 @@ test('records a call: consent first, both meters move, lines upload in order', a
   expect(meeting.recordedMs).toBeGreaterThan(10_000);
 });
 
-test('going offline and back reconnects with a new key, without gaps or repeats', async ({
+test('going offline keeps transcribing here; lines save when the network is back', async ({
   page,
   context,
 }) => {
-  let tokenRequests = 0;
+  let setupRequests = 0;
   page.on('request', (r) => {
-    if (r.method() === 'POST' && r.url().endsWith('/stt-token')) tokenRequests += 1;
+    if (r.method() === 'POST' && r.url().endsWith('/speech-setup')) setupRequests += 1;
   });
   const meetingId = await prepare(page);
   await startRecording(page);
   await expect.poll(async () => (await segments(page, meetingId)).length).toBeGreaterThan(2);
-  expect(tokenRequests).toBe(1);
+  expect(setupRequests).toBe(1);
 
   await context.setOffline(true);
   await expect(page.getByTestId('warning-offline')).toBeVisible();
+  // Speech runs on this computer: the engines stay open while offline.
   await page.waitForTimeout(2500); // 20 s of the call while offline
+  await expect(page.getByTestId('engine-mic')).toHaveAttribute('data-engine', 'open');
+  await expect(page.getByTestId('engine-system')).toHaveAttribute('data-engine', 'open');
   await context.setOffline(false);
   await expect(page.getByTestId('warning-offline')).toBeHidden();
-  await expect(page.getByTestId('socket-mic')).toHaveAttribute('data-socket', 'open');
-  await expect(page.getByTestId('socket-system')).toHaveAttribute('data-socket', 'open');
-  expect(tokenRequests).toBeGreaterThanOrEqual(2);
+  // Nothing to ask the server again: the settings were kept.
+  expect(setupRequests).toBe(1);
 
   await expect
     .poll(async () => (await segments(page, meetingId)).length, { timeout: 45_000 })
@@ -180,7 +183,7 @@ test('going offline and back reconnects with a new key, without gaps or repeats'
   await expect(page.getByTestId('recorder-controls')).toHaveAttribute('data-status', 'stopped');
 });
 
-test('pause closes the sockets and hears nothing; resume carries on', async ({ page }) => {
+test('pause finishes the engines and hears nothing; resume carries on', async ({ page }) => {
   let pauses = 0;
   page.on('request', (r) => {
     if (r.method() === 'POST' && r.url().endsWith('/pause')) pauses += 1;
@@ -192,8 +195,8 @@ test('pause closes the sockets and hears nothing; resume carries on', async ({ p
   await page.getByRole('button', { name: 'Pause recording' }).click();
   const controls = page.getByTestId('recorder-controls');
   await expect(controls).toHaveAttribute('data-status', 'paused');
-  await expect(page.getByTestId('socket-mic')).toHaveAttribute('data-socket', 'closed');
-  await expect(page.getByTestId('socket-system')).toHaveAttribute('data-socket', 'closed');
+  await expect(page.getByTestId('engine-mic')).toHaveAttribute('data-engine', 'closed');
+  await expect(page.getByTestId('engine-system')).toHaveAttribute('data-engine', 'closed');
   await expect.poll(() => pauses).toBe(1);
   await page.waitForTimeout(1000); // let the last lines land
   const atPause = (await segments(page, meetingId)).length;
@@ -204,7 +207,7 @@ test('pause closes the sockets and hears nothing; resume carries on', async ({ p
 
   await page.getByRole('button', { name: 'Resume recording' }).click();
   await expect(controls).toHaveAttribute('data-status', 'recording');
-  await expect(page.getByTestId('socket-mic')).toHaveAttribute('data-socket', 'open');
+  await expect(page.getByTestId('engine-mic')).toHaveAttribute('data-engine', 'open');
   await expect
     .poll(async () => (await segments(page, meetingId)).length, { timeout: 20_000 })
     .toBeGreaterThan(atPause);
@@ -237,15 +240,15 @@ test('warns when no meeting audio is heard', async ({ page }) => {
 });
 
 test('mic-only mode records one diarized track', async ({ page }) => {
-  let tokenBody = '';
+  let setupBody = '';
   page.on('request', (r) => {
-    if (r.method() === 'POST' && r.url().endsWith('/stt-token')) tokenBody = r.postData() ?? '';
+    if (r.method() === 'POST' && r.url().endsWith('/speech-setup')) setupBody = r.postData() ?? '';
   });
   const meetingId = await prepare(page, '', 'mic_only');
   await startRecording(page);
   await expect(page.getByTestId('meter-mixed')).toBeVisible();
   await expect(page.getByTestId('meter-system')).toHaveCount(0);
-  expect(JSON.parse(tokenBody)).toEqual({ tracks: ['mixed'] });
+  expect(JSON.parse(setupBody)).toEqual({ tracks: ['mixed'] });
   await expect.poll(async () => (await segments(page, meetingId)).length).toBeGreaterThan(3);
   const rows = await segments(page, meetingId);
   expect(rows.every((r) => r.track === 'mixed' && r.clusterKey.startsWith('mix:'))).toBe(true);

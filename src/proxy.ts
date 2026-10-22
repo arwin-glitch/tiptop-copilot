@@ -237,13 +237,18 @@ function withSecurityHeaders(
   // XSS surface this would normally widen does not exist here.
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    // 'wasm-unsafe-eval': the meeting recorder's speech worker runs Whisper as
+    // WebAssembly (D-076); ONNX Runtime's binary is Copilot's own static file.
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    // The speech vendors' sockets, which the meeting recorder streams to
-    // directly with a 60-second key (D-076); audio never passes through here.
-    "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.rt.speechmatics.com wss://streaming.assemblyai.com",
+    // The free, open speech models download once from huggingface.co (which
+    // redirects to its *.hf.co storage) and are cached by the browser. Only
+    // downloads: no audio or text ever goes there (D-076).
+    "connect-src 'self' https://*.supabase.co https://*.supabase.in https://huggingface.co https://*.huggingface.co https://*.hf.co",
+    // The speech worker: Copilot's own script (the bundler may start it from a blob).
+    "worker-src 'self' blob:",
     "frame-ancestors 'none'",
     "form-action 'self'",
     "base-uri 'self'",

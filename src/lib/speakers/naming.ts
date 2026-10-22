@@ -20,8 +20,9 @@ import {
  * The naming pass (D-076): every rung of the ladder below a person's tap,
  * applied to a meeting's voices at once, as a list of speaker patches.
  *
- *   c) voiceprint  a voice the vendor matched to a consented, enrolled
- *                  profile (its cluster key is 'sys:<profile id>')
+ *   c) voiceprint  a voice the recorder's speech worker matched to a
+ *                  consented, enrolled profile (its cluster key is
+ *                  'sys:<profile id>')
  *   d) roster      the meeting app's speaking timeline (roster.ts)
  *   e) calendar    elimination against the invite (calendar-elimination.ts)
  *   f) cues        what was said (transcript-cues.ts, plus the AI cue pass):
@@ -42,7 +43,7 @@ import {
  */
 
 export interface NamingProfile {
-  /** The voice profile id: the label the vendor returns for a matched voice. */
+  /** The voice profile id: the label the speech worker gives a matched voice. */
   id: string;
   email: string;
   name: string | null;
@@ -106,7 +107,7 @@ function personFromRow(row: MeetingSpeaker): Person | null {
 }
 
 /** The base of a cluster key with its track prefix removed: 'sys:abc' → 'abc'. */
-function vendorLabelOf(clusterKey: string): string | null {
+function clusterLabelOf(clusterKey: string): string | null {
   if (clusterKey.includes('#')) return null;
   const colon = clusterKey.indexOf(':');
   return colon < 0 ? null : clusterKey.slice(colon + 1);
@@ -163,10 +164,10 @@ export function planNaming(input: NamingInput): NamingPatch[] {
     w.confidence = null;
   };
 
-  // c) Voiceprint: the vendor matched a consented, enrolled voice.
+  // c) Voiceprint: the speech worker matched a consented, enrolled voice.
   const profiles = new Map((input.voiceProfiles ?? []).map((p) => [p.id, p]));
   for (const w of working) {
-    const label = vendorLabelOf(w.row.cluster_key);
+    const label = clusterLabelOf(w.row.cluster_key);
     const profile = label ? profiles.get(label) : undefined;
     if (!profile || !canTake(w, 'voiceprint')) continue;
     const invited = fromInvite(profile.email, profile.name);

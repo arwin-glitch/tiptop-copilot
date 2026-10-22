@@ -10,7 +10,7 @@ import {
   NOTES_CHAT,
   RELABEL_SPEAKER,
   START_RECORDING,
-  STT_TOKEN,
+  SPEECH_SETUP,
   UPLOAD_SEGMENTS,
   VOICE_CONSENT,
 } from '@/lib/notes/schemas';
@@ -179,9 +179,9 @@ describe('request schemas', () => {
   });
 
   it('mints one or two distinct tracks', () => {
-    expect(STT_TOKEN.safeParse({ tracks: ['mic', 'system'] }).success).toBe(true);
-    expect(STT_TOKEN.safeParse({ tracks: ['mic', 'mic'] }).success).toBe(false);
-    expect(STT_TOKEN.safeParse({ tracks: [] }).success).toBe(false);
+    expect(SPEECH_SETUP.safeParse({ tracks: ['mic', 'system'] }).success).toBe(true);
+    expect(SPEECH_SETUP.safeParse({ tracks: ['mic', 'mic'] }).success).toBe(false);
+    expect(SPEECH_SETUP.safeParse({ tracks: [] }).success).toBe(false);
   });
 
   it('relabels with something to change, and merges two different voices', () => {

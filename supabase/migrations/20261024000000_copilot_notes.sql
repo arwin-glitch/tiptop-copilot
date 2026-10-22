@@ -1,10 +1,11 @@
 -- Copilot Notes: meetings recorded and transcribed by Copilot itself (D-076).
 --
--- Copilot takes meeting notes without a bot: the browser (and later the
--- desktop app) streams the microphone and the meeting audio straight to the
--- speech vendor with a key that lives 60 seconds, and only finished text
--- lines come back here. No audio is ever stored: there is no audio column,
--- and `meetings.audio_retained` is pinned to false by a check.
+-- Copilot takes meeting notes without a bot and without a paid speech
+-- service: the browser (and later the desktop app) transcribes the microphone
+-- and the meeting audio itself, with Whisper running on that computer, and
+-- only finished text lines come back here. No audio is ever stored or sent:
+-- there is no audio column, and `meetings.audio_retained` is pinned to false
+-- by a check.
 --
 -- What lives here:
 --   meetings               one recorded (or about to be recorded) conversation
@@ -18,7 +19,7 @@
 --   note_share_links       expiring, revocable share links; only a hash is kept
 --   meeting_consent_log    append-only log of the consent step and recording state
 --   voice_profiles         opt-in voice enrolment consent (Texas Bus. & Com. 503.001)
---   voice_identifiers      the encrypted voice identifiers themselves, server only
+--   voice_identifiers      the encrypted voiceprints themselves, server only
 --   recording_rules        never-record rules (title, attendee domain or address,
 --                          calendar)
 -- and Copilot's own notes go into the existing meeting_notes table with
@@ -232,9 +233,9 @@ create index if not exists meeting_participants_email_idx
 --
 -- One row per voice. cluster_key is how the lines point at a voice:
 --   'mic'          the microphone: the person at this computer
---   'sys:S1'       a voice in the meeting audio, by the vendor's label
---   'sys:<uuid>'   a voice the vendor matched to an enrolled voice profile
---   'mix:S2'       a voice in a single mixed track (in person, phone)
+--   'sys:A'        a voice in the meeting audio, by the on-device clustering's label
+--   'sys:<uuid>'   a voice the browser matched to an enrolled voice profile
+--   'mix:B'        a voice in a single mixed track (in person, phone)
 -- and '<key>#2' when a voice was split ("from here it's someone else").
 -- The name lives here only, so relabelling a voice is one update.
 
@@ -284,11 +285,11 @@ create table if not exists transcript_segments (
   seq integer not null check (seq >= 0),
   track text not null check (track in ('mic', 'system', 'mixed')),
   cluster_key text not null,
-  -- The vendor's own speaker label, kept for audit.
+  -- The speech engine's own speaker label, kept for audit.
   vendor_label text check (vendor_label is null or char_length(vendor_label) <= 80),
   start_ms integer not null check (start_ms >= 0),
   end_ms integer not null,
-  -- What the vendor heard. Untrusted: rendered as text only.
+  -- What the speech model heard. Untrusted: rendered as text only.
   text text not null check (char_length(text) between 1 and 4000),
   -- A person's correction (a number, a name). The original stays in `text`.
   edited_text text check (edited_text is null or char_length(edited_text) between 1 and 4000),
@@ -437,7 +438,8 @@ create table if not exists voice_profiles (
   display_name text check (display_name is null or char_length(display_name) <= 300),
   crm_person_id uuid references crm_records(id) on delete set null,
   user_id uuid references auth.users(id) on delete set null,
-  provider text not null default 'speechmatics' check (provider in ('speechmatics')),
+  -- Voiceprints are made on the recorder's own device by the speech worker.
+  provider text not null default 'on_device' check (provider in ('on_device')),
   consent_status text not null default 'not_asked'
     check (consent_status in ('not_asked', 'granted', 'revoked')),
   consent_at timestamptz,
@@ -463,7 +465,7 @@ create table if not exists voice_identifiers (
   -- AES-256-GCM output, sealed in the app with VOICEPRINT_ENC_KEY and bound
   -- to the profile id: { "ciphertext", "iv", "authTag", "keyVersion" }.
   identifier_enc jsonb not null check (jsonb_typeof(identifier_enc) = 'object'),
-  -- Speechmatics identifiers are tied to the model version that made them.
+  -- A voiceprint (a speaker embedding) only matches one from the same model.
   model_version text not null check (char_length(model_version) between 1 and 80),
   created_at timestamptz not null default now(),
   -- At most a year after it was last used; the purge job deletes it then.

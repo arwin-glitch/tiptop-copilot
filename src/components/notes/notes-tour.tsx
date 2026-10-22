@@ -1,14 +1,25 @@
 'use client';
 
 import * as React from 'react';
-import { ArrowRight, Check, HelpCircle, Link2, Mic, ShieldOff, X } from 'lucide-react';
+import {
+  ArrowRight,
+  Check,
+  CloudOff,
+  Cpu,
+  HelpCircle,
+  Link2,
+  Mic,
+  ShieldOff,
+  X,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { cn } from '@/lib/util/cn';
 
 /**
- * A three-picture tour of Copilot Notes (D-076), for a visual learner:
- * diagrams, not paragraphs. The consent step, fixing a name, and sharing.
+ * A four-picture tour of Copilot Notes (D-076), for a visual learner:
+ * diagrams, not paragraphs. The consent step, speech staying on this
+ * computer, fixing a name, and sharing.
  * Offered as a small banner the first time (never a pop-up over the meeting),
  * and from "How it works" afterwards. Whether it was seen is a display
  * preference, kept in this browser only.
@@ -48,6 +59,10 @@ function markSeen() {
 
 const STEPS = [
   { title: 'Before you start', caption: 'Tell everyone. Tick the box. Then Start.' },
+  {
+    title: 'Heard on this computer',
+    caption: 'Your computer turns speech into text, for free. Only the words are saved.',
+  },
   { title: 'Fix a name', caption: 'Tap a name chip, pick the person: every line changes.' },
   { title: 'Share', caption: 'Summary only unless you add the transcript. Revoke any time.' },
 ] as const;
@@ -74,7 +89,7 @@ export function NotesTour() {
           className="flex flex-wrap items-center gap-2 rounded-md border border-l-2 border-[var(--border)] border-l-[var(--gold)] bg-[var(--note-soft)] px-3 py-2 text-sm"
           data-notes-tour-banner=""
         >
-          <span>New to Copilot Notes? Three pictures show how it works.</span>
+          <span>New to Copilot Notes? Four pictures show how it works.</span>
           <Button size="sm" variant="secondary" onClick={show}>
             Show me
           </Button>
@@ -96,11 +111,19 @@ export function NotesTour() {
         }}
       >
         <DialogContent
-          title={`${step + 1} of 3: ${STEPS[step]?.title ?? ''}`}
+          title={`${step + 1} of ${STEPS.length}: ${STEPS[step]?.title ?? ''}`}
           description={STEPS[step]?.caption}
         >
           <div className="rounded-md border border-[var(--border)] bg-[var(--bg-sunken)] p-4">
-            {step === 0 ? <ConsentSketch /> : step === 1 ? <NameSketch /> : <ShareSketch />}
+            {step === 0 ? (
+              <ConsentSketch />
+            ) : step === 1 ? (
+              <SpeechSketch />
+            ) : step === 2 ? (
+              <NameSketch />
+            ) : (
+              <ShareSketch />
+            )}
           </div>
           <div className="mt-3 flex justify-center gap-1.5" aria-hidden>
             {STEPS.map((s, i) => (
@@ -168,6 +191,38 @@ function ConsentSketch() {
       <Arrow />
       <span className="inline-flex items-center gap-1 rounded-full bg-[var(--danger)] px-2.5 py-1 text-[11px] font-semibold text-[var(--danger-fg)]">
         <Mic className="size-3" aria-hidden /> Recording
+      </span>
+    </div>
+  );
+}
+
+function SpeechSketch() {
+  return (
+    <div
+      className="flex flex-wrap items-center justify-center gap-3"
+      role="img"
+      aria-label="Your voice goes to Whisper on this computer, and only lines of text go to Copilot; no speech service"
+    >
+      <span className="inline-flex items-center gap-1 rounded-full border border-[var(--gold-rule)] bg-[var(--note-soft)] px-2.5 py-1 text-[11px] font-medium">
+        <Mic className="size-3" aria-hidden /> Voices
+      </span>
+      <Arrow />
+      <div className="w-32 rounded border border-[var(--border)] bg-[var(--bg-raised)] p-2 text-center text-[11px]">
+        <Cpu className="mx-auto mb-1 size-4 text-[var(--accent)]" aria-hidden />
+        <span className="block font-semibold">This computer</span>
+        <span className="block text-[var(--fg-muted)]">Whisper, free</span>
+      </div>
+      <Arrow />
+      <div className="space-y-1">
+        <span className="block rounded bg-[var(--accent-soft)] px-2 py-0.5 text-[11px]">
+          Dana: We ship in March.
+        </span>
+        <span className="block rounded bg-[var(--accent-soft)] px-2 py-0.5 text-[11px]">
+          Priya: Pilots start now.
+        </span>
+      </div>
+      <span className="inline-flex items-center gap-1 rounded border border-dashed border-[var(--border-control)] px-2 py-1 text-[11px] text-[var(--fg-muted)]">
+        <CloudOff className="size-3" aria-hidden /> No audio sent
       </span>
     </div>
   );

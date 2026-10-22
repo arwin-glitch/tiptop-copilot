@@ -5,8 +5,7 @@ import type { StopReason } from '@/lib/types/notes';
  *
  *  - 'silence': every live track has been quiet for 15 minutes (a meeting
  *    that ended with the tab left open). A warning shows a minute before, and
- *    any sound cancels it. A socket left open costs money (AssemblyAI bills
- *    idle time), so this is a cost brake as much as a convenience.
+ *    any sound cancels it. It also lets the computer's speech model rest.
  *  - 'call_ended': the shared tab or screen went away (the call window
  *    closed) and the microphone has been quiet for 2 minutes since.
  */

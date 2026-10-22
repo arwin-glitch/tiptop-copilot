@@ -4,8 +4,11 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Copy, Mic, Play, Users } from 'lucide-react';
 import { NOTES_API, formatOffset, meetingPagePath } from '@/lib/notes/api';
+import { whisperEngineFactory } from '@/lib/capture/engine-factory';
 import type { RecorderMode, RecorderTuning } from '@/lib/capture/types';
 import { useMeetingRecorder } from '@/lib/capture/use-meeting-recorder';
+import type { SpeechPreferences } from '@/lib/capture/speech-preferences';
+import type { AdapterKind } from '@/lib/capture/speech-protocol';
 import {
   CONSENT_BANNER_TEXT,
   CONSENT_CHECKBOX_LABEL,
@@ -20,12 +23,28 @@ import { cn } from '@/lib/util/cn';
 import { RecorderControls } from './recorder-controls';
 
 /**
- * Demo mode only (D-076): record the made-up demo call end to end, from the
- * consent step to saved transcript lines, with the demo speech service in
- * place of a vendor. It makes a real (demo) meeting, so the meeting page,
- * the notes job and the end-to-end tests all see what a recording leaves.
+ * The on-device engine to try instead of the scripted call: the fake model
+ * (the end-to-end tests) or the real Whisper (checking a computer by hand).
  */
-export function DemoRecording({ tuning }: { tuning?: Partial<RecorderTuning> }) {
+export interface DemoEngine {
+  adapter: AdapterKind;
+  preferences?: SpeechPreferences;
+}
+
+/**
+ * Demo mode only (D-076): record the made-up demo call end to end, from the
+ * consent step to saved transcript lines, with the demo speech engine in
+ * place of a model (or, with `engine`, the on-device Whisper engine itself).
+ * It makes a real (demo) meeting, so the meeting page, the notes job and the
+ * end-to-end tests all see what a recording leaves.
+ */
+export function DemoRecording({
+  tuning,
+  engine,
+}: {
+  tuning?: Partial<RecorderTuning>;
+  engine?: DemoEngine;
+}) {
   const [mode, setMode] = React.useState<RecorderMode>('call');
   const [meetingId, setMeetingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -64,14 +83,15 @@ export function DemoRecording({ tuning }: { tuning?: Partial<RecorderTuning> }) 
         <div>
           <CardTitle>Try a recording (demo)</CardTitle>
           <CardDescription>
-            Records a made-up call with the demo speech service: your microphone and a shared tab
-            feed the meters, and the transcript plays a scripted conversation.
+            {engine
+              ? 'Records with the on-device speech engine: your microphone and a shared tab are transcribed on this computer.'
+              : 'Records a made-up call with the demo speech engine: your microphone and a shared tab feed the meters, and the transcript plays a scripted conversation.'}
           </CardDescription>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {meetingId ? (
-          <DemoRecorder meetingId={meetingId} mode={mode} tuning={tuning} />
+          <DemoRecorder meetingId={meetingId} mode={mode} tuning={tuning} engine={engine} />
         ) : (
           <>
             <fieldset className="space-y-2">
@@ -146,12 +166,24 @@ function DemoRecorder({
   meetingId,
   mode,
   tuning,
+  engine,
 }: {
   meetingId: string;
   mode: RecorderMode;
   tuning?: Partial<RecorderTuning>;
+  engine?: DemoEngine;
 }) {
-  const rec = useMeetingRecorder({ meetingId, mode, tuning });
+  const [deps] = React.useState(() =>
+    engine
+      ? {
+          engineFactory: whisperEngineFactory({
+            adapter: engine.adapter,
+            ...(engine.preferences ? { preferences: engine.preferences } : {}),
+          }),
+        }
+      : undefined,
+  );
+  const rec = useMeetingRecorder({ meetingId, mode, tuning, deps });
   const { state } = rec;
   const [consented, setConsented] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
@@ -234,6 +266,7 @@ function DemoRecorder({
               data-testid="live-line"
               data-seq={line.seq ?? ''}
               data-track={line.track}
+              data-cluster={line.clusterKey}
               className="flex gap-2"
             >
               <span className="w-12 shrink-0 font-mono text-[var(--fg-subtle)] tabular-nums">

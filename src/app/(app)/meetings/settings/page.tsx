@@ -14,6 +14,7 @@ import { resolveTab, tabHref } from '@/lib/util/page-tabs';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { ErrorState } from '@/components/ui/feedback';
+import { SpeechSettings } from '@/components/capture/speech-settings';
 import { PageTabs } from '@/components/ui/page-tabs';
 import {
   FoldersRecipesSettings,
@@ -30,6 +31,7 @@ export const dynamic = 'force-dynamic';
 const PATH = '/meetings/settings';
 const TABS = [
   { key: 'templates', label: 'Templates' },
+  { key: 'speech', label: 'Speech' },
   { key: 'rules', label: 'Never record' },
   { key: 'voices', label: 'Voices' },
   { key: 'folders', label: 'Folders & recipes' },
@@ -37,8 +39,9 @@ const TABS = [
 type SettingsTab = (typeof TABS)[number]['key'];
 
 /**
- * Copilot Notes settings (D-076), one section per subtab: templates,
- * never-record rules, voice consent, folders and recipes. The beta switch
+ * Copilot Notes settings (D-076), one section per subtab: templates, speech
+ * (the on-device Whisper model), never-record rules, voice consent, folders
+ * and recipes. The beta switch
  * sits above them (and on the main Settings page).
  */
 export default async function NotesSettingsPage({
@@ -73,7 +76,7 @@ export default async function NotesSettingsPage({
       <PageHeader
         eyebrow="Copilot Notes"
         title="Notes settings"
-        subtitle="Templates for the notes, meetings that are never recorded, voice consent, and folders."
+        subtitle="Templates for the notes, speech on this computer, meetings that are never recorded, voice consent, and folders."
       />
       <Card className="mb-6">
         <CardContent className="pt-4">
@@ -129,6 +132,8 @@ async function Section({
       failed(templates.error.message)
     );
   }
+  // Speech settings live in this browser (the model is cached here): nothing to read.
+  if (tab === 'speech') return <SpeechSettings />;
   if (tab === 'rules') {
     const rules = await listRecordingRules(ctx);
     return rules.ok ? <RulesSettings initial={rules.value} /> : failed(rules.error.message);

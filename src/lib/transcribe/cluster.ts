@@ -4,9 +4,9 @@ import type { TranscriptTrack } from '@/lib/types/notes';
  * Voice cluster keys: how a transcript line points at a voice (D-076).
  *
  *   'mic'          the microphone: the person at this computer
- *   'sys:S1'       a voice in the meeting audio, by the vendor's label
- *   'sys:<uuid>'   a voice the vendor matched to an enrolled voice profile
- *   'mix:S2'       a voice in a single mixed track (in person, phone)
+ *   'sys:A'        a voice in the meeting audio, by the on-device clustering's label
+ *   'sys:<uuid>'   a voice the speech worker matched to an enrolled voice profile
+ *   'mix:B'        a voice in a single mixed track (in person, phone)
  *   '<key>#2'      a voice split off another ("from here it's someone else")
  *
  * Lines are stored by key, never by name, so renaming a voice is one update
@@ -18,7 +18,7 @@ export const CLUSTER_KEY_RE = /^(mic|(sys|mix):[A-Za-z0-9_-]{1,64})(#[0-9]{1,3})
 
 const LABEL_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** The cluster key for a vendor line. A label the pattern cannot hold falls back to 'unknown'. */
+/** The cluster key for an engine line. A label the pattern cannot hold falls back to 'unknown'. */
 export function clusterKeyFor(track: TranscriptTrack, speakerLabel: string | null): string {
   if (track === 'mic') return 'mic';
   const prefix = track === 'system' ? 'sys' : 'mix';

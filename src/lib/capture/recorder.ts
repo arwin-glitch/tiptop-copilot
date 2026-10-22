@@ -9,7 +9,6 @@ import {
   type TranscriptTrack,
 } from '@/lib/types/notes';
 import { clusterKeyFor } from '@/lib/transcribe/cluster';
-import { speakerIdentifiersFor } from '@/lib/transcribe/socket-url';
 import { NotesClient, type ApiFailure } from './api-client';
 import { AudioGraph, type PcmChunk } from './audio-graph';
 import { LevelMeter, SilenceTracker, noMeetingAudio } from './levels';
@@ -25,15 +24,16 @@ import {
 import { MeetRosterBridge, RosterTimeline } from './meet-roster';
 import { SegmentUploader, type LineForUpload } from './segment-uploader';
 import { SilenceAutoStop } from './silence-autostop';
-import { createSpeechSocket } from './socket-factory';
-import type { SpeechSocketFactory, WebSocketFactory } from './speech-socket';
-import { TokenBroker } from './token-broker';
+import { createSpeechEngine } from './engine-factory';
+import type { EngineStatus, SpeechEngineFactory } from './speech-engine';
+import { SpeechSetupCache } from './speech-setup';
 import { TrackStream } from './track-stream';
 import {
   CAPTURE_RATE,
   DEFAULT_TUNING,
   LIVE_LINES_KEPT,
   SAMPLES_PER_MS,
+  type EngineState,
   type LiveLine,
   type RecorderCapabilities,
   type RecorderError,
@@ -43,7 +43,7 @@ import {
   type RecorderTuning,
   type RecorderWarning,
   type RecorderWarningCode,
-  type SocketState,
+  type SpeechSnapshot,
   type StartOptions,
   type TrackSnapshot,
   type UploadSnapshot,
@@ -63,12 +63,15 @@ import { VisibilityWatch, WakeLockKeeper } from './wake-lock';
  *      never-record list. A refusal releases the devices at once; no audio
  *      ever left the page.
  *   4. Only then does audio flow: worklets turn each track into 16 kHz PCM16,
- *      into the 30-second in-memory buffer and on to the vendor over a socket
- *      opened with a 60-second key from POST /stt-token.
+ *      into the 30-second in-memory buffer and on to that track's speech
+ *      engine: Whisper in a Web Worker on this computer, with the settings
+ *      from POST /speech-setup. Free, and the audio never leaves the device.
  *   5. Finished lines go to POST /segments in batches with a rising seq.
- * Pause closes the sockets (an idle socket still costs money) and stops
- * taking audio; resume asks for fresh keys. Stop lets the vendor finish,
- * uploads what is left, then tells the server, which runs the notes job.
+ * Pause lets the engines finish what they heard and stops taking audio;
+ * resume carries on with the same settings (the model stays loaded). Stop
+ * lets the engines transcribe everything still queued ("Finishing
+ * transcript…"), uploads what is left, then tells the server, which runs the
+ * notes job.
  *
  * Framework-free; use-meeting-recorder.ts is the React face of it.
  */
@@ -98,13 +101,12 @@ export interface WindowLike {
 export interface RecorderDeps {
   client: Pick<
     NotesClient,
-    'start' | 'pause' | 'stop' | 'sttToken' | 'uploadSegments' | 'listSegments'
+    'start' | 'pause' | 'stop' | 'speechSetup' | 'uploadSegments' | 'listSegments'
   >;
   microphone: () => Promise<MediaStream>;
   meetingAudio: () => Promise<MediaStream>;
   createGraph: (options?: { nativeRate?: boolean }) => Promise<GraphLike>;
-  socketFactory: SpeechSocketFactory;
-  webSocket?: WebSocketFactory;
+  engineFactory: SpeechEngineFactory;
   wakeLock: Pick<WakeLockKeeper, 'hold' | 'release' | 'supported'>;
   capabilities: () => RecorderCapabilities;
   isOnline: () => boolean;
@@ -129,7 +131,7 @@ function browserDeps(): RecorderDeps {
     microphone: () => acquireMicrophone(),
     meetingAudio: () => acquireMeetingAudio(),
     createGraph: (options) => AudioGraph.create(options),
-    socketFactory: createSpeechSocket,
+    engineFactory: createSpeechEngine,
     wakeLock: new WakeLockKeeper(),
     capabilities: () => detectCapabilities(),
     isOnline: () => (typeof navigator === 'undefined' ? true : navigator.onLine !== false),
@@ -159,7 +161,8 @@ interface TrackRuntime {
   media: MediaStream | null;
   live: boolean;
   muted: boolean;
-  socket: SocketState;
+  engine: EngineState;
+  speech: EngineStatus | null;
   /** No chunk seen since this track was (re)attached: its first one sets its clock. */
   needsAlign: boolean;
   partial: TranscriptEvent | null;
@@ -191,7 +194,7 @@ export class MeetingRecorder {
   private graph: GraphLike | null = null;
   private runtimes = new Map<TranscriptTrack, TrackRuntime>();
   private uploader: SegmentUploader | null = null;
-  private broker: TokenBroker | null = null;
+  private setup: SpeechSetupCache | null = null;
   private autoStop: SilenceAutoStop;
   private micSinceMeetingEnded: SilenceTracker;
   private meetingAudioEnded = false;
@@ -423,11 +426,11 @@ export class MeetingRecorder {
       return false;
     }
 
-    // 4. Audio flows: into the buffer at once, to the vendor once a socket opens.
+    // 4. Audio flows: into the buffer at once, to each track's engine once it starts.
     this.graph = graphOk;
     this.startFrame = graphOk.currentFrame;
-    this.broker = new TokenBroker(async (t) => {
-      const r = await deps.client.sttToken(this.meetingId, t);
+    this.setup = new SpeechSetupCache(async (t) => {
+      const r = await deps.client.speechSetup(this.meetingId, t);
       return r.ok ? { ok: true, value: r.value } : r;
     });
     this.uploader = new SegmentUploader({
@@ -472,18 +475,18 @@ export class MeetingRecorder {
     }
     this.uploader.start();
 
-    const minted = await this.broker.requestMany(tracks);
+    const settings = await this.setup.requestMany(tracks);
     if (run !== this.run) return false;
-    if (!minted.ok) {
+    if (!settings.ok) {
       this.teardownCapture();
-      this.fail(failureToError(minted.error));
+      this.fail(failureToError(settings.error));
       void deps.client.pause(this.meetingId, true);
       return false;
     }
-    this.provider = minted.value[0]?.provider ?? null;
+    this.provider = settings.value[0]?.provider ?? null;
     this.addWindowListeners();
     this.setStatus('recording');
-    for (const session of minted.value) {
+    for (const session of settings.value) {
       void this.runtimes.get(session.track)?.stream.connect(session);
     }
     void deps.wakeLock.hold();
@@ -530,21 +533,21 @@ export class MeetingRecorder {
       media: null,
       live: false,
       muted: false,
-      socket: 'idle',
+      engine: 'idle',
+      speech: null,
       needsAlign: true,
       partial: null,
     };
     rt.stream = new TrackStream({
       track,
       requestSession: (t) =>
-        this.broker
-          ? this.broker.request(t)
+        this.setup
+          ? this.setup.request(t)
           : Promise.resolve({
               ok: false,
               error: { code: 'stopped', message: 'Stopped.', status: 0, retryable: false },
             }),
-      socketFactory: this.deps.socketFactory,
-      webSocket: this.deps.webSocket,
+      engineFactory: this.deps.engineFactory,
       tuning: this.tuning,
       isOnline: this.deps.isOnline,
       onPiece: (piece) => {
@@ -556,15 +559,22 @@ export class MeetingRecorder {
         this.emitSoon();
       },
       onState: (state) => {
-        rt.socket = state;
+        rt.engine = state;
         this.syncReconnectWarning();
+        this.emitSoon();
+      },
+      onEngineStatus: (status) => {
+        rt.speech = status;
+        // A model reporting in means Whisper runs here, whatever the settings said (the demo's try-out).
+        if (status?.model) this.provider = 'browser-whisper';
+        this.syncSpeechWarnings();
         this.emitSoon();
       },
       onGap: (missedMs) =>
         this.warn({
           code: 'audio_gap',
           track,
-          message: `About ${Math.max(1, Math.round(missedMs / 1000))} seconds could not be transcribed while the connection was down.`,
+          message: `About ${Math.max(1, Math.round(missedMs / 1000))} seconds could not be transcribed while speech was restarting.`,
         }),
       onFatal: (error) => void this.onFatal(error),
     });
@@ -834,7 +844,7 @@ export class MeetingRecorder {
 
   /* ------------------------------------------------------- pause/resume */
 
-  /** Pause: nothing is heard, the sockets close (an idle socket still costs money). */
+  /** Pause: nothing is heard; the engines transcribe what they already have. */
   async pause(): Promise<boolean> {
     if (this.status !== 'recording') return false;
     const run = this.run;
@@ -895,18 +905,18 @@ export class MeetingRecorder {
     this.setStatus('recording');
     this.bridge?.announce(this.meetingId, true, true);
     const live = [...this.runtimes.entries()].filter(([, rt]) => rt.live).map(([t]) => t);
-    if (live.length === 0 || !this.broker) return true;
-    const minted = await this.broker.requestMany(live);
+    if (live.length === 0 || !this.setup) return true;
+    const settings = await this.setup.requestMany(live);
     if (run !== this.run) return false;
-    if (!minted.ok) {
-      if (minted.error.retryable) {
+    if (!settings.ok) {
+      if (settings.error.retryable) {
         for (const t of live) void this.runtimes.get(t)?.stream.connect();
       } else {
-        await this.onFatal(minted.error);
+        await this.onFatal(settings.error);
       }
       return true;
     }
-    for (const session of minted.value) {
+    for (const session of settings.value) {
       void this.runtimes.get(session.track)?.stream.connect(session);
     }
     return true;
@@ -977,10 +987,10 @@ export class MeetingRecorder {
 
   /**
    * "Remember this voice" during a live call (D-076), for a person whose
-   * consent is on file (the server checked): the vendor's identifiers for
-   * that one voice, on the track it was heard on. Everyone else's are dropped
-   * here (speakerIdentifiersFor). Null when not recording or the vendor
-   * cannot (only Speechmatics, and the demo's mock).
+   * consent is on file (the server checked): that one voice's voiceprint, by
+   * its cluster label, from the speech worker of the track it was heard on.
+   * Nobody else's voice leaves the worker. Null when not recording or the
+   * worker has not heard that voice.
    */
   async voiceIdentifiers(
     track: TranscriptTrack,
@@ -989,15 +999,14 @@ export class MeetingRecorder {
     if (this.status !== 'recording') return null;
     const rt = this.runtimes.get(track);
     if (!rt) return null;
-    const message = await rt.stream.requestSpeakers(5000);
-    const identifiers = message ? speakerIdentifiersFor(message, vendorLabel) : null;
-    if (!identifiers) return null;
-    return { identifiers, modelVersion: `${this.provider ?? 'unknown'}:realtime` };
+    const voice = await rt.stream.voiceprint(vendorLabel, 5000);
+    if (!voice) return null;
+    return { identifiers: [voice.voiceprint], modelVersion: voice.modelVersion };
   }
 
   /* --------------------------------------------------------------- stop */
 
-  /** Stop: the vendor finishes, the last lines upload, then the server runs the notes job. */
+  /** Stop: the engines finish every queued word, the last lines upload, then the server runs the notes job. */
   async stop(reason: StopReason = 'user'): Promise<boolean> {
     if (this.status === 'starting') {
       this.run += 1;
@@ -1090,7 +1099,7 @@ export class MeetingRecorder {
     }
     void this.graph?.close();
     this.graph = null;
-    this.broker?.cancel();
+    this.setup?.cancel();
     if (!options.keepUploader) this.uploader?.stop();
     this.removeWindowListeners();
     this.bridge?.stop(this.meetingId);
@@ -1099,6 +1108,7 @@ export class MeetingRecorder {
     this.clearWarning('keep_screen_open');
     this.clearWarning('reconnecting');
     this.clearWarning('offline');
+    this.clearWarning('speech_behind');
   }
 
   private fail(error: RecorderError): void {
@@ -1112,7 +1122,7 @@ export class MeetingRecorder {
     this.warn({
       code: 'offline',
       message:
-        'You are offline. Copilot keeps the last 30 seconds and catches up when the network is back.',
+        'You are offline. Transcribing carries on on this computer; lines save when the network is back.',
     });
   };
 
@@ -1191,15 +1201,32 @@ export class MeetingRecorder {
   }
 
   private syncReconnectWarning(): void {
-    const reconnecting = [...this.runtimes.values()].some((r) => r.socket === 'reconnecting');
-    if (reconnecting && (this.status === 'recording' || this.status === 'starting')) {
+    const restarting = [...this.runtimes.values()].some((r) => r.engine === 'restarting');
+    if (restarting && (this.status === 'recording' || this.status === 'starting')) {
       this.warn({
         code: 'reconnecting',
         message:
-          'Reconnecting to the speech service. Nothing is lost: the last 30 seconds are kept.',
+          'Restarting speech on this computer. Nothing is lost: the last 30 seconds are kept.',
       });
     } else {
       this.clearWarning('reconnecting');
+    }
+  }
+
+  /** A model that could not run as chosen, and a transcript falling behind the speech. */
+  private syncSpeechWarnings(): void {
+    const statuses = [...this.runtimes.values()].map((r) => r.speech).filter(Boolean);
+    const fallback = statuses.find((s) => s?.phase !== 'failed' && s?.message)?.message;
+    if (fallback) this.warn({ code: 'speech_fallback', message: fallback });
+    else this.clearWarning('speech_fallback');
+    const behind = Math.max(0, ...statuses.map((s) => s?.backlogMs ?? 0));
+    if (this.status === 'recording' && behind >= this.tuning.behindWarningMs) {
+      this.warn({
+        code: 'speech_behind',
+        message: `The transcript is ${clock(behind)} behind the speech. Nothing is lost: it catches up, at the latest after Stop.`,
+      });
+    } else if (behind < this.tuning.behindWarningMs / 2) {
+      this.clearWarning('speech_behind');
     }
   }
 
@@ -1222,6 +1249,29 @@ export class MeetingRecorder {
 
   /* ------------------------------------------------------------ snapshot */
 
+  /** The engines together: loading until all are ready; the most behind track's backlog. */
+  private speechSnapshot(): SpeechSnapshot {
+    const statuses = [...this.runtimes.values()]
+      .map((r) => r.speech)
+      .filter((s): s is EngineStatus => s !== null);
+    if (statuses.length === 0) return NO_SPEECH;
+    const failed = statuses.find((s) => s.phase === 'failed');
+    const loading = statuses.filter((s) => s.phase === 'loading');
+    const loadedMb = statuses.reduce((sum, s) => sum + s.loadedMb, 0);
+    const totalMb = statuses.reduce((sum, s) => sum + s.totalMb, 0);
+    const first = statuses.find((s) => s.device) ?? statuses[0];
+    return {
+      phase: failed ? 'failed' : loading.length > 0 ? 'loading' : 'ready',
+      progress: loading.length === 0 ? 1 : totalMb > 0 ? Math.min(1, loadedMb / totalMb) : null,
+      loadedMb,
+      totalMb,
+      device: first?.device ?? null,
+      model: first?.model ?? null,
+      backlogMs: Math.max(0, ...statuses.map((s) => s.backlogMs)),
+      message: failed?.message ?? statuses.find((s) => s.message)?.message ?? null,
+    };
+  }
+
   private buildSnapshot(): RecorderSnapshot {
     const tracks: RecorderSnapshot['tracks'] = {};
     const partials: RecorderSnapshot['partials'] = {};
@@ -1231,7 +1281,8 @@ export class MeetingRecorder {
         level: rt.meter.value,
         live: rt.live,
         muted: rt.muted,
-        socket: rt.socket,
+        engine: rt.engine,
+        backlogMs: rt.speech?.backlogMs ?? 0,
         silentMs: rt.silence.silentMs,
         heardMs: rt.stream.heardMs,
       };
@@ -1259,6 +1310,7 @@ export class MeetingRecorder {
       status: this.status,
       mode: this.mode,
       provider: this.provider,
+      speech: this.speechSnapshot(),
       elapsedMs: Math.round(this.elapsedMs),
       tracks,
       warnings: [...this.warnings.values()],
@@ -1276,6 +1328,17 @@ export class MeetingRecorder {
 }
 
 /* ------------------------------------------------------------- helpers */
+
+const NO_SPEECH: SpeechSnapshot = {
+  phase: 'idle',
+  progress: null,
+  loadedMb: 0,
+  totalMb: 0,
+  device: null,
+  model: null,
+  backlogMs: 0,
+  message: null,
+};
 
 function startError(error: ApiFailure): RecorderError {
   if (error.status === 403 && error.details && 'never_record' in error.details) {

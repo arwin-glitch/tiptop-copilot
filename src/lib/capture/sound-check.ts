@@ -37,6 +37,22 @@ export interface SoundCheckSnapshot {
 
 const IDLE: SoundCheckSourceState = { running: false, level: 0, heard: false, error: null };
 
+/**
+ * What the server rendered: no device abilities, so hydration matches. (Not
+ * detectCapabilities(undefined, undefined): in the browser those undefineds
+ * fall back to the real navigator, and the page would not match the server.)
+ */
+const SERVER_CAPABILITIES: RecorderCapabilities = {
+  microphone: false,
+  meetingAudio: false,
+  audioWorklet: false,
+  wakeLock: false,
+  ios: false,
+  standalone: false,
+  mobile: false,
+  platform: 'other',
+};
+
 const trackFor = (source: SoundCheckSource): TranscriptTrack =>
   source === 'mic' ? 'mic' : 'system';
 
@@ -57,11 +73,7 @@ export class SoundCheck {
   constructor() {
     this.capabilities = detectCapabilities();
     this.snapshot_ = this.build();
-    this.serverSnapshot = {
-      mic: IDLE,
-      meeting: IDLE,
-      capabilities: detectCapabilities(undefined, undefined),
-    };
+    this.serverSnapshot = { mic: IDLE, meeting: IDLE, capabilities: SERVER_CAPABILITIES };
   }
 
   subscribe = (listener: () => void) => {

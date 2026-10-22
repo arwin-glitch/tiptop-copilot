@@ -34,7 +34,7 @@ import {
   type SplitSpeakerRequest,
   type StartRecordingRequest,
   type StopRecordingRequest,
-  type SttTokenRequest,
+  type SpeechSetupRequest,
   type UpdateMeetingRequest,
   type UpdateRecordingRuleRequest,
   type UpdateTemplateRequest,
@@ -145,7 +145,7 @@ export const STOP_RECORDING = z
   })
   .strict() satisfies z.ZodType<StopRecordingRequest>;
 
-export const STT_TOKEN = z
+export const SPEECH_SETUP = z
   .object({
     tracks: z
       .array(enumOf(TRANSCRIPT_TRACKS))
@@ -153,7 +153,7 @@ export const STT_TOKEN = z
       .max(2)
       .refine((t) => new Set(t).size === t.length, 'Each track once.'),
   })
-  .strict() satisfies z.ZodType<SttTokenRequest>;
+  .strict() satisfies z.ZodType<SpeechSetupRequest>;
 
 const SEGMENT = z
   .object({
@@ -351,7 +351,17 @@ export const VOICE_ENROLL_SESSION = z
 export const VOICE_ENROLL = z
   .object({
     email,
-    identifiers: z.array(z.string().min(1).max(8192)).min(1).max(10),
+    // Base64 speaker embeddings (lib/transcribe/voiceprint.ts checks the shape).
+    identifiers: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(8192)
+          .regex(/^[A-Za-z0-9+/]+={0,2}$/),
+      )
+      .min(1)
+      .max(10),
     modelVersion: z.string().trim().min(1).max(80),
   })
   .strict() satisfies z.ZodType<VoiceEnrollRequest>;

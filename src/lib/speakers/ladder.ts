@@ -14,7 +14,7 @@ import type { MeetingSpeaker, SpeakerCertainty, TranscriptTrack } from '@/lib/ty
  *   f) llm_cue     transcript cues ("thanks, Priya"): suggestion chips only
  *
  * A voice nobody has named shows as "Guest N". Spellings always come from the
- * calendar or the CRM, never from what the vendor heard.
+ * calendar or the CRM, never from what the speech model heard.
  *
  * This module holds the parts every write path needs: the row a new voice
  * starts with (rung a, or a guest number), the rank of each rung, and how a

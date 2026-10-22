@@ -2,12 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiResult } from '@/lib/capture/api-client';
 import type { PcmChunk } from '@/lib/capture/audio-graph';
 import { MeetingRecorder, type GraphLike, type RecorderDeps } from '@/lib/capture/recorder';
+import { whisperEngineFactory } from '@/lib/capture/engine-factory';
+import type { SpeechEngineFactory } from '@/lib/capture/speech-engine';
+import { SpeechWorkerPool } from '@/lib/capture/speech-workers';
 import type { RecorderCapabilities, RecorderTuning } from '@/lib/capture/types';
+import { inProcessWorkers } from '../helpers/speech-worker';
 import { mockTranscriptEvents } from '@/lib/transcribe/mock-script';
 import type {
   MeetingView,
   SegmentUpload,
-  SttSession,
+  SpeechSession,
   TranscriptTrack,
   UploadSegmentsResponse,
 } from '@/lib/types/notes';
@@ -15,10 +19,10 @@ import { NEVER_RECORD_MESSAGE } from '@/lib/types/notes';
 
 /**
  * The web recorder end to end in Node (D-076, WS3), with stand-ins for the
- * devices, the audio graph and the server, and the real mock vendor:
+ * devices, the audio graph and the server, and the real demo engine:
  * consent before anything, nothing captured when the server refuses, lines
- * uploaded in order, pause closing the sockets, resume with fresh keys, and
- * stop draining before it tells the server.
+ * uploaded in order, pause finishing the engines, resume with the same speech
+ * settings, and stop draining before it tells the server.
  */
 
 const SPEED = 10;
@@ -49,7 +53,11 @@ class FakeStream {
   }
 }
 
+/** What a fake track sends for its nth 100 ms render: silence by default. */
+type AudioSource = (track: TranscriptTrack, frame: number) => Int16Array;
+
 class FakeGraph implements GraphLike {
+  constructor(private readonly source?: AudioSource) {}
   sampleRate = 16000;
   frame = 0;
   closed = false;
@@ -83,7 +91,8 @@ class FakeGraph implements GraphLike {
     for (const [track, h] of this.handlers) {
       if (this.active.get(track) === false) continue;
       const level = rms[track] ?? 0.2;
-      h({ track, frame: this.frame, samples: new Int16Array(1600), rms: level, peak: level });
+      const samples = this.source ? this.source(track, this.frame) : new Int16Array(1600);
+      h({ track, frame: this.frame, samples, rms: level, peak: level });
     }
     this.frame += 1600;
   }
@@ -126,13 +135,14 @@ function setup(
     startRefusal?: 'never_record';
     mode?: 'call' | 'mic_only';
     tuning?: Partial<RecorderTuning>;
+    engineFactory?: SpeechEngineFactory;
+    audio?: AudioSource;
   } = {},
 ) {
   const calls: string[] = [];
   const stored = new Map<number, SegmentUpload>();
   const graphs: FakeGraph[] = [];
   const streams: FakeStream[] = [];
-  let minted = 0;
   const caps: RecorderCapabilities = {
     microphone: true,
     meetingAudio: true,
@@ -143,12 +153,12 @@ function setup(
     mobile: false,
     platform: 'windows',
   };
-  const session = (track: TranscriptTrack): SttSession => ({
+  const session = (track: TranscriptTrack): SpeechSession => ({
     track,
     provider: 'mock',
-    wsUrl: null,
-    token: `mock_${(minted += 1)}`,
-    expiresAt: '2026-10-22T12:01:00.000Z',
+    language: 'en',
+    vocabulary: [],
+    knownVoices: [],
     sessionConfig: { script: 'acme-intro', track },
     audio: { sampleRate: 16000, encoding: 'pcm_s16le', channels: 1 },
   });
@@ -167,8 +177,9 @@ function setup(
       streams.push(s);
       return s as unknown as MediaStream;
     },
+    ...(opts.engineFactory ? { engineFactory: opts.engineFactory } : {}),
     createGraph: async () => {
-      const g = new FakeGraph();
+      const g = new FakeGraph(opts.audio);
       graphs.push(g);
       return g;
     },
@@ -218,8 +229,8 @@ function setup(
           finalize: { queued: true },
         });
       },
-      sttToken: async (_id, tracks) => {
-        calls.push(`token:${tracks.join('+')}`);
+      speechSetup: async (_id, tracks) => {
+        calls.push(`setup:${tracks.join('+')}`);
         return ok({ ok: true as const, provider: 'mock' as const, sessions: tracks.map(session) });
       },
       uploadSegments: async (_id, segments) => {
@@ -288,11 +299,11 @@ describe('the meeting recorder', () => {
     });
   });
 
-  it('asks for the devices, then the server, then the keys: in that order', async () => {
+  it('asks for the devices, then the server, then the speech settings: in that order', async () => {
     const t = setup();
     const started = await t.recorder.start({ consent });
     expect(started).toBe(true);
-    expect(t.calls.slice(0, 4)).toEqual(['share', 'mic', 'start:chat_notice', 'token:mic+system']);
+    expect(t.calls.slice(0, 4)).toEqual(['share', 'mic', 'start:chat_notice', 'setup:mic+system']);
     expect(t.recorder.getSnapshot().status).toBe('recording');
     expect(t.wake.held).toBe(1);
   });
@@ -312,13 +323,15 @@ describe('the meeting recorder', () => {
   it('records the call: both meters move, lines upload with a rising seq', async () => {
     const t = setup();
     await t.recorder.start({ consent });
-    await vi.advanceTimersByTimeAsync(50); // sockets open
+    await vi.advanceTimersByTimeAsync(50); // engines start
     await t.run(14);
     await vi.advanceTimersByTimeAsync(300);
     const snap = t.recorder.getSnapshot();
     expect(snap.tracks.mic?.level).toBeGreaterThan(0);
     expect(snap.tracks.system?.level).toBeGreaterThan(0);
-    expect(snap.tracks.mic?.socket).toBe('open');
+    expect(snap.tracks.mic?.engine).toBe('open');
+    expect(snap.provider).toBe('mock');
+    expect(snap.speech.phase).toBe('ready');
     const seqs = [...t.stored.keys()];
     expect(seqs).toEqual(seqs.map((_, i) => i));
     const texts = [...t.stored.values()].map((s) => s.text);
@@ -333,18 +346,18 @@ describe('the meeting recorder', () => {
     expect(snap.lines.every((l) => l.seq !== null)).toBe(true);
   });
 
-  it('pause closes the sockets and stops listening; resume asks for fresh keys', async () => {
+  it('pause finishes the engines and stops listening; resume carries on with the same settings', async () => {
     const t = setup();
     await t.recorder.start({ consent });
     await vi.advanceTimersByTimeAsync(50);
     await t.run(2);
     const pausing = t.recorder.pause();
-    await vi.advanceTimersByTimeAsync(50); // the sockets finish their last lines
+    await vi.advanceTimersByTimeAsync(50); // the engines finish their last lines
     await pausing;
     let snap = t.recorder.getSnapshot();
     expect(snap.status).toBe('paused');
-    expect(snap.tracks.mic?.socket).toBe('closed');
-    expect(snap.tracks.system?.socket).toBe('closed');
+    expect(snap.tracks.mic?.engine).toBe('closed');
+    expect(snap.tracks.system?.engine).toBe('closed');
     expect(t.calls).toContain('pause:true');
     expect(t.graph().active.get('mic')).toBe(false);
     expect(t.streams.every((s) => s.track.enabled === false)).toBe(true);
@@ -356,12 +369,10 @@ describe('the meeting recorder', () => {
     await vi.advanceTimersByTimeAsync(200);
     snap = t.recorder.getSnapshot();
     expect(snap.status).toBe('recording');
-    expect(t.calls.filter((c) => c.startsWith('token:'))).toEqual([
-      'token:mic+system',
-      'token:mic+system',
-    ]);
+    // The settings were kept: nothing to ask the server again.
+    expect(t.calls.filter((c) => c.startsWith('setup:'))).toEqual(['setup:mic+system']);
     expect(t.calls).toContain('pause:false');
-    expect(snap.tracks.mic?.socket).toBe('open');
+    expect(snap.tracks.mic?.engine).toBe('open');
   });
 
   it('stop drains the lines, then tells the server with the recorded time', async () => {
@@ -428,14 +439,15 @@ describe('the meeting recorder', () => {
     snap = t.recorder.getSnapshot();
     expect(snap.tracks.system?.live).toBe(true);
     expect(snap.warnings.map((w) => w.code)).not.toContain('meeting_audio_ended');
-    expect(t.calls.filter((c) => c === 'token:system')).toHaveLength(1);
+    // The meeting audio's settings were kept from the start.
+    expect(t.calls.filter((c) => c.startsWith('setup:'))).toEqual(['setup:mic+system']);
   });
 
   it('records one diarized track in mic-only mode', async () => {
     const t = setup({ mode: 'mic_only' });
     await t.recorder.start({ consent });
     expect(t.calls).not.toContain('share');
-    expect(t.calls).toContain('token:mixed');
+    expect(t.calls).toContain('setup:mixed');
     await vi.advanceTimersByTimeAsync(50);
     await t.run(14);
     await vi.advanceTimersByTimeAsync(300);
@@ -461,6 +473,57 @@ describe('the meeting recorder', () => {
     expect(await t.recorder.resume()).toBe(true);
     expect(t.calls.filter((c) => c === 'mic')).toHaveLength(2);
     expect(t.recorder.getSnapshot().status).toBe('recording');
+  });
+
+  it('records with Whisper on this computer: both tracks, voices told apart, finished before Stop', async () => {
+    const { factory, workers } = inProcessWorkers({ delayMs: 300 });
+    const pool = new SpeechWorkerPool(factory, 1000);
+    // Three seconds of speech, then two of silence, over and over: the system
+    // track offset so the two tracks take turns, like a conversation.
+    const audio: AudioSource = (track, frame) => {
+      const start = frame + (track === 'system' ? 40_000 : 0);
+      const out = new Int16Array(1600);
+      for (let i = 0; i < 1600; i += 1) {
+        const n = start + i;
+        const inSpeech = n % 80_000 < 48_000;
+        const t = n / 16_000;
+        const envelope = 0.1 + 0.9 * Math.abs(Math.sin(Math.PI * 4 * t));
+        out[i] = inSpeech ? Math.round(Math.sin(2 * Math.PI * 220 * t) * 6000 * envelope) : 0;
+      }
+      return out;
+    };
+    const t = setup({
+      engineFactory: whisperEngineFactory({
+        adapter: 'fake',
+        pool,
+        preferences: { model: 'fast', device: 'auto' },
+      }),
+      audio,
+    });
+    await t.recorder.start({ consent });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(workers).toHaveLength(2); // one speech worker per track
+    await t.run(16);
+    const stopping = t.recorder.stop('user');
+    await vi.advanceTimersByTimeAsync(10_000);
+    await stopping;
+    const snap = t.recorder.getSnapshot();
+    expect(snap.status).toBe('stopped');
+    expect(snap.provider).toBe('browser-whisper');
+    expect(snap.speech).toMatchObject({ phase: 'ready', model: 'fast', backlogMs: 0 });
+    const rows = [...t.stored.values()];
+    expect(rows.length).toBeGreaterThanOrEqual(5);
+    const seqs = rows.map((r) => r.seq);
+    expect(seqs).toEqual(seqs.map((_, i) => i));
+    expect(rows.filter((r) => r.track === 'mic').every((r) => r.clusterKey === 'mic')).toBe(true);
+    const systemKeys = new Set(rows.filter((r) => r.track === 'system').map((r) => r.clusterKey));
+    expect(systemKeys).toEqual(new Set(['sys:A', 'sys:B']));
+    // Every line was saved before the server heard Stop.
+    expect(t.calls.findIndex((c) => c.startsWith('stop:'))).toBeGreaterThan(
+      t.calls.map((c) => c.startsWith('segments:')).lastIndexOf(true),
+    );
+    // No audio went anywhere but the workers: the server only ever saw text.
+    expect(JSON.stringify(rows)).not.toMatch(/samples|Int16/);
   });
 
   it('a refusal to save lines for good stops the recording', async () => {

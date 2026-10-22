@@ -22,8 +22,8 @@ export const NOTES_API = {
   stop: (id: string) => `${m(id)}/stop`,
   /** POST: LogConsentRequest (the notice was copied). */
   consent: (id: string) => `${m(id)}/consent`,
-  /** POST: SttTokenRequest. Recorder only. */
-  sttToken: (id: string) => `${m(id)}/stt-token`,
+  /** POST: SpeechSetupRequest, the on-device speech engine's settings. Recorder only. */
+  speechSetup: (id: string) => `${m(id)}/speech-setup`,
   /** POST: UploadSegmentsRequest (recorder only). GET ?after=&limit= for polling. */
   segments: (id: string) => `${m(id)}/segments`,
   /** PATCH: EditSegmentRequest. */
@@ -53,9 +53,9 @@ export const NOTES_API = {
   recipes: `${base}/recipes`,
   /** GET / POST (VoiceConsentRequest). */
   voiceProfiles: `${base}/voice-profiles`,
-  /** POST: VoiceEnrollSessionRequest, a speech session for a consented person's solo clip. */
+  /** POST: VoiceEnrollSessionRequest, the consent check and speech settings for a solo clip. */
   voiceEnrollSession: `${base}/voice-profiles/enroll-session`,
-  /** POST: VoiceEnrollRequest, one consented person's identifiers (sealed on arrival). */
+  /** POST: VoiceEnrollRequest, one consented person's voiceprint (sealed on arrival). */
   voiceEnroll: `${base}/voice-profiles/enroll`,
   /** GET / POST (SetNotesPreferencesRequest): this person's default visibility. */
   preferences: `${base}/preferences`,

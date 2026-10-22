@@ -38,7 +38,7 @@ const meetingRoute = await import('@/app/api/notes/meetings/[id]/route');
 const startRoute = await import('@/app/api/notes/meetings/[id]/start/route');
 const pauseRoute = await import('@/app/api/notes/meetings/[id]/pause/route');
 const stopRoute = await import('@/app/api/notes/meetings/[id]/stop/route');
-const sttRoute = await import('@/app/api/notes/meetings/[id]/stt-token/route');
+const speechRoute = await import('@/app/api/notes/meetings/[id]/speech-setup/route');
 const segmentsRoute = await import('@/app/api/notes/meetings/[id]/segments/route');
 const segmentRoute = await import('@/app/api/notes/meetings/[id]/segments/[seq]/route');
 const speakerRoute = await import('@/app/api/notes/meetings/[id]/speakers/[clusterKey]/route');
@@ -299,37 +299,36 @@ describe('recording', () => {
     ).toBe('legal');
   });
 
-  it('mints mock speech sessions for the recorder only, while recording', async () => {
+  it('hands the recorder its speech settings, only while recording; no key, nothing paid', async () => {
     const { meeting } = await newMeeting();
     const id = meeting.id;
-    const early = await sttRoute.POST(
-      req(`/api/notes/meetings/${id}/stt-token`, 'POST', { tracks: ['mic'] }),
+    const early = await speechRoute.POST(
+      req(`/api/notes/meetings/${id}/speech-setup`, 'POST', { tracks: ['mic'] }),
       ctx({ id }),
     );
     expect(early.status).toBe(409);
     await startRoute.POST(req(`/api/notes/meetings/${id}/start`, 'POST', CONSENT), ctx({ id }));
-    const minted = await json<{
+    const setup = await json<{
       provider: string;
-      sessions: { track: string; wsUrl: string | null; token: string }[];
+      sessions: { track: string; knownVoices: unknown[]; sessionConfig: Record<string, unknown> }[];
     }>(
-      await sttRoute.POST(
-        req(`/api/notes/meetings/${id}/stt-token`, 'POST', { tracks: ['mic', 'system'] }),
+      await speechRoute.POST(
+        req(`/api/notes/meetings/${id}/speech-setup`, 'POST', { tracks: ['mic', 'system'] }),
         ctx({ id }),
       ),
     );
-    expect(minted.provider).toBe('mock');
-    expect(minted.sessions.map((s) => s.track)).toEqual(['mic', 'system']);
-    expect(minted.sessions.every((s) => s.wsUrl === null && s.token.startsWith('mock_'))).toBe(
-      true,
-    );
+    expect(setup.provider).toBe('mock');
+    expect(setup.sessions.map((s) => s.track)).toEqual(['mic', 'system']);
+    expect(setup.sessions[0]?.knownVoices).toEqual([]);
+    expect(JSON.stringify(setup)).not.toMatch(/token|wsUrl|wss:/);
 
     await meetingRoute.PATCH(
       req(`/api/notes/meetings/${id}`, 'PATCH', { visibility: 'team' }),
       ctx({ id }),
     );
     caller = await teammate();
-    const notRecorder = await sttRoute.POST(
-      req(`/api/notes/meetings/${id}/stt-token`, 'POST', { tracks: ['mic'] }),
+    const notRecorder = await speechRoute.POST(
+      req(`/api/notes/meetings/${id}/speech-setup`, 'POST', { tracks: ['mic'] }),
       ctx({ id }),
     );
     expect(notRecorder.status).toBe(403);

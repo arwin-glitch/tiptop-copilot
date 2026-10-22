@@ -1,50 +1,45 @@
-import type {
-  SttSession,
-  TranscriberProvider,
-  TranscriptEvent,
-  TranscriptTrack,
-} from '@/lib/types/notes';
+import type { SpeechSession, TranscriptEvent, TranscriptTrack } from '@/lib/types/notes';
 import type { ApiFailure, ApiResult } from './api-client';
 import type { FinishedPiece } from './lines';
 import { AudioRingBuffer, type AudioChunk } from './ring-buffer';
-import { replaySpeedFor } from './socket-factory';
 import type {
-  SpeechSocket,
-  SpeechSocketClose,
-  SpeechSocketFactory,
-  WebSocketFactory,
-} from './speech-socket';
-import { CHUNK_MS, SAMPLES_PER_MS, type RecorderTuning, type SocketState } from './types';
+  EngineStatus,
+  SpeechEngine,
+  SpeechEngineClose,
+  SpeechEngineFactory,
+} from './speech-engine';
+import { SAMPLES_PER_MS, type EngineState, type RecorderTuning } from './types';
 
 /**
- * One track's journey from audio to finished pieces (D-076): the reconnect
- * buffer, the vendor socket, and what happens when the socket drops.
+ * One track's journey from audio to finished pieces (D-076): the in-memory
+ * replay buffer, the speech engine, and what happens when the engine stops.
  *
  * The recording has its own clock: samples of 16 kHz audio heard on this
- * track, pauses excluded. A socket's times count from the first audio it was
- * sent, so every event is moved onto the recording clock by that socket's
+ * track, pauses excluded. An engine's times count from the first audio it was
+ * sent, so every event is moved onto the recording clock by that engine's
  * starting point.
  *
- * Reconnecting without gaps or repeats:
+ * Restarting without gaps or repeats (an engine can stop: the graphics chip
+ * was reset, the browser ended the worker):
  *  - every chunk goes into the 30-second buffer before anything else;
- *  - `confirmedUpTo` is how far the vendor has finished: the end of its last
- *    finished line, or everything sent when a socket was closed gracefully;
- *  - a new socket (after a drop, or a resume) starts from `confirmedUpTo`,
- *    replaying the buffer from there, so speech that was mid-line when the
- *    connection went is heard again in full;
+ *  - `confirmedUpTo` is how far the engine has finished: the end of its last
+ *    finished line, or everything sent when it finished cleanly;
+ *  - a new engine (after a stop, or a resume) starts from `confirmedUpTo`,
+ *    replaying the buffer from there, so speech that was mid-line is heard
+ *    again in full;
  *  - a finished line that ends at or before the last one already delivered
  *    is a repeat, and is dropped.
- * Only when a drop outlasts the buffer is audio lost, and then the gap is
- * reported (onGap) rather than hidden.
+ * Only when an engine stays down longer than the buffer is audio lost, and
+ * then the gap is reported (onGap) rather than hidden. The on-device engine
+ * queues what it hears itself, so a slow first download loses nothing.
  */
 
 const REPEAT_TOLERANCE_MS = 20;
 
 export interface TrackStreamDeps {
   track: TranscriptTrack;
-  requestSession: (track: TranscriptTrack) => Promise<ApiResult<SttSession>>;
-  socketFactory: SpeechSocketFactory;
-  webSocket?: WebSocketFactory;
+  requestSession: (track: TranscriptTrack) => Promise<ApiResult<SpeechSession>>;
+  engineFactory: SpeechEngineFactory;
   tuning: Pick<
     RecorderTuning,
     | 'reconnectBufferMs'
@@ -56,7 +51,8 @@ export interface TrackStreamDeps {
   isOnline: () => boolean;
   onPiece: (piece: FinishedPiece) => void;
   onPartial: (event: TranscriptEvent | null) => void;
-  onState: (state: SocketState) => void;
+  onState: (state: EngineState) => void;
+  onEngineStatus?: (status: EngineStatus | null) => void;
   onGap: (missedMs: number) => void;
   onFatal: (error: ApiFailure) => void;
 }
@@ -64,14 +60,14 @@ export interface TrackStreamDeps {
 export class TrackStream {
   readonly track: TranscriptTrack;
   private readonly ring: AudioRingBuffer;
-  private socket: SpeechSocket | null = null;
+  private engine: SpeechEngine | null = null;
   private generation = 0;
-  private state_: SocketState = 'idle';
+  private state_: EngineState = 'idle';
   /** The next chunk's place on the recording clock. */
   private nextSample = 0;
-  /** Where the current socket's audio starts. */
+  /** Where the current engine's audio starts. */
   private baseSample = 0;
-  /** One past the last sample sent on the current socket. */
+  /** One past the last sample sent to the current engine. */
   private sentUpTo = 0;
   private confirmedUpTo = 0;
   private lastFinalEndMs = Number.NEGATIVE_INFINITY;
@@ -79,14 +75,13 @@ export class TrackStream {
   private attempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private replaying = false;
-  private provider: TranscriberProvider | null = null;
 
   constructor(private readonly deps: TrackStreamDeps) {
     this.track = deps.track;
     this.ring = new AudioRingBuffer(deps.tuning.reconnectBufferMs, deps.tuning.silenceThreshold);
   }
 
-  get state(): SocketState {
+  get state(): EngineState {
     return this.state_;
   }
 
@@ -95,7 +90,7 @@ export class TrackStream {
     return this.nextSample / SAMPLES_PER_MS;
   }
 
-  private setState(state: SocketState): void {
+  private setState(state: EngineState): void {
     if (this.state_ === state) return;
     this.state_ = state;
     this.deps.onState(state);
@@ -118,22 +113,22 @@ export class TrackStream {
     const chunk: AudioChunk = { startSample: this.nextSample, samples, rms: rmsValue };
     this.nextSample += samples.length;
     this.ring.push(chunk);
-    if (this.socket?.isOpen && !this.replaying) {
-      this.socket.sendAudio(samples);
+    if (this.engine?.isOpen && !this.replaying) {
+      this.engine.sendAudio(samples);
       this.sentUpTo = this.nextSample;
     }
   }
 
-  /** Open a socket (with a session already minted, or ask for one). */
-  async connect(session?: SttSession): Promise<void> {
+  /** Start an engine (with the session already fetched, or ask for one). */
+  async connect(session?: SpeechSession): Promise<void> {
     this.wanted = true;
     this.clearRetry();
-    if (this.socket) return;
+    if (this.engine) return;
     const generation = ++this.generation;
-    this.setState(this.attempt > 0 ? 'reconnecting' : 'connecting');
-    let minted: SttSession;
+    this.setState(this.attempt > 0 ? 'restarting' : 'starting');
+    let setup: SpeechSession;
     if (session) {
-      minted = session;
+      setup = session;
     } else {
       const result = await this.deps.requestSession(this.track);
       if (generation !== this.generation || !this.wanted) return;
@@ -142,11 +137,10 @@ export class TrackStream {
         else this.fail(result.error);
         return;
       }
-      minted = result.value;
+      setup = result.value;
     }
-    this.provider = minted.provider;
 
-    // Where this socket starts: from what the vendor has finished.
+    // Where this engine starts: from what the last one finished.
     let from = this.confirmedUpTo;
     const oldest = this.ring.oldestSample();
     if (oldest !== null && from < oldest) {
@@ -158,8 +152,8 @@ export class TrackStream {
     this.baseSample = replay[0]?.startSample ?? this.nextSample;
     this.sentUpTo = this.baseSample;
 
-    const socket = this.deps.socketFactory(
-      minted,
+    const engine = this.deps.engineFactory(
+      setup,
       {
         onEvent: (event) => {
           if (generation === this.generation) this.handleEvent(event);
@@ -167,54 +161,56 @@ export class TrackStream {
         onClose: (info) => {
           if (generation === this.generation) this.handleClose(info);
         },
+        onStatus: (status) => {
+          if (generation === this.generation) this.deps.onEngineStatus?.(status);
+        },
       },
-      {
-        baseMs: this.baseSample / SAMPLES_PER_MS,
-        webSocket: this.deps.webSocket,
-        mockSpeed: this.deps.tuning.mockSpeed,
-      },
+      { baseMs: this.baseSample / SAMPLES_PER_MS, mockSpeed: this.deps.tuning.mockSpeed },
     );
-    this.socket = socket;
+    this.engine = engine;
     try {
-      await socket.open();
-    } catch {
+      await engine.open();
+    } catch (error) {
       if (generation !== this.generation) return;
-      this.socket = null;
-      socket.close();
-      if (this.wanted) this.scheduleRetry();
+      this.engine = null;
+      engine.close();
+      const retryable =
+        !error ||
+        typeof error !== 'object' ||
+        (error as { retryable?: unknown }).retryable !== false;
+      if (!retryable) {
+        this.fail({
+          code: 'speech_unavailable',
+          message: error instanceof Error ? error.message : 'Speech cannot run on this computer.',
+          status: 0,
+          retryable: false,
+          stillUsable: 'Typed notes still work for this meeting.',
+        });
+      } else if (this.wanted) {
+        this.scheduleRetry();
+      }
       return;
     }
     if (generation !== this.generation || !this.wanted) {
-      socket.close();
+      engine.close();
       return;
     }
     this.attempt = 0;
     this.setState('open');
-    await this.replayFrom(this.baseSample, socket, generation);
+    this.replayFrom(this.baseSample, engine, generation);
   }
 
-  /** Send the buffer from `start` on, paced for the vendor, then hand over to live audio. */
-  private async replayFrom(start: number, socket: SpeechSocket, generation: number): Promise<void> {
-    const speed = this.provider ? replaySpeedFor(this.provider) : Number.POSITIVE_INFINITY;
+  /** Send the buffer from `start` on, then hand over to live audio. The engine queues it. */
+  private replayFrom(start: number, engine: SpeechEngine, generation: number): void {
     this.replaying = true;
-    let cursor = start;
     try {
-      for (;;) {
-        if (generation !== this.generation || !socket.isOpen) return;
-        const pending = this.ring.from(cursor).filter((c, i) => i === 0 || c.startSample >= cursor);
-        if (pending.length === 0) break;
-        for (const chunk of pending) {
-          if (generation !== this.generation || !socket.isOpen) return;
-          socket.sendAudio(chunk.samples);
-          cursor = chunk.startSample + chunk.samples.length;
-          this.sentUpTo = cursor;
-          // Live audio keeps arriving while this runs; only a backlog is paced.
-          const behind = this.nextSample - cursor;
-          if (Number.isFinite(speed) && behind > CHUNK_MS * SAMPLES_PER_MS) {
-            await sleep(chunk.samples.length / SAMPLES_PER_MS / speed);
-          }
-        }
-        if (cursor >= this.nextSample) break;
+      let cursor = start;
+      for (const chunk of this.ring.from(start)) {
+        if (generation !== this.generation || !engine.isOpen) return;
+        if (chunk.startSample + chunk.samples.length <= cursor) continue;
+        engine.sendAudio(chunk.samples);
+        cursor = chunk.startSample + chunk.samples.length;
+        this.sentUpTo = cursor;
       }
     } finally {
       if (generation === this.generation) this.replaying = false;
@@ -244,8 +240,8 @@ export class TrackStream {
     });
   }
 
-  private handleClose(info: SpeechSocketClose): void {
-    this.socket = null;
+  private handleClose(info: SpeechEngineClose): void {
+    this.engine = null;
     this.replaying = false;
     this.deps.onPartial(null);
     if (info.expected || !this.wanted) {
@@ -256,10 +252,11 @@ export class TrackStream {
       this.scheduleRetry();
     } else {
       this.fail({
-        code: 'speech_refused',
-        message: info.reason || 'The speech service refused the connection.',
+        code: 'speech_unavailable',
+        message: info.reason || 'Speech stopped on this computer.',
         status: info.code,
         retryable: false,
+        stillUsable: 'Typed notes still work for this meeting.',
       });
     }
   }
@@ -267,11 +264,11 @@ export class TrackStream {
   private scheduleRetry(): void {
     if (!this.wanted) return;
     this.clearRetry();
-    this.setState('reconnecting');
+    this.setState('restarting');
     const waits = this.deps.tuning.reconnectBackoffMs;
     const wait = waits[Math.min(this.attempt, waits.length - 1)] ?? 1000;
     this.attempt += 1;
-    // Offline, the next try waits for the network to come back (onlineAgain).
+    // A model that could not download waits for the network (onlineAgain).
     if (!this.deps.isOnline()) return;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
@@ -291,38 +288,44 @@ export class TrackStream {
     this.deps.onFatal(error);
   }
 
-  /** The network is back: try now instead of waiting out the backoff. */
-  /** The vendor's SpeakersResult on this track's open socket (voice enrolment), or null. */
-  requestSpeakers(timeoutMs: number): Promise<Record<string, unknown> | null> {
-    const socket = this.socket;
-    if (!socket?.isOpen || !socket.requestSpeakers) return Promise.resolve(null);
-    return socket.requestSpeakers(timeoutMs);
+  /** "Remember this voice": one voice's voiceprint from the running engine, or null. */
+  voiceprint(
+    label: string,
+    timeoutMs: number,
+  ): Promise<{ voiceprint: string; modelVersion: string } | null> {
+    const engine = this.engine;
+    if (!engine?.isOpen || !engine.voiceprint) return Promise.resolve(null);
+    return engine.voiceprint(label, timeoutMs);
   }
 
+  /** The network is back: try now instead of waiting out the backoff. */
   onlineAgain(): void {
-    if (!this.wanted || this.socket) return;
-    if (this.state_ === 'reconnecting' || this.state_ === 'connecting') {
+    if (!this.wanted || this.engine) return;
+    if (this.state_ === 'restarting' || this.state_ === 'starting') {
       this.clearRetry();
       void this.connect();
     }
   }
 
   /**
-   * Stop streaming and let the vendor finish its last lines (pause and stop).
-   * Afterwards everything sent counts as finished, so a resume replays nothing.
+   * Stop taking audio and let the engine transcribe what is left (pause and
+   * stop). Afterwards everything sent counts as finished, so a resume
+   * replays nothing.
    */
   async finish(): Promise<void> {
     this.wanted = false;
     this.clearRetry();
-    const socket = this.socket;
-    if (socket) {
-      await socket.finish(this.deps.tuning.finishTimeoutMs);
+    const engine = this.engine;
+    if (engine) {
+      await engine.finish(this.deps.tuning.finishTimeoutMs);
       this.confirmedUpTo = Math.max(this.confirmedUpTo, this.sentUpTo);
     }
     this.generation += 1;
-    this.socket = null;
+    this.engine = null;
     this.replaying = false;
     this.setState('closed');
+    // Resumed while the last words were still being transcribed: start again now.
+    if (this.wanted) void this.connect();
   }
 
   /** Close at once (an error, or the page going away). */
@@ -330,9 +333,9 @@ export class TrackStream {
     this.wanted = false;
     this.clearRetry();
     this.generation += 1;
-    const socket = this.socket;
-    this.socket = null;
-    socket?.close();
+    const engine = this.engine;
+    this.engine = null;
+    engine?.close();
     this.setState('closed');
   }
 
@@ -340,8 +343,4 @@ export class TrackStream {
   clearBuffer(): void {
     this.ring.clear();
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }

@@ -6,7 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
  * to start before consent, start, get a speech session (the mock in demo
  * mode), post lines, stop (the notes job with the offline model), rename a
  * voice, ask a question, and find the words said through the app's search.
- * Fictional people only; no vendor is ever called.
+ * Fictional people only; no speech service is ever called.
  */
 
 async function enterDemo(page: Page) {
@@ -127,12 +127,13 @@ test('a meeting from event to notes, through the API', async ({ page }) => {
   });
   expect(started.status).toBe(200);
 
-  const stt = (await call.post(`${base}/stt-token`, { tracks: ['mic', 'system'] })).body as {
+  const setup = (await call.post(`${base}/speech-setup`, { tracks: ['mic', 'system'] })).body as {
     provider: string;
-    sessions: { wsUrl: string | null }[];
+    sessions: { track: string; knownVoices: unknown[] }[];
   };
-  expect(stt.provider).toBe('mock');
-  expect(stt.sessions.every((s) => s.wsUrl === null)).toBe(true);
+  expect(setup.provider).toBe('mock');
+  expect(setup.sessions.map((s) => s.track)).toEqual(['mic', 'system']);
+  expect(JSON.stringify(setup)).not.toMatch(/token|wsUrl|wss:/);
 
   type Speakers = { speakers: { clusterKey: string; displayName: string }[] };
   const uploaded = (await call.post(`${base}/segments`, { segments: segments() })).body as {

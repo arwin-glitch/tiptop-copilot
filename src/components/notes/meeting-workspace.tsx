@@ -69,7 +69,7 @@ const REMEMBER_WORDS: Record<'requested' | 'no_consent' | 'not_live' | 'not_supp
     'Voice not remembered: there is no consent on file for them (Notes settings, Voices).',
   not_live: 'Voices are remembered while the meeting is recording.',
   not_supported:
-    'Not remembered: only a guest’s own voice on a Speechmatics recording can be (not the microphone, not a split line).',
+    'Not remembered: only a guest’s own voice can be (not the microphone, not a split line).',
 };
 
 /**

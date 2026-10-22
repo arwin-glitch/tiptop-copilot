@@ -9,14 +9,16 @@ import type {
   TranscriptTrack,
 } from '@/lib/types/notes';
 import { NOTES_LIMITS } from '@/lib/types/notes';
+import type { SpeechDevice, SpeechModelChoice } from '@/lib/transcribe/models';
 
 /**
  * The web recorder's own shapes (D-076, WS3). Client-safe: no server import.
  *
- * The recorder captures audio in the browser and streams it straight to the
- * speech vendor; the server only mints short-lived keys and stores finished
- * lines. Nothing here carries audio beyond the in-memory reconnect buffer,
- * which is never written anywhere.
+ * The recorder captures audio in the browser and transcribes it there, with
+ * Whisper in a Web Worker: free, and the audio never leaves the computer. The
+ * server only hands out each track's settings and stores finished lines.
+ * Nothing here carries audio beyond the in-memory replay buffer, which is
+ * never written anywhere.
  */
 
 /**
@@ -30,8 +32,8 @@ export type RecorderMode = 'call' | 'mic_only';
 export type RecorderStatus =
   'idle' | 'starting' | 'recording' | 'paused' | 'stopping' | 'stopped' | 'error';
 
-/** One speech socket's state, as the UI shows it. */
-export type SocketState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'failed';
+/** One track's speech engine, as the UI shows it. */
+export type EngineState = 'idle' | 'starting' | 'open' | 'restarting' | 'closed' | 'failed';
 
 export interface TrackSnapshot {
   track: TranscriptTrack;
@@ -41,7 +43,9 @@ export interface TrackSnapshot {
   live: boolean;
   /** The device muted the track (an iPhone with its screen off, another app took the mic). */
   muted: boolean;
-  socket: SocketState;
+  engine: EngineState;
+  /** Audio heard on this track and not transcribed yet, in ms. */
+  backlogMs: number;
   /** How long this track has heard nothing, in ms. */
   silentMs: number;
   /** Audio received on this track, in ms of the recording. */
@@ -49,6 +53,8 @@ export interface TrackSnapshot {
 }
 
 export type RecorderWarningCode =
+  | 'speech_fallback'
+  | 'speech_behind'
   | 'no_meeting_audio'
   | 'meeting_audio_ended'
   | 'mic_ended'
@@ -133,11 +139,27 @@ export interface RosterSnapshot {
   intervals: RosterInterval[];
 }
 
+/** The on-device speech engines, together: what the recorder shows about them. */
+export interface SpeechSnapshot {
+  /** 'loading' until every track's model is ready (the first run downloads it). */
+  phase: 'idle' | 'loading' | 'ready' | 'failed';
+  /** 0..1 across the tracks while loading; null when the size is not known yet. */
+  progress: number | null;
+  loadedMb: number;
+  totalMb: number;
+  device: SpeechDevice | null;
+  model: SpeechModelChoice | null;
+  /** Audio heard and not transcribed yet, the most behind track, in ms. */
+  backlogMs: number;
+  message: string | null;
+}
+
 export interface RecorderSnapshot {
   meetingId: string;
   status: RecorderStatus;
   mode: RecorderMode;
   provider: TranscriberProvider | null;
+  speech: SpeechSnapshot;
   /** Recorded time, pauses excluded. */
   elapsedMs: number;
   tracks: Partial<Record<TranscriptTrack, TrackSnapshot>>;
@@ -176,16 +198,22 @@ export interface RecorderTuning {
   callEndedGraceMs: number;
   /** RMS above this counts as sound (about -48 dBFS). */
   silenceThreshold: number;
-  /** A finished socket may take this long to send its last lines. */
+  /**
+   * A finishing engine may go this long without news before it is given up
+   * on. The on-device engine waits longer (whisper-engine.ts): it never drops
+   * audio while the work keeps moving.
+   */
   finishTimeoutMs: number;
   /** Stop waits this long for queued lines to upload before telling the server. */
   drainTimeoutMs: number;
   /** Leaving the page pauses the recording after this grace (a re-render is not leaving). */
   unmountPauseMs: number;
-  /** Reconnect waits, in order; the last repeats. */
+  /** Restart waits after an engine stops, in order; the last repeats. */
   reconnectBackoffMs: number[];
-  /** The mock vendor plays the scripted call this many times faster than real time. */
+  /** The demo engine plays the scripted call this many times faster than real time. */
   mockSpeed: number;
+  /** "Transcript is behind" shows when a track has this much audio waiting. */
+  behindWarningMs: number;
 }
 
 export const DEFAULT_TUNING: RecorderTuning = {
@@ -201,13 +229,14 @@ export const DEFAULT_TUNING: RecorderTuning = {
   unmountPauseMs: 1500,
   reconnectBackoffMs: [500, 1000, 2000, 4000, 8000, 15_000],
   mockSpeed: 1,
+  behindWarningMs: 60_000,
 };
 
 /** Finished lines the live view keeps in memory (the server has them all). */
 export const LIVE_LINES_KEPT = 400;
 
-/** The audio every vendor session gets: 16 kHz mono PCM16. */
+/** The audio every speech engine gets: 16 kHz mono PCM16. */
 export const CAPTURE_RATE = 16_000;
 export const SAMPLES_PER_MS = CAPTURE_RATE / 1000;
-/** The worklet posts audio in chunks this long (AssemblyAI wants 50 to 1000 ms). */
+/** The worklet posts audio in chunks this long. */
 export const CHUNK_MS = 100;

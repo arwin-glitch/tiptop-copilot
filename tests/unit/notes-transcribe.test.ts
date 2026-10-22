@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { resetEnvCache } from '@/lib/config/env';
-import { AssemblyAITranscriber, ASSEMBLYAI_TOKEN_URL } from '@/lib/transcribe/assemblyai';
+import { BrowserWhisperTranscriber } from '@/lib/transcribe/browser-whisper';
 import {
   baseClusterKey,
   clusterKeyFor,
@@ -18,13 +18,25 @@ import {
   mockTranscriptEvents,
   streamMockCall,
 } from '@/lib/transcribe/mock-script';
-import { openingMessageFor, socketUrlFor } from '@/lib/transcribe/socket-url';
-import { SPEECHMATICS_MINT_URL, SpeechmaticsTranscriber } from '@/lib/transcribe/speechmatics';
-import type { MintSessionInput } from '@/lib/transcribe/transcriber';
+import {
+  SEGMENTATION_MODEL,
+  SPEAKER_EMBEDDING_MODEL,
+  SPEECH_MODEL_CHOICES,
+  WHISPER_CHOICES,
+  canRun,
+  formatMb,
+  modelFileUrl,
+  whisperFiles,
+  whisperModelFor,
+  whisperVariant,
+} from '@/lib/transcribe/models';
+import type { SpeechSessionInput } from '@/lib/transcribe/transcriber';
+import { applyVocabulary, prepareVocabulary } from '@/lib/transcribe/vocabulary';
 
 /**
- * The speech-to-text seam (D-076). Nothing here reaches a vendor: the
- * adapters get a fake fetch, and demo mode always gets the mock.
+ * The speech-to-text seam (D-076), zero spend: the server only hands out
+ * settings, Whisper runs in the recorder's browser, and demo mode always gets
+ * the mock. No key, no vendor, no paid path anywhere.
  */
 
 const SAVED = { ...process.env };
@@ -35,22 +47,19 @@ afterEach(() => {
   setTranscriberForTesting(null);
 });
 
-const INPUT: MintSessionInput = {
+const KNOWN = {
+  label: '0d000000-0000-4000-8000-000000000001',
+  voiceprint: 'AAAAAA==',
+  modelVersion: 'fake-voiceprint@1',
+};
+
+const INPUT: SpeechSessionInput = {
   meetingId: 'meeting-1',
   track: 'system',
   language: 'en',
-  knownSpeakers: [{ label: '0d000000-0000-4000-8000-000000000001', identifiers: ['opaque-id'] }],
+  knownVoices: [KNOWN],
   vocabulary: ['Acme Robotics', 'Dana Reyes', 'Acme Robotics'],
-  now: new Date('2026-10-22T15:00:00Z'),
 };
-
-function fakeFetch(status: number, body: unknown) {
-  return vi.fn(
-    async () => new Response(JSON.stringify(body), { status }),
-  ) as unknown as typeof fetch & {
-    mock: { calls: [string, RequestInit][] };
-  };
-}
 
 describe('cluster keys', () => {
   it('keys lines by track and vendor label, never by name', () => {
@@ -142,130 +151,108 @@ describe('the scripted call', () => {
   });
 });
 
-describe('the mock transcriber', () => {
-  it('opens no socket and expires in 60 seconds', async () => {
-    const session = await new MockTranscriber().mintSession(INPUT);
-    expect(session.ok).toBe(true);
-    if (!session.ok) return;
-    expect(session.value.provider).toBe('mock');
-    expect(session.value.wsUrl).toBeNull();
-    expect(socketUrlFor(session.value)).toBeNull();
-    expect(openingMessageFor(session.value)).toBeNull();
-    expect(Date.parse(session.value.expiresAt) - INPUT.now!.getTime()).toBe(60_000);
-    expect(session.value.audio).toEqual({ sampleRate: 16000, encoding: 'pcm_s16le', channels: 1 });
+describe('the transcribers', () => {
+  it('the mock plays the scripted call and needs no model', () => {
+    const session = new MockTranscriber().session(INPUT);
+    expect(session.provider).toBe('mock');
+    expect(session.sessionConfig).toEqual({ script: 'acme-intro', track: 'system' });
+    expect(session.audio).toEqual({ sampleRate: 16000, encoding: 'pcm_s16le', channels: 1 });
+    expect(session).not.toHaveProperty('token');
+    expect(session).not.toHaveProperty('wsUrl');
   });
 
-  it('is what demo mode always gets', () => {
+  it('browser Whisper is only settings: no key, no address, nothing to pay for', () => {
+    const session = new BrowserWhisperTranscriber().session(INPUT);
+    expect(session).toMatchObject({
+      track: 'system',
+      provider: 'browser-whisper',
+      language: 'en',
+      knownVoices: [KNOWN],
+      sessionConfig: {},
+    });
+    expect(session.vocabulary).toContain('Dana Reyes');
+    expect(JSON.stringify(session)).not.toMatch(/token|wss:|https:|key/i);
+  });
+
+  it('never gives the mic anyone else’s voiceprint: every mic word is the recorder’s', () => {
+    expect(new BrowserWhisperTranscriber().session({ ...INPUT, track: 'mic' }).knownVoices).toEqual(
+      [],
+    );
+    expect(new MockTranscriber().session({ ...INPUT, track: 'mic' }).knownVoices).toEqual([]);
+  });
+
+  it('demo mode always gets the mock; everywhere else, Whisper in the browser', () => {
     process.env.DEMO_MODE = 'true';
-    process.env.SPEECHMATICS_API_KEY = 'sm-test-not-a-real-key';
     resetEnvCache();
     expect(getTranscriber().provider).toBe('mock');
-  });
-
-  it('outside demo mode, a missing key refuses plainly and calls nobody', async () => {
     process.env.DEMO_MODE = 'false';
-    delete process.env.SPEECHMATICS_API_KEY;
-    delete process.env.TRANSCRIBER_PROVIDER;
     resetEnvCache();
-    const t = getTranscriber();
-    expect(t.provider).toBe('speechmatics');
-    expect(t.available()).toBe(false);
-    const minted = await t.mintSession(INPUT);
-    expect(minted.ok).toBe(false);
-    if (!minted.ok) expect(minted.error.code).toBe('not_configured');
-
-    process.env.TRANSCRIBER_PROVIDER = 'assemblyai';
-    resetEnvCache();
-    expect(getTranscriber().provider).toBe('assemblyai');
+    expect(getTranscriber().provider).toBe('browser-whisper');
   });
 });
 
-describe('Speechmatics', () => {
-  it('mints a 60-second key with the server key as a Bearer token', async () => {
-    const fetchImpl = fakeFetch(201, { apikey_id: 'x', key_value: 'temp-key-123' });
-    const t = new SpeechmaticsTranscriber('sm-test-not-a-real-key', 'us', fetchImpl);
-    const minted = await t.mintSession(INPUT);
-    expect(minted.ok).toBe(true);
-    const [url, init] = fetchImpl.mock.calls[0]!;
-    expect(url).toBe(SPEECHMATICS_MINT_URL);
-    expect(init.method).toBe('POST');
-    expect((init.headers as Record<string, string>).Authorization).toBe(
-      'Bearer sm-test-not-a-real-key',
+describe('the model catalog', () => {
+  it('pins every model to an exact revision on huggingface.co', () => {
+    const pinned = [
+      ...SPEECH_MODEL_CHOICES.flatMap((c) => [
+        WHISPER_CHOICES[c].english,
+        WHISPER_CHOICES[c].multilingual,
+      ]),
+      SEGMENTATION_MODEL,
+      SPEAKER_EMBEDDING_MODEL,
+    ];
+    for (const m of pinned) expect(m.revision).toMatch(/^[0-9a-f]{40}$/);
+    expect(modelFileUrl(WHISPER_CHOICES.fast.english, 'onnx/encoder_model.onnx')).toBe(
+      'https://huggingface.co/onnx-community/whisper-base.en/resolve/51eefc0af78b103839eda9e7e4f4186acc6517fe/onnx/encoder_model.onnx',
     );
-    expect(JSON.parse(String(init.body))).toEqual({ ttl: 60 });
-    if (!minted.ok) return;
-    expect(minted.value.wsUrl).toBe('wss://us.rt.speechmatics.com/v2');
-    expect(socketUrlFor(minted.value)).toBe('wss://us.rt.speechmatics.com/v2?jwt=temp-key-123');
   });
 
-  it('diarizes the meeting audio and recognises consented voices by profile id only', async () => {
-    const t = new SpeechmaticsTranscriber('k', 'us', fakeFetch(201, { key_value: 'temp' }));
-    const minted = await t.mintSession(INPUT);
-    if (!minted.ok) throw new Error('mint failed');
-    const start = JSON.parse(openingMessageFor(minted.value) ?? '{}');
-    expect(start.message).toBe('StartRecognition');
-    expect(start.audio_format).toEqual({ type: 'raw', encoding: 'pcm_s16le', sample_rate: 16000 });
-    const config = start.transcription_config;
-    expect(config.diarization).toBe('speaker');
-    expect(config.operating_point).toBe('enhanced');
-    expect(config.speaker_diarization_config.max_speakers).toBe(8);
-    expect(config.speaker_diarization_config.speakers).toEqual([
-      { label: INPUT.knownSpeakers[0]!.label, speaker_identifiers: ['opaque-id'] },
+  it('runs a full-precision encoder and a 4-bit decoder on WebGPU, 8-bit on the processor', () => {
+    expect(whisperFiles(whisperVariant('fast', 'webgpu', false)!)).toEqual([
+      'onnx/encoder_model.onnx',
+      'onnx/decoder_model_merged_q4.onnx',
     ]);
-    expect(config.additional_vocab).toEqual([
-      { content: 'Acme Robotics' },
-      { content: 'Dana Reyes' },
+    expect(whisperFiles(whisperVariant('fast', 'wasm', false)!)).toEqual([
+      'onnx/encoder_model_quantized.onnx',
+      'onnx/decoder_model_merged_quantized.onnx',
     ]);
   });
 
-  it('does not diarize the mic: every word is the recorder’s', async () => {
-    const t = new SpeechmaticsTranscriber('k', 'eu2', fakeFetch(201, { key_value: 'temp' }));
-    const minted = await t.mintSession({ ...INPUT, track: 'mic' });
-    if (!minted.ok) throw new Error('mint failed');
-    const config = JSON.parse(openingMessageFor(minted.value) ?? '{}').transcription_config;
-    expect(config.diarization).toBeUndefined();
-    expect(config.speaker_diarization_config).toBeUndefined();
-    expect(minted.value.wsUrl).toBe('wss://eu2.rt.speechmatics.com/v2');
+  it('keeps Best to a graphics chip with 16-bit support', () => {
+    expect(canRun('best', 'wasm', true)).toBe(false);
+    expect(canRun('best', 'webgpu', false)).toBe(false);
+    expect(canRun('best', 'webgpu', true)).toBe(true);
+    expect(canRun('fast', 'wasm', false)).toBe(true);
+    expect(whisperVariant('best', 'wasm', true)).toBeNull();
   });
 
-  it('says plainly when the key is refused or the vendor is down', async () => {
-    const refused = await new SpeechmaticsTranscriber('k', 'us', fakeFetch(401, {})).mintSession(
-      INPUT,
-    );
-    expect(!refused.ok && refused.error.code).toBe('provider_unauthorized');
-    const down = await new SpeechmaticsTranscriber('k', 'us', fakeFetch(503, {})).mintSession(
-      INPUT,
-    );
-    expect(!down.ok && down.error.code).toBe('provider_unavailable');
-    const empty = await new SpeechmaticsTranscriber('k', 'us', fakeFetch(201, {})).mintSession(
-      INPUT,
-    );
-    expect(!empty.ok && empty.error.code).toBe('provider_unavailable');
+  it('picks English-only weights for an English meeting', () => {
+    expect(whisperModelFor('fast', 'en').id).toBe('onnx-community/whisper-base.en');
+    expect(whisperModelFor('fast', 'en-US').id).toBe('onnx-community/whisper-base.en');
+    expect(whisperModelFor('better', 'fr').id).toBe('onnx-community/whisper-small');
+  });
+
+  it('shows download sizes in plain units, smallest first', () => {
+    const sizes = SPEECH_MODEL_CHOICES.map((c) => WHISPER_CHOICES[c].webgpu.downloadMb);
+    expect([...sizes].sort((a, b) => a - b)).toEqual(sizes);
+    expect(formatMb(210.6)).toBe('211 MB');
+    expect(formatMb(1612.9)).toBe('1.6 GB');
   });
 });
 
-describe('AssemblyAI', () => {
-  it('mints a temporary token per session and puts the settings on the socket address', async () => {
-    const fetchImpl = fakeFetch(200, { token: 'aai-temp' });
-    const t = new AssemblyAITranscriber('aai-test-not-a-real-key', fetchImpl);
-    const minted = await t.mintSession(INPUT);
-    const [url, init] = fetchImpl.mock.calls[0]!;
-    expect(url.startsWith(ASSEMBLYAI_TOKEN_URL)).toBe(true);
-    expect(new URL(url).searchParams.get('expires_in_seconds')).toBe('60');
-    expect((init.headers as Record<string, string>).Authorization).toBe('aai-test-not-a-real-key');
-    if (!minted.ok) throw new Error('mint failed');
-    const address = new URL(socketUrlFor(minted.value) ?? '');
-    expect(address.origin + address.pathname).toBe('wss://streaming.assemblyai.com/v3/ws');
-    expect(address.searchParams.get('token')).toBe('aai-temp');
-    expect(address.searchParams.get('speaker_labels')).toBe('true');
-    expect(address.searchParams.get('sample_rate')).toBe('16000');
-    expect(openingMessageFor(minted.value)).toBeNull();
+describe('vocabulary', () => {
+  it('fixes the capitals of a known name, whole words only', () => {
+    const terms = prepareVocabulary(['Acme Robotics', 'Dana Reyes', 'Acme', 'Al']);
+    expect(terms[0]).toBe('Acme Robotics');
+    expect(terms).not.toContain('Al');
+    expect(applyVocabulary('we met dana reyes from acme robotics today', terms)).toBe(
+      'we met Dana Reyes from Acme Robotics today',
+    );
+    expect(applyVocabulary('acmeville is not acme', terms)).toBe('acmeville is not Acme');
   });
 
-  it('leaves speaker labels off the mic', async () => {
-    const t = new AssemblyAITranscriber('k', fakeFetch(200, { token: 't' }));
-    const minted = await t.mintSession({ ...INPUT, track: 'mic' });
-    if (!minted.ok) throw new Error('mint failed');
-    expect(new URL(socketUrlFor(minted.value) ?? '').searchParams.get('speaker_labels')).toBeNull();
+  it('never swaps one word for another', () => {
+    const terms = prepareVocabulary(['Priya Shah']);
+    expect(applyVocabulary('maria shaw said hi', terms)).toBe('maria shaw said hi');
   });
 });

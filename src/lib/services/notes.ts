@@ -22,7 +22,7 @@ import { isEcho, type TimedText } from '@/lib/speakers/echo-dedupe';
 import { isResolved, newSpeakerRow, type Recorder } from '@/lib/speakers/ladder';
 import { planMerge, planSplit } from '@/lib/speakers/split-merge';
 import { trackOfClusterKey } from '@/lib/transcribe/cluster';
-import { getTranscriber, type KnownSpeaker } from '@/lib/transcribe';
+import { getTranscriber } from '@/lib/transcribe';
 import type { MeetingNote } from '@/lib/types/domain';
 import {
   BUILTIN_TEMPLATES,
@@ -56,7 +56,8 @@ import {
   type SplitSpeakerRequest,
   type StartRecordingRequest,
   type StopRecordingRequest,
-  type SttSession,
+  type KnownVoice,
+  type SpeechSession,
   type TemplateView,
   type TranscriptSegment,
   type TranscriptTrack,
@@ -779,15 +780,10 @@ export async function logConsentEvent(
   });
 }
 
-/* ================================================== speech-to-text keys == */
+/* ===================================================== speech setup == */
 
 /**
- * Mint one speech session per track asked for. Recorder only, and only while
- * recording: a paused meeting resumes first. The long-lived vendor key never
- * leaves the server; each session's key lives 60 seconds.
- */
-/**
- * Words the speech vendor should spell right: the invite's names and the
+ * Words the speech worker should spell right: the invite's names and the
  * guests' companies as the CRM knows them. Spellings, never facts: nothing
  * here reaches the notes.
  */
@@ -812,20 +808,27 @@ async function sessionVocabulary(
   return [...words].slice(0, 100);
 }
 
-export interface MintOptions {
+export interface SpeechSetupOptions {
   /**
    * The consented, enrolled voices to recognise, given the invite's emails
-   * (services/voice-profiles.ts knownSpeakersFor; the route passes it in).
+   * (services/voice-profiles.ts knownVoicesFor; the route passes it in).
    */
-  knownSpeakers?: (inviteEmails: (string | null)[]) => Promise<KnownSpeaker[]>;
+  knownVoices?: (inviteEmails: (string | null)[]) => Promise<KnownVoice[]>;
 }
 
-export async function mintSttSessions(
+/**
+ * The speech settings for each track asked for (D-076). Recorder only, and
+ * only while recording: a paused meeting resumes first. Nothing here is a
+ * key and nothing is paid for: the recorder's browser runs Whisper itself.
+ * Consented voices travel to that browser's speech worker so it can name
+ * them; nobody without consent on file is ever in the list.
+ */
+export async function speechSessions(
   ctx: NotesContext,
   meetingId: string,
   tracks: TranscriptTrack[],
-  options: MintOptions = {},
-): Promise<Result<{ provider: TranscriberProvider; sessions: SttSession[] }>> {
+  options: SpeechSetupOptions = {},
+): Promise<Result<{ provider: TranscriberProvider; sessions: SpeechSession[] }>> {
   return guard('start the transcript', async () => {
     const found = await loadMeeting(ctx, meetingId, { recorderOnly: true });
     if (!found.ok) return found;
@@ -836,40 +839,32 @@ export async function mintSttSessions(
     const participants = await participantsOf(ctx, meeting.id);
     const vocabulary = await sessionVocabulary(ctx, meeting, participants);
     const transcriber = getTranscriber();
-    // Only Speechmatics recognises enrolled voices, and only on a diarized
-    // track (every mic word is the recorder's). Consent is checked by the
-    // resolver: nobody without it is ever in this list.
-    let knownSpeakers: KnownSpeaker[] = [];
-    if (
-      options.knownSpeakers &&
-      transcriber.provider === 'speechmatics' &&
-      tracks.some((t) => t !== 'mic')
-    ) {
+    // Only the diarized tracks recognise enrolled voices (every mic word is
+    // the recorder's). Consent is checked by the resolver: nobody without it
+    // is ever in this list.
+    let knownVoices: KnownVoice[] = [];
+    if (options.knownVoices && tracks.some((t) => t !== 'mic')) {
       try {
-        knownSpeakers = await options.knownSpeakers(participants.map((p) => p.email));
+        knownVoices = await options.knownVoices(participants.map((p) => p.email));
       } catch (error) {
         log.warn('Copilot Notes: enrolled voices could not be read', {
           reason: error instanceof Error ? error.message : String(error),
         });
       }
     }
-    const sessions: SttSession[] = [];
-    for (const track of tracks) {
-      const minted = await transcriber.mintSession({
+    const sessions = tracks.map((track) =>
+      transcriber.session({
         meetingId: meeting.id,
         track,
         language: meeting.language,
-        knownSpeakers,
+        knownVoices,
         vocabulary,
-        now: nowOf(ctx),
-      });
-      if (!minted.ok) return minted;
-      sessions.push(minted.value);
-    }
-    await audit(ctx, 'notes.stt_token_minted', meeting.id, {
+      }),
+    );
+    await audit(ctx, 'notes.speech_setup', meeting.id, {
       provider: transcriber.provider,
       tracks: tracks.join(','),
-      known_voices: knownSpeakers.length,
+      known_voices: knownVoices.length,
     });
     return ok({ provider: transcriber.provider, sessions });
   });
@@ -1095,7 +1090,7 @@ export async function listSegments(
   });
 }
 
-/** Fix a line in place (a number, a name). The vendor's text is kept for audit. */
+/** Fix a line in place (a number, a name). The speech model's text is kept for audit. */
 export async function editSegment(
   ctx: NotesContext,
   meetingId: string,
@@ -1239,10 +1234,10 @@ export async function relabelSpeaker(
 }
 
 /**
- * What "Remember this voice" can do now. Identifiers exist only while the
- * vendor session is open, so the recorder fetches them for this voice's
- * vendor label and posts them to /voice-profiles/enroll, where consent is
- * checked again. Nothing is stored here.
+ * What "Remember this voice" can do now. The speech worker holds a voice only
+ * while the recording runs, so the recorder asks it for this voice's
+ * voiceprint by cluster label and posts it to /voice-profiles/enroll, where
+ * consent is checked again. Nothing is stored here.
  */
 async function rememberVoiceOutcome(
   ctx: NotesContext,
@@ -1256,13 +1251,8 @@ async function rememberVoiceOutcome(
     eq: { person_email: email.toLowerCase(), consent_status: 'granted' },
   });
   if (!consent) return { status: 'no_consent', ...base };
-  const provider = getTranscriber().provider;
-  // The mic is not diarized, and a split voice has no vendor label of its own.
-  if (
-    (provider !== 'speechmatics' && provider !== 'mock') ||
-    speaker.track === 'mic' ||
-    speaker.cluster_key.includes('#')
-  ) {
+  // The mic is not diarized, and a split voice has no cluster of its own in the worker.
+  if (speaker.track === 'mic' || speaker.cluster_key.includes('#')) {
     return { status: 'not_supported', ...base };
   }
   if (meeting.status !== 'recording' && meeting.status !== 'paused') {

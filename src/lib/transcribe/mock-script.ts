@@ -1,4 +1,5 @@
 import type { TranscriptEvent, TranscriptTrack } from '@/lib/types/notes';
+import { encodeVoiceprint, syntheticVoiceprint } from './voiceprint';
 
 /**
  * The scripted call demo mode "records" (D-076): a fictional founder pitch.
@@ -10,7 +11,7 @@ import type { TranscriptEvent, TranscriptTrack } from '@/lib/types/notes';
  * whoever is signed in.
  *
  * Client-safe, with no timers of its own beyond streamMockCall: the web
- * recorder's mock socket plays it in demo mode, the demo fixtures store it as
+ * recorder's mock speech engine plays it in demo mode, the demo fixtures store it as
  * a finished meeting, and the tests read it, so all three see the same call.
  *
  * It is written to exercise the naming ladder: "Dana, go ahead" and "Priya,
@@ -22,17 +23,18 @@ import type { TranscriptEvent, TranscriptTrack } from '@/lib/types/notes';
 export const MOCK_CALL_ID = 'acme-intro';
 
 /**
- * Demo mode's voice-enrolment "clip": no audio and no vendor. The recorder
- * posts mockVoiceIdentifiers() for the consented person instead of asking a
- * vendor, so the consent, sealing and matching paths run end to end.
+ * Demo mode's voice-enrolment "clip": no audio and no model. The recorder
+ * posts mockVoiceIdentifiers() for the consented person instead of asking the
+ * speech worker, so the consent, sealing and matching paths run end to end.
  */
 export const MOCK_ENROLLMENT_ID = 'voice-enrollment';
 
-/** Fictional identifiers for demo enrolment: opaque strings, like a vendor's. */
+/** The embedding model demo voiceprints claim to come from. */
+export const MOCK_VOICEPRINT_MODEL = 'mock-voiceprint@1';
+
+/** A fictional voiceprint for demo enrolment: a repeatable vector, never a real voice. */
 export function mockVoiceIdentifiers(email: string): string[] {
-  let h = 0;
-  for (const ch of email) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return [`mock-voice-${h.toString(16)}-a`, `mock-voice-${h.toString(16)}-b`];
+  return [encodeVoiceprint(syntheticVoiceprint(email.toLowerCase()))];
 }
 
 export interface MockCallPerson {
@@ -41,9 +43,9 @@ export interface MockCallPerson {
   name: string | null;
   email: string | null;
   title: string | null;
-  /** Their vendor label on the meeting-audio track; null for the mic. */
+  /** Their speaker label on the meeting-audio track; null for the mic. */
   systemLabel: string | null;
-  /** Their vendor label when everyone is on one mixed track (in person). */
+  /** Their speaker label when everyone is on one mixed track (in person). */
   mixedLabel: string;
 }
 
@@ -231,7 +233,7 @@ function person(key: MockCallPerson['key']): MockCallPerson {
 }
 
 /**
- * The call as finished vendor events, in time order. With 'mixed' among the
+ * The call as finished speech events, in time order. With 'mixed' among the
  * tracks everyone is on one diarized track (an in-person meeting); otherwise
  * the recorder is the mic and everyone else is the meeting audio. Lines on a
  * track not asked for are left out (mic-only mode hears the recorder alone).

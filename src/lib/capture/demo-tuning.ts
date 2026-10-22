@@ -1,3 +1,6 @@
+import { isSpeechModelChoice } from '@/lib/transcribe/models';
+import type { SpeechPreferences } from './speech-preferences';
+import type { AdapterKind } from './speech-protocol';
 import type { RecorderTuning } from './types';
 
 /**
@@ -11,6 +14,8 @@ import type { RecorderTuning } from './types';
  *   ?threshold=0.99   what counts as sound (raise it to make the fake mic "silent")
  *   ?nomeeting=3000   "no meeting audio" after 3 s
  *   ?upload=500       post lines every 0.5 s
+ *   ?engine=fake      the on-device engine with the fake model (no download)
+ *   ?engine=on-device the real on-device Whisper (&model=fast|better|best, &device=auto|webgpu|wasm)
  */
 
 type Params = Record<string, string | string[] | undefined>;
@@ -38,4 +43,27 @@ export function demoTuning(params: Params): Partial<RecorderTuning> {
   const upload = num(params, 'upload', 250, 30_000);
   if (upload !== undefined) out.uploadIntervalMs = upload;
   return out;
+}
+
+function one(params: Params, key: string): string | undefined {
+  const raw = params[key];
+  return Array.isArray(raw) ? raw[0] : raw;
+}
+
+/** The on-device engine to try instead of the scripted call (demo mode only), or undefined. */
+export function demoEngine(
+  params: Params,
+): { adapter: AdapterKind; preferences?: SpeechPreferences } | undefined {
+  const engine = one(params, 'engine');
+  if (engine === 'fake') return { adapter: 'fake' };
+  if (engine !== 'on-device') return undefined;
+  const model = one(params, 'model');
+  const device = one(params, 'device');
+  return {
+    adapter: 'transformers',
+    preferences: {
+      model: isSpeechModelChoice(model) ? model : 'fast',
+      device: device === 'webgpu' || device === 'wasm' ? device : 'auto',
+    },
+  };
 }
