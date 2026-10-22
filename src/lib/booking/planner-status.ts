@@ -139,7 +139,12 @@ export function statusChecks(input: StatusInput): StatusCheck[] {
   );
   checks.push(
     profileDone
-      ? { key: 'profile', state: 'ok', title: 'Profile filled in', detail: 'Name and a line about him.' }
+      ? {
+          key: 'profile',
+          state: 'ok',
+          title: 'Profile filled in',
+          detail: 'Name and a line about him.',
+        }
       : {
           key: 'profile',
           state: 'warn',

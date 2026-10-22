@@ -47,6 +47,7 @@ const PAGES = [
   'Deals',
   'Inbox',
   'Calendar',
+  'Booking',
   'Portfolio',
   'Fund II',
   'Meetings',
@@ -182,15 +183,15 @@ test.describe('guided tours', () => {
     await page.goto('/help');
     await page.getByRole('link', { name: 'Take the 2-minute tour' }).click();
     await page.waitForURL(/\/today$/);
-    await expectStep(page, /1 of 17/, 'Every page, one menu');
+    await expectStep(page, /1 of 18/, 'Every page, one menu');
     await next(page).click();
-    await expectStep(page, /Today · 2 of 17/i, 'Your top priorities');
+    await expectStep(page, /Today · 2 of 18/i, 'Your top priorities');
     await next(page).click();
     await page.waitForURL(/\/follow-ups$/);
-    await expectStep(page, /Follow-ups · 3 of 17/i, 'Clear email, one by one');
+    await expectStep(page, /Follow-ups · 3 of 18/i, 'Clear email, one by one');
     await card(page).getByRole('button', { name: 'Back' }).click();
     await page.waitForURL(/\/today$/);
-    await expectStep(page, /Today · 2 of 17/i, 'Your top priorities');
+    await expectStep(page, /Today · 2 of 18/i, 'Your top priorities');
     await page.keyboard.press('Escape');
     await expect(card(page)).toHaveCount(0);
   });

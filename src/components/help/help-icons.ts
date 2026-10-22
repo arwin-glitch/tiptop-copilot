@@ -1,6 +1,7 @@
 import {
   BookOpen,
   Briefcase,
+  CalendarCheck,
   CalendarClock,
   CalendarDays,
   CheckSquare,
@@ -31,6 +32,7 @@ export const HELP_ICONS: Record<string, LucideIcon> = {
   deals: Target,
   inbox: Inbox,
   calendar: CalendarClock,
+  booking: CalendarCheck,
   lists: ListChecks,
   portfolio: Briefcase,
   'fund-ii': Landmark,

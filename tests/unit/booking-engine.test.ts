@@ -20,7 +20,7 @@ import { localClock, wallTimeToUtc } from '@/lib/util/time';
 
 /**
  * The booking link's slot engine against every rule (D-074): Tuesday to
- * Thursday only, the windows, notice and horizon, buffers (15 minutes for a
+ * Thursday only, the windows, notice and the open months, buffers (15 minutes for a
  * call, 30 for in person and around anyone else's in-person meeting), the
  * back-to-back stack rule, travel days, the daily caps, the link's own
  * waiting requests, the approval re-check, the clock change weeks, and the
@@ -175,13 +175,14 @@ describe('notice and horizon', () => {
     expect(slotProblem(input(), CALL, iso(TUE, 10, 0))).toBeNull();
   });
 
-  it('looks at most 21 days ahead', () => {
+  it('looks ahead through the months the link is open for: this month and next by default (D-078)', () => {
     const slots = openSlots(input(), CALL);
-    expect(slots.at(-1)!.date).toBe('2026-11-12');
-    expect(slotProblem(input(), CALL, iso('2026-11-17', 10))).toBe(
-      'That time is more than 21 days ahead.',
+    expect(slots.at(-1)!.date).toBe('2026-11-26');
+    expect(slotProblem(input(), CALL, iso('2026-12-01', 10))).toBe(
+      'That time is past the months the link is open for (through November 2026).',
     );
-    expect(openSlots(input({}, { horizonDays: 3 }), CALL).at(-1)!.date).toBe(THU);
+    expect(openSlots(input({}, { openThrough: '2026-10' }), CALL).at(-1)!.date).toBe(THU);
+    expect(openSlots(input({}, { rollingMonths: 0 }), CALL).at(-1)!.date).toBe(THU);
   });
 });
 

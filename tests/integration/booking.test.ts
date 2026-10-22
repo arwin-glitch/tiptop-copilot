@@ -514,7 +514,7 @@ describe('the Copilot side', () => {
       {
         enabled: false,
         slug: 'sam-host',
-        config: { ...before.config, horizonDays: 14 },
+        config: { ...before.config, rollingMonths: 2 },
       },
     );
     expect(good.ok && good.value).toMatchObject({ enabled: false, slug: 'sam-host' });

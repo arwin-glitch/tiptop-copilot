@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { BookingSettings } from '@/components/booking/booking-settings';
+import { HoursFields } from '@/components/booking/tab/availability-panel';
 import {
   BOOKING_CONFIG_SCHEMA,
   BOOKING_EARLIEST_START,
@@ -61,12 +61,19 @@ describe('Settings > Booking link', () => {
       stackCooldownMinutes: 60,
       stackLeadMinutes: 30,
       noticeHours: 24,
-      horizonDays: 21,
+      // D-078: open through a month, rolling: this month and next.
+      openThrough: null,
+      rollingMonths: 1,
+      closedMonths: [],
+      closedDates: [],
+      closedRanges: [],
+      dateHours: [],
+      calendarChoices: [],
       maxLinkBookingsPerDay: 2,
       maxMeetingsPerDay: 5,
-      instant: false,
+      approveFirst: false,
       chatbotEnabled: true,
-      monthlyAiCapUsd: 20,
+      chatbot: { enabled: true, faqItems: [], aiAnswers: false },
       photo: null,
       displayName: '',
       homeCity: '',
@@ -82,11 +89,11 @@ describe('Settings > Booking link', () => {
       callBufferMinutes: 5, // looser than the standing 15: refused, so the default stands
       noticeHours: 2,
       weekdays: [1, 2],
-      horizonDays: 14,
+      rollingMonths: 3,
       somethingNew: true,
     });
     expect(parsed.displayName).toBe('Sam Host');
-    expect(parsed.horizonDays).toBe(14);
+    expect(parsed.rollingMonths).toBe(3);
     expect(parsed.callBufferMinutes).toBe(15);
     expect(parsed.noticeHours).toBe(24);
     expect(parsed.weekdays).toEqual([2, 3, 4]);
@@ -107,7 +114,13 @@ describe('Settings > Booking link', () => {
     expect(bad({ stackLeadMinutes: 0 })).toBe(false);
     expect(bad({ callWindow: { from: '17:00', to: '09:00' } })).toBe(false);
     expect(bad({ callWindow: { from: '9am', to: '17:00' } })).toBe(false);
-    expect(bad({ monthlyAiCapUsd: 10_000 })).toBe(false);
+    expect(bad({ rollingMonths: 7 })).toBe(false);
+    expect(bad({ openThrough: '2026-13' })).toBe(false);
+    expect(bad({ closedDates: ['2026-11-31x'] })).toBe(false);
+    expect(bad({ closedRanges: [{ from: '2026-12-24', to: '2026-12-20', label: '' }] })).toBe(
+      false,
+    );
+    expect(bad({ monthlyAiCapUsd: 20 })).toBe(false);
     expect(bad({ faq: 'x'.repeat(4001) })).toBe(false);
     expect(bad({ extra: 1 })).toBe(false);
     expect(
@@ -221,20 +234,18 @@ describe('Settings > Booking link', () => {
     expect(parsed.kindWindows).toEqual(DEFAULT_BOOKING_CONFIG.kindWindows);
   });
 
-  it('says the bounds over the Times section in Settings (hotfix)', () => {
+  it('says the bounds over the hours on the Booking tab (hotfix, moved by D-078)', () => {
     expect(BOOKING_HOURS_HINT).toBe('8:00 AM to 6:00 PM Central; dinner 6-7 PM.');
     const markup = renderToStaticMarkup(
-      createElement(BookingSettings, {
-        available: true,
-        enabled: true,
-        slug: 'sam',
-        config: structuredClone(DEFAULT_BOOKING_CONFIG),
-        linkBase: 'https://copilot.example/meet/',
-        canEdit: true,
+      createElement(HoursFields, {
+        hours: {
+          callWindow: DEFAULT_BOOKING_CONFIG.callWindow,
+          kindWindows: structuredClone(DEFAULT_BOOKING_CONFIG.kindWindows),
+        },
         hostZone: 'America/Chicago',
-        demo: false,
-        notSetUpMessage: '',
-        initialSection: 'times',
+        disabled: false,
+        inPersonOffered: true,
+        onChange: () => {},
       }),
     );
     expect(markup).toContain('8:00 AM to 6:00 PM Central; dinner 6-7 PM.');

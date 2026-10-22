@@ -272,7 +272,8 @@ export async function bookingCalendars(
       selectedInGoogle: c.selectedInGoogle,
       shownInCopilot: prefs.shown[c.id] === true,
       lock: calendarLock(c, teammates),
-      defaultCounts: calendarLock(c, teammates) === 'teammate' ? false : countsByDefault(c, prefs.shown),
+      defaultCounts:
+        calendarLock(c, teammates) === 'teammate' ? false : countsByDefault(c, prefs.shown),
       counts: calendarCounts(c, context),
     })),
   });

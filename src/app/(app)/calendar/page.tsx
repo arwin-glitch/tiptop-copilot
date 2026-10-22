@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { Suspense, type ComponentProps } from 'react';
+import { Suspense } from 'react';
 import { requireAuth } from '@/lib/auth/session';
 import { isDateKey, viewRange } from '@/lib/calendar/grid';
 import { legacyCalendarHref } from '@/lib/calendar/legacy-links';
@@ -13,16 +13,8 @@ import { mailboxCanSend } from '@/lib/services/docsend-follow-up';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { CalendarViews } from '@/components/calendar/calendar-views';
-import {
-  BookingRequestsPanel,
-  type PanelRequest,
-} from '@/components/booking/booking-requests-panel';
-import { env } from '@/lib/config/env';
-import {
-  bookingHostName,
-  listPendingBookingRequests,
-  readBookingSettings,
-} from '@/lib/services/booking';
+import { BookingShortcut } from '@/components/booking/tab/booking-shortcut';
+import { listPendingBookingRequests, readBookingSettings } from '@/lib/services/booking';
 import { log } from '@/lib/security/redact';
 import { SkeletonText } from '@/components/ui/feedback';
 import { localDateKey } from '@/lib/util/time';
@@ -51,7 +43,7 @@ export default async function CalendarPage({
   const date = typeof params.date === 'string' && isDateKey(params.date) ? params.date : null;
   return (
     <PageShell>
-      {/* The booking requests button sits over the header band's top right,
+      {/* The booking link shortcut sits over the header band's top right,
           out of the flow, so the calendar below never moves for it. */}
       <div className="relative">
         <PageHeader
@@ -119,63 +111,28 @@ async function CalendarBody({ view, date }: { view: string | null; date: string 
 }
 
 /**
- * Booking requests from the public booking link (D-074), a button over the
- * header that opens them in a drawer:
- * shown while the link is on or anything is waiting, and not at all when its
- * tables are missing (the migration not run yet) or anything fails to read.
+ * The booking link's shortcut (D-078): a small "Booking link" link over the
+ * header to the Booking tab, with how many requests wait for approval (only
+ * while Approve first is on). Not shown when the link's tables are missing
+ * (the migration not run yet) or anything fails to read.
  */
 async function BookingSection() {
-  const props = await bookingPanelProps().catch((error: unknown) => {
-    log.warn('Booking requests could not be shown', {
+  const shortcut = await bookingShortcutProps().catch((error: unknown) => {
+    log.warn('The booking link shortcut could not be shown', {
       reason: error instanceof Error ? error.message : 'unknown',
     });
     return null;
   });
-  return props ? <BookingRequestsPanel {...props} /> : null;
+  return shortcut ? <BookingShortcut waiting={shortcut.waiting} /> : null;
 }
 
-async function bookingPanelProps(): Promise<ComponentProps<typeof BookingRequestsPanel> | null> {
+async function bookingShortcutProps(): Promise<{ waiting: number } | null> {
   const auth = await requireAuth();
   const store = getStore();
   const [list, settings] = await Promise.all([
     listPendingBookingRequests(store, auth.organizationId),
     readBookingSettings(store, auth.organizationId),
   ]);
-  if (!list.available || (!settings.enabled && list.requests.length === 0)) return null;
-  const [hostName, found] = await Promise.all([
-    bookingHostName(store, auth.organizationId),
-    calendarSource(store, auth.organizationId, auth.profile.email),
-  ]);
-  const access = found.ok ? calendarEditAccess(found.source) : null;
-  const requests: PanelRequest[] = list.requests.map((r) => ({
-    id: r.id,
-    type: r.meeting_type,
-    kind: r.kind,
-    startsAt: r.starts_at,
-    visitorZone: r.visitor_time_zone,
-    name: r.name,
-    email: r.email,
-    company: r.company,
-    placeName: r.place_name,
-    placeArea: r.place_area,
-    placeMapUrl: r.place_map_url,
-    placeCustom: r.place_custom,
-    note: r.note,
-    deckUrl: r.deck_url,
-    source: r.source,
-    createdAt: r.created_at,
-  }));
-  return {
-    requests,
-    timeZone: auth.profile.timezone,
-    hostName,
-    bookingUrl: `${env().appUrl.replace(/\/+$/, '')}/meet/${settings.slug}`,
-    enabled: settings.enabled,
-    instant: settings.config.instant,
-    turnOnHref:
-      found.ok && access && !access.allowed && !access.demo
-        ? '/api/integrations/google/start?calendar=1'
-        : null,
-    canSend: found.ok && mailboxCanSend(found.source.integration) && !auth.isDemo,
-  };
+  if (!list.available || !settings.available) return null;
+  return { waiting: list.requests.length };
 }

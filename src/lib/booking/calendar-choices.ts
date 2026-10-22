@@ -34,7 +34,10 @@ export function countsByDefault(
 }
 
 /** Why a calendar cannot be switched: his main one always counts, a teammate's never does. */
-export function calendarLock(calendar: CalendarFields, teammates: ReadonlySet<string>): CalendarLock {
+export function calendarLock(
+  calendar: CalendarFields,
+  teammates: ReadonlySet<string>,
+): CalendarLock {
   if (calendar.primary) return 'main';
   if (teammates.has(calendar.id.trim().toLowerCase())) return 'teammate';
   return null;
@@ -78,5 +81,7 @@ export function chooseCalendar(
 ): CalendarChoice[] {
   const rest = choices.filter((c) => c.id !== calendar.id);
   if (calendar.primary) return rest;
-  return countsByDefault(calendar, shown) === counts ? rest : [...rest, { id: calendar.id, counts }];
+  return countsByDefault(calendar, shown) === counts
+    ? rest
+    : [...rest, { id: calendar.id, counts }];
 }

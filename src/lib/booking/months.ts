@@ -197,10 +197,7 @@ export function keepRolling(
     : lastOpenMonth(config, todayKey);
   return {
     openThrough: null,
-    rollingMonths: Math.min(
-      MAX_MONTHS_AHEAD,
-      Math.max(0, monthsBetween(monthOf(todayKey), last)),
-    ),
+    rollingMonths: Math.min(MAX_MONTHS_AHEAD, Math.max(0, monthsBetween(monthOf(todayKey), last))),
   };
 }
 

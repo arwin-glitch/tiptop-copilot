@@ -53,7 +53,7 @@ export const READ_CHUNK_DAYS = 60;
 /** `from` to `to` (exclusive day keys) as parts of at most READ_CHUNK_DAYS days. */
 export function readChunks(from: string, to: string): { from: string; to: string }[] {
   const out: { from: string; to: string }[] = [];
-  for (let start = from; start < to; ) {
+  for (let start = from; start < to;) {
     const next = addDaysToKey(start, READ_CHUNK_DAYS);
     const end = next < to ? next : to;
     out.push({ from: start, to: end });
