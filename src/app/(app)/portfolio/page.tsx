@@ -48,6 +48,13 @@ import { ShowMore } from '@/components/ui/show-more';
 import { PortfolioNumbers } from '@/components/portfolio/portfolio-numbers';
 import { PortfolioJobsView } from '@/components/portfolio/portfolio-jobs';
 import {
+  JobApprovalsView,
+  JobBoardRolesView,
+  JobCompaniesView,
+  JobsBoardHeader,
+} from '@/components/portfolio/jobs-board/board-views';
+import { loadJobsBoardTab, parseJobsView } from '@/components/portfolio/jobs-board/data';
+import {
   AddPortfolioButton,
   DismissAskButton,
   ImportPortfolioButton,
@@ -493,40 +500,76 @@ async function JobsTab({
 }) {
   const now = new Date();
   const store = getStore();
+  const view = parseJobsView(params);
   const [jobs, companies] = await Promise.all([
     readPortfolioJobs(store, auth.organizationId, { now }).catch(() => null),
     listPortfolio(auth.organizationId).catch(() => []),
   ]);
+  // The public board (D-077): its header on every view, and the scan's
+  // emailed roles brought in as drafts waiting for approval. Never throws.
+  const board = await loadJobsBoardTab(
+    store,
+    auth.organizationId,
+    jobs?.state === 'ok' ? (jobs.snapshot?.roles ?? null) : null,
+  );
+  const header = <JobsBoardHeader data={board} view={view} />;
+  if (board.available && view !== 'email') {
+    return (
+      <>
+        {header}
+        {view === 'approvals' ? (
+          <JobApprovalsView data={board} timeZone={auth.profile.timezone} />
+        ) : view === 'board' ? (
+          <JobBoardRolesView
+            data={board}
+            filter={single(params.show) ?? null}
+            timeZone={auth.profile.timezone}
+          />
+        ) : (
+          <JobCompaniesView data={board} now={now} />
+        )}
+      </>
+    );
+  }
   if (jobs?.state !== 'ok') {
     return (
-      <EmptyState
-        title="No open roles to show"
-        description={snapshotUnavailable(jobs?.state)}
-        action={{ label: 'See companies', href: COMPANIES_HREF }}
-      />
+      <>
+        {header}
+        <EmptyState
+          title="No open roles to show"
+          description={snapshotUnavailable(jobs?.state)}
+          action={{ label: 'See companies', href: COMPANIES_HREF }}
+        />
+      </>
     );
   }
   if (!jobs.snapshot) {
     return (
-      <EmptyState
-        title="No jobs scan yet"
-        description="Once a week a scan reads founders' investor updates and their “we're hiring, know anyone?” emails for open roles: what each role is, how far along, who to send candidates to. They show here after its first run."
-        action={{ label: 'See companies', href: COMPANIES_HREF }}
-      />
+      <>
+        {header}
+        <EmptyState
+          title="No jobs scan yet"
+          description="Once a week a scan reads founders' investor updates and their “we're hiring, know anyone?” emails for open roles: what each role is, how far along, who to send candidates to. They show here after its first run."
+          action={{ label: 'See companies', href: COMPANIES_HREF }}
+        />
+      </>
     );
   }
   const verdicts = await jobLinkVerdicts(jobs.snapshot.roles, { now });
   return (
-    <PortfolioJobsView
-      snapshot={jobs.snapshot}
-      roles={applyJobLiveness(jobs.snapshot.roles, verdicts)}
-      filters={parseJobFilters(params)}
-      companies={companies}
-      mailbox={DEFAULT_MAILBOX}
-      now={now}
-      timeZone={auth.profile.timezone}
-      shownRaw={params[SHOW_PARAM]}
-    />
+    <>
+      {header}
+      <PortfolioJobsView
+        snapshot={jobs.snapshot}
+        roles={applyJobLiveness(jobs.snapshot.roles, verdicts)}
+        filters={parseJobFilters(params)}
+        companies={companies}
+        mailbox={DEFAULT_MAILBOX}
+        now={now}
+        timeZone={auth.profile.timezone}
+        shownRaw={params[SHOW_PARAM]}
+      />
+    </>
   );
 }
 

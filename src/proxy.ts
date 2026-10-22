@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { isSupabaseAuthCookie } from '@/lib/auth/cookies';
+import { boardHosts, requestHost, routeBoardHost } from '@/lib/jobs-board/host';
 
 /**
  * Next.js 16 renamed `middleware` to `proxy`. This runs on the Node runtime.
@@ -82,6 +83,11 @@ const PUBLIC_PATHS = [
   // its signed per-recipient token, and the click route redirects only to a
   // link from that campaign's own body.
   '/t',
+  // The public job board (D-077): open roles at portfolio companies, for
+  // anyone. Its pages show only roles a person published, and say "coming
+  // soon" with no data while the board is switched off. /jobs-preview, the
+  // signed-in preview, is not matched by this entry and stays private.
+  '/jobs',
 ];
 
 /**
@@ -141,6 +147,28 @@ async function refreshSession(request: NextRequest): Promise<NextResponse> {
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
+
+  // The job board's own host (jobs.tiptop.vc) is the board and nothing else:
+  // every address there is rewritten to the board's pages, which need no
+  // session, so the rest of this function never runs for it.
+  const board = routeBoardHost(pathname, requestHost(request.headers), boardHosts(process.env));
+  if (board.kind === 'not_found') {
+    return withSecurityHeaders(new NextResponse('Not found', { status: 404 }));
+  }
+  if (board.kind === 'redirect') {
+    // A relative Location: stays on whichever host the visitor used.
+    return withSecurityHeaders(
+      new NextResponse(null, {
+        status: 308,
+        headers: { Location: `${board.pathname}${request.nextUrl.search}` },
+      }),
+    );
+  }
+  if (board.kind === 'rewrite') {
+    const target = request.nextUrl.clone();
+    target.pathname = board.pathname;
+    return withSecurityHeaders(NextResponse.rewrite(target));
+  }
 
   const isPublic =
     PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
