@@ -51,7 +51,7 @@ describe('calendar writes', () => {
     expect(move).toMatch(/'send',\n\s*\);/);
     const restore =
       /export async function restoreLinkDescription[\s\S]*?\n}\n/.exec(writes)?.[0] ?? '';
-    expect(restore).toMatch(/\{ description: input\.description \}, 'dont_send'\)/);
+    expect(restore).toMatch(/\{ description: input\.description \},\s*'dont_send',?\s*\)/);
     expect(writes.match(/'dont_send'/g)).toHaveLength(1);
     expect(writes).not.toMatch(/recolorCalendarEvent|relabelCalendarEvent|respondToCalendarEvent/);
     // Reached from the booking service (Approve, an instant booking), the
