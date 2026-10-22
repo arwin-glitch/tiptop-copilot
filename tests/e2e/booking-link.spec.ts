@@ -354,7 +354,9 @@ test.describe('in Copilot', () => {
     await expect(page.getByRole('switch', { name: 'Take bookings' })).toBeChecked();
     await page.getByRole('tab', { name: 'Chatbot' }).click();
     await expect(page.getByLabel('Public FAQ for the chatbot')).toHaveValue(/invented fund/);
-    await expect(page.getByLabel('Monthly AI cost cap (US$)')).toHaveValue('20');
+    // Zero spend: no money field on the chatbot settings, and it says it's free.
+    await expect(page.getByLabel('Monthly AI cost cap (US$)')).toHaveCount(0);
+    await expect(page.getByText('Free: no paid AI.')).toBeVisible();
     await page.screenshot({ animations: 'disabled', path: shot('copilot-settings') });
   });
 });

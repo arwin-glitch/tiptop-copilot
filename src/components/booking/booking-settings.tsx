@@ -610,7 +610,7 @@ export function BookingSettings(props: BookingSettingsProps) {
           <>
             <Row
               title="Chatbot on the page"
-              body="“Arwin”, the host's AI scheduling assistant, tagged AI. It finds open times, answers from the FAQ below only, and fills the form; the visitor presses Send."
+              body="“Arwin”, the host's scheduling assistant. It finds open times, answers from the FAQ below only, and fills the form; the visitor presses Send. Free: it costs nothing to run."
             >
               <Switch
                 checked={config.chatbotEnabled}
@@ -634,19 +634,9 @@ export function BookingSettings(props: BookingSettingsProps) {
                 message.” Public: write nothing private here. {config.faq.length}/4000
               </p>
             </div>
-            <NumberField
-              id={`${uid}-cap`}
-              label="Monthly AI cost cap (US$)"
-              min={0}
-              max={500}
-              value={config.monthlyAiCapUsd}
-              disabled={disabled}
-              onChange={(v) => set('monthlyAiCapUsd', v)}
-            />
             <p className="text-xs text-[var(--fg-muted)]">
-              Past the cap, with no API key{props.demo ? ' (as in the demo)' : ''}, or for a visitor
-              sending too many messages, the chatbot becomes three buttons: Find a time, About the
-              firm, Leave a message.
+              Free: no paid AI. Visitors tap Find a time, About the firm or Leave a message, and the
+              chatbot answers from this FAQ only.
             </p>
           </>
         ) : null}

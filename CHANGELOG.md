@@ -24,6 +24,11 @@ throughout.
   refused and the page shows the next open times. Instant booking is on by
   default for a new link; turned off, every request waits for Approve as
   before. Messages stay messages. No database update needed.
+- **No money figures where nothing is spent.** Copilot runs no paid AI (its AI
+  answers come from the Claude plan through Ask Arwin), so the booking
+  chatbot's "Monthly AI cost cap" field is gone, Settings' "Limits & cost" tab
+  is now "Limits" and shows "AI cost: $0", and Diagnostics says "$0 (no paid
+  AI key)". A dollar budget shows again only if a paid AI key is ever set.
 
 - **Booking link fixes after the first live test.** In-person times no longer
   vanish for every date while Nick's Google Calendar is still set to another
