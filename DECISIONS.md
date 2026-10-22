@@ -2556,3 +2556,141 @@ notes; the rest did not.
   follow-up snapshots read their first `max` items and count the rest.
 - The cards themselves do not show the skipped count; Diagnostics does, and
   the server log names the marker and the count (never the content).
+
+### D-074 — The booking link: a public page, approve-first, busy times only
+
+**Context.** Nick sends many "find a time" replies and Copilot had nothing
+like Calendly. Arwin asked (Oct 22) for a link Nick can send
+(`copilot.tiptop.vc/meet/nick`) with its own TipTop face, the host's real
+calendars behind it, Nick's standing rules (Tuesday to Thursday, a buffer
+round every meeting, no slot next to a stack of back-to-back meetings,
+in person only when he is home, coffee/lunch/dinner windows, a place near
+him), a public chatbot that calls itself Arwin, and "don't create chaos".
+
+**Decision.**
+
+- **Two tables, one migration** (`20261022000000_booking_link.sql`, additive,
+  idempotent, RLS like the rest): `booking_settings` (one row per
+  organization: `enabled`, a unique `slug`, and the Settings document as
+  `jsonb`) and `booking_requests` (what visitors sent, with status
+  `pending | approved | declined | handled`). The settings document is read
+  field by field with defaults (`lib/booking/config.ts`), so a later setting
+  needs no migration and one bad value never hides the rest; a saved value
+  can only be tighter than the standing rules (buffers at least 15 and 30
+  minutes, notice at least 24 hours, days only Tuesday to Thursday).
+- **Off until turned on.** No row, `enabled = false`, another slug, more than
+  one organization, or missing tables: the page says "This booking link is not
+  taking bookings right now." and every public route refuses. Settings says
+  which file to run while the tables are missing; the Calendar button and the
+  Today line simply do not show.
+- **Availability is busy time only.** `lib/booking/availability.ts` reads every
+  calendar Copilot shows for the principal (his Calendar-tab toggles, else
+  Google's ticks, and always his main calendar, so personal and family ones
+  count) through the Calendar tab's own range reader, and `lib/booking/busy.ts`
+  reduces each entry to `{start, end, meeting, inPerson, allDay}` and a set of
+  travel days. Busy: anything he has not declined and that is not marked free;
+  blocks count; a hold counts even when marked free; an all-day entry only
+  when opaque, and then the whole day. A calendar that cannot be read fails
+  the whole read: a slot is never offered from part of the calendar. Titles,
+  guests, descriptions, places and calendar names never leave the server.
+- **The rules** (`lib/booking/engine.ts`, pure; every one tested, the clock
+  change weeks included): Tuesday, Wednesday, Thursday only (Settings may drop
+  one, never add Monday or Friday); a 30-minute call wholly inside 09:00–17:00
+  host time; a 1-hour in-person coffee starting 08:30–11:00 or 14:00–16:00,
+  lunch 11:30–13:00, dinner 18:00–19:30; half-hour starts; 15 minutes clear
+  round every meeting for a call, 30 for in person and round anyone's
+  in-person meeting (travel); a run of 3+ busy entries with gaps under 15
+  minutes blocks anything touching it, anything starting within 60 minutes
+  after it, and anything ending within 30 minutes before it
+  (`stackLeadMinutes`, our reading of "the 30-min-before rule still applies":
+  the half hour before a stack stays free, for a call too); at least 24 hours'
+  notice, at most 21 days ahead; at most 2 link bookings (waiting + approved)
+  a day; nothing on a day that already has 5 Meeting-verdict entries; the
+  link's own waiting requests hold their time like meetings. In person only on
+  a day he is home: no in-person slot on a day with a Gmail booking
+  (`fromGmail`: flight, hotel, reservation), a travel title (flight, airport,
+  hotel, red-eye, trip), an all-day stay, trip, OOO or conference or "in
+  <another place>", an entry located in another city or at an airport, an
+  entry he made in another time zone, or the day after travel that runs into
+  the evening (20:00 or later: "that day or the night before"); and none at
+  all while his main calendar is set to another zone's clock. Slots go to the
+  page as instants; the page and the chatbot label them in the visitor's zone.
+- **The public side** (`/meet/[slug]`, its photo, and `/api/meet/[slug]/slots |
+  request | chat`) is the only new public surface: two prefixes in `proxy.ts`
+  (`/meet`, `/api/meet`), matched as a whole path segment, so `/meetings` and
+  `/api/booking/*` stay signed in. Its routes read busy time, write one thing
+  (a pending request) and never touch the calendar or a mailbox. Writes must
+  come from the page itself (the Origin check, by hand), every route brakes
+  per address (a keyed hash, never the address; 5 requests per 10 minutes and
+  20 a day), a request also per email (3 an hour) with at most 3 waiting per
+  email address, a honeypot field is answered as success and kept nowhere,
+  bodies are capped (16 KB, every field length-capped, zod-strict), and a deck
+  or map link must be http(s). Confirmation: "Request sent. Arwin will confirm
+  by email." Copilot sends no email.
+- **Approve is the only write, and a person's.** A "Booking requests" button
+  over the Calendar page's header (out of the flow, so the calendar does not
+  move by a pixel) opens a drawer listing everything a visitor entered; Today's
+  "N booking requests waiting." line links to `/calendar#booking-requests`,
+  which opens it. Approve (`approveBookingRequest`, reached only
+  from the signed-in, same-origin `/api/booking/requests/[id]`) re-reads the
+  live calendar and re-runs every rule with the request itself left out
+  (notice measured from when it was asked, and still at least an hour away),
+  refusing with the reason when the time is no longer free; then, with the
+  editing grant, claims the row (a second tap cannot make a second event) and
+  creates the event on his main calendar through `lib/calendar/write.ts`:
+  "<Host first name> <> <Name> (<Company>)", with "Coffee: ", "Lunch: " or
+  "Dinner: " in front in person, the note, deck and map link in the
+  description, Google Meet for a call, the place as location, the requester as
+  the guest, and `notify: 'send'` (sendUpdates `all`: approving is the
+  person's Send). Without the grant: the "Turn on calendar editing" note and an
+  "Open in Google Calendar" link, filled in (nothing is saved until it is saved
+  there), and "I added it in Google Calendar" to record it. Decline marks it
+  declined and can open a short decline email in the existing compose window
+  (written as Arwin; a hint says to pick Arwin's signature), which sends only
+  on Send. Every action is audited by ids and kinds only
+  (`booking.requested`, `approved`, `approve_refused`, `declined`, `handled`,
+  `settings_updated`, `photo_updated`).
+- **Instant booking** exists in Settings and defaults off. Writes stay
+  person-only (nothing writes to the calendar from the public page), so in
+  this version "instant" only tags requests "Instant" in the drawer.
+- **Settings > Booking link** (admins and the owner; `?tab=booking`): on/off,
+  slug, the public card (display name, title, bio, firm, a photo), home city
+  and other names for it, the places list (name, area, optional map link) and
+  whether visitors may suggest one, the call and kind windows, buffers, the
+  stack rule, notice, horizon, both caps, instant, the chatbot switch, the
+  public FAQ, and the monthly AI cap ($20). Nothing real is in the repository:
+  the host's bio, photo, home city, places and FAQ are typed here and live
+  only in the database. The photo is checked by its bytes (JPEG, PNG or WebP,
+  under 3 MB), kept in the private bucket under the organization, and served
+  by `/meet/[slug]/photo` only while the link is on (a signed-in route serves
+  Settings' preview).
+- **The public chatbot is its own persona** (`lib/booking/chat-prompt.ts`),
+  not the pinned in-app `ASK_ARWIN_PERSONA`: "Arwin, <host>'s AI scheduling
+  assistant at <firm>", honest that it is an AI, tagged "AI" on the page. Its
+  only tools: `find_open_slots` (a start and a visitor-zone label, at most 8,
+  at most 2 a day), `get_faq` (the Settings FAQ, the only firm facts it may
+  give; else "I can take a message for <host>") and `fill_form` (only times it
+  was given this turn, only listed places; the visitor reviews and presses
+  Send). The whole conversation goes to the model as one fenced visitor turn:
+  the page keeps the history, so a forged "Arwin" line is data, never an
+  assistant turn. Live only when the switch is on, a real key is set (the
+  repo's Anthropic client, `tier: 'fast'`, 600 max tokens, 3 tool rounds),
+  this month's chatbot spend is under the Settings cap, the daily AI budget
+  has room, and the address is under 10 model messages per 10 minutes and 40
+  a day (300 an hour for the whole link). A failed call is counted as $0.01,
+  so failures cannot run past the cap unseen. Otherwise it is a guided helper
+  (Find a time, About, Leave a message) over the same tools with no model; the
+  demo is always guided.
+
+**Known limits.**
+
+- Single tenant, like the other public endpoints: the one organization there
+  is. A second organization closes the link rather than guess.
+- The rate limits are in-process, as elsewhere: a restart resets them, and
+  several instances would each allow their own.
+- The travel signs are heuristics that err towards "away": a local event
+  whose address names a suburb not listed under "other names for home" reads
+  as travel and hides in person that day.
+- Requests are judged again at approval: one approved after the day filled up
+  by hand is refused, not squeezed in.
+- Instant booking is stored but does not book on its own (above).

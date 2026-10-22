@@ -552,6 +552,22 @@ read. An email without copies is read as before. Until the
 migration is applied, rows come back without these columns and the features
 stay hidden; nothing writes them.
 
+## 6c. The booking link
+
+The public booking page and its requests (`20261022000000_booking_link.sql`;
+service `lib/services/booking.ts`, the pure rules in `lib/booking/`, D-074).
+
+| Table | Purpose |
+| --- | --- |
+| `booking_settings` | One row per organization (unique), with `enabled` (off by default: no row reads as off), a `slug` unique across organizations (the public page finds its settings by it), and `settings`, the Settings > Booking link document as jsonb (the public card, home city, places, windows, buffers, the stack rule, notice, horizon, caps, instant, the chatbot and its FAQ, the monthly AI cap, the photo's storage path), read field by field with defaults by `lib/booking/config.ts`. |
+| `booking_requests` | What a visitor sent: `status` (`pending`, `approved`, `declined`, `handled`), `meeting_type` (`call`, `in_person`, `message`), `kind` (coffee, lunch or dinner, required exactly for in person), the slot (`starts_at`/`ends_at`, none for a message), the visitor's zone, name, email, company, the place (a listed one's id, name, area and map link copied in, or `place_custom` with their suggestion), note, `deck_url` (http(s) only), `source` (`form` or `chatbot`, the visitor still pressed Send), `ip_hash` (a keyed hash, never the address), `claimed_at` (set while an approval runs, so a second tap cannot make a second event), and once approved `calendar_id`/`event_id`, with `decided_by`/`decided_at`. Length checks on every text column. |
+
+Only the server writes these, with the service role: the public routes insert
+pending requests and nothing else, and every change after that is a signed-in
+person's Approve, Decline or "handled". RLS as for the other tables. Until the
+migration is applied the page is closed, the Calendar button and the Today line
+are hidden, and Settings says which file to run.
+
 ---
 
 ## 7. Row-level security

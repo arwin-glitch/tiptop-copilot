@@ -167,6 +167,23 @@ Ask page's polls already make. Turn off, signing out in the app, Settings'
 list of computers and leaving the organization (checked on every request)
 revoke it; it has no expiry, like a phone subscription.
 
+The booking link (D-074) is the one public page a stranger is meant to use:
+`/meet/<slug>`, its photo, and `/api/meet/<slug>/slots`, `/request` and
+`/chat`, opened in `proxy.ts` as two path prefixes matched by whole segment
+(`/meetings` and `/api/booking/*` stay signed in). It is off until an admin
+turns it on, closed for any other slug or when its tables are missing, and its
+routes read busy times only (no title, guest, place or calendar name leaves
+the server) and write one thing, a pending request. Writes must carry this
+site's Origin; every route brakes per address (a keyed hash), a request also
+per email, with at most three waiting per address; a honeypot is answered as
+success and stored nowhere; bodies are capped and zod-strict. Nothing reaches
+the calendar until a signed-in member presses Approve, which re-checks the
+time and writes through `lib/calendar/write.ts`; Copilot sends no email from
+it. The public chatbot has three tools (open times, the public FAQ text, a
+form fill the visitor must send), gets the conversation as one fenced visitor
+turn, and runs on the model only under a monthly cap and per-address limits
+(else a guided helper with no model).
+
 ---
 
 ## 5. Organization isolation
@@ -213,6 +230,8 @@ lookups, tool calls and a full chat turn.
 | Daily AI spend | Persisted `ai_usage` rows | Per organization |
 | Sync triggers, uploads, demo entry | In-process fixed window | Per key |
 | Desktop alerts (`/api/desktop/alerts`) | In-process: bad tokens per address, then 20 a minute per computer once the token checks out; 300 ledger rows a day | Per address, per organization and computer |
+| Booking link requests (`/api/meet/*/request`) | In-process: 5 per 10 minutes and 20 a day per address, 3 an hour per email; at most 3 waiting per email (persisted rows) | Per address and per email |
+| Booking link chatbot (`/api/meet/*/chat`) | In-process: 60 requests per 10 minutes per address; the model 10 per 10 minutes and 40 a day per address, 300 an hour per link; persisted `ai_usage` against the Settings monthly cap ($20) and the daily budget | Per address, per link, per organization |
 
 The AI ceilings are persisted so they hold across serverless instances. The
 in-process limiter is an abuse brake on a single-user internal tool, not a

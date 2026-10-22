@@ -10,6 +10,30 @@ throughout.
 
 ## [Unreleased]
 
+- **A booking link people can use to ask Nick for time.** A public page at
+  `/meet/<name>` (Nick's is `/meet/nick`), with its own TipTop look, his name,
+  title, short bio and photo, works on a phone and in dark mode, and needs no
+  sign-in. Visitors pick a 30-minute call (Google Meet) or an hour in person
+  (coffee, lunch or dinner, at one of his listed places or one they suggest),
+  then a time shown in their own time zone, and send a request. Only open
+  times are shown: they come from all of Nick's calendars as Copilot reads
+  them, and nothing about his events (titles, guests, places) ever reaches the
+  page. His rules hold every time: Tuesday to Thursday only, a buffer round
+  every meeting (30 minutes for in person), nothing next to a run of three or
+  more back-to-back meetings, in person only on days he is home, at least a
+  day's notice, three weeks ahead at most, and at most two link bookings a
+  day. Nothing is booked from the page: each request waits behind the
+  "Booking requests" button on the Calendar tab (Today says how many and
+  links there), where Approve checks
+  the time again and only then puts it on his calendar and sends the invite,
+  and Decline can open a decline email to read and send. A chatbot on the
+  page, tagged AI, introduces itself as Arwin, Nick's AI scheduling assistant:
+  it can find open times, answer from a short public FAQ, take a message, and
+  fill in the form, but the visitor always presses Send. Set it all up in
+  Settings > Booking link. It is off until switched on, and needs its
+  database tables first (`supabase/migrations/20261022000000_booking_link.sql`;
+  until then the page says it is not taking bookings).
+
 - **A routine's post that runs a little long no longer leaves its card on
   yesterday's copy.** When a routine wrote a note, a prep or a title longer
   than the app allows, or listed one item the app could not read (a meeting
