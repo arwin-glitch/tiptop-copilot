@@ -257,6 +257,17 @@ request header `proxy.ts` sets there and strips (or overwrites) everywhere
 else, so a client cannot fake it. `public/sw.js` never intercepts `/e` or
 `/meet`.
 
+The guest renderer (`components/events/render`, WS2) adds nothing a guest or
+outside editor can steer into code or style: every colour, font and size
+reaches CSS as a `--ev-*` variable built from the validated theme (hex,
+enum ids, bounded numbers); there is no inline `<style>` or `<script>`; rich
+text renders to React nodes; embeds are iframes built from an allowlisted
+provider's id, loaded only on a tap and sandboxed; fonts are self-hosted
+(`font-src 'self'`). `/e/theme_preview/<preset>` (and its `/og` card) renders
+a preset with fictional content for owners: it checks the Copilot session
+itself and answers 404 to anyone else, and its segment name cannot be an
+event slug.
+
 ---
 
 ## 9. Auditing

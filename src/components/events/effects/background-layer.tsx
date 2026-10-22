@@ -61,7 +61,20 @@ export function backgroundTone(theme: EventTheme, palette: Palette): 'dark' | 'l
     return ground && luminance(ground) < 0.2 ? 'dark' : null;
   }
   const avg = colors.reduce((sum, c) => sum + luminance(c), 0) / Math.max(1, colors.length);
-  return avg < 0.3 ? 'dark' : 'light';
+  // Engines drawn over a back colour (grain, dither, waves, smoke, god rays,
+  // metaballs, swirl) read mostly as that colour; a mesh blends them all.
+  const variant = bg.options.variant;
+  const overBack =
+    bg.engine !== 'mesh' &&
+    bg.engine !== 'linear' &&
+    bg.engine !== 'radial' &&
+    bg.engine !== 'conic'
+      ? true
+      : bg.engine === 'mesh' && (variant === 'metaballs' || variant === 'swirl');
+  const rest = colors.slice(1);
+  const restAvg = rest.length ? rest.reduce((sum, c) => sum + luminance(c), 0) / rest.length : avg;
+  const tone = overBack ? 0.6 * luminance(colors[0] ?? '#000000') + 0.4 * restAvg : avg;
+  return tone < 0.3 ? 'dark' : 'light';
 }
 
 function linearCss(theme: EventTheme, colors: string[]): string {

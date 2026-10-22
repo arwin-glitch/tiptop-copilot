@@ -104,8 +104,9 @@ export const ferrofluidChrome = definePreset({
       colors: ['#000000', '#C9CCD1', '#3A3D42', '#00E5A0'],
       intensity: 0.7,
       speed: 0.25,
+      scale: 0.7,
       scope: 'hero',
-      options: { variant: 'metaballs', veil: 0.2 },
+      options: { variant: 'metaballs', veil: 0.6 },
     },
     motion: {
       master: 'lively',
@@ -516,7 +517,7 @@ export const holographicFoil = definePreset({
     finish: { foil: true },
     motion: {
       master: 'lively',
-      headlineEffect: 'gradient_fill',
+      headlineEffect: 'blur_in',
       entrance: 'fade_up',
       rsvpMoment: 'glow_bloom',
     },

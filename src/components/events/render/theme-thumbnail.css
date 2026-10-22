@@ -1,0 +1,55 @@
+/* Theme thumbnails (galleries): static, scoped to .ev-theme-thumb, --tt-* tokens only. */
+
+.ev-theme-thumb {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  border-radius: 12px;
+  background: var(--tt-bg);
+  color: var(--tt-text);
+  container-type: inline-size;
+}
+.ev-theme-thumb__bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.ev-theme-thumb__body {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 5cqi;
+  height: 100%;
+  padding: 8cqi;
+  text-align: center;
+}
+.ev-theme-thumb__rule {
+  width: 14cqi;
+  height: 1px;
+  background: var(--tt-highlight);
+}
+.ev-theme-thumb__title {
+  font-family: var(--tt-display);
+  font-weight: var(--tt-weight);
+  text-transform: var(--tt-case);
+  font-size: 11cqi;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+.ev-theme-thumb__sub {
+  font-family: var(--tt-body);
+  font-size: 5cqi;
+  opacity: 0.8;
+}
+.ev-theme-thumb__btn {
+  padding: 2.4cqi 6cqi;
+  border-radius: var(--tt-radius);
+  background: var(--tt-accent);
+  color: var(--tt-accent-fg);
+  font-family: var(--tt-body);
+  font-size: 4.4cqi;
+  font-weight: 600;
+}

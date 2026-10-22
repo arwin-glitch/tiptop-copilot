@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { ParticleConfig, ParticleField, ParticleKind } from './particle-engine';
-import { useInView, useLiveMotionScale, usePageVisible, type IslandMotion } from './motion-runtime';
+import {
+  motionAllowedNow,
+  useInView,
+  useLiveMotionScale,
+  usePageVisible,
+  type IslandMotion,
+} from './motion-runtime';
 
 /**
  * A canvas-2D particle field (background stars/snow/… or an overlay of
@@ -50,6 +56,8 @@ export function ParticlesIsland({
 
   useEffect(() => {
     if (hidden || motion.level === 'off' || fieldRef.current || !inView) return;
+    // An overlay is decoration: under reduced motion or Pause it never loads.
+    if (overlay && !motionAllowedNow(motion)) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     let cancelled = false;

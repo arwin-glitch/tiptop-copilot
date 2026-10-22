@@ -4,12 +4,23 @@ import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { DPR_CAP } from '@/lib/events/theme/motion';
 import {
   claimWebGLSlot,
+  motionAllowedNow,
   useInView,
   useLiveMotionScale,
   webglAvailable,
   type IslandMotion,
 } from './motion-runtime';
-import type { ShaderEngine, ShaderProps } from './shader-engines';
+import type { ShaderEngine, ShaderProps } from './shaders/common';
+
+/** One module per engine: a page downloads only the shader its theme uses. */
+const ENGINES: Record<ShaderEngine, () => Promise<{ default: ComponentType<ShaderProps> }>> = {
+  mesh: () => import('./shaders/mesh'),
+  grain: () => import('./shaders/grain'),
+  dither: () => import('./shaders/dither'),
+  waves: () => import('./shaders/waves'),
+  smoke: () => import('./shaders/smoke'),
+  god_rays: () => import('./shaders/god-rays'),
+};
 
 /**
  * The WebGL background island. Rules (D-075 phone budget):
@@ -48,21 +59,31 @@ export function ShaderIsland({
   // context is expensive to recreate; Paper pauses it offscreen itself).
   if (inView && !seen) setSeen(true);
 
+  // Reduced motion, Pause and master Off keep the server's poster frame and
+  // never download the engine; it loads the first time motion actually runs
+  // (checked against the browser itself, not the hydration snapshot).
+  const [go, setGo] = useState(false);
+  useEffect(() => {
+    if (go || !seen || !motionAllowedNow(motion)) return;
+    const frame = window.requestAnimationFrame(() => setGo(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, [go, seen, motion, live]);
+
   // Take the page's one WebGL slot and load the engine.
   useEffect(() => {
-    if (!seen || motion.level === 'off' || !webglAvailable()) return;
+    if (!go || !webglAvailable()) return;
     const release = claimWebGLSlot();
     if (!release) return;
     let cancelled = false;
-    void import('./shader-engines').then((mod) => {
-      if (!cancelled) setView(() => mod.ShaderEngineView);
+    void ENGINES[engine]().then((mod) => {
+      if (!cancelled) setView(() => mod.default);
     });
     return () => {
       cancelled = true;
       release();
       setView(null);
     };
-  }, [seen, motion.level]);
+  }, [go, engine]);
 
   // The DPR cap as a pixel budget, kept in step with the host's size.
   useEffect(() => {
@@ -96,7 +117,6 @@ export function ShaderIsland({
     >
       {View && pixels > 0 ? (
         <View
-          engine={engine}
           colors={colors}
           options={options}
           speed={live > 0 ? Math.max(0.02, speed * live) : 0}

@@ -167,8 +167,8 @@
 [data-event-root] .ev-synth__sun {
   position: absolute;
   left: 50%;
-  bottom: 38%;
-  width: min(54cqi, 520px);
+  bottom: 37%;
+  width: min(38cqi, 400px);
   aspect-ratio: 1;
   translate: -50% 0;
   border-radius: 50%;
@@ -397,7 +397,9 @@
   background: radial-gradient(ellipse 85% 75% at 50% 45%, transparent 55%, rgb(0 0 0 / 0.65) 100%);
 }
 
-/* Foil on headings, emboss (theme.finish.foil / .emboss). */
+/* Foil on headings, emboss (theme.finish.foil / .emboss). The fill goes
+   transparent through -webkit-text-fill-color, never color, so currentColor
+   stays real for anything else that reads it. */
 [data-event-root][data-foil='true'] :is(.ev-headline, .ev-h2) {
   background-image: linear-gradient(
     100deg,
@@ -409,7 +411,7 @@
   background-size: 220% 100%;
   -webkit-background-clip: text;
   background-clip: text;
-  color: transparent;
+  -webkit-text-fill-color: transparent;
 }
 [data-event-root][data-emboss='true'] :is(.ev-headline, .ev-h2) {
   text-shadow:
@@ -474,15 +476,23 @@
 [data-event-root] .ev-headline[data-hl='foil_sweep'] {
   background-image: linear-gradient(
     100deg,
-    currentColor 30%,
+    var(--ev-text) 30%,
     color-mix(in srgb, var(--ev-highlight) 60%, #fff) 48%,
-    currentColor 66%
+    var(--ev-text) 66%
   );
   background-size: 250% 100%;
   background-position: 100% 0;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+[data-event-root][data-foil='true'] .ev-headline[data-hl='foil_sweep'] {
+  background-image: linear-gradient(
+    100deg,
+    var(--ev-highlight) 30%,
+    color-mix(in srgb, var(--ev-highlight) 35%, #fff) 48%,
+    var(--ev-highlight) 66%
+  );
 }
 [data-event-root][data-motion='full'] .ev-headline[data-hl='foil_sweep'] {
   animation: ev-foil calc(6s / var(--ev-headline-speed, 1)) linear infinite;
@@ -1352,4 +1362,39 @@ html:has([data-event-root] .ev-intro[data-ready]:not([data-phase='leave'])) {
   outline: 2px solid color-mix(in srgb, var(--ev-intro-accent) 55%, transparent);
   outline-offset: 12px;
   border-radius: 14px;
+}
+
+/* Scroll-zoom hero and parallax depth (theme.motion.scrollZoomHero / .parallax),
+   scroll-driven where supported, scaled by the motion master. */
+@supports (animation-timeline: view()) {
+  @keyframes ev-hero-zoom {
+    to {
+      transform: scale(calc(1 + 0.14 * var(--ev-motion-k)));
+    }
+  }
+  @keyframes ev-hero-depth {
+    to {
+      transform: translateY(calc(var(--ev-parallax) * 160px * var(--ev-motion-k)));
+    }
+  }
+  [data-event-root][data-motion='full'][data-scroll-zoom='true']
+    .ev-section[data-block='hero']
+    :is(.ev-bg--hero > .ev-bg__inner, .ev-hero__bleed) {
+    animation: ev-hero-zoom linear both;
+    animation-timeline: view();
+    animation-range: exit 0% exit 100%;
+  }
+  [data-event-root][data-motion='full'][data-scroll-zoom='false']
+    .ev-section[data-block='hero']
+    .ev-bg--hero
+    > .ev-bg__inner {
+    animation: ev-hero-depth linear both;
+    animation-timeline: view();
+    animation-range: exit 0% exit 100%;
+  }
+}
+
+/* Text over the synthwave sun keeps a soft shadow so it stays legible. */
+[data-event-root][data-bg-pattern='synth_grid'] .ev-section[data-block='hero'] .ev-hero__text > * {
+  filter: drop-shadow(0 2px 10px rgb(0 0 0 / 0.65)) drop-shadow(0 0 2px rgb(0 0 0 / 0.5));
 }

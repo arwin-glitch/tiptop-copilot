@@ -1,5 +1,4 @@
 import type { BackgroundEngine, EventTheme } from '@/lib/events/schema';
-import { CHROMES } from './tokens';
 
 /**
  * The knobs each background engine and overlay accepts in its `options`
@@ -7,6 +6,20 @@ import { CHROMES } from './tokens';
  * validateTheme rejects an unknown key, a wrong type or a value out of
  * range, so an outside editor can only ever set what an engine reads.
  */
+
+/** Decorative chrome a theme can ask for (background.options.chrome). */
+export const CHROMES = [
+  'none',
+  'deco',
+  'terminal',
+  'blueprint',
+  'glass',
+  'ticket',
+  'scorecard',
+  'menu',
+  'polaroid',
+] as const;
+export type ThemeChrome = (typeof CHROMES)[number];
 
 type OptionSpec =
   | { kind: 'number'; min: number; max: number }

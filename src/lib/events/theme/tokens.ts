@@ -3,6 +3,7 @@ import type { EventTheme, Palette } from '@/lib/events/schema';
 import { PALETTE_TOKENS } from '@/lib/events/schema';
 import { hexToOklch, isHex, oklchToHex } from './color';
 import { contrastRatio, fixContrast } from './contrast';
+import { CHROMES, type ThemeChrome } from './effects';
 import { gradientStopsFrom } from './palette';
 
 /**
@@ -205,27 +206,17 @@ export function themeAttributes(theme: EventTheme): Record<string, string> {
     'data-headline': theme.motion.headlineEffect,
     'data-entrance': theme.motion.entrance,
     'data-sticky-headings': theme.motion.stickyHeadings ? 'true' : 'false',
+    'data-scroll-zoom': theme.motion.scrollZoomHero ? 'true' : 'false',
     'data-people': theme.peoplePhotos.treatment,
     'data-people-mask': theme.peoplePhotos.mask,
     'data-foil': theme.finish.foil ? 'true' : 'false',
     'data-emboss': theme.finish.emboss ? 'true' : 'false',
     'data-chrome': chromeOf(theme),
+    'data-bg-pattern':
+      theme.background.engine === 'pattern' ? (theme.background.pattern ?? 'none') : 'none',
     'data-display-case': theme.typography.displayCase,
   };
 }
-
-export const CHROMES = [
-  'none',
-  'deco',
-  'terminal',
-  'blueprint',
-  'glass',
-  'ticket',
-  'scorecard',
-  'menu',
-  'polaroid',
-] as const;
-export type ThemeChrome = (typeof CHROMES)[number];
 
 /** The decorative chrome (frames, card treatment) a theme asks for, via background.options.chrome. */
 export function chromeOf(theme: EventTheme): ThemeChrome {

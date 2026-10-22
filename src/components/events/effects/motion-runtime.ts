@@ -91,6 +91,16 @@ export interface IslandMotion {
   forced: boolean;
 }
 
+/**
+ * Whether motion may run right now, read straight from the browser (not
+ * from a hook snapshot, which reports the server's view while hydrating).
+ * Effect engines check this before downloading anything.
+ */
+export function motionAllowedNow(motion: IslandMotion): boolean {
+  if (motion.level !== 'full' || readPaused()) return false;
+  return motion.forced || !readReduced();
+}
+
 /** The scale an engine runs at right now: 0 = render one still frame. */
 export function useLiveMotionScale(motion: IslandMotion): number {
   const paused = useMotionPaused();

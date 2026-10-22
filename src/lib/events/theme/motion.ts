@@ -1,5 +1,5 @@
 import type { MotionPreview } from '@/lib/events/contracts';
-import { MOTION_SCALE, type EventTheme, type MotionMaster } from '@/lib/events/schema';
+import type { EventTheme, MotionMaster } from '@/lib/events/schema';
 
 /**
  * The motion master (D-075): one Off / Subtle / Lively / Party control that
@@ -17,6 +17,13 @@ import { MOTION_SCALE, type EventTheme, type MotionMaster } from '@/lib/events/s
  * content waits for an animation to finish.
  */
 
+/**
+ * The master's multipliers (schema.ts MOTION_SCALE; a unit test holds the two
+ * together). Kept here as a plain constant so client islands never pull the
+ * zod schema into the guest page's JavaScript.
+ */
+const SCALE: Record<MotionMaster, number> = { off: 0, subtle: 0.4, lively: 0.75, party: 1 };
+
 /** Where the page renders motion: 'full' (scaled by the master), 'reduced' (static frames), 'off'. */
 export type MotionLevel = 'full' | 'reduced' | 'off';
 
@@ -31,7 +38,7 @@ export const MAX_WEBGL_CANVASES = 1;
 
 /** The master's multiplier: off 0, subtle 0.4, lively 0.75, party 1. */
 export function motionScale(master: MotionMaster): number {
-  return MOTION_SCALE[master];
+  return SCALE[master];
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { blockRegistry } from '@/lib/events/blocks';
-import { themeSchema, type EventTheme } from '@/lib/events/schema';
+import { MOTION_MASTERS, MOTION_SCALE, themeSchema, type EventTheme } from '@/lib/events/schema';
 import {
   DEFAULT_THEME_PRESET_ID,
   getThemePreset,
@@ -21,6 +21,7 @@ import {
   hasLoopingMotion,
   liveScale,
   motionLevel,
+  motionScale,
   palettesFromColors,
   remixPalette,
   themeAttributes,
@@ -182,6 +183,10 @@ describe('motion master', () => {
     expect(liveScale({ ...base, reducedMotion: true, paused: false })).toBe(0);
     expect(liveScale({ ...base, reducedMotion: false, paused: true })).toBe(0);
     expect(liveScale({ ...base, forced: true, reducedMotion: true, paused: false })).toBe(0.75);
+  });
+
+  it('keeps the client-side scale in step with the schema', () => {
+    for (const master of MOTION_MASTERS) expect(motionScale(master)).toBe(MOTION_SCALE[master]);
   });
 
   it('caps entrances near 600 ms at every master', () => {
