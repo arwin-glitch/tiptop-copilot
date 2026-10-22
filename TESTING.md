@@ -192,6 +192,20 @@ next sign-in onto `/login?busy=1` and cascade. A new spec should sign in once
 and share the session through `storageState`, as
 `today-briefing-watch.spec.ts` does, rather than add a sign-in per test.
 
+Two timing traps that pass alone and fail now and then in a full run, when
+the machine is busy:
+
+- **Playwright's fake clock also runs `AbortSignal.timeout`.** Jumping the
+  clock (`page.clock.runFor`) past a request's timeout while it is in flight
+  aborts it, and code that backs off after a failure goes quiet. Wait until
+  the page is done with one request before moving the clock again;
+  `today-briefing-watch.spec.ts` counts the watcher's checks to know.
+- **A visible heading is not a hydrated page.** The server-rendered HTML
+  shows long before React has run a component's effects, so an event a test
+  sends to a listener a component adds on mount can be lost. Wait for the
+  listener first; `desktop-alerts.spec.ts` reads it over the DevTools
+  protocol (`listening`).
+
 ---
 
 ## 5. Writing a new test
