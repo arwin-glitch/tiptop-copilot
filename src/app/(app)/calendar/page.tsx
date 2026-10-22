@@ -171,7 +171,7 @@ async function bookingPanelProps(): Promise<ComponentProps<typeof BookingRequest
     hostName,
     bookingUrl: `${env().appUrl.replace(/\/+$/, '')}/meet/${settings.slug}`,
     enabled: settings.enabled,
-    instant: settings.config.instant,
+    instant: !settings.config.approveFirst,
     turnOnHref:
       found.ok && access && !access.allowed && !access.demo
         ? '/api/integrations/google/start?calendar=1'

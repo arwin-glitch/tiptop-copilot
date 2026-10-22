@@ -259,7 +259,7 @@ export async function saveBookingSettings(
     metadata: {
       enabled: row.enabled,
       chatbot: config.data.chatbotEnabled,
-      instant: config.data.instant,
+      approveFirst: config.data.approveFirst,
       places: config.data.places.length,
     },
   });

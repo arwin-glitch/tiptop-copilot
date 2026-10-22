@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MEETING_KINDS, type MeetingKind, type MeetingType } from './config';
+import { MAX_GUESTS, MEETING_KINDS, type MeetingKind, type MeetingType } from './config';
 
 /**
  * What a visitor may send from the public booking page, and what the public
@@ -77,6 +77,12 @@ export const BOOKING_REQUEST_INPUT = z
     customPlace: clean(LIMITS.customPlace, true).default(''),
     note: clean(LIMITS.note).default(''),
     deckUrl: DECK_URL.default(''),
+    /**
+     * Guests to invite with them (Calendly's "Add guests", D-078): plain
+     * addresses, at most MAX_GUESTS here and Settings' own limit on the
+     * server. Checked again with the host's and the team's addresses there.
+     */
+    guests: z.array(z.string().max(LIMITS.email + 10)).max(MAX_GUESTS).default([]),
     /** The visitor's own zone, to say the time back to them in the drawer. */
     timeZone: z.string().max(64).nullable().default(null),
     /** Who filled the form: the visitor, or the chatbot for them (they still pressed Send). */
@@ -104,6 +110,53 @@ export const BOOKING_REQUEST_INPUT = z
   });
 
 export type BookingRequestInput = z.infer<typeof BOOKING_REQUEST_INPUT>;
+
+/** Whether a string is a plain address the page and the server both accept. */
+export function isPlainEmail(value: string): boolean {
+  return EMAIL_INPUT.safeParse(value).success;
+}
+
+export interface GuestRules {
+  /** The booker's own address: never their own guest. */
+  booker: string;
+  /** Addresses that are never a guest: the host's and every teammate's. */
+  blocked: readonly string[];
+  /** Settings' limit (0 when guests are off). */
+  max: number;
+}
+
+/**
+ * The guests a booking may invite, cleaned: trimmed, lower-cased, plain
+ * addresses only, each once, never the booker's own address, never the
+ * host's or a teammate's. A problem in plain words when one is not allowed,
+ * so the visitor can fix it rather than have a guest silently dropped.
+ */
+export function cleanGuests(
+  raw: readonly string[],
+  rules: GuestRules,
+): { ok: true; guests: string[] } | { ok: false; problem: string } {
+  const booker = rules.booker.trim().toLowerCase();
+  const blocked = new Set(rules.blocked.map((e) => e.trim().toLowerCase()).filter(Boolean));
+  const out: string[] = [];
+  for (const entry of raw) {
+    const email = entry.trim().toLowerCase();
+    if (!email) continue;
+    if (!isPlainEmail(email)) return { ok: false, problem: `Check the guest address ${email}.` };
+    if (email === booker) {
+      return { ok: false, problem: 'You are invited already: add other people as guests.' };
+    }
+    if (blocked.has(email)) {
+      return { ok: false, problem: `${email} is on the host's side already. Leave them out.` };
+    }
+    if (!out.includes(email)) out.push(email);
+  }
+  if (out.length > rules.max) {
+    return rules.max === 0
+      ? { ok: false, problem: 'This booking link does not take guests.' }
+      : { ok: false, problem: `Add at most ${rules.max} guests.` };
+  }
+  return { ok: true, guests: out };
+}
 
 /** The first problem with a request, in plain words, for the page to show. */
 export function firstProblem(error: z.ZodError): string {
@@ -146,6 +199,8 @@ export interface BookingFormState {
   company: string;
   note: string;
   deckUrl: string;
+  /** Guests to invite with the visitor (D-078). */
+  guests: string[];
 }
 
 export const EMPTY_FORM: BookingFormState = {
@@ -159,6 +214,7 @@ export const EMPTY_FORM: BookingFormState = {
   company: '',
   note: '',
   deckUrl: '',
+  guests: [],
 };
 
 /**

@@ -149,6 +149,9 @@ export const CALENDAR_CHOICE = z.object({
 });
 export type CalendarChoice = z.infer<typeof CALENDAR_CHOICE>;
 
+/** The most guests a booking may ever bring (Settings may allow fewer). */
+export const MAX_GUESTS = 10;
+
 /** Everything Settings > Booking link edits, apart from on/off and the slug. */
 export interface BookingConfig {
   displayName: string;
@@ -217,6 +220,10 @@ export interface BookingConfig {
    * calendar. On, each booking waits as a request for someone to approve.
    */
   approveFirst: boolean;
+  /** Visitors may add guests to a booking (Calendly's "Add guests"), invited with them. */
+  allowGuests: boolean;
+  /** At most this many guests a booking (0 to 10). */
+  maxGuests: number;
   chatbotEnabled: boolean;
   /** The only TipTop facts the public chatbot may give. */
   faq: string;
@@ -261,6 +268,8 @@ export const DEFAULT_BOOKING_CONFIG: BookingConfig = {
   maxLinkBookingsPerDay: 2,
   maxMeetingsPerDay: 5,
   approveFirst: false,
+  allowGuests: true,
+  maxGuests: 5,
   chatbotEnabled: true,
   faq: '',
   monthlyAiCapUsd: 20,
@@ -325,6 +334,8 @@ export const BOOKING_CONFIG_SCHEMA = z
     maxLinkBookingsPerDay: int(0, 10),
     maxMeetingsPerDay: int(1, 15),
     approveFirst: z.boolean(),
+    allowGuests: z.boolean(),
+    maxGuests: int(0, MAX_GUESTS),
     chatbotEnabled: z.boolean(),
     faq: z.string().max(4000),
     monthlyAiCapUsd: z.number().min(0).max(500),

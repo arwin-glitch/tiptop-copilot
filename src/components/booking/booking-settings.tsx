@@ -512,12 +512,12 @@ export function BookingSettings(props: BookingSettingsProps) {
               />
               <NumberField
                 id={`${uid}-horizon`}
-                label="Up to (days ahead)"
-                min={1}
-                max={45}
-                value={config.horizonDays}
+                label="Months open after this one"
+                min={0}
+                max={8}
+                value={config.rollingMonths}
                 disabled={disabled}
-                onChange={(v) => set('horizonDays', v)}
+                onChange={(v) => set('rollingMonths', v)}
               />
               <NumberField
                 id={`${uid}-perday`}
@@ -575,14 +575,14 @@ export function BookingSettings(props: BookingSettingsProps) {
               />
             </div>
             <Row
-              title="Instant booking"
-              body="Kept off in this version: Copilot only writes to the calendar when someone presses Approve. With this on, requests are tagged Instant so they can be approved in one tap."
+              title="Approve each booking first"
+              body="Off by default: a free time that passes every rule is booked at once and the invitation goes out from the calendar. On, each booking waits in the Calendar tab's Booking requests until someone approves it."
             >
               <Switch
-                checked={config.instant}
+                checked={config.approveFirst}
                 disabled={disabled}
-                onCheckedChange={(v) => set('instant', v)}
-                aria-label="Instant booking"
+                onCheckedChange={(v) => set('approveFirst', v)}
+                aria-label="Approve each booking first"
               />
             </Row>
           </>

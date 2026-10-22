@@ -13,6 +13,7 @@ import { addDaysToKey, localDateKey } from '@/lib/util/time';
 import { calendarZoneDiffers, toBusyPicture } from './busy';
 import type { BookingConfig } from './config';
 import type { BusyBlock } from './engine';
+import { lastOpenDay } from './months';
 
 /**
  * The booking link's one read of the host's calendar, over today and the
@@ -97,7 +98,9 @@ export async function busyPictureFor(
   const from = localDateKey(now, hostZone);
   const range = await readCalendarRange(store, organizationId, {
     from,
-    to: addDaysToKey(from, config.horizonDays + 2),
+    // Through the end of the last month the link is open for (D-078), and a
+    // little past it, so a meeting just after the window still counts.
+    to: addDaysToKey(lastOpenDay(config, from), 2),
     timeZone: hostZone,
     ownEmail: source.ownEmails[0] ?? '',
     calendarIds: shown,
