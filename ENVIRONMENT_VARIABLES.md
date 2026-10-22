@@ -427,6 +427,21 @@ a person has touched it since the evidence (see
 
 ---
 
+## Event pages
+
+### `NEXT_PUBLIC_TURNSTILE_SITE_KEY` · `TURNSTILE_SECRET_KEY` (optional)
+
+Cloudflare Turnstile for the public RSVP form on event pages (D-075). Both
+unset (the default): no Turnstile anywhere, and the form relies on its other
+brakes (same-origin check, honeypot, a signed render time of at least two
+seconds, five RSVPs per ten minutes per address, the unique email per event,
+approval and waitlist states). Both set: the widget appears, and the server
+verifies its token, only on events that are **open and public**; invite-only
+and approval pages, and every personal link, never show it. The site key is
+public (the event pages' CSP allows `challenges.cloudflare.com` only while it
+is set); the secret stays on the server. A Turnstile outage fails closed for
+those open public events only.
+
 ## Desktop app downloads and updates
 
 The desktop app (`desktop/`) is built by `.github/workflows/desktop.yml`, which
