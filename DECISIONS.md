@@ -2900,9 +2900,14 @@ promoted waitlisters (v1 nice) is not built; `claim_expires_at` stays empty.
   the QR paths; the door list keeps working.
 - **Private means "only guests with their personal link"**, as the Manage
   tab says: invite, ticket, QR and personal calendar routes resolve a
-  private event; its bare page, public calendar file, public form and an
-  anonymous view beacon stay 404. Unlisted is open to anyone with the link
-  and noindex; public is indexable.
+  private event; its public calendar file, public form and an anonymous
+  view beacon stay 404, and its bare page opens only for a browser its
+  guest already opened through their link (the remembered cookie) or a
+  signed-in member previewing it. An old slug redirects only for events open
+  to everyone, so it never reveals a private event's new address, and the
+  personal pages name the event in their title only for a real link.
+  Unlisted is open to anyone with the link and noindex; public is
+  indexable.
 - **`{{rsvp_link}}` accepts WS4's dotted token** (`<43>.<22>` base64url);
   the check is otherwise as strict as before.
 - **Field gating** (`props.fieldVisibility`, WS4) is accepted by WS2's

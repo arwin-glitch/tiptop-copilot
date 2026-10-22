@@ -10,11 +10,12 @@ import { GRANT_COOKIE } from '@/lib/events/contracts';
 import { grantCookiePaths, resolveGrant } from '@/lib/events/editor-auth';
 import { renderRichText, richTextToPlain } from '@/lib/events/richtext';
 import { formToken } from '@/lib/events/public-gate';
-import { inviteToken } from '@/lib/events/tokens';
+import { inviteToken, rememberCookieValue } from '@/lib/events/tokens';
 import { filterDocForViewer } from '@/lib/events/visibility';
 import { PUBLIC_VIEWER } from '@/lib/events/contracts';
 import { parseEventDoc } from '@/lib/events/schema';
 import { draftEventMessage } from '@/lib/services/event-comms';
+import { resolvePageForViewer } from '@/lib/services/event-public';
 import { createEditorLink } from '@/lib/services/event-editors';
 import { presenceColor, syncStudio } from '@/lib/services/event-presence';
 import {
@@ -38,11 +39,12 @@ import { createHarness, type Harness } from '../helpers/harness';
 let h: Harness;
 let owner: EventOwner;
 let signedIn: () => Result<AuthContext>;
+let sessionContext: () => AuthContext | null;
 
 vi.mock('@/lib/auth/session', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/session')>()),
   authOrError: async () => signedIn(),
-  getAuthContext: async () => null,
+  getAuthContext: async () => sessionContext(),
 }));
 
 const claimRoute = await import('@/app/api/e/checkin/session/route');
@@ -60,6 +62,7 @@ beforeEach(async () => {
   h = await createHarness();
   owner = { userId: h.auth.userId, organizationId: h.auth.organizationId, name: 'Demo Owner' };
   signedIn = () => ok(h.auth);
+  sessionContext = () => null;
 });
 
 afterEach(async () => {
@@ -163,6 +166,22 @@ describe('a private event opens only through personal links', () => {
       params: Promise.resolve({ slug: SLUG }),
     });
     expect(anonymousView.status).toBe(404);
+  });
+
+  it('opens the bare page only for its remembered guest or a signed-in member', async () => {
+    const nobody = await resolvePageForViewer(h.store, SLUG, null);
+    expect(nobody.resolved.kind).toBe('not_found');
+    const cookie = rememberCookieValue({
+      eventId: EVENT,
+      guestId: DEMO_EVENT_IDS.guestAvery,
+      tokenVersion: 1,
+    });
+    const guest = await resolvePageForViewer(h.store, SLUG, cookie);
+    expect(guest.resolved.kind).toBe('event');
+    expect(guest.remembered?.guest.id).toBe(DEMO_EVENT_IDS.guestAvery);
+    sessionContext = () => h.auth;
+    const member = await resolvePageForViewer(h.store, SLUG, null);
+    expect(member.resolved.kind).toBe('event');
   });
 
   it('names the event in a personal page’s title only for a real personal link', async () => {

@@ -10,8 +10,7 @@ import {
   absoluteUrl,
   buildPublicPage,
   publishedDoc,
-  resolvePublicEvent,
-  resolveRemembered,
+  resolvePageForViewer,
 } from '@/lib/services/event-public';
 import { CancelledView, EventView } from './event-view';
 
@@ -19,7 +18,8 @@ import { CancelledView, EventView } from './event-view';
  * /e/<slug> — the public event page (D-075). Serves the PUBLISHED snapshot
  * only, filtered on the server for whoever is looking (nobody, or the
  * browser that RSVP'd, via its remembered cookie). Old slugs 301 to the
- * current one; drafts, private events and unknown slugs are a plain 404.
+ * current one; drafts and unknown slugs are a plain 404, and so is a private
+ * event unless its guest's browser is remembered or a member is signed in.
  * Rendered per request (the nonce CSP needs it).
  */
 
@@ -29,7 +29,8 @@ type Props = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const resolved = await resolvePublicEvent(getStore(), slug);
+  const jar = await cookies();
+  const { resolved } = await resolvePageForViewer(getStore(), slug, jar.get(RSVP_COOKIE)?.value);
   if (resolved.kind !== 'event') {
     return { title: { absolute: 'Event' }, robots: { index: false, follow: false } };
   }
@@ -68,12 +69,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function EventPublicPage({ params }: Props) {
   const { slug } = await params;
   const store = getStore();
-  const resolved = await resolvePublicEvent(store, slug);
+  const jar = await cookies();
+  const { resolved, remembered } = await resolvePageForViewer(
+    store,
+    slug,
+    jar.get(RSVP_COOKIE)?.value,
+  );
   if (resolved.kind === 'redirect') permanentRedirect(eventPaths.page(resolved.slug));
   if (resolved.kind === 'not_found') notFound();
 
-  const jar = await cookies();
-  const remembered = await resolveRemembered(store, resolved.event, jar.get(RSVP_COOKIE)?.value);
   const page = await buildPublicPage(store, resolved, remembered);
   if (!page) notFound();
   if (page.facts.cancelled) return <CancelledView page={page} />;

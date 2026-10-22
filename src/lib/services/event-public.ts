@@ -1,4 +1,5 @@
 import 'server-only';
+import { getAuthContext, hasRole } from '@/lib/auth/session';
 import { env } from '@/lib/config/env';
 import { isMissingColumnError, isMissingTableError } from '@/lib/db/missing-table';
 import type { DataStore } from '@/lib/db/store';
@@ -562,4 +563,37 @@ export async function recordPageView(
       });
     }
   }
+}
+
+/**
+ * The bare /e/<slug> page: public and unlisted events for anyone; a PRIVATE
+ * event only for a browser its guest already opened through their personal
+ * link (the remembered cookie) or a signed-in member of the event's
+ * organization (an owner previewing the live page). Aliases redirect only
+ * for events open to everyone, so an old slug never reveals a private
+ * event's new address.
+ */
+export async function resolvePageForViewer(
+  store: DataStore,
+  slug: string,
+  rememberCookie: string | null | undefined,
+): Promise<{ resolved: PublicEventResolution; remembered: ResolvedGuest | null }> {
+  const open = await resolvePublicEvent(store, slug);
+  if (open.kind !== 'not_found') {
+    const remembered =
+      open.kind === 'event' ? await resolveRemembered(store, open.event, rememberCookie) : null;
+    return { resolved: open, remembered };
+  }
+  const personal = await resolvePublicEvent(store, slug, { personal: true });
+  if (personal.kind !== 'event' || personal.event.visibility !== 'private') {
+    return { resolved: { kind: 'not_found' }, remembered: null };
+  }
+  const remembered = await resolveRemembered(store, personal.event, rememberCookie);
+  if (remembered) return { resolved: personal, remembered };
+  const auth = await getAuthContext().catch(() => null);
+  const member =
+    !!auth && auth.organizationId === personal.event.organization_id && hasRole(auth, 'member');
+  return member
+    ? { resolved: personal, remembered: null }
+    : { resolved: { kind: 'not_found' }, remembered: null };
 }
