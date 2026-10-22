@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 /**
  * One clear look for every event, Google's colour labels, and a "How you
@@ -45,21 +45,32 @@ test.beforeAll(async ({ browser }, testInfo) => {
 
 test.use({ storageState: SIGNED_IN });
 
-/** No label filter for the demo user, who is shared with the specs after this one. */
-async function resetFilter(request: APIRequestContext, baseURL: string) {
-  const res = await request.post('/api/calendar/prefs', {
-    data: { labelFilter: [] },
-    headers: { origin: baseURL },
+/**
+ * No label filter for the demo user, who is shared with the specs after this
+ * one: posted from a page on the site, as the calendar posts it (a plain API
+ * request is not signed in).
+ */
+async function resetFilter(page: Page) {
+  await page.goto('/offline');
+  const status = await page.evaluate(async () => {
+    const res = await fetch('/api/calendar/prefs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ labelFilter: [] }),
+    });
+    return res.status;
   });
-  expect(res.ok()).toBe(true);
+  expect(status).toBe(200);
 }
 
 // None carried in from a test that stopped half way, and none left for the specs after.
-test.beforeEach(async ({ page, baseURL }) => resetFilter(page.request, baseURL!));
+test.beforeEach(async ({ page }) => resetFilter(page));
 test.afterAll(async ({ browser }, testInfo) => {
-  const baseURL = testInfo.project.use.baseURL!;
-  const context = await browser.newContext({ baseURL, storageState: SIGNED_IN });
-  await resetFilter(context.request, baseURL);
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    storageState: SIGNED_IN,
+  });
+  await resetFilter(await context.newPage());
   await context.close();
 });
 
