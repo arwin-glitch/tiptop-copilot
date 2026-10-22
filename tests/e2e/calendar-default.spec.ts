@@ -184,6 +184,13 @@ test('a "+N" holds what does not fit beside the others and lists it', async ({ p
   // Three meetings at noon, two slots: the first, and a "+2" for the others.
   const more = column.getByRole('button', { name: /^2 more events from 12pm$/ });
   await expect(more).toHaveText('+2');
+  // Tab reaches it in time order: right after the noon meeting beside it.
+  const order = await column
+    .locator('[data-event-chip], [data-event-fold]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''));
+  const at = order.findIndex((label) => label.startsWith('2 more events'));
+  expect(order[at - 1]).toMatch(/LP check-in: Harborview/);
+  expect(order[at + 1]).toMatch(/Superconductivityroundtable/);
   await more.click();
   const list = page.getByRole('dialog');
   await expect(list.getByText('Panel run-through')).toBeVisible();

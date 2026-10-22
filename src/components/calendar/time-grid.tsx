@@ -14,6 +14,7 @@ import {
   packWeek,
   segmentOnDay,
   type ChipPlacement,
+  type FoldedChips,
   shortTime,
   snap,
   SNAP_MINUTES,
@@ -538,6 +539,16 @@ export function TimeGrid({
               { columnPx, minChipPx },
             );
             const byKey = new Map(segments.map((s) => [s.event.key, s.event]));
+            // Chips and "+N"s in time order, so Tab reaches a "+N" among the
+            // events around it (after those starting with it), not after the day.
+            const ordered: (
+              { event: RangeEvent; seg: { start: number; end: number } } | { fold: FoldedChips }
+            )[] = [...segments, ...layout.folds.map((fold) => ({ fold }))].sort(
+              (a, b) =>
+                ('fold' in a ? a.fold.start : a.seg.start) -
+                  ('fold' in b ? b.fold.start : b.seg.start) ||
+                Number('fold' in a) - Number('fold' in b),
+            );
             const creating = drag?.mode === 'create' && drag.day === d ? drag : null;
             const held =
               !creating && newSlot && !newSlot.allDay
@@ -556,7 +567,32 @@ export function TimeGrid({
                   backgroundSize: `100% ${HOUR_PX}px`,
                 }}
               >
-                {segments.map(({ event, seg }) => {
+                {ordered.map((item) => {
+                  if ('fold' in item) {
+                    const { fold } = item;
+                    return (
+                      <FoldChip
+                        key={fold.key}
+                        events={fold.keys
+                          .map((k) => byKey.get(k))
+                          .filter((e): e is RangeEvent => Boolean(e))}
+                        top={(fold.start / 60) * HOUR_PX}
+                        height={Math.max(
+                          MIN_CHIP_HEIGHT_PX,
+                          ((fold.end - fold.start) / 60) * HOUR_PX - 1,
+                        )}
+                        left={fold.left}
+                        width={fold.width}
+                        z={fold.z}
+                        timeZone={timeZone}
+                        onOpen={onOpen}
+                        onOpenChange={(open) => {
+                          foldOpen.current = open;
+                        }}
+                      />
+                    );
+                  }
+                  const { event, seg } = item;
                   // Moved, it is drawn a column wide, as in Google; resized, where it was.
                   const place =
                     event.key === draggedKey && drag?.mode === 'move'
@@ -682,28 +718,6 @@ export function TimeGrid({
                     </button>
                   );
                 })}
-
-                {layout.folds.map((fold) => (
-                  <FoldChip
-                    key={fold.key}
-                    events={fold.keys
-                      .map((k) => byKey.get(k))
-                      .filter((e): e is RangeEvent => Boolean(e))}
-                    top={(fold.start / 60) * HOUR_PX}
-                    height={Math.max(
-                      MIN_CHIP_HEIGHT_PX,
-                      ((fold.end - fold.start) / 60) * HOUR_PX - 1,
-                    )}
-                    left={fold.left}
-                    width={fold.width}
-                    z={fold.z}
-                    timeZone={timeZone}
-                    onOpen={onOpen}
-                    onOpenChange={(open) => {
-                      foldOpen.current = open;
-                    }}
-                  />
-                ))}
 
                 {held ? (
                   <div
