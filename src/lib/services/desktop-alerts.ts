@@ -29,7 +29,7 @@ import { feedbackAlertFor } from './feedback';
 import {
   alertsFromInputs,
   meetingAlerts,
-  ownerTimeZone,
+  principalTimeZone,
   readAlertInputs,
   type AlertInputs,
   type PushAlert,
@@ -76,7 +76,7 @@ export const DESKTOP_DEVICE_LIMIT = 20;
 /** Of those, how many one person may have turned on, so nobody can fill the rest. */
 export const DESKTOP_DEVICES_PER_USER = 5;
 /**
- * The shell asks from 6am to 9pm in the owner's timezone, as the phone job
+ * The shell asks from 6am to 9pm in the principal's timezone, as the phone job
  * runs; at night only while the computer's owner waits for an Ask Arwin
  * answer (ask-reply-alerts.ts), or when the page asks it to after a question.
  */
@@ -565,7 +565,7 @@ export function shellTakesAskReplies(userAgent: string | null): boolean {
   return version !== undefined && compareVersions(version, FIRST_ASK_ALERTS_VERSION) >= 0;
 }
 
-/** Whether the shell asks at this hour: 6am to 9pm in the owner's timezone. */
+/** Whether the shell asks at this hour: 6am to 9pm in the principal's timezone. */
 export function inDesktopPollWindow(now: Date, timeZone: string): boolean {
   const { hour } = localClock(now, timeZone);
   return hour >= POLL_FROM_HOUR && hour < POLL_UNTIL_HOUR;
@@ -602,7 +602,7 @@ export function resetDesktopAlertCaches(): void {
 async function cachedTimeZone(store: DataStore, organizationId: string, now: Date) {
   const hit = timeZoneCache.get(organizationId);
   if (hit && Math.abs(now.getTime() - hit.at) < TIMEZONE_TTL_MS) return hit.timeZone;
-  const stored = await ownerTimeZone(store, organizationId);
+  const stored = await principalTimeZone(store, organizationId);
   // An unknown zone would make every clock read throw, all night long.
   const timeZone = isSupportedTimezone(stored) ? stored : 'America/Chicago';
   timeZoneCache.set(organizationId, { at: now.getTime(), timeZone });

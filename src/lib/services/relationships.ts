@@ -1,5 +1,6 @@
 import 'server-only';
 import { NICK_ALIASES } from '@/lib/calendar/meetings';
+import { listOrganizationMembers } from '@/lib/db/members';
 import { isMissingTableError } from '@/lib/db/missing-table';
 import type { DataStore } from '@/lib/db/store';
 import { gmailThreadUrl } from '@/lib/deals/links';
@@ -29,14 +30,7 @@ import {
   type StrengthBadgeData,
   type StrengthLabel,
 } from '@/lib/network/strength';
-import type {
-  CrmList,
-  CrmListEntry,
-  CrmRecord,
-  CrmValue,
-  Integration,
-  OrganizationMember,
-} from '@/lib/types/domain';
+import type { CrmList, CrmListEntry, CrmRecord, CrmValue, Integration } from '@/lib/types/domain';
 import { processWide } from '@/lib/util/process-state';
 import { err, ok, type Result } from '@/lib/util/result';
 import { corporateEmailDomain } from '@/lib/util/text';
@@ -125,17 +119,17 @@ const normalise = (a: string) => a.trim().toLowerCase();
  * as a relationship), so each caller decides what a failure means.
  */
 export async function fundAddresses(store: DataStore, organizationId: string): Promise<string[]> {
-  const read = async <T>(table: 'organization_members' | 'integrations'): Promise<T[]> => {
+  const read = async <T>(rows: () => Promise<T[]>): Promise<T[]> => {
     try {
-      return (await store.list(table, organizationId, {})) as T[];
+      return await rows();
     } catch (error) {
       if (isMissingTableError(error)) return [];
       throw error;
     }
   };
   const [members, integrations] = await Promise.all([
-    read<OrganizationMember>('organization_members'),
-    read<Integration>('integrations'),
+    read(() => listOrganizationMembers(store, organizationId)),
+    read(() => store.list('integrations', organizationId, {}) as Promise<Integration[]>),
   ]);
   const profiles = await Promise.all(members.map((m) => store.userProfileById(m.user_id)));
   return [

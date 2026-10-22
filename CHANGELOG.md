@@ -18,6 +18,14 @@ throughout.
   CC and BCC fields no longer lock while the other one saves, either. Each
   save still makes an earlier review stale, as before.
 
+- **Phone and desktop alerts keep the mailbox person's hours.** The 8am to
+  8pm quiet hours, the desktop app's 6am to 9pm checking and feed notices
+  went by the time zone of whoever set the workspace up; they now go by the
+  person whose mailbox Copilot reads (then the owner's, then Central time).
+  The morning outlook the daily job prepares is now made for that person
+  too, in their time zone, so their first Today of the day no longer waits
+  for it.
+
 - **Tasks go to the person whose mailbox Copilot reads.** Suggested tasks,
   keep-in-touch check-ins, copied Affinity reminders and follow-ups added
   without choosing someone used to land on whoever set the workspace up, so

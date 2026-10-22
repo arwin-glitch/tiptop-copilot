@@ -1,4 +1,5 @@
 import 'server-only';
+import { listOrganizationMembers } from '@/lib/db/members';
 import type { DataStore } from '@/lib/db/store';
 import type { AuditEvent, OrganizationMember, UserProfile } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
@@ -90,11 +91,7 @@ export async function mailboxOwnerPresence(
 ): Promise<MailboxOwnerPresence | null> {
   if (!mailbox) return null;
   const target = mailbox.toLowerCase();
-  const members = (await store.list(
-    'organization_members',
-    organizationId,
-    {},
-  )) as OrganizationMember[];
+  const members = await listOrganizationMembers(store, organizationId);
   let owner: { member: OrganizationMember; profile: UserProfile } | null = null;
   for (const member of members) {
     const profile = await store.userProfileById(member.user_id);

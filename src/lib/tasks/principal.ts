@@ -1,12 +1,7 @@
 import 'server-only';
+import { listOrganizationMembers } from '@/lib/db/members';
 import type { DataStore } from '@/lib/db/store';
-import type {
-  Integration,
-  IntegrationStatus,
-  OrganizationMember,
-  OrgRole,
-  UserProfile,
-} from '@/lib/types/domain';
+import type { Integration, IntegrationStatus, OrgRole, UserProfile } from '@/lib/types/domain';
 
 /**
  * Whose work is this organization's work: the PRINCIPAL.
@@ -158,9 +153,7 @@ export async function readTeamMembers(
   store: DataStore,
   organizationId: string,
 ): Promise<TeamMember[]> {
-  const rows = (await store.list('organization_members', organizationId, {
-    eq: { organization_id: organizationId },
-  })) as OrganizationMember[];
+  const rows = await listOrganizationMembers(store, organizationId);
   return inTeamOrder(
     await Promise.all(
       rows.map(async (member): Promise<TeamMember> => {

@@ -3,18 +3,18 @@ import { z } from 'zod';
 import { env, isDemoMode } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import { log } from '@/lib/security/redact';
+import { readTeam } from '@/lib/tasks/principal';
 import type {
   AuditEvent,
   CalendarEvent,
   Integration,
   Organization,
-  OrganizationMember,
   UserProfile,
 } from '@/lib/types/domain';
 import { newId, sha256 } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
 import { ok, type Result } from '@/lib/util/result';
-import { localClock } from '@/lib/util/time';
+import { DEFAULT_TIMEZONE, isSupportedTimezone, localClock } from '@/lib/util/time';
 import {
   dueMeetingAlerts,
   listMeetingEvents,
@@ -46,8 +46,8 @@ import { readFollowUps, type FollowUpsSnapshot } from './follow-ups';
  *
  * Alerts come only from the relay snapshots the app already reads
  * (readFollowUps), DocSend views, and campaigns that just finished sending;
- * each item alerts once, and nothing is sent outside 8am-8pm in the owner's
- * timezone.
+ * each item alerts once, and nothing is sent outside 8am-8pm in the
+ * principal's timezone (principalTimeZone).
  *
  * The desktop app gets the same alerts by asking for them itself
  * (desktop-alerts.ts), with readAlertInputs, alertsFromInputs and
@@ -198,7 +198,7 @@ function listBody(lines: string[]): string {
   return clip(rest.length ? `${first} (+${rest.length} more)` : first);
 }
 
-/** Outside 8am-8pm in the owner's timezone, when only meeting alerts go out. */
+/** Outside 8am-8pm in the principal's timezone, when only meeting alerts go out. */
 function quietHours(now: Date, timeZone: string): boolean {
   const { hour } = localClock(now, timeZone);
   return hour < QUIET_BEFORE_HOUR || hour >= QUIET_FROM_HOUR;
@@ -388,21 +388,28 @@ async function alertedKeys(
   return new Set(rows.map((r) => r.entity_id).filter((k): k is string => Boolean(k)));
 }
 
-export async function ownerTimeZone(store: DataStore, organizationId: string): Promise<string> {
+/**
+ * The time zone alerts keep: the principal's (lib/tasks/principal.ts), the
+ * member whose mailbox and calendar the alerts come from, rather than the
+ * owner's, since the owner role may be an assistant in another time zone.
+ * Their quiet hours, the campaign window, the desktop app's poll window and
+ * feed notice hours all read it. Then the owner's (the oldest owner), then
+ * Central time; a zone that is missing or unknown is skipped.
+ */
+export async function principalTimeZone(store: DataStore, organizationId: string): Promise<string> {
   try {
-    const members = (await store.list(
-      'organization_members',
-      organizationId,
-      {},
-    )) as OrganizationMember[];
-    const owner = members.find((m) => m.role === 'owner') ?? members[0];
-    const profile = owner
-      ? ((await store.userProfileById(owner.user_id)) as UserProfile | null)
-      : null;
-    return profile?.timezone || 'America/Chicago';
+    const team = await readTeam(store, organizationId);
+    const owner = team.members.find((m) => m.role === 'owner');
+    for (const userId of new Set([team.principal?.userId, owner?.userId])) {
+      if (!userId) continue;
+      const profile = (await store.userProfileById(userId)) as UserProfile | null;
+      const zone = profile?.timezone?.trim();
+      if (zone && isSupportedTimezone(zone)) return zone;
+    }
   } catch {
-    return 'America/Chicago';
+    // Unreadable members or profiles: the default, rather than no alerts.
   }
+  return DEFAULT_TIMEZONE;
 }
 
 export interface OutboxEntry {
@@ -577,7 +584,7 @@ export async function buildOutbox(
       if (!subscriptions.length) continue;
       const [sent, tz] = await Promise.all([
         alertedKeys(store, org.id, now),
-        ownerTimeZone(store, org.id),
+        principalTimeZone(store, org.id),
       ]);
       const alerts: PushAlert[] = await meetingAlerts(store, org.id, sent, now, tz).catch(() => []);
       if (scope === 'all') {

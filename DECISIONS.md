@@ -2050,6 +2050,8 @@ for the owner's confirmation first.
   from their mailbox even when someone else connected it.
 - **The owner role keeps its meaning for permissions** (owner-only actions,
   the daily job's acting user, the alert time zone); none of that changed.
+  (D-071 later moved the alert time zone and the daily job's outlook to the
+  principal.)
 - **Tasks already filed under the owner** are moved by
   `supabase/data-fixes/20261021002000_tasks_to_principal.sql`, run by hand in
   the SQL editor after its two read-only previews (who the principal is, and
@@ -2163,3 +2165,51 @@ Calendar", and the new views to be what the tab opens on.
   typical width, so a very busy day can shift once as the page loads.
 - Between 640 and about 655px Week's columns are a little short of two
   36px chips side by side, so those are drawn 34-35px wide.
+
+### D-071 — Alerts and the daily outlook follow the principal; member reads are scoped
+
+**Context.** D-068 named the principal, the member whose mailbox Copilot
+reads, and moved tasks to them, but left the owner role deciding the alert
+time zone and the daily job's acting user. Its review found three more
+things: the alerts' quiet hours, the desktop app's poll window and feed
+notice hours ran on the owner's profile time zone, though the alerts are the
+principal's (their money items, meetings and campaigns) and the owner may be
+an assistant on the other side of the world; and that time zone, the daily
+job's acting user and the Gmail push handler's membership check all read
+`organization_members` with an empty filter. That table is scopeless
+(`scopeless` in `lib/db/store.ts`): the organization id a store read takes
+does not filter it in either store, so each read got every organization's
+members and picked "the owner" or a membership from all of them.
+
+**Decision.**
+
+- **The alert time zone is the principal's** (`principalTimeZone` in
+  `push-alerts.ts`, replacing `ownerTimeZone`): their profile zone, else the
+  oldest owner's, else Central time, skipping a missing or unknown zone. It
+  drives the phone job's 8am-8pm quiet hours and campaign window, and the
+  desktop app's 6am-9pm poll window and feed notice hours, for every
+  computer in the organization, the owner's included.
+- **The daily job makes the outlook for the principal.** Outlooks are per
+  person (`daily_briefs.user_id`, dated in their time zone) and Today reads
+  the signed-in person's, so the job's pre-made outlook was the owner's,
+  paid for every morning, while the principal's first Today of the day
+  generated theirs on the spot. That step now acts as the principal (their
+  id, role and profile; the owner when the principal has no profile). The
+  mailbox sync and the watch renewal stay with the owner: they work on the
+  organization's mailbox whoever runs them, and the sync's classifications
+  count against the acting user's hourly AI requests, which should not eat
+  the principal's.
+- **Members are read through `listOrganizationMembers`** (`lib/db/members.ts`),
+  which filters on `organization_id` and refuses an empty id. All seven
+  member reads use it (the three above, plus presence, fund addresses, the
+  proof check and the principal rule, the last two already filtered by
+  hand), and `tests/unit/member-reads.test.ts` fails if the table is named
+  anywhere else outside the stores.
+
+**Known limits.**
+
+- One time zone per organization: a computer belonging to someone else
+  (the assistant's) checks on the principal's hours, Ask Arwin answers
+  excepted, which come at any hour.
+- An assistant who opens Today first in their morning now generates their
+  own outlook on the spot, as the principal used to.
