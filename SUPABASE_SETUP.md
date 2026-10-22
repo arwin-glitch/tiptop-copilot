@@ -87,6 +87,11 @@ Open **SQL Editor** in the dashboard and run each file's contents in order:
 Order matters — later files reference objects created earlier. Every statement is
 idempotent (`create ... if not exists`), so a re-run is safe.
 
+`supabase/data-fixes/` is not part of setup: each file there is a one-off
+correction to existing data, run by hand in the SQL editor after its own
+read-only preview, and kept out of `migrations/` so `supabase db push` never
+runs it. A new project has nothing for them to fix.
+
 What they create:
 
 | File | Contents |

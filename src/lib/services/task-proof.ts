@@ -5,6 +5,7 @@ import { getStore } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
 import { mentionsNickOnly } from '@/lib/tasks/nick-only';
+import { mailboxMember, readTeamMembers } from '@/lib/tasks/principal';
 import {
   classifyDeliverable,
   DELIVERABLE_KINDS,
@@ -881,9 +882,27 @@ async function connectedMailbox(
     row.status === 'connected' && row.last_sync_at ? Date.parse(row.last_sync_at) : NaN;
   return {
     mailbox: plainText(row.account_email),
-    ownerId: row.user_id ?? null,
+    ownerId: await mailboxOwnerId(store, organizationId, row),
     syncedThrough: Number.isNaN(synced) ? Number.NEGATIVE_INFINITY : synced,
   };
+}
+
+/**
+ * Whose mailbox it is: the member whose sign-in address it is, else whoever
+ * connected it (lib/tasks/principal.ts). An assistant may connect the
+ * principal's mailbox, and the principal's tasks are still judged from it.
+ */
+async function mailboxOwnerId(
+  store: DataStore,
+  organizationId: string,
+  row: Integration,
+): Promise<string | null> {
+  try {
+    const members = await readTeamMembers(store, organizationId);
+    return mailboxMember(members, row)?.userId ?? row.user_id ?? null;
+  } catch {
+    return row.user_id ?? null;
+  }
 }
 
 /** Sent mail to these addresses since `afterMs`, To or Cc: the one task's own look, past the scan's reach. */

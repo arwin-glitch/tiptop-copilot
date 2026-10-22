@@ -1022,4 +1022,23 @@ describe("only the mailbox owner's deliverables are judged from it", () => {
     await check('2026-10-28T23:00:00Z');
     expect((await checkOf(theirs.id))?.state).toBe('seen');
   });
+
+  it('knows the mailbox by its address when someone else connected it', async () => {
+    // The teammate connected the demo user's mailbox: it is still the demo
+    // user's, so their deliverables are judged from it and the teammate's are not.
+    await harness.store.update('integrations', org, DEMO_IDS.integrationGoogle, {
+      user_id: DEMO_TEAMMATE.id,
+    });
+    at('2026-10-23T20:00:00Z');
+    const theirs = await human('Send Maya the onboarding checklist');
+    expect((await assignTask(harness.auth, theirs.id, DEMO_TEAMMATE.id)).ok).toBe(true);
+    const mine = await human('Give Riley feedback on the LP letter');
+    expect(mine.assigned_to).toBe(DEMO_IDS.user);
+    at('2026-10-23T21:00:00Z');
+    await tick(theirs);
+    await tick(mine);
+    await check('2026-10-28T21:01:00Z');
+    expect((await checkOf(theirs.id))?.state).toBe('waiting');
+    expect((await checkOf(mine.id))?.state).toBe('flagged');
+  });
 });

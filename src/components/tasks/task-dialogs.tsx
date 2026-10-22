@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Field, Input, Select, Textarea } from '@/components/ui/form';
-import type { TaskPerson } from '@/lib/tasks/task-people';
+import { defaultConfirmer, type TaskPerson } from '@/lib/tasks/task-people';
 import type { TaskCompanyOption } from '@/lib/tasks/task-company';
 import { CompanyChip, type TaskCompanyChip } from './company-chip';
 
@@ -422,7 +422,8 @@ function ProofForm({
   const [chosen, setChosen] = React.useState<string | null>(null);
   const [note, setNote] = React.useState('');
   const [busy, setBusy] = React.useState(false);
-  const confirmedBy = chosen ?? people.find((p) => p.owner)?.id ?? people[0]?.id ?? '';
+  // Unless someone else is chosen, the principal: whose work the task is.
+  const confirmedBy = chosen ?? defaultConfirmer(people);
 
   React.useEffect(() => {
     if (given) return;

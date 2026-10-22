@@ -41,6 +41,8 @@ export default defineConfig({
       DEMO_DATA_DIR: '.demo-data/e2e',
       APP_ENCRYPTION_KEY: 'ZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmU9',
       SESSION_SECRET: 'e2e-session-secret-not-a-production-value-000000',
+      // Lets tasks-principal.spec.ts post a routine's task as the routines do.
+      TASK_BRIDGE_TOKEN: 'e2e-task-bridge-token-not-a-production-value',
     },
   },
 });

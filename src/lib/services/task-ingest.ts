@@ -4,11 +4,12 @@ import { listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
-import type { AuditEvent, OrganizationMember, Task } from '@/lib/types/domain';
+import type { AuditEvent, Task } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { unwrapSlackText } from '@/lib/util/slack-text';
 import { DEFAULT_TIMEZONE, wallTimeToUtc } from '@/lib/util/time';
 import { DUE_PRECISIONS, GLANCE_BUCKETS, GLANCE_SHORT_SCHEMA } from '@/lib/tasks/glance';
+import { readTeam } from '@/lib/tasks/principal';
 import { recordRoutineGlance } from './task-glance';
 
 const DATE_ONLY_RE = /^(\d{4}-\d{2}-\d{2})$/;
@@ -85,16 +86,21 @@ export function normalizeTitle(title: string): string {
 }
 
 /**
- * The organization's owner, to attribute a machine-suggested task to (the
- * `tasks` table requires a real `created_by`). Falls back to the first
- * member if no member is explicitly the owner — same fallback the daily cron
- * job already uses for the same reason.
+ * Who a routine's task is for and who it is attributed to. It is for the
+ * organization's principal (lib/tasks/principal.ts): the routines read that
+ * person's mail, calendar and meetings, so what they find is that person's
+ * work. The `tasks` table needs a real `created_by` for a task no person
+ * made; that stays the organization's owner (else the first member), the
+ * attribution the daily job uses too.
  */
-async function resolveOwnerId(store: DataStore, organizationId: string): Promise<string | null> {
-  const members = (await store.list('organization_members', organizationId, {})) as
-    OrganizationMember[] | [];
-  const owner = members.find((m) => m.role === 'owner') ?? members[0];
-  return owner?.user_id ?? null;
+async function resolveIngestPeople(
+  store: DataStore,
+  organizationId: string,
+): Promise<{ assigneeId: string; creatorId: string } | null> {
+  const { members, principal } = await readTeam(store, organizationId);
+  const creator = members.find((m) => m.role === 'owner') ?? members[0];
+  if (!principal || !creator) return null;
+  return { assigneeId: principal.userId, creatorId: creator.userId };
 }
 
 /**
@@ -117,8 +123,8 @@ export async function ingestTasks(
   organizationId: string,
   payload: TaskIngestPayload,
 ): Promise<TaskIngestResult> {
-  const ownerId = await resolveOwnerId(store, organizationId);
-  if (!ownerId) {
+  const people = await resolveIngestPeople(store, organizationId);
+  if (!people) {
     log.warn('Task ingest skipped: no organization member to attribute the task to', {
       organizationId,
     });
@@ -159,8 +165,8 @@ export async function ingestTasks(
       deal_id: null,
       portfolio_company_id: null,
       email_message_id: null,
-      assigned_to: ownerId,
-      created_by: ownerId,
+      assigned_to: people.assigneeId,
+      created_by: people.creatorId,
       source: 'suggested',
       completed_at: null,
       created_at: now,

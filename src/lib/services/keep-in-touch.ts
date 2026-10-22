@@ -22,7 +22,8 @@ import { chunk, listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
-import type { AuditEvent, CrmRecord, OrganizationMember, Task } from '@/lib/types/domain';
+import { readTeam } from '@/lib/tasks/principal';
+import type { AuditEvent, CrmRecord, Task } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { err, ok, type Result } from '@/lib/util/result';
 import { DEFAULT_TIMEZONE, formatDate } from '@/lib/util/time';
@@ -346,31 +347,34 @@ export interface SweepResult {
 }
 
 /**
- * Who a record's check-in task goes to: whoever set its cadence, while they
- * are still a member; else the acting user; else the organization's owner
- * (the attribution task-ingest uses). The same answer from the daily job and
+ * Who a record's check-in tasks are for, and who made them. They are for the
+ * organization's principal (lib/tasks/principal.ts): the cadence is on a
+ * relationship of the person whose mail and calendar the app reads, and
+ * whoever set it (an assistant, often) set it for them. They are made by
+ * whoever set the cadence, while still a member; else by the acting user;
+ * else by the organization's owner. The same answer from the daily job and
  * from the sweep straight after a cadence is set.
  */
-async function assigneeFor(
+async function checkInPeople(
   store: DataStore,
   organizationId: string,
   actorId: string | null,
-): Promise<(cadence: Cadence) => string | null> {
-  const members = (await store.list(
-    'organization_members',
-    organizationId,
-    {},
-  )) as OrganizationMember[];
-  const ids = new Set(members.map((m) => m.user_id));
-  const owner = (members.find((m) => m.role === 'owner') ?? members[0])?.user_id ?? null;
+): Promise<{ assignee: string | null; creator: (cadence: Cadence) => string | null }> {
+  const { members, principal } = await readTeam(store, organizationId);
+  const ids = new Set(members.map((m) => m.userId));
+  const owner = (members.find((m) => m.role === 'owner') ?? members[0])?.userId ?? null;
   const fallback = actorId && ids.has(actorId) ? actorId : owner;
-  return (cadence) => (cadence.setById && ids.has(cadence.setById) ? cadence.setById : fallback);
+  return {
+    assignee: principal?.userId ?? null,
+    creator: (cadence) =>
+      cadence.setById && ids.has(cadence.setById) ? cadence.setById : fallback,
+  };
 }
 
 /**
  * Add a "Check in with …" task for every record whose cadence has come due
- * (see planCheckIns for what is never added twice), assigned to whoever set
- * that cadence (see assigneeFor). Never throws; a missing table is no tasks,
+ * (see planCheckIns for what is never added twice), for the organization's
+ * principal (see checkInPeople). Never throws; a missing table is no tasks,
  * and so is mail and calendar that cannot be read, since a due date cannot
  * be known without them.
  */
@@ -397,14 +401,15 @@ export async function sweepKeepInTouch(
     const plan = planCheckIns(candidates, tasks, now);
     if (!plan.create.length) return { created: [], existing: plan.existing };
 
-    const assign = await assigneeFor(store, organizationId, options.actor?.userId ?? null);
+    const people = await checkInPeople(store, organizationId, options.actor?.userId ?? null);
     const cadenceOfRecord = new Map(rows.map((row) => [row.record.id, row.cadence]));
     const created: string[] = [];
     const skipped: string[] = [];
     for (const planned of plan.create) {
       const cadence = cadenceOfRecord.get(planned.recordId);
-      const assignee = cadence ? assign(cadence) : null;
-      if (!assignee) {
+      const assignee = cadence ? people.assignee : null;
+      const creator = cadence ? people.creator(cadence) : null;
+      if (!assignee || !creator) {
         log.warn('Keep-in-touch task skipped: no organization member to attribute it to', {
           organizationId,
         });
@@ -425,7 +430,7 @@ export async function sweepKeepInTouch(
         portfolio_company_id: null,
         email_message_id: null,
         assigned_to: assignee,
-        created_by: assignee,
+        created_by: creator,
         source: 'suggested',
         completed_at: null,
         created_at: at,

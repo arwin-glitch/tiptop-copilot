@@ -1998,6 +1998,92 @@ removing an invitation from the calendar without answering, Duplicate of a
 whole series (the copy is one event), notifications per event, and the
 "modern" colour shades.
 
+### D-068 — Tasks belong to the principal: the person whose mailbox Copilot reads
+
+**Context.** Copilot reads one person's mail, calendar and meetings, and the
+tasks it finds there are that person's work. The code filed them under the
+organization's `owner` role instead: every routine suggestion (task-ingest),
+the fallback for keep-in-touch check-ins, and every copied Affinity reminder
+when nobody pressed; a follow-up added by hand, a check-in and a copied
+reminder went to whoever added, set or pressed. In a real team the owner is
+whoever set the organization up, an assistant, say, not the person whose
+mailbox it is. So on Tasks, Everyone and the owner showed the same rows and
+the mailbox person showed "Nothing for …", and a money or legal close asked
+for the owner's confirmation first.
+
+**Decision.**
+
+- **One rule, in `lib/tasks/principal.ts`:** the principal is (a) the member
+  whose profile address is the address of the organization's mailbox, the
+  oldest Google integration with the `gmail` kind, a connected one first,
+  then one that needs reconnecting (`needs_reauth`, `error`), then a
+  disconnected one; else (b) the member who connected that mailbox; else (c)
+  the `owner` role member; else (d) the first member. Members are read
+  oldest membership first, then by id, so no store order decides; addresses
+  compare without case or spaces. The oldest mailbox, not the newest, so a
+  second person connecting their own mailbox later never moves everyone's
+  tasks. A lapsed or disconnected mailbox still counts because Google's
+  grant lapses by itself (the sync marks it `needs_reauth`) while the
+  routines go on reading the same person's mail: dropping it would send
+  every new task back to the owner until someone reconnects. One read of
+  members and profiles (the reads Tasks' people already made) and one of the
+  Google integrations.
+- **Who a task is for (`assigned_to`) is the principal** for a routine's
+  suggestion, a follow-up added with no one chosen (the add dialog has no
+  picker; Ask's `create_task` too), a keep-in-touch check-in and a copied
+  Affinity reminder. Who made it (`created_by`) is unchanged: the owner for a
+  routine's task (the table needs a real person), whoever added, set or
+  pressed otherwise. A person's choice from the row's menu always stands.
+  Check-ins used to go to whoever set the cadence; they go to the principal
+  now, because the cadence is on a relationship of the person whose mail and
+  calendar decide when it comes due, and an assistant sets it for them.
+- **Tasks' people** carry a `principal` flag (the old `owner` flag is gone:
+  it only ever meant "first in the list" and "asked to confirm first"). The
+  principal is listed first, so the filter reads Everyone · principal ·
+  everyone else by name, and a money or legal close defaults to the
+  principal's confirmation. A row names its assignee only when that is not
+  the principal; an unassigned row says "No one", as the menu does, so a row
+  without a name is the principal's.
+- **The proof check (D-065)** still holds the assignee responsible
+  (`assigned_to ?? tickedBy`), and now knows the mailbox's owner by its
+  address too (rules a and b), so the principal's deliverables are judged
+  from their mailbox even when someone else connected it.
+- **The owner role keeps its meaning for permissions** (owner-only actions,
+  the daily job's acting user, the alert time zone); none of that changed.
+- **Tasks already filed under the owner** are moved by
+  `supabase/data-fixes/20261021002000_tasks_to_principal.sql`, run by hand in
+  the SQL editor after its two read-only previews (who the principal is, and
+  the tasks one by one): a task assigned to an owner who is not the
+  principal, `source` not `human`, with no `task.assigned` row (nobody
+  chose), open or snoozed. Done tasks stay where they are: they are history,
+  Completed has no person filter, and moving them would set the proof check
+  judging work an assistant already sent from their own mailbox. Each move
+  writes a `task.assigned` row (`reason: 'default owner fix'`), which also
+  makes a second run move nothing; only `assigned_to` changes, and
+  `updated_at` is kept. It lives in `supabase/data-fixes/`, not
+  `migrations/`, so `supabase db push` never runs it unreviewed. Its
+  selection is pinned in TypeScript (`lib/tasks/principal-backfill.ts`), the
+  SQL is checked against it by structure, and in review its real text was
+  run (translated to SQLite) against 20,000 random teams with no difference
+  from the TypeScript, since the repo has no Postgres.
+- **The demo** mirrors a real team: the teammate is the first owner, listed
+  first; the demo user, whose mailbox the demo reads, is the principal (and
+  keeps the owner role, so owner-only pages stay testable).
+
+**Known limits.**
+
+- A follow-up an assistant adds by hand for themselves now starts on the
+  principal; they hand it to themselves from the row's menu.
+- The rule and the backfill match the mailbox address to the member's
+  profile address (`user_profiles.email`), the only one the app reads. If
+  the mailbox person's profile has a different address from the mailbox,
+  the rule falls to whoever connected it: the backfill's preview shows how
+  the principal was found, and anything but "mailbox address" needs a look
+  before applying it.
+- A task an assistant asked the chat to add (`create_task`, source
+  `suggested`) was filed under them, and moves to the principal like the
+  rest; the second preview names who asked.
+
 ### D-069 — Calendar: Google's overlap layout, and the new views as the default
 
 **Context.** The new Day, Week and Month views went live behind their switch,

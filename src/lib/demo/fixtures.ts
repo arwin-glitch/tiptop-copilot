@@ -359,20 +359,26 @@ export function buildDemoDb(now: Date = new Date()): DemoDb {
     },
   ];
 
+  // As in a real team, the person whose mailbox the app reads is not the one
+  // who set the organization up: the teammate is the first owner, listed
+  // first, so code that looks for "the owner" finds them. The demo user
+  // keeps the owner role too, so the owner-only pages stay usable in the
+  // demo, but the organization's work is theirs: they are the principal
+  // (lib/tasks/principal.ts), by the mailbox address.
   const organization_members: OrganizationMember[] = [
+    {
+      id: `${ORG}-m2`,
+      organization_id: ORG,
+      user_id: DEMO_TEAMMATE.id,
+      role: 'owner',
+      created_at: daysAgo(now, 401),
+    },
     {
       id: `${ORG}-m1`,
       organization_id: ORG,
       user_id: USER,
       role: 'owner',
       created_at: daysAgo(now, 400),
-    },
-    {
-      id: `${ORG}-m2`,
-      organization_id: ORG,
-      user_id: DEMO_TEAMMATE.id,
-      role: 'member',
-      created_at: daysAgo(now, 200),
     },
   ];
 
