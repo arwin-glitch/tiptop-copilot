@@ -24,10 +24,10 @@ const PAGES = [
   { path: '/today', marker: '[data-tour="today-sections"]' },
   { path: '/tasks', marker: '[data-tour="tasks-list"]' },
   { path: '/follow-ups', marker: '[data-tour="followups-session"]' },
-  // The Day, Week and Month views (the default), and the day list by address
-  // (the switch is not touched, so nothing is remembered).
+  // The Day, Week and Month views, the default and each by address.
   { path: '/calendar', marker: '[data-calendar-view]' },
-  { path: '/calendar?view=list', marker: '[data-tour="calendar-days"]' },
+  // The retired day list's address: Day view now (D-072).
+  { path: '/calendar?view=list', marker: '[data-calendar-view="day"]' },
   { path: '/calendar?view=week', marker: '[data-calendar-view="week"]' },
   { path: '/calendar?view=month', marker: '[data-calendar-view="month"]' },
   { path: '/inbox', marker: '[data-tour="inbox-list"]' },

@@ -12,16 +12,17 @@ import {
 import type { RangeEvent } from './range-types';
 
 /**
- * The parity check: the new views (the default since D-069, after this matched
- * Nick's real calendar) must show the same events as the day list, one
- * switch away, for Nick's main calendar. For each day
- * in a range this reads the day exactly as the day list does
- * (readCalendarDayEvents, the same call the page makes) and the same days
- * through the new range reader, and lists every difference: an event one
+ * The parity check: the calendar's Day, Week and Month (the default since
+ * D-069, after this matched Nick's real calendar; the only views since
+ * D-072) must show the same events as the day reader that Today and the
+ * meeting pings use, for Nick's main calendar. For each day in a range this
+ * reads the day exactly as the day reader does (readCalendarDayEvents, the
+ * call the retired day list made) and the same days through the range
+ * reader, and lists every difference: an event one
  * shows and the other does not, or a changed title, time or verdict.
  *
  * Read-only: it calls list and get endpoints and nothing else, and skips the
- * day list's Gmail lookups (they add context, not events).
+ * day reader's Gmail lookups (they add context, not events).
  */
 
 export const PARITY_MAX_DAYS = 31;
@@ -151,7 +152,7 @@ export function diffDay(
   return out;
 }
 
-/** The new reader's events that the day list's one-day read would return for that day. */
+/** The range reader's events that the day reader's one-day read would return for that day. */
 export function eventsOnDay(
   events: readonly RangeEvent[],
   dateKey: string,
@@ -235,7 +236,7 @@ export async function checkCalendarParity(
 
   const dayKeys = Array.from({ length: days }, (_, i) => addDaysToKey(from, i));
   const reports: ParityDay[] = [];
-  // A few days at a time: the day list's read is one Google call per day.
+  // A few days at a time: the day reader's read is one Google call per day.
   for (let i = 0; i < dayKeys.length; i += 4) {
     const batch = await Promise.all(
       dayKeys.slice(i, i + 4).map(async (dateKey): Promise<ParityDay> => {

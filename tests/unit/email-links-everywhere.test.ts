@@ -63,7 +63,6 @@ const ALLOWED: Record<string, { names: string[]; why: string }> = {
 
 /** The pages and components that show email links: each draws them with ThreadLinks. */
 const DRAWS_THREAD_LINKS = [
-  'app/(app)/calendar/page.tsx',
   'app/(app)/deals/[id]/page.tsx',
   'app/(app)/follow-ups/page.tsx',
   'app/(app)/fund-ii/page.tsx',

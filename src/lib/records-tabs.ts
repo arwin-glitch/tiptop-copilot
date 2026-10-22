@@ -88,9 +88,10 @@ export const DEALS_TABS = define({
  * Diagnostics is a System page, not a Records page, but its feed health sits
  * behind the same kind of bar: the configuration report first (the bare
  * URL, unchanged), then when each routine and job was last seen. A desktop
- * feed notice opens `?tab=feeds`. The calendar parity check, which passed
- * before the new calendar views became the default, is `?tab=parity`; the
- * calendars' colour labels as read live from Google, `?tab=labels`.
+ * feed notice opens `?tab=feeds`. The calendar parity check (the calendar's
+ * range reader against the day reader Today and the meeting pings use) is
+ * `?tab=parity`; the calendars' colour labels as read live from Google,
+ * `?tab=labels`.
  */
 export const DIAGNOSTICS_TABS = define({
   path: '/diagnostics',
@@ -114,13 +115,13 @@ export const DIAGNOSTICS_TABS = define({
       key: 'parity',
       label: 'Event parity',
       blurb:
-        'Whether the Day, Week and Month views show the same events as the day list for the main calendar, day by day. Read-only.',
+        "Whether the calendar's Day, Week and Month show the same events as the day reader Today and the meeting pings use, for the main calendar, day by day. Read-only.",
     },
     {
       key: 'labels',
       label: 'Event labels',
       blurb:
-        "Each calendar's colour labels as Google has them right now, and how many events in the next 7 days carry each. Read-only.",
+        "Each calendar's colour labels as Google has them right now (the ones without a name folded into one line), and how many events in the next 7 days carry each. Read-only.",
     },
   ],
 });

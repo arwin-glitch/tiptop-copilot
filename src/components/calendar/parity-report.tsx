@@ -9,15 +9,16 @@ import { Input, Label, Select } from '@/components/ui/form';
 import { Notice } from '@/components/ui/feedback';
 
 /**
- * Diagnostics › Event parity: the day list and the new calendar views, side
- * by side for the main calendar, one row per difference. A server component:
- * the form is a plain GET, and nothing on this tab can change a calendar.
+ * Diagnostics › Event parity: the day reader (Today, the meeting pings) and
+ * the calendar's range reader (Day, Week, Month), side by side for the main
+ * calendar, one row per difference. A server component: the form is a plain
+ * GET, and nothing on this tab can change a calendar.
  */
 
 const KIND: Record<ParityDifference['kind'], { label: string; tone: 'warn' | 'danger' | 'info' }> =
   {
-    missing: { label: 'Missing from the new views', tone: 'danger' },
-    extra: { label: 'Only in the new views', tone: 'warn' },
+    missing: { label: 'Missing from the calendar', tone: 'danger' },
+    extra: { label: 'Only in the calendar', tone: 'warn' },
     changed: { label: 'Shown differently', tone: 'info' },
   };
 
@@ -91,7 +92,8 @@ export function ParityResult({ report }: { report: ParityReport }) {
             <p className="mt-0.5 text-sm text-[var(--fg-muted)]">
               {report.calendarName ? `${report.calendarName}, ` : ''}
               {dayLabel(report.from)} for {report.days} {report.days === 1 ? 'day' : 'days'} · day
-              list {totals.current} · new views {totals.next} · matched {totals.matched}
+              reader (Today, pings) {totals.current} · calendar {totals.next} · matched{' '}
+              {totals.matched}
             </p>
           </div>
           <Badge tone={clean ? 'ok' : 'warn'}>{clean ? 'Parity' : 'Not yet'}</Badge>
@@ -110,7 +112,7 @@ export function ParityResult({ report }: { report: ParityReport }) {
                   <p className="mb-1.5 text-sm font-medium">{dayLabel(day.dateKey)}</p>
                   {day.state === 'error' ? (
                     <p className="text-sm text-[var(--danger)]">
-                      The day list could not read it: {day.message}
+                      The day reader (Today, pings) could not read it: {day.message}
                     </p>
                   ) : null}
                   <ul className="space-y-1.5">
@@ -127,7 +129,7 @@ export function ParityResult({ report }: { report: ParityReport }) {
                           <ul className="mt-0.5 pl-3 text-xs text-[var(--fg-muted)]">
                             {d.fields.map((f) => (
                               <li key={f.field}>
-                                {f.field}: day list “{f.current}” · new views “{f.next}”
+                                {f.field}: day reader “{f.current}” · calendar “{f.next}”
                               </li>
                             ))}
                           </ul>

@@ -128,8 +128,8 @@ const RECENT_TTL_MS = 30 * 60_000;
 
 /**
  * The last few email threads with these people (calendar notices left out),
- * read-only, cached for half an hour. The day list's "latest emails with
- * them", and the event card's for an event on any calendar.
+ * read-only, cached for half an hour: the event card's "latest emails with
+ * them", for an event on any calendar.
  */
 export async function recentThreads(
   store: DataStore,
@@ -155,7 +155,7 @@ export async function recentThreads(
   return threads;
 }
 
-/** A day's events as the day list reads them, before any context is added. */
+/** A day's events as the day reader reads them, before any context is added. */
 export interface CalendarDayEvents {
   state: 'ok' | 'not_connected' | 'error';
   message?: string;
@@ -166,10 +166,11 @@ export interface CalendarDayEvents {
 }
 
 /**
- * The day list's own read of one day: the synced rows in demo mode, else one
- * primary-calendar read for the day window. Split out of readCalendarDay
- * unchanged, so the parity check (lib/calendar/parity.ts) compares the new
- * views against exactly what this page shows, without its Gmail lookups.
+ * The day reader's own read of one day: the synced rows in demo mode, else
+ * one primary-calendar read for the day window. Split out of readCalendarDay
+ * unchanged, so the parity check (lib/calendar/parity.ts) holds the views to
+ * exactly what this reads (the retired day list showed it), without its
+ * Gmail lookups.
  */
 export async function readCalendarDayEvents(
   store: DataStore,

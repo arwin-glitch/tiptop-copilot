@@ -474,26 +474,11 @@ export const HELP_PAGES: readonly HelpPage[] = [
         body: 'Turn each calendar on or off. Names and colors come straight from Google Calendar.',
         placement: 'right',
       },
-      {
-        // The same switch on both: it says which one is showing.
-        target: 'calendar-switch',
-        title: 'Prefer the day list?',
-        body: 'Turn New calendar off for the day list, one day at a time. Your choice is remembered.',
-        placement: 'bottom',
-      },
-      {
-        // Only on the day list.
-        target: 'calendar-days',
-        title: 'Pick a day',
-        body: 'On the day list: today and the days ahead. Tap one to see it.',
-        placement: 'bottom',
-      },
     ],
     sketch: [
       ...header(),
-      { x: 1, y: 3.8, w: 2.6, h: 1, tone: 'action', pin: 'calendar-days' },
-      { x: 4, y: 3.8, w: 6, h: 1, tone: 'tabs', pin: 'calendar-views' },
-      { x: 18, y: 3.8, w: 5, h: 1, tone: 'chip', pin: 'calendar-switch' },
+      { x: 1, y: 3.8, w: 9, h: 1, tone: 'tabs', pin: 'calendar-views' },
+      { x: 18, y: 3.8, w: 5, h: 1, tone: 'action' },
       { x: 1, y: 5.8, w: 4.2, h: 9.6, tone: 'pane', pin: 'calendar-list' },
       { x: 5.8, y: 5.8, w: 17.2, h: 9.6, tone: 'card', pin: 'calendar-entries' },
       { x: 7, y: 7, w: 2, h: 3, tone: 'gold' },

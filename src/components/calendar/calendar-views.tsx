@@ -73,21 +73,21 @@ import { EventEditor, type EditorState } from './event-editor';
 import { EventPanel, type CardAnchor } from './event-panel';
 import { MiniMonth } from './mini-month';
 import { MonthGrid } from './month-grid';
-import { PHONE_QUERY, PreviewSwitch } from './preview-switch';
 import { TimeGrid, type GridChange } from './time-grid';
 
 /**
- * The Calendar tab's Day, Week and Month views, the default (the "New
- * calendar" switch goes back to the day list): like Google Calendar, any
- * date past or future, Today and back and forward, a date picker, all in the
+ * The Calendar tab: Day, Week and Month (D-066, D-069; since D-072 the only
+ * way it shows, the old day list retired). Like Google Calendar, any date
+ * past or future, Today and back and forward, a date picker, all in the
  * address (?view=&date=). Nick's
  * calendars down the side with Google's own names and colours, each one on or
  * off. Every event keeps Copilot's Meeting/Block verdict, and a click on it
  * opens Google Calendar's event card beside it (event-panel.tsx): Edit,
  * Delete, Duplicate, Email guests, its colour, Going? for an invitation, Join.
  *
- * Above the grid, the calendars' colour labels as filter chips and a Key
- * that explains how events look (D-070): the fill is the label's colour,
+ * Above the grid, the calendars' named colour labels as filter chips (one
+ * line, "More" for the rest; D-072) and a Key that explains how events look
+ * (D-070): the fill is the label's colour,
  * faded once over, outlined with a "?" while unanswered, striped for maybe,
  * struck through when declined, and a bell on a meeting.
  *
@@ -121,6 +121,9 @@ const isTyping = (target: EventTarget | null) =>
   (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
 const VIEW_LABEL: Record<CalendarViewKind, string> = { day: 'Day', week: 'Week', month: 'Month' };
+
+/** A phone-sized screen: the calendar opens on Day there, like Google Calendar's app. */
+const PHONE_QUERY = '(max-width: 639px)';
 
 function parseView(value: string | null): CalendarViewKind | null {
   return CALENDAR_VIEWS.includes(value as CalendarViewKind) ? (value as CalendarViewKind) : null;
@@ -303,7 +306,7 @@ export function CalendarViews(props: CalendarViewsProps) {
       }
       if (next.view && next.view !== savedView.current) {
         savedView.current = next.view;
-        void savePrefs({ view: next.view, preview: true });
+        void savePrefs({ view: next.view });
       }
     },
     [view, date],
@@ -940,7 +943,6 @@ export function CalendarViews(props: CalendarViewsProps) {
             </PopoverTrigger>
             <PopoverContent className="w-72">{calendarList}</PopoverContent>
           </Popover>
-          <PreviewSwitch on openHref="/calendar" />
         </div>
       </div>
 

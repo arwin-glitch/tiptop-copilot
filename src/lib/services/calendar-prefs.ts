@@ -8,30 +8,26 @@ import { err, ok, type Result } from '@/lib/util/result';
 import { CALENDAR_VIEWS, type CalendarViewKind } from '@/lib/calendar/range-types';
 
 /**
- * Each person's Calendar tab settings: whether they use the new views (the
- * "New calendar" switch), which view they were last on, the calendars they
- * turned on or off, and the colour labels they filtered the views to. No schema change: an `audit_events` row per change
- * (action `calendar.prefs_set`, newest per person wins), written directly
- * rather than through recordAudit, whose redaction would mangle calendar ids
- * that look like email addresses. A failed read is the defaults, never an
- * error page.
+ * Each person's Calendar tab settings: which view they were last on, the
+ * calendars they turned on or off, and the colour labels they filtered the
+ * views to. No schema change: an `audit_events` row per change (action
+ * `calendar.prefs_set`, newest per person wins), written directly rather
+ * than through recordAudit, whose redaction would mangle calendar ids that
+ * look like email addresses. A failed read is the defaults, never an error
+ * page.
  *
- * The new views are the default (D-069): someone who never chose gets them.
- * Rows written since carry `v: 2`, and their `preview` is the person's own
- * choice. Older rows always stored `preview`, false unless the switch was on,
- * so a false there is kept only when it was the switch that set it: a switch
- * turned from on to off, or a save that changed nothing else (the switch,
- * turned off on views opened by address). A false that came along with a
- * calendar toggle is not a choice, and reads as the new default.
+ * The "New calendar" switch and the day list it went back to are retired
+ * (D-072): the views are the only way the tab shows. Older rows carry a
+ * `preview` flag (the switch); it is ignored when read, and a save that still
+ * names it (a page loaded before the change) is accepted and the flag
+ * dropped. Rows written since carry `v: 3` and no flag.
  */
 
 export const CALENDAR_PREFS_ACTION = 'calendar.prefs_set';
-/** Rows written since the new views became the default. */
-export const CALENDAR_PREFS_VERSION = 2;
+/** Rows written since the switch was retired (2: the views the default; 1 or none: before). */
+export const CALENDAR_PREFS_VERSION = 3;
 
 export interface CalendarPrefs {
-  /** On the new views (the switch on). On by default; off is the day list. */
-  preview: boolean;
   view: CalendarViewKind;
   /** Calendars toggled here: id to shown. Others follow Google's own tick. */
   shown: Record<string, boolean>;
@@ -40,7 +36,6 @@ export interface CalendarPrefs {
 }
 
 export const DEFAULT_CALENDAR_PREFS: CalendarPrefs = {
-  preview: true,
   view: 'week',
   shown: {},
   labelFilter: [],
@@ -48,8 +43,6 @@ export const DEFAULT_CALENDAR_PREFS: CalendarPrefs = {
 
 const MAX_TOGGLES = 100;
 const MAX_LABEL_FILTER = 50;
-/** How far back an older "off" is traced to the switch that set it. */
-const LEGACY_LOOKBACK = 50;
 
 const VIEW = z.enum(CALENDAR_VIEWS as [CalendarViewKind, ...CalendarViewKind[]]);
 
@@ -59,18 +52,16 @@ const SHOWN = z
 
 const LABEL_FILTER = z.array(z.string().min(1).max(200)).max(MAX_LABEL_FILTER);
 
+/** A stored row: anything else on it (an older row's `preview`, its `v`) is left out. */
 const STORED = z.object({
-  v: z.number().int().optional().catch(undefined),
-  preview: z.boolean().optional().catch(undefined),
   view: VIEW.catch('week'),
   shown: SHOWN.catch({}),
   labelFilter: LABEL_FILTER.catch([]),
 });
 
-type StoredPrefs = z.infer<typeof STORED>;
-
 export const CALENDAR_PREFS_PATCH = z
   .object({
+    /** The retired switch: still accepted from a page loaded before, and ignored. */
     preview: z.boolean().optional(),
     view: VIEW.optional(),
     shown: z.record(z.string().min(1).max(320), z.boolean()).optional(),
@@ -89,34 +80,10 @@ function listRows(store: DataStore, organizationId: string, userId: string, limi
   ) as Promise<AuditEvent[]>;
 }
 
-function parseRow(row: AuditEvent | undefined): StoredPrefs | null {
+function parseRow(row: AuditEvent | undefined): CalendarPrefs | null {
   if (!row) return null;
   const parsed = STORED.safeParse(row.metadata ?? {});
   return parsed.success ? parsed.data : null;
-}
-
-const sameShown = (a: Record<string, boolean>, b: Record<string, boolean>) => {
-  const keys = Object.keys(a);
-  return keys.length === Object.keys(b).length && keys.every((k) => b[k] === a[k]);
-};
-
-/**
- * Whether an older row's "off" (newest first, rows[0] the off) was set by the
- * switch: it followed a row with the switch on, or changed nothing but the
- * save itself. A calendar toggle always changes `shown`, so it is never taken
- * for the switch. `complete` says the rows reach back to the person's first.
- */
-export function legacySwitchedOff(rows: readonly StoredPrefs[], complete: boolean): boolean {
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]!;
-    if (row.v !== undefined) return row.preview === false;
-    if (row.preview !== false) return false;
-    const older = rows[i + 1];
-    if (!older) return complete && Object.keys(row.shown).length === 0;
-    if (older.v === undefined && older.preview === true) return true;
-    if (sameShown(row.shown, older.shown) && row.view === older.view) return true;
-  }
-  return false;
 }
 
 export async function readCalendarPrefs(
@@ -126,17 +93,7 @@ export async function readCalendarPrefs(
 ): Promise<CalendarPrefs> {
   try {
     const latest = parseRow((await listRows(store, organizationId, userId, 1))[0]);
-    if (!latest) return { ...DEFAULT_CALENDAR_PREFS };
-    const settled = { view: latest.view, shown: latest.shown, labelFilter: latest.labelFilter };
-    if (latest.v !== undefined || latest.preview !== false) {
-      return { preview: latest.preview ?? true, ...settled };
-    }
-    // An older row saying the day list: kept only if the switch said so.
-    const history = (await listRows(store, organizationId, userId, LEGACY_LOOKBACK))
-      .map(parseRow)
-      .filter((r): r is StoredPrefs => r !== null);
-    const off = legacySwitchedOff(history, history.length < LEGACY_LOOKBACK);
-    return { preview: !off, ...settled };
+    return latest ?? { ...DEFAULT_CALENDAR_PREFS };
   } catch (error) {
     log.warn('Calendar settings could not be read', {
       reason: error instanceof Error ? error.message : String(error),
@@ -156,7 +113,6 @@ export async function saveCalendarPrefs(
   const current = await readCalendarPrefs(store, organizationId, userId);
   const shownEntries = Object.entries({ ...current.shown, ...(patch.shown ?? {}) });
   const next: CalendarPrefs = {
-    preview: patch.preview ?? current.preview,
     view: patch.view ?? current.view,
     shown: Object.fromEntries(shownEntries.slice(-MAX_TOGGLES)),
     labelFilter: [...new Set(patch.labelFilter ?? current.labelFilter)].slice(0, MAX_LABEL_FILTER),

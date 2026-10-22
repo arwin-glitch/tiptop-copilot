@@ -6,9 +6,9 @@ import { CALENDAR_PREFS_PATCH, saveCalendarPrefs } from '@/lib/services/calendar
 export const dynamic = 'force-dynamic';
 
 /**
- * Remember a person's Calendar tab choices: the new views on or off, the
- * view they were on, the calendars they toggled, the colour labels they
- * filtered to. Their own settings only; nothing here reaches Google.
+ * Remember a person's Calendar tab choices: the view they were on, the
+ * calendars they toggled, the colour labels they filtered to. Their own
+ * settings only; nothing here reaches Google.
  */
 export async function POST(request: NextRequest) {
   const gate = await calendarAuth(request, { bucket: 'prefs', max: 120, write: true });

@@ -22,6 +22,8 @@ import { storeTokens } from '@/lib/google/oauth';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import {
   CALENDAR_PREFS_ACTION,
+  CALENDAR_PREFS_PATCH,
+  CALENDAR_PREFS_VERSION,
   DEFAULT_CALENDAR_PREFS,
   readCalendarPrefs,
   saveCalendarPrefs,
@@ -30,11 +32,12 @@ import { ok } from '@/lib/util/result';
 import { createHarness, type Harness } from '../helpers/harness';
 
 /**
- * The new views' reader, over the mock calendar (and Google's own pages,
- * with fetch stubbed): any range, every visible calendar, Google's names and
- * colours, recurring series as their instances, and the same verdict the day
- * list gives. Then the parity check that compares the two readers, and the
- * per-person settings behind the "New calendar" switch.
+ * The calendar views' range reader, over the mock calendar (and Google's own
+ * pages, with fetch stubbed): any range, every visible calendar, Google's
+ * names and colours, recurring series as their instances, and the same
+ * verdict the day reader (Today, the pings) gives. Then the parity check that
+ * compares the two readers, and the per-person settings (the retired "New
+ * calendar" switch's flag ignored, D-072).
  */
 
 const NOW = new Date('2026-10-21T15:00:00Z'); // Wednesday, 10:00 in Chicago
@@ -388,10 +391,10 @@ describe('the parity check', () => {
 describe('each person’s calendar settings', () => {
   const minute = (n: number) => new Date(NOW.getTime() + n * 60_000);
 
-  /** A row as written before the new views became the default: no `v`, `preview` always set. */
-  async function legacyRow(
+  /** A row as written while the "New calendar" switch existed: `preview` always set. */
+  async function olderRow(
     n: number,
-    metadata: { preview: boolean; view?: string; shown?: Record<string, boolean> },
+    metadata: { v?: number; preview: boolean; view?: string; shown?: Record<string, boolean> },
   ) {
     const { organizationId, userId } = harness.auth;
     await harness.store.insert('audit_events', {
@@ -410,17 +413,11 @@ describe('each person’s calendar settings', () => {
   const read = () =>
     readCalendarPrefs(harness.store, harness.auth.organizationId, harness.auth.userId);
 
-  it('start with the new views, and remember the switch, the view and the toggles', async () => {
+  it('start with Week, and remember the view and the toggles', async () => {
     const { organizationId, userId } = harness.auth;
-    expect(DEFAULT_CALENDAR_PREFS.preview).toBe(true);
+    expect(DEFAULT_CALENDAR_PREFS).toEqual({ view: 'week', shown: {}, labelFilter: [] });
     expect(await read()).toEqual(DEFAULT_CALENDAR_PREFS);
-    await saveCalendarPrefs(
-      harness.store,
-      organizationId,
-      userId,
-      { preview: true, view: 'month' },
-      minute(1),
-    );
+    await saveCalendarPrefs(harness.store, organizationId, userId, { view: 'month' }, minute(1));
     await saveCalendarPrefs(
       harness.store,
       organizationId,
@@ -436,85 +433,54 @@ describe('each person’s calendar settings', () => {
       minute(3),
     );
     expect(await read()).toEqual({
-      preview: true,
       view: 'month',
       shown: { [MOCK_DEALS_CALENDAR]: true, [MOCK_TEAM_CALENDAR]: false },
       labelFilter: [],
     });
   });
 
-  it('keep the day list for someone who turns the switch off, toggles included', async () => {
-    const { organizationId, userId } = harness.auth;
-    await saveCalendarPrefs(harness.store, organizationId, userId, { preview: false }, minute(1));
-    expect((await read()).preview).toBe(false);
-    // A calendar toggled on views opened by address leaves the choice as it was.
-    await saveCalendarPrefs(
-      harness.store,
-      organizationId,
-      userId,
-      { shown: { [MOCK_TEAM_CALENDAR]: false } },
-      minute(2),
-    );
+  it('ignore the retired switch on older rows, keeping what else they say', async () => {
+    // Someone who had turned the switch off: the views anyway, their view and toggles kept.
+    await olderRow(1, { preview: true, view: 'day' });
+    await olderRow(2, { preview: false, view: 'day', shown: { [MOCK_TEAM_CALENDAR]: false } });
     expect(await read()).toEqual({
-      preview: false,
-      view: 'week',
+      view: 'day',
       shown: { [MOCK_TEAM_CALENDAR]: false },
       labelFilter: [],
     });
-    await saveCalendarPrefs(harness.store, organizationId, userId, { preview: true }, minute(3));
-    expect((await read()).preview).toBe(true);
+    await olderRow(3, { v: 2, preview: false, view: 'month' });
+    expect(await read()).toEqual({ view: 'month', shown: {}, labelFilter: [] });
   });
 
-  it('keep an older "off" the switch set: turned off after being on', async () => {
-    await legacyRow(1, { preview: true, view: 'day' });
-    await legacyRow(2, { preview: false, view: 'day' });
-    expect(await read()).toEqual({ preview: false, view: 'day', shown: {}, labelFilter: [] });
-    // Still off after a later calendar toggle on views opened by address.
-    await legacyRow(3, { preview: false, view: 'day', shown: { [MOCK_TEAM_CALENDAR]: false } });
-    expect((await read()).preview).toBe(false);
-  });
-
-  it('keep an older "off" the switch set on views opened by address: nothing else changed', async () => {
-    await legacyRow(1, { preview: false });
-    expect((await read()).preview).toBe(false);
-  });
-
-  it('read an older "off" that only came with a calendar toggle as the new default', async () => {
-    await legacyRow(1, { preview: false, shown: { [MOCK_DEALS_CALENDAR]: true } });
-    expect(await read()).toEqual({
-      preview: true,
-      view: 'week',
-      shown: { [MOCK_DEALS_CALENDAR]: true },
-      labelFilter: [],
-    });
-    await legacyRow(2, {
-      preview: false,
-      shown: { [MOCK_DEALS_CALENDAR]: true, [MOCK_TEAM_CALENDAR]: false },
-    });
-    expect((await read()).preview).toBe(true);
-  });
-
-  it('write the new kind of row from then on, keeping what the older ones said', async () => {
+  it('accept a save that still names the switch (a page loaded before), and drop it', async () => {
     const { organizationId, userId } = harness.auth;
-    await legacyRow(1, { preview: false, shown: { [MOCK_DEALS_CALENDAR]: true } });
+    expect(CALENDAR_PREFS_PATCH.safeParse({ preview: false, view: 'day' }).success).toBe(true);
+    expect(CALENDAR_PREFS_PATCH.safeParse({ somethingElse: true }).success).toBe(false);
+    await olderRow(1, { preview: false, shown: { [MOCK_DEALS_CALENDAR]: true } });
     const saved = await saveCalendarPrefs(
       harness.store,
       organizationId,
       userId,
-      { view: 'day' },
+      { preview: false, view: 'day' },
       minute(2),
     );
     expect(saved.ok && saved.value).toEqual({
-      preview: true,
       view: 'day',
       shown: { [MOCK_DEALS_CALENDAR]: true },
       labelFilter: [],
     });
-    expect(await read()).toEqual({
-      preview: true,
+    const rows = await harness.store.list(
+      'audit_events',
+      organizationId,
+      { eq: { user_id: userId, action: CALENDAR_PREFS_ACTION } },
+      { orderBy: [{ field: 'created_at', direction: 'desc' }], limit: 1 },
+    );
+    expect(rows[0]!.metadata).toEqual({
+      v: CALENDAR_PREFS_VERSION,
       view: 'day',
       shown: { [MOCK_DEALS_CALENDAR]: true },
       labelFilter: [],
     });
+    expect(CALENDAR_PREFS_VERSION).toBe(3);
   });
 });

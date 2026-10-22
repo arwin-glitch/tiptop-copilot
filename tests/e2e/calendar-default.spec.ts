@@ -5,11 +5,13 @@ import { expect, test, type Page } from '@playwright/test';
  * The Calendar tab's default and its busy-day layout, over the demo's mock
  * calendar (nothing here reaches Google).
  *
- * The Day, Week and Month views are what a plain /calendar opens for someone
- * who never touched the "New calendar" switch; turning it off keeps the day
- * list, and that is remembered; ?view=list and old ?day= links are the day
- * list. This file runs before the other calendar specs (it sorts first), so
- * the first test sees a person with nothing chosen, and the switch is left on.
+ * The Day, Week and Month views are all the tab shows (D-072): a plain
+ * /calendar opens Week on a computer for someone who chose nothing, with no
+ * "New calendar" switch and no day list; the day list's old addresses,
+ * ?view=list and ?day=, open Day on that date; and Today's link into the
+ * calendar lands on today's Day. This file runs before the other calendar
+ * specs (it sorts first), so the first test sees a person with nothing
+ * chosen.
  *
  * On the demo's conference day, long overlapping blocks lie under short
  * meetings, as on a real busy day: the overlap layout must keep every chip at
@@ -50,6 +52,7 @@ const grid = (page: Page, view: 'day' | 'week' | 'month') =>
   page.locator(`[data-calendar-view="${view}"]`);
 const dayList = (page: Page) => page.getByRole('navigation', { name: 'Day' });
 const toggle = (page: Page) => page.getByRole('switch', { name: 'New calendar' });
+const heading = (page: Page) => page.locator('[data-tour="calendar-views"] h2');
 /**
  * A day of the busy week with nothing on it, for a press on empty time. Not
  * simply the day beside the busy one: depending on today's weekday that can
@@ -93,57 +96,64 @@ async function expectNoSidewaysScroll(page: Page) {
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 2);
 }
 
-test('with nothing chosen, /calendar opens the new views, Week on a computer', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/calendar');
-  await expect(grid(page, 'week')).toBeVisible();
-  await expect(toggle(page)).toBeChecked();
-  await expect(dayList(page)).toHaveCount(0);
-  // The page says nothing about a preview any more.
-  await expect(page.locator('main').getByText(/preview/i)).toHaveCount(0);
-});
-
-test('?view=list and an old ?day= link open the day list', async ({ page }) => {
-  await page.goto('/calendar?view=list');
-  await expect(dayList(page).getByRole('link')).toHaveCount(7);
-  await expect(toggle(page)).not.toBeChecked();
-  // With the new views the default, the day list's own Today stays on the day list.
-  await expect(dayList(page).getByRole('link', { name: 'Today' })).toHaveAttribute(
-    'href',
-    '/calendar?view=list',
-  );
-  const tomorrow = dayFromToday(1);
-  await page.goto(`/calendar?day=${tomorrow}`);
-  await expect(dayList(page).locator('[aria-current="date"]')).toHaveAttribute(
-    'href',
-    `/calendar?day=${tomorrow}`,
-  );
-});
-
-test('turning the switch off keeps the day list, remembered, and on brings the views back', async ({
+test('with nothing chosen, /calendar opens the views, Week on a computer, with no switch', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/calendar');
-  await toggle(page).click();
-  await page.waitForURL(/\/calendar$/);
-  await expect(dayList(page).getByRole('link')).toHaveCount(7);
-  await page.goto('/calendar');
-  await expect(dayList(page)).toBeVisible();
-  await expect(dayList(page).getByRole('link', { name: 'Today' })).toHaveAttribute(
-    'href',
-    '/calendar',
-  );
-  // An address that names a view still opens it.
-  await page.goto('/calendar?view=month');
-  await expect(grid(page, 'month')).toBeVisible();
+  await expect(grid(page, 'week')).toBeVisible();
+  // The day list and its switch are gone.
+  await expect(toggle(page)).toHaveCount(0);
+  await expect(page.getByRole('switch')).toHaveCount(0);
+  await expect(dayList(page)).toHaveCount(0);
+  await expect(page.locator('main').getByText(/preview|day list/i)).toHaveCount(0);
+});
 
-  // On again (the default), for the specs that follow.
-  await page.goto('/calendar');
-  await toggle(page).click();
-  await page.waitForURL(/\/calendar\?view=week&date=\d{4}-\d{2}-\d{2}$/);
+test('?view=list and old ?day= links open Day on that date, other parameters kept', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/calendar?view=list');
+  await page.waitForURL((url) => url.pathname === '/calendar' && url.search === '?view=day');
+  await expect(grid(page, 'day')).toBeVisible();
+  await expect(grid(page, 'day').locator(`[data-date="${dayFromToday(0)}"]`)).toBeVisible();
+
+  const tomorrow = dayFromToday(1);
+  await page.goto(`/calendar?day=${tomorrow}`);
+  await page.waitForURL(
+    (url) => url.pathname === '/calendar' && url.search === `?view=day&date=${tomorrow}`,
+  );
+  await expect(grid(page, 'day').locator(`[data-date="${tomorrow}"]`)).toBeVisible();
+  await expect(grid(page, 'week')).toHaveCount(0);
+  await expect(dayList(page)).toHaveCount(0);
+
+  const later = dayFromToday(3);
+  await page.goto(`/calendar?view=list&day=${later}&from=ping`);
+  await page.waitForURL(
+    (url) => url.pathname === '/calendar' && url.search === `?view=day&date=${later}&from=ping`,
+  );
+  await expect(grid(page, 'day').locator(`[data-date="${later}"]`)).toBeVisible();
+  // The address names Day: the saved view is still Week.
   await page.goto('/calendar');
   await expect(grid(page, 'week')).toBeVisible();
+});
+
+test('Today’s link into the calendar lands on today’s Day', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/today');
+  const section = page.getByRole('button', { name: /Today's meetings/ });
+  await expect(section).toBeVisible();
+  if ((await section.getAttribute('aria-expanded')) !== 'true') await section.click();
+  const link = page.getByRole('link', { name: /Full day and meeting prep in Calendar/ });
+  await expect(link).toHaveAttribute('href', '/calendar?view=day');
+  await link.click();
+  await page.waitForURL((url) => url.pathname === '/calendar' && url.search === '?view=day');
+  await expect(grid(page, 'day').locator(`[data-date="${dayFromToday(0)}"]`)).toBeVisible();
+  await expect(heading(page)).toContainText(
+    new Intl.DateTimeFormat('en-US', { timeZone: TZ, month: 'long', day: 'numeric' }).format(
+      new Date(),
+    ),
+  );
 });
 
 test('a busy day: long blocks cascade under meetings, no chip under the minimum, no word broken', async ({
@@ -360,6 +370,15 @@ test('a phone: the busy week fits without scrolling sideways, titles cut whole',
   await page.goto(`/calendar?view=week&date=${busy}`);
   await expect(grid(page, 'week')).toBeVisible();
   await expect(page.locator(`[data-date="${busy}"] [data-event-chip]`).first()).toBeVisible();
+  await expectNoSidewaysScroll(page);
+  // The label chips are a strip that scrolls sideways on its own: all of them, no "More".
+  const strip = page.getByRole('group', { name: 'Labels' });
+  await expect(strip.getByRole('button')).toHaveCount(10);
+  await expect(strip.locator('[data-label-more]')).toBeHidden();
+  const scroll = await strip.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
+  expect(scroll.sw).toBeGreaterThan(scroll.cw);
+  await strip.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
+  await expect(strip.getByRole('button', { name: 'Unlabelled', exact: true })).toBeInViewport();
   await expectNoSidewaysScroll(page);
   for (const rule of await titleBreaks(page)) {
     expect(rule).toBe('normal|normal');

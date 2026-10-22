@@ -497,7 +497,8 @@ async function TodayContent({
             {hiddenBlocks > 0
               ? `${hiddenBlocks} ${hiddenBlocks === 1 ? 'block' : 'blocks'} (Focus, Travel, Prep and the like) not shown. `
               : ''}
-            <Link href="/calendar" className="link-inline">
+            {/* Today in Day view (its date is today's when the calendar opens); a click on a meeting opens its prep. */}
+            <Link href="/calendar?view=day" className="link-inline">
               Full day and meeting prep in Calendar →
             </Link>
           </p>

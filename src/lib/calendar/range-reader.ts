@@ -30,14 +30,14 @@ import {
 } from './range-types';
 
 /**
- * The new Calendar views' reader: any date range, past or future, on any of
+ * The Calendar views' reader: any date range, past or future, on any of
  * the account's calendars, with Google's own names and colours, and the same
- * Meeting/Block verdict the day list and the meeting pings give (it runs
+ * Meeting/Block verdict Today and the meeting pings give (it runs
  * classifyMeeting on the same mapped event, toMeetingEvent).
  *
  * One events.list per visible calendar per range (all pages, single events,
  * so recurring series arrive as their instances), cancelled events left out
- * as Google leaves them out of the day list's read. The calendar list and the
+ * as Google leaves them out of the day reader's read. The calendar list and the
  * colours are cached for minutes, a range for a minute, per organization, and
  * a write from the Calendar tab drops what it changed (invalidateCalendarCache).
  *
@@ -48,8 +48,9 @@ import {
  * carries its eventLabelId; its colour is then its label's. A calendar whose
  * labels cannot be read just shows none: the range still draws.
  *
- * It never writes. The day list (calendar-view.ts) and the pings
- * (listMeetingEvents) keep their own reads; the parity check compares the two.
+ * It never writes. The day reader (calendar-view.ts, for Today and the card's
+ * context) and the pings (listMeetingEvents) keep their own reads; the parity
+ * check compares them.
  */
 
 const CALENDARS_TTL_MS = 5 * 60_000;
@@ -250,7 +251,7 @@ export async function calendarSource(
     source: {
       provider,
       integration,
-      // The same "Nick" the day list classifies against.
+      // The same "Nick" the day reader classifies against.
       ownEmails: [integration.account_email ?? ownEmail].filter(Boolean),
       demo: false,
     },

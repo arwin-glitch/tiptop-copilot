@@ -26,7 +26,7 @@ import { localDateKey } from '@/lib/util/time';
  * read-only Gmail search. Ranked by lib/calendar/origin.ts; the best one to
  * three are shown as short lines, each with the thread's Copilot and Gmail
  * links. When nothing turns up, it says what was checked and offers the
- * Inbox search. Shared by the event card and the day list.
+ * Inbox search. Used by the event card (the retired day list used it too).
  *
  * Cached per event for ten minutes, so opening a card twice reads once.
  */

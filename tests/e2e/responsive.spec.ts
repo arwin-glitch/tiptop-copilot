@@ -81,9 +81,9 @@ const PAGES = [
   // Diagnostics, and its feeds with their long schedule lines.
   '/diagnostics',
   '/diagnostics?tab=feeds',
-  // Rows whose email links offer Copilot and Gmail side by side (the
-  // calendar's day list among them), and the calendar's views: the default
-  // and each one by address.
+  // Rows whose email links offer Copilot and Gmail side by side, and the
+  // calendar's views: the default, the retired day list's address (Day now,
+  // D-072) and each one by address.
   '/calendar',
   '/calendar?view=list',
   '/portfolio?tab=requests',

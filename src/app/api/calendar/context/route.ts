@@ -19,11 +19,11 @@ export const dynamic = 'force-dynamic';
 /**
  * What an event's card loads once it is open (never the grid):
  *
- * - For a meeting on the main calendar, the day list's context box: the
- *   dossier's "one thing to know", "how you got here" and "worth asking",
- *   the week-ahead prep note and the latest emails with the people on it,
- *   read through the day list's own reader for that day, so both say the
- *   same. For a meeting on another calendar, the latest emails with its guests.
+ * - For a meeting on the main calendar, the meeting context (it was the
+ *   retired day list's box): the dossier's "one thing to know", "how you got
+ *   here" and "worth asking", the week-ahead prep note and the latest emails
+ *   with the people on it, read through the day reader for that day (the one
+ *   Today and the meeting pings use), so they all say the same. For a meeting on another calendar, the latest emails with its guests.
  * - When none of that says anything (no other guests, a registration, a
  *   hold, an invite from a list), where it came from: the email that put it
  *   on the calendar, or what was checked and the Inbox search

@@ -120,7 +120,6 @@ export function fetchSeries(calendarId: string, eventId: string) {
 }
 
 export function savePrefs(patch: {
-  preview?: boolean;
   view?: CalendarViewKind;
   shown?: Record<string, boolean>;
   /** The legend's label filter: label keys (labels.ts), empty for everything. */
