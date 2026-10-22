@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
+import { devices, expect, test, type Browser, type Locator, type Page } from '@playwright/test';
 
 /**
  * The booking page assistant (D-078) in a browser, over the demo, with
@@ -23,8 +23,14 @@ const PERSON_CONFIRMS = /will confirm|until .* confirms|someone will review|Arwi
 
 test.describe.configure({ mode: 'serial' });
 
-async function visitor(browser: Browser, baseURL: string | undefined, viewport = DESKTOP) {
+async function visitor(
+  browser: Browser,
+  baseURL: string | undefined,
+  viewport = DESKTOP,
+  device: Record<string, unknown> = {},
+) {
   const context = await browser.newContext({
+    ...device,
     baseURL,
     viewport,
     storageState: { cookies: [], origins: [] },
@@ -253,7 +259,13 @@ test('waits for a routine answer while the visitor keeps going', async ({ browse
 });
 
 test('works on a 390px phone', async ({ browser }, testInfo) => {
-  const { context, page } = await visitor(browser, testInfo.project.use.baseURL, PHONE);
+  // A touch phone (mobile browser, touch), narrowed to 390px.
+  const { context, page } = await visitor(
+    browser,
+    testInfo.project.use.baseURL,
+    PHONE,
+    devices['Pixel 7'],
+  );
   const chat = await openChat(page);
   const box = await chat.boundingBox();
   expect(box?.width).toBeLessThanOrEqual(PHONE.width);

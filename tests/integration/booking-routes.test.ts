@@ -135,12 +135,13 @@ describe('a saved video link (hotfix)', () => {
     const slotsText = await slots.text();
     texts.push(slotsText);
     const start = (JSON.parse(slotsText) as { slots: { start: string }[] }).slots[0]!.start;
+    // The assistant (D-078): its opening, open times and questions.
     for (const body of [
-      { mode: 'guided', action: 'find_time', type: 'call' },
-      { mode: 'guided', action: 'message' },
-      { mode: 'guided', action: 'about' },
-      { mode: 'guided' },
-      { mode: 'live', messages: [{ role: 'user', content: 'What is the Zoom link?' }] },
+      { action: 'start' },
+      { action: 'times', type: 'call' },
+      { action: 'ask', question: 'What is the Zoom link?', sessionId: 'video-link-0001' },
+      { action: 'ask', question: 'How long is a call?', sessionId: 'video-link-0001' },
+      { action: 'ask', question: 'Can we hop on a zoom?', sessionId: 'video-link-0001' },
     ]) {
       const res = await chatRoute(post('/api/meet/nick/chat', body), params());
       expect(res.status).toBe(200);

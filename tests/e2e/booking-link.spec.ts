@@ -204,9 +204,9 @@ test('an hour in person: coffee at one of the listed places', async ({ browser }
   await context.close();
 });
 
-test('the chatbot’s guided helper fills the form, and the visitor presses Send', async ({
-  browser,
-}, testInfo) => {
+test('the assistant books in the chat itself (D-078)', async ({ browser }, testInfo) => {
+  // The assistant's own flows are covered in booking-chat.spec.ts; this keeps
+  // the chat-booked request the Copilot side checks below ("Jordan Chat").
   const { context, page } = await visitor(browser, testInfo.project.use.baseURL, {
     viewport: { width: 1280, height: 900 },
   });
@@ -218,35 +218,18 @@ test('the chatbot’s guided helper fills the form, and the visitor presses Send
     chat.getByText("Hi, I'm Arwin, Nick's AI scheduling assistant.", { exact: false }),
   ).toBeVisible();
   await expect(chat.getByText('Arwin is an AI assistant.', { exact: false })).toBeVisible();
-  // No model in the demo: the guided buttons, no free-text box.
-  await expect(chat.getByRole('textbox')).toHaveCount(0);
 
-  await chat.getByRole('button', { name: 'About TipTop VC (Demo)' }).click();
-  await expect(
-    chat.getByText('TipTop VC (Demo) is an invented fund', { exact: false }),
-  ).toBeVisible();
-
-  await chat.getByRole('button', { name: 'Find a time' }).click();
-  await chat.getByRole('button', { name: '30-min Google Meet' }).click();
+  await chat.getByRole('button', { name: 'Book a 30-min call' }).click();
   const times = chat.getByRole('group', { name: 'Open times' }).last();
   await expect(times.getByRole('button').first()).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: shot('chatbot-guided') });
   await times.getByRole('button').first().click();
-  await expect(chat.getByText(/in the form\. Add your name and email there/)).toBeVisible();
-  await chat.getByRole('button', { name: 'Close chat' }).click();
-
-  await expect(page.getByText('Arwin filled in the form for you.', { exact: false })).toBeVisible();
-  await expect(
-    page.getByRole('radiogroup', { name: 'Time' }).getByRole('radio', { checked: true }),
-  ).toHaveCount(1);
-  // Nothing was sent until the visitor presses Send.
-  await fillAboutYou(page, 'Jordan Chat', 'jordan.chat@example.com', 'Northbeam');
-  await page.getByRole('button', { name: 'Send request' }).click();
-  await expect(
-    page.getByRole('heading', {
-      name: "Request sent. You'll get a calendar invitation once the time is booked.",
-    }),
-  ).toBeVisible();
+  const form = chat.getByRole('form', { name: 'Your details' });
+  await form.getByLabel('Name', { exact: true }).fill('Jordan Chat');
+  await form.getByLabel('Email', { exact: true }).fill('jordan.chat@example.com');
+  await form.getByLabel('Company (optional)').fill('Northbeam');
+  await form.getByRole('button', { name: /^Book / }).click();
+  await expect(chat.locator('[data-booking-status]')).toBeVisible();
   await context.close();
 });
 
