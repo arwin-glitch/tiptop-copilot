@@ -64,9 +64,10 @@ Pure logic, no store, no harness.
 | `updates-render.test.ts` | Rendered Updates markup: no script, no handler, no `javascript:`, `rel`/`target` on every link; what each card keeps in view |
 | `updates-service.test.ts` | The Slack reader: access mapping, pagination, replies, cache, throttle, Retry-After, dropping a channel whose access was withdrawn, a post the parsers cannot read, and that demo mode makes no network calls |
 | `updates-refresh-action.test.ts` | The Refresh action: sign-in first, six a minute per user, nothing read while sign-in is unrestricted |
-| `calendar-grid.test.ts` | The calendar views' arithmetic: Day/Week/Month ranges, stepping, labels, DST-safe placement, side-by-side overlaps; Google's overlap layout on a busy day (cascading over long blocks, side by side within 45 minutes, the minimum chip width, "+N" folds, no event lost, the same whatever the order); month packing with "+N more" |
+| `calendar-grid.test.ts` | The calendar views' arithmetic: Day/Week/Month ranges, stepping, labels, DST-safe placement, side-by-side overlaps; Google's overlap layout on a busy day (cascading over long blocks, side by side within 45 minutes, the minimum chip width and its half-pixel tolerance at the boundary (three at noon fit at 1440, D-072), "+N" folds, no event lost, the same whatever the order); month packing with "+N more" |
 | `calendar-colors.test.ts` | Colours from Google: an event's colorId, else its calendar's; the palette and its names |
-| `calendar-labels.test.ts` | Google's colour labels and the looks (D-070): reading a calendar's labels, an event's colour (its label's, else its colorId's, else its calendar's), a label write is eventLabelId alone with eventLabelVersion=1 and never an email while a colour write never carries the version, the legend and its filter, a label asked for by any spelling, how an event looks (ended, not answered, maybe, declined), and the suggested label with every case where it stays quiet |
+| `calendar-labels.test.ts` | Google's colour labels and the looks (D-070): reading a calendar's labels, an event's colour (its label's, else its colorId's, else its calendar's), a label write is eventLabelId alone with eventLabelVersion=1 and never an email while a colour write never carries the version, the legend and its filter (named labels only, merged by name; a colour nobody named filters as "Unlabelled"), Google's picker order (CIE LCh hue, the ten colours of Google's own picker in its order, greys last, ties by name), Google's colour names by hex else "Colour #rrggbb", the picker split into named chips and plain colour dots, a label asked for by any spelling, how an event looks (ended, not answered, maybe, declined), and the suggested label with every case where it stays quiet |
+| `calendar-legacy-links.test.ts` | The retired day list's addresses (D-072): `?view=list` and `?day=` open Day on that date (today for a bare `?view=list`), other parameters kept, a view the address names kept; every other address left alone |
 | `calendar-origin.test.ts` | "How you got here" for a guest-less event: the search terms an event gives (organizer, linked sites, distinctive title words), the ranking of what a search found (the ticket email first, the invitation, a meeting note or an earlier event after the emails, nothing below the bar), and the words and Inbox search when nothing turns up |
 | `calendar-edit-rules.test.ts` | Who may change an event, the guests prompt every time guests are involved, only Send becomes sendUpdates "all", recurring scopes, what a change sends |
 | `calendar-write-boundary.test.ts` | Only the Calendar tab's edit route reaches a calendar write; the readers, pings and parity check name none; nothing defaults to emailing guests; a colour or a label from the event card has no `notify` and is always sendUpdates "none", and only the label request and the write module name the label switch; the label, look and origin modules name no write; the calendar-editing scope is asked for only by the opt-in flow |
@@ -96,12 +97,12 @@ the model provider, and that one is deterministic rather than canned.
 | `authorization.test.ts` | Organization isolation across reads, writes, id lookups and tools |
 | `integration-disconnect.test.ts` | Token encryption, revoke-and-forget under every failure mode |
 | `portfolio.test.ts` | Update classification, the network-contact gate, CSV import |
-| `calendar-current-reader-pin.test.ts` | The day list reads exactly what it read before the new views (a pin) |
+| `calendar-current-reader-pin.test.ts` | The day reader (Today, the card's context box, the parity check) reads exactly what it read before the views (a pin) |
 | `calendar-pings-pin.test.ts` | The meeting pings' request and verdicts are unchanged (a pin) |
-| `calendar-range.test.ts` | The new views' reader over the mock calendar and Google's pages: calendars, recurring instances, all-day, colours, verdicts, caching; the parity check; per-person settings (the new views by default, the switch's "off" kept, older rows read as the switch left them) |
+| `calendar-range.test.ts` | The new views' reader over the mock calendar and Google's pages: calendars, recurring instances, all-day, colours, verdicts, caching; the parity check; per-person settings (Week by default, the view, toggles and filter remembered; the retired switch's `preview` flag ignored on older rows, accepted and dropped on a save, rows written as `v: 3`) |
 | `calendar-edit.test.ts` | Writes against the mock calendar: create with Meet and guests, Send vs Don't send, move, resize, move calendars, delete with and without cancellations, recurring scopes, refusals without the grant or on view-only events |
 | `calendar-event-card.test.ts` | The event card's writes against the mock calendar: Duplicate saves a new id, a colour records colorId alone with sendUpdates "none" (from the editor too, even with Send), Going? Send vs Don't send with every other guest's entry left as it was, refusals for the organizer, a view-only calendar and no grant |
-| `calendar-labels.test.ts` | Google's colour labels over the mock calendar and Google's endpoints (fetch stubbed): reads send eventLabelVersion=1 and come back with each event's label and colour, labels kept under a minute, a calendar whose labels fail still draws; a label write is exactly {eventLabelId} with eventLabelVersion=1 and sendUpdates "none" (cleared with ""), refused without the grant, on a view-only calendar and for a label the calendar lacks; a colour, an edit and an answer never send the version and leave the label on (the mock drops a label a write sends the version without); Ask's calendar tool returns label names and filters by them; the suggested label from Copilot's data; the ticket email found for a guest-less registration, and the "nothing found" words; Diagnostics' counts; the legend's filter remembered |
+| `calendar-labels.test.ts` | Google's colour labels over the mock calendar and Google's endpoints (fetch stubbed): reads send eventLabelVersion=1 and come back with each event's label and colour, labels kept under a minute, a calendar whose labels fail still draws; a label write is exactly {eventLabelId} with eventLabelVersion=1 and sendUpdates "none" (cleared with ""), refused without the grant, on a view-only calendar and for a label the calendar lacks; a colour, an edit and an answer never send the version and leave the label on (the mock drops a label a write sends the version without); the main calendar's 24 slots (nine named, fifteen not) give the picker and the legend the named labels only, in Google's order, and the dots Google's colour names; a colour dot is the same write (its slot's eventLabelId alone, eventLabelVersion=1, sendUpdates "none"); Ask's calendar tool returns named label names in Google's order, no name for an event in a colour nobody named ("none" lists it), and filters by name; the suggested label from Copilot's data; the ticket email found for a guest-less registration, and the "nothing found" words; Diagnostics' counts; the legend's filter remembered |
 
 ### The harness
 
@@ -143,14 +144,17 @@ control has an accessible name, every form control is labelled, and the theme
 toggle is an operable radio group.
 
 **`calendar-default.spec.ts`** runs first of the calendar specs: a plain
-`/calendar` opens the Day, Week and Month views for a person who has chosen
-nothing; the "New calendar" switch turned off keeps the day list, remembered,
-and on brings the views back; `?view=list` and old `?day=` links are the day
-list. On the demo's conference day (long overlapping blocks under short
-meetings) every chip is at least 36px wide at 1440 and 1280, no title can break
-inside a word, a word too long for its chip ends in an ellipsis, a "+N" lists
-what does not fit and opens its card (which gives the "+N" focus back), and a
-phone's week fits without scrolling sideways. At 1024px, over the conference
+`/calendar` opens Week for a person who has chosen nothing, with no "New
+calendar" switch and no day list (D-072); `?view=list` and old `?day=` links
+open Day on that date with any other parameters kept, and leave the saved view
+alone; Today's "Full day and meeting prep in Calendar" link lands on today's
+Day. On the demo's conference day (long overlapping blocks under short
+meetings) every chip is at least 36px wide (half a pixel less at most) at 1440
+and 1280, the three meetings at noon fit side by side at 1440 and fold into a
+"+2" at 1280, no title can break inside a word, a word too long for its chip
+ends in an ellipsis, a "+N" lists what does not fit and opens its card (which
+gives the "+N" focus back), and a phone's week fits without scrolling sideways
+while its label chips scroll in their own strip. At 1024px, over the conference
 day and the day after it, the calendars panel moves behind its button, every
 chip is still at least 36px, a title that wraps has room for whole words, and
 no chip is wholly covered. Esc on a long block's card leaves the meetings drawn
@@ -159,16 +163,24 @@ drawn, on top, with nothing else moving and nothing saved on Esc.
 
 **`calendar-display.spec.ts`** runs after `calendar-default.spec.ts` and before
 `calendar-event-card.spec.ts` (which answers the board meeting it shows as
-unanswered), over the demo's mock calendar (D-070): the labels of the
-calendars shown are filter chips above the grid, remembered, Month included;
-an event's label name shows on its chip and its card, whose picker lists the
-labels by name; picking one sends a single PATCH with the label alone and asks
-nothing; a suggested label shows on the card and is applied only on a tap;
+unanswered), over the demo's mock calendar (D-070, D-072): the named labels of
+the calendars shown, in Google's order, are filter chips above the grid,
+remembered, Month included, one line at 1280 with "More" for the rest (a chip
+picked there lights it up and nothing moves), and no "Unnamed label" anywhere;
+an event in a colour nobody named is drawn in it with no name, shows under
+"Unlabelled" and its card says "Colour: Lavender"; an event's label name shows
+on its chip and its card, whose picker lists the named labels, then the other
+fifteen colours as plain dots with Google's names; picking a label or a dot
+sends a single PATCH with the label alone and asks nothing (a dot's colour
+survives a reload, which the mock allows only with eventLabelVersion=1); a
+suggested label shows on the card and is applied only on a tap;
 the Key explains every look; an ended, an unanswered, a maybe and a declined
 event each look different while a block is filled like any event (no dashes,
 no grey); a guest-less registration's card finds its ticket email with the
 Copilot and Gmail links; and an event nothing explains says what was checked
-and opens the Inbox on the search. It leaves no filter or label behind.
+and opens the Inbox on the search; Diagnostics › Event labels lists the named
+labels and folds the colours without a name into one line that opens. It
+leaves no filter or label behind.
 
 **`calendar-event-card.spec.ts`** covers the new calendar's event card over the
 demo's mock calendar: a click opens it beside the event (not a centred dialog)
@@ -184,6 +196,12 @@ fails them. Titles wrap over whole words where a chip has room and take one
 line where it is narrow; the quick editor opens beside the
 dragged slot, which stays drawn; a drag across days makes one event in Month
 and in Week's all-day row; and a phone gets a bottom sheet.
+
+**`calendar.spec.ts`** holds the words the retired day list used to show, now
+on each event's card: a meeting's "Meeting" and "… Pings 5 min before." with
+"How you got here" in its context box, and a hold's "Block", "Hold" and "… No
+ping." (the Copilot and Gmail links in the context box are in
+`calendar-event-card.spec.ts`).
 
 **`updates.spec.ts`** covers the Updates tab over the invented demo workspace,
 with one shared sign-in: no Ledger line, footer or old roster anywhere in the

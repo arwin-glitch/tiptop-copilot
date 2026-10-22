@@ -1881,7 +1881,8 @@ the real calendar or email anyone while it is built.
   remembered per person, with the view and the calendar toggles, as a
   `calendar.prefs_set` audit row (newest wins, no migration). `?view=list`
   or an old `?day=` link is the day list. (Since D-069 the new views are the
-  default and the switch, now "New calendar", is the way back.)
+  default and the switch, now "New calendar", is the way back; since D-072
+  the day list and the switch are retired, and those addresses open Day.)
 - **A parity check before it can be the default.** Diagnostics › Event parity
   reads each day exactly as the day list does (`readCalendarDayEvents`, split
   out of `readCalendarDay` unchanged and pinned by a test) and the same range
@@ -2107,7 +2108,8 @@ Calendar", and the new views to be what the tab opens on.
   colour. Later starts are drawn on top. So a conference day never squeezes
   a meeting: the meeting sits over it, nearly full width.
 - **A hard minimum width.** No chip is drawn narrower than 36px on a
-  computer (`MIN_CHIP_PX`; half a column on a phone's seven narrow columns).
+  computer (`MIN_CHIP_PX`; half a column on a phone's seven narrow columns;
+  side by side, up to half a pixel less since D-072).
   For that room the month and the calendars sit beside the grid only from
   1280px; on a narrower laptop they would squeeze Week's columns to about
   60px, so they move behind the Calendars button and the date picker, and
@@ -2140,7 +2142,8 @@ Calendar", and the new views to be what the tab opens on.
   Day, in the browser, as the switch already did). The switch stays, as
   "New calendar", for anyone who prefers the day list; `?view=list` and old
   `?day=` links still open the day list, and an address naming a view opens
-  it either way. The Today page, the meeting pings and the classifier are
+  it either way. (Retired in D-072: the views are all the tab shows, and
+  those addresses open Day on that date.) The Today page, the meeting pings and the classifier are
   untouched. The parity tab stays, to check again whenever a reader changes.
 - **Earlier choices are kept.** Settings rows now carry `v: 2`, and their
   `preview` is the person's own choice. Older rows always stored `preview`,
@@ -2301,3 +2304,99 @@ time."
 - The suggestion's LP match by firm needs the firm's name and the guest's
   domain to be the same words ("Alder Endowment" and `alder-endowment.…`);
   anything looser stays quiet on purpose.
+
+### D-072 — Calendar: named labels only, Google's way, and the day list retired
+
+**Context.** A read-only check on Nick's real calendar found that Google's
+`calendars.get` lists a label slot for every colour it offers, named or not:
+his main calendar has ten named labels and fourteen without a name, and
+other calendars add more unnamed ones. Copilot showed every unnamed slot as
+"Unnamed label", so the filter row above the grid was about forty chips over
+seven lines and the card's picker the same wall. Google's own picker shows
+only the named labels as chips (dot and name, round the colour wheel) and
+the other colours as plain dots. The same evening Arwin decided to "keep the
+new one and not the old one": the Day, Week and Month views stay, and the
+day list and its "New calendar" switch go. And at 1440px three meetings
+starting together drew one chip and a "+2", the Week column being a hair
+short of three minimum-width slots.
+
+**Decision.**
+
+- **A label is a named label.** An unnamed slot is a colour, not a label
+  (`lib/calendar/labels.ts`): its events are drawn in it, but no name is
+  shown for it anywhere (no "Unnamed label" text at all), it is no filter
+  chip of its own, and the "Unlabelled" chip includes its events (its filter
+  key is the unlabelled one). The card's label row calls it by its colour
+  ("Colour: Lavender"). Ask Arwin's calendar tool returns no label name for
+  it, lists only named labels as the calendar's labels, and "none" includes
+  it. The suggested label is unchanged: an event that has any label id,
+  named or not, gets no suggestion.
+- **Google's order.** Named labels, wherever listed (filter row, Key,
+  picker, Diagnostics, Ask), are ordered round the colour wheel, red,
+  orange, yellow, green, blue, purple, with greys and neutrals last (CIE LCh
+  chroma under 10) and the same colour by name (`compareColors`). The hue is
+  CIE LCh's: it reproduces exactly the order of the ten colours in Google's
+  own picker (Flamingo, Tomato, Tangerine, Banana, Basil, Sage, Lavender,
+  Blueberry, Grape, Graphite); the plain HSV hue puts Tomato before
+  Flamingo, and OKLCH swaps Lavender and Blueberry.
+- **The filter row:** the named labels of the calendars shown, merged by
+  name, then "Unlabelled". One line on a computer: the chips that fit, then
+  "More" with the count, a popover with the rest (a chip picked there lights
+  "More" up and says so to a screen reader). Room for "Show all" is always
+  kept, so picking a chip never pushes one behind "More". On a phone, every
+  chip in a strip that scrolls sideways on its own; the page does not. The
+  widths are measured from an unseen copy of the chips, again on resize.
+- **The picker** (card and editor, one component, `label-picker.tsx`): the
+  named labels as chips, the current one ticked; then the unnamed colours as
+  a row of plain dots, each named by Google's name for its hex (the eleven
+  event colours in their modern and classic shades, and the newer calendar
+  colours, Radicchio to Birch), else "Colour #rrggbb"; then "No label" and
+  "Edit labels in Google Calendar". A dot is the same write as a chip: its
+  slot's `eventLabelId`, with `eventLabelVersion=1`, `sendUpdates: 'none'`,
+  no guests question. Write safety is unchanged (`lib/calendar/write.ts`).
+- **The Key** lists named labels only. **Diagnostics › Event labels** lists
+  the named labels one by one and folds the unnamed slots into one "+N
+  colours without a name" line that opens to list each (dot, Google's name,
+  hex, count), in the same columns; the warnings (no labels on a calendar,
+  events pointing at a label it did not list) are as before.
+- **The day list and the switch are retired.** `/calendar` always opens the
+  views: the saved view, else Week on a computer and Day on a phone. The
+  page's day list, its 7-day strip, its per-entry "How you got here"
+  streaming and the `PreviewSwitch` are removed; the card already has all of
+  it (the verdict and ping in the same words, the context box with the
+  dossier, prep, latest emails as Copilot and Gmail links, and "How you got
+  here"). Old addresses keep working: `?view=list` and `?day=YYYY-MM-DD`
+  redirect to Day on that date (today for a bare `?view=list`), any other
+  parameters kept (`lib/calendar/legacy-links.ts`). Today's "Full day and
+  meeting prep in Calendar" link opens `/calendar?view=day`.
+- **The day reader stays.** `readCalendarDay` / `readCalendarDayEvents`
+  (`lib/services/calendar-view.ts`) still serve Today, the card's context
+  box and the parity check, and the meeting pings and the classifier are
+  untouched. Diagnostics › Event parity stays and now says what it
+  compares: the calendar's range reader against the day reader Today and
+  the pings use.
+- **Settings.** The `preview` flag is gone from the settings: older rows'
+  flag is ignored when read (their view, toggles and filter kept), a save
+  that still names it (a page loaded before the change) is accepted and the
+  flag dropped, and rows now carry `v: 3`. No migration.
+- **Chip width tolerance.** Side by side, a chip may be drawn up to half a
+  pixel under `MIN_CHIP_PX` (`MIN_CHIP_TOLERANCE_PX`, per chip) so that a
+  column a hair short still takes one more. At 1440px a Week column is
+  116.84px with its border, 115.86px inside, 1.14px short of three 39px
+  slots (36px and the 3px gap); with the tolerance (1.5px across three) the
+  noon three fit, about 35.6px each. A column shorter than that still folds
+  into a "+N", and a cascade still stops at the minimum itself. The polish
+  review's "0.03px short" measured the column with its border; half a pixel
+  per chip is what actually closes the gap.
+- **Demo.** The mock's main calendar now lists all of Google's 24 colours
+  (nine named, fifteen not) and Personal three more without a name; the
+  family trip carries Personal's unnamed Lavender. Fictional names only.
+
+**Known limits.**
+
+- The thirteen newer colour names (Radicchio to Birch) are matched by exact
+  hex from Google's palette as Copilot knows it; a slot whose hex Google
+  changes, or one in a colour Google does not name, reads "Colour #rrggbb".
+- "More" is worked out from measured widths in the browser; the server draws
+  every chip on the first paint, so the row can settle once as the page
+  loads (as the grid's column width already does, D-069).

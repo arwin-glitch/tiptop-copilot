@@ -13,14 +13,20 @@ throughout.
 - **Calendar: Google's colour labels, a clear look for every event, and "How
   you got here" that finds the reason.** The Day, Week and Month views now
   read each calendar's colour labels live from Google Calendar (a rename shows
-  within a minute; nothing is stored). An event takes its label's colour, and
-  the label's name shows after the time on the event, on its card, and in a
-  row of label chips above the grid: tap one to see only those events
-  (several add up, "Unlabelled" too), and the choice is remembered. On a
-  calendar with labels, the card's colours become Google's label picker, with
-  "No label" and a link to edit the labels in Google Calendar; a label change
-  never emails anyone, and editing or answering an event never touches its
-  label. When Copilot's own data is clear (a portfolio founder,
+  within a minute; nothing is stored). As in Google, only a label with a
+  name counts as one: Google lists a slot for every colour, named or not, and
+  a colour nobody named shows as its colour and never as "Unnamed label". An
+  event takes its label's colour, and a named label's name shows after the
+  time on the event, on its card, and in a row of label chips above the grid,
+  round the colour wheel as Google orders them, greys last: one line on a
+  computer with **More** for the rest, a strip that scrolls sideways on a
+  phone. Tap one to see only those events (several add up; "Unlabelled" also
+  holds events in a colour nobody named), and the choice is remembered. On a
+  calendar with labels, the card's colours become Google's label picker: the
+  named labels as chips, the colours nobody named as plain dots (each called
+  by Google's name for it, "Tomato", "Cobalt"), "No label" and a link to edit
+  the labels in Google Calendar; a label or a dot never emails anyone, and
+  editing or answering an event never touches its label. When Copilot's own data is clear (a portfolio founder,
   an LP, a deal founder, another VC, only the team, a flight, a registration)
   the card suggests one of the calendar's labels, and nothing changes until
   someone taps "Use it". Ask Arwin can say which label each event has and
@@ -35,10 +41,11 @@ throughout.
   invitation, a meeting note or an earlier event), shows the best one to
   three with Copilot and Gmail links, or says what it checked and offers
   **Search the Inbox** (the Inbox now opens on a search from `?q=`). It works
-  on every event's card and in the day list. The card now opens beside the
-  whole day, so it never covers that day's other events. Diagnostics › Event
-  labels shows each calendar's labels and how many events in the next week
-  carry each, read-only (D-070).
+  on every event's card. The card now opens beside the whole day, so it never
+  covers that day's other events. Diagnostics › Event labels shows each
+  calendar's named labels and how many events in the next week carry each,
+  with the colours nobody named folded into one "+N colours without a name"
+  line, read-only (D-070, D-072).
 
 - **Tasks go to the person whose mailbox Copilot reads.** Suggested tasks,
   keep-in-touch check-ins, copied Affinity reminders and follow-ups added
@@ -58,18 +65,20 @@ throughout.
   twice moves nothing.
 
 - **Calendar: Day, Week and Month, like Google Calendar.** The Calendar tab
-  now opens on them: the view last used, else Week on a computer and Day on
-  a phone. The **New calendar** switch goes back to the day list for anyone
-  who prefers it, and the choice is remembered (whoever turned the preview
-  off before keeps the day list); `?view=list` and old `?day=` links still
-  open the day list. A busy day is laid out the way Google Calendar does it:
+  is now just them: the view last used, else Week on a computer and Day on a
+  phone. The old day list and its **New calendar** switch are gone; each
+  event's card says everything the list did (meeting or block and why, the
+  ping, the meeting prep, the latest emails, "How you got here"), and old
+  `?view=list` and `?day=` links, Today's link included, open Day on that
+  date. A busy day is laid out the way Google Calendar does it:
   events that start together share the width side by side, and one that
   starts later is drawn over the earlier one, shifted right and nearly full
   width, with a thin outline, so long blocks (travel, a conference day,
   holds) never squeeze a meeting into a sliver. No event is drawn narrower
-  than 36px on a computer (on a laptop under 1280px the month and the
-  calendars move behind the Calendars button to make the room); what does
-  not fit folds into a "+N" that lists it. Titles never break inside a
+  than 36px on a computer, give or take half a pixel so three meetings
+  starting together fit side by side at 1440px (on a laptop under 1280px the
+  month and the calendars move behind the Calendars button to make the
+  room); what does not fit folds into a "+N" that lists it. Titles never break inside a
   word: they wrap over whole words where there is room, and a narrow event
   shows the start of its title with an ellipsis. The views go to any date (back, ahead, Today, a date picker),
   show all of Nick's calendars in Google's own names and colours with a
@@ -86,9 +95,10 @@ throughout.
   are read-only). A colour change never emails
   anyone; Going? asks "Send your response to the organizer?" and changes
   with guests ask Send / Don't send every time. Diagnostics › Event parity
-  checks, read-only, that the new views show the same events as the day
-  list; it matched Nick's real calendar event for event before they became
-  the default (D-066, D-067, D-069).
+  checks, read-only, that the calendar shows the same events as the day
+  reader Today and the meeting pings use; it matched Nick's real calendar
+  event for event before the views became the default (D-066, D-067, D-069,
+  D-072).
 
 - **Every email link opens in Copilot or Gmail.** Wherever Copilot links to an
   email or thread, it now offers two places to read it: **Copilot**, which
