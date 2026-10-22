@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { isSupabaseAuthCookie } from '@/lib/auth/cookies';
-import { boardHosts, requestHost, routeBoardHost } from '@/lib/jobs-board/host';
+import { boardHosts, requestHosts, routeBoardHost } from '@/lib/jobs-board/host';
 
 /**
  * Next.js 16 renamed `middleware` to `proxy`. This runs on the Node runtime.
@@ -151,7 +151,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // The job board's own host (jobs.tiptop.vc) is the board and nothing else:
   // every address there is rewritten to the board's pages, which need no
   // session, so the rest of this function never runs for it.
-  const board = routeBoardHost(pathname, requestHost(request.headers), boardHosts(process.env));
+  const board = routeBoardHost(pathname, requestHosts(request.headers), boardHosts(process.env));
   if (board.kind === 'not_found') {
     return withSecurityHeaders(new NextResponse('Not found', { status: 404 }));
   }

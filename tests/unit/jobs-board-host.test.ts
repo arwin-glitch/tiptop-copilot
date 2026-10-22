@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boardHosts, requestHost, routeBoardHost } from '@/lib/jobs-board/host';
+import { boardHosts, requestHosts, routeBoardHost } from '@/lib/jobs-board/host';
 import {
   boardHostOrigin,
   boardPublicUrl,
@@ -22,69 +22,77 @@ const HOSTS = boardHosts({});
 
 describe('routeBoardHost', () => {
   it('serves the board at the root of jobs.tiptop.vc', () => {
-    expect(routeBoardHost('/', 'jobs.tiptop.vc', HOSTS)).toEqual({
+    expect(routeBoardHost('/', ['jobs.tiptop.vc'], HOSTS)).toEqual({
       kind: 'rewrite',
       pathname: '/jobs-host',
     });
-    expect(routeBoardHost('/acme/backend-1a2b3c', 'jobs.tiptop.vc', HOSTS)).toEqual({
+    expect(routeBoardHost('/acme/backend-1a2b3c', ['jobs.tiptop.vc'], HOSTS)).toEqual({
       kind: 'rewrite',
       pathname: '/jobs-host/acme/backend-1a2b3c',
     });
-    expect(routeBoardHost('/sitemap.xml', 'jobs.tiptop.vc', HOSTS)).toEqual({
+    expect(routeBoardHost('/sitemap.xml', ['jobs.tiptop.vc'], HOSTS)).toEqual({
       kind: 'rewrite',
       pathname: '/jobs-host/sitemap.xml',
     });
   });
 
   it('never exposes Copilot on the board host: its pages become board addresses', () => {
-    expect(routeBoardHost('/today', 'jobs.tiptop.vc', HOSTS)).toEqual({
+    expect(routeBoardHost('/today', ['jobs.tiptop.vc'], HOSTS)).toEqual({
       kind: 'rewrite',
       pathname: '/jobs-host/today',
     });
-    expect(routeBoardHost('/api/inbox', 'jobs.tiptop.vc', HOSTS)).toEqual({
+    expect(routeBoardHost('/api/inbox', ['jobs.tiptop.vc'], HOSTS)).toEqual({
       kind: 'rewrite',
       pathname: '/jobs-host/api/inbox',
     });
-    expect(routeBoardHost('/jobs-preview', 'jobs.tiptop.vc', HOSTS)).toEqual({
+    expect(routeBoardHost('/jobs-preview', ['jobs.tiptop.vc'], HOSTS)).toEqual({
       kind: 'rewrite',
       pathname: '/jobs-host/jobs-preview',
     });
   });
 
   it('redirects old /jobs links to the short form, and passes Next assets through', () => {
-    expect(routeBoardHost('/jobs', 'jobs.tiptop.vc', HOSTS)).toEqual({
+    expect(routeBoardHost('/jobs', ['jobs.tiptop.vc'], HOSTS)).toEqual({
       kind: 'redirect',
       pathname: '/',
     });
-    expect(routeBoardHost('/jobs/acme', 'jobs.tiptop.vc', HOSTS)).toEqual({
+    expect(routeBoardHost('/jobs/acme', ['jobs.tiptop.vc'], HOSTS)).toEqual({
       kind: 'redirect',
       pathname: '/acme',
     });
-    expect(routeBoardHost('/_next/static/chunk.js', 'jobs.tiptop.vc', HOSTS)).toEqual({
+    expect(routeBoardHost('/_next/static/chunk.js', ['jobs.tiptop.vc'], HOSTS)).toEqual({
       kind: 'pass',
     });
-    expect(routeBoardHost('/icon.svg', 'jobs.tiptop.vc', HOSTS)).toEqual({ kind: 'pass' });
+    expect(routeBoardHost('/icon.svg', ['jobs.tiptop.vc'], HOSTS)).toEqual({ kind: 'pass' });
   });
 
   it('keeps /jobs-host internal everywhere, and leaves other hosts alone', () => {
-    expect(routeBoardHost('/jobs-host', 'jobs.tiptop.vc', HOSTS)).toEqual({ kind: 'not_found' });
-    expect(routeBoardHost('/jobs-host/acme', 'copilot.tiptop.vc', HOSTS)).toEqual({
+    expect(routeBoardHost('/jobs-host', ['jobs.tiptop.vc'], HOSTS)).toEqual({ kind: 'not_found' });
+    expect(routeBoardHost('/jobs-host/acme', ['copilot.tiptop.vc'], HOSTS)).toEqual({
       kind: 'not_found',
     });
-    expect(routeBoardHost('/jobs', 'copilot.tiptop.vc', HOSTS)).toEqual({ kind: 'pass' });
-    expect(routeBoardHost('/', 'copilot.tiptop.vc', HOSTS)).toEqual({ kind: 'pass' });
-    expect(routeBoardHost('/', null, HOSTS)).toEqual({ kind: 'pass' });
+    expect(routeBoardHost('/jobs', ['copilot.tiptop.vc'], HOSTS)).toEqual({ kind: 'pass' });
+    expect(routeBoardHost('/', ['copilot.tiptop.vc'], HOSTS)).toEqual({ kind: 'pass' });
+    expect(routeBoardHost('/', [], HOSTS)).toEqual({ kind: 'pass' });
   });
 
-  it('reads the host from the forwarded header or the Host header, without its port', () => {
+  it('reads both the Host header and the forwarded host, without ports', () => {
     const headers = (values: Record<string, string>) => ({ get: (n: string) => values[n] ?? null });
-    expect(requestHost(headers({ host: 'JOBS.tiptop.vc:443' }))).toBe('jobs.tiptop.vc');
+    expect(requestHosts(headers({ host: 'JOBS.tiptop.vc:443' }))).toEqual(['jobs.tiptop.vc']);
     expect(
-      requestHost(
+      requestHosts(
         headers({ host: 'copilot.tiptop.vc', 'x-forwarded-host': 'jobs.tiptop.vc, proxy' }),
       ),
-    ).toBe('jobs.tiptop.vc');
-    expect(requestHost(headers({ host: 'bad host!' }))).toBeNull();
+    ).toEqual(['copilot.tiptop.vc', 'jobs.tiptop.vc']);
+    expect(requestHosts(headers({ host: 'bad host!' }))).toEqual([]);
+  });
+
+  it('cannot be talked out of the board on its own host by a forwarded header', () => {
+    const headers = { get: (n: string) => (n === 'host' ? 'jobs.tiptop.vc' : 'copilot.tiptop.vc') };
+    expect(routeBoardHost('/today', requestHosts(headers), HOSTS)).toEqual({
+      kind: 'rewrite',
+      pathname: '/jobs-host/today',
+    });
   });
 
   it('adds the configured board host and extras', () => {

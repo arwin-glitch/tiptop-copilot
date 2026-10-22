@@ -59,9 +59,20 @@ export function boardHosts(env: Record<string, string | undefined>): string[] {
   return [...hosts];
 }
 
-/** The host a request was made to: the forwarded host when a proxy set one. */
-export function requestHost(headers: { get(name: string): string | null }): string | null {
-  return cleanHost(headers.get('x-forwarded-host')) ?? cleanHost(headers.get('host'));
+/**
+ * The hosts a request names: its Host header, and the forwarded host a proxy
+ * in front may add. The board is served when either is a board host, so a
+ * request to jobs.tiptop.vc always gets the board, whatever a client puts in
+ * X-Forwarded-Host: that header can only ever add the board, never take it
+ * away (so Copilot can never be reached on the board's host).
+ */
+export function requestHosts(headers: { get(name: string): string | null }): string[] {
+  const out: string[] = [];
+  for (const value of [headers.get('host'), headers.get('x-forwarded-host')]) {
+    const host = cleanHost(value);
+    if (host && !out.includes(host)) out.push(host);
+  }
+  return out;
 }
 
 function isInternal(pathname: string): boolean {
@@ -70,10 +81,10 @@ function isInternal(pathname: string): boolean {
 
 export function routeBoardHost(
   pathname: string,
-  host: string | null,
+  requested: readonly string[],
   hosts: readonly string[],
 ): HostDecision {
-  const onBoardHost = host !== null && hosts.includes(host);
+  const onBoardHost = requested.some((host) => hosts.includes(host));
   if (!onBoardHost) return isInternal(pathname) ? { kind: 'not_found' } : { kind: 'pass' };
 
   if (

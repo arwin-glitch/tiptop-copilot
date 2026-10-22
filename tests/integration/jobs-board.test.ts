@@ -508,6 +508,14 @@ describe('the board host in the proxy', () => {
     expect(home.headers.get('x-middleware-rewrite')).toMatch(/\/jobs-host$/);
     const app = await proxy(request('https://jobs.tiptop.vc/today', { host: 'jobs.tiptop.vc' }));
     expect(app.headers.get('x-middleware-rewrite')).toContain('/jobs-host/today');
+    // A forwarded header cannot reach Copilot on the board's host.
+    const spoofed = await proxy(
+      request('https://jobs.tiptop.vc/today', {
+        host: 'jobs.tiptop.vc',
+        'x-forwarded-host': 'copilot.tiptop.vc',
+      }),
+    );
+    expect(spoofed.headers.get('x-middleware-rewrite')).toContain('/jobs-host/today');
     const old = await proxy(
       request('https://jobs.tiptop.vc/jobs/ledgerly?x=1', { host: 'jobs.tiptop.vc' }),
     );
