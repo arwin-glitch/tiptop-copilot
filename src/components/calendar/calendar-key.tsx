@@ -215,8 +215,9 @@ export function LabelLegend({
   const chipsKey = chips.map((c) => c.key).join('|');
   const rowRef = React.useRef<HTMLDivElement>(null);
   const measureRef = React.useRef<HTMLDivElement>(null);
-  // How many chips show in the row on a computer; the rest are behind "More".
-  const [fit, setFit] = React.useState(chips.length);
+  // How many chips show in the row on a computer (the rest are behind "More");
+  // null until measured in the browser, when every chip is drawn.
+  const [fit, setFit] = React.useState<number | null>(null);
 
   React.useLayoutEffect(() => {
     const row = rowRef.current;
@@ -249,7 +250,7 @@ export function LabelLegend({
   }, [chipsKey]);
 
   if (labels.length === 0) return null;
-  const shown = Math.min(fit, chips.length);
+  const shown = Math.min(fit ?? chips.length, chips.length);
   const hidden = chips.slice(shown);
   const hiddenOn = hidden.filter((c) => filter.includes(c.key)).length;
 
@@ -275,6 +276,8 @@ export function LabelLegend({
         role="group"
         aria-label="Labels"
         data-label-legend=""
+        // Set once the row knows how many chips fit (tests wait for it).
+        data-measured={fit === null ? undefined : ''}
         className="flex min-w-0 items-center gap-1.5 p-0.5 max-sm:overflow-x-auto max-sm:pb-1 sm:overflow-hidden"
       >
         {/* Past the fit, a chip is hidden on a computer only: a phone scrolls the strip. */}

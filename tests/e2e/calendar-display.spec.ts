@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 
 /**
  * One clear look for every event, Google's colour labels, and a "How you
@@ -45,6 +45,24 @@ test.beforeAll(async ({ browser }, testInfo) => {
 
 test.use({ storageState: SIGNED_IN });
 
+/** No label filter for the demo user, who is shared with the specs after this one. */
+async function resetFilter(request: APIRequestContext, baseURL: string) {
+  const res = await request.post('/api/calendar/prefs', {
+    data: { labelFilter: [] },
+    headers: { origin: baseURL },
+  });
+  expect(res.ok()).toBe(true);
+}
+
+// None carried in from a test that stopped half way, and none left for the specs after.
+test.beforeEach(async ({ page, baseURL }) => resetFilter(page.request, baseURL!));
+test.afterAll(async ({ browser }, testInfo) => {
+  const baseURL = testInfo.project.use.baseURL!;
+  const context = await browser.newContext({ baseURL, storageState: SIGNED_IN });
+  await resetFilter(context.request, baseURL);
+  await context.close();
+});
+
 /** A day key `n` days from today in the demo's zone. */
 function dayFromToday(n: number): string {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date());
@@ -56,7 +74,9 @@ function dayFromToday(n: number): string {
 const chip = (page: Page, title: string | RegExp) =>
   page.locator('[data-event-chip]').filter({ hasText: title });
 
-const legend = (page: Page) => page.getByRole('group', { name: 'Labels' });
+/** The label row, once it has worked out how many chips fit (before that it draws them all). */
+const legend = (page: Page) =>
+  page.getByRole('group', { name: 'Labels' }).and(page.locator('[data-measured]'));
 
 /** The label chips the legend's row shows (the rest are behind "More"). */
 const chipsInRow = (page: Page) =>
@@ -64,6 +84,7 @@ const chipsInRow = (page: Page) =>
 
 /** Every label chip's name, in order: the row's, then those behind "More". */
 async function legendNames(page: Page): Promise<string[]> {
+  await expect(legend(page)).toBeVisible();
   const row = await chipsInRow(page).allTextContents();
   const more = legend(page).locator('[data-label-more]');
   if (!(await more.isVisible())) return row.map((t) => t.trim());
@@ -78,6 +99,7 @@ async function legendNames(page: Page): Promise<string[]> {
 
 /** A label chip, in the row or behind "More" (opened, so press Escape after). */
 async function labelChip(page: Page, name: string): Promise<Locator> {
+  await expect(legend(page)).toBeVisible();
   const inRow = legend(page).getByRole('button', { name, exact: true });
   if (await inRow.isVisible()) return inRow;
   await legend(page).locator('[data-label-more]').click();
@@ -138,6 +160,7 @@ function recordWrites(page: Page) {
 
 /** No label filter left behind for the tests after this one (the demo user is shared). */
 async function clearFilter(page: Page) {
+  await expect(legend(page)).toBeVisible();
   const showAll = legend(page).getByRole('button', { name: 'Show all' });
   if (await showAll.count()) {
     const saved = page.waitForResponse((r) => r.url().includes('/api/calendar/prefs'));

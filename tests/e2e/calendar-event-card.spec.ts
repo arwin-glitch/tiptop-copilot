@@ -437,7 +437,7 @@ test('Email guests opens a draft to the guests; nothing sends without its own ta
   expect(writes).toEqual([]);
 });
 
-test('a meeting’s latest emails offer Copilot or Gmail, as on the day list', async ({ page }) => {
+test('a meeting’s latest emails on its card offer Copilot or Gmail', async ({ page }) => {
   // The demo mailbox has no email with these guests, so the context answer is
   // stubbed with a fictional thread; the card draws whatever the route says.
   await page.route('**/api/calendar/context?**', (route) =>
