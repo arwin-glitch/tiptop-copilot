@@ -232,7 +232,12 @@ test('Availability: each month on its own switch, a day closed and opened, the l
   await expect(third).toHaveAttribute('data-state', 'off');
   await expect(page.getByTestId(`month-count-${thirdName}`)).toHaveText('No times');
   // A tap saves at once, so its toast offers Undo: it comes back on.
-  await page.getByRole('button', { name: 'Undo' }).last().click();
+  await page
+    .locator('[data-sonner-toast]')
+    .filter({ hasText: 'is off' })
+    .getByRole('button', { name: 'Undo' })
+    .first()
+    .click();
   await expect(third).toHaveAttribute('data-state', 'open');
   await third.click();
   await expect(third).toHaveAttribute('data-state', 'off');
