@@ -22,24 +22,29 @@ throughout.
     days with the rule that closes it: not a meeting day, month closed, day
     closed, in person paused on a trip, away, the day's cap, a full day,
     too soon, a back-to-back stack, or fully busy.
-  - **Availability:** a strip of this month and the next six, each with its
-    own Open/Closed switch ("which month are we opening?"). By default this
-    month and next are open and it rolls on by itself; opening a later month
-    opens just that one. A calendar of the month shows a live preview of the
-    exact times visitors see (calls, coffee, lunch, dinner), worked out by
-    the same rules as the public page. Tap a day to see its times, close it,
-    or give it shorter hours (the rules always win: nothing here can open a
-    time they close). Close a run of days for a holiday. The hours and the
-    rules (buffers, notice, caps, back-to-back) moved here from Settings, and
-    keep the 8:00 AM to 6:00 PM Central bounds (dinner 6-7 PM).
+  - **Availability:** twelve month chips, this month and the next eleven,
+    each switched On or Off with a tap, in any mix (only December, or January
+    and March), each showing how many open times it has. "Open next 3
+    months" and "Close all" do the obvious. With nothing chosen, this month
+    and next are on; a month that is off offers no times at all, and an open
+    month is open to its last day. Under the chips, a calendar of the month
+    shows a live preview of the exact times visitors see (calls, coffee,
+    lunch, dinner), worked out by the same rules as the public page. Tap a
+    day to see its times, close it, or give it shorter hours (the rules
+    always win: nothing here can open a time they close). Close a run of days
+    for a holiday. The hours and the rules (buffers, notice, caps,
+    back-to-back, and whether people may add guests and how many) moved here
+    from Settings, and keep the 8:00 AM to 6:00 PM Central bounds (dinner
+    6-7 PM).
   - **Bookings:** upcoming, past and messages, each with who, when (Central
     and their own time), call or in person and where, guests, the note and
-    deck, and its status (Booked, Held, Waiting, Cancelled with their note).
+    deck, and its status (Booked, Held, Waiting, Cancelled with their note,
+    or "Cancelled in Google" when the event was deleted there).
     Cancel (with an optional note) and Open in Calendar. While Approve first
     is on, waiting requests open in the same Approve/Decline drawer as before.
   - **Profile** and **Places**, moved from Settings unchanged (the photo and
     the video link for calls included).
-  - **Chatbot:** the page's Arwin chatbot and its answers.
+  - **Chatbot:** the page's Arwin and its written answers (see below).
   - **Calendars:** which of Nick's calendars block his time. By default his
     main one, his own (personal, family) and the ones ticked in Google; any
     other can be switched on or off. His main calendar always counts, a
@@ -62,15 +67,30 @@ throughout.
   that note, and every new booking or move, as a Copilot alert on his phone
   and desktop and as a line on Today. If calendar editing is not turned on,
   bookings are held and go onto the calendar by themselves once it is.
-  "Approve each booking first" is still in Settings, off. Nothing here costs
-  money. Run `supabase/migrations/20261022200000_booking_v2.sql`; until then
-  bookings wait as requests, as before.
+  "Approve first" is still an option on the Booking tab's Overview, off.
+  Nothing here costs money. Run
+  `supabase/migrations/20261022200000_booking_v2.sql`; until then bookings
+  wait as requests, as before.
+- **A meeting deleted in Google Calendar is cancelled in Copilot too.** If
+  Nick deletes a booked meeting from his calendar, the booking link notices
+  on its next look at the calendar: that time is free again, it no longer
+  counts toward the two-a-day limit, and the Booking tab shows it as
+  "Cancelled in Google". A meeting moved in Google moves its booking.
+- **Fyxer's "Choose a new time" link no longer stays on booking-link
+  meetings.** Fyxer (and Vimcal or Calendly) add their own reschedule link to
+  meetings Nick organizes a few seconds after they are made. For meetings
+  booked through the link, Copilot puts its own description back, ending
+  with "Need to reschedule or cancel?" and the booking's own page, without
+  emailing anyone. It does this once per booking (and once more after a
+  reschedule), so it never fights the other tool, and it never touches
+  Nick's other meetings.
 
 - **No money figures where nothing is spent.** Copilot runs no paid AI (its AI
   answers come from the Claude plan through Ask Arwin), so the booking
   chatbot's "Monthly AI cost cap" field is gone, Settings' "Limits & cost" tab
-  is now "Limits" and shows "AI cost: $0", and Diagnostics says "$0 (no paid
-  AI key)". A dollar budget shows again only if a paid AI key is ever set.
+  is now "Limits", and Settings and Diagnostics both say "AI cost: $0: AI
+  runs on the Claude plan". A dollar budget shows again only if a paid AI key
+  is ever set.
 - **The booking page's Arwin now books and answers for free.** The chat on
   the booking link no longer uses a paid AI at all. It is a quick helper with
   buttons: book a 30-minute call, meet in person (coffee, lunch or dinner, at

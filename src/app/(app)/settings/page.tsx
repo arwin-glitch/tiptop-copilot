@@ -436,7 +436,7 @@ export default async function SettingsPage({
                 <DataRow label="AI cost">
                   {paidAi
                     ? `Paid AI key on: capped at $${limits.dailyAiBudgetUsd.toFixed(2)} a day`
-                    : '$0: AI answers run on the Claude plan (Ask Arwin), no paid key'}
+                    : '$0: AI runs on the Claude plan'}
                 </DataRow>
                 <DataRow label="Automatic analysis">
                   {limits.autoAnalyzeEnabled ? 'On' : 'Off'}

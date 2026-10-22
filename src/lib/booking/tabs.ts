@@ -29,12 +29,20 @@ export const BOOKING_TABS: readonly PageTabDef<BookingTabKey>[] = [
   {
     key: 'availability',
     label: 'Availability',
-    blurb: 'Which months are open, closed days, hours and rules, with a live preview.',
+    blurb: 'Switch each month on or off, close days, set hours, rules and guests; live preview.',
   },
-  { key: 'bookings', label: 'Bookings', blurb: 'Who booked, when and where. Cancel from here.' },
+  {
+    key: 'bookings',
+    label: 'Bookings',
+    blurb: 'Who booked, when and where, moves and cancellations with their notes.',
+  },
   { key: 'profile', label: 'Profile', blurb: 'The name, photo and video link the page shows.' },
   { key: 'places', label: 'Places', blurb: 'Home city and the places he meets people.' },
-  { key: 'chatbot', label: 'Chatbot', blurb: 'The page’s Arwin chatbot and its answers.' },
+  {
+    key: 'chatbot',
+    label: 'Chatbot',
+    blurb: 'Arwin on the page: books times and answers from your list. Free.',
+  },
   { key: 'calendars', label: 'Calendars', blurb: 'Which calendars block his time.' },
 ];
 

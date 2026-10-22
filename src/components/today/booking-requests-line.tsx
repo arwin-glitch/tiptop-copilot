@@ -64,8 +64,8 @@ export function BookingRequestsLine({ summary }: { summary: BookingTodaySummary 
           <span>
             {summary.waiting} booking {summary.waiting === 1 ? 'request' : 'requests'} waiting.
           </span>
-          <Link href="/calendar#booking-requests" className="link-inline">
-            Review in Calendar →
+          <Link href={`${BOOKING_TAB_PATH}?tab=bookings#booking-requests`} className="link-inline">
+            Review in Booking →
           </Link>
         </p>
       ) : null}

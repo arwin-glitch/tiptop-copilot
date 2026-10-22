@@ -498,7 +498,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'booking',
     name: 'Booking',
     href: BOOKING_PATH,
-    purpose: 'The public booking link: open months, bookings, profile, places and rules.',
+    purpose:
+      'The public booking link: books at once, months you switch on, bookings, chatbot and rules.',
     subtabs: BOOKING_TABS.map((t) => ({
       key: t.key,
       label: t.label,
@@ -526,8 +527,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
       },
       {
         target: 'booking-mode',
-        title: 'Instant or approve first',
-        body: 'Instant puts a booking straight on the calendar. Approve first waits for a yes.',
+        title: 'Booked at once',
+        body: 'A free time that passes the rules goes straight on the calendar. Approve first is optional.',
         placement: 'top',
       },
       {
@@ -538,8 +539,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
       },
       {
         target: 'booking-months',
-        title: 'Open the months',
-        body: 'On Availability, switch each month on or off, then tap a day to close it.',
+        title: 'Switch months on',
+        body: 'On Availability, tap any month On or Off, up to 12 ahead. Then tap a day to close it.',
         placement: 'bottom',
       },
     ],

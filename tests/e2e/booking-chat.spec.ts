@@ -23,17 +23,22 @@ const PERSON_CONFIRMS = /will confirm|until .* confirms|someone will review|Arwi
 
 test.describe.configure({ mode: 'serial' });
 
+let address = 70;
+
+/** A visitor from its own invented address, so other specs' per-address brakes never trip. */
 async function visitor(
   browser: Browser,
   baseURL: string | undefined,
   viewport = DESKTOP,
   device: Record<string, unknown> = {},
 ) {
+  address += 1;
   const context = await browser.newContext({
     ...device,
     baseURL,
     viewport,
     storageState: { cookies: [], origins: [] },
+    extraHTTPHeaders: { 'cf-connecting-ip': `198.51.100.${address}` },
     timezoneId: 'America/New_York',
   });
   return { context, page: await context.newPage() };

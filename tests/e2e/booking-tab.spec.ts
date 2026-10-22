@@ -151,7 +151,7 @@ test('Overview: the link, the big switch, Instant by default, the checks and why
   await expect(page.locator('[data-check="editing"]')).toHaveAttribute('data-state', 'ok');
   await expect(page.locator('[data-check="places"]')).toHaveAttribute('data-state', 'ok');
   await expect(page.locator('[data-check="times"]')).toBeVisible();
-  await expect(page.locator('[data-check="months"]')).toContainText('Open through');
+  await expect(page.locator('[data-check="months"]')).toContainText('Open:');
   expect(await checks.count()).toBeGreaterThanOrEqual(6);
 
   // Why no times: each of the next 14 days, with a rule for every closed one.
@@ -193,13 +193,17 @@ test('Availability: each month on its own switch, a day closed and opened, the l
 }) => {
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/booking?tab=availability');
-  const months = page.locator('[data-tour="booking-months"] li[data-month]');
-  await expect(months).toHaveCount(7);
-  // This month and next are open by default; the rest are not.
+  const months = page.locator('[data-tour="booking-months"] button[data-month]');
+  await expect(months).toHaveCount(12);
+  // This month and next are on by default; the rest are off.
   await expect(months.nth(0)).toHaveAttribute('data-state', 'open');
   await expect(months.nth(1)).toHaveAttribute('data-state', 'open');
-  await expect(months.nth(2)).toHaveAttribute('data-state', 'not_open');
-  await expect(page.getByTestId('open-through')).toContainText('rolls on by itself');
+  await expect(months.nth(2)).toHaveAttribute('data-state', 'off');
+  await expect(months.nth(11)).toHaveAttribute('data-state', 'off');
+  await expect(page.getByTestId('open-months')).toContainText('Open:');
+  // Each month says how many open times it has.
+  const nextName = (await months.nth(1).getAttribute('data-month'))!;
+  await expect(page.getByTestId(`month-count-${nextName}`)).toHaveText(/^\d+ times?$/);
 
   // The live preview fills the month grid.
   const grid = page.getByRole('grid');
@@ -210,18 +214,22 @@ test('Availability: each month on its own switch, a day closed and opened, the l
     fullPage: true,
   });
 
-  // Open the third month: just that one.
+  // Switch on the third month only: any mix works.
   const third = months.nth(2);
   const thirdName = (await third.getAttribute('data-month'))!;
-  await third.getByRole('switch').click();
+  await third.click();
   await expect(third).toHaveAttribute('data-state', 'open');
-  await expect(page.getByTestId('open-through')).toContainText('fixed');
-  // And close it again, then keep rolling.
-  await third.getByRole('switch').click();
-  await expect(third).toHaveAttribute('data-state', 'closed');
-  await page.getByRole('button', { name: /Keep rolling/ }).click();
-  await expect(page.getByTestId('open-through')).toContainText('rolls on by itself');
-  expect(thirdName).toMatch(/^\d{4}-\d{2}$/);
+  await expect(third).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId(`month-count-${thirdName}`)).toHaveText(/^\d+ times?$/);
+  // And off again.
+  await third.click();
+  await expect(third).toHaveAttribute('data-state', 'off');
+  await expect(page.getByTestId(`month-count-${thirdName}`)).toHaveText('No times');
+  // Back to the month that is open, for the day panel below.
+  await months.nth(1).click();
+  await expect(months.nth(1)).toHaveAttribute('data-state', 'off');
+  await months.nth(1).click();
+  await expect(months.nth(1)).toHaveAttribute('data-state', 'open');
 
   // A day with open times: close it, see it close, open it again.
   const openDay = grid.locator('[data-open="yes"]').first();
@@ -371,9 +379,12 @@ test('Profile, Places, Chatbot and Calendars', async ({ page }) => {
 
   await subtabs(page).getByRole('link', { name: 'Chatbot' }).click();
   await expect(page.getByText('Arwin on the booking page')).toBeVisible();
-  await expect(
-    page.getByText('TipTop VC (Demo) is an invented fund', { exact: false }),
-  ).toBeVisible();
+  await expect(page.getByLabel('Answer 1')).toHaveValue(/TipTop VC \(Demo\) is an invented fund/);
+  // Zero spend: no AI cost or budget field anywhere (the FAQ's own answers aside).
+  await expect(page.getByText(/US\$|AI cost|AI budget|cost cap/i)).toHaveCount(0);
+  await page.getByRole('tab', { name: /AI answers/ }).click();
+  await expect(page.getByText(/no API key, no bill/)).toBeVisible();
+  await expect(page.getByText(/US\$|\$\d|budget/i)).toHaveCount(0);
 
   await subtabs(page).getByRole('link', { name: 'Calendars' }).click();
   const list = page.locator('[data-tour="booking-calendars"] li[data-calendar]');

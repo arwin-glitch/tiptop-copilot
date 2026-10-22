@@ -520,8 +520,8 @@ function OpenPage({
                   <Notice tone="warn">{current.data.message}</Notice>
                 ) : list.length === 0 ? (
                   <Notice>
-                    No open times in the next few weeks for this. Try another kind of meeting, or
-                    leave a message.
+                    No open times for this right now. Try another kind of meeting, or leave a
+                    message.
                   </Notice>
                 ) : (
                   <SlotPicker

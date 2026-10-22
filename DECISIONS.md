@@ -2944,7 +2944,16 @@ are typed by hand.
 
 ---
 
-### D-078 — The Booking tab: a month planner, instant by default, and why no times
+### D-078 — The booking link v2: booked at once, months switched on one by one, its own tab, and nothing to pay
+
+One decision in four parts, built in parallel and merged together: the
+Booking tab (part 1), the flows (part 2), the page's assistant (part 3), and
+what Arwin asked for once the builders had started (part 4, the integration).
+Supersedes D-074's approve-first default, its 21-day horizon and its paid
+chatbot; the branch `booking-instant` (an auto-approve on top of D-074) is
+superseded by part 2.
+
+#### Part 1 — The Booking tab: a month planner, instant by default, and why no times
 
 **Context.** The booking link (D-074) lived in Settings > Booking link, opened a
 fixed 21 days, and waited for a person's Approve. Arwin (Oct 22, after the link
@@ -2966,16 +2975,11 @@ flows builder's, the chatbot the chat builder's).**
   shortcut, and `/calendar#booking-requests` (Today's line) goes on to
   `/booking?tab=bookings#booking-requests`, where the approve-first drawer
   opens as before.
-- **Months, not days** (`lib/booking/months.ts`, pure). The window is "this
-  month through <month>": rolling by default (this month and the next one,
-  `rollingMonths: 1`, so a new month opens the next by itself) or fixed at
-  `openThrough`, never past this month and the next six
-  (`MAX_MONTHS_AHEAD = 6`; the save refuses more). Each month on the strip is
-  its own switch: closing one adds it to `closedMonths`; opening one past the
-  window fixes the window through it and keeps the months between closed, so
-  a tap never opens a month nobody tapped; "Keep rolling" turns a fixed
-  window back into the same rolling one. Days: `closedDates`, `closedRanges`
-  (with a label) and `dateHours` (shorter hours on a day). Rules always win:
+- **Months, not days** (`lib/booking/months.ts`, pure). Each month is its
+  own switch: `openMonths`, any of this month and the next eleven
+  (`MAX_MONTHS_AHEAD = 11`), in any mix (part 4 replaced the first "open
+  through <month>" window). Days: `closedDates`, `closedRanges` (with a
+  label) and `dateHours` (shorter hours on a day). Rules always win:
   the planner can only close or shorten, never open what a rule closes (a
   Friday, the notice, the 8:00 to 18:00 Central bounds, a day away). Past
   entries drop off on save. `horizonDays` is gone; the busy read covers the
@@ -3019,15 +3023,15 @@ flows builder's, the chatbot the chat builder's).**
   tab's copy of the `LinkBooking` shape is `components/booking/tab/types.ts`.
 - **The chatbot's config** is `BookingConfig.chatbot` (`ChatbotConfig` from
   `lib/booking/chatbot-config.ts`, read with a fallback to the older
-  `chatbotEnabled`/`faq`); the monthly AI spend setting is gone (the chat
-  module keeps its old $20 brake as a constant until its zero-spend version
-  replaces it). The Chatbot subtab mounts the chatbot builder's panel.
+  `chatbotEnabled`/`faq`); the monthly AI spend setting is gone. The Chatbot
+  subtab mounts the assistant's own panel (part 3).
 
-**Known limits.** A fixed window that has passed shows no times until a month
-is opened (Overview warns two weeks ahead). The busy read now spans up to seven
-months, in parts, cached a minute like before. The preview reads the saved
-settings, so a change shows after its save (planner taps save at once).
-### D-078 — The booking link, v2: booked at once, guests, and each booking's own page
+**Known limits.** The busy read spans today to the end of the last open
+month (up to twelve months), in parts, cached a minute like before. The
+preview reads the saved settings, so a change shows after its save (planner
+taps save at once).
+
+#### Part 2 — The flows: booked at once, guests, and each booking's own page
 
 **Context.** Nick had the D-074 link in hand and Arwin asked for it to work
 without anyone watching it (Oct 22): "why does it wait for my approval.
@@ -3054,9 +3058,10 @@ booking-calendar.ts, booking-alerts.ts).**
   abuse brake stays: the per-day link cap, three upcoming meetings or
   messages per email (as booker or guest), three per sender address, six new
   bookings a day for the whole link, the honeypot and the per-address limits.
-  "Approve each booking first" remains in Settings as an option, off by
-  default (a renamed field, so the `instant: false` saved under D-074 does not
-  keep approval on); with it on, every booking waits as a request, as before.
+  "Approve first" remains an option on the Booking tab's Overview, off by
+  default (a renamed field, `approveFirst`, so the `instant: false` saved
+  under D-074 does not keep approval on); with it on, every booking waits as a
+  request, as before.
 - **Held when calendar editing is off.** The time is kept ("Your time is
   held. The calendar invitation is on its way."), a Today line and the Booking
   tab's banner say "Turn on calendar editing so invites go out automatically",
@@ -3073,8 +3078,8 @@ booking-calendar.ts, booking-alerts.ts).**
   `guest_emails`, invited as attendees, counted by the brakes.
 - **Each booking's own page** (`/meet/<slug>/b/<token>`, the same link): the
   token is 32 random bytes (base64url) and only its SHA-256 is stored
-  (`manage_token_hash`, unique); it is in the event description ("Need to make
-  a change? Reschedule or cancel: <url>"), on the confirmation, and in an
+  (`manage_token_hash`, unique); it is in the event description ("Need to
+  reschedule or cancel? <url>"), on the confirmation, and in an
   httpOnly cookie for that link's own pages, so revisiting `/meet/<slug>` says
   "You have a meeting with Nick on <when>". The page (never indexed, no
   referrer, braked per address) shows when (the visitor's zone and Central),
@@ -3118,11 +3123,8 @@ booking-calendar.ts, booking-alerts.ts).**
   instances would each have their own queue.
 - Alerts reach a computer within the desktop alerts' five-minute input cache
   and a phone within the push job's half hour.
-### D-078 (assistant) — The booking page's Arwin: guided, answers from a written list, AI only on Arwin's Claude plan
 
-Part of D-078 (the booking link v2). This entry covers the public assistant;
-the flows (instant booking, guests, reschedule and cancel) and the Booking
-tab have their own parts.
+#### Part 3 — The page's Arwin: guided, answers from a written list, AI only on Arwin's Claude plan
 
 **Context.** Arwin, Oct 22: "there shouldnt be any spending here. this should
 only connect to my claude like arwin ai on copilot.. we're trying to save
@@ -3138,8 +3140,7 @@ repository's Anthropic key with a monthly spend cap.
   the app's model client (two data-only modules from `lib/ai`, zod shapes and
   prompt text, arrive through the shared services and call nothing), and that
   none of its files names an API key, the model client or the usage ledger.
-- **A guided helper** (`components/booking/booking-chat.tsx`, same export and
-  props as before; `mode` and `onFill` are accepted and unused): Book a 30-min
+- **A guided helper** (`components/booking/booking-chat.tsx`): Book a 30-min
   call, Meet in person (coffee, lunch or dinner as configured), Ask a
   question, Leave a message or deck. It shows the engine's next open times
   (two a day, eight a page, "More times"), the listed places (and "suggest a
@@ -3210,6 +3211,72 @@ repository's Anthropic key with a monthly spend cap.
   counted from the table, are the real brakes.
 - The relay read is the Ask relay's: the last 100 messages of the channel. A
   very busy channel could push an answer out of reach within the wait.
-- `saveBookingSettings` writes the whole settings document; it must keep the
-  stored `chatbot` (as it keeps the photo) so a Booking tab save never undoes
-  an assistant panel save.
+- A Booking tab panel save writes the stored document back with only its
+  own fields changed, the `chatbot` as last read: a tab save and an assistant
+  panel save at the very same moment could still cross.
+
+#### Part 4 — The integration: months switched on freely, deletions in Google, Fyxer's link, zero spend in the UI
+
+**Context.** Arwin, after the builders started: "we want to have options to
+turn on schedules for a specific month freely"; a live test booking whose
+event was deleted from Nick's calendar still held its day's place under the
+two-a-day cap; Fyxer (which Nick uses) rewrote booking events a few seconds
+after they were made with its own "Need to reschedule? Choose a new time"
+link ("it should route to the landing page we just made for the booking");
+and the Settings and chatbot screens still showed dollar amounts ("it should
+be free why does it have 25 bucks").
+
+**Decision.**
+
+- **Months, each switched on by itself.** `openMonths: string[]` (`YYYY-MM`),
+  any of this month and the next 11, non-contiguous allowed (only December;
+  January and March). With nothing stored, this month and the next. A month
+  not on the list offers nothing: the engine skips it whole, the public page,
+  the preview and "Why no times?" ("November isn't open on the link") all
+  read it, and no count of days caps an open month (the notice still applies;
+  a month past the next 11 is "too far ahead"). An older stored
+  `openThrough`/`rollingMonths`/`closedMonths` reads as the same months
+  (`legacyOpenMonths`). The Availability strip is twelve On/Off chips (tap to
+  flip) with each month's open-time count from the engine
+  (`GET /api/booking/preview?counts=1`), "Open next 3 months" (this month and
+  the next two) and "Close all", then the month grid for closed days and
+  shorter hours. A save drops past months and refuses one past the next 11.
+- **Deleted in Google is cancelled.** The engine's own calendar read
+  (`lib/booking/availability.ts`) now also says which events it saw; a
+  booked or approved link booking whose event is missing there (its calendar
+  and its day were read, and it is more than ten minutes old) gets one
+  confirming look (`getEvent`; at most five a pass, each event at most every
+  five minutes, so no storm): gone or cancelled, it becomes `cancelled` with
+  `cancelled_by: 'calendar'` (declined before the v2 migration), frees its
+  time and its place under the caps at once, sends no alert and makes no
+  write, and the Booking tab shows "Cancelled in Google". An event moved in
+  Google moves its booking (`lib/services/booking-sync.ts`).
+- **Another tool's reschedule link never stays on a booking event.** For
+  booking-link events only (by the event id on the booking row), Copilot's
+  own description ends "Need to reschedule or cancel? <the booking's page>".
+  About 18 seconds after it creates or moves the event (an in-process timer,
+  harmless if the process restarts) and whenever the engine's normal read
+  sees the event, a description holding a third-party reschedule or cancel
+  link (fyxer.com, vimcal.com, calendly.com reschedulings/cancellations) is
+  put back to Copilot's text through `lib/services/booking-calendar.ts`
+  (write.ts gates) with `sendUpdates: 'none'`, so guests' copies change
+  quietly. At most once per event per change (its move count), recorded in
+  `description_cleaned_at`/`description_cleaned_rev` (and in memory before
+  the migration), so Copilot and the other tool never take turns.
+- **Zero spend in the UI.** No dollar amount or AI cost field anywhere unless
+  a paid AI key is configured; where cost shows, "$0: AI runs on the Claude
+  plan" (Settings, Diagnostics). The assistant's daily cap is a count of
+  answers, not money.
+- **Wiring.** The Chatbot subtab mounts the assistant's panel; the Bookings
+  subtab reads the real `LinkBooking` (plus `visitorTimeZone` and
+  `cancelledBy`); guest settings (`allowGuests`, `maxGuests`) sit under
+  Availability > Rules; Today's "requests waiting" line opens the Booking
+  tab's drawer; the dead chat-fill and chat-mode code is gone.
+
+**Known limits.**
+
+- An event made after the booking (a held time placed, a request approved)
+  has no page link to put back (the token is never kept): its restored
+  description ends without one.
+- A cleanup the same tool undoes within the same change stays undone.
+- The description check reads the saved video link at the time it runs.

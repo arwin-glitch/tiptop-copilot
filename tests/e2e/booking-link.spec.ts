@@ -21,17 +21,21 @@ test.describe.configure({ mode: 'serial' });
  * Settings > Booking link > Rules turns it on for the spec and off after it,
  * so the rest of the suite sees the default (booked at once).
  */
+/** Approve first is an option on the Booking tab's Overview (D-078), off by default. */
 async function setApproveFirst(page: Page, on: boolean) {
-  await page.goto('/settings?tab=booking');
-  await page.getByRole('tab', { name: 'Rules' }).click();
-  const toggle = page.getByRole('switch', { name: 'Approve each booking first' });
-  await expect(toggle).toBeVisible();
-  if ((await toggle.getAttribute('aria-checked')) !== String(on)) {
-    await toggle.click();
-    await page.getByRole('button', { name: 'Save booking link' }).click();
-    await expect(page.getByText('Unsaved changes')).toHaveCount(0);
+  await page.goto('/booking');
+  const mode = page.getByRole('radiogroup', { name: 'Booking mode' });
+  const radio = mode.getByRole('radio', { name: on ? /Approve first/ : /Instant/ });
+  await expect(radio).toBeVisible();
+  if ((await radio.getAttribute('aria-checked')) !== 'true') {
+    await radio.click();
+    await expect(
+      page.getByText(
+        on ? 'Bookings now wait for approval' : 'Bookings now go straight on the calendar',
+      ),
+    ).toBeVisible();
   }
-  await expect(toggle).toHaveAttribute('aria-checked', String(on));
+  await expect(radio).toHaveAttribute('aria-checked', 'true');
 }
 
 test.beforeAll(async ({ browser }, testInfo) => {
@@ -57,11 +61,19 @@ test.afterAll(async ({ browser }, testInfo) => {
   await context.close();
 });
 
-/** A visitor: no session at all. */
+let address = 20;
+
+/**
+ * A visitor: no session at all, from its own invented address
+ * (cf-connecting-ip), so the other booking specs' per-address brakes never
+ * trip this one.
+ */
 async function visitor(browser: Browser, baseURL: string | undefined, options = {}) {
+  address += 1;
   const context = await browser.newContext({
     baseURL,
     storageState: { cookies: [], origins: [] },
+    extraHTTPHeaders: { 'cf-connecting-ip': `198.51.100.${address}` },
     ...options,
   });
   return { context, page: await context.newPage() };
@@ -269,8 +281,8 @@ test.describe('in Copilot', () => {
     await page.goto('/today');
     const line = page.getByText(/\d+ booking requests? waiting\./);
     await expect(line).toBeVisible();
-    await page.getByRole('link', { name: 'Review in Calendar →' }).click();
-    // The old drawer address on the Calendar tab goes on to the Booking tab (D-078).
+    await page.getByRole('link', { name: 'Review in Booking →' }).click();
+    // Straight to the Booking tab's requests drawer (D-078).
     await expect(page).toHaveURL(/\/booking\?tab=bookings#booking-requests$/);
     // The link opens the drawer itself.
     const drawer = page.getByRole('dialog', { name: 'Booking requests' });
@@ -368,12 +380,11 @@ test.describe('in Copilot', () => {
       .getByRole('navigation', { name: 'Booking sections' })
       .getByRole('link', { name: 'Chatbot' })
       .click();
-    await expect(
-      page.getByText('TipTop VC (Demo) is an invented fund', { exact: false }),
-    ).toBeVisible();
+    await expect(page.getByLabel('Answer 1')).toHaveValue(/TipTop VC \(Demo\) is an invented fund/);
     // Zero spend: no money field on the chatbot settings, and it says it's free.
     await expect(page.getByLabel('Monthly AI cost cap (US$)')).toHaveCount(0);
-    await expect(page.getByText('Free: no paid AI.', { exact: false })).toBeVisible();
+    await expect(page.getByText('Free: no API key.', { exact: false })).toBeVisible();
+    await expect(page.getByText(/US\$|AI cost|AI budget|cost cap/i)).toHaveCount(0);
     await page.screenshot({ animations: 'disabled', path: shot('copilot-settings') });
   });
 });

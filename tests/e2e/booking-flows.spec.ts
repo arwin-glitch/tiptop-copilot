@@ -15,11 +15,13 @@ const shot = (name: string, width: number) => path.join(SHOTS, `booking-v2-${nam
 
 test.describe.configure({ mode: 'serial' });
 
+/** A visitor from its own invented address, so other specs' per-address brakes never trip. */
 async function visitor(browser: Browser, baseURL: string | undefined, width: number) {
   const phone = width < 768;
   const context = await browser.newContext({
     baseURL,
     storageState: { cookies: [], origins: [] },
+    extraHTTPHeaders: { 'cf-connecting-ip': `198.51.100.${width === 1440 ? 61 : 62}` },
     viewport: { width, height: phone ? 844 : 900 },
     ...(phone ? { isMobile: true, hasTouch: true } : {}),
     colorScheme: 'light',
