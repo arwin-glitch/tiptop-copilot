@@ -4,8 +4,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BookingPage } from '@/components/booking/booking-page';
 import { loadMeetPage, PAGE_VIEWS_PER_10_MIN } from '@/lib/booking/page-data';
-import { SENT_MESSAGE } from '@/lib/booking/public';
-import { DEMO_BOOKING_SETTINGS_ID } from '@/lib/demo/booking-fixtures';
+import { BOOKED_MESSAGE, bookedHeading, inviteOnItsWay, SENT_MESSAGE } from '@/lib/booking/public';
+import { DEMO_BOOKING_CONFIG, DEMO_BOOKING_SETTINGS_ID } from '@/lib/demo/booking-fixtures';
 import { getStorage } from '@/lib/runtime';
 import { resetLimiters } from '@/lib/security/limits';
 import { setBookingPhoto } from '@/lib/services/booking';
@@ -173,6 +173,21 @@ describe('what the page says happens next (hotfix)', () => {
       "Request sent. You'll get a calendar invitation once the time is booked.",
     );
   });
+
+  it('says a booked time is booked, and still names nobody who confirms it (instant)', () => {
+    expect(bookedHeading('Nick Avery')).toBe("You're booked with Nick");
+    expect(inviteOnItsWay('pat@acme.example')).toBe(
+      'The calendar invitation is on its way to pat@acme.example.',
+    );
+    expect(BOOKED_MESSAGE).toBe("You're booked. The calendar invitation is on its way.");
+    for (const text of [
+      bookedHeading('Nick Avery'),
+      inviteOnItsWay('a@b.example'),
+      BOOKED_MESSAGE,
+    ]) {
+      expect(text).not.toMatch(/confirm|review|approv|Arwin|the team|someone/i);
+    }
+  });
 });
 
 describe('open times', () => {
@@ -212,13 +227,53 @@ describe('sending a request', () => {
       params(),
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, message: SENT_MESSAGE });
+    expect(await res.json()).toEqual({ ok: true, status: 'pending', message: SENT_MESSAGE });
     const rows = await harness.store.list('booking_requests', harness.auth.organizationId, {
       eq: { email: 'pat@acme.example' },
     });
     expect(rows).toHaveLength(1);
     expect(rows[0]!.ip_hash).toMatch(/^[0-9a-f]{16,}$/);
     expect(rows[0]!.ip_hash).not.toContain('203.0.113.7');
+  });
+
+  it('with Instant booking on, books a free time and says so; a message and the honeypot are not booked', async () => {
+    await harness.store.update(
+      'booking_settings',
+      harness.auth.organizationId,
+      DEMO_BOOKING_SETTINGS_ID,
+      { settings: { ...DEMO_BOOKING_CONFIG, instant: true } as unknown as Record<string, unknown> },
+    );
+    const start = await firstCallSlot();
+    const booked = await requestRoute(
+      post('/api/meet/nick/request', {
+        name: 'Pat Lee',
+        email: 'pat@acme.example',
+        type: 'call',
+        start,
+      }),
+      params(),
+    );
+    expect(booked.status).toBe(200);
+    expect(await booked.json()).toEqual({ ok: true, status: 'booked', message: BOOKED_MESSAGE });
+    const [row] = await harness.store.list('booking_requests', harness.auth.organizationId, {
+      eq: { email: 'pat@acme.example' },
+    });
+    expect(row).toMatchObject({ status: 'approved', decided_by: null });
+
+    const note = await requestRoute(
+      post('/api/meet/nick/request', message('n@b.example')),
+      params(),
+    );
+    expect(await note.json()).toEqual({ ok: true, status: 'message', message: SENT_MESSAGE });
+    const robot = await requestRoute(
+      post(
+        '/api/meet/nick/request',
+        { name: 'Robo', email: 'robo@spam.example', type: 'call', start, website: 'x' },
+        { ip: '198.51.100.9' },
+      ),
+      params(),
+    );
+    expect(await robot.json()).toEqual({ ok: true, status: 'pending', message: SENT_MESSAGE });
   });
 
   it('refuses one from another site, or with no origin at all', async () => {

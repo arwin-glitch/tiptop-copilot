@@ -337,7 +337,11 @@ export function BookingRequestsPanel({
                             <Badge tone="neutral">Filled with the chatbot</Badge>
                           ) : null}
                           {instant && r.type !== 'message' ? (
-                            <Badge tone="info">Instant</Badge>
+                            <Badge tone="info">
+                              <span title="Instant booking is on, but this one could not be booked on its own. Approve checks the time again.">
+                                Instant
+                              </span>
+                            </Badge>
                           ) : null}
                         </div>
                       </div>

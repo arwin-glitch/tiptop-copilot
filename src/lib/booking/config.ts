@@ -227,9 +227,10 @@ export interface BookingConfig {
   /** A day with this many meetings already offers nothing. */
   maxMeetingsPerDay: number;
   /**
-   * Stored for later. In this version Copilot writes to the calendar only on
-   * a person's Approve (never from the public page), so with it on a request
-   * is only tagged "Instant" in the drawer (D-074).
+   * Instant booking (D-074 addendum): on, a request for a free time is booked
+   * straight away through Approve's own core (the live re-check, the event on
+   * the host's main calendar, the invitation); one that cannot be booked then
+   * waits for Approve. Off, every request waits for Approve.
    */
   instant: boolean;
   chatbotEnabled: boolean;
@@ -275,7 +276,7 @@ export const DEFAULT_BOOKING_CONFIG: BookingConfig = {
   horizonDays: 21,
   maxLinkBookingsPerDay: 2,
   maxMeetingsPerDay: 5,
-  instant: false,
+  instant: true,
   chatbotEnabled: true,
   faq: '',
   monthlyAiCapUsd: 20,

@@ -1,9 +1,9 @@
 import type { NextRequest } from 'next/server';
 import { BOOKING_REQUEST_INPUT, firstProblem } from '@/lib/booking/request';
-import { SENT_MESSAGE } from '@/lib/booking/public';
+import { BOOKED_MESSAGE, SENT_MESSAGE } from '@/lib/booking/public';
 import { publicDone, publicFail, readJson, visitorGate } from '@/lib/booking/route-helpers';
 import { getStore } from '@/lib/runtime';
-import { submitBookingRequest } from '@/lib/services/booking';
+import { submitBookingRequest, type SubmitStatus } from '@/lib/services/booking';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +13,10 @@ type Context = { params: Promise<{ slug: string }> };
  * A visitor's meeting request (or message) from the booking page. Public:
  * no session; it must come from the page itself, within the per-address and
  * per-email brakes, and at most three requests may wait per email address.
- * It is kept as pending and nothing else happens: no calendar, no email.
+ * It is kept as pending; with Instant booking on, the service then books a
+ * free time once (D-074 addendum). The answer's `status` says which:
+ * 'booked', 'pending' or 'message'. An instant booking that could not go
+ * through is just 'pending': the visitor never sees an error for it.
  */
 export async function POST(request: NextRequest, context: Context) {
   const gate = visitorGate(request, {
@@ -34,6 +37,13 @@ export async function POST(request: NextRequest, context: Context) {
     ipHash: gate.visitor.ipHash,
   });
   if (!saved.ok) return publicFail(saved.error);
-  // The honeypot gets the same answer as a person, and nothing was kept.
-  return publicDone({ message: SENT_MESSAGE });
+  // The honeypot gets the answer of a request that waits, and nothing was
+  // kept: never "booked", since nothing was.
+  const status: SubmitStatus =
+    saved.value.kind === 'saved'
+      ? saved.value.status
+      : parsed.data.type === 'message'
+        ? 'message'
+        : 'pending';
+  return publicDone({ status, message: status === 'booked' ? BOOKED_MESSAGE : SENT_MESSAGE });
 }

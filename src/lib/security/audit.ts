@@ -105,6 +105,7 @@ export type AuditAction =
   | 'booking.photo_updated'
   | 'booking.requested'
   | 'booking.approved'
+  | 'booking.auto_approved'
   | 'booking.approve_refused'
   | 'booking.declined'
   | 'booking.handled'

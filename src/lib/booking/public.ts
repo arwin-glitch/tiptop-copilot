@@ -1,4 +1,4 @@
-import type { MeetingKind, MeetingType, Place } from './config';
+import { firstName, type MeetingKind, type MeetingType, type Place } from './config';
 
 /**
  * Exactly what the public booking page and its chatbot are given: the host's
@@ -62,6 +62,23 @@ export const UNAVAILABLE_MESSAGE =
  */
 export const SENT_MESSAGE =
   "Request sent. You'll get a calendar invitation once the time is booked.";
+
+/**
+ * What the request route says when Instant booking put the time on the
+ * host's calendar. The page says it in full: bookedHeading and inviteOnItsWay.
+ */
+export const BOOKED_MESSAGE = "You're booked. The calendar invitation is on its way.";
+
+/** "You're booked with Nick": the host's first name, else their whole name. */
+export function bookedHeading(hostName: string): string {
+  const name = firstName(hostName) || hostName.trim();
+  return name ? `You're booked with ${name}` : "You're booked";
+}
+
+/** "The calendar invitation is on its way to pat@example.com." */
+export function inviteOnItsWay(email: string): string {
+  return `The calendar invitation is on its way to ${email.trim()}.`;
+}
 
 /* ------------------------------------------------------------ video calls */
 

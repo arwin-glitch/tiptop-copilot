@@ -63,12 +63,15 @@ import { principalTimeZone } from './push-alerts';
  *
  * The rules that matter, enforced here and nowhere else:
  * - The public side reads busy time only (lib/booking/availability.ts) and
- *   writes one thing: a pending request. It never touches the calendar and
- *   never sends an email.
- * - A request reaches the calendar only when a person presses Approve, which
- *   re-checks the time against the live calendar and every rule, then
- *   creates the event through lib/calendar/write.ts (the editing grant, a
- *   writable calendar), inviting the requester (Send: sendUpdates 'all').
+ *   writes one thing: a pending request. It never touches the calendar
+ *   itself and never sends an email.
+ * - A request reaches the calendar through one core (bookOnHostCalendar):
+ *   when a person presses Approve, or, with Instant booking on, once, right
+ *   after the request is saved (bookInstantly, a system decision). The core
+ *   re-checks the time against the live calendar and every rule, claims the
+ *   row, then creates the event through lib/calendar/write.ts (the editing
+ *   grant, a writable calendar), inviting the requester (sendUpdates 'all').
+ *   An instant booking that cannot go through leaves the request pending.
  * - Without the tables (the migration not run yet) everything fails safe:
  *   the page is closed, the Calendar button is hidden, Settings says what to run.
  */
@@ -513,12 +516,23 @@ export interface SubmitContext {
   source?: CalendarSource;
 }
 
-export type SubmitOutcome = { kind: 'saved'; id: string } | { kind: 'ignored' };
+/**
+ * What the visitor is told: 'booked' (Instant booking put it on the host's
+ * calendar, and Google sends the invitation), 'pending' (it waits for
+ * Approve), or 'message' (no time was asked for).
+ */
+export type SubmitStatus = 'booked' | 'pending' | 'message';
+
+export type SubmitOutcome =
+  { kind: 'saved'; id: string; status: SubmitStatus } | { kind: 'ignored' };
 
 /**
  * A visitor's request, checked and kept as pending. The honeypot is answered
- * as if all went well and nothing is kept. Nothing is written anywhere else:
- * no calendar, no email.
+ * as if all went well and nothing is kept. With Instant booking off nothing
+ * is written anywhere else: no calendar, no email. With it on, a meeting
+ * request's time is checked against the live calendar before it is kept,
+ * then booked once through Approve's own core (bookInstantly); if that cannot
+ * happen it stays pending, and the visitor is told only that it was sent.
  */
 export async function submitBookingRequest(
   store: DataStore,
@@ -649,7 +663,15 @@ export async function submitBookingRequest(
       const startMs = Date.parse(input.start ?? '');
       if (!Number.isFinite(startMs)) return err('invalid_input', 'Pick a time.');
       const start = new Date(startMs).toISOString();
-      const prepared = await engineInputFor(store, found.link, { now, source: context.source });
+      // With Instant booking on, the time is checked against the live
+      // calendar (not the cached picture the page was drawn from), so one
+      // taken since the page loaded is refused here and the page offers the
+      // next times, rather than kept and then left waiting.
+      const prepared = await engineInputFor(store, found.link, {
+        now,
+        source: context.source,
+        fresh: config.instant,
+      });
       if (!prepared.ok) return err('provider_unavailable', UNAVAILABLE_MESSAGE);
       const problem = slotProblem(prepared.value.input, query, start);
       if (problem) {
@@ -684,7 +706,10 @@ export async function submitBookingRequest(
     // Ids and kinds only: never the visitor's name, address or note.
     metadata: { type: row.meeting_type, kind: row.kind, source: row.source },
   });
-  return ok({ kind: 'saved', id: row.id });
+  if (row.meeting_type === 'message') return ok({ kind: 'saved', id: row.id, status: 'message' });
+  if (!config.instant) return ok({ kind: 'saved', id: row.id, status: 'pending' });
+  const booked = await bookInstantly(store, organizationId, row, { now, source: context.source });
+  return ok({ kind: 'saved', id: row.id, status: booked ? 'booked' : 'pending' });
 }
 
 /* -------------------------------------------------------------- Copilot side */
@@ -750,6 +775,16 @@ export interface ActorContext {
   userId: string;
 }
 
+/**
+ * Who decides a booking: the person who pressed Approve, or nobody (null)
+ * when Instant booking books it on its own, a system decision.
+ */
+interface BookingDecider {
+  store: DataStore;
+  organizationId: string;
+  userId: string | null;
+}
+
 export type ApproveOutcome =
   | { state: 'approved'; eventId: string; calendarId: string; meetUrl: string | null }
   | { state: 'needs_grant'; reason: string; templateUrl: string };
@@ -803,10 +838,55 @@ export async function approveBookingRequest(
   id: string,
   deps: BookingDeps = {},
 ): Promise<Result<ApproveOutcome>> {
-  const now = deps.now ?? new Date();
   const found = await pendingRequest(ctx, id);
   if (!found.ok) return found;
-  const { request } = found.value;
+  return bookOnHostCalendar(ctx, found.value.request, deps);
+}
+
+/**
+ * Instant booking: the request just saved, booked once through the same core
+ * as Approve, with nobody recorded as deciding it. True only when the event
+ * was made. Anything else (no editing grant, the calendar unreachable, the
+ * time no longer free, the row claimed by an Approve, a write error, even a
+ * throw) leaves the request pending for a person on the Calendar tab, and is
+ * never retried. Never throws: the visitor's request is already kept.
+ */
+async function bookInstantly(
+  store: DataStore,
+  organizationId: string,
+  request: BookingRequest,
+  deps: BookingDeps,
+): Promise<boolean> {
+  try {
+    const booked = await bookOnHostCalendar({ store, organizationId, userId: null }, request, deps);
+    if (booked.ok && booked.value.state === 'approved') return true;
+    log.warn('Instant booking left a request waiting for Approve', {
+      request: request.id,
+      reason: booked.ok ? booked.value.state : booked.error.code,
+    });
+  } catch (error) {
+    log.warn('Instant booking failed; the request waits for Approve', {
+      request: request.id,
+      reason: error instanceof Error ? error.message : 'unknown',
+    });
+  }
+  return false;
+}
+
+/**
+ * The one way a booking request reaches the calendar, for Approve and for
+ * Instant booking alike: re-check against the live calendar and every rule,
+ * claim the row so a second try cannot make a second event, create the event
+ * on the host's main calendar through the write module (the requester
+ * invited, sendUpdates 'all'), then mark the row approved.
+ */
+async function bookOnHostCalendar(
+  ctx: BookingDecider,
+  request: BookingRequest,
+  deps: BookingDeps,
+): Promise<Result<ApproveOutcome>> {
+  const now = deps.now ?? new Date();
+  const id = request.id;
   if (request.meeting_type === 'message' || !request.starts_at || !request.ends_at) {
     return err('invalid_input', 'A message has no time to approve. Mark it handled instead.');
   }
@@ -920,7 +1000,8 @@ export async function approveBookingRequest(
         callLink: settings.config.callLink,
         hostEmail: hostCalendarEmail(source, host, primary.id),
       }),
-      // Approving a booking is the person's Send: the requester gets the invitation.
+      // Approving a booking (or Instant booking, which the host switched on
+      // for exactly this) is the Send: the requester gets the invitation.
       notify: 'send',
     },
   );
@@ -966,7 +1047,8 @@ export async function approveBookingRequest(
   await recordAudit(ctx.store, {
     organizationId: ctx.organizationId,
     userId: ctx.userId,
-    action: 'booking.approved',
+    // Nobody pressed anything for an instant booking: it is the link's own decision.
+    action: ctx.userId ? 'booking.approved' : 'booking.auto_approved',
     entityType: 'booking_request',
     entityId: id,
     metadata: {
@@ -984,9 +1066,12 @@ export async function approveBookingRequest(
   });
 }
 
-/** An Approve that put nothing on the calendar, and why: audited like the rest. */
+/**
+ * An Approve (or an instant booking) that put nothing on the calendar, and
+ * why: audited like the rest.
+ */
 async function auditRefusal(
-  ctx: ActorContext,
+  ctx: BookingDecider,
   request: BookingRequest,
   reason: 'no_longer_free' | 'needs_calendar_editing',
 ): Promise<void> {
@@ -996,7 +1081,12 @@ async function auditRefusal(
     action: 'booking.approve_refused',
     entityType: 'booking_request',
     entityId: request.id,
-    metadata: { type: request.meeting_type, kind: request.kind, reason },
+    metadata: {
+      type: request.meeting_type,
+      kind: request.kind,
+      reason,
+      ...(ctx.userId ? {} : { instant: true }),
+    },
   });
 }
 

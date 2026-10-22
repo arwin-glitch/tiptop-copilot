@@ -10,6 +10,21 @@ throughout.
 
 ## [Unreleased]
 
+- **Instant booking now really books.** With Settings > Booking link > Rules
+  > Instant booking on, a visitor who picks a free time is booked straight
+  away: the meeting goes onto Nick's calendar exactly as Approve would put it
+  there (Nick first on the invite, the visitor invited, the saved video link
+  for calls) and Google emails the invitation. The visitor sees "You're
+  booked with Nick", the time in their own zone and in Central, and "The
+  calendar invitation is on its way to <their email>." If it cannot be booked
+  on its own (calendar editing is off, Google does not answer, or the time
+  was just taken), the request simply waits on the Calendar tab for Approve,
+  as before, and the visitor sees "Request sent. You'll get a calendar
+  invitation once the time is booked." A time taken since the page loaded is
+  refused and the page shows the next open times. Instant booking is on by
+  default for a new link; turned off, every request waits for Approve as
+  before. Messages stay messages. No database update needed.
+
 - **Booking link fixes after the first live test.** In-person times no longer
   vanish for every date while Nick's Google Calendar is still set to another
   time zone from a trip: in person now pauses only until the day his flight

@@ -11,10 +11,12 @@ import { KIND_LABEL, type MeetingKind } from '@/lib/booking/config';
 import {
   CLOSED_MESSAGE,
   SENT_MESSAGE,
+  bookedHeading,
   callOptionLabel,
   dayKeyIn,
   dayLabel,
   distinctZones,
+  inviteOnItsWay,
   knownZone,
   slotLabel,
   timeLabel,
@@ -38,9 +40,10 @@ import { BookingChat } from './booking-chat';
 /**
  * The public booking page (/meet/<slug>): the host's card, then one form —
  * a call or an in-person coffee, lunch or dinner, a time in the visitor's
- * own zone, a place, and who they are. Sending keeps a request; nothing is
- * booked from here, and the calendar invitation follows once the time is
- * booked. The chatbot can fill the form; the visitor still presses Send.
+ * own zone, a place, and who they are. Sending keeps a request, and the
+ * calendar invitation follows once the time is booked: straight away when
+ * the server says 'booked' (Instant booking on), else once it is approved.
+ * The chatbot can fill the form; the visitor still presses Send.
  */
 
 const noSubscribe = () => () => {};
@@ -208,6 +211,8 @@ function OpenPage({
   const [sending, setSending] = React.useState(false);
   const [problem, setProblem] = React.useState<string | null>(null);
   const [sent, setSent] = React.useState<BookingFormState | null>(null);
+  /** The server booked it straight away (Instant booking): the invitation is on its way. */
+  const [booked, setBooked] = React.useState(false);
   const [filledByChat, setFilledByChat] = React.useState(false);
   const [website, setWebsite] = React.useState('');
   const [reload, setReload] = React.useState(0);
@@ -322,9 +327,11 @@ function OpenPage({
     setSending(false);
     const json = (await res?.json().catch(() => null)) as {
       ok?: boolean;
+      status?: 'booked' | 'pending' | 'message';
       error?: { code?: string; message?: string };
     } | null;
     if (res?.ok && json?.ok) {
+      setBooked(json.status === 'booked' && form.type !== 'message');
       setSent(form);
       return;
     }
@@ -342,6 +349,12 @@ function OpenPage({
           ? sent.customPlace
           : data.places.find((p) => p.id === sent.placeId)?.name
         : null;
+    const at = sent.start ? new Date(sent.start) : null;
+    // The host's own clock as well, when it reads differently from the visitor's.
+    const hostClock =
+      booked && at && zoneName(data.hostTimeZone, at) !== zoneName(zone, at)
+        ? `${slotLabel(sent.start!, data.hostTimeZone)} ${zoneName(data.hostTimeZone, at)}`
+        : null;
     return (
       <Shell firmName={host.firmName || 'TipTop Ventures'}>
         <section
@@ -349,20 +362,33 @@ function OpenPage({
           aria-live="polite"
         >
           <CalendarCheck2 className="mx-auto size-9 text-[var(--accent)]" aria-hidden="true" />
-          <h1 className="mt-3 font-serif text-2xl font-semibold">{SENT_MESSAGE}</h1>
+          <h1 className="mt-3 font-serif text-2xl font-semibold">
+            {booked ? bookedHeading(host.displayName) : SENT_MESSAGE}
+          </h1>
           <p className="mt-2 text-sm text-[var(--fg-muted)]">
             {sent.type === 'message'
               ? `Your message for ${host.displayName} was sent.`
-              : `${sent.type === 'call' ? callLabel : `${KIND_LABEL[sent.kind as MeetingKind]}, 1 hour`} · ${slotLabel(sent.start!, zone)} (${zoneName(zone, new Date(sent.start!))})${place ? ` · ${place}` : ''}`}
+              : `${sent.type === 'call' ? callLabel : `${KIND_LABEL[sent.kind as MeetingKind]}, 1 hour`} · ${slotLabel(sent.start!, zone)} (${zoneName(zone, at!)})${place ? ` · ${place}` : ''}`}
           </p>
-          <p className="mt-4 text-xs text-[var(--fg-subtle)]">
-            Nothing is on the calendar yet. Watch your inbox for the invitation.
+          {hostClock ? (
+            <p className="mt-1 text-sm text-[var(--fg-muted)]">That is {hostClock}.</p>
+          ) : null}
+          <p
+            className={cn(
+              'mt-4',
+              booked ? 'text-sm text-[var(--fg)]' : 'text-xs text-[var(--fg-subtle)]',
+            )}
+          >
+            {booked
+              ? inviteOnItsWay(sent.email)
+              : 'Nothing is on the calendar yet. Watch your inbox for the invitation.'}
           </p>
           <Button
             className="mt-5"
             variant="secondary"
             onClick={() => {
               setSent(null);
+              setBooked(false);
               setForm(EMPTY_FORM);
               setFilledByChat(false);
               setReload((n) => n + 1);

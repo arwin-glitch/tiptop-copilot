@@ -7,8 +7,10 @@ import { describe, expect, it } from 'vitest';
  * event is a person's tap on the Calendar tab and nothing else: no routine,
  * cron job, AI tool, relay reader, the pings or the parity check can reach a
  * write, and nothing anywhere defaults to emailing guests. The one other
- * caller is the booking link's Approve (D-074), a person's tap in the
- * Calendar tab's panel; the public booking page and its chatbot never reach it.
+ * caller is the booking link's core (D-074): a person's Approve in the
+ * Calendar tab's panel, or, with Instant booking on, the request just sent,
+ * once, inside the booking service. The public page, its routes and its
+ * chatbot never name a write.
  */
 
 const SRC = join(process.cwd(), 'src');
@@ -35,14 +37,31 @@ describe('calendar writes', () => {
       'app/api/calendar/events/route.ts',
       'lib/services/booking.ts',
     ]);
-    // In the booking service, only Approve calls it, and with the person's Send.
+    // In the booking service one core calls it, with the Send, and only
+    // Approve and Instant booking reach that core.
     const booking = SOURCES.find((s) => s.rel === 'lib/services/booking.ts')!.text;
     expect(booking.match(/createCalendarEvent\(/g)).toHaveLength(1);
     expect(booking).not.toMatch(/updateCalendarEvent|deleteCalendarEvent|recolorCalendarEvent/);
-    const approve =
-      /export async function approveBookingRequest[\s\S]*?\n}\n/.exec(booking)?.[0] ?? '';
-    expect(approve).toMatch(/createCalendarEvent\(/);
-    expect(approve).toMatch(/notify: 'send'/);
+    const fn = (name: string) =>
+      new RegExp(`\\n(?:export )?async function ${name}\\b[\\s\\S]*?\\n}\\n`).exec(booking)?.[0] ??
+      '';
+    const core = fn('bookOnHostCalendar');
+    expect(core).toMatch(/createCalendarEvent\(/);
+    expect(core).toMatch(/notify: 'send'/);
+    // The core itself, Approve, and Instant booking: nothing else.
+    expect(booking.match(/\bbookOnHostCalendar\(/g)).toHaveLength(3);
+    expect(fn('approveBookingRequest')).toMatch(/bookOnHostCalendar\(ctx, /);
+    expect(fn('bookInstantly')).toMatch(
+      /bookOnHostCalendar\(\{ store, organizationId, userId: null \}/,
+    );
+    // Instant booking runs from the submit alone, after the row is kept and
+    // audited, and only with the switch on.
+    expect(booking.match(/\bbookInstantly\(/g)).toHaveLength(2);
+    const submit = fn('submitBookingRequest');
+    expect(submit).toMatch(/if \(!config\.instant\) return[\s\S]*?bookInstantly\(/);
+    expect(submit.indexOf('bookInstantly(')).toBeGreaterThan(
+      submit.indexOf("action: 'booking.requested'"),
+    );
     // And the service is reached for Approve from the signed-in panel route alone.
     const approvers = SOURCES.filter((s) => /\bapproveBookingRequest\(/.test(s.text)).map(
       (s) => s.rel,

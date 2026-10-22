@@ -6,7 +6,8 @@ import { expect, test, type Browser, type Page } from '@playwright/test';
  * /meet/nick with nobody signed in (desktop and a 390px phone, light and
  * dark), a 30-minute call and an in-person coffee at a listed place asked
  * for, the chatbot's guided helper filling the form (the visitor presses
- * Send), then Copilot's Calendar tab approving one and declining the other.
+ * Send), then Copilot's Calendar tab approving one and declining the other,
+ * and last, Instant booking switched on in Settings booking straight away.
  * The demo's calendar is the in-memory mock: nothing reaches Google, and
  * nothing is emailed. Screenshots land in test-results/booking-*.png.
  */
@@ -355,5 +356,88 @@ test.describe('in Copilot', () => {
     await expect(page.getByLabel('Public FAQ for the chatbot')).toHaveValue(/invented fund/);
     await expect(page.getByLabel('Monthly AI cost cap (US$)')).toHaveValue('20');
     await page.screenshot({ animations: 'disabled', path: shot('copilot-settings') });
+  });
+});
+
+/**
+ * Instant booking (D-074 addendum): the demo keeps it off, so this switches
+ * it on in Settings, books from the public page at 1440 and on a 390px
+ * phone, and switches it off again whatever happens. Each booking goes about
+ * three weeks out (pickLastTime), clear of the days the calendar specs use.
+ */
+test.describe('Instant booking', () => {
+  test.use({ storageState: SIGNED_IN, viewport: { width: 1440, height: 900 } });
+
+  async function setInstant(page: Page, on: boolean) {
+    await page.goto('/settings?tab=booking');
+    await page.getByRole('tab', { name: 'Rules' }).click();
+    const toggle = page.getByRole('switch', { name: 'Instant booking' });
+    await expect(
+      page.getByText(
+        'On: a request for a free time is booked straight away and the calendar invitation goes out. Off: each request waits for Approve on the Calendar tab.',
+      ),
+    ).toBeVisible();
+    if ((await toggle.isChecked()) === on) return;
+    await toggle.click();
+    await expect(toggle).toBeChecked({ checked: on });
+    await page.getByRole('button', { name: 'Save booking link' }).click();
+    await expect(page.getByText('Booking link saved')).toBeVisible();
+  }
+
+  test('on: a free time is booked straight away, at 1440 and on a 390px phone', async ({
+    page,
+    browser,
+  }, testInfo) => {
+    await setInstant(page, true);
+    try {
+      const visitors = [
+        {
+          name: 'Riley Instant',
+          email: 'riley.instant@example.com',
+          size: 'desktop',
+          options: { viewport: { width: 1440, height: 900 } },
+        },
+        {
+          name: 'Sam Phone',
+          email: 'sam.phone@example.com',
+          size: 'phone',
+          options: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
+        },
+      ];
+      for (const who of visitors) {
+        const { context, page: guest } = await visitor(browser, testInfo.project.use.baseURL, {
+          ...who.options,
+          // An Eastern visitor: the time is said in their zone and in Central.
+          timezoneId: 'America/New_York',
+        });
+        await guest.goto('/meet/nick');
+        await pickLastTime(guest);
+        await fillAboutYou(guest, who.name, who.email, 'Kestrel Works');
+        await guest.getByRole('button', { name: 'Send request' }).click();
+        await expect(guest.getByRole('heading', { name: "You're booked with Nick" })).toBeVisible();
+        await expect(guest.getByText(/30-min Google Meet · .*\(Eastern Time/)).toBeVisible();
+        await expect(guest.getByText(/^That is .* Central Time \(Chicago\)\.$/)).toBeVisible();
+        await expect(
+          guest.getByText(`The calendar invitation is on its way to ${who.email}.`),
+        ).toBeVisible();
+        // Nobody is said to confirm or review it.
+        await expect(guest.getByText(/confirm|review|approv/i)).toHaveCount(0);
+        await expectNoSidewaysScroll(guest);
+        await guest.screenshot({
+          animations: 'disabled',
+          path: shot(`instant-booked-${who.size}`),
+          fullPage: true,
+        });
+        await context.close();
+      }
+      // Booked, so neither waits on the Calendar tab.
+      const panel = await openRequests(page);
+      await expect(panel.getByRole('listitem', { name: 'Request from Riley Instant' })).toHaveCount(
+        0,
+      );
+      await expect(panel.getByRole('listitem', { name: 'Request from Sam Phone' })).toHaveCount(0);
+    } finally {
+      await setInstant(page, false);
+    }
   });
 });

@@ -64,7 +64,8 @@ describe('Settings > Booking link', () => {
       horizonDays: 21,
       maxLinkBookingsPerDay: 2,
       maxMeetingsPerDay: 5,
-      instant: false,
+      // Instant booking is on for a new link (D-074 addendum).
+      instant: true,
       chatbotEnabled: true,
       monthlyAiCapUsd: 20,
       photo: null,

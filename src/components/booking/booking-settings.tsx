@@ -188,7 +188,9 @@ export function BookingSettings(props: BookingSettingsProps) {
               title="Take bookings"
               body={
                 enabled
-                  ? 'On. Anyone with the link can ask for a time; every request waits for Approve.'
+                  ? config.instant
+                    ? 'On. Anyone with the link can book a free time; it goes straight onto the calendar.'
+                    : 'On. Anyone with the link can ask for a time; every request waits for Approve.'
                   : 'Off. The page says it is not taking bookings.'
               }
             >
@@ -251,9 +253,10 @@ export function BookingSettings(props: BookingSettingsProps) {
             />
             <Notice>
               Open times come from every calendar Copilot shows for the host, personal ones too. The
-              page and its chatbot see busy times only, never titles or guests. Nothing reaches the
-              calendar until someone presses Approve on the Calendar tab, and Copilot sends no email
-              of its own.
+              page and its chatbot see busy times only, never titles or guests. With Instant booking
+              on (Rules), a free time goes straight onto the calendar and Google emails the
+              invitation; otherwise nothing reaches the calendar until someone presses Approve on
+              the Calendar tab. Copilot sends no email of its own.
             </Notice>
           </>
         ) : null}
@@ -591,7 +594,7 @@ export function BookingSettings(props: BookingSettingsProps) {
             </div>
             <Row
               title="Instant booking"
-              body="Kept off in this version: Copilot only writes to the calendar when someone presses Approve. With this on, requests are tagged Instant so they can be approved in one tap."
+              body="On: a request for a free time is booked straight away and the calendar invitation goes out. Off: each request waits for Approve on the Calendar tab."
             >
               <Switch
                 checked={config.instant}

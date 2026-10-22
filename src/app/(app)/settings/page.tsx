@@ -383,8 +383,9 @@ export default async function SettingsPage({
                 <CardTitle as="h2">Booking link</CardTitle>
                 <p className="mt-1 text-sm text-[var(--fg-muted)]">
                   A public page where people ask for a 30-minute call or an hour in person. Open
-                  times come from the calendar; every request waits on the Calendar tab until
-                  someone approves it. Off until you turn it on.
+                  times come from the calendar. With Instant booking on, free times are booked
+                  straight away; otherwise requests wait for Approve on the Calendar tab. Off until
+                  you turn it on.
                 </p>
               </div>
               {booking?.available ? (

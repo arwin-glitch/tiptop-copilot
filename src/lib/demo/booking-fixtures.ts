@@ -21,6 +21,9 @@ export const DEMO_BOOKING_SETTINGS_ID = id(0xb00c);
 
 export const DEMO_BOOKING_CONFIG: BookingConfig = {
   ...structuredClone(DEFAULT_BOOKING_CONFIG),
+  // The demo shows requests waiting for Approve on the Calendar tab; Instant
+  // booking (on by default) is switched on in Settings to see it book.
+  instant: false,
   displayName: 'Nick Avery',
   title: 'Partner, TipTop VC (Demo)',
   bio: 'Backs early software teams from the first check. This is an invented demo profile: the real one is written in Settings.',
