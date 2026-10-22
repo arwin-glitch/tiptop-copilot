@@ -441,6 +441,16 @@ test.describe('on a 390px phone', () => {
       await page.emulateMedia({ colorScheme: 'light' });
       await page.reload();
       await expect(page.getByRole('heading', { level: 1, name: 'Booking' })).toBeVisible();
+      if (tab === 'availability') {
+        await expect(page.getByRole('grid').locator('[data-open="yes"]').first()).toBeVisible();
+      }
+      if (tab === 'overview') await expect(page.locator('[data-check="times"]')).toBeVisible();
+      if (tab === 'bookings') {
+        await expect(page.getByRole('listitem', { name: 'Booking with Robin Vale' })).toBeVisible();
+      }
+      if (tab === 'calendars') {
+        await expect(page.locator('li[data-calendar]').first()).toBeVisible();
+      }
       await expectNoSidewaysScroll(page);
       await page.screenshot({
         animations: 'disabled',

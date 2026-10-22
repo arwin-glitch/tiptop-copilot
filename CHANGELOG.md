@@ -37,7 +37,8 @@ throughout.
     deck, and its status (Booked, Held, Waiting, Cancelled with their note).
     Cancel (with an optional note) and Open in Calendar. While Approve first
     is on, waiting requests open in the same Approve/Decline drawer as before.
-  - **Profile** and **Places**, moved from Settings unchanged (photo included).
+  - **Profile** and **Places**, moved from Settings unchanged (the photo and
+    the video link for calls included).
   - **Chatbot:** the page's Arwin chatbot and its answers.
   - **Calendars:** which of Nick's calendars block his time. By default his
     main one, his own (personal, family) and the ones ticked in Google; any

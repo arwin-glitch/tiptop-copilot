@@ -114,11 +114,11 @@ export function OverviewPanel(props: OverviewPanelProps) {
         <CardContent className="flex flex-wrap items-center gap-4 py-4">
           <span
             aria-hidden="true"
-            className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)]"
+            className="hidden size-11 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)] sm:flex"
           >
             <CalendarCheck className="size-5" />
           </span>
-          <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="min-w-[min(100%,18rem)] flex-1 space-y-1.5">
             <p className="text-micro font-medium tracking-[0.14em] text-[var(--label-gold)] uppercase">
               Booking link
             </p>
@@ -193,7 +193,7 @@ export function OverviewPanel(props: OverviewPanelProps) {
           </div>
           <label
             className={cn(
-              'flex shrink-0 items-center gap-3 rounded-[var(--radius-panel)] border px-4 py-3',
+              'flex w-full shrink-0 items-center justify-between gap-3 rounded-[var(--radius-panel)] border px-4 py-3 sm:w-auto sm:justify-start',
               enabled
                 ? 'border-[var(--ok)]/40 bg-[var(--ok-soft)]'
                 : 'border-[var(--border-strong)] bg-[var(--bg-sunken)]',
@@ -277,15 +277,15 @@ export function OverviewPanel(props: OverviewPanelProps) {
           open={empty || undefined}
           className="group rounded-md border border-[var(--border)]"
         >
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+          <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
             <ChevronRight
               className="size-4 text-[var(--fg-subtle)] transition-transform group-open:rotate-90"
               aria-hidden="true"
             />
-            <h2 id="booking-why" className="text-title font-serif font-semibold">
+            <h2 id="booking-why" className="text-title font-serif font-semibold whitespace-nowrap">
               Why no times?
             </h2>
-            <span className="text-sm text-[var(--fg-muted)]">
+            <span className="basis-full pl-6 text-sm text-[var(--fg-muted)] sm:basis-auto sm:pl-0">
               The next 2 weeks, day by day, as visitors see them.
             </span>
           </summary>
