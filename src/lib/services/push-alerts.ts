@@ -24,6 +24,7 @@ import {
 import { receiptLine } from '@/lib/campaigns/receipt';
 import { finishedCampaignsSince, type FinishedCampaign } from './campaigns';
 import { buildReaders, readDocSendViews, type DocSendReader } from './docsend';
+import { dueEventReminders, type DueEventReminder } from './event-comms';
 import { getPrimaryIntegration } from './inbox';
 import { readFollowUps, type FollowUpsSnapshot } from './follow-ups';
 
@@ -505,6 +506,42 @@ export interface AlertInputs {
   followUps: FollowUpsSnapshot | null;
   readers: DocSendReader[];
   finished: FinishedCampaign[];
+  /** Event reminders due now (event-comms.ts, D-075). Absent reads as none. */
+  eventReminders?: DueEventReminder[];
+}
+
+/**
+ * Event reminders that are due: one notification, tapping through to the
+ * event's reminders. The reminder itself is a draft someone sends; this only
+ * says it is ready. Each slot alerts once. Pure, for tests.
+ */
+export function computeEventReminderAlerts(
+  reminders: readonly DueEventReminder[],
+  alreadySent: ReadonlySet<string>,
+  now: Date,
+  timeZone: string,
+): PushAlert[] {
+  if (quietHours(now, timeZone)) return [];
+  const due = reminders
+    .map((r) => ({ key: `event-reminder:${r.eventId}:${r.slot.key}`, r }))
+    .filter(({ key }) => !alreadySent.has(key));
+  if (!due.length) return [];
+  const [only] = due;
+  const events = new Set(due.map((d) => d.r.eventId));
+  return [
+    {
+      keys: due.map((d) => d.key),
+      title: due.length === 1 ? 'Event reminder ready' : `${due.length} event reminders ready`,
+      body: listBody(
+        due.map(({ r }) => `${r.title}: ${r.slot.label} ${r.slot.sessionName}. Review and send.`),
+      ),
+      url:
+        events.size === 1 && only
+          ? `/events/${encodeURIComponent(only.r.eventId)}?tab=messages&view=reminders`
+          : '/events',
+      tag: 'event-reminder',
+    },
+  ];
 }
 
 /**
@@ -529,6 +566,8 @@ export async function readAlertInputs(
     followUps: null,
     readers: [],
     finished: finished?.ok ? finished.value : [],
+    // Never throws: a fault (or no events tables yet) reads as none due.
+    eventReminders: await dueEventReminders(store, organizationId, now),
   };
   const followUps = await readFollowUps(store, organizationId, { now, force });
   if (followUps.state === 'ok') {
@@ -555,6 +594,7 @@ export function alertsFromInputs(
 ): PushAlert[] {
   return [
     ...computeCampaignAlerts(inputs.finished, sent, now, timeZone),
+    ...computeEventReminderAlerts(inputs.eventReminders ?? [], sent, now, timeZone),
     ...(inputs.followUps
       ? computeDueAlerts(inputs.followUps, sent, now, timeZone, inputs.readers)
       : []),

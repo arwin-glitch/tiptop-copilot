@@ -29,6 +29,21 @@ describe('the main navigation', () => {
     expect(sectionLabel('/ask')).toBe('Ask Arwin');
   });
 
+  it('has an Events entry in the Working group, after Calendar (D-075)', () => {
+    const hrefs = NAV_ITEMS.map((i) => i.href);
+    expect(hrefs).toContain('/events');
+    expect(hrefs.indexOf('/events')).toBe(hrefs.indexOf('/calendar') + 1);
+    expect(NAV_ITEMS.find((i) => i.href === '/events')?.label).toBe('Events');
+  });
+
+  it('marks Events current on the library, one event and its tabs', () => {
+    expect(sectionLabel('/events')).toBe('Events');
+    expect(sectionLabel('/events/00000000-0000-4000-8000-0000e7e00001')).toBe('Events');
+    // Segment-exact: the public guest pages under /e are not the Events tab.
+    expect(sectionLabel('/e/harborview-annual-meeting')).toBeNull();
+    expect(sectionLabel('/eventsx')).toBeNull();
+  });
+
   it('matches whole path segments only', () => {
     expect(sectionLabel('/listsx')).toBeNull();
     expect(sectionLabel('/deals/abc')).toBe('Deals');

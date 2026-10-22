@@ -90,6 +90,17 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
   }
 
   const { campaign, recipients, counts } = detail.value;
+  // An event message (Events → Messages, D-075) leads back to its event.
+  const eventBack = campaign.event_id ? (
+    <Link
+      href={`/events/${encodeURIComponent(campaign.event_id)}?tab=messages`}
+      className="dark mb-2 inline-flex items-center gap-1 text-sm text-[var(--fg-muted)] hover:text-[var(--fg)]"
+    >
+      <ArrowLeft className="size-4" aria-hidden="true" />
+      Event messages
+    </Link>
+  ) : null;
+  const eyebrow = campaign.event_id ? 'Event message · Campaign' : 'Fund II · Campaign';
   const tz = auth.profile.timezone;
 
   if (campaign.status === 'draft') {
@@ -118,9 +129,9 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
     const copies = copySettingsOf(campaign);
     return (
       <PageShell>
-        {back}
+        {eventBack ?? back}
         <PageHeader
-          eyebrow="Fund II · Campaign"
+          eyebrow={eyebrow}
           title={campaign.name}
           subtitle="One personal email per person from your mailbox, with replies tracked (and, if you like, opens and clicks). Nothing is sent until you review it and tap Send."
           actions={<DeleteDraftButton campaignId={campaign.id} />}
@@ -201,9 +212,9 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
 
   return (
     <PageShell>
-      {back}
+      {eventBack ?? back}
       <PageHeader
-        eyebrow="Fund II · Campaign"
+        eyebrow={eyebrow}
         title={campaign.name}
         subtitle={`${campaign.subject}${when ? ` · ${campaign.status === 'sent' ? 'sent' : 'started'} ${formatDateTime(when, tz)}` : ''}`}
         meta={<Badge tone={PHASE_TONE[phase]}>{PHASE_LABEL[phase]}</Badge>}

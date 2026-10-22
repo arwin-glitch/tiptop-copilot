@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { EVENTS_LIBRARY_TABS } from '@/lib/events/library-tabs';
 import {
   pageNumber,
   pageWindow,
@@ -68,7 +69,7 @@ describe('tabHref', () => {
 });
 
 /** Every page with a subtab bar: the Records pages, Deals, Diagnostics and Ask. */
-const TABBED_PAGES = [DEALS_TABS, DIAGNOSTICS_TABS, ASK_TABS, ...RECORDS_TABS];
+const TABBED_PAGES = [DEALS_TABS, DIAGNOSTICS_TABS, ASK_TABS, EVENTS_LIBRARY_TABS, ...RECORDS_TABS];
 
 describe('the Records pages', () => {
   it('each open on a default that is one of their tabs', () => {
@@ -94,6 +95,7 @@ describe('the Records pages', () => {
       'Ask',
       'Inbox',
       'Calendar',
+      'Events',
       'Portfolio',
       'Fund II',
       'Meetings',

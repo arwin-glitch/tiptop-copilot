@@ -9,6 +9,7 @@ import {
   UPDATES_TABS,
   type RecordsPageTabs,
 } from '@/lib/records-tabs';
+import { EVENTS_LIBRARY_TABS } from '@/lib/events/library-tabs';
 import { tabHref } from '@/lib/util/page-tabs';
 import { GRAND_TOUR_ID, navTourId } from '@/lib/help/tour-ids';
 
@@ -485,6 +486,55 @@ export const HELP_PAGES: readonly HelpPage[] = [
       { x: 9.6, y: 8.4, w: 2, h: 1.6, tone: 'chip' },
       { x: 12.2, y: 7.6, w: 2, h: 4.4, tone: 'chip' },
       { x: 13, y: 9, w: 1.8, h: 1.4, tone: 'gold' },
+    ],
+  },
+  {
+    id: 'events',
+    name: 'Events',
+    href: '/events',
+    purpose: 'Event pages, guest lists and invites. Every email is a draft you send.',
+    subtabs: recordsSubtabs(EVENTS_LIBRARY_TABS),
+    // Library, then sections, then the theme, then publish and share: the
+    // four steps of making an event page (D-075).
+    steps: [
+      navStep(
+        '/events',
+        'Your event library',
+        'Events holds your event pages, guests and invites.',
+      ),
+      subtabStep(EVENTS_LIBRARY_TABS),
+      {
+        target: 'events-new',
+        title: 'Start from a starter',
+        body: 'A starter gives you the sections: cover, agenda, venue, RSVP. Change any of them later in Studio.',
+        placement: 'bottom',
+      },
+      {
+        target: 'events-new',
+        title: 'Pick a theme',
+        body: 'Choose the look next. Colours, fonts and effects stay yours to change.',
+        placement: 'bottom',
+      },
+      {
+        target: 'events-library',
+        title: 'Publish and share',
+        body: 'Open an event to publish its page, invite guests and copy its link.',
+        placement: 'top',
+        grand: true,
+      },
+    ],
+    sketch: [
+      ...header('events-new'),
+      TABS_BAR,
+      { x: 1, y: 5.8, w: 7, h: 9.4, tone: 'card', pin: 'events-library' },
+      { x: 1.6, y: 6.4, w: 5.8, h: 3, tone: 'band' },
+      ...lines(1.8, 10.2, 5, 3),
+      { x: 8.5, y: 5.8, w: 7, h: 9.4, tone: 'card' },
+      { x: 9.1, y: 6.4, w: 5.8, h: 3, tone: 'gold' },
+      ...lines(9.3, 10.2, 5, 3),
+      { x: 16, y: 5.8, w: 7, h: 9.4, tone: 'card' },
+      { x: 16.6, y: 6.4, w: 5.8, h: 3, tone: 'band' },
+      ...lines(16.8, 10.2, 5, 3),
     ],
   },
   {

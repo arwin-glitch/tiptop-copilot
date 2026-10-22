@@ -65,6 +65,7 @@ import {
   collectLinks,
   escapeHtml,
   firstNameOf,
+  isRsvpLinkUrl,
   isTrackableHref,
   mergeFieldsUsed,
   missingMergeFields,
@@ -72,6 +73,7 @@ import {
   renderHtml,
   renderSubject,
   renderText,
+  rsvpLinkUsed,
   subjectIssues,
   type MergeField,
   type ParsedTemplate,
@@ -106,6 +108,7 @@ import type {
   CampaignRecipient,
   CampaignStatus,
   CrmRecord,
+  EventCampaignKind,
 } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
@@ -521,7 +524,16 @@ export async function createCampaign(
   store: DataStore,
   organizationId: string,
   actor: CampaignActor,
-  input: { name?: string | null; timeZone?: string; now?: Date } = {},
+  input: {
+    name?: string | null;
+    timeZone?: string;
+    now?: Date;
+    /**
+     * Event messages only (D-075, lib/services/event-comms.ts): the event the
+     * draft is made from. Without it the row is exactly what it always was.
+     */
+    event?: EventCampaignLink;
+  } = {},
 ): Promise<Result<Campaign>> {
   return guard('write', 'create a campaign', async () => {
     const at = input.now ?? new Date();
@@ -529,32 +541,251 @@ export async function createCampaign(
     const name =
       (input.name ?? '').trim().slice(0, 300) ||
       `Campaign ${formatDate(at, input.timeZone ?? DEFAULT_TIMEZONE)}`;
-    const campaign: Campaign = {
-      id: newId(),
-      organization_id: organizationId,
-      name,
-      subject: '',
-      body_template: '',
-      from_identity: 'nick',
-      status: 'draft',
-      attachments: [],
-      link_allowlist: [],
-      confirmed_at: null,
-      confirmed_by: null,
-      last_sent_at: null,
-      track_activity: true,
-      unsubscribe_link: false,
-      confirmed_through: null,
-      pause_reason: null,
-      created_by: actor.userId,
-      created_at: now,
-      updated_at: now,
-      sent_at: null,
-    };
+    if (input.event) {
+      if (!isUuid(input.event.eventId)) return err('invalid_input', 'That event does not exist.');
+      const draft: Campaign = {
+        ...newCampaignRow(organizationId, actor, name, now),
+        event_id: input.event.eventId,
+        event_kind: input.event.kind,
+        event_meta: input.event.meta,
+      };
+      try {
+        await store.insert('campaigns', draft);
+      } catch (error) {
+        if (isMissingColumnError(error)) return EVENT_CAMPAIGNS_NOT_SET_UP();
+        throw error;
+      }
+      await audit(store, organizationId, actor.userId, 'campaign.created', draft.id, {
+        event: input.event.eventId,
+        kind: input.event.kind,
+      });
+      return ok(draft);
+    }
+    const campaign = newCampaignRow(organizationId, actor, name, now);
     await store.insert('campaigns', campaign);
     await audit(store, organizationId, actor.userId, 'campaign.created', campaign.id);
     return ok(campaign);
   });
+}
+
+/** A new, empty draft row: no subject, no body, signed as Nick, tracking on. */
+function newCampaignRow(
+  organizationId: string,
+  actor: CampaignActor,
+  name: string,
+  now: string,
+): Campaign {
+  return {
+    id: newId(),
+    organization_id: organizationId,
+    name,
+    subject: '',
+    body_template: '',
+    from_identity: 'nick',
+    status: 'draft',
+    attachments: [],
+    link_allowlist: [],
+    confirmed_at: null,
+    confirmed_by: null,
+    last_sent_at: null,
+    track_activity: true,
+    unsubscribe_link: false,
+    confirmed_through: null,
+    pause_reason: null,
+    created_by: actor.userId,
+    created_at: now,
+    updated_at: now,
+    sent_at: null,
+  };
+}
+
+/* ---------------------------------------------------------- event messages */
+//
+// Events → Messages (D-075, lib/services/event-comms.ts) drafts its invites,
+// reminders and notices as ordinary campaigns. What is added here is only
+// where a draft came from (three columns from 20261023000300_event_campaigns.sql)
+// and the guests' personal RSVP links: the review, the confirmation, the send
+// lease, the daily cap and the recipient limit are the same code paths as for
+// any campaign, and nothing here sends.
+
+export const EVENT_CAMPAIGNS_MIGRATION_FILE =
+  'supabase/migrations/20261023000300_event_campaigns.sql';
+
+export const RSVP_LOCAL_ORIGIN_MESSAGE =
+  'APP_URL is a local address, so the personal RSVP links in these emails would not open. Set it to the app’s public address. Nothing was sent.';
+
+const EVENT_CAMPAIGNS_NOT_SET_UP = () =>
+  err(
+    'not_configured',
+    `Event messages are not set up yet. Run ${EVENT_CAMPAIGNS_MIGRATION_FILE} in the Supabase SQL editor, then try again.`,
+    { stillUsable: 'Campaigns and the rest of Events work as before.' },
+  );
+
+/** The event a draft is made from, as event-comms.ts passes it to createCampaign. */
+export interface EventCampaignLink {
+  eventId: string;
+  kind: EventCampaignKind;
+  meta: Record<string, unknown>;
+}
+
+/** A guest to add to an event draft, with the personal RSVP link the server made for them. */
+export interface EventRecipientCandidate {
+  email: string;
+  name: string | null;
+  company: string | null;
+  record_id: string | null;
+  /** Absolute: APP_URL + /e/<slug>/i/<token>. Anything else is refused. */
+  rsvpLink: string;
+}
+
+/**
+ * Add an event's guests to one of that event's drafts, each with their
+ * personal RSVP link in `merge.rsvp_link`. The same dedupe, unsubscribe and
+ * 2,000-recipient rules as every other way of adding people (addCandidates).
+ * A link that is not exactly an /e/<slug>/i/<token> address is dropped, and
+ * so is its guest (counted under `invalid`), so no recipient ever carries a
+ * link of anyone's choosing.
+ */
+export async function addEventRecipients(
+  store: DataStore,
+  organizationId: string,
+  campaignId: string,
+  candidates: readonly EventRecipientCandidate[],
+): Promise<Result<AddRecipientsSummary>> {
+  return guard('write', 'add event guests', async () => {
+    const campaign = await loadCampaign(store, organizationId, campaignId);
+    if (!campaign) return NOT_FOUND();
+    if (campaign.status !== 'draft') return NOT_DRAFT();
+    if (!campaign.event_id) {
+      return err('invalid_input', 'Only a draft made from an event can take its guests.');
+    }
+    const invalid: string[] = [];
+    const good: RecipientCandidate[] = [];
+    let noEmail = 0;
+    for (const c of candidates) {
+      const email = normalizeEmail(c.email ?? '');
+      if (!email) {
+        noEmail += 1;
+        continue;
+      }
+      if (!isEmail(email) || !isRsvpLinkUrl(c.rsvpLink)) {
+        invalid.push(email.slice(0, 120));
+        continue;
+      }
+      good.push({
+        email,
+        name: c.name,
+        company: c.company,
+        record_id: isUuid(c.record_id) ? c.record_id : null,
+        rsvp_link: c.rsvpLink,
+      });
+    }
+    return addCandidates(store, organizationId, campaign, good, {
+      duplicates: 0,
+      noEmail,
+      invalid,
+    });
+  });
+}
+
+/** An event's drafts and sends, newest first, with their counts. */
+export async function listEventCampaigns(
+  store: DataStore,
+  organizationId: string,
+  eventId: string,
+): Promise<Result<CampaignSummary[]>> {
+  if (!isUuid(eventId)) return ok([]);
+  return guard('read', 'list event campaigns', async () => {
+    let campaigns: Campaign[];
+    try {
+      campaigns = await listAllPages(
+        store,
+        'campaigns',
+        organizationId,
+        { eq: { event_id: eventId } },
+        [{ field: 'created_at', direction: 'desc' }],
+      );
+    } catch (error) {
+      // No event_id column: 20261023000300 has not run (the generic message
+      // would send the reader to the campaigns migration instead).
+      if (isMissingColumnError(error)) return EVENT_CAMPAIGNS_NOT_SET_UP();
+      throw error;
+    }
+    const recipients = campaigns.length
+      ? await listWhereIn(
+          store,
+          'campaign_recipients',
+          organizationId,
+          {},
+          'campaign_id',
+          campaigns.map((c) => c.id),
+        )
+      : [];
+    const byCampaign = new Map<string, CampaignRecipient[]>();
+    for (const r of recipients) {
+      const list = byCampaign.get(r.campaign_id) ?? [];
+      list.push(r);
+      byCampaign.set(r.campaign_id, list);
+    }
+    return ok(
+      campaigns.map((c) => ({ ...c, counts: countRecipients(byCampaign.get(c.id) ?? []) })),
+    );
+  });
+}
+
+/** Every recipient row of these campaigns (an event's funnel and notice bookkeeping read them). */
+export async function recipientsOfCampaigns(
+  store: DataStore,
+  organizationId: string,
+  campaignIds: readonly string[],
+): Promise<Result<CampaignRecipient[]>> {
+  return guard('read', 'read event campaign recipients', async () =>
+    ok(
+      campaignIds.length
+        ? await listWhereIn(
+            store,
+            'campaign_recipients',
+            organizationId,
+            {},
+            'campaign_id',
+            campaignIds.filter(isUuid),
+          )
+        : [],
+    ),
+  );
+}
+
+/**
+ * Replace an event campaign's bookkeeping (event_meta), at any status: it is
+ * never part of what is reviewed or sent. Used to remember that a sent
+ * notice's status changes were marked as told.
+ */
+export async function setEventCampaignMeta(
+  store: DataStore,
+  organizationId: string,
+  campaignId: string,
+  meta: Record<string, unknown>,
+): Promise<Result<true>> {
+  return guard('write', 'update an event campaign', async () => {
+    const campaign = await loadCampaign(store, organizationId, campaignId);
+    if (!campaign?.event_id) return NOT_FOUND();
+    await store.updateWhere(
+      'campaigns',
+      organizationId,
+      { eq: { id: campaign.id, event_id: campaign.event_id } },
+      { event_meta: meta },
+    );
+    return ok(true);
+  });
+}
+
+/** Whether a click goes to this recipient's own RSVP link on an event campaign (recordClick). */
+function isOwnRsvpLink(
+  campaign: Pick<Campaign, 'event_id'>,
+  recipient: Pick<CampaignRecipient, 'merge'>,
+  url: string,
+): boolean {
+  return Boolean(campaign.event_id) && isRsvpLinkUrl(url) && recipient.merge?.rsvp_link === url;
 }
 
 export interface CampaignPatch {
@@ -838,6 +1069,8 @@ export interface RecipientCandidate {
   name: string | null;
   company: string | null;
   record_id: string | null;
+  /** Event drafts only (addEventRecipients): the guest's checked personal RSVP link. */
+  rsvp_link?: string;
 }
 
 export interface AddRecipientsSummary {
@@ -909,6 +1142,7 @@ async function addCandidates(
       if (first) merge.first_name = first;
     }
     if (c.company?.trim()) merge.company = c.company.trim();
+    if (c.rsvp_link && isRsvpLinkUrl(c.rsvp_link)) merge.rsvp_link = c.rsvp_link;
     return {
       id: newId(),
       organization_id: organizationId,
@@ -2353,6 +2587,21 @@ export function reviewIssues(
     issues.push(`Attachments are over ${formatBytes(MAX_ATTACHMENT_BYTES)} together.`);
   }
   if (options.appUrl === null && usesAppLinks(campaign)) issues.push(LOCAL_ORIGIN_MESSAGE);
+  // {{rsvp_link}} (event messages, D-075): every recipient needs the personal
+  // link the server gave them, and the links need a public origin.
+  if (rsvpLinkUsed(campaign.body_template)) {
+    const lacking = pending.filter((r) => !isRsvpLinkUrl(r.merge?.rsvp_link)).length;
+    if (!campaign.event_id) {
+      issues.push(
+        '{{rsvp_link}} only works in a message drafted from an event (Events, then Messages).',
+      );
+    } else if (lacking) {
+      issues.push(
+        `${lacking} ${lacking === 1 ? 'recipient has' : 'recipients have'} no personal RSVP link. Only guests added from the event get one: remove the others, or take {{rsvp_link}} out.`,
+      );
+    }
+    if (options.appUrl === null) issues.push(RSVP_LOCAL_ORIGIN_MESSAGE);
+  }
   const used = mergeFieldsUsed(campaign.subject, campaign.body_template);
   const fallbacks = used
     .map((field) => ({
@@ -3501,10 +3750,13 @@ export async function sendTest(
       }
       photo = loaded.value;
     }
+    // A guest's personal RSVP link never goes into a test: it would let the
+    // tester answer as that guest. The test shows the link's text instead.
+    const { rsvp_link: _guestLink, ...sampleMerge } = sample?.merge ?? {};
     // No `copies`: the test email has no Cc and no Bcc, whatever the campaign copies.
     const email = composeCampaignEmail(
       campaign,
-      { email: to, name: sample?.name ?? null, merge: sample?.merge ?? {} },
+      { email: to, name: sample?.name ?? null, merge: sampleMerge },
       {
         signatureHtml,
         urls,
@@ -3692,7 +3944,13 @@ export async function recordClick(
     const r = await store.get('campaign_recipients', target.organizationId, target.recipientId);
     if (!r) return err('not_found', 'That link is not valid.');
     const campaign = await store.get('campaigns', target.organizationId, r.campaign_id);
-    if (!campaign || !campaign.link_allowlist.includes(url) || !isTrackableHref(url)) {
+    // A link from the body as confirmed, or (an event message, D-075) this
+    // recipient's own personal RSVP link exactly as the server wrote it.
+    if (
+      !campaign ||
+      !isTrackableHref(url) ||
+      !(campaign.link_allowlist.includes(url) || isOwnRsvpLink(campaign, r, url))
+    ) {
       return err('not_found', 'That link is not valid.');
     }
     if (r.status !== 'sent') return ok(url);

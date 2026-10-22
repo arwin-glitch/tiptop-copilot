@@ -19,6 +19,12 @@ import type { CampaignMerge } from '@/lib/types/domain';
  *   - lines starting "- " or "* " are a bulleted list, "1. " a numbered one
  *   - {{first_name}}, {{name}}, {{company}}, each with an optional fallback
  *     after a bar: {{first_name|there}}
+ *   - {{rsvp_link}} (event messages only, D-075): the recipient's personal
+ *     RSVP link, optionally with link text after a bar: {{rsvp_link|RSVP here}}.
+ *     Its address is never typed: the server writes it into the recipient's
+ *     `merge.rsvp_link` when it adds them from an event's guest list, and a
+ *     person cannot fill it in (missing-fields.ts fills only MERGE_FIELDS).
+ *     A recipient without one cannot be sent to (the review refuses).
  */
 
 export const MERGE_FIELDS = ['first_name', 'name', 'company'] as const;
@@ -31,12 +37,24 @@ export const DEFAULT_FALLBACKS: Record<MergeField, string> = {
   company: 'your company',
 };
 
+/**
+ * The one link-valued merge field. Kept out of MERGE_FIELDS on purpose: those
+ * are text a person may type in from the review; this one only the server
+ * sets (see the header).
+ */
+export const RSVP_LINK_FIELD = 'rsvp_link';
+
+/** What a {{rsvp_link}} reads as when the recipient has none (a test email, a preview). */
+export const RSVP_LINK_PLACEHOLDER = 'your personal RSVP link';
+
 export type Inline =
   | { t: 'text'; v: string }
   | { t: 'merge'; field: MergeField; fallback: string | null }
   | { t: 'b'; c: Inline[] }
   | { t: 'i'; c: Inline[] }
   | { t: 'a'; href: string; c: Inline[] }
+  /** {{rsvp_link}}: the recipient's own RSVP link, with optional link text. */
+  | { t: 'rsvp'; label: string | null }
   | { t: 'br' };
 
 export type Block =
@@ -68,6 +86,23 @@ export function isAllowedHref(href: string): boolean {
   }
 }
 
+/**
+ * Whether an address is a personal RSVP link as the server writes it: an
+ * http(s) origin, then exactly /e/<slug>/i/<token> (the personal invite path,
+ * eventPaths.invite in lib/events/contracts.ts), nothing before or after.
+ */
+export function isRsvpLinkUrl(href: string | null | undefined): href is string {
+  if (typeof href !== 'string' || href.length > 2000) return false;
+  return /^https?:\/\/[^/\s?#@]+\/e\/[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?\/i\/[A-Za-z0-9_-]{8,512}$/.test(
+    href,
+  );
+}
+
+/** Whether any of these templates uses {{rsvp_link}}. */
+export function rsvpLinkUsed(...templates: string[]): boolean {
+  return templates.some((t) => /\{\{\s*rsvp_link\s*(?:\|[^{}]*)?\}\}/i.test(t));
+}
+
 /** Whether a link can be click-tracked (mailto links go out as they are). */
 export function isTrackableHref(href: string): boolean {
   return /^https?:\/\//i.test(href) && isAllowedHref(href);
@@ -81,9 +116,11 @@ function labelOf(nodes: Inline[]): string {
         ? n.v
         : n.t === 'merge'
           ? `{{${n.field}}}`
-          : n.t === 'b' || n.t === 'i' || n.t === 'a'
-            ? labelOf(n.c)
-            : ' ',
+          : n.t === 'rsvp'
+            ? `{{${RSVP_LINK_FIELD}}}`
+            : n.t === 'b' || n.t === 'i' || n.t === 'a'
+              ? labelOf(n.c)
+              : ' ',
     )
     .join('');
 }
@@ -124,6 +161,19 @@ function parseInline(text: string, issues: Set<string>, depth = 0): Inline[] {
       const m = MERGE_TAG.exec(text);
       if (m) {
         const field = (m[1] as string).toLowerCase();
+        if (field === RSVP_LINK_FIELD) {
+          if (depth >= 2) {
+            // Inside a link's text: a link cannot hold another link.
+            issues.add('{{rsvp_link}} cannot go inside the text of another link.');
+            buffer += m[0];
+          } else {
+            flush();
+            const label = m[2] === undefined ? '' : m[2].trim();
+            out.push({ t: 'rsvp', label: label || null });
+          }
+          i += m[0].length;
+          continue;
+        }
         if ((MERGE_FIELDS as readonly string[]).includes(field)) {
           flush();
           const fallback = m[2] === undefined ? null : m[2].trim();
@@ -357,6 +407,13 @@ function inlineHtml(nodes: Inline[], options: RenderOptions): string {
           return `<i>${inlineHtml(node.c, options)}</i>`;
         case 'br':
           return '<br>';
+        case 'rsvp': {
+          const url = options.merge?.rsvp_link;
+          if (!isRsvpLinkUrl(url)) return escapeHtml(node.label ?? RSVP_LINK_PLACEHOLDER);
+          // Like any link: tracked only when its text is not the address itself.
+          const href = options.trackHref && node.label ? options.trackHref(url) : url;
+          return `<a href="${escapeHtml(href)}" target="_blank">${escapeHtml(node.label ?? url)}</a>`;
+        }
         case 'a': {
           // A link whose text is an address goes straight there (showsAddress).
           const href =
@@ -393,6 +450,11 @@ function inlineText(nodes: Inline[], options: RenderOptions): string {
           return inlineText(node.c, options);
         case 'br':
           return '\n';
+        case 'rsvp': {
+          const url = options.merge?.rsvp_link;
+          if (!isRsvpLinkUrl(url)) return node.label ?? RSVP_LINK_PLACEHOLDER;
+          return node.label ? `${node.label} (${url})` : url;
+        }
         case 'a': {
           const label = inlineText(node.c, options);
           const address = node.href.replace(/^mailto:/i, '');
@@ -415,7 +477,11 @@ export function renderText(blocks: Block[], options: RenderOptions): string {
     .join('\n\n');
 }
 
-/** Every distinct link in the body, in order: the click allowlist. */
+/**
+ * Every distinct link in the body, in order: the click allowlist. A
+ * {{rsvp_link}} is not one of them: it is different for every recipient, and
+ * the click endpoint checks it against that recipient's own (campaigns.ts).
+ */
 export function collectLinks(blocks: Block[]): string[] {
   const out: string[] = [];
   const walk = (nodes: Inline[]) => {

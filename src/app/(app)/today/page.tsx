@@ -38,6 +38,7 @@ import { BriefingWatcher } from '@/components/today/briefing-watcher';
 import { WelcomeBack } from '@/components/today/welcome-back';
 import { TodayGlance } from '@/components/today/today-glance';
 import { AffinityExitLine } from '@/components/today/affinity-exit-line';
+import { EventsLine } from '@/components/today/events-line';
 import { CompanyChip } from '@/components/tasks/company-chip';
 import { ThreadLinks } from '@/components/email/thread-links';
 import { NotSeenSentCard, type NotSeenSentItem } from '@/components/tasks/proof-check';
@@ -234,6 +235,8 @@ async function TodayContent({
       ) : null}
 
       {affinityExit ? <AffinityExitLine countdown={affinityExit} /> : null}
+
+      <EventsLine organizationId={auth.organizationId} now={now} />
 
       <NotSeenSentCard items={notSeenSent} />
 

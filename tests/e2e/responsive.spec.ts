@@ -95,6 +95,14 @@ const PAGES = [
   '/diagnostics?tab=parity',
   // Each calendar's colour labels, a table per calendar.
   '/diagnostics?tab=labels',
+  // Events (D-075): the library, one event's overview, its messages and Manage.
+  '/events',
+  '/events?tab=drafts',
+  '/events/00000000-0000-4000-8000-0000e7e00001',
+  '/events/00000000-0000-4000-8000-0000e7e00001?tab=messages',
+  '/events/00000000-0000-4000-8000-0000e7e00001?tab=messages&view=reminders',
+  '/events/00000000-0000-4000-8000-0000e7e00001?tab=page',
+  '/events/00000000-0000-4000-8000-0000e7e00001?tab=settings',
 ];
 
 /** No sideways scroll beyond a few pixels of rounding. */
@@ -202,6 +210,7 @@ test.describe('mobile layout', () => {
       'Tasks',
       'Deals',
       'Inbox',
+      'Events',
       'Portfolio',
       'Fund II',
       'Meetings',

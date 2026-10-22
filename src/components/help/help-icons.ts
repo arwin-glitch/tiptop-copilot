@@ -14,6 +14,7 @@ import {
   Settings,
   Sun,
   Target,
+  Ticket,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -31,6 +32,7 @@ export const HELP_ICONS: Record<string, LucideIcon> = {
   deals: Target,
   inbox: Inbox,
   calendar: CalendarClock,
+  events: Ticket,
   lists: ListChecks,
   portfolio: Briefcase,
   'fund-ii': Landmark,

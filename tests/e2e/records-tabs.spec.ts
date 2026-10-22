@@ -181,7 +181,7 @@ test('every Records tab renders', async ({ page }) => {
     ['/network?tab=investors', 'Network sections', /^Investors/],
     ['/network?tab=providers', 'Network sections', /^Service providers/],
     ['/network?tab=operators', 'Network sections', /^Operators/],
-    ['/network?tab=events', 'Network sections', /^Events/],
+    ['/network?tab=events', 'Network sections', /^Event lists/],
   ];
   for (const [url, nav, label] of tabs) {
     await page.goto(url);

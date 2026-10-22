@@ -25,6 +25,7 @@ The realistic threats to an internal fund tool that reads a partner's mailbox:
 | T12 | A leaked or forwarded outside-edit link | 256-bit secret in the URL fragment (never sent on GET, never in Referer or logs), only its SHA-256 stored, claimed by an explicit POST into an httpOnly SameSite=Strict cookie, re-checked on every request (revoked, expired, token version, paused, event, role, scope); one link per person, 14-day default and 90-day cap, regenerate/revoke/revoke-all; outsiders only ever reach the draft and never publish |
 | T13 | A forwarded personal invite opens gated content | Stateless HMAC tokens (`event-rsvp/v1`, `event-checkin/v1`) with no PII; rotating the guest's token version kills the link; gated sections removed on the server, gated files as 15-minute signed URLs; GETs never change state |
 | T14 | Event pages leak Copilot's chrome or data | `/e/*` and `/meet/*` are a marked public surface: no service worker, theme script or desktop chrome; public routes call only narrow event services with explicit organization and event filters; guest emails never appear on a public page |
+| T15 | A campaign's click redirect is aimed at a page of an attacker's choosing through an event message's personal link | `{{rsvp_link}}` addresses are written only by the server (never typed, never in `MERGE_FIELDS`), must match `<origin>/e/<slug>/i/<token>` exactly, and the click endpoint follows one only for the recipient it was written for, on a campaign linked to an event; the static allowlist is untouched; test emails never carry a guest's link |
 
 ---
 
