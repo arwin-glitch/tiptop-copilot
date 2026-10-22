@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { httpUrl, strictDomain } from '@/lib/deals/links';
 import { normalizeCompanyName } from '@/lib/util/text';
 import { single } from '@/lib/util/page-tabs';
-import { DAY, GMAIL_ID, RELAY_ENVELOPE, optionalText, text } from './relay-fields';
+import { DAY, GMAIL_ID, RELAY_ENVELOPE, clippedText, optionalText, text } from './relay-fields';
 
 /**
  * Open roles at portfolio companies, from the jobs routine's `JOBS_V1`
@@ -182,7 +182,8 @@ export const JOB_SOURCE_SCHEMA = z.object({
   /** The Gmail message (or thread) id, hex; links are rebuilt from it. */
   message_id: GMAIL_ID,
   date: DAY,
-  subject: text(300),
+  /** Display only, so a long one is cut short rather than costing the role. */
+  subject: clippedText(300),
 });
 export type JobSource = z.infer<typeof JOB_SOURCE_SCHEMA>;
 
@@ -192,6 +193,7 @@ export const MAX_JOB_SOURCES = 10;
 export const JOB_ROLE_SCHEMA = z.object({
   /** The routine's own id, if it sends one. Ignored: the app hashes its own. */
   id: z.string().max(100).nullish(),
+  // Company and title stay strict: the role's id is a hash of the two (jobKey).
   company: text(120),
   company_domain: z.preprocess(
     (v) => (typeof v === 'string' ? strictDomain(v) : null),

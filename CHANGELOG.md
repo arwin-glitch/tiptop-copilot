@@ -10,6 +10,23 @@ throughout.
 
 ## [Unreleased]
 
+- **A routine's post that runs a little long no longer leaves its card on
+  yesterday's copy.** When a routine wrote a note, a prep or a title longer
+  than the app allows, or listed one item the app could not read (a meeting
+  of an unknown kind, a bad date), the whole post was turned away and the
+  card kept the older copy; on Oct 21 that held back the Week ahead card and
+  the Calendar prep notes. Now long display text is cut at a word with "…",
+  an item that cannot be read is skipped and the rest of the post shows, and
+  numbered parts of one run still join. Diagnostics > Feeds says "1 item in
+  the newest post was skipped" instead of "could not be read"; a post that
+  really cannot be read (not JSON, no run time, or not one readable item)
+  still says so and keeps the older copy. Ids, names used to match records,
+  kinds, dates and links are still checked strictly. This covers the
+  follow-ups, priorities, radar, LP pipeline, portfolio health, intros, week
+  ahead, email queue, scheduling, meeting recaps and LP update posts, plus
+  Jobs, the task closer's reasons, suggested tasks' details, briefing titles
+  and new portfolio companies' descriptions.
+
 - **Campaigns: a BCC choice made right after typing the address sticks.**
   Typing a BCC address and then clicking "The first email only" (or "Every
   email") straight away lost the click while the address saved, so it took

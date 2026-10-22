@@ -2351,3 +2351,87 @@ members and picked "the owner" or a membership from all of them.
   excepted, which come at any hour.
 - An assistant who opens Today first in their morning now generates their
   own outlook on the spot, as the principal used to.
+
+### D-073 — Relay posts: long display text is cut, one bad item is skipped
+
+**Context.** On Oct 21 the week-ahead routine posted `WEEK_AHEAD_V1` in two
+numbered parts, and several meetings' prep notes ran 250 to 340 characters
+where the schema allowed 240. zod refused each part whole, so the Week ahead
+card and the Calendar prep notes kept the day before's copy, and the Feeds
+tab in Diagnostics could only say the newer post "could not be read". Most
+relay readers had the same two traps: one display field a little over its
+limit, or one item with an unknown kind or a bad date, cost every item in the
+post. Jobs and Students already read their rows one by one and cut long
+notes; the rest did not.
+
+**Decision.**
+
+- **One rule, in one place** (`src/lib/relay/soft-fields.ts`, pure and
+  client-safe): `clipText` trims, and past the limit cuts at the last word
+  break in the second half (else mid-word), never inside a character (an
+  emoji, a flag or an accented letter stays whole), drops a dangling space or
+  comma, and adds `…`, so the result is within the limit in UTF-16 units, what
+  `.max()` counts. Text that fits is untouched. `softText(max)` (required:
+  still never blank), `softOptionalText(max)` (blank reads as null),
+  `softTextList(items, chars)` (blanks and non-text left out, at most `items`)
+  and `softRows(item, max)` (each row checked alone, a failing row left out,
+  rows past `max` left out). Jobs' and Students' `optionalText` and
+  `clippedText` are now these.
+- **Soft (cut, never fatal):** display text only. Follow-ups: `who`,
+  `company`, `subject`, `note`. Meeting recaps: `title`, `attendees`,
+  `promises`, `note`. Scheduling: `who`, `subject`, `note`. Top priorities:
+  `title`, `why`. Relationship radar: `who`, `company`, `note`. LP pipeline:
+  `fund`, `who`, `firm`, `next_step`, `note`. Portfolio health: `headline`,
+  `asks`. Intros: `for_who`, `to_who`, `note`, `for_org`, `to_org`, a
+  person's `name`. Week ahead: `title`, `with_who`, `prep`. LP update draft:
+  `period`, `sections`, `note`. Email queue: `who`, `about`, `flags`, `why`.
+  Jobs: a source's `subject`. The task-closer's `TASK_CLOSE_V1` and
+  `TASK_PROOF_V1`: `reason`. `TASK_ADD_V1` (and the task webhook): `detail`.
+  `BRIEFING_PAYLOAD_V1` (and the briefing webhook): `title`.
+  `PORTFOLIO_ADD_V1` (and the portfolio webhook): `description`, `sector`,
+  `geography`, `deal_source`, `co_investors`, `latest_round`, a founder's
+  `title`.
+- **Strict (unchanged):** every id and thread id; `meeting_id` (the key the
+  newest recap per meeting is kept by); portfolio health's company `name`
+  (matched to the portfolio by name, and the at-risk alert's key); Jobs'
+  `company` and `title` (the role's id hashes them); the task-closer's
+  `title` and a suggested task's `title` (each is matched to a task by it);
+  `PORTFOLIO_ADD_V1`'s company `name` and `founder` names (the company and
+  its contacts are found again by name) and its `stage` (a short value shown
+  as a badge and handed on as the stage, not prose); every enum, date and
+  time (`starts_at` is how Calendar matches a prep note to a meeting); every
+  URL, address and domain; the envelopes (`run_at`, `part`, `source`,
+  `status`); and the briefing's `summary` (its sections and lists are parsed
+  out of it, so it is never cut mid-structure). The deal relay is left as it
+  was: it already drops a bad optional field and keeps the deal, and reports
+  each.
+- **One bad item never sinks a snapshot.** Every list snapshot in
+  `follow-ups.ts` (`FOLLOWUPS`, `SCHEDULING`, `PRIORITIES`, `RELATIONSHIPS`,
+  `LP_PIPELINE`, `PORTFOLIO_HEALTH`, `INTROS`, `WEEK_AHEAD`, `EMAIL_QUEUE`)
+  reads its items with `softRows`. `parseFollowUpMessage` returns `skipped`,
+  the items sent less the items kept. A post is unreadable (null, and its card
+  keeps the older copy) only when it is not JSON, its envelope fails, or it
+  sent items and none could be read: an empty list never stands in for a good
+  copy. Numbered parts join by the moment their `run_at` names, so `…:01Z` and
+  `…:01.000Z` are one run.
+- **Diagnostics says what was skipped.** A relay rule now returns the
+  skipped count and the post's run and part; `collectSightings` sums the
+  skipped items over every part of the newest readable run, each part once.
+  The row carries `skipped`, and the Feeds tab says "1 item in the newest
+  post was skipped because it could not be read; the rest of the post is
+  showing." (or "…in the copy it kept…" beside a newer unreadable post).
+  "Could not be read, so its card kept the older copy" is kept for a post
+  that cannot be read at all. Jobs and Students pass their own dropped counts.
+
+**Known limits.**
+
+- A cut is by characters, not by meaning: a prep note cut at 240 may lose its
+  last clause. The routine prompts still say the limits; this is the backstop.
+- A part of a run whose every item fails is unreadable, so the card shows the
+  other parts of that run, and Diagnostics names it as a newer post that
+  could not be read rather than as skipped items.
+- Jobs' and Students' envelopes still refuse more than 80 rows, and a Jobs
+  role with a bad source is still dropped whole, as their tests pin; the
+  follow-up snapshots read their first `max` items and count the rest.
+- The cards themselves do not show the skipped count; Diagnostics does, and
+  the server log names the marker and the count (never the content).

@@ -14,6 +14,13 @@ import { settlesWithin } from '@/lib/util/settle';
 import { unwrapSlackText } from '@/lib/util/slack-text';
 import { localDateKey } from '@/lib/util/time';
 import { demoFollowUps } from '@/lib/demo/follow-ups-fixtures';
+import {
+  rowCount,
+  softOptionalText,
+  softRows,
+  softText,
+  softTextList,
+} from '@/lib/relay/soft-fields';
 import { isRelayOrganization } from './deal-relay';
 
 /**
@@ -51,6 +58,12 @@ import { isRelayOrganization } from './deal-relay';
  *
  * Every value is rendered as plain text. Links are rebuilt from validated
  * Gmail thread ids, never taken from a post.
+ *
+ * Lenient where it is safe (D-073): display text past its limit is cut at a
+ * word with an ellipsis, and each item of a snapshot is checked on its own,
+ * so one bad item is left out (and counted) rather than costing the post.
+ * Ids, keys, enums and dates stay strict. A post whose envelope fails, or
+ * whose every item fails, is unreadable and its card keeps the older copy.
  */
 
 export const FOLLOWUPS_MARKER = 'FOLLOWUPS_V1';
@@ -81,8 +94,8 @@ const MARKERS = [
 type Marker = (typeof MARKERS)[number];
 
 const THREAD_ID = z.string().regex(/^[0-9a-f]{10,24}$/i);
+/** Strict text, for a key: never cut. Display text is `softText` / `softOptionalText`. */
 const text = (max: number) => z.string().trim().min(1).max(max);
-const optionalText = (max: number) => z.string().trim().max(max).nullish();
 /**
  * A long list may be split across several posts from one run (Slack caps a
  * message's length): each part repeats the run's run_at and numbers itself.
@@ -91,47 +104,46 @@ const PART = z.number().int().min(1).max(20).optional();
 
 export const FOLLOWUPS_SCHEMA = z.object({
   run_at: z.string().datetime(),
-  items: z
-    .array(
-      z.object({
-        thread_id: THREAD_ID,
-        who: text(120),
-        company: optionalText(120),
-        subject: text(300),
-        last_sent_at: z.string().datetime(),
-        days_waiting: z.number().int().min(0).max(365),
-        draft: z.boolean(),
-        note: optionalText(400),
-      }),
-    )
-    .max(60),
+  items: softRows(
+    z.object({
+      thread_id: THREAD_ID,
+      who: softText(120),
+      company: softOptionalText(120),
+      subject: softText(300),
+      last_sent_at: z.string().datetime(),
+      days_waiting: z.number().int().min(0).max(365),
+      draft: z.boolean(),
+      note: softOptionalText(400),
+    }),
+    60,
+  ),
 });
 
 export const MEETING_FOLLOWUP_SCHEMA = z.object({
+  /** The key the newest post per meeting is kept by: strict. */
   meeting_id: text(80),
-  title: text(200),
+  title: softText(200),
   met_at: z.string().datetime(),
-  attendees: z.array(text(120)).max(20),
+  attendees: softTextList(20, 120),
   thread_id: THREAD_ID.nullish(),
   draft: z.boolean(),
-  promises: z.array(text(300)).max(10).default([]),
-  note: optionalText(400),
+  promises: softTextList(10, 300),
+  note: softOptionalText(400),
 });
 
 export const SCHEDULING_SCHEMA = z.object({
   run_at: z.string().datetime(),
-  items: z
-    .array(
-      z.object({
-        thread_id: THREAD_ID,
-        who: text(120),
-        subject: text(300),
-        slots: z.array(z.string().datetime()).max(5),
-        draft: z.boolean(),
-        note: optionalText(400),
-      }),
-    )
-    .max(30),
+  items: softRows(
+    z.object({
+      thread_id: THREAD_ID,
+      who: softText(120),
+      subject: softText(300),
+      slots: z.array(z.string().datetime()).max(5),
+      draft: z.boolean(),
+      note: softOptionalText(400),
+    }),
+    30,
+  ),
 });
 
 export const PRIORITY_KINDS = ['money', 'reply', 'meeting', 'deal', 'portfolio', 'other'] as const;
@@ -139,16 +151,15 @@ export const PRIORITY_KINDS = ['money', 'reply', 'meeting', 'deal', 'portfolio',
 export const PRIORITIES_SCHEMA = z.object({
   run_at: z.string().datetime(),
   source: z.enum(['morning', 'afternoon']),
-  items: z
-    .array(
-      z.object({
-        title: text(160),
-        why: text(300),
-        kind: z.enum(PRIORITY_KINDS),
-        thread_id: THREAD_ID.nullish(),
-      }),
-    )
-    .max(7),
+  items: softRows(
+    z.object({
+      title: softText(160),
+      why: softText(300),
+      kind: z.enum(PRIORITY_KINDS),
+      thread_id: THREAD_ID.nullish(),
+    }),
+    7,
+  ),
 });
 
 export const RELATIONSHIP_KINDS = [
@@ -161,19 +172,19 @@ export const RELATIONSHIP_KINDS = [
 ] as const;
 
 const RELATIONSHIP_ITEM = z.object({
-  who: text(120),
-  company: optionalText(120),
+  who: softText(120),
+  company: softOptionalText(120),
   kind: z.enum(RELATIONSHIP_KINDS),
   thread_id: THREAD_ID.nullish(),
   since: z.string().datetime(),
   days: z.number().int().min(0).max(3650),
-  note: optionalText(300),
+  note: softOptionalText(300),
 });
 
 export const RELATIONSHIPS_SCHEMA = z.object({
   run_at: z.string().datetime(),
-  waiting: z.array(RELATIONSHIP_ITEM).max(40),
-  cold: z.array(RELATIONSHIP_ITEM).max(40),
+  waiting: softRows(RELATIONSHIP_ITEM, 40),
+  cold: softRows(RELATIONSHIP_ITEM, 40),
 });
 
 export type Relationships = z.infer<typeof RELATIONSHIPS_SCHEMA>;
@@ -199,21 +210,21 @@ export const LP_KINDS = [
 ] as const;
 
 const LP_ITEM = z.object({
-  who: text(120),
-  firm: optionalText(120),
+  who: softText(120),
+  firm: softOptionalText(120),
   kind: z.enum(LP_KINDS),
   stage: z.enum(LP_STAGES),
   last_touch_at: z.string().datetime().nullish(),
-  next_step: optionalText(200),
+  next_step: softOptionalText(200),
   thread_id: THREAD_ID.nullish(),
-  note: optionalText(300),
+  note: softOptionalText(300),
 });
 
 export const LP_PIPELINE_SCHEMA = z.object({
   run_at: z.string().datetime(),
   part: PART,
-  fund: text(40),
-  lps: z.array(LP_ITEM).max(300),
+  fund: softText(40),
+  lps: softRows(LP_ITEM, 300),
 });
 
 export type LpPipeline = z.infer<typeof LP_PIPELINE_SCHEMA>;
@@ -223,18 +234,18 @@ export const HEALTH_FLAGS = ['ok', 'watch', 'risk', 'unknown'] as const;
 export const PORTFOLIO_HEALTH_SCHEMA = z.object({
   run_at: z.string().datetime(),
   part: PART,
-  companies: z
-    .array(
-      z.object({
-        name: text(120),
-        last_update_at: z.string().datetime().nullish(),
-        thread_id: THREAD_ID.nullish(),
-        flag: z.enum(HEALTH_FLAGS),
-        headline: optionalText(200),
-        asks: z.array(text(200)).max(5).default([]),
-      }),
-    )
-    .max(80),
+  companies: softRows(
+    z.object({
+      // Strict: matched to the portfolio by name, and the at-risk alert's key.
+      name: text(120),
+      last_update_at: z.string().datetime().nullish(),
+      thread_id: THREAD_ID.nullish(),
+      flag: z.enum(HEALTH_FLAGS),
+      headline: softOptionalText(200),
+      asks: softTextList(5, 200),
+    }),
+    80,
+  ),
 });
 export type PortfolioHealth = z.infer<typeof PORTFOLIO_HEALTH_SCHEMA>;
 export type PortfolioHealthItem = PortfolioHealth['companies'][number];
@@ -247,7 +258,7 @@ export const INTRO_STATUSES = ['owed', 'made', 'connected', 'stalled', 'declined
  * a reason to drop the post; the intro still shows, just without it.
  */
 const INTRO_PERSON = z.object({
-  name: text(120),
+  name: softText(120),
   email: z.string().trim().toLowerCase().email().max(254).nullish().catch(null),
   linkedin: z.string().trim().max(500).nullish().catch(null),
 });
@@ -255,25 +266,24 @@ const INTRO_PERSON = z.object({
 export const INTROS_SCHEMA = z.object({
   run_at: z.string().datetime(),
   part: PART,
-  intros: z
-    .array(
-      z.object({
-        for_who: text(120),
-        to_who: text(120),
-        status: z.enum(INTRO_STATUSES),
-        asked_at: z.string().datetime().nullish(),
-        made_at: z.string().datetime().nullish(),
-        thread_id: THREAD_ID.nullish(),
-        note: optionalText(200),
-        // Optional detail the intro draft prefers over a name lookup: the
-        // company or firm on each side, and its people.
-        for_org: optionalText(120).catch(null),
-        for_people: z.array(INTRO_PERSON).max(8).optional().catch(undefined),
-        to_org: optionalText(120).catch(null),
-        to_people: z.array(INTRO_PERSON).max(8).optional().catch(undefined),
-      }),
-    )
-    .max(100),
+  intros: softRows(
+    z.object({
+      for_who: softText(120),
+      to_who: softText(120),
+      status: z.enum(INTRO_STATUSES),
+      asked_at: z.string().datetime().nullish(),
+      made_at: z.string().datetime().nullish(),
+      thread_id: THREAD_ID.nullish(),
+      note: softOptionalText(200),
+      // Optional detail the intro draft prefers over a name lookup: the
+      // company or firm on each side, and its people.
+      for_org: softOptionalText(120).catch(null),
+      for_people: z.array(INTRO_PERSON).max(8).optional().catch(undefined),
+      to_org: softOptionalText(120).catch(null),
+      to_people: z.array(INTRO_PERSON).max(8).optional().catch(undefined),
+    }),
+    100,
+  ),
 });
 export type Intros = z.infer<typeof INTROS_SCHEMA>;
 export type IntroItem = Intros['intros'][number];
@@ -281,30 +291,30 @@ export type IntroItem = Intros['intros'][number];
 export const WEEK_AHEAD_SCHEMA = z.object({
   run_at: z.string().datetime(),
   part: PART,
-  events: z
-    .array(
-      z.object({
-        title: text(200),
-        starts_at: z.string().datetime(),
-        ends_at: z.string().datetime().nullish(),
-        with_who: z.array(text(120)).max(10).default([]),
-        kind: z.enum(['founder', 'lp', 'portfolio', 'investor', 'internal', 'personal', 'other']),
-        prep: optionalText(240),
-        thread_id: THREAD_ID.nullish(),
-      }),
-    )
-    .max(80),
+  events: softRows(
+    z.object({
+      title: softText(200),
+      // Strict: Calendar matches its prep note to a meeting by this time.
+      starts_at: z.string().datetime(),
+      ends_at: z.string().datetime().nullish(),
+      with_who: softTextList(10, 120),
+      kind: z.enum(['founder', 'lp', 'portfolio', 'investor', 'internal', 'personal', 'other']),
+      prep: softOptionalText(240),
+      thread_id: THREAD_ID.nullish(),
+    }),
+    80,
+  ),
 });
 export type WeekAhead = z.infer<typeof WEEK_AHEAD_SCHEMA>;
 export type WeekEvent = WeekAhead['events'][number];
 
 export const LP_UPDATE_DRAFT_SCHEMA = z.object({
   run_at: z.string().datetime(),
-  period: text(60),
+  period: softText(60),
   status: z.enum(['drafted', 'skipped']),
   draft_thread_id: THREAD_ID.nullish(),
-  sections: z.array(text(80)).max(12).default([]),
-  note: optionalText(300),
+  sections: softTextList(12, 80),
+  note: softOptionalText(300),
 });
 export type LpUpdateDraft = z.infer<typeof LP_UPDATE_DRAFT_SCHEMA>;
 
@@ -323,22 +333,21 @@ export type EmailGroup = (typeof EMAIL_GROUPS)[number];
 export const EMAIL_QUEUE_SCHEMA = z.object({
   run_at: z.string().datetime(),
   part: PART,
-  items: z
-    .array(
-      z.object({
-        /** Gmail thread or message id (hex); links and sending resolve either. */
-        id: THREAD_ID,
-        who: text(120),
-        about: text(200),
-        group: z.enum(EMAIL_GROUPS),
-        call: z.enum(['reply', 'send', 'archive']),
-        flags: z.array(text(30)).max(6).default([]),
-        draft: z.enum(['on_thread', 'yours', 'none']),
-        why: optionalText(500),
-        waiting_since: z.string().datetime().nullish(),
-      }),
-    )
-    .max(150),
+  items: softRows(
+    z.object({
+      /** Gmail thread or message id (hex); links and sending resolve either. */
+      id: THREAD_ID,
+      who: softText(120),
+      about: softText(200),
+      group: z.enum(EMAIL_GROUPS),
+      call: z.enum(['reply', 'send', 'archive']),
+      flags: softTextList(6, 30),
+      draft: z.enum(['on_thread', 'yours', 'none']),
+      why: softOptionalText(500),
+      waiting_since: z.string().datetime().nullish(),
+    }),
+    150,
+  ),
 });
 export type EmailQueue = z.infer<typeof EMAIL_QUEUE_SCHEMA>;
 export type EmailQueueItem = EmailQueue['items'][number];
@@ -351,7 +360,7 @@ export type SchedulingItem = z.infer<typeof SCHEDULING_SCHEMA>['items'][number] 
 };
 export type Priorities = z.infer<typeof PRIORITIES_SCHEMA>;
 
-export type ParsedFollowUpMessage =
+export type ParsedFollowUpMessage = (
   | { marker: typeof FOLLOWUPS_MARKER; value: z.infer<typeof FOLLOWUPS_SCHEMA> }
   | { marker: typeof MEETING_FOLLOWUP_MARKER; value: z.infer<typeof MEETING_FOLLOWUP_SCHEMA> }
   | { marker: typeof SCHEDULING_MARKER; value: z.infer<typeof SCHEDULING_SCHEMA> }
@@ -362,7 +371,11 @@ export type ParsedFollowUpMessage =
   | { marker: typeof INTROS_MARKER; value: Intros }
   | { marker: typeof WEEK_AHEAD_MARKER; value: WeekAhead }
   | { marker: typeof LP_UPDATE_DRAFT_MARKER; value: LpUpdateDraft }
-  | { marker: typeof EMAIL_QUEUE_MARKER; value: EmailQueue };
+  | { marker: typeof EMAIL_QUEUE_MARKER; value: EmailQueue }
+) & {
+  /** Items in the post that did not validate and were left out (or past the list's limit). */
+  skipped: number;
+};
 
 const SCHEMAS: Record<Marker, z.ZodTypeAny> = {
   [FOLLOWUPS_MARKER]: FOLLOWUPS_SCHEMA,
@@ -378,12 +391,31 @@ const SCHEMAS: Record<Marker, z.ZodTypeAny> = {
   [EMAIL_QUEUE_MARKER]: EMAIL_QUEUE_SCHEMA,
 };
 
+/** Each snapshot's item lists, read row by row: what a post sent against what was kept. */
+const ITEM_LISTS: Partial<Record<Marker, readonly string[]>> = {
+  [FOLLOWUPS_MARKER]: ['items'],
+  [SCHEDULING_MARKER]: ['items'],
+  [PRIORITIES_MARKER]: ['items'],
+  [RELATIONSHIPS_MARKER]: ['waiting', 'cold'],
+  [LP_PIPELINE_MARKER]: ['lps'],
+  [PORTFOLIO_HEALTH_MARKER]: ['companies'],
+  [INTROS_MARKER]: ['intros'],
+  [WEEK_AHEAD_MARKER]: ['events'],
+  [EMAIL_QUEUE_MARKER]: ['items'],
+};
+
 const MAX_MESSAGE_CHARS = 40_000;
 
 /**
  * One relay message -> a parsed follow-up post, or null when it is not one or
- * does not validate. Slack's link markup is undone before parsing: a bare URL
+ * cannot be read. Slack's link markup is undone before parsing: a bare URL
  * at the end of a value would otherwise swallow the closing `"}`.
+ *
+ * Each item is checked on its own: an item that fails is left out and counted
+ * in `skipped`, the rest of the post kept. The post is unreadable (null) only
+ * when it is not JSON, its envelope fails (run_at, part, source...), or it
+ * sent items and not one of them could be read: an empty list must never
+ * stand in for yesterday's good copy.
  */
 export function parseFollowUpMessage(raw: unknown): ParsedFollowUpMessage | null {
   if (typeof raw !== 'string' || raw.length > MAX_MESSAGE_CHARS) return null;
@@ -407,7 +439,17 @@ export function parseFollowUpMessage(raw: unknown): ParsedFollowUpMessage | null
     });
     return null;
   }
-  return { marker, value: parsed.data } as ParsedFollowUpMessage;
+  const lists = ITEM_LISTS[marker] ?? [];
+  const sent = rowCount(data, lists);
+  const kept = rowCount(parsed.data, lists);
+  const skipped = Math.max(0, sent - kept);
+  if (sent > 0 && kept === 0) {
+    log.warn('Follow-up relay post had no item that validated', { marker, skipped });
+    return null;
+  }
+  if (skipped > 0)
+    log.warn('Follow-up relay post had items that did not validate', { marker, skipped });
+  return { marker, value: parsed.data, skipped } as ParsedFollowUpMessage;
 }
 
 export interface FollowUpsSnapshot {
@@ -462,11 +504,14 @@ export function collectFollowUps(
   const seenThreads = new Set<string>();
   // Split snapshots: every part of the newest run, keyed by part number.
   const parts = new Map<Marker, { runAt: string; byPart: Map<number, unknown> }>();
+  // Parts of one run join by the moment their run_at names, however it is
+  // spelled ("…:01Z" and "…:01.000Z" are one run).
+  const sameRun = (a: string, b: string) => a === b || Date.parse(a) === Date.parse(b);
   const addPart = (marker: Marker, value: { run_at: string; part?: number }) => {
     const entry = parts.get(marker);
     if (!entry) {
       parts.set(marker, { runAt: value.run_at, byPart: new Map([[value.part ?? 1, value]]) });
-    } else if (entry.runAt === value.run_at && !entry.byPart.has(value.part ?? 1)) {
+    } else if (sameRun(entry.runAt, value.run_at) && !entry.byPart.has(value.part ?? 1)) {
       entry.byPart.set(value.part ?? 1, value);
     }
   };

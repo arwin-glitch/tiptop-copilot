@@ -3,6 +3,7 @@ import { z } from 'zod';
 /**
  * The field rules every routine snapshot in #deal-relay is read with (Jobs'
  * `JOBS_V1`, Students' `STUDENTS_V1`): ids, short text, days and run times.
+ * The soft display-text rules are shared with every relay reader.
  * Pure and client-safe; the post envelopes and the Slack read are in
  * `src/lib/services/relay-snapshot.ts`.
  */
@@ -14,25 +15,12 @@ export const GMAIL_ID = z.string().regex(/^[0-9a-f]{10,24}$/i);
 export const text = (max: number) => z.string().trim().min(1).max(max);
 
 /**
- * Optional text: blank or missing reads as null, and text past `max` is cut
- * short with an ellipsis. A note a little over the limit must not cost the
- * whole row.
+ * Display text, soft (D-073): optional text reads blank or missing as null,
+ * and any display text past its limit is cut at a word with an ellipsis. A
+ * note a little over the limit must not cost the whole row. One rule for
+ * every relay reader: `src/lib/relay/soft-fields.ts`.
  */
-export const optionalText = (max: number) =>
-  z.preprocess((v) => {
-    if (typeof v !== 'string') return v;
-    const t = v.trim();
-    if (t === '') return null;
-    return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
-  }, z.string().max(max).nullish());
-
-/** Required text, cut short with an ellipsis past `max` rather than refused. */
-export const clippedText = (max: number) =>
-  z.preprocess((v) => {
-    if (typeof v !== 'string') return v;
-    const t = v.trim();
-    return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
-  }, text(max));
+export { softOptionalText as optionalText, softText as clippedText } from '@/lib/relay/soft-fields';
 
 /** A time, as one spelling: parts of one run group by it, however the routine wrote it. */
 export const RUN_TIME = z

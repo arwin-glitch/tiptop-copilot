@@ -54,8 +54,22 @@ function waitedWords(since: string, now: Date): string {
 
 type RowLike = Pick<
   FeedRow,
-  'def' | 'status' | 'lastSeen' | 'unreadableAt' | 'waitingSince' | 'reason'
+  'def' | 'status' | 'lastSeen' | 'unreadableAt' | 'skipped' | 'waitingSince' | 'reason'
 >;
+
+/**
+ * "2 items in the newest post were skipped...": a post that was read, less
+ * the items in it that could not be (D-073). Null when none were skipped.
+ */
+export function skippedWords(row: Pick<FeedRow, 'skipped' | 'unreadableAt'>): string | null {
+  const n = row.skipped ?? 0;
+  if (n <= 0) return null;
+  const items = n === 1 ? '1 item' : `${n} items`;
+  const were = n === 1 ? 'was' : 'were';
+  // With a newer unreadable post, the copy shown is not the newest.
+  if (row.unreadableAt) return `${items} in the copy it kept ${were} skipped.`;
+  return `${items} in the newest post ${were} skipped because ${n === 1 ? 'it' : 'they'} could not be read; the rest of the post is showing.`;
+}
 
 export function feedRowSummary(row: RowLike, now: Date, timeZone: string): string {
   const { def } = row;
@@ -98,6 +112,8 @@ export function feedRowSummary(row: RowLike, now: Date, timeZone: string): strin
       `A newer post (${formatDateTime(row.unreadableAt, timeZone)}) could not be read, so its card kept the older copy.`,
     );
   }
+  const skipped = skippedWords(row);
+  if (skipped) parts.push(skipped);
   if (parts.length === 0) return 'On time.';
   return parts.join(' ');
 }

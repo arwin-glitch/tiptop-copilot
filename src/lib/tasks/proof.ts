@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { softText } from '@/lib/relay/soft-fields';
 import { addDaysToKey, formatMonthDay, localClock, wallTimeToUtc } from '@/lib/util/time';
 import { isIntroTitle } from './glance';
 
@@ -577,6 +578,7 @@ export const PROOF_RELAY_KINDS = [
  */
 export const TASK_PROOF_SCHEMA = z.object({
   task_id: z.string().trim().regex(UUID_RE, 'must be a task id').optional(),
+  // Strict: a proof is matched to its ticked task by this title.
   title: z.string().trim().min(1).max(300),
   kind: z.enum(PROOF_RELAY_KINDS),
   evidence_at: z.string().datetime({ offset: true }),
@@ -591,7 +593,8 @@ export const TASK_PROOF_SCHEMA = z.object({
       .optional(),
     to: z.array(z.string().trim().max(320)).max(20).optional(),
   }),
-  reason: z.string().trim().min(1).max(300),
+  /** Display only: a long one is cut at a word, never a reason to drop the proof (D-073). */
+  reason: softText(300),
 });
 
 export type TaskProofRelay = z.infer<typeof TASK_PROOF_SCHEMA>;

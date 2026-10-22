@@ -183,8 +183,10 @@ describe('parseJobsMessage', () => {
     );
     expect(parsed?.dropped).toBe(0);
     const r = parsed!.roles[0]!;
-    expect(r.status_note).toHaveLength(200);
-    expect(r.status_note?.endsWith('…')).toBe(true);
+    // Cut at a word, inside the limit, with no dangling comma before the ellipsis.
+    expect(r.status_note!.length).toBeLessThanOrEqual(200);
+    expect(r.status_note!.length).toBeGreaterThan(150);
+    expect(r.status_note).toMatch(/(interviews|late-stage)…$/);
     expect(r.link).toBeNull();
   });
 

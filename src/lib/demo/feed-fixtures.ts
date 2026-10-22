@@ -8,7 +8,8 @@ import { DEMO_UPDATE_SOURCES } from './updates-fixtures';
  * feeds are on time; the deal sorter is a run late, the task closer has
  * missed three days (so it "looks stopped"), and two feeds have never
  * posted (the quarterly LP update, and new portfolio companies, which only
- * post when an investment closes).
+ * post when an investment closes). The week ahead's newest post had one
+ * meeting it could not read, skipped while the rest showed (D-073).
  */
 export function demoFeedInputs(now: Date): FeedInputs {
   const hoursAgo = (hours: number) => new Date(now.getTime() - hours * 3_600_000).toISOString();
@@ -24,7 +25,7 @@ export function demoFeedInputs(now: Date): FeedInputs {
     // The twice-weekly students scan, yesterday (as the demo Students tab says).
     students: seen(30),
     intros: seen(9),
-    'week-ahead': seen(9),
+    'week-ahead': { ...seen(9), skipped: 1 },
     'email-queue': seen(10),
     'deal-sorter': seen(20),
     'task-closer': seen(74),

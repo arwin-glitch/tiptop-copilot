@@ -118,6 +118,11 @@ const NOTICE_BODY_MAX = 180;
 export interface RelaySighting {
   at: string | null;
   unreadableAt: string | null;
+  /**
+   * Items the newest readable post (every part of its run) left out because
+   * they could not be read; the rest of it shows. Absent when none.
+   */
+  skipped?: number;
 }
 
 export type RelayRead =
@@ -156,6 +161,8 @@ export interface FeedRow {
   lastSeen: string | null;
   /** A post newer than `lastSeen` that its card could not read. */
   unreadableAt: string | null;
+  /** Items the post at `lastSeen` (all its run's parts) left out as unreadable. Absent when none. */
+  skipped?: number;
   /** When the oldest unanswered request was made, for an on-demand feed. */
   waitingSince: string | null;
   /** Why it cannot be checked, or why it is off. Plain words, never a value. */
@@ -180,6 +187,7 @@ function relayRow(def: FeedDef, read: RelayRead, now: Date, tz: string): FeedRow
     status: cadenceStatus(def.cadence, lastSeen, now, tz),
     lastSeen,
     unreadableAt: seen?.unreadableAt ?? null,
+    ...(lastSeen && seen?.skipped ? { skipped: seen.skipped } : {}),
     reason: null,
   };
 }
@@ -273,10 +281,23 @@ export function buildFeedReport(inputs: FeedInputs, now: Date, timeZone: string)
 
 /* ------------------------------------------------------- relay sightings */
 
+/** What one post is, as its consumer reads it. */
+export interface RelayOutcome {
+  /** Which feeds the post is for. */
+  feeds: readonly StaticFeedId[];
+  /** Whether its consumer could read it. */
+  valid: boolean;
+  /** Items in a readable post that were left out because they could not be read. */
+  skipped?: number;
+  /** The run the post belongs to (its run_at, as one spelling), when it says. */
+  run?: string;
+  /** Its part number within that run; 1 when it does not say. */
+  part?: number;
+}
+
 /** How one marker's posts are read: as its consumer reads them. */
 export interface RelayRule {
-  /** Which feeds a post is for, and whether its consumer could read it. */
-  read: (text: string) => { feeds: readonly StaticFeedId[]; valid: boolean };
+  read: (text: string) => RelayOutcome;
   /** Only these posters count; anyone when empty. */
   posters: readonly string[];
   /** Skip messages with a subtype (edits, joins, bot notices), as the consumer does. */
@@ -287,13 +308,16 @@ const MARKER_RE = /^[A-Z][A-Z0-9_]*_V\d+/;
 
 /**
  * Slack messages (any order) -> per feed, the newest post its consumer can
- * read and any newer one it cannot. Pure.
+ * read and any newer one it cannot, with the items that readable post left
+ * out: summed over every part of its run, each part counted once. Pure.
  */
 export function collectSightings(
   messages: readonly SlackMessage[],
   rules: ReadonlyMap<string, RelayRule>,
 ): Partial<Record<StaticFeedId, RelaySighting>> {
   const seen: Partial<Record<StaticFeedId, RelaySighting>> = {};
+  // The run each feed's newest readable post belongs to, and its parts counted so far.
+  const runs = new Map<StaticFeedId, { run: string; parts: Set<number> }>();
   const ordered = messages
     .map((m) => ({ m, iso: slackTsToIso(m.ts) }))
     .filter((x): x is { m: SlackMessage; iso: string } => x.iso !== null)
@@ -307,20 +331,42 @@ export function collectSightings(
     if (rule.posters.length > 0 && !(typeof m.user === 'string' && rule.posters.includes(m.user))) {
       continue;
     }
-    let outcome: { feeds: readonly StaticFeedId[]; valid: boolean };
+    let outcome: RelayOutcome;
     try {
       outcome = rule.read(m.text);
     } catch {
       continue;
     }
+    const part = outcome.part ?? 1;
+    const skipped = outcome.valid ? Math.max(0, outcome.skipped ?? 0) : 0;
     for (const feed of outcome.feeds) {
       const entry = (seen[feed] ??= { at: null, unreadableAt: null });
-      if (entry.at) continue;
-      if (outcome.valid) entry.at = iso;
-      else entry.unreadableAt ??= iso;
+      if (entry.at) {
+        // An older part of the same run: what it left out counts too, once.
+        const run = runs.get(feed);
+        if (outcome.valid && run && outcome.run === run.run && !run.parts.has(part)) {
+          run.parts.add(part);
+          if (skipped) entry.skipped = (entry.skipped ?? 0) + skipped;
+        }
+        continue;
+      }
+      if (outcome.valid) {
+        entry.at = iso;
+        if (skipped) entry.skipped = skipped;
+        if (outcome.run) runs.set(feed, { run: outcome.run, parts: new Set([part]) });
+      } else {
+        entry.unreadableAt ??= iso;
+      }
     }
   }
   return seen;
+}
+
+/** A run_at as one spelling, so the parts of one run group however each wrote it. */
+function runKey(runAt: unknown): string | undefined {
+  if (typeof runAt !== 'string') return undefined;
+  const ms = Date.parse(runAt);
+  return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
 }
 
 /** Each #deal-relay feed's marker. */
@@ -343,7 +389,18 @@ export function dealRelayRules(e: Pick<AppEnv, 'dealRelayPosterIds' | 'taskRelay
   const rules = new Map<string, RelayRule>();
   for (const [marker, feed] of Object.entries(DEAL_RELAY_FEEDS)) {
     rules.set(marker, {
-      read: (text) => ({ feeds: [feed], valid: parseFollowUpMessage(text) !== null }),
+      read: (text) => {
+        const parsed = parseFollowUpMessage(text);
+        if (!parsed) return { feeds: [feed], valid: false };
+        const envelope = parsed.value as { run_at?: unknown; part?: unknown };
+        return {
+          feeds: [feed],
+          valid: true,
+          skipped: parsed.skipped,
+          run: runKey(envelope.run_at),
+          part: typeof envelope.part === 'number' ? envelope.part : 1,
+        };
+      },
       posters: e.dealRelayPosterIds,
       skipSubtypes: true,
     });
@@ -359,13 +416,33 @@ export function dealRelayRules(e: Pick<AppEnv, 'dealRelayPosterIds' | 'taskRelay
   // The weekly jobs scan may come in numbered parts: any part the Jobs tab
   // can read is the run seen.
   rules.set(JOBS_MARKER, {
-    read: (text) => ({ feeds: ['portfolio-jobs'], valid: parseJobsMessage(text) !== null }),
+    read: (text) => {
+      const parsed = parseJobsMessage(text);
+      if (!parsed) return { feeds: ['portfolio-jobs'], valid: false };
+      return {
+        feeds: ['portfolio-jobs'],
+        valid: true,
+        skipped: parsed.dropped,
+        run: runKey(parsed.post.run_at),
+        part: parsed.post.part ?? 1,
+      };
+    },
     posters: e.dealRelayPosterIds,
     skipSubtypes: true,
   });
   // The twice-weekly students scan, numbered parts and all, the same way.
   rules.set(STUDENTS_MARKER, {
-    read: (text) => ({ feeds: ['students'], valid: parseStudentsMessage(text) !== null }),
+    read: (text) => {
+      const parsed = parseStudentsMessage(text);
+      if (!parsed) return { feeds: ['students'], valid: false };
+      return {
+        feeds: ['students'],
+        valid: true,
+        skipped: parsed.dropped,
+        run: runKey(parsed.post.run_at),
+        part: parsed.post.part ?? 1,
+      };
+    },
     posters: e.dealRelayPosterIds,
     skipSubtypes: true,
   });
