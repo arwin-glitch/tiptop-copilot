@@ -45,6 +45,7 @@ export function BookingChat({
   hostName,
   firmName,
   kinds,
+  callLabel = '30-min Google Meet',
   zone,
   onFill,
 }: {
@@ -53,6 +54,8 @@ export function BookingChat({
   hostName: string;
   firmName: string;
   kinds: MeetingKind[];
+  /** "30-min Zoom call": what a call is on, never its link. */
+  callLabel?: string;
   zone: string;
   onFill: (fill: ChatFormFill) => void;
 }) {
@@ -128,7 +131,7 @@ export function BookingChat({
 
   const findTime = (type: MeetingType, kind: MeetingKind | null) => {
     setPicking(false);
-    const label = type === 'call' ? 'A 30-minute call' : `${KIND_LABEL[kind!]} in person`;
+    const label = type === 'call' ? `A ${callLabel}` : `${KIND_LABEL[kind!]} in person`;
     void ask(
       { mode: 'guided', action: 'find_time', type, ...(kind ? { kind } : {}) },
       { role: 'user', content: label },
@@ -263,7 +266,7 @@ export function BookingChat({
                 role="group"
                 aria-label="What kind of meeting?"
               >
-                <QuickButton onClick={() => findTime('call', null)}>30-minute call</QuickButton>
+                <QuickButton onClick={() => findTime('call', null)}>{callLabel}</QuickButton>
                 {kinds.map((k) => (
                   <QuickButton key={k} onClick={() => findTime('in_person', k)}>
                     {KIND_LABEL[k]}

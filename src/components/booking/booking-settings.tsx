@@ -240,6 +240,15 @@ export function BookingSettings(props: BookingSettingsProps) {
                 </Button>
               </div>
             </div>
+            <TextField
+              id={`${uid}-call-link`}
+              label="Video link for calls"
+              hint="Goes in every call invite instead of a Google Meet link. Only people who book see it."
+              value={config.callLink}
+              max={500}
+              disabled={disabled}
+              onChange={(v) => set('callLink', v)}
+            />
             <Notice>
               Open times come from every calendar Copilot shows for the host, personal ones too. The
               page and its chatbot see busy times only, never titles or guests. Nothing reaches the

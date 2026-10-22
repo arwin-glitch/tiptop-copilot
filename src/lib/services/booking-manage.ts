@@ -41,6 +41,7 @@ import { processWide } from '@/lib/util/process-state';
 import { err, ok, type Result } from '@/lib/util/result';
 import {
   engineInputFor,
+  hostCalendarEmail,
   hostNameFor,
   linkEventDraft,
   manageTokenHash,
@@ -295,6 +296,7 @@ export async function loadManagePage(
       meetUrl: live.state === 'there' ? live.meetUrl : null,
       notice: synced.notice,
       linkOpen: settings.enabled,
+      withLink: true,
     }),
   };
 }
@@ -738,7 +740,11 @@ export async function placeHeldBookings(
         primary.id,
         // The token itself is not kept, so the event made now cannot carry the
         // booking page's link; the visitor has it from their confirmation.
-        linkEventDraft(hostName, row, hostZone, { manageUrl: null }),
+        linkEventDraft(hostName, row, hostZone, {
+          manageUrl: null,
+          callLink: config.callLink,
+          hostEmail: hostCalendarEmail(source, host, primary.id),
+        }),
       );
       if (!created.ok) {
         const doubt = created.error.code === 'timeout' || created.error.code === 'provider_unavailable';

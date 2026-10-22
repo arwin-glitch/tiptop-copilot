@@ -131,6 +131,23 @@ export function mergeGuests(
   return [...kept, ...wanted.filter((e) => !have.has(e)).map((email) => ({ email }))];
 }
 
+/**
+ * The attendee list with the organizer first, as Google lists an organizer
+ * who is attending: their own entry (accepted), and once only, whatever the
+ * case of the address. An address that is not one leaves the list as it is.
+ */
+export function withOrganizer(
+  attendees: readonly GCalAttendee[],
+  organizerEmail: string,
+): GCalAttendee[] {
+  const email = organizerEmail.trim().toLowerCase();
+  if (!isEmailAddress(email)) return [...attendees];
+  return [
+    { email, organizer: true, responseStatus: 'accepted' },
+    ...attendees.filter((a) => a.email?.trim().toLowerCase() !== email),
+  ];
+}
+
 export type GuestChoice = 'send' | 'dont_send';
 
 /**
@@ -334,6 +351,13 @@ export interface EventDraft {
   location?: string;
   /** Guests' addresses, without this account or rooms. */
   guests?: string[];
+  /**
+   * A new event only: this calendar's own address, put first on the guest
+   * list as its organizer who has accepted, so the invite shows the host
+   * (Google does not email an organizer their own invitation). Not taken
+   * from the Calendar tab's editor; ignored on a change.
+   */
+  organizerEmail?: string;
   /** Add a Google Meet link. */
   meet?: boolean;
   /** Google's event colorId, or null for the calendar's colour. */
@@ -426,8 +450,10 @@ export function draftToWrite(
       }),
     );
   }
-  if (draft.guests !== undefined) {
-    body.attendees = mergeGuests(context.existing?.attendees, draft.guests, context.ownEmails);
+  const organizer = context.existing ? undefined : draft.organizerEmail;
+  if (draft.guests !== undefined || organizer) {
+    const merged = mergeGuests(context.existing?.attendees, draft.guests ?? [], context.ownEmails);
+    body.attendees = organizer ? withOrganizer(merged, organizer) : merged;
   }
   let conferenceDataVersion: 0 | 1 = 0;
   if (draft.meet && !(context.existing && meetLinkOf(context.existing))) {

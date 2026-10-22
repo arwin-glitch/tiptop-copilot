@@ -18,6 +18,7 @@ import {
   seriesGuestList,
   shiftSeries,
   timesProblem,
+  withOrganizer,
   type EventDraft,
 } from '@/lib/calendar/edit-rules';
 import type { CalendarInfo, RangeEvent } from '@/lib/calendar/range-types';
@@ -246,6 +247,51 @@ describe('what a change sends', () => {
       timeZone: 'America/Chicago',
       date: null,
     });
+  });
+
+  it('lists the organizer first, accepted, and once, on a new event (booking hotfix)', () => {
+    const { body } = draftToWrite(
+      {
+        ...draft,
+        guests: ['pat@example.org', 'Nick@Acme.example'],
+        organizerEmail: 'NICK@acme.example',
+      },
+      { requestId: 'req-1', ownEmails: OWN },
+    );
+    expect(body.attendees).toEqual([
+      { email: 'nick@acme.example', organizer: true, responseStatus: 'accepted' },
+      { email: 'pat@example.org' },
+    ]);
+    // With no guests, the organizer alone.
+    expect(
+      draftToWrite(
+        { ...draft, guests: undefined, organizerEmail: 'nick@acme.example' },
+        { requestId: 'r' },
+      ).body.attendees,
+    ).toEqual([{ email: 'nick@acme.example', organizer: true, responseStatus: 'accepted' }]);
+    // A change keeps the host's own entry and answer as they are.
+    const existing = {
+      id: 'e',
+      attendees: [{ email: 'nick@acme.example', self: true, responseStatus: 'tentative' }],
+    };
+    expect(
+      draftToWrite(
+        { guests: ['pat@example.org'], organizerEmail: 'nick@acme.example' },
+        { existing, requestId: 'r', ownEmails: OWN },
+      ).body.attendees,
+    ).toEqual([
+      { email: 'nick@acme.example', self: true, responseStatus: 'tentative' },
+      { email: 'pat@example.org' },
+    ]);
+    expect(
+      draftToWrite(
+        { title: 'x', organizerEmail: 'nick@acme.example' },
+        { existing, requestId: 'r' },
+      ).body.attendees,
+    ).toBeUndefined();
+    expect(withOrganizer([{ email: 'pat@example.org' }], 'not an address')).toEqual([
+      { email: 'pat@example.org' },
+    ]);
   });
 
   it('never asks for a second Meet link, and never removes one', () => {

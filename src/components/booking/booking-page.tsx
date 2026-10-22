@@ -10,6 +10,7 @@ import { Input, Label, Select, Textarea } from '@/components/ui/form';
 import { KIND_LABEL } from '@/lib/booking/config';
 import {
   CLOSED_MESSAGE,
+  callOptionLabel,
   dayKeyIn,
   distinctZones,
   knownZone,
@@ -122,10 +123,13 @@ export function Shell({ firmName, children }: { firmName: string; children: Reac
 export function HostCard({
   host,
   inPerson,
+  callLabel,
   instant,
 }: {
   host: NonNullable<PublicBookingPage['host']>;
   inPerson: boolean;
+  /** "30-min Zoom call": what a call is on, never its link. */
+  callLabel: string;
   /** Booked at once (D-078), or a request that waits. */
   instant: boolean;
 }) {
@@ -168,7 +172,7 @@ export function HostCard({
       <ul className="mt-5 space-y-2 border-t border-[var(--border)] pt-4 text-sm text-[var(--fg-muted)]">
         <li className="flex items-center gap-2">
           <Video className="size-4 text-[var(--accent)]" aria-hidden="true" />
-          30-minute call on Google Meet
+          {callLabel}
         </li>
         {inPerson ? (
           <li className="flex items-center gap-2">
@@ -180,7 +184,7 @@ export function HostCard({
           <CalendarCheck2 className="size-4 text-[var(--accent)]" aria-hidden="true" />
           {instant
             ? 'Booked straight onto the calendar'
-            : 'The calendar invitation follows by email'}
+            : 'A calendar invitation once your time is booked'}
         </li>
       </ul>
     </section>
@@ -212,6 +216,7 @@ function OpenPage({
   detectedZone: string | null;
 }) {
   const host = data.host!;
+  const callLabel = callOptionLabel(data.callProvider);
   const [form, setForm] = React.useState<BookingFormState>(EMPTY_FORM);
   // In person the visitor will be in the host's city, so its times read in
   // the host's own clock (coffee at 8:30 AM, not 9:30 PM in Manila) unless
@@ -387,7 +392,12 @@ function OpenPage({
     <Shell firmName={host.firmName || 'TipTop Ventures'}>
       <div className="grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:items-start">
         <div className="lg:sticky lg:top-6">
-          <HostCard host={host} inPerson={data.offers.inPerson} instant={data.instant} />
+          <HostCard
+            host={host}
+            inPerson={data.offers.inPerson}
+            callLabel={callLabel}
+            instant={data.instant}
+          />
         </div>
 
         <div ref={formRef} className="scroll-mt-4">
@@ -406,10 +416,10 @@ function OpenPage({
               </h2>
               <p className="mt-1 text-sm text-[var(--fg-muted)]">
                 {form.type === 'message'
-                  ? `It goes straight to ${host.displayName}.`
+                  ? `Your message goes to ${host.displayName}.`
                   : data.instant
                     ? 'Pick what suits you. It goes straight onto the calendar, and the invitation comes by email.'
-                    : 'Pick what suits you. The calendar invitation follows by email.'}
+                    : "Pick what suits you. You'll get a calendar invitation once the time is booked."}
               </p>
               {filledByChat ? (
                 <Notice className="mt-3">
@@ -426,8 +436,8 @@ function OpenPage({
                     selected={form.type === 'call'}
                     onSelect={() => update({ type: 'call' })}
                     icon={<Video className="size-4" aria-hidden="true" />}
-                    title="30-minute call"
-                    body="Google Meet, link in the invite"
+                    title={callLabel}
+                    body="Link in the calendar invitation"
                   />
                   {data.offers.inPerson ? (
                     <TypeOption
@@ -744,6 +754,7 @@ function OpenPage({
           hostName={host.displayName}
           firmName={host.firmName}
           kinds={data.offers.inPerson ? data.kinds : []}
+          callLabel={callLabel}
           zone={visitorZone}
           onFill={fillFromChat}
         />

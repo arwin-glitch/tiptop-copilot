@@ -30,6 +30,7 @@ import {
   knownZone,
   UNAVAILABLE_MESSAGE,
   type BookingOutcomeStatus,
+  videoProviderLabel,
   type PublicBookingPage,
   type PublicBookingResult,
   type PublicBookingView,
@@ -39,6 +40,7 @@ import {
 import { cleanGuests, type BookingRequestInput } from '@/lib/booking/request';
 import type { EventDraft } from '@/lib/calendar/edit-rules';
 import { calendarEditAccess } from '@/lib/calendar/edit-access';
+import { isEmailAddress } from '@/lib/calendar/edit-rules';
 import { sniffPhoto } from '@/lib/campaigns/photos';
 import {
   calendarSource,
@@ -345,6 +347,7 @@ export function closedBookingPage(slug: string): PublicBookingPage {
     places: [],
     allowCustomPlace: false,
     kinds: [],
+    callProvider: videoProviderLabel(''),
     chatbot: { enabled: false, mode: 'guided' },
     faq: '',
     instant: false,
@@ -383,6 +386,8 @@ export async function publicBookingPage(
     places: inPerson ? config.places : [],
     allowCustomPlace: inPerson && config.allowCustomPlace,
     kinds: inPerson ? kinds : [],
+    // What a call is on, never the saved link: that goes only in the invite.
+    callProvider: videoProviderLabel(config.callLink),
     chatbot: { enabled: config.chatbotEnabled, mode: deps.chatMode ?? 'guided' },
     faq: config.faq,
     instant: !config.approveFirst,
@@ -595,12 +600,18 @@ export function bookingV2Missing(error: unknown): boolean {
   return code === '23514' || (typeof message === 'string' && /check constraint/i.test(message));
 }
 
-/** How a call is held, for the visitor: Google Meet unless Settings names another link. */
+/**
+ * How a call is held, for the visitor: the saved video link's provider
+ * (Zoom, Teams...) or Google Meet. The link itself only where the visitor is
+ * an invitee holding the booking's own page; `null` leaves it out.
+ */
 export function callVideo(
   config: BookingConfig,
   meetUrl: string | null,
+  withLink = true,
 ): { label: string; url: string | null } {
-  return { label: 'Google Meet', url: meetUrl };
+  const saved = config.callLink?.trim() || null;
+  return { label: videoProviderLabel(saved), url: withLink ? (saved ?? meetUrl) : null };
 }
 
 /** At most this many reschedules a booking. */
@@ -620,6 +631,11 @@ export function publicBookingView(
     notice?: string | null;
     /** The link is on: a move needs its open times. */
     linkOpen?: boolean;
+    /**
+     * Show the call's link: only on the booking's own page, to the token
+     * holder (an invitee). The confirmation names the provider alone.
+     */
+    withLink?: boolean;
   },
 ): PublicBookingView | null {
   if (row.meeting_type === 'message' || !row.starts_at || !row.ends_at) return null;
@@ -647,7 +663,10 @@ export function publicBookingView(
       row.meeting_type === 'in_person' && row.place_name
         ? { name: row.place_name, area: row.place_area, mapUrl: row.place_map_url }
         : null,
-    video: row.meeting_type === 'call' ? callVideo(context.config, context.meetUrl ?? null) : null,
+    video:
+      row.meeting_type === 'call'
+        ? callVideo(context.config, context.meetUrl ?? null, context.withLink ?? false)
+        : null,
     canReschedule: live && !started && moved < MAX_RESCHEDULES && context.linkOpen !== false,
     canCancel: live && !started,
     reschedulesLeft: Math.max(0, MAX_RESCHEDULES - moved),
@@ -967,6 +986,8 @@ export async function submitBookingRequest(
           primary.id,
           linkEventDraft(hostNameFor(config, host), row, hostZone, {
             manageUrl: manageUrl(found.link.row.slug, token),
+            callLink: config.callLink,
+            hostEmail: hostCalendarEmail(source, host, primary.id),
           }),
         );
         if (created.ok) {
@@ -1042,12 +1063,15 @@ const V2_COLUMNS = [
   'previous_starts_at',
 ] as const;
 
-/** The event a booking becomes: the visitor and their guests invited. */
+/**
+ * The event a booking becomes: the host on it as the organizer, the visitor
+ * and their guests invited, the call on the saved video link (or Google Meet).
+ */
 export function linkEventDraft(
   hostName: string,
   row: BookingRequest,
   hostZone: string,
-  options: { manageUrl: string | null },
+  options: { manageUrl: string | null; callLink: string | null; hostEmail: string | null },
 ): EventDraft {
   return bookingEventDraft(
     hostName,
@@ -1068,6 +1092,7 @@ export function linkEventDraft(
       manageUrl: options.manageUrl,
     },
     hostZone,
+    { callLink: options.callLink, hostEmail: options.hostEmail },
   );
 }
 
@@ -1176,6 +1201,22 @@ export function hostNameFor(config: BookingConfig, host: HostIdentity): string {
 }
 
 /**
+ * The host's main calendar address, for the guest list: the main calendar's
+ * own id (Google names it by the account's address), else the connected
+ * account's, else the principal's.
+ */
+export function hostCalendarEmail(
+  source: CalendarSource,
+  host: HostIdentity,
+  primaryId?: string | null,
+): string | null {
+  const found = [primaryId, ...source.ownEmails, host.email]
+    .map((e) => e?.trim().toLowerCase() ?? '')
+    .find((e) => isEmailAddress(e));
+  return found ?? null;
+}
+
+/**
  * Approve: re-check the time against the live calendar and every rule, then
  * create the event on the host's main calendar through the write module,
  * inviting the requester. Refused with the reason when the time is no longer
@@ -1258,7 +1299,10 @@ export async function approveBookingRequest(
     return ok({
       state: 'needs_grant',
       reason: access.reason ?? 'Calendar editing is off.',
-      templateUrl: googleCalendarTemplateUrl(hostName, approvable, hostZone),
+      templateUrl: googleCalendarTemplateUrl(hostName, approvable, hostZone, {
+        callLink: settings.config.callLink,
+        hostEmail: hostCalendarEmail(source, host),
+      }),
     });
   }
 
@@ -1298,7 +1342,10 @@ export async function approveBookingRequest(
   const created = await createLinkEvent(
     { store: ctx.store, organizationId: ctx.organizationId, source, actorId: ctx.userId },
     primary.id,
-    bookingEventDraft(hostName, approvable, hostZone),
+    bookingEventDraft(hostName, approvable, hostZone, {
+      callLink: settings.config.callLink,
+      hostEmail: hostCalendarEmail(source, host, primary.id),
+    }),
   );
   if (!created.ok) {
     // Google may have made the event before the answer was lost: keep the

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { KIND_LABEL } from '@/lib/booking/config';
 import { icsFile } from '@/lib/booking/event';
 import {
+  callOptionLabel,
   slotLabel,
   timeLabel,
   zoneName,
@@ -19,11 +20,9 @@ import {
  * is coming. Plus "Add to calendar", a file built here in the browser.
  */
 
-/** "30-minute call via Google Meet", "Coffee, 1 hour". */
+/** "30-min Zoom call", "30-min Google Meet", "Coffee, 1 hour". */
 export function meetingWhat(booking: Pick<PublicBookingView, 'type' | 'kind' | 'video'>): string {
-  if (booking.type === 'call') {
-    return `30-minute call${booking.video ? ` via ${booking.video.label}` : ''}`;
-  }
+  if (booking.type === 'call') return callOptionLabel(booking.video?.label ?? '');
   return `${booking.kind ? KIND_LABEL[booking.kind] : 'In person'}, 1 hour`;
 }
 

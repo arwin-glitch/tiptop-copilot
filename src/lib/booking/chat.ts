@@ -39,7 +39,7 @@ import {
   type MeetingType,
 } from './config';
 import { openSlots, type EngineInput, type OpenSlot } from './engine';
-import { dayKeyIn, knownZone, slotLabel } from './public';
+import { callOptionLabel, dayKeyIn, knownZone, slotLabel, videoProviderLabel } from './public';
 import { CHAT_FORM_FILL, type ChatFormFill } from './request';
 
 /**
@@ -310,8 +310,11 @@ export async function runBookingTool(
       invocation,
       true,
       {
+        // What a call is on, by name only: the saved link goes in the invite alone.
         meeting:
-          type === 'call' ? TYPE_LABEL.call : `${TYPE_LABEL.in_person}: ${KIND_LABEL[kind!]}`,
+          type === 'call'
+            ? callOptionLabel(videoProviderLabel(config.callLink))
+            : `${TYPE_LABEL.in_person}: ${KIND_LABEL[kind!]}`,
         visitor_time_zone: scope.visitorZone,
         slots: slots.map((s) => ({ start: s.start, label: s.label })),
       },
@@ -484,7 +487,7 @@ export async function guidedReply(
   if (request.action === 'message') {
     return {
       ...base,
-      reply: `Write your message (and a deck link, if you like) in the form, then press Send. Arwin will reply by email.`,
+      reply: 'Write your message (and a deck link, if you like) in the form, then press Send.',
       fill: { type: 'message' },
     };
   }
@@ -507,7 +510,7 @@ export async function guidedReply(
     const slots = chatSlots(input, { type, kind }, scope.visitorZone);
     const what =
       type === 'call'
-        ? 'a 30-minute call'
+        ? `a ${callOptionLabel(videoProviderLabel(scope.link.config.callLink))}`
         : `${KIND_LABEL[kind!].toLowerCase()} (1 hour, in person)`;
     return {
       ...base,
@@ -603,6 +606,7 @@ export async function runBookingChat(
     visitorTimeZone: scope.visitorZone,
     today,
     offersInPerson: inPersonOffered(link.config),
+    callProvider: videoProviderLabel(link.config.callLink),
   });
   // One visitor turn holding the whole conversation as fenced data: the page
   // keeps the history, so an "assistant" line from it is never trusted as one.

@@ -1,3 +1,5 @@
+import { callOptionLabel } from './public';
+
 /**
  * The public booking page's chatbot: "Arwin", the host's AI scheduling
  * assistant. A separate, public persona — not Ask Arwin inside Copilot (whose
@@ -10,7 +12,7 @@
  * reach it.
  */
 
-export const BOOKING_CHAT_PROMPT_VERSION = 'booking-chat@1.0.0';
+export const BOOKING_CHAT_PROMPT_VERSION = 'booking-chat@1.1.0';
 
 export interface BookingChatPromptContext {
   hostName: string;
@@ -21,6 +23,11 @@ export interface BookingChatPromptContext {
   /** The visitor's today, `YYYY-MM-DD`. */
   today: string;
   offersInPerson: boolean;
+  /**
+   * What calls are on, as a label ("Zoom call", "Google Meet"): never the
+   * saved video link, which only the invite carries. Google Meet when unset.
+   */
+  callProvider?: string;
 }
 
 /** Strip anything that could read as a tag or a new instruction line from a settings value. */
@@ -36,9 +43,10 @@ export function bookingChatSystemPrompt(ctx: BookingChatPromptContext): string {
   const host = plain(ctx.hostName) || 'the host';
   const first = plain(ctx.hostFirstName) || host;
   const firm = plain(ctx.firmName) || 'the firm';
+  const call = callOptionLabel(plain(ctx.callProvider ?? '', 40));
   const kinds = ctx.offersInPerson
-    ? 'a 30-minute call (Google Meet), or a 1-hour in-person coffee, lunch or dinner'
-    : 'a 30-minute call (Google Meet)';
+    ? `a ${call}, or a 1-hour in-person coffee, lunch or dinner`
+    : `a ${call}`;
   return `You are Arwin, ${first}'s AI scheduling assistant at ${firm}. You are an AI assistant, not a person: say so plainly if anyone asks, and never claim to be human.
 
 You help visitors on ${host}'s public booking page with three things, and nothing else:
@@ -46,7 +54,7 @@ You help visitors on ${host}'s public booking page with three things, and nothin
 2. Questions about ${firm}. Answer ONLY from the text get_faq returns. If the answer is not there, say: "I can take a message for ${first}." Never use outside knowledge about ${firm}, ${first} or anyone else.
 3. Taking a message or a deck link for ${first}.
 
-You fill in the request form for the visitor with fill_form. You never send it: the visitor reviews the form and presses Send. Never say a meeting is booked, confirmed or on the calendar. After they send it, Arwin confirms by email.
+You fill in the request form for the visitor with fill_form. You never send it: the visitor reviews the form and presses Send. Never say a meeting is booked, confirmed or on the calendar. After they send it, they get a calendar invitation once the time is booked.
 
 Meetings offered: ${kinds}. Only Tuesday, Wednesday and Thursday.
 

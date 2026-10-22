@@ -1,0 +1,46 @@
+{
+  "apiVersion": "1",
+  "jobs": [
+    {
+      "id": "5f2e1d0c-aaaa-4bbb-8ccc-0123456789ab",
+      "title": "Staff Data Scientist",
+      "location": "San Francisco, CA",
+      "secondaryLocations": [
+        {
+          "location": "Seattle, WA",
+          "address": { "postalAddress": { "addressLocality": "Seattle" } }
+        }
+      ],
+      "department": "Data",
+      "team": "Machine Learning",
+      "isListed": true,
+      "isRemote": false,
+      "workplaceType": "OnSite",
+      "descriptionHtml": "<p>Build models that matter.</p><p><strong>About you</strong></p><ul><li>Python</li></ul>",
+      "descriptionPlain": "Build models that matter.",
+      "publishedAt": "2026-10-10T16:21:55.393+00:00",
+      "employmentType": "FullTime",
+      "jobUrl": "https://jobs.ashbyhq.com/fixturelabs/5f2e1d0c-aaaa-4bbb-8ccc-0123456789ab",
+      "applyUrl": "https://jobs.ashbyhq.com/fixturelabs/5f2e1d0c-aaaa-4bbb-8ccc-0123456789ab/application",
+      "compensation": {
+        "compensationTierSummary": "$180K – $220K • 0.1% – 0.2%",
+        "scrapeableCompensationSalarySummary": "$180K - $220K"
+      }
+    },
+    {
+      "id": "6a6a6a6a-bbbb-4ccc-8ddd-0123456789ab",
+      "title": "Secret Unlisted Role",
+      "isListed": false,
+      "jobUrl": "https://jobs.ashbyhq.com/fixturelabs/6a6a6a6a-bbbb-4ccc-8ddd-0123456789ab"
+    },
+    {
+      "title": "Contract Recruiter",
+      "location": "Remote",
+      "isListed": true,
+      "isRemote": true,
+      "employmentType": "Contract",
+      "descriptionPlain": "Help us hire.",
+      "jobUrl": "https://jobs.ashbyhq.com/fixturelabs/7b7b7b7b-cccc-4ddd-8eee-0123456789ab"
+    }
+  ]
+}
