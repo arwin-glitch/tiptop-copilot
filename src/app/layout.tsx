@@ -5,7 +5,7 @@ import { DesktopAlertOpener } from '@/components/desktop/desktop-alert-opener';
 import { DesktopTitleBar } from '@/components/desktop/desktop-title-bar';
 import { ServiceWorkerRegistrar } from '@/components/shell/service-worker';
 import { FRAME_BOOT_SCRIPT } from '@/lib/desktop/frame-boot';
-import { SURFACE_HEADER } from '@/lib/events/surface';
+import { NONCE_HEADER, SURFACE_HEADER } from '@/lib/events/surface';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -51,25 +51,32 @@ export const viewport: Viewport = {
 const themeScript = `(function(){try{var t=localStorage.getItem('tiptop-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;if(t==='dark'||(t!=='light'&&d)){document.documentElement.classList.add('dark')}}catch(e){}})();`;
 
 /**
- * Whether this request is for the public surface (event pages, booking):
- * proxy.ts sets the header there and strips it everywhere else
- * (lib/events/surface.ts). Reading it makes every route render per request,
- * which the signed-in pages already did.
+ * Which surface this request is for: Copilot itself, an event page (/e, which
+ * alone gets the nonce CSP) or the booking link (/meet). proxy.ts sets both
+ * headers there and strips them everywhere else (lib/events/surface.ts).
+ * Reading them makes every route render per request, which the signed-in
+ * pages already did.
  */
-async function isPublicSurface(): Promise<boolean> {
+async function requestSurface(): Promise<'app' | 'event' | 'booking'> {
   try {
-    return (await headers()).get(SURFACE_HEADER) === 'public';
+    const h = await headers();
+    if (h.get(SURFACE_HEADER) !== 'public') return 'app';
+    return h.has(NONCE_HEADER) ? 'event' : 'booking';
   } catch {
-    return false;
+    return 'app';
   }
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Guests on /e and /meet get none of Copilot's chrome: no theme script (an
-  // inline script the /e nonce CSP would refuse anyway), no desktop title bar
+  // Guests on /e and /meet get none of Copilot's chrome: no desktop title bar
   // or alert opener, and no service worker registration, so an LP never
-  // installs Copilot's worker or sees its offline page.
-  const publicSurface = await isPublicSurface();
+  // installs Copilot's worker or sees its offline page. /e gets no theme
+  // script either (an inline script its nonce CSP would refuse anyway); the
+  // booking page keeps the theme half, since it follows the visitor's light
+  // or dark setting (D-074), but not the desktop top-bar flag, as no bar is
+  // drawn there.
+  const surface = await requestSurface();
+  const publicSurface = surface !== 'app';
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -78,9 +85,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             flag (lib/desktop/frame-boot.ts). Neither can carry untrusted
             content. Every other surface in the app renders text through
             <PlainText>. */}
-        {publicSurface ? null : (
-          // eslint-disable-next-line no-restricted-syntax -- static constants, see above
-          <script dangerouslySetInnerHTML={{ __html: themeScript + FRAME_BOOT_SCRIPT }} />
+        {surface === 'event' ? null : (
+          <script
+            // eslint-disable-next-line no-restricted-syntax -- static constants, see above
+            dangerouslySetInnerHTML={{
+              __html: surface === 'booking' ? themeScript : themeScript + FRAME_BOOT_SCRIPT,
+            }}
+          />
         )}
       </head>
       <body className="min-h-dvh antialiased">
