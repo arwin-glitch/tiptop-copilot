@@ -29,6 +29,9 @@ import type {
   EncryptedProviderToken,
   GeneratedDraft,
   Integration,
+  JobBoardSettings,
+  JobCompany,
+  JobPosting,
   KnowledgeChunk,
   KnowledgeDocument,
   McpToken,
@@ -107,6 +110,9 @@ export interface TableMap {
   desktop_handoffs: DesktopHandoff;
   user_feedback: UserFeedback;
   sync_runs: SyncRun;
+  job_board_settings: JobBoardSettings;
+  job_companies: JobCompany;
+  job_postings: JobPosting;
 }
 
 export type TableName = keyof TableMap;

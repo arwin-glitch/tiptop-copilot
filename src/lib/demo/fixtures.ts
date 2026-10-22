@@ -1,4 +1,5 @@
 import { joinPages } from '@/lib/documents/pages';
+import { demoJobsBoard } from './jobs-board-fixtures';
 import { proofJudgeAfter } from '@/lib/tasks/proof';
 import { sha256 } from '@/lib/util/hash';
 import { normalizeCompanyName, snippet } from '@/lib/util/text';
@@ -2190,6 +2191,8 @@ experiment, not the fundraise timing.`,
     routine_briefings: demoRoutineBriefings(now),
     ...demoCrm(now),
     ...demoCampaigns(now),
+    // The public job board, switched on, over the two demo companies.
+    ...demoJobsBoard(now),
   };
 }
 

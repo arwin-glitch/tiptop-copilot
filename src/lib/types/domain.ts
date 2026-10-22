@@ -1435,3 +1435,90 @@ export interface SyncRun {
   started_at: IsoDateTime;
   finished_at: IsoDateTime | null;
 }
+
+/* ------------------------------------------------------- public job board */
+//
+// supabase/migrations/20261022100000_public_jobs.sql. The board is off until a
+// person turns it on; see lib/services/jobs-board.ts for how a role becomes
+// public.
+
+export type JobPostingSource = 'ats' | 'email' | 'manual';
+export type JobAts = 'greenhouse' | 'lever' | 'ashby' | 'workable' | 'recruitee';
+export type JobEmploymentType = 'full_time' | 'part_time' | 'contract' | 'internship' | 'temporary';
+export type JobSeniority =
+  | 'intern'
+  | 'entry'
+  | 'mid'
+  | 'senior'
+  | 'staff'
+  | 'lead'
+  | 'manager'
+  | 'director'
+  | 'vp'
+  | 'executive';
+
+export interface JobBoardSettings {
+  id: Uuid;
+  organization_id: Uuid;
+  enabled: boolean;
+  title: string;
+  intro: string | null;
+  accent: string;
+  updated_by: Uuid | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export interface JobCompany {
+  id: Uuid;
+  organization_id: Uuid;
+  portfolio_company_id: Uuid;
+  slug: string;
+  careers_url: string | null;
+  ats: JobAts | null;
+  ats_token: string | null;
+  sync_enabled: boolean;
+  auto_publish: boolean;
+  listed: boolean;
+  logo_url: string | null;
+  about: string | null;
+  last_sync_at: IsoDateTime | null;
+  last_sync_status: 'ok' | 'failed' | 'skipped' | null;
+  last_sync_message: string | null;
+  last_sync_count: number | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export interface JobPosting {
+  id: Uuid;
+  organization_id: Uuid;
+  portfolio_company_id: Uuid;
+  source: JobPostingSource;
+  source_key: string;
+  slug: string;
+  title: string;
+  team: string | null;
+  job_function: string;
+  locations: string[];
+  remote: 'remote' | 'hybrid' | 'onsite' | null;
+  employment_type: JobEmploymentType | null;
+  seniority: JobSeniority | null;
+  comp: string | null;
+  description: string | null;
+  apply_url: string | null;
+  posted_at: IsoDateTime | null;
+  source_updated_at: IsoDateTime | null;
+  status: 'active' | 'closed';
+  published: boolean;
+  featured: boolean;
+  approved_by: Uuid | null;
+  approved_at: IsoDateTime | null;
+  hidden_by: Uuid | null;
+  hidden_at: IsoDateTime | null;
+  first_seen_at: IsoDateTime;
+  last_seen_at: IsoDateTime;
+  closed_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
