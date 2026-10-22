@@ -12,6 +12,14 @@ import {
   newNonce,
   wantsEventCsp,
 } from '@/lib/events/surface';
+import { boardHostOrigin } from '@/lib/jobs-board/config';
+import {
+  boardHosts,
+  isCopilotBoardPath,
+  requestHosts,
+  routeBoardHost,
+} from '@/lib/jobs-board/host';
+import { boardRequestAllowed } from '@/lib/jobs-board/rate-limit';
 
 /**
  * Next.js 16 renamed `middleware` to `proxy`. This runs on the Node runtime.
@@ -88,6 +96,13 @@ const PUBLIC_PATHS = [
   // a Bearer header or the last path segment — never a session cookie; the
   // route checks the token itself (lib/mcp/http.ts).
   '/api/mcp',
+  // The booking link (D-074): the public page where people ask for time with
+  // Nick (/meet/<slug>, and its photo), and its three API routes (open times,
+  // a request, the chatbot). Only these two prefixes: '/meetings' and the
+  // rest of /api stay signed in. The routes read busy times only, write only
+  // a pending request, brake per address and check where a write came from.
+  '/meet',
+  '/api/meet',
   // Campaign tracking: the open pixel, tracked links and unsubscribe, loaded
   // by recipients' mail clients with no session. Each route authenticates by
   // its signed per-recipient token, and the click route redirects only to a
@@ -112,6 +127,12 @@ const PUBLIC_PATHS = [
   // their own expiring HMAC token, as Supabase's do. Each route answers 404
   // unless the local demo storage is the one in use (lib/storage/event-storage.ts).
   '/api/event-media',
+  // The public job board (D-077): open roles at portfolio companies, for
+  // anyone. Its pages show only roles a person published, and say "coming
+  // soon" with no data while the board is switched off. Handled before this
+  // list is read (see proxy()); listed so the list stays the whole story.
+  // /jobs-preview, the signed-in preview, is not matched and stays private.
+  '/jobs',
 ];
 
 /**
@@ -174,6 +195,49 @@ async function refreshSession(
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
+
+  // The job board's own host (jobs.tiptop.vc) is the board and nothing else:
+  // every address there is rewritten to the board's pages, which need no
+  // session, so the rest of this function never runs for it. An address that
+  // is not shaped like a board page is a plain 404 here, before any page
+  // renders, and board pages are braked per address (lib/jobs-board/rate-limit.ts).
+  const board = routeBoardHost(pathname, requestHosts(request.headers), boardHosts(process.env));
+  if (board.kind === 'not_found') return notFound();
+  if (board.kind === 'serve') {
+    // The board host's own files: public, never through Copilot's sign-in.
+    if (pathname.endsWith('/opengraph-image') && !boardRequestAllowed(request.headers, pathname)) {
+      return tooManyRequests();
+    }
+    return withSecurityHeaders(passThrough(request));
+  }
+  if (board.kind === 'redirect') {
+    if (!boardRequestAllowed(request.headers, pathname)) return tooManyRequests();
+    // Absolute (Next refuses a relative Location here), and its origin comes
+    // from the environment, never from a request header.
+    const target = new URL(`${board.pathname}${request.nextUrl.search}`, boardHostOrigin());
+    return withSecurityHeaders(NextResponse.redirect(target, 308));
+  }
+  if (board.kind === 'rewrite') {
+    if (!boardRequestAllowed(request.headers, pathname)) return tooManyRequests();
+    const target = request.nextUrl.clone();
+    target.pathname = board.pathname;
+    return withSecurityHeaders(
+      hasSurfaceHeaders(request)
+        ? NextResponse.rewrite(target, { request: { headers: appSurfaceHeaders(request) } })
+        : NextResponse.rewrite(target),
+    );
+  }
+
+  // The board at Copilot's own /jobs: public, braked like the board host, and
+  // never through the session refresh below, so a rotated session cookie can
+  // never ride on a public page. A /jobs address the board does not serve is
+  // a 404 before any page renders.
+  const copilotBoard = isCopilotBoardPath(pathname);
+  if (copilotBoard === false) return notFound();
+  if (copilotBoard === true) {
+    if (!boardRequestAllowed(request.headers, pathname)) return tooManyRequests();
+    return withSecurityHeaders(passThrough(request));
+  }
 
   const isPublic =
     PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
@@ -287,6 +351,49 @@ function forwardRequest(request: NextRequest, surface: SurfaceExtras): NextRespo
     headers.set('Content-Security-Policy', surface.csp);
   }
   return NextResponse.next({ request: { headers } });
+}
+
+/** Whether a request carries either surface header (only a forged one can reach here). */
+function hasSurfaceHeaders(request: NextRequest): boolean {
+  return request.headers.has(SURFACE_HEADER) || request.headers.has(NONCE_HEADER);
+}
+
+/** The request's headers marked as Copilot's own surface, with any forged nonce or CSP gone. */
+function appSurfaceHeaders(request: NextRequest): Headers {
+  const headers = new Headers(request.headers);
+  headers.delete(NONCE_HEADER);
+  headers.delete('content-security-policy');
+  headers.set(SURFACE_HEADER, 'app');
+  return headers;
+}
+
+/**
+ * The job board's pass-through (D-077), which returns before the surface
+ * handling below: untouched, unless a client forged a surface header onto
+ * it, which is replaced the same way forwardRequest does.
+ */
+function passThrough(request: NextRequest): NextResponse {
+  return hasSurfaceHeaders(request)
+    ? NextResponse.next({ request: { headers: appSurfaceHeaders(request) } })
+    : NextResponse.next();
+}
+
+function notFound(): NextResponse {
+  return withSecurityHeaders(
+    new NextResponse('Not found', {
+      status: 404,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    }),
+  );
+}
+
+function tooManyRequests(): NextResponse {
+  return withSecurityHeaders(
+    new NextResponse('Too many requests. Try again in a minute.', {
+      status: 429,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '60' },
+    }),
+  );
 }
 
 /** Routes that set their own Content-Security-Policy. */

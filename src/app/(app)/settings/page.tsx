@@ -29,19 +29,43 @@ import { latestDesktopRelease } from '@/lib/desktop/releases';
 import { desktopVersionHint } from '@/lib/desktop/server';
 import { updatesItself } from '@/lib/desktop/shared';
 import { McpConnectCard } from '@/components/settings/mcp-connect';
+import { BookingSettings } from '@/components/booking/booking-settings';
+import { BOOKING_NOT_SET_UP, readBookingSettings } from '@/lib/services/booking';
+import { DEFAULT_BOOKING_CONFIG } from '@/lib/booking/config';
+import { principalTimeZone } from '@/lib/services/push-alerts';
+import { log } from '@/lib/security/redact';
 import { formatDateTime } from '@/lib/util/time';
 
 export const metadata: Metadata = { title: 'Settings' };
 export const dynamic = 'force-dynamic';
 
-export default async function SettingsPage() {
+const SETTINGS_TABS = [
+  'thesis',
+  'integrations',
+  'preferences',
+  'booking',
+  'limits',
+  'data',
+] as const;
+
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const auth = await requireAuth();
+  const params = await searchParams;
+  const asked = typeof params.tab === 'string' ? params.tab : null;
+  const tab = (SETTINGS_TABS as readonly string[]).includes(asked ?? '') ? asked! : 'thesis';
   const store = getStore();
   const [thesis, integration] = await Promise.all([
     getActiveThesis(store, auth.organizationId, auth.userId),
     getPrimaryIntegration(store, auth.organizationId),
   ]);
   const limits = envLimits();
+  // No paid AI key means nothing here can spend: AI answers come from the
+  // Claude-plan routines (Ask Arwin), so the page says $0 instead of a budget.
+  const paidAi = Boolean(env().anthropicApiKey);
   const criteria = configuredCriteria(thesis);
   const demo = isDemoMode();
   const canManageMcp = hasRole(auth, 'owner');
@@ -62,6 +86,17 @@ export default async function SettingsPage() {
     userId: auth.userId,
     admin: hasRole(auth, 'admin'),
   }).catch(() => null);
+  // The booking link (D-074). A fault reading it shows the "run the
+  // migration" note rather than taking Settings down with it.
+  const [booking, hostZone] = await Promise.all([
+    readBookingSettings(store, auth.organizationId).catch((error: unknown) => {
+      log.warn('Booking settings could not be read', {
+        reason: error instanceof Error ? error.message : 'unknown',
+      });
+      return null;
+    }),
+    principalTimeZone(store, auth.organizationId),
+  ]);
 
   return (
     <PageShell>
@@ -91,12 +126,13 @@ export default async function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="thesis">
+      <Tabs defaultValue={tab}>
         <TabsList data-tour="settings-tabs">
           <TabsTrigger value="thesis">Thesis &amp; scoring</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
-          <TabsTrigger value="limits">Limits &amp; cost</TabsTrigger>
+          <TabsTrigger value="booking">Booking link</TabsTrigger>
+          <TabsTrigger value="limits">Limits</TabsTrigger>
           <TabsTrigger value="data">Data &amp; privacy</TabsTrigger>
         </TabsList>
 
@@ -343,11 +379,45 @@ export default async function SettingsPage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="booking">
+          <Card data-tour="settings-booking">
+            <CardHeader>
+              <div>
+                <CardTitle as="h2">Booking link</CardTitle>
+                <p className="mt-1 text-sm text-[var(--fg-muted)]">
+                  A public page where people ask for a 30-minute call or an hour in person. Open
+                  times come from the calendar. With Instant booking on, free times are booked
+                  straight away; otherwise requests wait for Approve on the Calendar tab. Off until
+                  you turn it on.
+                </p>
+              </div>
+              {booking?.available ? (
+                <Badge tone={booking.enabled ? 'ok' : 'neutral'}>
+                  {booking.enabled ? 'On' : 'Off'}
+                </Badge>
+              ) : null}
+            </CardHeader>
+            <CardContent>
+              <BookingSettings
+                available={Boolean(booking?.available)}
+                enabled={booking?.enabled ?? false}
+                slug={booking?.slug ?? 'meet'}
+                config={booking?.config ?? DEFAULT_BOOKING_CONFIG}
+                linkBase={`${env().appUrl.replace(/\/+$/, '')}/meet/`}
+                canEdit={hasRole(auth, 'admin')}
+                hostZone={hostZone}
+                demo={demo}
+                notSetUpMessage={BOOKING_NOT_SET_UP}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="limits">
           <Card>
             <CardHeader>
               <div>
-                <CardTitle as="h2">Cost and usage ceilings</CardTitle>
+                <CardTitle as="h2">Usage limits</CardTitle>
                 <p className="mt-1 text-sm text-[var(--fg-muted)]">
                   Set by environment variable so they cannot be raised from the interface. See{' '}
                   <code className="font-mono text-[11px]">ENVIRONMENT_VARIABLES.md</code>.
@@ -371,7 +441,11 @@ export default async function SettingsPage() {
                 <DataRow label="AI requests per user per hour">
                   {limits.maxAiRequestsPerUserPerHour}
                 </DataRow>
-                <DataRow label="Daily AI budget">${limits.dailyAiBudgetUsd.toFixed(2)}</DataRow>
+                <DataRow label="AI cost">
+                  {paidAi
+                    ? `Paid AI key on: capped at $${limits.dailyAiBudgetUsd.toFixed(2)} a day`
+                    : '$0: AI answers run on the Claude plan (Ask Arwin), no paid key'}
+                </DataRow>
                 <DataRow label="Automatic analysis">
                   {limits.autoAnalyzeEnabled ? 'On' : 'Off'}
                 </DataRow>

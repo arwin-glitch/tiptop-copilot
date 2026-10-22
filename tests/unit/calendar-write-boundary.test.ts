@@ -6,7 +6,11 @@ import { describe, expect, it } from 'vitest';
  * Where calendar writes can come from, read from the source. Changing an
  * event is a person's tap on the Calendar tab and nothing else: no routine,
  * cron job, AI tool, relay reader, the pings or the parity check can reach a
- * write, and nothing anywhere defaults to emailing guests.
+ * write, and nothing anywhere defaults to emailing guests. The one other
+ * caller is the booking link's core (D-074): a person's Approve in the
+ * Calendar tab's panel, or, with Instant booking on, the request just sent,
+ * once, inside the booking service. The public page, its routes and its
+ * chatbot never name a write.
  */
 
 const SRC = join(process.cwd(), 'src');
@@ -25,11 +29,64 @@ const SOURCES = files(SRC).map((file) => ({
 }));
 
 describe('calendar writes', () => {
-  it('only the Calendar tab’s edit route imports the write module', () => {
+  it('only the Calendar tab’s edit route and the booking approval import the write module', () => {
     const importers = SOURCES.filter((s) => /from ['"][^'"]*calendar\/write['"]/.test(s.text)).map(
       (s) => s.rel,
     );
-    expect(importers).toEqual(['app/api/calendar/events/route.ts']);
+    expect(importers.sort()).toEqual([
+      'app/api/calendar/events/route.ts',
+      'lib/services/booking.ts',
+    ]);
+    // In the booking service one core calls it, with the Send, and only
+    // Approve and Instant booking reach that core.
+    const booking = SOURCES.find((s) => s.rel === 'lib/services/booking.ts')!.text;
+    expect(booking.match(/createCalendarEvent\(/g)).toHaveLength(1);
+    expect(booking).not.toMatch(/updateCalendarEvent|deleteCalendarEvent|recolorCalendarEvent/);
+    const fn = (name: string) =>
+      new RegExp(`\\n(?:export )?async function ${name}\\b[\\s\\S]*?\\n}\\n`).exec(booking)?.[0] ??
+      '';
+    const core = fn('bookOnHostCalendar');
+    expect(core).toMatch(/createCalendarEvent\(/);
+    expect(core).toMatch(/notify: 'send'/);
+    // The core itself, Approve, and Instant booking: nothing else.
+    expect(booking.match(/\bbookOnHostCalendar\(/g)).toHaveLength(3);
+    expect(fn('approveBookingRequest')).toMatch(/bookOnHostCalendar\(ctx, /);
+    expect(fn('bookInstantly')).toMatch(
+      /bookOnHostCalendar\(\{ store, organizationId, userId: null \}/,
+    );
+    // Instant booking runs from the submit alone, after the row is kept and
+    // audited, and only with the switch on.
+    expect(booking.match(/\bbookInstantly\(/g)).toHaveLength(2);
+    const submit = fn('submitBookingRequest');
+    expect(submit).toMatch(/if \(!config\.instant\) return[\s\S]*?bookInstantly\(/);
+    expect(submit.indexOf('bookInstantly(')).toBeGreaterThan(
+      submit.indexOf("action: 'booking.requested'"),
+    );
+    // And the service is reached for Approve from the signed-in panel route alone.
+    const approvers = SOURCES.filter((s) => /\bapproveBookingRequest\(/.test(s.text)).map(
+      (s) => s.rel,
+    );
+    expect(approvers.sort()).toEqual([
+      'app/api/booking/requests/[id]/route.ts',
+      'lib/services/booking.ts',
+    ]);
+  });
+
+  it('the public booking page, its routes and its chatbot name no write at all', () => {
+    const publicSide = SOURCES.filter(
+      (s) =>
+        s.rel.startsWith('app/meet/') ||
+        s.rel.startsWith('app/api/meet/') ||
+        s.rel.startsWith('lib/booking/') ||
+        s.rel.startsWith('components/booking/booking-page') ||
+        s.rel.startsWith('components/booking/booking-chat'),
+    );
+    expect(publicSide.length).toBeGreaterThan(8);
+    for (const { rel, text } of publicSide) {
+      expect(text, rel).not.toMatch(
+        /calendar\/write|createCalendarEvent|\b(insertEvent|patchEvent|moveEvent|deleteEvent)\b|sendUpdates|approveBookingRequest|gmail-send|sendMessage\(/,
+      );
+    }
   });
 
   it('only the write module calls the provider’s insert, patch, move and delete', () => {

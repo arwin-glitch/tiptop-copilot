@@ -1,4 +1,5 @@
 import { joinPages } from '@/lib/documents/pages';
+import { demoJobsBoard } from './jobs-board-fixtures';
 import { proofJudgeAfter } from '@/lib/tasks/proof';
 import { sha256 } from '@/lib/util/hash';
 import { normalizeCompanyName, snippet } from '@/lib/util/text';
@@ -10,6 +11,8 @@ import {
 } from '@/lib/types/domain';
 import type {
   AuditEvent,
+  BookingRequest,
+  BookingSettingsRow,
   CalendarEvent,
   Campaign,
   CampaignEvent,
@@ -44,6 +47,7 @@ import type {
   ThesisVersion,
   UserProfile,
 } from '@/lib/types/domain';
+import { demoBooking } from './booking-fixtures';
 import { demoEvents } from './events-fixtures';
 import { demoGlance } from './glance-fixtures';
 import { demoCampaignId, demoCrmId, DEMO_IDS as ID } from './ids';
@@ -91,6 +95,8 @@ export interface DemoDb {
   campaigns: Campaign[];
   campaign_recipients: CampaignRecipient[];
   campaign_events: CampaignEvent[];
+  booking_settings: BookingSettingsRow[];
+  booking_requests: BookingRequest[];
   [key: string]: unknown[];
 }
 
@@ -2191,6 +2197,9 @@ experiment, not the fundraise timing.`,
     routine_briefings: demoRoutineBriefings(now),
     ...demoCrm(now),
     ...demoCampaigns(now),
+    ...demoBooking(now),
+    // The public job board, switched on, over the two demo companies.
+    ...demoJobsBoard(now),
     // Events (D-075): fictional pages, sessions and guests.
     ...demoEvents(now),
   };

@@ -103,6 +103,9 @@ const PAGES = [
   '/events/00000000-0000-4000-8000-0000e7e00001?tab=messages&view=reminders',
   '/events/00000000-0000-4000-8000-0000e7e00001?tab=page',
   '/events/00000000-0000-4000-8000-0000e7e00001?tab=settings',
+  // The booking link: its public page (its own face, no app shell) and its Settings tab.
+  '/meet/nick',
+  '/settings?tab=booking',
 ];
 
 /** No sideways scroll beyond a few pixels of rounding. */

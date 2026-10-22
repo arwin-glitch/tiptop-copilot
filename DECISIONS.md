@@ -2564,6 +2564,296 @@ notes; the rest did not.
 - The cards themselves do not show the skipped count; Diagnostics does, and
   the server log names the marker and the count (never the content).
 
+### D-074 — The booking link: a public page, approve-first, busy times only
+
+**Context.** Nick sends many "find a time" replies and Copilot had nothing
+like Calendly. Arwin asked (Oct 22) for a link Nick can send
+(`copilot.tiptop.vc/meet/nick`) with its own TipTop face, the host's real
+calendars behind it, Nick's standing rules (Tuesday to Thursday, a buffer
+round every meeting, no slot next to a stack of back-to-back meetings,
+in person only when he is home, coffee/lunch/dinner windows, a place near
+him), a public chatbot that calls itself Arwin, and "don't create chaos".
+
+**Decision.**
+
+- **Two tables, one migration** (`20261022000000_booking_link.sql`, additive,
+  idempotent, RLS like the rest, with `booking_settings` written only by an
+  admin or the owner, as its routes require): `booking_settings` (one row per
+  organization: `enabled`, a unique `slug`, and the Settings document as
+  `jsonb`) and `booking_requests` (what visitors sent, with status
+  `pending | approved | declined | handled`). The settings document is read
+  field by field with defaults (`lib/booking/config.ts`), so a later setting
+  needs no migration and one bad value never hides the rest; a saved value
+  can only be tighter than the standing rules (buffers at least 15 and 30
+  minutes, notice at least 24 hours, days only Tuesday to Thursday).
+- **Off until turned on.** No row, `enabled = false`, another slug, more than
+  one organization, or missing tables: the page says "This booking link is not
+  taking bookings right now." and every public route refuses. Settings says
+  which file to run while the tables are missing; the Calendar button and the
+  Today line simply do not show.
+- **Availability is busy time only.** `lib/booking/availability.ts` reads his
+  main calendar, every calendar he owns, every calendar ticked in Google
+  Calendar, and any calendar turned on in Copilot's Calendar tab
+  (`bookingCalendarIds`): a Calendar-tab toggle only ever adds one, so hiding a
+  personal or family calendar from the view never opens its time to the
+  public. It reads them through the Calendar tab's own range reader, and
+  `lib/booking/busy.ts` reduces each entry to `{start, end, meeting, inPerson,
+  allDay}` and a set of travel days. Busy: anything he has not declined and
+  that is not marked free; blocks count; a hold counts even when marked free;
+  an all-day entry only when opaque, and then the whole day; a journey (a
+  Gmail booking, or a flight, airport, red-eye, layover or flight-number title)
+  even when marked free, up to 20 hours, with 30 minutes of travel time each
+  side (he cannot take a call on a plane); the same invite on two calendars
+  once. A calendar that cannot be read fails the whole read: a slot is never
+  offered from part of the calendar. Titles, guests, descriptions, places and
+  calendar names never leave the server.
+- **The rules** (`lib/booking/engine.ts`, pure; every one tested, the clock
+  change weeks included): Tuesday, Wednesday, Thursday only (Settings may drop
+  one, never add Monday or Friday); a 30-minute call wholly inside 09:00–17:00
+  host time; a 1-hour in-person coffee starting 08:30–11:00 or 14:00–16:00,
+  lunch 11:30–13:00, dinner 18:00–19:30; half-hour starts; 15 minutes clear
+  round every meeting for a call, 30 for in person and round anyone's
+  in-person meeting (travel); a run of 3+ busy entries with gaps under 15
+  minutes blocks anything touching it, anything starting within 60 minutes
+  after it, and anything ending within 30 minutes before it
+  (`stackLeadMinutes`, our reading of "the 30-min-before rule still applies":
+  the half hour before a stack stays free, for a call too); at least 24 hours'
+  notice, at most 21 days ahead; at most 2 link bookings (waiting + approved)
+  a day; nothing on a day that already has 5 Meeting-verdict entries; the
+  link's own waiting requests hold their time like meetings; and no time may
+  itself complete a back-to-back run (only possible when Settings sets the
+  back-to-back gap wider than the buffer). In person only on a day he is home:
+  no in-person slot on a day with a Gmail booking (`fromGmail`: flight, hotel,
+  reservation); an in-transit title on any entry (flight, airport, red-eye,
+  layover, ✈); a weaker travel title (hotel, Airbnb, trip, "fly to", a flight
+  number like "UA 1234", a route like "AUS → SFO") on an entry that is not a
+  meeting with other people ("Hotel Tonight founder call" is a pitch); an
+  all-day stay, trip, OOO or conference or "in <another place>" (or a timed
+  "in <another place>" he made for himself); an entry whose own location is
+  in another city ("New York, NY", "9 Pier Rd, Lakeport") or at any airport,
+  his home city's included, but not a venue and its neighbourhood ("Blue
+  Bottle, Downtown"); an entry he made in another time zone (UTC and `Etc/*`
+  say nothing); the day after travel that runs into the evening (20:00 or
+  later: "that day or the night before"); and the days between two travel days
+  at most three days apart (out Tuesday, back Thursday), unless the first one's
+  travel took him home ("Flight home", "Flight to <home city>") or he has
+  something at a home place that day. None at all while his main calendar is
+  set to another zone's clock. Slots go to the page as instants; the page and
+  the chatbot label calls in the visitor's zone, named so a November slot never
+  says "Daylight" ("Central Time (Chicago)"); in-person times read in the
+  host's own clock (the visitor will be there) unless they pick another zone.
+- **The public side** (`/meet/[slug]`, its photo, and `/api/meet/[slug]/slots |
+  request | chat`) is the only new public surface: two prefixes in `proxy.ts`
+  (`/meet`, `/api/meet`), matched as a whole path segment, so `/meetings` and
+  `/api/booking/*` stay signed in. Its routes read busy time, write one thing
+  (a pending request) and never touch the calendar or a mailbox. Writes must
+  come from the page itself (the Origin check, by hand), every route brakes
+  per address (a keyed hash, never the address; 5 requests per 10 minutes and
+  20 a day; the page itself 120 views per 10 minutes, then the closed page; the
+  chat route 60 per 10 minutes before it reads anything), a request also per
+  email (3 an hour). Waiting requests are capped in the table, so the caps hold
+  across restarts: at most 3 per email address, at most 3 per sender address
+  whatever email they type, and at most 6 new meeting requests a day for the
+  whole link (past that the page still takes messages), so a few junk requests
+  cannot close every slot for three weeks. Requests are checked and kept one at
+  a time per organization, so two sent for the same slot at once cannot both
+  be kept. A honeypot field is answered as success and kept nowhere, bodies
+  are capped (16 KB, every field length-capped, zod-strict), the email must be
+  a plain address (no `?cc=`, no doubled dots, no invisible characters), text
+  loses control, invisible and direction-changing characters and angle
+  brackets (one-line fields also lose line breaks), and a deck or map link must
+  be http(s). Confirmation: "Request sent. You'll get a calendar invitation
+  once the time is booked." No visitor-facing text says a person (Arwin, the
+  team, "we") confirms, reviews or approves. Copilot sends no email.
+- **Approve is the only write, and a person's.** A "Booking requests" button
+  over the Calendar page's header (out of the flow, so the calendar does not
+  move by a pixel) opens a drawer listing everything a visitor entered; Today's
+  "N booking requests waiting." line links to `/calendar#booking-requests`,
+  which opens it. Approve (`approveBookingRequest`, reached only
+  from the signed-in, same-origin `/api/booking/requests/[id]`) re-reads the
+  live calendar and re-runs every rule, first come, first served: against
+  approved bookings and only the waiting requests asked for before this one
+  (`bookingsBefore`), so the older of two overlapping requests can always be
+  approved and the newer is refused with "An earlier booking request is
+  waiting for an overlapping time" (notice measured from when it was asked,
+  and still at least an hour away). It refuses with the reason when the time
+  is no longer free; then, with the editing grant, claims the row (a second tap
+  cannot make a second event, and Decline waits while the claim stands) and
+  creates the event on his main calendar through `lib/calendar/write.ts`:
+  "<Host first name> <> <Name> (<Company>)", with "Coffee: ", "Lunch: " or
+  "Dinner: " in front in person, the note, deck and map link in the
+  description, the place as location, and for a call the host's saved video
+  link (Settings > Booking link > "Video link for calls", `callLink`: location
+  plus a "Join the call:" line, no Meet) or else Google Meet; the host's main
+  calendar address first on the guest list as `{ organizer: true,
+  responseStatus: 'accepted' }` (never emailed), then the requester, once each;
+  and `notify: 'send'` (sendUpdates `all`: approving is the person's Send). The
+  public page, its routes and the chatbot never see the video link, only a
+  label from `videoProviderLabel` ("30-min Zoom call"). The drawer asks once
+  more first ("Add to Nick's calendar and email an invitation to …?"), marks
+  every address "Email not checked", and
+  offers only Decline once a request's time has passed (Today's count leaves
+  those out). If Google's answer is lost (a timeout), the claim stays for its
+  two minutes and the drawer says to check the calendar first, so a retry
+  cannot make a second event; any visitor `<` or `>` reaching the event is
+  turned into a look-alike, since Google reads a description as HTML. Without
+  the grant: the "Turn on calendar editing" note and an
+  "Open in Google Calendar" link, filled in (nothing is saved until it is saved
+  there), and "I added it in Google Calendar" to record it. Decline marks it
+  declined and can open a short decline email in the existing compose window
+  (written and signed as Arwin, the time named in the visitor's zone, no
+  pronoun for the host), which sends only on Send. Every action is audited by
+  ids and kinds only
+  (`booking.requested`, `approved`, `approve_refused`, `declined`, `handled`,
+  `settings_updated`, `photo_updated`).
+- **Instant booking** exists in Settings and defaults off. Writes stay
+  person-only (nothing writes to the calendar from the public page), so in
+  this version "instant" only tags requests "Instant" in the drawer.
+  (Replaced: Instant booking now books, and is on by default; see the
+  Instant booking amendment below.)
+- **Settings > Booking link** (admins and the owner; `?tab=booking`): on/off,
+  slug, the public card (display name, title, bio, firm, a photo), home city
+  and other names for it, the places list (name, area, optional map link) and
+  whether visitors may suggest one, the call and kind windows, buffers, the
+  stack rule, notice, horizon, both caps, instant, the chatbot switch, the
+  public FAQ, and the monthly AI cap ($20). Nothing real is in the repository:
+  the host's bio, photo, home city, places and FAQ are typed here and live
+  only in the database. The photo is checked by its bytes (JPEG, PNG or WebP,
+  under 3 MB), kept in the private bucket under a path Copilot names itself
+  (`booking/<organization>/host-photo-<version>.<ext>`), and served by
+  `/meet/[slug]/photo` only while the link is on (a signed-in route serves
+  Settings' preview). Saving Settings never takes the photo from the request:
+  only an upload changes it, and both photo routes serve only that exact path,
+  so no hand-made save can point the public route at another stored file.
+- **The public chatbot is its own persona** (`lib/booking/chat-prompt.ts`),
+  not the pinned in-app `ASK_ARWIN_PERSONA`: "Arwin, <host>'s AI scheduling
+  assistant at <firm>", honest that it is an AI, tagged "AI" on the page. Its
+  only tools: `find_open_slots` (a start and a visitor-zone label, at most 8,
+  at most 2 a day), `get_faq` (the Settings FAQ, the only firm facts it may
+  give; else "I can take a message for <host>") and `fill_form` (only times it
+  was given this turn, only listed places; the visitor reviews and presses
+  Send). The whole conversation goes to the model as one fenced visitor turn:
+  the page keeps the history, so a forged "Arwin" line is data, never an
+  assistant turn. Live only when the switch is on, a real key is set (the
+  repo's Anthropic client, `tier: 'fast'`, 600 max tokens, 3 tool rounds, at
+  most the last 6 turns and 3,000 characters of visitor text), this month's
+  chatbot spend is under the Settings cap, the daily AI budget has room, the
+  link has made fewer than 400 model turns in the last day (counted from
+  `ai_usage`, so it holds across deploys), and the address is under 10 model
+  messages per 10 minutes and 40 a day (60 an hour for the whole link, in
+  memory). Spend is summed over every page of `ai_usage` rows
+  (`listAllPages`): a plain list stops at the database's first 1,000 rows, and
+  a cap summed over part of them would never trip. A failed turn is recorded
+  at what it really spent (the Anthropic client now puts the spent tokens on
+  the error after a paid round) or, when nothing was reported, at its worst
+  case (3 rounds at a 20,000-token input ceiling), so failures cannot run past
+  the cap unseen. The public page reuses its live-or-guided answer for 30
+  seconds; a chat turn always checks afresh. A time the chatbot fills always
+  carries the meeting type it was found for. Otherwise it is a guided helper
+  (Find a time, About, Leave a message) over the same tools with no model; the
+  demo is always guided.
+
+**Known limits.**
+
+- Single tenant, like the other public endpoints: the one organization there
+  is. A second organization closes the link rather than guess.
+- The per-address rate limits are in-process, as elsewhere: a restart resets
+  them, and several instances would each allow their own. The caps that matter
+  most (waiting requests per email, per sender and per day; the chatbot's
+  month, day and daily turns) are counted from the tables instead. Every
+  per-address limit trusts the edge's `CF-Connecting-IP`: check once that
+  production overwrites a forged one before turning the link on.
+- Approve has no idempotency key at Google: after a lost answer the claim and
+  the drawer's warning are what stop a second event (a deterministic event id
+  would need `lib/calendar/write.ts` and the provider to pass one through).
+- Call windows stay in home time on a travel day (a Pacific trip can offer a
+  call at 7:00 his local time); in person already pauses while his calendar
+  is set to another zone.
+- The travel signs are heuristics that err towards "away": a local event
+  whose address names a suburb not listed under "other names for home" reads
+  as travel and hides in person that day.
+- Requests are judged again at approval: one approved after the day filled up
+  by hand is refused, not squeezed in.
+- Instant booking is stored but does not book on its own (above). (No longer
+  true: see the Instant booking amendment below.)
+
+**Amended 2026-10-22, after Arwin tested the live link that day.** Four fixes,
+no migration (all in the settings document, read with defaults):
+
+- **In person pauses per trip, not for every date.** Nick's main calendar was
+  still on Pacific time after a San Francisco trip, so the old switch ("none
+  at all while his main calendar is set to another zone's clock") hid in
+  person on every day. Now `inPersonPausedThrough` (`lib/booking/busy.ts`)
+  pauses it only through the host-zone day his next journey home lands (a
+  flight whose title or Gmail route line ends in the home city or one of its
+  other names; a red-eye counts for the day it lands); later days open as
+  usual, travel days still apply, and with no journey home inside the horizon
+  every day stays paused (the safe default). A home city saved as
+  "City, State" matches the plain city name. The refusal reads "In person is
+  paused until <host> is back (from <day>)."
+- **Hard hours in the host's zone** (`BOOKING_EARLIEST_START` 08:00,
+  `BOOKING_LATEST_END` 18:00, `DINNER_WINDOW` 18:00–19:00 in
+  `lib/booking/config.ts`): nothing starts before 8:00 Central, calls, coffee
+  and lunch end by 18:00 (last call 17:30), dinner is 18:00–19:00 only. They
+  replace the 09:00–17:00 / 08:30–11:00, 14:00–16:00 / 18:00–19:30 windows
+  above. Settings refuses a window outside them; a stored window is clamped
+  on read (one wholly outside is dropped), and a stored window still equal to
+  the old defaults reads as the new defaults, since it was never chosen.
+  Approve re-checks the time on the host's clock whatever Settings holds.
+- **Calls on a saved video link and the host on the invite**, as described in
+  the Approve bullet above (`callLink`, `organizerEmail`).
+- **No visitor-facing text says a person confirms** ("Arwin confirms", "Arwin
+  will reply", "from the team" are gone from the page, the chatbot and the
+  error messages); the chatbot still calls itself Arwin, the AI.
+
+**Amended 2026-10-22 (later the same day): Instant booking books.** Arwin:
+"if we click instant, just make sure it's auto approve." The switch was only
+stored, so every request still waited for Approve. Now, no migration:
+
+- **With Instant booking on, a request for a free time is booked straight
+  away.** Right after a call or in-person request is saved (form or chatbot
+  fill, both sent through the same request route), the service books it once
+  through the very core Approve uses (`bookOnHostCalendar` in
+  `lib/services/booking.ts`, which `approveBookingRequest` now calls too): the
+  re-check against the live calendar (the cache is bypassed) and every rule,
+  the claim on the row (`claimed_at`, so a double submit, a retry or a
+  person's Approve at the same moment can never make two events), and the
+  event on the host's main calendar through `lib/calendar/write.ts`, exactly
+  as Approve makes it (the host first on the guest list as organizer, the
+  visitor invited, sendUpdates `all`, the saved video link instead of Meet).
+  The row is marked approved with its calendar and event ids. It is a system
+  decision: `decided_by` is null, the write module's audit row has no user,
+  and the audit action is `booking.auto_approved` (ids and kinds only).
+- **The time is checked live before the request is kept.** With the switch
+  on, the submit's own check reads the calendar fresh, so a time taken since
+  the page loaded is refused ("That time is no longer open. Pick another
+  time.") and the page offers the next times, instead of keeping a request
+  that cannot be booked.
+- **When it cannot be booked on its own, nothing changes for the visitor.**
+  No calendar editing grant, the calendar unreachable, the time no longer
+  free, the row already claimed, or any write error: the request stays
+  pending, exactly as before, for a person on the Calendar tab (a refusal is
+  audited as `booking.approve_refused` with `instant: true`). It is tried once
+  and never retried. The visitor never sees an error for it.
+- **What the visitor is told.** The request route answers `status`:
+  `booked`, `pending` or `message`. Booked: "You're booked with <first name>",
+  the time in their zone (and the host's, when it reads differently) and "The
+  calendar invitation is on its way to <their email>." Pending: "Request
+  sent. You'll get a calendar invitation once the time is booked." No text
+  says a person confirms or reviews. The honeypot is answered as pending and
+  keeps nothing.
+- **Unchanged.** Instant booking off behaves exactly as before. Messages stay
+  messages. Every brake (the honeypot, the per-address and per-email limits,
+  the waiting caps, the six-a-day link cap, the five-meetings day) applies
+  before anything is written. The public page, its routes and the chatbot
+  still name no calendar write; the boundary test pins that only Approve and
+  the submit (with the switch on, after the row is kept) reach the core.
+- **On by default** for a new link (`DEFAULT_BOOKING_CONFIG.instant`). The
+  demo keeps it off, so it still shows requests waiting for Approve.
+- Known limit, as for Approve: if Google's answer is lost, the claim holds for
+  two minutes and the request stays pending; a person approving it after that
+  should check the calendar first, since the event may be there already.
+
 ---
 
 ### D-075 — Events: Luma-style event pages inside Copilot, built from one contract
@@ -2987,3 +3277,148 @@ part of D-075).*
   refused. Outside uploads are charged by the bytes that arrived; refused
   originals and uploads whose ticket expired are deleted.
 
+### D-077 — A public job board: published by a person, read from companies' own boards, off until switched on
+
+**Context.** Nick saw Portfolio › Jobs (the roles founders email him, from the
+weekly jobs scan) and asked for "a public version similar to the Perks
+directory", to announce a job board with all the portfolio companies' open
+roles, like the boards other funds run (GTMfund's is on Consider). Arwin
+asked for a button on the Jobs tab that opens the public page. The roles on
+Jobs come from Nick's mailbox, with the people to send candidates to and the
+founders' own words, so none of that can go public as it stands.
+
+**Decision.**
+
+- **Three tables, empty and off by default** (`20261022100000_public_jobs.sql`):
+  `job_board_settings` (the switch, title, intro, accent), `job_companies`
+  (per portfolio company: careers page, its job board and token, daily read,
+  auto-publish, listed, public logo and about, last read) and `job_postings`
+  (per role: source `ats` / `email` / `manual`, the public fields, status, and
+  `published`, `featured`, `approved_*`, `hidden_*`). No settings row, or no
+  tables yet, reads as off; every public page then says "coming soon" with no
+  data and noindex. Writes say the migration is needed.
+- **One gate, in code and in the database.** `postingPublicState`
+  (`lib/jobs-board/public.ts`) decides for the public pages, the signed-in
+  preview and the tests alike: company in the portfolio, role active, not
+  hidden, published, an emailed or hand-added role approved by a person, a
+  board role nobody approved individually only while its company's
+  auto-publish is on, and an apply link (its own or the company's careers
+  page). A check constraint refuses a published, unapproved `email` or
+  `manual` row. Public pages get only `PublicJob` / `PublicCompany` fields.
+- **Emailed roles are drafts, always.** The jobs scan's active roles at
+  portfolio companies are imported (on viewing Jobs, at most every five
+  minutes; Refresh now; the daily job) with the title, team, place, remote,
+  a level from the title and the job link. Never the contacts, the founder's
+  notes, pay from an email or the sources. Import never edits a role again;
+  a founder's "filled" closes it. A role the company already lists on its
+  own board is not imported; when a board sync finds one a draft has, the
+  draft closes and a person's approval moves to the board's copy.
+- **Companies' own job boards, read politely.** Greenhouse, Lever, Ashby,
+  Workable and Recruitee, through their documented public job-list APIs only,
+  addresses rebuilt from a strictly checked token. The board is read from the
+  careers address, or from the careers page's markup (fetched once, robots.txt
+  obeyed, public hosts only). Reads: daily on the full cron runs and on
+  Refresh now; robots.txt and its crawl delay per host; half a second at least
+  between calls to a host; 8 s timeouts; size caps; a 429 pauses the host;
+  Refresh now once a minute per company; per-company isolation; an answer in
+  an unknown shape, a 404 or a timeout changes nothing. The set of a company's
+  open board roles becomes exactly what its board lists. Ashby's unlisted
+  roles are skipped. Descriptions become plain structured text (`## `, `- `,
+  paragraphs) and render as text: no board HTML ever reaches a page. Demo
+  mode reads fictional fixtures. The daily job's line is counts only.
+- **Copilot.** A bar on every Jobs view: View public board (new tab), Copy
+  link, the switch, Preview (`/jobs-preview`, signed in, while off), Board
+  text. Views: From email (the original list, still the default), Approvals,
+  Public board (publish, hide, feature, mark filled, edit, add, refresh) and
+  Companies. Every action is a member-role server action with an audit row
+  (`jobs.*`) and rebuilds the cached public pages.
+- **Public pages.** `/jobs` (home: counts, featured, search and six filters in
+  the browser, kept in the address bar), `/jobs/companies`,
+  `/jobs/<company>`, `/jobs/<company>/<role>` (description, facts, Apply at
+  the company, share, JobPosting JSON-LD, canonical, Open Graph image), plus
+  `/jobs/sitemap.xml`. The Perks directory's look (dark, TipTop green, Mona
+  Sans and Fragment Mono via next/font), mobile first. Cached (ISR, 10
+  minutes, rebuilt on every change); a build that cannot read the database
+  renders them per request instead.
+- **Its own host.** The proxy serves the same pages at the root of
+  `jobs.tiptop.vc` (and `JOBS_BOARD_URL`'s host, `JOBS_BOARD_HOSTS`) by
+  rewriting to `/jobs-host`; every address there is the board's, Copilot is
+  unreachable, `/jobs/...` redirects to the short form, and `/jobs-host` is
+  404 elsewhere. A DNS CNAME and a Render custom domain are all it needs
+  (docs/JOBS_BOARD.md). Copilot's own `robots.txt` now disallows everything
+  but `/jobs`.
+
+**Known limits.**
+
+- No job alerts or talent network (they would collect visitors' emails).
+- Locations are free text from each board, so the location filter groups by
+  exact place name; no stage, size or industry filters.
+- Greenhouse EU, Lever EU, BambooHR and SmartRecruiters are not read.
+- The free Render plan's wake-up after idling is not hidden by caching.
+- The careers-page check refuses address literals, internal names and hosts
+  whose addresses are private, and follows redirects by hand, checking each;
+  it does not pin the address it checked, so a name that changes between the
+  check and the fetch is not caught (only signed-in members can type a
+  careers address).
+
+**Review fix-up (before launch).** A security and a UX review of the branch
+found these, now changed:
+
+- **The preview reads nothing for its metadata.** `/jobs-preview` pages have
+  fixed metadata, and the layout and every page check the session themselves
+  and redirect to `/login` (the proxy only checks a cookie is present, and a
+  page's `generateMetadata` runs apart from its body, so it was leaking the
+  staged roles' titles to a made-up cookie).
+- **No cache entry per address.** `/<company>`, `/<company>/<role>` and the
+  role preview images render per request from one tagged data-cache entry
+  (`readPublicBoardCached`, tag `jobs-board`, 10 minutes, expired at once by
+  `revalidatePublicBoard`); only the fixed pages (home, companies, sitemap)
+  stay ISR. A role image for anything not public is a 404, never a drawing.
+  The proxy answers 404 to any address not shaped like a board page
+  (`isBoardPath`: scanner paths never render), and brakes board traffic per
+  address (120 pages and 20 images a minute; `lib/jobs-board/rate-limit.ts`).
+  `/jobs` skips the session refresh, so no session cookie rides on a public
+  page.
+- **Hosts.** Only the `Host` header picks the board's host;
+  `X-Forwarded-Host` counts only with `JOBS_BOARD_TRUST_FORWARDED_HOST=true`
+  (the e2e server). A trailing dot is ignored. Old `/jobs/...` links on the
+  board host redirect with an absolute Location from the environment (a
+  relative one was a 500). The pages' internal `og:image` addresses are
+  served on the board host.
+- **Nothing internal published by default.** A company's public about is
+  only `job_companies.about`; the portfolio description is a "Use this text"
+  suggestion and the sector is not public. `PublicCompany` gains the
+  careers page.
+- **Roles that go stale.** Emailed and hand-added roles stop being public 60
+  days after their last confirmation (approval, or the founder mentioning
+  them again: `last_seen_at`), state `stale`, until a person publishes again
+  ("Still open: re-confirm"). The import uses the same liveness check as the
+  Jobs list, so an emailed role whose posting its board dropped closes.
+  An emailed role's public date is its approval. A hidden emailed role's
+  hide moves to the board's copy, like an approval does. An emailed role
+  whose link is on a shared-document host needs `confirmLink` to publish.
+- **Board pages.** Fallback metadata and a dark theme colour for the board's
+  layouts (no board address shows Copilot's title or description); a closed
+  role at a company still on the board gets a noindex "This role has closed"
+  page with the company's open roles; the not-found text is generic. JSON-LD
+  meets Google's required fields or is left out: places parsed to locality,
+  region and country, `applicantLocationRequirements` for remote roles,
+  `baseSalary` when pay parses, `validThrough` for emailed and hand-added
+  roles, and no invented description. Locations fold "(Hybrid)" into the
+  work setup and dedupe. A sticky Apply bar on phones; 16px filters (no iOS
+  zoom); three featured cards on a phone; the year on old dates.
+- **Hostile input costs linear time.** robots.txt wildcards are matched
+  without a regex, rules are capped; the description sanitizer's tag
+  patterns stop at the next `<`, dropped elements and comments are cut in one
+  forward pass, and its input cap is 100 KB; the careers-page embed pattern
+  is bounded; answers are read as a stream and cancelled at the size cap.
+  Job board API calls never follow redirects, and the host check runs before
+  anything about the answer is kept. More private IPv6 ranges are refused.
+- **Copilot's robots.txt** also allows `/_next/static/` and `/icon.svg`, so
+  search engines can render the board's pages.
+
+Still open, deliberately: the careers-page DNS check is not pinned to the
+connection; the board shares Copilot's root layout (manifest, service
+worker, desktop title bar and globals.css ship with its pages) until it gets
+a route group of its own; link-preview images use the default font; logos
+are typed by hand.

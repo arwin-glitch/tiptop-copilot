@@ -159,11 +159,11 @@ test.describe('guided tours', () => {
 
   test('a tour survives a reload in the middle', async ({ page }) => {
     await page.goto('/calendar?tour=calendar');
-    await expectStep(page, /Calendar · 1 of 4/i, 'Your calendar, live');
+    await expectStep(page, /Calendar · 1 of 5/i, 'Your calendar, live');
     await next(page).click();
-    await expectStep(page, /2 of 4/, 'Day, week or month');
+    await expectStep(page, /2 of 5/, 'Day, week or month');
     await page.reload();
-    await expectStep(page, /2 of 4/, 'Day, week or month');
+    await expectStep(page, /2 of 5/, 'Day, week or month');
     await card(page).getByRole('button', { name: 'End tour' }).click();
     await expect(card(page)).toHaveCount(0);
   });

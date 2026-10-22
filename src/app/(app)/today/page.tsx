@@ -39,6 +39,8 @@ import { WelcomeBack } from '@/components/today/welcome-back';
 import { TodayGlance } from '@/components/today/today-glance';
 import { AffinityExitLine } from '@/components/today/affinity-exit-line';
 import { EventsLine } from '@/components/today/events-line';
+import { BookingRequestsLine } from '@/components/today/booking-requests-line';
+import { countPendingBookingRequests } from '@/lib/services/booking';
 import { CompanyChip } from '@/components/tasks/company-chip';
 import { ThreadLinks } from '@/components/email/thread-links';
 import { NotSeenSentCard, type NotSeenSentItem } from '@/components/tasks/proof-check';
@@ -129,29 +131,40 @@ async function TodayContent({
   // posted a minute ago shows now rather than after the next scheduled sync.
   await pullBriefingsFromSlack(getStore(), auth.organizationId).catch(() => 0);
   const dueTasks = [...data.overdueTasks, ...data.dueTodayTasks];
-  const [routineBrief, routineDossier, followUps, glance, affinityExit, money, people, flagged] =
-    await Promise.all([
-      getCurrentBrief(getStore(), auth.organizationId).catch(() => null),
-      getCurrentDossier(getStore(), auth.organizationId).catch(() => null),
-      // Same rule as the briefings: a Slack fault only hides the card.
-      readFollowUps(getStore(), auth.organizationId, { now }).catch(() => null),
-      // And a store fault only hides the glance cards.
-      readTodayGlance(getStore(), auth.organizationId, {
-        now,
-        timeZone: auth.profile.timezone,
-      }).catch(() => null),
-      // The Affinity exit reminder: a line in the last two weeks before the
-      // notice date, and nothing at all on a fault.
-      readAffinityExitTodayLine(getStore(), auth.organizationId, now, auth.profile.timezone).catch(
-        () => null,
-      ),
-      // The row menus' money marks and people. Neither throws: a fault only
-      // leaves the menus plainer.
-      readMoneyLegal(getStore(), auth.organizationId, dueTasks),
-      readTaskPeople(auth.organizationId),
-      // Ticked tasks whose deliverable was never seen sent. Never throws.
-      readFlaggedProofTasks(getStore(), auth.organizationId, now),
-    ]);
+  const [
+    routineBrief,
+    routineDossier,
+    followUps,
+    glance,
+    affinityExit,
+    money,
+    people,
+    flagged,
+    bookingRequests,
+  ] = await Promise.all([
+    getCurrentBrief(getStore(), auth.organizationId).catch(() => null),
+    getCurrentDossier(getStore(), auth.organizationId).catch(() => null),
+    // Same rule as the briefings: a Slack fault only hides the card.
+    readFollowUps(getStore(), auth.organizationId, { now }).catch(() => null),
+    // And a store fault only hides the glance cards.
+    readTodayGlance(getStore(), auth.organizationId, {
+      now,
+      timeZone: auth.profile.timezone,
+    }).catch(() => null),
+    // The Affinity exit reminder: a line in the last two weeks before the
+    // notice date, and nothing at all on a fault.
+    readAffinityExitTodayLine(getStore(), auth.organizationId, now, auth.profile.timezone).catch(
+      () => null,
+    ),
+    // The row menus' money marks and people. Neither throws: a fault only
+    // leaves the menus plainer.
+    readMoneyLegal(getStore(), auth.organizationId, dueTasks),
+    readTaskPeople(auth.organizationId),
+    // Ticked tasks whose deliverable was never seen sent. Never throws.
+    readFlaggedProofTasks(getStore(), auth.organizationId, now),
+    // Booking-link requests waiting. Never throws: a fault is no line.
+    countPendingBookingRequests(getStore(), auth.organizationId),
+  ]);
   // Never throws: a fault only leaves the rows without company chips.
   const companies = await readTaskCompanies(getStore(), auth.organizationId, [
     ...dueTasks,
@@ -235,6 +248,8 @@ async function TodayContent({
       ) : null}
 
       {affinityExit ? <AffinityExitLine countdown={affinityExit} /> : null}
+
+      {bookingRequests ? <BookingRequestsLine count={bookingRequests} /> : null}
 
       <EventsLine organizationId={auth.organizationId} now={now} />
 

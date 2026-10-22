@@ -198,6 +198,143 @@ throughout.
   with the next part). Two demo events with invented guests show it in demo
   mode.
 
+- **Instant booking now really books.** With Settings > Booking link > Rules
+  > Instant booking on, a visitor who picks a free time is booked straight
+  away: the meeting goes onto Nick's calendar exactly as Approve would put it
+  there (Nick first on the invite, the visitor invited, the saved video link
+  for calls) and Google emails the invitation. The visitor sees "You're
+  booked with Nick", the time in their own zone and in Central, and "The
+  calendar invitation is on its way to <their email>." If it cannot be booked
+  on its own (calendar editing is off, Google does not answer, or the time
+  was just taken), the request simply waits on the Calendar tab for Approve,
+  as before, and the visitor sees "Request sent. You'll get a calendar
+  invitation once the time is booked." A time taken since the page loaded is
+  refused and the page shows the next open times. Instant booking is on by
+  default for a new link; turned off, every request waits for Approve as
+  before. Messages stay messages. No database update needed.
+- **No money figures where nothing is spent.** Copilot runs no paid AI (its AI
+  answers come from the Claude plan through Ask Arwin), so the booking
+  chatbot's "Monthly AI cost cap" field is gone, Settings' "Limits & cost" tab
+  is now "Limits" and shows "AI cost: $0", and Diagnostics says "$0 (no paid
+  AI key)". A dollar budget shows again only if a paid AI key is ever set.
+
+- **Booking link fixes after the first live test.** In-person times no longer
+  vanish for every date while Nick's Google Calendar is still set to another
+  time zone from a trip: in person now pauses only until the day his flight
+  home lands, and opens again from the next day (if no flight home is on the
+  calendar, it stays paused, as before). A home city typed as "Austin, Texas"
+  now matches "Flight to Austin". Times are held to Central (Nick's own clock):
+  nothing starts before 8:00 AM, calls, coffee and lunch end by 6:00 PM (the
+  last call is 5:30 to 6:00), and dinner is 6:00 to 7:00 PM. Calls can use a
+  saved video link (Settings > Booking link > "Video link for calls", for
+  example a Zoom room) instead of Google Meet; the link goes only into the
+  invite, and the public page just says "30-min Zoom call". Nick is now on the
+  invite himself, first on the guest list, with the visitor after him. The
+  public page and the chatbot no longer say a person ("Arwin", "the team")
+  confirms anything: the sent message reads "Request sent. You'll get a
+  calendar invitation once the time is booked." No database update needed.
+
+- **A public job board for the portfolio's open roles, with a button on
+  Portfolio › Jobs to open it.** Jobs now has a "Public job board" bar with
+  View public board (opens it in a new tab), Copy link, an on/off switch, a
+  Preview while it is off, and the board's text. Under it: From email (the
+  roles founders email Nick, as before), Approvals (those emailed roles,
+  waiting: none goes public until someone approves it, and only the title,
+  company, place, level and job link ever do), Public board (publish, hide,
+  feature, mark filled, edit, add a role, Refresh now) and Companies (each
+  company's careers page; Copilot reads Greenhouse, Lever, Ashby, Workable
+  and Recruitee boards every day, adds new roles and closes ones that are
+  gone; a company's board roles go public on their own only when someone
+  switches that on). The board itself is at /jobs, and at jobs.tiptop.vc once
+  its DNS points here: search and filters by company, team, place, remote,
+  level and type, featured roles, a page for each role (apply at the company,
+  share, Google for Jobs data) and each company, in the Perks directory's
+  look and fast on a phone. It is off, showing "coming soon", until switched
+  on, and needs the database update
+  `20261022100000_public_jobs.sql`.
+
+- **The job board, checked over before launch.** While the board is off, the
+  big button on Jobs is now "Preview board" (the public page only says
+  "coming soon" until then), and the line about emailed roles waiting links
+  straight to Approvals. A company's public "about" is only what someone
+  types for the board: Copilot's own notes about a company are offered as a
+  "Use this text" button, never published by themselves. An emailed role
+  whose link is a Google Doc, Drive, Notion or Dropbox file asks the approver
+  to check that anyone can open it first. Emailed and hand-added roles come
+  off the board after 60 days unless the founder mentions them again or
+  someone re-confirms them, an emailed role whose job posting has gone closes
+  on the board too, and it is dated from its approval rather than from the
+  founder's first mention. A hidden role stays hidden when the company's own
+  board lists the same role. A filled role's old link now says "This role
+  has closed" with the company's other roles, and every board link, closed
+  or not, previews as the TipTop job board, never as Copilot. Links to
+  jobs.tiptop.vc/jobs/... redirect properly, link-preview images work on
+  jobs.tiptop.vc, Google for Jobs gets the place, country, pay and expiry it
+  asks for (and no data at all for a role it would reject), and on a phone
+  the Apply button rides along the bottom of a role's page. Behind the
+  scenes: the signed-in preview gives nothing away to a made-up sign-in,
+  made-up board addresses can no longer fill the server's disk, one visitor
+  hammering the board is slowed down, and a company's hostile careers page,
+  job description or robots.txt can no longer stall Copilot.
+
+- **A booking link people can use to ask Nick for time.** A public page at
+  `/meet/<name>` (Nick's is `/meet/nick`), with its own TipTop look, his name,
+  title, short bio and photo, works on a phone and in dark mode, and needs no
+  sign-in. Visitors pick a 30-minute call (on Nick's saved video link, such as
+  his Zoom room, else Google Meet) or an hour in person
+  (coffee, lunch or dinner, at one of his listed places or one they suggest),
+  then a time shown in their own time zone, and send a request. Only open
+  times are shown: they come from all of Nick's calendars as Copilot reads
+  them, and nothing about his events (titles, guests, places) ever reaches the
+  page. His rules hold every time: Tuesday to Thursday only, a buffer round
+  every meeting (30 minutes for in person), nothing next to a run of three or
+  more back-to-back meetings, in person only on days he is home, at least a
+  day's notice, three weeks ahead at most, and at most two link bookings a
+  day. Nothing is booked from the page: each request waits behind the
+  "Booking requests" button on the Calendar tab (Today says how many and
+  links there), where Approve checks
+  the time again and only then puts it on his calendar and sends the invite,
+  and Decline can open a decline email to read and send. A chatbot on the
+  page, tagged AI, introduces itself as Arwin, Nick's AI scheduling assistant:
+  it can find open times, answer from a short public FAQ, take a message, and
+  fill in the form, but the visitor always presses Send. Set it all up in
+  Settings > Booking link. It is off until switched on, and needs its
+  database tables first (`supabase/migrations/20261022000000_booking_link.sql`;
+  until then the page says it is not taking bookings).
+
+  Checked again before it ships, and tightened:
+  - Hiding a calendar on the Calendar tab no longer opens its time on the
+    link: Nick's own calendars and the ones ticked in Google always count.
+  - A flight marked "free" still blocks calls while he is in the air, with
+    half an hour either side.
+  - In person stays off between an outbound and a return flight, reads "New
+    York, NY" and an airport as away, and no longer mistakes "Blue Bottle,
+    Downtown", an entry written in UTC or a pitch from a travel startup
+    ("Hotel Tonight founder call") for a trip.
+  - The same invite on two calendars counts once.
+  - One person can no longer fill the link with junk requests: at most three
+    waiting per sender, whatever email they type, and at most six new meeting
+    requests a day for the whole link (it still takes messages after that).
+    Two requests for the same time at the same moment can't both be kept, and
+    when two overlap, the older one can always be approved.
+  - Approve asks once more before it emails an invitation, every request says
+    "Email not checked", and a request whose time has passed can only be
+    declined (Today no longer counts it). Decline waits while someone is
+    approving, and if Google doesn't answer, the drawer says to check the
+    calendar before trying again.
+  - The decline email opens signed as Arwin and names the visitor's time zone.
+  - Times are labelled "Central Time (Chicago)" rather than "Daylight" in
+    November, the zone list has no repeats, and in-person times show in the
+    host's own clock (the visitor will be there).
+  - The chatbot's $20 monthly cap now holds however busy the month gets, a
+    failed answer counts what it really cost, it sends the model less text,
+    and the whole link is limited to 400 answers a day.
+  - The page itself is braked per visitor, and the host photo can only ever be
+    the photo that was uploaded.
+  - Visitor text can't carry hidden or right-to-left characters or HTML tags
+    into the drawer or the calendar invite, and the email must be a plain
+    address.
+
 - **A routine's post that runs a little long no longer leaves its card on
   yesterday's copy.** When a routine wrote a note, a prep or a title longer
   than the app allows, or listed one item the app could not read (a meeting

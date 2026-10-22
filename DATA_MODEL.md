@@ -552,6 +552,78 @@ read. An email without copies is read as before. Until the
 migration is applied, rows come back without these columns and the features
 stay hidden; nothing writes them.
 
+## 6c. The booking link
+
+The public booking page and its requests (`20261022000000_booking_link.sql`;
+service `lib/services/booking.ts`, the pure rules in `lib/booking/`, D-074).
+
+| Table | Purpose |
+| --- | --- |
+| `booking_settings` | One row per organization (unique), with `enabled` (off by default: no row reads as off), a `slug` unique across organizations (the public page finds its settings by it), and `settings`, the Settings > Booking link document as jsonb (the public card, home city, places, windows, buffers, the stack rule, notice, horizon, caps, instant, the chatbot and its FAQ, the monthly AI cap, the photo's storage path), read field by field with defaults by `lib/booking/config.ts`. |
+| `booking_requests` | What a visitor sent: `status` (`pending`, `approved`, `declined`, `handled`), `meeting_type` (`call`, `in_person`, `message`), `kind` (coffee, lunch or dinner, required exactly for in person), the slot (`starts_at`/`ends_at`, none for a message), the visitor's zone, name, email, company, the place (a listed one's id, name, area and map link copied in, or `place_custom` with their suggestion), note, `deck_url` (http(s) only), `source` (`form` or `chatbot`, the visitor still pressed Send), `ip_hash` (a keyed hash, never the address), `claimed_at` (set while an approval runs, so a second tap cannot make a second event), and once approved `calendar_id`/`event_id`, with `decided_by`/`decided_at`. Length checks on every text column. |
+
+Only the server writes these, with the service role: the public routes insert
+pending requests and nothing else, and every change after that is a signed-in
+person's Approve, Decline or "handled". RLS as for the other tables, except
+that `booking_settings` is written only by an admin or the owner (reading it
+stays open to members), as its Settings routes require. The stored photo path
+must be `booking/<organization>/host-photo-<version>.<ext>`; anything else
+reads as no photo. Until the
+migration is applied the page is closed, the Calendar button and the Today line
+are hidden, and Settings says which file to run.
+
+## 6d. Public job board
+
+Open roles at portfolio companies, for anyone to see, at `/jobs` on Copilot
+and at the root of `jobs.tiptop.vc` once its DNS points here
+(`20261022100000_public_jobs.sql`; services `lib/services/jobs-board.ts` and
+`jobs-board-sync.ts`, the pure rules in `lib/jobs-board/`, the pages in
+`components/jobs-board/`; see [docs/JOBS_BOARD.md](docs/JOBS_BOARD.md) and
+D-077). Off until a person switches it on: without a settings row, or before
+the migration is applied, every public page says "coming soon" and shows no
+data.
+
+| Table | Purpose |
+| --- | --- |
+| `job_board_settings` | One row per organization (`unique (organization_id)`): `enabled` (default false), `title`, `intro`, `accent` (a `#rrggbb` colour, checked), `updated_by`. |
+| `job_companies` | One row per portfolio company on the board (`unique (organization_id, portfolio_company_id)`), made the first time a company needs one: its board address `slug` (unique, never one of the board's own page names), `careers_url`, the job board read from it (`ats`: `greenhouse`, `lever`, `ashby`, `workable`, `recruitee`; `ats_token`, checked against a strict pattern before it is ever put into an address), `sync_enabled` (read daily), `auto_publish` (its board roles go public on their own), `listed` (on the companies page with no open roles), the public `logo_url` (https only) and `about` (only what a person typed; Copilot's own portfolio description and sector are never published), and the last sync's `last_sync_at`, `last_sync_status` (`ok`, `failed`, `skipped`), `last_sync_message` and `last_sync_count`. |
+| `job_postings` | One row per role (`unique (organization_id, source, source_key)`): `source` (`ats`, `email`, `manual`) and `source_key` (`<ats>:<token>:<posting id>`, the jobs scan's role id, or a fresh id), `slug` (stable: an edit never changes it), the public fields (`title`, `team`, `job_function`, `locations[]`, `remote`, `employment_type`, `seniority`, `comp`, `description` as plain structured text, never HTML, `apply_url`, `posted_at`), `status` (`active`, `closed`), and who decided: `published`, `featured`, `approved_by`/`approved_at`, `hidden_by`/`hidden_at`. `first_seen_at`, `last_seen_at`, `closed_at`. |
+
+The gate is one function, `postingPublicState` (`lib/jobs-board/public.ts`),
+used by the public pages, Copilot's preview and the tests: a role is public
+only when its company is in the portfolio (not archived), it is active, no
+person hid it, it is published, an emailed or hand-added role was approved by
+a person, a board role a person never approved one by one only while its
+company's auto-publish is on, an emailed or hand-added role was confirmed in
+the last 60 days (approved, or `last_seen_at`: the founder mentioned it again;
+otherwise it is "stale" until a person re-confirms it), and it has somewhere
+to apply (its own link, or its company's careers page). The database repeats the essential part:
+`job_postings_approval_check` refuses a published `email` or `manual` row
+without `approved_at`, and `job_postings_hidden_check` a published hidden one.
+Public pages read only active, published rows and hand on only the fields in
+`PublicJob` and `PublicCompany`: never a contact, a founder's note, a source
+email, who approved a role, or anything else in Copilot.
+
+Emailed roles come from the jobs scan's `JOBS_V1` snapshot (Nick's mailbox),
+at portfolio companies only, as drafts: title, team, place, remote, a level
+read from the title, and the role's own job link. Never the people to send
+candidates to, the founder's notes, pay mentioned in an email, or the source
+emails. `last_seen_at` is the founder's last mention, moved forward when a
+later scan mentions the role again; nothing else about an imported role is
+re-created or edited by a later scan (a person may have edited it). One the
+founder now calls filled or closed, or whose posting its job board no longer
+lists, is closed. An approval of a role whose link is a shared document
+(Google Docs or Drive, Notion, Dropbox, SharePoint) needs the approver to
+confirm they checked that anyone can open it. A role the company lists on its own job board is not
+imported, and when a board sync finds a role an emailed draft already has,
+the draft is closed and, if a person had approved it, the board's copy
+carries the approval.
+
+A board sync replaces a company's set of open board roles with what its board
+lists now: new ones added (published only under auto-publish), listed ones
+refreshed and reopened, the rest closed. An answer that is not the board's
+documented shape, a 404, a timeout or a refusal changes nothing.
+
 ---
 
 ## 7. Row-level security

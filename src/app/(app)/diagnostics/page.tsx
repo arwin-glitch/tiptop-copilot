@@ -4,7 +4,7 @@ import { CheckCircle2, CircleAlert, CircleDashed, FlaskConical } from 'lucide-re
 import { requireAuth } from '@/lib/auth/session';
 import { isDateKey } from '@/lib/calendar/grid';
 import { checkCalendarParity, PARITY_MAX_DAYS } from '@/lib/calendar/parity';
-import { capabilityReport, envLimits, type CapabilityStatus } from '@/lib/config/env';
+import { capabilityReport, env, envLimits, type CapabilityStatus } from '@/lib/config/env';
 import { DIAGNOSTICS_TABS, resolvePageTab } from '@/lib/records-tabs';
 import { getAI, getResearchProvider, getStore } from '@/lib/runtime';
 import { getUsageWindow, rateLimit } from '@/lib/security/limits';
@@ -189,6 +189,7 @@ async function SetupTab() {
     taskCloser: taskCloserRuntime(auth.organizationId, auth.profile.timezone),
   });
   const limits = envLimits();
+  const paidAi = Boolean(env().anthropicApiKey);
   const store = getStore();
   const ai = getAI();
   const research = getResearchProvider();
@@ -278,14 +279,18 @@ async function SetupTab() {
                 value={`${usage.requestsThisHour} / ${limits.maxAiRequestsPerUserPerHour}`}
               />
               <Row
-                label="Estimated spend (24h)"
-                value={`$${usage.spendTodayUsd.toFixed(4)} / $${limits.dailyAiBudgetUsd.toFixed(2)}`}
+                label="AI cost (24h)"
+                value={
+                  paidAi
+                    ? `$${usage.spendTodayUsd.toFixed(4)} / $${limits.dailyAiBudgetUsd.toFixed(2)}`
+                    : '$0 (no paid AI key)'
+                }
               />
             </dl>
             <p className="mt-3 text-xs text-[var(--fg-subtle)]">
-              Spend is estimated from published per-token pricing and the usage the provider
-              reports. Unknown models are priced at the most expensive tier so the budget is never
-              accidentally permissive.
+              {paidAi
+                ? 'Spend is estimated from published per-token pricing and the usage the provider reports. Unknown models are priced at the most expensive tier so the budget is never accidentally permissive.'
+                : 'No paid AI key is set, so nothing here costs money: AI answers run on the Claude plan through Ask Arwin.'}
             </p>
           </CardContent>
         </Card>

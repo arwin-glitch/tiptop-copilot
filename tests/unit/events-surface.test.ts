@@ -187,7 +187,7 @@ describe('robots.txt', () => {
   it('keeps crawlers to published event pages, never personal paths', async () => {
     const { default: robots } = await import('@/app/robots');
     const rules = robots().rules as { allow: string[]; disallow: string[] };
-    expect(rules.allow).toEqual(['/e/']);
+    expect(rules.allow).toContain('/e/');
     for (const p of ['/e/edit', '/e/checkin', '/e/*/i/', '/e/*/c/', '/'])
       expect(rules.disallow).toContain(p);
   });

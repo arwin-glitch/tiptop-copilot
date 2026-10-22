@@ -1,6 +1,8 @@
 import type {
   AiUsageRecord,
   AuditEvent,
+  BookingRequest,
+  BookingSettingsRow,
   CalendarEvent,
   Campaign,
   CampaignEvent,
@@ -41,6 +43,9 @@ import type {
   EventVersion,
   GeneratedDraft,
   Integration,
+  JobBoardSettings,
+  JobCompany,
+  JobPosting,
   KnowledgeChunk,
   KnowledgeDocument,
   McpToken,
@@ -135,6 +140,11 @@ export interface TableMap {
   event_share_links: EventShareLink;
   user_feedback: UserFeedback;
   sync_runs: SyncRun;
+  booking_settings: BookingSettingsRow;
+  booking_requests: BookingRequest;
+  job_board_settings: JobBoardSettings;
+  job_companies: JobCompany;
+  job_postings: JobPosting;
 }
 
 export type TableName = keyof TableMap;

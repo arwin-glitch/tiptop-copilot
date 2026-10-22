@@ -30,6 +30,15 @@ Deals, notes, decisions, tasks, drafts and uploaded documents that you create.
 Estimated AI usage per request, and an audit record of every consequential
 action.
 
+When the booking link is on: what a visitor types into its form (name, email,
+optional company, the time and place they asked for, their note and an
+optional deck link), a keyed hash of their network address for abuse limits,
+and what happened to the request. The public page and its chatbot are shown
+open times only, never what is on the calendar; the chatbot's messages are not
+stored, only their estimated cost. The address a visitor types is not
+checked: an approved request emails the invitation to it, so the Copilot side
+marks every request "Email not checked" and asks once more before approving.
+
 ---
 
 ## What is not stored
@@ -71,6 +80,15 @@ post (`chat:write`), the app also posts its list of open tasks there for the
 task-closer routine — titles, due and last-changed times and, for a task made
 from email, the sender's address, the subject and the Gmail thread id.
 `TASK_SNAPSHOT_FEED=off` stops that post.
+
+The public job board (`/jobs`, and jobs.tiptop.vc) is the one part anyone can
+see. It shows only roles a person published and the companies' public details
+(name, website, logo, careers page and an "about" a person typed for the board):
+never an email address, a contact, a founder's note, a source email, Copilot's
+own portfolio notes or anything else stored here. Emailed roles are public only after a person approves each
+one. Reading a company's own public job board sends only that board's public
+API request. The board collects nothing from its visitors: no forms, no
+cookies of its own, no analytics.
 
 There are no analytics, no third-party trackers and no telemetry.
 

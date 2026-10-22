@@ -1363,6 +1363,55 @@ export interface AiUsageRecord {
 }
 
 /**
+ * The booking link's settings: one row per organization
+ * (supabase/migrations/20261022000000_booking_link.sql). `settings` is the
+ * Settings > Booking link document, read through lib/booking/config.ts.
+ */
+export interface BookingSettingsRow {
+  id: Uuid;
+  organization_id: Uuid;
+  enabled: boolean;
+  slug: string;
+  settings: Record<string, unknown>;
+  updated_by: Uuid | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export type BookingRequestStatus = 'pending' | 'approved' | 'declined' | 'handled';
+
+/** A meeting request (or a message) sent from the public booking page. */
+export interface BookingRequest {
+  id: Uuid;
+  organization_id: Uuid;
+  status: BookingRequestStatus;
+  meeting_type: 'call' | 'in_person' | 'message';
+  kind: 'coffee' | 'lunch' | 'dinner' | null;
+  starts_at: IsoDateTime | null;
+  ends_at: IsoDateTime | null;
+  visitor_time_zone: string | null;
+  name: string;
+  email: string;
+  company: string | null;
+  place_id: string | null;
+  place_name: string | null;
+  place_area: string | null;
+  place_map_url: string | null;
+  place_custom: boolean;
+  note: string | null;
+  deck_url: string | null;
+  source: 'form' | 'chatbot';
+  ip_hash: string | null;
+  claimed_at: IsoDateTime | null;
+  calendar_id: string | null;
+  event_id: string | null;
+  decided_by: Uuid | null;
+  decided_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+/**
  * A token a Claude client (a claude.ai custom connector, a Claude Code session,
  * a cloud routine) uses to read the CRM through the MCP endpoint. Only the
  * SHA-256 of the token is stored; the token itself is shown once, at creation.
@@ -1843,4 +1892,91 @@ export interface EventShareLink {
   label: string;
   created_by: Uuid | null;
   created_at: IsoDateTime;
+}
+
+/* ------------------------------------------------------- public job board */
+//
+// supabase/migrations/20261022100000_public_jobs.sql. The board is off until a
+// person turns it on; see lib/services/jobs-board.ts for how a role becomes
+// public.
+
+export type JobPostingSource = 'ats' | 'email' | 'manual';
+export type JobAts = 'greenhouse' | 'lever' | 'ashby' | 'workable' | 'recruitee';
+export type JobEmploymentType = 'full_time' | 'part_time' | 'contract' | 'internship' | 'temporary';
+export type JobSeniority =
+  | 'intern'
+  | 'entry'
+  | 'mid'
+  | 'senior'
+  | 'staff'
+  | 'lead'
+  | 'manager'
+  | 'director'
+  | 'vp'
+  | 'executive';
+
+export interface JobBoardSettings {
+  id: Uuid;
+  organization_id: Uuid;
+  enabled: boolean;
+  title: string;
+  intro: string | null;
+  accent: string;
+  updated_by: Uuid | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export interface JobCompany {
+  id: Uuid;
+  organization_id: Uuid;
+  portfolio_company_id: Uuid;
+  slug: string;
+  careers_url: string | null;
+  ats: JobAts | null;
+  ats_token: string | null;
+  sync_enabled: boolean;
+  auto_publish: boolean;
+  listed: boolean;
+  logo_url: string | null;
+  about: string | null;
+  last_sync_at: IsoDateTime | null;
+  last_sync_status: 'ok' | 'failed' | 'skipped' | null;
+  last_sync_message: string | null;
+  last_sync_count: number | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export interface JobPosting {
+  id: Uuid;
+  organization_id: Uuid;
+  portfolio_company_id: Uuid;
+  source: JobPostingSource;
+  source_key: string;
+  slug: string;
+  title: string;
+  team: string | null;
+  job_function: string;
+  locations: string[];
+  remote: 'remote' | 'hybrid' | 'onsite' | null;
+  employment_type: JobEmploymentType | null;
+  seniority: JobSeniority | null;
+  comp: string | null;
+  description: string | null;
+  apply_url: string | null;
+  posted_at: IsoDateTime | null;
+  source_updated_at: IsoDateTime | null;
+  status: 'active' | 'closed';
+  published: boolean;
+  featured: boolean;
+  approved_by: Uuid | null;
+  approved_at: IsoDateTime | null;
+  hidden_by: Uuid | null;
+  hidden_at: IsoDateTime | null;
+  first_seen_at: IsoDateTime;
+  last_seen_at: IsoDateTime;
+  closed_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
 }
