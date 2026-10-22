@@ -137,10 +137,23 @@ describe('relationships', () => {
     expect(out.relationships?.cold[0]?.kind).toBe('lp');
   });
 
-  it('rejects an unknown relationship kind', () => {
+  it('leaves out an item with an unknown relationship kind and counts it, keeping the rest', () => {
+    const parsed = parseFollowUpMessage(
+      post('RELATIONSHIPS_V1', { ...REL, cold: [{ ...REL.cold[0], kind: 'friend' }] }),
+    );
+    expect(parsed?.marker).toBe('RELATIONSHIPS_V1');
+    expect(parsed?.skipped).toBe(1);
+    if (parsed?.marker !== 'RELATIONSHIPS_V1') throw new Error('expected the radar');
+    expect(parsed.value.waiting).toHaveLength(1);
+    expect(parsed.value.cold).toEqual([]);
+    // Every item unreadable is an unreadable post: the card keeps its older copy.
     expect(
       parseFollowUpMessage(
-        post('RELATIONSHIPS_V1', { ...REL, cold: [{ ...REL.cold[0], kind: 'friend' }] }),
+        post('RELATIONSHIPS_V1', {
+          ...REL,
+          waiting: [{ ...REL.waiting[0], kind: 'friend' }],
+          cold: [{ ...REL.cold[0], kind: 'friend' }],
+        }),
       ),
     ).toBeNull();
   });
@@ -369,5 +382,416 @@ describe('todayLead', () => {
     // A read that did not work hides the list, even with one in hand.
     expect(todayLead(result('not_configured', withPriorities(PRIORITIES)), sameDay)).toEqual(none);
     expect(todayLead(result('error', withPriorities(PRIORITIES)), sameDay)).toEqual(none);
+  });
+});
+
+describe('lenient reading (D-073)', () => {
+  /** Invented prose exactly `n` characters long, with word breaks throughout. */
+  const prose = (n: number) =>
+    'Walk through the pilot numbers, the two open hires and the bridge question before the call. '
+      .repeat(10)
+      .slice(0, n)
+      .padEnd(n, 'x');
+  const cut = (value: unknown, max: number) => {
+    expect(typeof value).toBe('string');
+    const s = value as string;
+    expect(s.length).toBeLessThanOrEqual(max);
+    expect(s.endsWith('…')).toBe(true);
+    expect(s).not.toMatch(/[\s,;:.]…$/);
+  };
+  const RUN = '2026-10-21T11:21:01Z';
+
+  it('cuts over-long text in every snapshot and leaves out only the bad item, counted', () => {
+    const cases: Array<{ marker: string; body: Record<string, unknown>; list: string }> = [
+      {
+        marker: 'FOLLOWUPS_V1',
+        list: 'items',
+        body: {
+          run_at: RUN,
+          items: [
+            { ...WAITING.items[0], subject: prose(330), note: prose(450) },
+            { ...WAITING.items[1], days_waiting: -1 },
+          ],
+        },
+      },
+      {
+        marker: 'SCHEDULING_V1',
+        list: 'items',
+        body: {
+          run_at: RUN,
+          items: [
+            { ...SCHED.items[0], who: prose(150), note: prose(420) },
+            { ...SCHED.items[0], thread_id: 'not-a-thread' },
+          ],
+        },
+      },
+      {
+        marker: 'PRIORITIES_V1',
+        list: 'items',
+        body: {
+          run_at: RUN,
+          source: 'morning',
+          items: [
+            { title: prose(190), why: prose(320), kind: 'money' },
+            { title: 'Sign the side letter', why: 'Due Friday', kind: 'urgent' },
+          ],
+        },
+      },
+      {
+        marker: 'LP_PIPELINE_V1',
+        list: 'lps',
+        body: {
+          run_at: RUN,
+          fund: 'Fund II',
+          lps: [
+            { who: 'Grace Okafor', kind: 'family_office', stage: 'materials', note: prose(330) },
+            { who: 'Sam Patel', kind: 'fund_of_funds', stage: 'wired' },
+          ],
+        },
+      },
+      {
+        marker: 'PORTFOLIO_HEALTH_V1',
+        list: 'companies',
+        body: {
+          run_at: RUN,
+          companies: [
+            { name: 'Zeta', flag: 'watch', headline: prose(260), asks: [prose(230), '  '] },
+            { name: 'Quill', flag: 'great' },
+          ],
+        },
+      },
+      {
+        marker: 'INTROS_V1',
+        list: 'intros',
+        body: {
+          run_at: RUN,
+          intros: [
+            { for_who: 'Zeta', to_who: 'Ivy Chen', status: 'owed', note: prose(250) },
+            { for_who: 'Quill', to_who: 'Bo Kim', status: 'maybe' },
+          ],
+        },
+      },
+      {
+        marker: 'EMAIL_QUEUE_V1',
+        list: 'items',
+        body: {
+          run_at: RUN,
+          items: [
+            {
+              id: '1a0000000000abcd',
+              who: 'Jane Roe',
+              about: prose(230),
+              group: 'money',
+              call: 'reply',
+              flags: ['wire', prose(40)],
+              draft: 'none',
+              why: prose(600),
+            },
+            { id: '1a0000000000abce', who: 'Sam Poe', about: 'x', group: 'later', call: 'reply' },
+          ],
+        },
+      },
+    ];
+    for (const { marker, body, list } of cases) {
+      const parsed = parseFollowUpMessage(post(marker, body));
+      expect(parsed?.marker, marker).toBe(marker);
+      expect(parsed?.skipped, marker).toBe(1);
+      const kept = (parsed!.value as unknown as Record<string, unknown[]>)[list]!;
+      expect(kept, marker).toHaveLength(1);
+    }
+    const waiting = parseFollowUpMessage(post('FOLLOWUPS_V1', cases[0]!.body));
+    if (waiting?.marker !== 'FOLLOWUPS_V1') throw new Error('expected follow-ups');
+    cut(waiting.value.items[0]!.subject, 300);
+    cut(waiting.value.items[0]!.note, 400);
+    const priorities = parseFollowUpMessage(post('PRIORITIES_V1', cases[2]!.body));
+    if (priorities?.marker !== 'PRIORITIES_V1') throw new Error('expected priorities');
+    cut(priorities.value.items[0]!.title, 160);
+    cut(priorities.value.items[0]!.why, 300);
+    const health = parseFollowUpMessage(post('PORTFOLIO_HEALTH_V1', cases[4]!.body));
+    if (health?.marker !== 'PORTFOLIO_HEALTH_V1') throw new Error('expected health');
+    cut(health.value.companies[0]!.headline, 200);
+    expect(health.value.companies[0]!.asks).toHaveLength(1);
+    cut(health.value.companies[0]!.asks[0], 200);
+    const queue = parseFollowUpMessage(post('EMAIL_QUEUE_V1', cases[6]!.body));
+    if (queue?.marker !== 'EMAIL_QUEUE_V1') throw new Error('expected the queue');
+    cut(queue.value.items[0]!.about, 200);
+    cut(queue.value.items[0]!.why, 500);
+    expect(queue.value.items[0]!.flags[0]).toBe('wire');
+    cut(queue.value.items[0]!.flags[1], 30);
+  });
+
+  it('reads the radar, a meeting recap and the LP update draft softly too', () => {
+    const radar = parseFollowUpMessage(
+      post('RELATIONSHIPS_V1', {
+        run_at: RUN,
+        waiting: [
+          { who: prose(140), kind: 'lp', since: RUN, days: 2, note: prose(320) },
+          { who: 'Ivy Chen', kind: 'lp', since: 'last week', days: 2 },
+        ],
+        cold: [],
+      }),
+    );
+    if (radar?.marker !== 'RELATIONSHIPS_V1') throw new Error('expected the radar');
+    expect(radar.skipped).toBe(1);
+    cut(radar.value.waiting[0]!.who, 120);
+    cut(radar.value.waiting[0]!.note, 300);
+
+    const recap = parseFollowUpMessage(
+      post('MEETING_FOLLOWUP_V1', {
+        ...MEETING,
+        title: prose(230),
+        attendees: Array.from({ length: 25 }, (_, i) => `Person ${i}`),
+        promises: [prose(320), ''],
+        note: prose(420),
+      }),
+    );
+    if (recap?.marker !== 'MEETING_FOLLOWUP_V1') throw new Error('expected a recap');
+    expect(recap.skipped).toBe(0);
+    cut(recap.value.title, 200);
+    expect(recap.value.attendees).toHaveLength(20);
+    expect(recap.value.promises).toHaveLength(1);
+    cut(recap.value.promises[0], 300);
+
+    const draft = parseFollowUpMessage(
+      post('LP_UPDATE_DRAFT_V1', {
+        run_at: RUN,
+        period: `Q3 2026, ${prose(70)}`,
+        status: 'drafted',
+        sections: ['Portfolio', prose(90)],
+        note: prose(330),
+      }),
+    );
+    if (draft?.marker !== 'LP_UPDATE_DRAFT_V1') throw new Error('expected the draft');
+    cut(draft.value.period, 60);
+    cut(draft.value.sections[1], 80);
+    cut(draft.value.note, 300);
+  });
+
+  it('reads no more items than a list allows, counting the rest as skipped', () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({
+      title: `Item ${i}`,
+      why: 'Ranked',
+      kind: 'other',
+    }));
+    const parsed = parseFollowUpMessage(
+      post('PRIORITIES_V1', { run_at: RUN, source: 'morning', items: many }),
+    );
+    if (parsed?.marker !== 'PRIORITIES_V1') throw new Error('expected priorities');
+    expect(parsed.value.items.map((i) => i.title)).toEqual(many.slice(0, 7).map((i) => i.title));
+    expect(parsed.skipped).toBe(2);
+  });
+
+  it('keeps ids, keys, enums and the envelope strict', () => {
+    // A key is never cut: the meeting a recap is kept by, and the post with it.
+    expect(
+      parseFollowUpMessage(post('MEETING_FOLLOWUP_V1', { ...MEETING, meeting_id: 'm'.repeat(81) })),
+    ).toBeNull();
+    // A company name is matched to the portfolio: too long is that item left out.
+    const health = parseFollowUpMessage(
+      post('PORTFOLIO_HEALTH_V1', {
+        run_at: RUN,
+        companies: [
+          { name: 'n'.repeat(121), flag: 'ok' },
+          { name: 'Zeta', flag: 'ok' },
+        ],
+      }),
+    );
+    expect(health?.skipped).toBe(1);
+    // The envelope: run_at, the source, the part number, the list itself.
+    expect(
+      parseFollowUpMessage(post('PRIORITIES_V1', { ...PRIORITIES, run_at: 'today' })),
+    ).toBeNull();
+    expect(
+      parseFollowUpMessage(post('PRIORITIES_V1', { ...PRIORITIES, source: 'noon' })),
+    ).toBeNull();
+    expect(
+      parseFollowUpMessage(post('WEEK_AHEAD_V1', { run_at: RUN, part: 99, events: [] })),
+    ).toBeNull();
+    expect(parseFollowUpMessage(post('WEEK_AHEAD_V1', { run_at: RUN, events: 'none' }))).toBeNull();
+  });
+
+  it("joins today's two-part week ahead: preps cut, the unknown kind left out", () => {
+    const event = (day: number, kind: string, prep: string) => ({
+      title: `Meeting on the ${day}th`,
+      starts_at: `2026-10-${day}T15:00:00Z`,
+      with_who: ['Avery Example'],
+      kind,
+      prep,
+    });
+    const yesterday = {
+      run_at: '2026-10-20T11:20:00Z',
+      events: [event(21, 'founder', 'Old copy')],
+    };
+    const part1 = {
+      run_at: RUN,
+      part: 1,
+      events: [
+        event(22, 'founder', prose(250)),
+        event(22, 'lp', prose(287)),
+        event(23, 'offsite', 'A kind the app does not know'),
+      ],
+    };
+    // The same run_at, spelled with milliseconds.
+    const part2 = {
+      run_at: '2026-10-21T11:21:01.000Z',
+      part: 2,
+      events: [event(24, 'portfolio', prose(340)), event(25, 'internal', 'Short prep')],
+    };
+    const messages = [
+      { ts: '1792588862.000200', text: post('WEEK_AHEAD_V1', part2), user: 'U1' },
+      { ts: '1792588861.000100', text: post('WEEK_AHEAD_V1', part1), user: 'U1' },
+      { ts: '1792502400.000100', text: post('WEEK_AHEAD_V1', yesterday), user: 'U1' },
+    ];
+    expect(parseFollowUpMessage(messages[1]!.text)?.skipped).toBe(1);
+    expect(parseFollowUpMessage(messages[0]!.text)?.skipped).toBe(0);
+    const week = collectFollowUps(messages).weekAhead;
+    expect(week?.run_at).toBe(RUN);
+    expect(week?.events.map((e) => e.starts_at.slice(0, 10))).toEqual([
+      '2026-10-22',
+      '2026-10-22',
+      '2026-10-24',
+      '2026-10-25',
+    ]);
+    for (const e of week!.events.slice(0, 3)) cut(e.prep, 240);
+    expect(week?.events[3]?.prep).toBe('Short prep');
+    expect(week?.events.some((e) => e.prep === 'Old copy')).toBe(false);
+  });
+
+  it('keeps names matched against records, or written into an intro email, strict', () => {
+    const long =
+      'Dana Example & Omar Placeholder & Priya Sample & Sam Fictional (Harbor Example Robotics Laboratories)'.padEnd(
+        130,
+        'x',
+      );
+    const intros = parseFollowUpMessage(
+      post('INTROS_V1', {
+        run_at: RUN,
+        intros: [
+          // A side too long is that intro left out, never cut into the draft.
+          { for_who: long, to_who: 'Ivy Chen', status: 'owed' },
+          { for_who: 'Zeta', to_who: long, status: 'owed' },
+          // A firm, or a person's name, too long falls back as before.
+          {
+            for_who: 'Quill',
+            to_who: 'Bo Kim',
+            status: 'owed',
+            for_org: long,
+            to_people: [{ name: long }],
+          },
+          { for_who: 'Lumen', to_who: 'Ada Roe', status: 'made' },
+        ],
+      }),
+    );
+    if (intros?.marker !== 'INTROS_V1') throw new Error('expected intros');
+    expect(intros.skipped).toBe(2);
+    expect(intros.value.intros.map((i) => i.for_who)).toEqual(['Quill', 'Lumen']);
+    expect(intros.value.intros[0]!.for_org).toBeNull();
+    expect(intros.value.intros[0]!.to_people).toBeUndefined();
+
+    const lps = parseFollowUpMessage(
+      post('LP_PIPELINE_V1', {
+        run_at: RUN,
+        fund: 'Fund II',
+        lps: [
+          { who: long, kind: 'family_office', stage: 'materials' },
+          { who: 'Grace Okafor', firm: long, kind: 'family_office', stage: 'materials' },
+          { who: 'Sam Patel', firm: 'Lakeside', kind: 'fund_of_funds', stage: 'committed' },
+          { who: 'Ivy Chen', kind: 'existing_lp', stage: 'committed' },
+        ],
+      }),
+    );
+    if (lps?.marker !== 'LP_PIPELINE_V1') throw new Error('expected the pipeline');
+    // DocSend readers and Calendar labels match by who and firm: never cut.
+    expect(lps.skipped).toBe(2);
+    expect(lps.value.lps.map((l) => l.who)).toEqual(['Sam Patel', 'Ivy Chen']);
+  });
+
+  it('keeps the older copy of a one-post snapshot when most of the newer one cannot be read', () => {
+    const item = (title: string, kind = 'other') => ({ title, why: 'Ranked', kind });
+    const older = {
+      run_at: '2026-10-21T11:00:00Z',
+      source: 'morning',
+      items: [item('A'), item('B'), item('C')],
+    };
+    // Two of three items in a kind the app does not know: refused, not shown as one.
+    const newer = {
+      run_at: '2026-10-21T20:00:00Z',
+      source: 'afternoon',
+      items: [item('D'), item('E', 'legal'), item('F', 'legal')],
+    };
+    expect(parseFollowUpMessage(post('PRIORITIES_V1', newer))).toBeNull();
+    const snapshot = collectFollowUps([
+      { ts: '1792620000.000100', text: post('PRIORITIES_V1', newer), user: 'U1' },
+      { ts: '1792580000.000100', text: post('PRIORITIES_V1', older), user: 'U1' },
+    ]);
+    expect(snapshot.priorities?.items.map((i) => i.title)).toEqual(['A', 'B', 'C']);
+    // Half, or fewer, unreadable: the newer copy shows, less those items.
+    const half = { ...newer, items: [item('D'), item('E', 'legal')] };
+    expect(parseFollowUpMessage(post('PRIORITIES_V1', half))?.skipped).toBe(1);
+    // Rows past the limit are not failures: nine good ones read as seven.
+    const nine = { ...newer, items: Array.from({ length: 9 }, (_, i) => item(`I${i}`)) };
+    expect(parseFollowUpMessage(post('PRIORITIES_V1', nine))?.skipped).toBe(2);
+    // ...nor are they once the first seven include two bad ones (2 failed, 5 read).
+    const nineWithBad = {
+      ...newer,
+      items: [
+        item('D', 'legal'),
+        item('E', 'legal'),
+        ...Array.from({ length: 7 }, (_, i) => item(`J${i}`)),
+      ],
+    };
+    expect(parseFollowUpMessage(post('PRIORITIES_V1', nineWithBad))?.skipped).toBe(4);
+
+    // The radar counts both its lists, and so does follow-ups' one list.
+    const radar = (bad: number, good: number) => ({
+      run_at: RUN,
+      waiting: Array.from({ length: bad }, () => ({ who: 'Ivy', kind: 'lp', since: 'x', days: 1 })),
+      cold: Array.from({ length: good }, () => ({ who: 'Bo', kind: 'lp', since: RUN, days: 90 })),
+    });
+    expect(parseFollowUpMessage(post('RELATIONSHIPS_V1', radar(3, 2)))).toBeNull();
+    expect(parseFollowUpMessage(post('RELATIONSHIPS_V1', radar(2, 2)))?.skipped).toBe(2);
+    expect(
+      parseFollowUpMessage(
+        post('FOLLOWUPS_V1', {
+          run_at: RUN,
+          items: [WAITING.items[0], { ...WAITING.items[1], days_waiting: -1 }, { thread_id: 'zz' }],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it('keeps every readable row of a numbered-part snapshot, and of queues that pile up', () => {
+    const event = (kind: string) => ({
+      title: 'Example meeting',
+      starts_at: '2026-10-22T15:00:00Z',
+      kind,
+    });
+    // A part is not refused for most of it failing: its good rows still join the run.
+    const part = parseFollowUpMessage(
+      post('WEEK_AHEAD_V1', {
+        run_at: RUN,
+        part: 2,
+        events: [event('lp'), event('offsite'), event('retreat')],
+      }),
+    );
+    expect(part?.skipped).toBe(2);
+    const queue = parseFollowUpMessage(
+      post('EMAIL_QUEUE_V1', {
+        run_at: RUN,
+        items: [
+          {
+            id: '1a0000000000abcd',
+            who: 'Jane Roe',
+            about: 'Wire',
+            group: 'money',
+            call: 'reply',
+            draft: 'none',
+          },
+          { id: 'nope', who: 'Sam Poe', about: 'x', group: 'money', call: 'reply', draft: 'none' },
+          { id: 'nope2', who: 'Bo Kim', about: 'y', group: 'money', call: 'reply', draft: 'none' },
+        ],
+      }),
+    );
+    expect(queue?.skipped).toBe(2);
   });
 });

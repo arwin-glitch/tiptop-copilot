@@ -18,7 +18,9 @@ import { formatTaskCronStatus, pullTaskRelays } from '@/lib/services/task-relay'
 import { sweepKeepInTouch } from '@/lib/services/keep-in-touch';
 import { settlesWithin } from '@/lib/util/settle';
 import type { AuthContext } from '@/lib/auth/session';
-import type { Organization, OrganizationMember, UserProfile } from '@/lib/types/domain';
+import type { DataStore } from '@/lib/db/store';
+import { readTeam, type Team } from '@/lib/tasks/principal';
+import type { Organization, UserProfile } from '@/lib/types/domain';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -102,9 +104,10 @@ export async function POST(request: NextRequest) {
     // What the Feeds tab on Diagnostics reads to tell this job has stopped
     // running (GitHub has started it hours late before). Never throws.
     await recordJobHeartbeat(store, organization.id, 'daily-job');
-    const members = (await store.list('organization_members', organization.id, {})) as
-      OrganizationMember[] | [];
-    const owner = members.find((m) => m.role === 'owner') ?? members[0];
+    // This organization's members only (the table is not scoped by the id
+    // `list` takes), and its principal: the member whose mailbox it reads.
+    const team = await readTeam(store, organization.id);
+    const owner = team.members.find((m) => m.role === 'owner') ?? team.members[0];
     if (!owner) {
       results.push({
         organization: organization.name,
@@ -122,7 +125,7 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    const profile = (await store.userProfileById(owner.user_id)) as UserProfile | null;
+    const profile = (await store.userProfileById(owner.userId)) as UserProfile | null;
     if (!profile) {
       results.push({
         organization: organization.name,
@@ -140,14 +143,22 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
+    // The sync and the watch renewal work on the organization's mailbox
+    // whoever runs them, so they stay with the owner: the sync's
+    // classifications count against the acting user's hourly AI requests, and
+    // the principal's hour is theirs. The outlook is one person's day, which
+    // Today reads back for whoever is signed in, so it is made for the
+    // principal, in their time zone, as their own first Today of the day
+    // would make it (D-071).
     const auth: AuthContext = {
-      userId: owner.user_id,
+      userId: owner.userId,
       organizationId: organization.id,
       role: owner.role,
       profile,
       organization,
       isDemo: env().demoMode,
     };
+    const briefAuth = await principalAuth(store, team, auth);
 
     let syncStatus: string;
     try {
@@ -177,7 +188,7 @@ export async function POST(request: NextRequest) {
       briefStatus = 'skipped: tasks=sync';
     } else {
       try {
-        const brief = await generateDailyBrief(auth, { force: true });
+        const brief = await generateDailyBrief(briefAuth, { force: true });
         briefStatus = brief.ok ? 'ok' : `skipped: ${brief.error.code}`;
       } catch (error) {
         briefStatus = `failed: ${(error as Error)?.message?.slice(0, 120)}`;
@@ -328,6 +339,20 @@ export async function POST(request: NextRequest) {
     { ok: true, ranAt: new Date().toISOString(), results },
     { headers: { 'Cache-Control': 'no-store' } },
   );
+}
+
+/**
+ * `owner` as the principal instead: their id, role and profile. The owner's
+ * own context when they are the principal, or when the principal has no
+ * profile to read a time zone from.
+ */
+async function principalAuth(store: DataStore, team: Team, owner: AuthContext) {
+  const principal = team.principal;
+  if (!principal || principal.userId === owner.userId) return owner;
+  const member = team.members.find((m) => m.userId === principal.userId);
+  const profile = (await store.userProfileById(principal.userId)) as UserProfile | null;
+  if (!member || !profile) return owner;
+  return { ...owner, userId: principal.userId, role: member.role, profile } satisfies AuthContext;
 }
 
 function constantTimeEquals(a: string, b: string): boolean {

@@ -418,6 +418,24 @@ describe('review and confirmation', () => {
     expect((await confirm(campaign.id)).status).toBe('sending');
   });
 
+  it('a BCC list and then its choice, saved back to back as the page queues them, each move the version on', async () => {
+    const campaign = await draft();
+    const before = await expectation(campaign.id);
+    must(
+      await updateCampaignCopies(harness.store, org, campaign.id, { bcc: 'archive@fund.example' }),
+    );
+    const afterList = await expectation(campaign.id);
+    must(await updateCampaignCopies(harness.store, org, campaign.id, { bccMode: 'first' }));
+    const afterChoice = await expectation(campaign.id);
+    expect(new Set([before.version, afterList.version, afterChoice.version]).size).toBe(3);
+    // A review taken between the two cannot be confirmed; one taken after both can.
+    const stale = await confirmCampaign(harness.store, org, campaign.id, actor(), afterList);
+    expect(!stale.ok && stale.error.code).toBe('conflict');
+    const sent = must(await confirmCampaign(harness.store, org, campaign.id, actor(), afterChoice));
+    expect(sent.status).toBe('sending');
+    expect(sent.bcc_mode).toBe('first');
+  });
+
   it('a photo that cannot go blocks the send, naming the person', async () => {
     const campaign = await draft();
     const jane = await byEmail(campaign.id, 'jane@acme.example');

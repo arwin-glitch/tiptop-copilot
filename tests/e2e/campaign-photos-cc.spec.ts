@@ -211,6 +211,132 @@ test('an unsubscribed CC stops the send; removing a photo takes it off its perso
   );
 });
 
+test('a BCC choice clicked while the address is still saving is kept, after a reload and on the review', async ({
+  page,
+}) => {
+  await page.goto('/fund-ii?tab=campaigns');
+  await page.getByRole('button', { name: 'New campaign' }).first().click();
+  await page.waitForURL(/\/fund-ii\/campaigns\/[0-9a-f-]{36}$/);
+  await page.getByLabel('Email addresses').fill('Leo Grant <leo@grantworks.example>');
+  await page.getByRole('button', { name: 'Add 1 pasted' }).click();
+  await expect(page.getByText('Added 1 person.')).toBeVisible();
+
+  // The BCC save is held on its way, as a slow connection would hold it, so
+  // the click surely lands while it is pending; every save is counted.
+  const saves: Record<string, string>[] = [];
+  let release!: () => void;
+  const bccHeld = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/campaigns/*/copies', async (route) => {
+    const body = (route.request().postDataJSON() ?? {}) as Record<string, string>;
+    saves.push(body);
+    if ('bcc' in body) await bccHeld;
+    await route.continue();
+  });
+
+  const bcc = page.getByLabel('BCC', { exact: true });
+  const first = page.getByRole('button', { name: 'The first email only' });
+  const every = page.getByRole('button', { name: 'Every email' });
+  await bcc.fill('archive@fund.example');
+  // Leaving the field by clicking the choice: the address starts saving on
+  // this click's mousedown, and the click itself still counts.
+  await first.click();
+  await expect(first).toHaveAttribute('aria-pressed', 'true');
+  await expect(every).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#campaign-bcc-hint')).toHaveText('Saving…');
+  // Only the address is on its way: the choice waits its turn behind it.
+  await expect.poll(() => saves).toEqual([{ bcc: 'archive@fund.example' }]);
+
+  // The choice goes once the address has landed, and is not lost to it.
+  const modeSaved = page.waitForResponse(
+    (r) =>
+      r.url().includes('/copies') &&
+      r.request().method() === 'PATCH' &&
+      'bccMode' in ((r.request().postDataJSON() ?? {}) as object),
+  );
+  release();
+  expect((await modeSaved).ok()).toBe(true);
+  await expect(page.locator('#campaign-bcc-hint')).not.toHaveText('Saving…');
+  await expect(first).toHaveAttribute('aria-pressed', 'true');
+  expect(saves).toEqual([{ bcc: 'archive@fund.example' }, { bccMode: 'first' }]);
+  await page.unroute('**/api/campaigns/*/copies');
+
+  // Saved: a reload (which opens on the message, the list being done) shows both.
+  await page.reload();
+  const steps = page.getByRole('navigation', { name: 'Campaign steps' });
+  await steps.getByRole('button', { name: 'Recipients' }).click();
+  await expect(page.getByLabel('BCC', { exact: true })).toHaveValue('archive@fund.example');
+  await expect(first).toHaveAttribute('aria-pressed', 'true');
+  await expect(every).toHaveAttribute('aria-pressed', 'false');
+
+  // And the review shows the one sample copy.
+  await page.getByRole('button', { name: 'Next: the message' }).click();
+  await page.getByLabel('Subject').fill('Hello');
+  await page.getByLabel('Email', { exact: true }).fill('Hi {{first_name|there}},\n\nHello.');
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Next: review' }).click();
+  const review = page.getByRole('region', { name: 'Send to 1 person?' });
+  await expect(review.getByTestId('who-gets-what-summary')).toHaveText(
+    '0 with photo, 1 without, 0 problems; CC: none; BCC: archive@fund.example (one sample, on the first email that actually goes out); 0 people have their own CC.',
+  );
+});
+
+test('a BCC refused while a newer one waits says nothing once the newer one is saved', async ({
+  page,
+}) => {
+  await page.goto('/fund-ii?tab=campaigns');
+  await page.getByRole('button', { name: 'New campaign' }).first().click();
+  await page.waitForURL(/\/fund-ii\/campaigns\/[0-9a-f-]{36}$/);
+  await page.getByLabel('Email addresses').fill('Leo Grant <leo@grantworks.example>');
+  await page.getByRole('button', { name: 'Add 1 pasted' }).click();
+  await expect(page.getByText('Added 1 person.')).toBeVisible();
+
+  // The first BCC save is held on its way and then refused; the second goes through.
+  const saves: Record<string, string>[] = [];
+  let release!: () => void;
+  const firstHeld = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/campaigns/*/copies', async (route) => {
+    const body = (route.request().postDataJSON() ?? {}) as Record<string, string>;
+    saves.push(body);
+    if (saves.length === 1) {
+      await firstHeld;
+      await route.fulfill({
+        status: 409,
+        json: { ok: false, error: { code: 'conflict', message: 'Refused for the test.' } },
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  const bcc = page.getByLabel('BCC', { exact: true });
+  const hint = page.locator('#campaign-bcc-hint');
+  await bcc.fill('old-archive@fund.example');
+  await bcc.press('Enter');
+  await expect.poll(() => saves).toEqual([{ bcc: 'old-archive@fund.example' }]);
+  // Changed again while the first is still on its way: queued behind it.
+  await bcc.fill('archive@fund.example');
+  await bcc.press('Enter');
+
+  const secondSaved = page.waitForResponse(
+    (r) =>
+      r.url().includes('/copies') &&
+      r.request().method() === 'PATCH' &&
+      (r.request().postDataJSON() as { bcc?: string } | null)?.bcc === 'archive@fund.example',
+  );
+  release();
+  expect((await secondSaved).ok()).toBe(true);
+  expect(saves).toEqual([{ bcc: 'old-archive@fund.example' }, { bcc: 'archive@fund.example' }]);
+  // The field holds what is saved, and the older refusal is not shown under it.
+  await expect(hint).toHaveText(/^Hidden from the people the email goes to\./);
+  await expect(bcc).not.toHaveAttribute('aria-invalid', 'true');
+  await page.unroute('**/api/campaigns/*/copies');
+
+  await page.reload();
+  const steps = page.getByRole('navigation', { name: 'Campaign steps' });
+  await steps.getByRole('button', { name: 'Recipients' }).click();
+  await expect(page.getByLabel('BCC', { exact: true })).toHaveValue('archive@fund.example');
+});
+
 test('one photo joins and matches its person by name; a failed upload says why on the page', async ({
   page,
 }) => {

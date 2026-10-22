@@ -4,6 +4,7 @@ import { listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
+import { softOptionalText } from '@/lib/relay/soft-fields';
 import type { AuditEvent, Task } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { unwrapSlackText } from '@/lib/util/slack-text';
@@ -47,8 +48,10 @@ export function normalizeDueAt(value: unknown): unknown {
 
 /** One task in a payload. The relay also checks tasks one by one. */
 const TASK_ITEM_SCHEMA = z.object({
+  // Strict: an open task with the same title is the same task.
   title: z.string().trim().min(1).max(300),
-  detail: z.string().trim().max(2000).nullish(),
+  /** Display only: a long one is cut at a word rather than lost (D-073). */
+  detail: softOptionalText(2000),
   // Any offset, a bare date or a Central wall time; stored as UTC.
   due_at: z.preprocess(normalizeDueAt, z.string().datetime({ offset: true }).nullish()),
   urgent: z.boolean().nullish(),

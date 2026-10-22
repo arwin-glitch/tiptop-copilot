@@ -1,4 +1,5 @@
 import type { AuthContext } from '@/lib/auth/session';
+import { listOrganizationMembers } from '@/lib/db/members';
 import { chunk, listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
 import { getStore } from '@/lib/runtime';
@@ -25,7 +26,6 @@ import type {
   EmailMessage,
   Integration,
   NetworkContact,
-  OrganizationMember,
   PortfolioCompany,
   PortfolioContact,
   Task,
@@ -567,9 +567,7 @@ class RecipientResolver {
 
   private members(): Promise<{ name: string | null; email: string | null }[]> {
     return this.load('members', async () => {
-      const rows = (await this.store.list('organization_members', this.organizationId, {
-        eq: { organization_id: this.organizationId },
-      })) as OrganizationMember[];
+      const rows = await listOrganizationMembers(this.store, this.organizationId);
       return Promise.all(
         rows.map(async (row) => {
           const profile = await this.store.userProfileById(row.user_id);

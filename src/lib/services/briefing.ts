@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { env } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import { log } from '@/lib/security/redact';
+import { softText } from '@/lib/relay/soft-fields';
 import { unwrapSlackText } from '@/lib/util/slack-text';
 import type { RoutineBriefing } from '@/lib/types/domain';
 import { processWide } from '@/lib/util/process-state';
@@ -27,7 +28,10 @@ export const ROUTINE_BRIEFING_SCHEMA = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'date_key must be YYYY-MM-DD')
     .refine(isPlausibleDateKey, 'date_key must be a real date, no later than today'),
-  title: z.string().trim().min(1).max(200),
+  /** A long title is cut at a word rather than costing the briefing (D-073). */
+  title: softText(200),
+  // The body stays strict: it is the briefing itself, and its sections and
+  // lists are parsed out of it, so it is never cut mid-structure.
   summary: z.string().trim().min(1).max(20_000),
   source_url: z.string().url().max(2000).nullish(),
 });

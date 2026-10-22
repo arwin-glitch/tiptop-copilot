@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { demoFeedInputs } from '@/lib/demo/feed-fixtures';
 import { feedDef } from '@/lib/feeds/registry';
-import { feedReportAllClear, feedReportHeadline, feedRowSummary } from '@/lib/feeds/words';
+import {
+  feedReportAllClear,
+  feedReportHeadline,
+  feedRowSummary,
+  skippedWords,
+} from '@/lib/feeds/words';
 import {
   askRelayRules,
   buildFeedReport,
@@ -504,6 +509,180 @@ describe('the Feeds tab in words', () => {
     );
     expect(feedReportAllClear(rows(['unknown', 'unknown', 'off']))).toBe(
       "Nothing looks late or stopped, but 2 feeds can't be checked right now.",
+    );
+  });
+});
+
+describe('items a readable post left out (D-073)', () => {
+  const RUN = '2026-10-21T11:21:01Z';
+  const event = (kind: string, day = 22) => ({
+    title: 'Example meeting',
+    starts_at: `2026-10-${day}T15:00:00Z`,
+    kind,
+  });
+  const week = (body: Record<string, unknown>) => relay('WEEK_AHEAD_V1', body);
+
+  it('are summed over every part of the newest run, each part once', () => {
+    const seen = collectSightings(
+      [
+        // Part 2, with the same run_at spelled with milliseconds; one bad event.
+        post(
+          '2026-10-21T11:21:40Z',
+          week({
+            run_at: '2026-10-21T11:21:01.000Z',
+            part: 2,
+            events: [event('lp'), event('retreat')],
+          }),
+        ),
+        // Part 1, posted twice (a retry): counted once.
+        post(
+          '2026-10-21T11:21:20Z',
+          week({ run_at: RUN, part: 1, events: [event('founder'), event('x'), event('y')] }),
+        ),
+        post(
+          '2026-10-21T11:21:10Z',
+          week({ run_at: RUN, part: 1, events: [event('founder'), event('x'), event('y')] }),
+        ),
+        // Yesterday's run left items out too; they are not today's.
+        post(
+          '2026-10-20T11:20:00Z',
+          week({ run_at: '2026-10-20T11:20:00Z', events: [event('founder'), event('nope')] }),
+        ),
+      ],
+      DEAL_RULES,
+    );
+    expect(seen['week-ahead']).toEqual({
+      at: '2026-10-21T11:21:40.000Z',
+      unreadableAt: null,
+      skipped: 3,
+    });
+  });
+
+  it('are never counted for an unreadable post, which stays "could not be read"', () => {
+    const seen = collectSightings(
+      [
+        post('2026-10-21T11:22:00Z', 'WEEK_AHEAD_V1\n`{"run_at": broken`'),
+        // Every event unreadable: the whole post is.
+        post('2026-10-21T11:21:30Z', week({ run_at: RUN, part: 2, events: [event('x')] })),
+        post('2026-10-21T11:21:00Z', week({ run_at: RUN, part: 1, events: [event('lp')] })),
+      ],
+      DEAL_RULES,
+    );
+    expect(seen['week-ahead']).toEqual({
+      at: '2026-10-21T11:21:00.000Z',
+      unreadableAt: '2026-10-21T11:22:00.000Z',
+    });
+  });
+
+  it('call a one-post snapshot mostly unreadable "could not be read", its card on the older copy', () => {
+    const item = (title: string, kind = 'other') => ({ title, why: 'Ranked', kind });
+    const seen = collectSightings(
+      [
+        // Two of three in a kind the app does not know: the card keeps the older copy.
+        post(
+          '2026-10-21T20:00:00Z',
+          relay('PRIORITIES_V1', {
+            run_at: '2026-10-21T20:00:00Z',
+            source: 'afternoon',
+            items: [item('D'), item('E', 'legal'), item('F', 'legal')],
+          }),
+        ),
+        // The copy kept, itself less one item.
+        post(
+          '2026-10-21T11:00:00Z',
+          relay('PRIORITIES_V1', {
+            run_at: '2026-10-21T11:00:00Z',
+            source: 'morning',
+            items: [item('A'), item('B'), item('C', 'legal')],
+          }),
+        ),
+      ],
+      DEAL_RULES,
+    );
+    expect(seen.priorities).toEqual({
+      at: '2026-10-21T11:00:00.000Z',
+      unreadableAt: '2026-10-21T20:00:00.000Z',
+      skipped: 1,
+    });
+  });
+
+  it("come from Jobs' and Students' own dropped counts too", () => {
+    const role = {
+      company: 'Example Robotics',
+      title: 'Backend Engineer',
+      function: 'engineering',
+      status: 'active',
+      first_seen: '2026-10-01',
+      last_seen: '2026-10-15',
+    };
+    const seen = collectSightings(
+      [
+        post(
+          '2026-10-19T13:20:00Z',
+          relay('JOBS_V1', {
+            run_at: '2026-10-19T13:00:00Z',
+            roles: [role, { ...role, status: 'maybe' }],
+          }),
+        ),
+      ],
+      DEAL_RULES,
+    );
+    expect(seen['portfolio-jobs']).toEqual({
+      at: '2026-10-19T13:20:00.000Z',
+      unreadableAt: null,
+      skipped: 1,
+    });
+  });
+
+  it('reach the report row, and the Feeds tab says so in words', () => {
+    const now = new Date('2026-10-21T15:00:00Z');
+    const inputs = demoFeedInputs(now);
+    const rows = buildFeedReport(
+      {
+        ...inputs,
+        dealRelay: {
+          state: 'ok',
+          seen: { 'week-ahead': { at: '2026-10-21T11:21:40Z', unreadableAt: null, skipped: 2 } },
+        },
+      },
+      now,
+      TZ,
+    ).rows;
+    const row = rows.find((r) => r.id === 'week-ahead')!;
+    expect(row).toMatchObject({ status: 'ok', skipped: 2, unreadableAt: null });
+    expect(feedRowSummary(row, now, TZ)).toBe(
+      'Last seen 4h ago (Oct 21, 6:21 AM). 2 items in the newest post were skipped because they could not be read; the rest of the post is showing.',
+    );
+    expect(feedRowSummary(row, now, TZ)).not.toMatch(/kept the older copy/);
+  });
+});
+
+describe('the Feeds tab on skipped items', () => {
+  const now = new Date('2026-10-21T15:00:00Z');
+  const base = {
+    def: feedDef('week-ahead'),
+    status: 'ok' as const,
+    lastSeen: '2026-10-21T11:24:00Z',
+    unreadableAt: null,
+    waitingSince: null,
+    reason: null,
+  };
+
+  it('says one item, or several, were skipped from the newest post', () => {
+    expect(feedRowSummary({ ...base, skipped: 1 }, now, TZ)).toBe(
+      'Last seen 4h ago (Oct 21, 6:24 AM). 1 item in the newest post was skipped because it could not be read; the rest of the post is showing.',
+    );
+    expect(skippedWords({ skipped: 3, unreadableAt: null })).toMatch(/^3 items in the newest post/);
+    expect(feedRowSummary({ ...base, skipped: 0 }, now, TZ)).toBe(
+      'Last seen 4h ago (Oct 21, 6:24 AM).',
+    );
+  });
+
+  it('speaks of the copy kept when a newer post could not be read at all', () => {
+    expect(
+      feedRowSummary({ ...base, skipped: 2, unreadableAt: '2026-10-21T14:00:00Z' }, now, TZ),
+    ).toBe(
+      'Last seen 4h ago (Oct 21, 6:24 AM). A newer post (Oct 21, 9:00 AM) could not be read, so its card kept the older copy. 2 items in the copy it kept were skipped.',
     );
   });
 });

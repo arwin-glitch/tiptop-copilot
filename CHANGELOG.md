@@ -10,6 +10,41 @@ throughout.
 
 ## [Unreleased]
 
+- **A routine's post that runs a little long no longer leaves its card on
+  yesterday's copy.** When a routine wrote a note, a prep or a title longer
+  than the app allows, or listed one item the app could not read (a meeting
+  of an unknown kind, a bad date), the whole post was turned away and the
+  card kept the older copy; on Oct 21 that held back the Week ahead card and
+  the Calendar prep notes. Now long display text is cut at a word with "…",
+  an item that cannot be read is skipped and the rest of the post shows, and
+  numbered parts of one run still join. Diagnostics > Feeds says "1 item in
+  the newest post was skipped" instead of "could not be read"; a post that
+  really cannot be read (not JSON, no run time, or not one readable item)
+  still says so and keeps the older copy, and so does a follow-ups, Top
+  priorities or radar post where most items cannot be read. Ids, names used
+  to match records (an LP's name and firm, both sides of an intro), kinds,
+  dates and links are still checked strictly. This covers the
+  follow-ups, priorities, radar, LP pipeline, portfolio health, intros, week
+  ahead, email queue, scheduling, meeting recaps and LP update posts, plus
+  Jobs, the task closer's reasons, suggested tasks' details, briefing titles
+  and new portfolio companies' descriptions.
+
+- **Campaigns: a BCC choice made right after typing the address sticks.**
+  Typing a BCC address and then clicking "The first email only" (or "Every
+  email") straight away lost the click while the address saved, so it took
+  a second click. The click now counts: the choice shows at once and is
+  saved right after the address, and a reload and the review show it. The
+  CC and BCC fields no longer lock while the other one saves, either. Each
+  save still makes an earlier review stale, as before.
+
+- **Phone and desktop alerts keep the mailbox person's hours.** The 8am to
+  8pm quiet hours, the desktop app's 6am to 9pm checking and feed notices
+  went by the time zone of whoever set the workspace up; they now go by the
+  person whose mailbox Copilot reads (then the owner's, then Central time).
+  The morning outlook the daily job prepares is now made for that person
+  too, in their time zone, so their first Today of the day no longer waits
+  for it.
+
 - **Calendar: Google's colour labels, a clear look for every event, and "How
   you got here" that finds the reason.** The Day, Week and Month views now
   read each calendar's colour labels live from Google Calendar (a rename shows

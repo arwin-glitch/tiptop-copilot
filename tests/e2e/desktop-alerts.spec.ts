@@ -77,11 +77,59 @@ async function appToday(context: BrowserContext, version: string, threads: reado
   return app;
 }
 
+/**
+ * Waits until the page listens for `type` on window. A tab opened a moment
+ * ago shows its server-rendered heading before React has hydrated the Ask
+ * Arwin widget, which only starts listening in its mount effects, so an event
+ * sent before then is lost; how long that takes depends on how busy the
+ * machine is (it failed now and then in full runs, never alone). The real
+ * senders only send to a running app: the full Ask page a tick after its own
+ * mount, the shell once the window is in front. Read over the DevTools
+ * protocol, so the page itself is untouched.
+ */
+async function listening(page: Page, type: string) {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await expect
+      .poll(
+        async () => {
+          const { result } = await cdp.send('Runtime.evaluate', {
+            expression: 'window',
+            objectGroup: 'listening',
+          });
+          if (!result.objectId) return false;
+          const { listeners } = await cdp.send('DOMDebugger.getEventListeners', {
+            objectId: result.objectId,
+          });
+          await cdp.send('Runtime.releaseObjectGroup', { objectGroup: 'listening' });
+          return listeners.some((listener) => listener.type === type);
+        },
+        { message: `the page listens for ${type}` },
+      )
+      .toBe(true);
+  } finally {
+    await cdp.detach();
+  }
+}
+
 /** What the shell does when it holds back an alert because the app is in front. */
 async function heldBack(page: Page, path: string) {
+  await listening(page, 'tiptop-desktop-replied');
   await page.evaluate((detail) => {
     window.dispatchEvent(new CustomEvent('tiptop-desktop-replied', { detail }));
   }, path);
+}
+
+/** What the full Ask page tells the widget about a question it is waiting on, or done with. */
+async function askWatch(
+  page: Page,
+  detail: { threadId: string; watching: boolean; answerId?: string },
+) {
+  await listening(page, 'tiptop:ask-watch');
+  await page.evaluate(
+    (watch) => window.dispatchEvent(new CustomEvent('tiptop:ask-watch', { detail: watch })),
+    detail,
+  );
 }
 
 test('in a browser, the phone card as before', async ({ page }) => {
@@ -278,10 +326,7 @@ test('an Ask Arwin alert held back in the app pops up there, for each answer it 
     const body = (await response.json()) as { messages: { id: string }[] };
     return body.messages[body.messages.length - 1]?.id ?? '';
   }, third);
-  await app.evaluate(
-    (detail) => window.dispatchEvent(new CustomEvent('tiptop:ask-watch', { detail })),
-    { threadId: third, watching: false, answerId },
-  );
+  await askWatch(app, { threadId: third, watching: false, answerId });
   for (const threadId of [second, third]) {
     const read = app.waitForResponse((r) =>
       r.url().includes(`/api/ask/thread?id=${encodeURIComponent(threadId)}`),
@@ -303,17 +348,16 @@ test('a question starting to wait has a 0.4.1 app look for alerts soon, and an o
   ] as const) {
     const app = await appToday(context, version, []);
     const threadId = '00000000-0000-4000-8000-0000000e2e01';
-    await app.evaluate(
-      (detail) => window.dispatchEvent(new CustomEvent('tiptop:ask-watch', { detail })),
-      { threadId, watching: true },
-    );
+    await askWatch(app, { threadId, watching: true });
     // The widget took the conversation on...
     await expect
       .poll(() => app.evaluate(() => sessionStorage.getItem('tiptop-ask-watching') ?? ''))
       .toContain(threadId);
-    // ...and asked the shell, from 0.4.1 only.
-    if (asked) await expect.poll(() => alertCalls(app)).toContain('alerts_poll_soon');
-    else expect(await alertCalls(app)).not.toContain('alerts_poll_soon');
+    // ...and asked the shell, from 0.4.1 only, once.
+    const pollSoon = async () =>
+      (await alertCalls(app)).filter((cmd) => cmd === 'alerts_poll_soon').length;
+    if (asked) await expect.poll(pollSoon).toBe(1);
+    else expect(await pollSoon()).toBe(0);
     await app.close();
   }
 });

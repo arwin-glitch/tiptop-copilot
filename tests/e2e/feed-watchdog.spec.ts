@@ -70,6 +70,11 @@ test('Diagnostics keeps its setup report and puts the feeds one click away', asy
     'normal when there was nothing new',
   );
   await expect(feeds.locator('li[data-feed="meeting-notes"]')).toContainText('Running');
+  // A post read less one item it could not read: the rest showed, and it says so.
+  const week = feeds.locator('li[data-feed="week-ahead"]');
+  await expect(week).toContainText('Running');
+  await expect(week).toContainText('1 item in the newest post was skipped');
+  await expect(week).not.toContainText('kept the older copy');
   await expect(feeds.locator('li[data-feed="lp-update"]')).toContainText(
     'normal for a feed that runs less often than that',
   );

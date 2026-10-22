@@ -6,6 +6,7 @@ import { log } from '@/lib/security/redact';
 import { slackTsToIso, type SlackMessage } from '@/lib/slack/relay-history';
 import type { AuditEvent, Integration, Task } from '@/lib/types/domain';
 import { unwrapSlackText } from '@/lib/util/slack-text';
+import { softText } from '@/lib/relay/soft-fields';
 import { autoCloseStatesProof } from '@/lib/tasks/money-legal';
 import { formatMonthDay, formatTime, localClock, localDateKey } from '@/lib/util/time';
 import { isMoneyLegalTask, recordNeedsProof } from './money-legal-records';
@@ -60,6 +61,7 @@ const SUGGESTED_LOOKBACK_MS = 7 * 86_400_000;
 
 export const TASK_CLOSE_SCHEMA = z.object({
   task_id: z.string().trim().regex(UUID_RE, 'must be a task id').optional(),
+  // Strict: a close is matched to its task by this title.
   title: z.string().trim().min(1).max(300),
   kind: z.enum(CLOSE_KINDS),
   evidence_at: z.string().datetime({ offset: true }),
@@ -69,7 +71,8 @@ export const TASK_CLOSE_SCHEMA = z.object({
     thread_id: z.string().trim().min(1).max(200).optional(),
     to: z.array(z.string().trim().max(320)).max(20).optional(),
   }),
-  reason: z.string().trim().min(1).max(300),
+  /** Display only: a long one is cut at a word, never a reason to drop the close (D-073). */
+  reason: softText(300),
 });
 
 export type TaskClose = z.infer<typeof TASK_CLOSE_SCHEMA>;

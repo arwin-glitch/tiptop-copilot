@@ -3,6 +3,7 @@ import { env } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
+import { softOptionalText } from '@/lib/relay/soft-fields';
 import type { PortfolioCompany, PortfolioContact } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { unwrapSlackText } from '@/lib/util/slack-text';
@@ -24,15 +25,18 @@ export const PORTFOLIO_INGEST_SCHEMA = z.object({
   companies: z
     .array(
       z.object({
+        // Strict: the company is found (or added) by its name.
         name: z.string().trim().min(1).max(200),
         stage: z.string().trim().max(100).nullish(),
-        description: z.string().trim().max(500).nullish(),
-        sector: z.string().trim().max(200).nullish(),
-        geography: z.string().trim().max(200).nullish(),
-        deal_source: z.string().trim().max(100).nullish(),
-        co_investors: z.string().trim().max(500).nullish(),
+        // Display text: a long one is cut at a word rather than costing the post (D-073).
+        description: softOptionalText(500),
+        sector: softOptionalText(200),
+        geography: softOptionalText(200),
+        deal_source: softOptionalText(100),
+        co_investors: softOptionalText(500),
         website: z.string().trim().max(500).nullish(),
-        latest_round: z.string().trim().max(200).nullish(),
+        latest_round: softOptionalText(200),
+        // Strict: a founder becomes a contact, found again by name.
         founder: z.string().trim().max(200).nullish(),
         founder_email: z.string().trim().email().max(320).nullish(),
         /** Every founder / co-founder; `founder` above is the single-person shorthand. */
@@ -40,7 +44,7 @@ export const PORTFOLIO_INGEST_SCHEMA = z.object({
           .array(
             z.object({
               name: z.string().trim().min(1).max(200),
-              title: z.string().trim().max(100).nullish(),
+              title: softOptionalText(100),
               email: z.string().trim().email().max(320).nullish(),
             }),
           )

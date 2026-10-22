@@ -4,14 +4,10 @@ import type { AuthContext } from '@/lib/auth/session';
 import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
+import { listOrganizationMembers } from '@/lib/db/members';
 import { soleOrganizationId } from '@/lib/db/tenancy';
 import { syncMailbox } from '@/lib/services/inbox';
-import type {
-  Integration,
-  Organization,
-  OrganizationMember,
-  UserProfile,
-} from '@/lib/types/domain';
+import type { Integration, Organization, UserProfile } from '@/lib/types/domain';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -157,8 +153,9 @@ async function authForIntegration(integration: Integration): Promise<AuthContext
   const profile = (await store.userProfileById(integration.user_id)) as UserProfile | null;
   if (!profile) return null;
 
-  const members = (await store.list('organization_members', organization.id, {})) as
-    OrganizationMember[] | [];
+  // A member of this organization: the table is not scoped by the id `list`
+  // takes, and a membership elsewhere is no reason to act here.
+  const members = await listOrganizationMembers(store, organization.id);
   const membership = members.find((m) => m.user_id === integration.user_id);
   if (!membership) return null;
 
