@@ -468,25 +468,14 @@ in-app updates can stop until a new one is set.
 Meeting transcripts and notes recorded by Copilot itself (D-076). Off until
 `NOTES_ENABLED` is set; apply `20261024000000_copilot_notes.sql` first. Every
 value here is set by a person on Render, never by an agent and never in the
-repository. The browser never sees a long-lived key: it gets a speech key that
-lives 60 seconds. Demo mode needs none of these and calls no vendor.
+repository. Speech-to-text needs no key and costs nothing: the recorder's
+browser runs Whisper itself (models from huggingface.co, cached in the
+browser). Demo mode needs none of these and runs no model.
 
 ### `NOTES_ENABLED`
 
 `off` (unset: the feature is hidden and its routes answer 404), `beta` (on for
 whoever turns on "Copilot Notes (beta)" in Settings) or `on` (everyone).
-
-### `TRANSCRIBER_PROVIDER` · `TRANSCRIBER_REGION`
-
-`speechmatics` (default) or `assemblyai`, and the vendor region the browser
-streams to (`us` by default, which keeps the data in the US).
-
-### `SPEECHMATICS_API_KEY` · `ASSEMBLYAI_API_KEY`
-
-The vendor keys; only the one for `TRANSCRIBER_PROVIDER` is used. Unset, the
-Record button says recording is not set up yet; typed notes still work. Do not
-opt either account into model training (Speechmatics' training discount opts
-your audio in; AssemblyAI keeps nothing once training is opted out).
 
 ### `NOTES_SHARE_PEPPER`
 
@@ -497,8 +486,9 @@ existing link.
 ### `VOICEPRINT_ENC_KEY`
 
 32 random bytes, base64, like `APP_ENCRYPTION_KEY` but a different value.
-Seals voice identifiers (biometric data) at rest. Unset, nobody can be
-enrolled; names come from the mic, the calendar and taps.
+Seals voiceprints (speaker embeddings made in the recorder's browser;
+biometric data) at rest. Unset, nobody can be enrolled; names come from the
+mic, the on-device voice clustering, the calendar and taps.
 
 ### `MEETING_FOLLOWUP_FIRE_URL` · `MEETING_FOLLOWUP_FIRE_TOKEN`
 

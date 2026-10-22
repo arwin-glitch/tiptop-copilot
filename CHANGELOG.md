@@ -10,10 +10,24 @@ throughout.
 
 ## [Unreleased]
 
+- **Copilot Notes hears meetings for free, on your own computer (still off by
+  default).** No paid speech service any more: your browser turns speech into
+  text itself, with the free Whisper model, and the audio never leaves your
+  computer; only the finished lines are saved. The model downloads once (Fast
+  is about 80 to 210 MB, depending on your computer) and stays in the browser.
+  Notes settings has a new Speech tab: pick Fast, Better or Best, see what each
+  downloads, and "Test my setup" records five seconds and shows how fast this
+  computer keeps up. While recording, the recorder says when speech is getting
+  ready the first time, and after Stop it finishes the transcript before the
+  notes ("Finishing transcript…"), so a slow computer never loses words.
+  Copilot also tells the other voices apart on your computer (Speaker A, B…),
+  and a voice someone agreed to have remembered is named from its first word.
+  Going offline no longer stops the transcript, only saving it. (D-076)
+
 - **Copilot Notes, put together (still off by default).** The meeting page now
   records for real in Chrome and Edge: your microphone and the meeting tab you
   share, or one microphone for everyone "in the room" (the way an iPhone
-  records), each sent straight to the speech service. Level bars and plain
+  records), each turned into text on your computer. Level bars and plain
   warnings ("no meeting audio") sit under the red recording pill, and a page
   reloaded mid-meeting offers Resume. A recording that stops by itself (a long
   silence, the call ending) writes the notes just as Stop does, and a rename no

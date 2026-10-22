@@ -238,7 +238,12 @@ pages, for the Copilot Notes recorder (D-076); the browser still asks before
 either starts. They stay off on the pages outsiders open (`/n`, `/meet`,
 `/t`). Allowing them only on the meeting page would not work: the policy
 belongs to the document, and Copilot moves between pages without loading a
-new one. `connect-src` adds the two speech vendors' sockets. A shared note's
+new one. Speech is transcribed in the recorder's browser (D-076), so the
+policy adds no speech service: `connect-src` adds huggingface.co and its
+`*.hf.co` storage (the free models download once, nothing is sent there),
+`worker-src` allows Copilot's own speech worker (`'self' blob:`), and
+`script-src` adds `'wasm-unsafe-eval'` for the model runtime, whose WebAssembly
+file Copilot serves itself (no CDN). A shared note's
 page (`/n/<token>`) is also sent `X-Robots-Tag: noindex, nofollow`,
 `Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
 
