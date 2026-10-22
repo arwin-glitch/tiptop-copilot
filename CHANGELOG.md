@@ -10,6 +10,22 @@ throughout.
 
 ## [Unreleased]
 
+- **Booking link fixes after the first live test.** In-person times no longer
+  vanish for every date while Nick's Google Calendar is still set to another
+  time zone from a trip: in person now pauses only until the day his flight
+  home lands, and opens again from the next day (if no flight home is on the
+  calendar, it stays paused, as before). A home city typed as "Austin, Texas"
+  now matches "Flight to Austin". Times are held to Central (Nick's own clock):
+  nothing starts before 8:00 AM, calls, coffee and lunch end by 6:00 PM (the
+  last call is 5:30 to 6:00), and dinner is 6:00 to 7:00 PM. Calls can use a
+  saved video link (Settings > Booking link > "Video link for calls", for
+  example a Zoom room) instead of Google Meet; the link goes only into the
+  invite, and the public page just says "30-min Zoom call". Nick is now on the
+  invite himself, first on the guest list, with the visitor after him. The
+  public page and the chatbot no longer say a person ("Arwin", "the team")
+  confirms anything: the sent message reads "Request sent. You'll get a
+  calendar invitation once the time is booked." No database update needed.
+
 - **A public job board for the portfolio's open roles, with a button on
   Portfolio › Jobs to open it.** Jobs now has a "Public job board" bar with
   View public board (opens it in a new tab), Copy link, an on/off switch, a

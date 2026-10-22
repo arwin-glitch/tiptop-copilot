@@ -2682,8 +2682,9 @@ him), a public chatbot that calls itself Arwin, and "don't create chaos".
   responseStatus: 'accepted' }` (never emailed), then the requester, once each;
   and `notify: 'send'` (sendUpdates `all`: approving is the person's Send). The
   public page, its routes and the chatbot never see the video link, only a
-  label from `videoProviderLabel` ("30-min Zoom call"). The drawer asks once more first ("Add to Nick's calendar and
-  email an invitation to …?"), marks every address "Email not checked", and
+  label from `videoProviderLabel` ("30-min Zoom call"). The drawer asks once
+  more first ("Add to Nick's calendar and email an invitation to …?"), marks
+  every address "Email not checked", and
   offers only Decline once a request's time has passed (Today's count leaves
   those out). If Google's answer is lost (a timeout), the claim stays for its
   two minutes and the drawer says to check the calendar first, so a retry
@@ -2765,6 +2766,35 @@ him), a public chatbot that calls itself Arwin, and "don't create chaos".
 - Requests are judged again at approval: one approved after the day filled up
   by hand is refused, not squeezed in.
 - Instant booking is stored but does not book on its own (above).
+
+**Amended 2026-10-22, after Arwin tested the live link that day.** Four fixes,
+no migration (all in the settings document, read with defaults):
+
+- **In person pauses per trip, not for every date.** Nick's main calendar was
+  still on Pacific time after a San Francisco trip, so the old switch ("none
+  at all while his main calendar is set to another zone's clock") hid in
+  person on every day. Now `inPersonPausedThrough` (`lib/booking/busy.ts`)
+  pauses it only through the host-zone day his next journey home lands (a
+  flight whose title or Gmail route line ends in the home city or one of its
+  other names; a red-eye counts for the day it lands); later days open as
+  usual, travel days still apply, and with no journey home inside the horizon
+  every day stays paused (the safe default). A home city saved as
+  "City, State" matches the plain city name. The refusal reads "In person is
+  paused until <host> is back (from <day>)."
+- **Hard hours in the host's zone** (`BOOKING_EARLIEST_START` 08:00,
+  `BOOKING_LATEST_END` 18:00, `DINNER_WINDOW` 18:00–19:00 in
+  `lib/booking/config.ts`): nothing starts before 8:00 Central, calls, coffee
+  and lunch end by 18:00 (last call 17:30), dinner is 18:00–19:00 only. They
+  replace the 09:00–17:00 / 08:30–11:00, 14:00–16:00 / 18:00–19:30 windows
+  above. Settings refuses a window outside them; a stored window is clamped
+  on read (one wholly outside is dropped), and a stored window still equal to
+  the old defaults reads as the new defaults, since it was never chosen.
+  Approve re-checks the time on the host's clock whatever Settings holds.
+- **Calls on a saved video link and the host on the invite**, as described in
+  the Approve bullet above (`callLink`, `organizerEmail`).
+- **No visitor-facing text says a person confirms** ("Arwin confirms", "Arwin
+  will reply", "from the team" are gone from the page, the chatbot and the
+  error messages); the chatbot still calls itself Arwin, the AI.
 
 ### D-077 — A public job board: published by a person, read from companies' own boards, off until switched on
 
