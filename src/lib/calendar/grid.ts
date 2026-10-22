@@ -325,6 +325,17 @@ export function layoutColumns(
 export const SIDE_BY_SIDE_MINUTES = 45;
 /** The narrowest an event is drawn on a computer, in px: more than fit fold into "+N". */
 export const MIN_CHIP_PX = 36;
+/**
+ * How far under the minimum a chip may be drawn so that a column a hair too
+ * narrow still takes one more side by side, in px per chip (D-072). Columns
+ * are measured to fractions of a pixel: at 1440px a Week column is about
+ * 116.9px with its border, 115.86px inside, about 1.1px short of three 39px
+ * slots (36px and the 3px gap), so three meetings starting together drew one
+ * chip and a "+2". With half a pixel each (1.5px across three) they fit,
+ * each about 35.6px; a column shorter than that still folds, and a cascade
+ * still stops at the minimum itself.
+ */
+export const MIN_CHIP_TOLERANCE_PX = 0.5;
 
 /** How far a cascaded event sits right of the one beneath it: a tenth of the column, 6 to 40px. */
 export function cascadeIndentPx(columnPx: number): number {
@@ -336,6 +347,8 @@ export interface OverlapOptions {
   columnPx: number;
   /** The narrowest a chip may be drawn, in px (MIN_CHIP_PX by default). */
   minChipPx?: number;
+  /** How far under `minChipPx` a chip may be drawn to fit one more side by side (MIN_CHIP_TOLERANCE_PX). */
+  tolerancePx?: number;
   /** How far a cascaded event is shifted right, in px (cascadeIndentPx by default). */
   indentPx?: number;
   sideBySideMinutes?: number;
@@ -384,9 +397,10 @@ export interface OverlapLayout {
  *   and runs to the column's right edge. A long block (a conference day,
  *   travel, a hold) therefore never squeezes a short meeting into a sliver:
  *   the meeting sits over it, nearly full width.
- * - No chip is narrower than `minChipPx`: a cascade too deep moves left
- *   again; a row with more side-by-side events than fit shows what fits and
- *   folds the rest into a "+N" in the last slot.
+ * - No chip is narrower than `minChipPx` (side by side, up to `tolerancePx`
+ *   less, so a column a hair too narrow still takes one more): a cascade too
+ *   deep moves left again; a row with more side-by-side events than fit
+ *   shows what fits and folds the rest into a "+N" in the last slot.
  *
  * Later starts are drawn on top. Every event is either placed or in exactly
  * one fold, and the result does not depend on the order the events come in.
@@ -398,9 +412,15 @@ export function layoutOverlaps(
   const near = options.sideBySideMinutes ?? SIDE_BY_SIDE_MINUTES;
   const minDuration = options.minDuration ?? MIN_DRAWN_MINUTES;
   const columnPx = Math.max(1, options.columnPx);
-  const minFrac = Math.min(1, Math.max(1, options.minChipPx ?? MIN_CHIP_PX) / columnPx);
+  const minPx = Math.max(1, options.minChipPx ?? MIN_CHIP_PX);
+  const minFrac = Math.min(1, minPx / columnPx);
   const indent = (options.indentPx ?? cascadeIndentPx(columnPx)) / columnPx;
-  const maxCols = Math.max(1, Math.floor(1 / minFrac + 1e-9));
+  // How many fit side by side: each may be up to the tolerance under the minimum.
+  const tolerancePx = Math.min(
+    minPx / 2,
+    Math.max(0, options.tolerancePx ?? MIN_CHIP_TOLERANCE_PX),
+  );
+  const maxCols = Math.max(1, Math.floor(columnPx / (minPx - tolerancePx) + 1e-9));
 
   const seen = new Set<string>();
   const sorted = items

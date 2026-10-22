@@ -15,8 +15,9 @@ import { expect, test, type Page } from '@playwright/test';
  *
  * On the demo's conference day, long overlapping blocks lie under short
  * meetings, as on a real busy day: the overlap layout must keep every chip at
- * least MIN_CHIP_PX wide, never break a title inside a word, fold what does
- * not fit into a "+N", and keep a phone from scrolling sideways.
+ * least MIN_CHIP_PX wide (side by side, half a pixel less at most, so three
+ * meetings at noon fit at 1440), never break a title inside a word, fold
+ * what does not fit into a "+N", and keep a phone from scrolling sideways.
  */
 
 const SIGNED_IN = path.resolve('test-results', 'calendar-default-state.json');
@@ -188,6 +189,29 @@ test('a busy day: long blocks cascade under meetings, no chip under the minimum,
   expect(await long.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
 });
 
+test('three meetings starting together fit side by side at 1440, half a pixel each to spare', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const busy = dayFromToday(BUSY_DAY);
+  await page.goto(`/calendar?view=week&date=${busy}`);
+  const column = page.locator(`[data-date="${busy}"]`);
+  await expect(column.locator('[data-event-chip]').first()).toBeVisible();
+  // A Week column here (inside its 1px border) is a hair short of three full slots: they fit anyway.
+  const inside = (await column.boundingBox())!.width - 1;
+  expect(inside).toBeLessThan(3 * (MIN_CHIP_PX + 3));
+  await expect(column.getByRole('button', { name: /more events from 12pm/ })).toHaveCount(0);
+  const chips = await chipsOn(page, busy);
+  for (const title of ['LP check-in: Harborview', 'Panel run-through', 'Quick sync: Jordan']) {
+    const chip = chips.find((c) => c.label.includes(title));
+    expect(chip, title).toBeDefined();
+    expect(chip!.fold).toBe(false);
+    // At most half a pixel under the minimum (MIN_CHIP_TOLERANCE_PX).
+    expect(chip!.width, title).toBeGreaterThanOrEqual(MIN_CHIP_PX - 0.5);
+  }
+  await page.screenshot({ path: 'test-results/calendar-noon-three-1440.png' });
+});
+
 test('a "+N" holds what does not fit beside the others and lists it', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   const busy = dayFromToday(BUSY_DAY);
@@ -338,7 +362,8 @@ test('closing a long block’s card with Esc leaves the meetings drawn over it o
 });
 
 test('a dragged event stays drawn, on top, even over a crowded "+N"', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
+  // At 1280 the noon three take two slots and a "+2" (at 1440 they fit, see below).
+  await page.setViewportSize({ width: 1280, height: 720 });
   const busy = dayFromToday(BUSY_DAY);
   await page.goto(`/calendar?view=week&date=${busy}`);
   const column = page.locator(`[data-date="${busy}"]`);

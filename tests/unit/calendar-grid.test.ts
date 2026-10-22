@@ -7,6 +7,8 @@ import {
   isDateKey,
   layoutColumns,
   layoutOverlaps,
+  MIN_CHIP_PX,
+  MIN_CHIP_TOLERANCE_PX,
   minutesIntoDay,
   monthWeeks,
   packWeek,
@@ -291,6 +293,37 @@ describe('a busy day laid out as Google Calendar does: cascading, side by side, 
         z: 5,
       },
     ]);
+  });
+
+  it('fits one more chip in a column a hair short of the room, and no further (D-072)', () => {
+    // Three meetings at noon in Week at 1440px: a column 115.86px inside,
+    // about 1.1px short of three 39px slots (36px and the 3px gap).
+    const noon = ['lp', 'panel', 'sync'].map((k) => item(k, at(12), at(12, 45)));
+    const slot = MIN_CHIP_PX + 3;
+    expect(MIN_CHIP_TOLERANCE_PX).toBe(0.5);
+    const fits = (columnPx: number) => layoutOverlaps(noon, { columnPx, minChipPx: slot });
+
+    const at1440 = fits(115.86);
+    expect(at1440.folds).toEqual([]);
+    expect([...at1440.chips.keys()].sort()).toEqual(['lp', 'panel', 'sync']);
+    // Each at most half a pixel under its slot.
+    for (const chip of at1440.chips.values()) {
+      expect(chip.width * 115.86).toBeGreaterThanOrEqual(slot - MIN_CHIP_TOLERANCE_PX);
+    }
+    // The boundary: three slots each half a pixel short still fit; any less folds into a "+2".
+    expect(fits(3 * (slot - MIN_CHIP_TOLERANCE_PX)).folds).toEqual([]);
+    const short = fits(3 * (slot - MIN_CHIP_TOLERANCE_PX) - 0.01);
+    expect([...short.chips.keys()]).toEqual(['lp']);
+    expect(short.folds.map((f) => f.keys)).toEqual([['panel', 'sync']]);
+    // With no tolerance, the hard minimum alone: the 1440 column folds.
+    expect(
+      layoutOverlaps(noon, { columnPx: 115.86, minChipPx: slot, tolerancePx: 0 }).folds,
+    ).toHaveLength(1);
+    // A cascade too deep still stops at the minimum itself.
+    const deep = Array.from({ length: 12 }, (_, i) => item(`block${i}`, at(6 + i), at(23)));
+    for (const chip of layoutOverlaps(deep, { columnPx: 80, minChipPx: 36 }).chips.values()) {
+      expect(chip.width * 80).toBeGreaterThanOrEqual(36 - 1e-9);
+    }
   });
 
   it('folds each stretch of crowded time on its own, and shows a lone one as itself', () => {
