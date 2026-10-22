@@ -185,8 +185,6 @@ export function TimeGrid({
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
   const pending = React.useRef<Pending | null>(null);
-  // A "+N" list is open: a press elsewhere on the grid only closes it, as in Google.
-  const foldOpen = React.useRef(false);
   const [drag, setDragState] = React.useState<Drag | null>(null);
   // The handlers read the drag from the ref (no stale closure); the render reads the state.
   const dragRef = React.useRef<Drag | null>(null);
@@ -297,7 +295,11 @@ export function TimeGrid({
   });
 
   function onPointerDownEmpty(e: React.PointerEvent<HTMLDivElement>) {
-    if (!canEdit || e.button !== 0 || foldOpen.current) return;
+    if (!canEdit || e.button !== 0) return;
+    // A "+N" list is open: a press elsewhere on the grid only closes it, as in
+    // Google. Asked of the page, not remembered, so a "+N" that goes away
+    // while its list is open (the window resized) cannot leave the grid deaf.
+    if (document.querySelector('[data-fold-list]')) return;
     // A press in a "+N" list (drawn elsewhere on the page) is not a press on the grid.
     if (!(e.target instanceof Node) || !contentRef.current?.contains(e.target)) return;
     if ((e.target as HTMLElement).closest('[data-event-chip], [data-event-fold]')) return;
@@ -586,9 +588,6 @@ export function TimeGrid({
                         z={fold.z}
                         timeZone={timeZone}
                         onOpen={onOpen}
-                        onOpenChange={(open) => {
-                          foldOpen.current = open;
-                        }}
                       />
                     );
                   }
@@ -819,7 +818,6 @@ function FoldChip({
   z,
   timeZone,
   onOpen,
-  onOpenChange,
 }: {
   events: RangeEvent[];
   top: number;
@@ -829,13 +827,12 @@ function FoldChip({
   z: number;
   timeZone: string;
   onOpen: (event: RangeEvent, element: HTMLElement) => void;
-  onOpenChange: (open: boolean) => void;
 }) {
   const trigger = React.useRef<HTMLButtonElement>(null);
   const first = events[0];
   if (!first?.startsAt) return null;
   return (
-    <Popover onOpenChange={onOpenChange}>
+    <Popover>
       <PopoverTrigger asChild>
         <button
           ref={trigger}
@@ -855,7 +852,7 @@ function FoldChip({
           +{events.length}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64">
+      <PopoverContent align="start" className="w-64" data-fold-list="">
         <ul className="space-y-0.5">
           {events.map((e) => (
             <li key={e.key}>

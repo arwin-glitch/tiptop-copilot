@@ -50,6 +50,13 @@ const grid = (page: Page, view: 'day' | 'week' | 'month') =>
   page.locator(`[data-calendar-view="${view}"]`);
 const dayList = (page: Page) => page.getByRole('navigation', { name: 'Day' });
 const toggle = (page: Page) => page.getByRole('switch', { name: 'New calendar' });
+/**
+ * A day of the busy week with nothing on it, for a press on empty time. Not
+ * simply the day beside the busy one: depending on today's weekday that can
+ * be the day after it, which is busy too.
+ */
+const EMPTY_DAY =
+  '[data-calendar-view="week"] [data-date]:not(:has([data-event-chip], [data-event-fold]))';
 
 /** Each chip and "+N" on a day: its drawn width, and whether it was cascaded. */
 async function chipsOn(page: Page, date: string) {
@@ -196,9 +203,7 @@ test('a "+N" holds what does not fit beside the others and lists it', async ({ p
   await expect(list.getByText('Panel run-through')).toBeVisible();
 
   // A press on empty time elsewhere only closes the list, as in Google: no new event.
-  const otherDay = page
-    .locator(`[data-calendar-view="week"] [data-date]:not([data-date="${busy}"])`)
-    .first();
+  const otherDay = page.locator(EMPTY_DAY).first();
   const box = (await otherDay.boundingBox())!;
   const scrolled = await page
     .locator('[data-calendar-view="week"] .overflow-y-auto')
@@ -217,6 +222,32 @@ test('a "+N" holds what does not fit beside the others and lists it', async ({ p
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(more).toBeFocused();
+});
+
+test('a "+N" that goes away while its list is open leaves the grid working', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const busy = dayFromToday(BUSY_DAY);
+  await page.goto(`/calendar?view=week&date=${busy}`);
+  const more = page
+    .locator(`[data-date="${busy}"]`)
+    .getByRole('button', { name: /^2 more events from 12pm$/ });
+  await more.click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  // A pixel narrower, the calendars panel leaves the side, three fit at noon,
+  // and the "+2" (with its open list) is gone.
+  await page.setViewportSize({ width: 1279, height: 720 });
+  await expect(page.locator('[data-event-fold]')).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  // A press on empty time still starts a new event.
+  const otherDay = page.locator(EMPTY_DAY).first();
+  const box = (await otherDay.boundingBox())!;
+  const scrolled = await page
+    .locator('[data-calendar-view="week"] .overflow-y-auto')
+    .evaluate((el) => el.scrollTop);
+  await page.mouse.click(box.x + box.width / 2, box.y + scrolled + 40);
+  await expect(page.locator('[data-new-event]')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-new-event]')).toHaveCount(0);
 });
 
 test('a laptop at 1024px: the calendars move behind their button, and chips keep the minimum', async ({
