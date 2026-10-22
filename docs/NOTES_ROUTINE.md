@@ -43,17 +43,25 @@ allowance, so the app never fires more than that.
 | `ASK_ROUTINE_FIRE_URL` / `ASK_ROUTINE_TOKEN` | The request stays pending with Quick notes on the page. The app has no posting path to the relay, so it does not post the request anywhere; the routine's hourly run never sees it. The page says Arwin's routine is not connected. |
 | The trigger refuses or is down | The request stays pending. Each poll from someone who can see the meeting fires it again after a back-off (1, 2, 4, 8, 16 minutes; six tries). |
 | `ASK_RELAY_SLACK_TOKEN` | Results cannot be read back; the request expires after a day. |
+| `NOTES_RELAY_CHANNEL_ID` (or it names the Ask relay channel) | Nothing is sent to the routine at all; the request stays pending with Quick notes and the page says the routine is not connected. Notes need a private channel of their own. |
+| A result posted by another account | Ignored: only `NOTES_RELAY_POSTER_IDS` (default: the routines' own account, `TASK_RELAY_POSTER_IDS`) is read, because a result files tasks. |
 | No result within a day | The request expires. The Quick notes stay; "Ask Arwin again" asks once more. |
 | `ASK_BRIDGE_TOKEN` (chat only) | The chat quotes the matching lines at once, without the routine. |
 
 `NOTES_FIRE_MAX_CHARS` (default 60,000) caps the fire text. A longer meeting is
 condensed: consecutive lines of one speaker merged, fillers dropped, then the
 middle trimmed evenly with a `[... N lines omitted ...]` marker. Every line
-kept keeps its id. `NOTES_RELAY_CHANNEL_ID` (default: the Ask relay channel)
-is where the app reads results from, and it is sent to the routine as
-`relay_channel`. Set it to a private channel so meeting notes stay out of a
-channel every member can read; the Slack app then needs `groups:history` and
-membership there.
+kept keeps its id. `NOTES_RELAY_CHANNEL_ID` (required, a private channel
+apart from the Ask relay channel) is where the app reads results from, and it
+is sent to the routine as `relay_channel`. The Slack app needs
+`groups:history` and membership there, and the routine's account must be able
+to post there. Give the channel a one-day message retention: Copilot cannot
+delete what is posted there.
+
+Results are read soon after they are posted: the phone-alert job's minute
+call settles them through the day, as do the meeting page, the Notes list
+and the daily job. An answer already in the channel is stored even when it is
+read after its request's day is up.
 
 ## 3. The prompt sections to add
 

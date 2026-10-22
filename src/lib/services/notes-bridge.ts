@@ -17,13 +17,13 @@ import {
   type StoredParts,
 } from '@/lib/notes/bridge-protocol';
 import { notesAsText } from '@/lib/notes/draft';
-import { readRelay, relayReadable } from '@/lib/notes/relay';
+import { fromTrustedPoster, notesRelayChannel, readRelay, relayReadable } from '@/lib/notes/relay';
 import { assemblySpeakers } from '@/lib/notes/voices';
 import { recordAudit } from '@/lib/security/audit';
 import { scanForInjection } from '@/lib/security/injection';
 import { log } from '@/lib/security/redact';
 import { speakerDisplayName } from '@/lib/speakers/ladder';
-import type { MeetingNote, Task } from '@/lib/types/domain';
+import type { MeetingNote, Organization, Task } from '@/lib/types/domain';
 import {
   isBuiltinTemplateId,
   type ActionItem,
@@ -40,7 +40,7 @@ import { DEFAULT_TIMEZONE, localDateKey } from '@/lib/util/time';
 import { directCallConfigured, fireRoutineText } from './ask-routine';
 import { readTeamInfo, type TeamInfo } from './notes-context';
 import { fireMeetingFollowUp } from './notes-followup';
-import { templateViewFor, type NotesContext } from './notes';
+import { canSeeMeeting, templateViewFor, type NotesContext } from './notes';
 import { ingestTasks, normalizeTitle } from './task-ingest';
 
 /**
@@ -52,16 +52,19 @@ import { ingestTasks, normalizeTitle } from './task-ingest';
  *     → requestArwinNotes: a notes_requests row (pending) and the routine
  *       fired with NOTES_REQUEST_V1 (lib/notes/bridge-protocol.ts). The Quick
  *       notes (rules only) are already on the page meanwhile.
- *   the meeting page's poll, the daily job
- *     → settleNotesFromRelay: NOTES_RESULT_V1 parts read from the relay,
- *       put together, checked, stored as the notes; action items filed as
- *       tasks through the tasks service, once; the follow-up routine fired.
+ *   the meeting page's poll, the Notes list, the phone-alert job's
+ *   minute-by-minute call (settleNotesForAll), the daily job
+ *     → settleNotesFromRelay: NOTES_RESULT_V1 parts read from the relay
+ *       (from the routines' own Slack account only), put together, checked,
+ *       stored as the notes; action items filed as tasks through the tasks
+ *       service, once; the follow-up routine fired.
  *
  * A trigger that is missing or fails leaves the request pending (and a later
  * poll by someone who can see the meeting fires it again, with a back-off);
  * nothing posts the request to Slack, because the app has no posting path
- * there. A request with no answer within a day expires, and the Quick notes
- * stay.
+ * there. Nothing is sent at all until a private relay channel of its own is
+ * set (notesRelayChannel). A request with no answer within a day expires,
+ * and the Quick notes stay; an answer already in the relay is stored first.
  */
 
 /** A request with no answer by then expires. */
@@ -176,15 +179,25 @@ async function buildFor(
         startMs: l.start_ms,
         text: l.edited_text ?? l.text,
       })),
-      relayChannel: env().notesRelayChannelId,
+      relayChannel: notesRelayChannel() ?? '',
     },
     env().notesFireMaxChars,
   );
 }
 
-/** Demo mode never calls the trigger: the e2e tests play the routine through the demo relay. */
+/**
+ * Demo mode never calls the trigger: the e2e tests play the routine through
+ * the demo relay. Nor is anything sent while there is no private relay
+ * channel for the answer to come back through.
+ */
 async function fire(text: string, fetchImpl?: typeof fetch): Promise<boolean> {
   if (env().demoMode) return false;
+  if (!notesRelayChannel()) {
+    log.warn(
+      'Copilot Notes: no meeting is sent to the routine until NOTES_RELAY_CHANNEL_ID names a private channel apart from the Ask relay channel',
+    );
+    return false;
+  }
   return fireRoutineText(text, fetchImpl);
 }
 
@@ -283,7 +296,7 @@ async function refireWaiting(
   waiting: readonly NotesRequest[],
   fetchImpl?: typeof fetch,
 ): Promise<number> {
-  if (!directCallConfigured() || env().demoMode) return 0;
+  if (!directCallConfigured() || env().demoMode || !notesRelayChannel()) return 0;
   const now = nowOf(ctx);
   let fired = 0;
   for (const request of waiting) {
@@ -292,11 +305,7 @@ async function refireWaiting(
     if (now.getTime() - last < backoffMs(request.fire_attempts)) continue;
     const meeting = await ctx.store.get('meetings', ctx.auth.organizationId, request.meeting_id);
     if (!meeting || meeting.deleted_at) continue;
-    const visible =
-      meeting.visibility === 'team' ||
-      meeting.recorded_by === ctx.auth.userId ||
-      (meeting.shared_with ?? []).includes(ctx.auth.userId);
-    if (!visible) continue;
+    if (!canSeeMeeting(meeting, ctx.auth.userId)) continue;
     const material = await materialFor(
       { store: ctx.store, organizationId: ctx.auth.organizationId, now },
       meeting,
@@ -400,47 +409,79 @@ async function settleOnce(
   )) as NotesRequest[];
   if (pending.length === 0) return outcome;
 
+  // The answers first: one the routine posted is stored even when this look
+  // comes after its request's day is up (a weekend, a missed daily run).
+  const answered = new Set<string>();
+  const channel = notesRelayChannel();
+  if (channel && relayReadable()) {
+    const oldest = Math.min(...pending.map((r) => Date.parse(r.created_at))) - RELAY_LOOKBACK_MS;
+    const messages = await readRelay(
+      { channel, oldest: Math.max(0, oldest) / 1000 },
+      options.fetchImpl,
+    );
+    const byRequest = new Map<string, NotesResultPart[]>();
+    const ids = new Set(pending.map((r) => r.id));
+    // Oldest first, so a part posted twice keeps its first copy. Only the
+    // routines' own account: a result writes notes and files tasks.
+    for (const message of [...(messages ?? [])].reverse()) {
+      if (!fromTrustedPoster(message)) continue;
+      const part = parseNotesResultMessage(message.text);
+      if (!part || !ids.has(part.request_id)) continue;
+      byRequest.set(part.request_id, [...(byRequest.get(part.request_id) ?? []), part]);
+    }
+    for (const request of pending) {
+      const incoming = byRequest.get(request.id);
+      if (!incoming?.length) continue;
+      const { parts, complete } = collectParts(readStoredParts(request.parts), incoming);
+      if (!complete) {
+        await ctx.store.update('notes_requests', ctx.organizationId, request.id, {
+          parts: parts as unknown as Record<string, unknown>,
+        });
+        continue;
+      }
+      answered.add(request.id);
+      const applied = await applyResult(ctx, request, parts);
+      if (applied === 'ready') outcome.settled += 1;
+      else if (applied === 'failed') outcome.failed += 1;
+    }
+  }
+
   const waiting: NotesRequest[] = [];
   for (const request of pending) {
+    if (answered.has(request.id)) continue;
     if (Date.parse(request.expires_at) <= ctx.now.getTime()) {
       await expire(ctx, request, 'No notes came back within a day.');
       outcome.expired += 1;
     } else waiting.push(request);
   }
-  if (waiting.length === 0) return outcome;
-  if (options.ctx) outcome.refired = await refireWaiting(options.ctx, waiting, options.fetchImpl);
-  if (!relayReadable()) return outcome;
-
-  const oldest = Math.min(...waiting.map((r) => Date.parse(r.created_at))) - RELAY_LOOKBACK_MS;
-  const messages = await readRelay(
-    { channel: env().notesRelayChannelId, oldest: Math.max(0, oldest) / 1000 },
-    options.fetchImpl,
-  );
-  if (!messages) return outcome;
-
-  const byRequest = new Map<string, NotesResultPart[]>();
-  const ids = new Set(waiting.map((r) => r.id));
-  // Oldest first, so a part posted twice keeps its first copy.
-  for (const message of [...messages].reverse()) {
-    const part = parseNotesResultMessage(message.text);
-    if (!part || !ids.has(part.request_id)) continue;
-    byRequest.set(part.request_id, [...(byRequest.get(part.request_id) ?? []), part]);
-  }
-  for (const request of waiting) {
-    const incoming = byRequest.get(request.id);
-    if (!incoming?.length) continue;
-    const { parts, complete } = collectParts(readStoredParts(request.parts), incoming);
-    if (!complete) {
-      await ctx.store.update('notes_requests', ctx.organizationId, request.id, {
-        parts: parts as unknown as Record<string, unknown>,
-      });
-      continue;
-    }
-    const applied = await applyResult(ctx, request, parts);
-    if (applied === 'ready') outcome.settled += 1;
-    else if (applied === 'failed') outcome.failed += 1;
+  if (waiting.length > 0 && options.ctx) {
+    outcome.refired = await refireWaiting(options.ctx, waiting, options.fetchImpl);
   }
   return outcome;
+}
+
+/**
+ * Every organization's notes from the relay, for a job that runs often (the
+ * phone-alert sender calls every minute through the day), so Arwin's notes
+ * and the tasks from them land within minutes even when nobody opens the
+ * meeting. Throttled like a page poll; nothing to do while Notes is off.
+ * Never throws.
+ */
+export async function settleNotesForAll(store: DataStore, now: Date = new Date()): Promise<number> {
+  if (env().notesEnabled === 'off') return 0;
+  try {
+    const organizations = (await store.list('organizations', '', {})) as Organization[];
+    let settled = 0;
+    for (const org of organizations) {
+      settled += (await settleNotesFromRelay(store, org.id, { now })).settled;
+    }
+    return settled;
+  } catch (error) {
+    log.warn('Copilot Notes: settling every organization failed', {
+      reason: error instanceof Error ? error.message : 'unknown',
+    });
+    return 0;
+  }
 }
 
 async function expire(ctx: Required<BridgeStore>, request: NotesRequest, why: string) {

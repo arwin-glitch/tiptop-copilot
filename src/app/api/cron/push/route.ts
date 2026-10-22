@@ -3,7 +3,9 @@ import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
+import { afterResponse } from '@/lib/notes/background';
 import { recordJobHeartbeatForAll } from '@/lib/services/feed-health';
+import { settleNotesForAll } from '@/lib/services/notes-bridge';
 import { buildOutbox, recordDelivery, vapidPublicKey } from '@/lib/services/push-alerts';
 
 export const dynamic = 'force-dynamic';
@@ -47,6 +49,10 @@ export async function GET(request: NextRequest) {
   // written at most every ten minutes, and never throws.
   await recordJobHeartbeatForAll(getStore(), 'push-sender');
   const outbox = await buildOutbox(getStore(), new Date(), scope);
+  // Copilot Notes (D-076): this job calls every minute through the day, so
+  // Arwin's notes (and the tasks from them) land within minutes even when no
+  // meeting page is open. After the answer; a no-op while Notes is off.
+  await afterResponse('settle Arwin’s notes', () => settleNotesForAll(getStore()));
   return NextResponse.json(
     { ok: true, publicKey: vapidPublicKey(), outbox },
     { headers: { 'Cache-Control': 'no-store' } },

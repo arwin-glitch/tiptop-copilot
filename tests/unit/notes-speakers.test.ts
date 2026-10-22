@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { isEcho, overlapShare } from '@/lib/speakers/echo-dedupe';
 import { certaintyOf, mayOverride, newSpeakerRow, speakerDisplayName } from '@/lib/speakers/ladder';
 import { planMerge, planSplit } from '@/lib/speakers/split-merge';
-import { matchNeverRecord } from '@/lib/notes/never-record';
+import { LIST_RULE_LABEL, matchNeverRecord, rulesFromList } from '@/lib/notes/never-record';
 import type { MeetingSpeaker } from '@/lib/types/notes';
 
 /** The naming ladder, Split and Merge, echo removal and never-record rules (D-076). */
@@ -162,5 +162,29 @@ describe('never-record rules', () => {
       matchNeverRecord(subject('Sync', [], 'C_PRIVATE@group.calendar.google.com'), rules)?.ruleId,
     ).toBe('r3');
     expect(matchNeverRecord(subject('Legal sync'), rules, { includeDefaults: false })).toBeNull();
+  });
+
+  it("reads the server's own list: a domain, an address, or words in the title", () => {
+    const rules = rulesFromList([
+      'sistercap.example',
+      '@other-fund.example',
+      'pat@holdco.example',
+      'Sister Capital',
+      '  ',
+    ]);
+    expect(rules.map((r) => [r.kind, r.pattern])).toEqual([
+      ['attendee_domain', 'sistercap.example'],
+      ['attendee_domain', 'other-fund.example'],
+      ['attendee_email', 'pat@holdco.example'],
+      ['title', 'Sister Capital'],
+    ]);
+    expect(rules.every((r) => r.enabled && r.label === LIST_RULE_LABEL)).toBe(true);
+    expect(matchNeverRecord(subject('Weekly sync', ['dana@sistercap.example']), rules)?.label).toBe(
+      LIST_RULE_LABEL,
+    );
+    expect(matchNeverRecord(subject('Sister Capital quarterly'), rules)?.label).toBe(
+      LIST_RULE_LABEL,
+    );
+    expect(matchNeverRecord(subject('Weekly sync', ['dana@acme.example']), rules)).toBeNull();
   });
 });

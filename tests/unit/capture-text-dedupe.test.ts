@@ -3,6 +3,7 @@ import {
   dropRepeatedLead,
   isNoiseText,
   isSilencePhrase,
+  rollingTail,
   stripNoiseMarkers,
 } from '@/lib/capture/text-dedupe';
 
@@ -32,6 +33,20 @@ describe('dropping repeated words', () => {
       text: 'costs next.',
       dropped: 1,
     });
+  });
+
+  it('drops one short word when the caller knows it was heard in the re-sent overlap', () => {
+    expect(dropRepeatedLead('we finally signed the', 'the deal on Friday.', 12, 1)).toEqual({
+      text: 'deal on Friday.',
+      dropped: 1,
+    });
+    expect(dropRepeatedLead('we finally signed the', 'the deal on Friday.').dropped).toBe(0);
+  });
+
+  it('keeps a rolling tail of the last words said, across lines', () => {
+    expect(rollingTail('we finally signed the', 'deal.')).toBe('we finally signed the deal.');
+    expect(rollingTail('one two three', 'four five', 3)).toBe('three four five');
+    expect(rollingTail('', 'Right.')).toBe('Right.');
   });
 
   it('leaves text with nothing in common alone', () => {

@@ -19,6 +19,40 @@ export interface RelayMessage {
   text: string;
   /** Slack's message timestamp, "<seconds>.<micros>". */
   ts: string;
+  /** The Slack user who posted it; null for an app or a bot. */
+  user: string | null;
+  botId: string | null;
+  /** Slack, or demo mode's stand-in channel. */
+  source: 'slack' | 'demo';
+}
+
+/**
+ * Whether a relay message may be read as the routine's (D-076): only the
+ * accounts in NOTES_RELAY_POSTER_IDS (the routines' own, by default), since
+ * a result writes a meeting's notes and files tasks, and anyone in the
+ * channel could post one. Demo mode's stand-in is trusted in demo mode only.
+ */
+export function fromTrustedPoster(message: RelayMessage): boolean {
+  const e = env();
+  if (message.source === 'demo') return e.demoMode;
+  return message.user !== null && e.notesRelayPosterIds.includes(message.user);
+}
+
+/** Demo mode's stand-in channel has no Slack id. */
+const DEMO_CHANNEL = 'demo-relay';
+
+/**
+ * The channel Arwin's notes come back through (D-076): NOTES_RELAY_CHANNEL_ID,
+ * a private channel of its own. Null while none is set apart from the Ask
+ * relay channel (every member reads that one, and the Ask settle only looks
+ * at its last 100 messages): no meeting is sent to the routine until then,
+ * and meetings keep their Quick notes. Demo mode has its stand-in.
+ */
+export function notesRelayChannel(): string | null {
+  const e = env();
+  const id = e.notesRelayChannelId;
+  if (id && id !== e.askRelayChannelId) return id;
+  return e.demoMode ? DEMO_CHANNEL : null;
 }
 
 const SLACK_TIMEOUT_MS = 6_000;
@@ -40,7 +74,13 @@ export function relayReadable(): boolean {
 /** Demo mode only: a message as if the routine had posted it. */
 export function postDemoRelay(text: string, now: Date = new Date()): boolean {
   if (!env().demoMode) return false;
-  demo.messages.push({ text, ts: (now.getTime() / 1000).toFixed(6) });
+  demo.messages.push({
+    text,
+    ts: (now.getTime() / 1000).toFixed(6),
+    user: null,
+    botId: null,
+    source: 'demo',
+  });
   if (demo.messages.length > DEMO_MAX_MESSAGES)
     demo.messages.splice(0, demo.messages.length - DEMO_MAX_MESSAGES);
   return true;
@@ -91,7 +131,7 @@ export async function readRelay(
       const body = (await response.json()) as {
         ok?: boolean;
         error?: string;
-        messages?: Array<{ text?: unknown; ts?: unknown }>;
+        messages?: Array<{ text?: unknown; ts?: unknown; user?: unknown; bot_id?: unknown }>;
         has_more?: boolean;
         response_metadata?: { next_cursor?: string };
       };
@@ -100,7 +140,14 @@ export async function readRelay(
         return out.length ? out : null;
       }
       for (const m of body.messages ?? []) {
-        if (typeof m.text === 'string') out.push({ text: m.text, ts: String(m.ts ?? '') });
+        if (typeof m.text !== 'string') continue;
+        out.push({
+          text: m.text,
+          ts: String(m.ts ?? ''),
+          user: typeof m.user === 'string' ? m.user : null,
+          botId: typeof m.bot_id === 'string' ? m.bot_id : null,
+          source: 'slack',
+        });
       }
       cursor = body.response_metadata?.next_cursor || undefined;
       if (!body.has_more || !cursor) break;

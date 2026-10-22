@@ -477,6 +477,24 @@ browser). Demo mode needs none of these and runs no model.
 
 `off` (unset: the feature is hidden and its routes answer 404), `beta` (on for
 whoever turns on "Copilot Notes (beta)" in Settings) or `on` (everyone).
+Before it is anything but `off`, set `NOTES_NEVER_RECORD` and
+`NOTES_RELAY_CHANNEL_ID` below: without the first nothing records, without
+the second Arwin never writes the notes.
+
+### `NOTES_NEVER_RECORD`
+
+Required before the first recording (outside demo mode). The team's own
+never-record list, comma separated, kept on the server because the repository is
+public: a domain (`acme.example`) blocks any meeting with a guest from it, an
+address (`someone@acme.example`) any meeting with that guest, and anything
+else any meeting with those words in its title (`Acme Capital`). Put the
+sister fund and every company a recording must never touch here, by domain
+and by name. Each entry is labelled "portfolio-sensitive" and checked on the
+server when the meeting is made and again before recording starts, after the
+team's own rules (Notes settings › Never record) and before the built-in
+legal and family words. Until this list or a rule in Notes settings exists,
+Start answers "Recording is not set up yet" and nothing records. Only the
+number of entries is ever shown in the app.
 
 ### `NOTES_SHARE_PEPPER`
 
@@ -519,11 +537,24 @@ with a marker saying how many lines were left out.
 
 ### `NOTES_RELAY_CHANNEL_ID`
 
-Optional. The Slack channel the routine posts Arwin's notes to and the app
-reads them from; it is sent to the routine with each request. Defaults to
-`ASK_RELAY_CHANNEL_ID` (the Ask relay channel). Set it to a private channel so
-meeting notes stay out of a channel every member can read; the Slack app then
-needs `groups:history` and to be a member there.
+Required for Arwin's notes. A private Slack channel of its own, where the
+routine posts Arwin's notes and the app reads them; it is sent to the routine
+with each request. There is no default: unset, or set to the Ask relay
+channel, no meeting is sent to the routine at all and meetings keep their
+Quick notes (the meeting page says the routine is not connected). The Slack
+app needs `groups:history` and to be a member there, and the account the
+routine posts as must be able to post there. Set that channel's message
+retention to one day (Slack: channel settings › Edit message retention), so
+the notes do not outlive a meeting deleted in Copilot: Copilot's token is
+read-only and cannot delete them.
+
+### `NOTES_RELAY_POSTER_IDS`
+
+Optional. The Slack user IDs whose `NOTES_RESULT_V1` posts are read, comma
+separated; everyone else's are ignored, because a result writes a meeting's
+notes and files tasks. Defaults to `TASK_RELAY_POSTER_IDS` (the account the
+routines post as). Set it only if the `ask-bridge-answerer` routine posts as
+another account.
 
 ## Public job board
 

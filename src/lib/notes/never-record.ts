@@ -6,10 +6,11 @@ import type { NeverRecordMatch, RecordingRule, RecordingRuleKind } from '@/lib/t
  * consent banner can show the block before anyone clicks, and the start route
  * checks the same thing again on the server.
  *
- * Two layers. The defaults below cover legal and family meetings by the words
- * in their titles. Everything specific to the firm (a company's domain, a
- * calendar, another word) is a recording_rules row added in Settings, never a
- * name in this file: the repository is public.
+ * Three layers. The defaults below cover legal and family meetings by the
+ * words in their titles. Everything specific to the firm (a company's domain,
+ * a calendar, another word) is either a recording_rules row added in Settings
+ * or an entry in the server's NOTES_NEVER_RECORD list (rulesFromList), never
+ * a name in this file: the repository is public.
  */
 
 export interface DefaultRecordingRule {
@@ -35,6 +36,41 @@ export const DEFAULT_RECORDING_RULES: readonly DefaultRecordingRule[] = [
     titleRule('family', w),
   ),
 ];
+
+/** The label every NOTES_NEVER_RECORD entry carries. */
+export const LIST_RULE_LABEL = 'portfolio-sensitive';
+
+const DOMAIN = /^@?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i;
+const ADDRESS = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * The server's never-record list (NOTES_NEVER_RECORD, already split on
+ * commas) as rules: "acme.example" (or "@acme.example") is a guest's domain,
+ * "someone@acme.example" a guest, anything else words in the title. Each is
+ * labelled 'portfolio-sensitive' and always enabled. Pure.
+ */
+export function rulesFromList(
+  entries: readonly string[],
+): Pick<RecordingRule, 'id' | 'kind' | 'pattern' | 'label' | 'enabled'>[] {
+  const out: Pick<RecordingRule, 'id' | 'kind' | 'pattern' | 'label' | 'enabled'>[] = [];
+  entries.forEach((raw, i) => {
+    const entry = raw.trim();
+    if (!entry) return;
+    const kind: RecordingRuleKind = ADDRESS.test(entry)
+      ? 'attendee_email'
+      : DOMAIN.test(entry)
+        ? 'attendee_domain'
+        : 'title';
+    out.push({
+      id: `list:${i}`,
+      kind,
+      pattern: kind === 'attendee_domain' ? entry.replace(/^@/, '').toLowerCase() : entry,
+      label: LIST_RULE_LABEL,
+      enabled: true,
+    });
+  });
+  return out;
+}
 
 export interface NeverRecordSubject {
   title: string;

@@ -10,6 +10,18 @@ throughout.
 
 ## [Unreleased]
 
+- **Copilot Notes, safer before it is switched on (still off by default).**
+  Nothing records until the team's never-record list exists: the companies
+  that must never be recorded go in a list kept on the server (or a rule in
+  Notes settings), and the server checks it before every recording, with the
+  legal and family words built in. Arwin's notes are only read when Arwin's
+  own account posted them, so nobody else in the channel can change notes or
+  add tasks. Notes go through a private Slack channel of their own, and none
+  are sent until it is set. Arwin's notes and their tasks now arrive within
+  minutes even if nobody opens the meeting, and notes that came back are no
+  longer dropped when they are read a day late. A word repeated where the
+  speech is cut every 25 seconds ("the the deal") now shows once. (D-076)
+
 - **Copilot Notes, joined up (still off by default).** The free speech on
   your computer and Arwin writing the notes now work together from start to
   finish: a calendar event, Take notes, the consent step, the live

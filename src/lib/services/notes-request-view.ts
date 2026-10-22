@@ -2,7 +2,7 @@ import 'server-only';
 import { env } from '@/lib/config/env';
 import { isMissingColumnError, isMissingTableError } from '@/lib/db/missing-table';
 import type { DataStore } from '@/lib/db/store';
-import { relayReadable } from '@/lib/notes/relay';
+import { notesRelayChannel, relayReadable } from '@/lib/notes/relay';
 import type { MeetingNote } from '@/lib/types/domain';
 import type { NotesRequest, NotesRequestView } from '@/lib/types/notes';
 import { directCallConfigured } from './ask-routine';
@@ -13,9 +13,14 @@ import { directCallConfigured } from './ask-routine';
  * without importing the bridge.
  */
 
-/** The routine's trigger and the relay are both there, so a request can come back. */
+/**
+ * The routine's trigger, the relay and a private relay channel of its own
+ * are all there, so a request can go out and come back.
+ */
 export function notesRoutineConnected(): boolean {
-  return directCallConfigured() && relayReadable() && !env().demoMode;
+  return (
+    directCallConfigured() && relayReadable() && notesRelayChannel() !== null && !env().demoMode
+  );
 }
 
 export function toRequestView(request: NotesRequest): NotesRequestView {

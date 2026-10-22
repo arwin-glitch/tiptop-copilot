@@ -3,7 +3,8 @@ import type { AuthContext } from '@/lib/auth/session';
 import { isMissingColumnError, isMissingTableError } from '@/lib/db/missing-table';
 import { chunk, listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
-import { matchNeverRecord } from '@/lib/notes/never-record';
+import { env } from '@/lib/config/env';
+import { matchNeverRecord, rulesFromList } from '@/lib/notes/never-record';
 import { readNotesPreferences } from '@/lib/notes/preferences';
 import {
   builtinTemplateViews,
@@ -199,11 +200,33 @@ async function audit(
   });
 }
 
-async function enabledRules(ctx: NotesContext): Promise<RecordingRule[]> {
-  return (await ctx.store.list('recording_rules', ctx.auth.organizationId, {
+type ActiveRule = Pick<RecordingRule, 'id' | 'kind' | 'pattern' | 'label' | 'enabled'>;
+
+/**
+ * The never-record rules beyond the built-in legal and family words: the
+ * team's own rows from Settings, then the server's NOTES_NEVER_RECORD list
+ * (where a name the public repository must not carry lives).
+ */
+async function enabledRules(ctx: NotesContext): Promise<ActiveRule[]> {
+  const rows = (await ctx.store.list('recording_rules', ctx.auth.organizationId, {
     eq: { enabled: true },
   })) as RecordingRule[];
+  return [...rows, ...rulesFromList(env().notesNeverRecord)];
 }
+
+/**
+ * Outside demo mode nothing is recorded until the team has said what must
+ * never be: NOTES_NEVER_RECORD on the server, or a rule in Settings. The
+ * built-in words cover legal and family meetings only, never the companies
+ * a recording would hurt.
+ */
+export const NEVER_RECORD_NOT_SET: AppError = {
+  code: 'forbidden',
+  message:
+    'Recording is not set up yet: the never-record list is empty. Add the companies that must never be recorded in Notes settings › Never record (or NOTES_NEVER_RECORD on the server), then start again.',
+  stillUsable: 'Typed notes still work for this meeting.',
+  details: { setup: 'never_record' },
+};
 
 async function participantsOf(ctx: NotesContext, meetingId: string): Promise<MeetingParticipant[]> {
   return (await ctx.store.list(
@@ -663,15 +686,20 @@ export async function startRecording(
       );
     }
     const participants = await participantsOf(ctx, meeting.id);
+    const rules = await enabledRules(ctx);
     const neverRecord = matchNeverRecord(
       {
         title: meeting.title,
         calendarId: meeting.calendar_id,
         attendeeEmails: participants.map((p) => p.email),
       },
-      await enabledRules(ctx),
+      rules,
     );
     const org = ctx.auth.organizationId;
+    if (!neverRecord && rules.length === 0 && !env().demoMode) {
+      await audit(ctx, 'notes.start_blocked', meeting.id, { label: 'not_set_up' });
+      return { ok: false, error: NEVER_RECORD_NOT_SET };
+    }
     if (neverRecord) {
       await ctx.store.update('meetings', org, meeting.id, {
         consent_state: 'blocked',

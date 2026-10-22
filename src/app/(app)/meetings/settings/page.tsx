@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
+import { env } from '@/lib/config/env';
 import { notesAccess } from '@/lib/notes/flag';
 import { getStore } from '@/lib/runtime';
 import { listFolders, listRecipes, listTemplates } from '@/lib/services/notes';
@@ -136,7 +137,16 @@ async function Section({
   if (tab === 'speech') return <SpeechSettings />;
   if (tab === 'rules') {
     const rules = await listRecordingRules(ctx);
-    return rules.ok ? <RulesSettings initial={rules.value} /> : failed(rules.error.message);
+    // A count only: the server's own list never reaches the browser.
+    return rules.ok ? (
+      <RulesSettings
+        initial={rules.value}
+        serverListCount={env().notesNeverRecord.length}
+        demo={env().demoMode}
+      />
+    ) : (
+      failed(rules.error.message)
+    );
   }
   if (tab === 'voices') {
     const profiles = await listVoiceProfiles(ctx);

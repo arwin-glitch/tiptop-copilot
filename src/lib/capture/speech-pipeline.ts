@@ -4,7 +4,14 @@ import type { SpeechDevice, SpeechModelChoice } from '@/lib/transcribe/models';
 import { prepareVocabulary, applyVocabulary } from '@/lib/transcribe/vocabulary';
 import { decodeVoiceprint, encodeVoiceprint } from '@/lib/transcribe/voiceprint';
 import type { FromWorker, LoadStatus, ToWorker, WorkerConfig } from './speech-protocol';
-import { dropRepeatedLead, isNoiseText, isSilencePhrase, stripNoiseMarkers } from './text-dedupe';
+import {
+  TAIL_WORDS,
+  dropRepeatedLead,
+  isNoiseText,
+  isSilencePhrase,
+  rollingTail,
+  stripNoiseMarkers,
+} from './text-dedupe';
 import { VAD_RATE, VadChunker, int16ToFloat, type SpeechChunk, type VadOptions } from './vad';
 
 /**
@@ -99,6 +106,7 @@ interface StreamState {
   queuedSamples: number;
   /** Stream-clock ms transcribed (or skipped as silence) so far. */
   doneMs: number;
+  /** The last few words said on this stream, across lines (rollingTail). */
   lastText: string;
   lastEndMs: number;
   lastLabel: string | null;
@@ -438,7 +446,10 @@ export class SpeechPipeline {
       if (lead < 0) lead = segments.length;
       const head = segments.slice(0, Math.max(1, lead));
       const joined = head.map((seg) => seg.text).join(' ');
-      const { dropped } = dropRepeatedLead(s.lastText, joined);
+      // A first word heard inside the re-sent second was heard twice, even a
+      // short one; past it, a lone short word repeating is just speech.
+      const inOverlap = (head[0]?.startS ?? overlapS) < overlapS;
+      const { dropped } = dropRepeatedLead(s.lastText, joined, TAIL_WORDS, inOverlap ? 1 : 2);
       let toDrop = dropped;
       for (const seg of head) {
         if (toDrop <= 0) break;
@@ -467,7 +478,7 @@ export class SpeechPipeline {
         text,
         confidence: null,
       };
-      s.lastText = text;
+      s.lastText = rollingTail(s.lastText, text);
       s.lastEndMs = event.endMs;
       if (label) s.lastLabel = label;
       this.post({ type: 'event', streamId, event });

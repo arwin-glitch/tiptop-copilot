@@ -144,6 +144,53 @@ describe('the speech pipeline', () => {
     ).toEqual(['the robot arm ships in', 'March with the new gripper.']);
   });
 
+  it('drops a single short word an overlapping chunk repeats ("the deal")', async () => {
+    const texts = ['we finally signed the', 'the deal on Friday.'];
+    const h = harness(new FakeModelAdapter({ textFor: (n) => texts[n - 1] ?? 'and more.' }));
+    h.start('mic', 'mic');
+    h.audio('mic', speech(30_000), silence(2000));
+    await settle();
+    expect(
+      h
+        .events('mic')
+        .slice(0, 2)
+        .map((e) => e.text),
+    ).toEqual(['we finally signed the', 'deal on Friday.']);
+  });
+
+  it('compares an overlap with the last words said, not only the last short line', async () => {
+    // The first chunk ends in two lines, the last only one word long; the
+    // overlap repeats the two words across them.
+    class TwoLines extends FakeModelAdapter {
+      private n = 0;
+      override async transcribe(audio: Float32Array) {
+        this.n += 1;
+        const seconds = audio.length / 16_000;
+        if (this.n === 1) {
+          return {
+            text: 'we finally signed the deal.',
+            segments: [
+              { startS: 0, endS: seconds - 1, text: 'we finally signed the' },
+              { startS: seconds - 1, endS: seconds, text: 'deal.' },
+            ],
+          };
+        }
+        const text = this.n === 2 ? 'the deal. Then we celebrated.' : 'and more.';
+        return { text, segments: [{ startS: 0, endS: seconds, text }] };
+      }
+    }
+    const h = harness(new TwoLines());
+    h.start('mic', 'mic');
+    h.audio('mic', speech(30_000), silence(2000));
+    await settle();
+    expect(
+      h
+        .events('mic')
+        .slice(0, 3)
+        .map((e) => e.text),
+    ).toEqual(['we finally signed the', 'deal.', 'Then we celebrated.']);
+  });
+
   it('drops an invented "Thank you." from a near-silent chunk, but keeps a real one', async () => {
     const h = harness(new FakeModelAdapter({ textFor: () => 'Thank you.' }));
     h.start('mic', 'mic');

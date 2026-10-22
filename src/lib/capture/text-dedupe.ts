@@ -22,7 +22,9 @@ export interface DedupeResult {
 /**
  * The next text without the words that repeat the end of the previous one.
  * Only a run of at least `minWords` words counts (one short word repeating is
- * usually just speech: "and… and"), unless it is a long word.
+ * usually just speech: "and… and"), unless it is a long word. A caller that
+ * knows the next text starts inside the re-sent overlap passes `minWords` 1:
+ * a word heard there was heard twice, short or not ("the" in "the deal").
  */
 export function dropRepeatedLead(
   previous: string,
@@ -46,6 +48,18 @@ export function dropRepeatedLead(
     }
   }
   return { text: nextWords.join(' '), dropped: 0 };
+}
+
+/** How many words of what was last said a stream keeps to compare an overlap with. */
+export const TAIL_WORDS = 12;
+
+/**
+ * The last `max` words of `previous` followed by `next`: the rolling tail an
+ * overlapping chunk is compared with. One short line ("Right.") would
+ * otherwise be all there is, while the overlap can hold the words before it.
+ */
+export function rollingTail(previous: string, next: string, max = TAIL_WORDS): string {
+  return `${previous} ${next}`.trim().split(/\s+/).filter(Boolean).slice(-max).join(' ');
 }
 
 /** Whisper's stock phrases for silence and noise, which are never speech worth keeping. */

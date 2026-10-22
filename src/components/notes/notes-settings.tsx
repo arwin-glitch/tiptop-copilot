@@ -394,7 +394,16 @@ const KIND_WORDS: Record<RecordingRuleKind, { label: string; placeholder: string
   calendar_id: { label: 'A calendar', placeholder: 'calendar id' },
 };
 
-export function RulesSettings({ initial }: { initial: RecordingRuleView[] }) {
+export function RulesSettings({
+  initial,
+  serverListCount = 0,
+  demo = false,
+}: {
+  initial: RecordingRuleView[];
+  /** Entries in the server's NOTES_NEVER_RECORD list (the names stay on the server). */
+  serverListCount?: number;
+  demo?: boolean;
+}) {
   const [rules, setRules] = React.useState(initial);
   const [kind, setKind] = React.useState<RecordingRuleKind>('title');
   const [pattern, setPattern] = React.useState('');
@@ -459,6 +468,23 @@ export function RulesSettings({ initial }: { initial: RecordingRuleView[] }) {
             is on the list. Use these for legal, family and sister-company meetings.
           </p>
         </div>
+        {serverListCount > 0 ? (
+          <p className="text-sm text-[var(--fg-muted)]" data-server-rules={serverListCount}>
+            {serverListCount === 1
+              ? 'One more is on the server’s own list, which stays on the server.'
+              : `${serverListCount} more are on the server’s own list, which stays on the server.`}
+          </p>
+        ) : null}
+        {own.filter((r) => r.enabled).length === 0 && serverListCount === 0 && !demo ? (
+          <p
+            role="note"
+            data-rules-needed=""
+            className="rounded-md border border-[var(--warn)]/30 bg-[var(--warn-soft)] px-3 py-2.5 text-sm"
+          >
+            Recording does not start until there is at least one rule here (or on the server’s
+            list). Add the companies that must never be recorded first.
+          </p>
+        ) : null}
         {own.length === 0 ? (
           <p className="rounded-md border border-dashed border-[var(--border-strong)] px-3 py-3 text-sm text-[var(--fg-muted)]">
             No rules of your own yet. The built-in ones still apply.

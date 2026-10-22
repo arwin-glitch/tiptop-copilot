@@ -37,7 +37,9 @@ import {
   type CopilotNotesFilters,
 } from '@/components/meetings/copilot-notes';
 import type { AuthContext } from '@/lib/auth/session';
+import { withinOrAfter } from '@/lib/notes/background';
 import { notesAccess } from '@/lib/notes/flag';
+import { settleNotesFromRelay } from '@/lib/services/notes-bridge';
 
 export const metadata: Metadata = { title: 'Meetings' };
 export const dynamic = 'force-dynamic';
@@ -212,6 +214,13 @@ async function CopilotNotesTab({
   const auth = await requireAuth();
   const notesOn = await copilotNotesOn(auth);
   if (!notesOn) return <NotesTab q={q} shown={shown} />;
+  // Arwin's notes that came back while no meeting page was open: a short
+  // wait, then the rest finishes after the page is sent (throttled).
+  await withinOrAfter(
+    'settle Arwin’s notes',
+    settleNotesFromRelay(getStore(), auth.organizationId),
+    1_500,
+  );
   const [granolaCount, affinityCount, copilotNotes] = await Promise.all([
     getStore()
       .count('meeting_notes', auth.organizationId, { eq: { provider: 'granola' } })

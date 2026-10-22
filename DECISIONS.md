@@ -3301,6 +3301,52 @@ What changed in joining them:
   notes stay. The meeting follow-up routine still reads notes through the MCP
   tools. WebGPU and the Better and Best models need a run on Nick's computer.
 
+**Privacy review fixes (fix-up pass).** A privacy review of the joined branch
+found two high and three medium issues; all five are fixed, each with a test
+that fails without it.
+- **The never-record list lives on the server, and is required.** The
+  built-in rules only knew legal and family words, so a sister-company call
+  was recordable unless someone added a rule. `NOTES_NEVER_RECORD` (comma
+  separated: a domain, an address, or title words; label
+  "portfolio-sensitive") is merged into the rules when a meeting is made and
+  again before a recording starts, so the public repository never names the
+  firm. Outside demo mode a recording does not start until that list or a
+  rule in Notes settings exists ("Recording is not set up yet"); Notes
+  settings says so, and Diagnostics shows the list's size, never its entries.
+- **Only the routine's account is read.** Any member of the relay channel
+  could post a `NOTES_RESULT_V1` for a request id (visible once part 1 lands),
+  overwriting the notes and filing tasks, or fail it with an error part.
+  `readRelay` now returns the poster, and only `NOTES_RELAY_POSTER_IDS`
+  (default `TASK_RELAY_POSTER_IDS`, as the task relay does) is read; demo
+  mode's stand-in channel is trusted in demo mode only.
+- **Notes need a private channel of their own.** `NOTES_RELAY_CHANNEL_ID` no
+  longer falls back to the Ask relay channel: until it names another channel,
+  nothing is sent to the routine (Quick notes stay, the page says the routine
+  is not connected) and nothing is read. That keeps meeting notes out of a
+  channel every member reads, and out of the Ask settle's last-100 window.
+  PRIVACY.md now says plainly that the routine's run history and the Slack
+  channel keep their copies past a Copilot delete, and recommends a one-day
+  retention on the channel.
+- **Notes land within minutes, and an answer is never thrown away.** Settling
+  ran only on the meeting page and the daily job, so notes and their tasks
+  could wait about twelve hours; and a request past its day was expired before
+  the relay was read, dropping an answer that came on time. The relay is now
+  read first (complete answers stored, then only the unanswered expire), and
+  the phone-alert job's minute call (`settleNotesForAll`, after its answer)
+  and the Notes list (a 1.5-second wait, then after the page) settle too.
+- **Chunk edges.** A forced 25-second cut re-sends a second of audio; a
+  single short repeated word ("the deal") stayed doubled, and the comparison
+  used only the last line, so a short last line hid a longer repeat. A stream
+  now keeps a rolling tail of its last 12 words, and a first word heard
+  inside the overlap counts even when short.
+- **Small.** `refireWaiting` uses the shared `canSeeMeeting`.
+- **Not changed, on purpose.** Private meetings still go to the routine like
+  team ones (only the owner's opt-out would change that, Nick's call). Two
+  speech tracks plus speaker separation on WASM is still unmeasured: the
+  backlog warning stays, and a step-down needs a timing run on Nick's
+  computer first. The Ask page's own answer settle does not check the poster
+  (an Ask answer files nothing); unchanged here.
+
 ### D-077 — A public job board: published by a person, read from companies' own boards, off until switched on
 
 **Context.** Nick saw Portfolio › Jobs (the roles founders email him, from the

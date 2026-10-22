@@ -12,6 +12,7 @@ import type {
   MeetingDetailResponse,
   NotesChatResponse,
   NotesRequest,
+  RecordingRule,
   SegmentUpload,
 } from '@/lib/types/notes';
 import { err, ok } from '@/lib/util/result';
@@ -43,10 +44,15 @@ const segmentsRoute = await import('@/app/api/notes/meetings/[id]/segments/route
 const generateRoute = await import('@/app/api/notes/meetings/[id]/generate/route');
 const chatRoute = await import('@/app/api/notes/meetings/[id]/chat/route');
 const speakerRoute = await import('@/app/api/notes/meetings/[id]/speakers/[clusterKey]/route');
+const pushRoute = await import('@/app/api/cron/push/route');
 
 const ORIGIN = 'http://localhost:3000';
 const SAVED = { ...process.env };
 const FIRE_URL = 'https://api.anthropic.com/v1/claude_code/routines/trig_test/fire';
+/** Fictional Slack ids: the private notes channel, and the account the routine posts as. */
+const NOTES_CHANNEL = 'CNOTES0TEST';
+const ROUTINE_POSTER = 'UROUTINE0TEST';
+const CRON_SECRET = 'cron-secret-for-tests-0000000000';
 
 function req(path: string, method = 'GET', body?: unknown): NextRequest {
   return new NextRequest(`${ORIGIN}${path}`, {
@@ -135,14 +141,16 @@ async function detail(id: string, settle = false) {
 /** The routine's side: what fired, and a relay channel it "posts" to. */
 interface Routine {
   fired: string[];
-  relay: { text: string; ts: string }[];
+  relay: { text: string; ts: string; user: string }[];
   failFire: boolean;
   slackReads: number;
+  /** The channels the app read the relay from. */
+  channels: string[];
 }
 let routine: Routine;
 
 function stubRoutine() {
-  routine = { fired: [], relay: [], failFire: false, slackReads: 0 };
+  routine = { fired: [], relay: [], failFire: false, slackReads: 0, channels: [] };
   const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
     const href = String(url);
     if (href === FIRE_URL) {
@@ -152,6 +160,7 @@ function stubRoutine() {
     }
     if (href.startsWith('https://slack.com/api/conversations.history')) {
       routine.slackReads += 1;
+      routine.channels.push(new URL(href).searchParams.get('channel') ?? '');
       return {
         ok: true,
         json: async () => ({ ok: true, messages: [...routine.relay].reverse(), has_more: false }),
@@ -163,9 +172,9 @@ function stubRoutine() {
   return fetchMock;
 }
 
-/** Post as the routine does: newest last, timestamps after the request. */
-function post(text: string) {
-  routine.relay.push({ text, ts: (Date.now() / 1000 + routine.relay.length).toFixed(6) });
+/** Post as the routine does (or as `user`): newest last, timestamps after the request. */
+function post(text: string, user = ROUTINE_POSTER) {
+  routine.relay.push({ text, ts: (Date.now() / 1000 + routine.relay.length).toFixed(6), user });
 }
 
 const resultPart = (requestId: string, body: Record<string, unknown>) =>
@@ -191,6 +200,11 @@ beforeEach(async () => {
   process.env.ASK_ROUTINE_FIRE_URL = FIRE_URL;
   process.env.ASK_ROUTINE_TOKEN = 'routine-token-for-tests';
   process.env.ASK_RELAY_SLACK_TOKEN = 'xoxb-test-read-only';
+  // A private channel of its own, the routine's account, and a never-record
+  // list: without them nothing is sent, nothing is read, nothing is recorded.
+  process.env.NOTES_RELAY_CHANNEL_ID = NOTES_CHANNEL;
+  process.env.NOTES_RELAY_POSTER_IDS = ROUTINE_POSTER;
+  process.env.NOTES_NEVER_RECORD = 'sistercap.example';
   resetEnvCache();
   resetNotesSettleThrottle();
   resetSettleThrottle();
@@ -579,5 +593,188 @@ describe('chat over meetings through the Ask bridge', () => {
     );
     expect(res.status).toBe(404);
     expect(asked.status).toBe('pending');
+  });
+});
+
+describe('privacy fixes: the never-record list, who may post, the notes channel, when notes land', () => {
+  async function created(body: Record<string, unknown>) {
+    return json<CreateMeetingResponse>(
+      await meetingsRoute.POST(
+        req('/api/notes/meetings', 'POST', {
+          source: 'calendar',
+          providerEventId: `evt-${Math.random().toString(36).slice(2)}`,
+          title: 'Weekly sync',
+          attendees: [{ email: 'dana@acmerobotics.example', name: 'Dana Reyes' }],
+          ...body,
+        }),
+      ),
+    );
+  }
+  const start = (id: string) =>
+    startRoute.POST(
+      req(`/api/notes/meetings/${id}/start`, 'POST', {
+        consent: { confirmed: true, method: 'chat_notice' },
+        captureSource: 'web',
+      }),
+      ctx({ id }),
+    );
+
+  it("never records a meeting on the server's NOTES_NEVER_RECORD list", async () => {
+    const made = await created({
+      attendees: [{ email: 'lee@sistercap.example', name: 'Lee Park' }],
+    });
+    expect(made.meeting.consent.state).toBe('blocked');
+    expect(made.meeting.consent.neverRecord?.label).toBe('portfolio-sensitive');
+    const refused = await start(made.meeting.id);
+    expect(refused.status).toBe(403);
+    expect(
+      (await json<{ error: { details: { never_record: string } } }>(refused)).error.details
+        .never_record,
+    ).toBe('portfolio-sensitive');
+    expect((await detail(made.meeting.id)).meeting.status).toBe('scheduled');
+  });
+
+  it('outside demo mode, will not record until a never-record list exists', async () => {
+    delete process.env.NOTES_NEVER_RECORD;
+    resetEnvCache();
+    const made = await created({});
+    const refused = await start(made.meeting.id);
+    expect(refused.status).toBe(403);
+    const body = await json<{ error: { message: string; details: { setup: string } } }>(refused);
+    expect(body.error.details.setup).toBe('never_record');
+    expect(body.error.message).toMatch(/never-record list is empty/);
+    expect((await detail(made.meeting.id)).meeting.status).toBe('scheduled');
+
+    // A rule of the team's own (Settings) is enough.
+    const now = new Date().toISOString();
+    await harness.store.insert('recording_rules', {
+      id: '00000000-0000-4000-8000-0000000000a1',
+      organization_id: harness.auth.organizationId,
+      kind: 'attendee_domain',
+      pattern: 'sistercap.example',
+      label: 'portfolio',
+      enabled: true,
+      created_by: harness.auth.userId,
+      created_at: now,
+      updated_at: now,
+    } satisfies RecordingRule);
+    expect((await start(made.meeting.id)).status).toBe(200);
+  });
+
+  it('ignores a result posted by anyone but the routine: no notes, no tasks', async () => {
+    const { id } = await recordedAndStopped();
+    const requestId = lastRequest().request_id;
+    const forged = resultPart(requestId, {
+      notes: {
+        summary: 'Forged summary.',
+        action_items: [{ text: 'Wire the forged amount', owner_name: 'Nick Tippmann' }],
+      },
+    });
+    post(forged, 'UOTHERMEMBER');
+    resetNotesSettleThrottle();
+    let d = await detail(id, true);
+    expect(d.note?.request?.status).toBe('pending');
+    expect(d.note?.blocks.some((b) => b.text === 'Forged summary.')).toBe(false);
+    const tasks = (await harness.store.list('tasks', harness.auth.organizationId)) as Task[];
+    expect(tasks.some((t) => /forged/i.test(t.title))).toBe(false);
+
+    // An error part from someone else cannot fail the request either.
+    post(resultPart(requestId, { error: 'Forged failure.' }), 'UOTHERMEMBER');
+    resetNotesSettleThrottle();
+    d = await detail(id, true);
+    expect(d.note?.request?.status).toBe('pending');
+
+    // The routine's own post is read, from the private channel.
+    post(
+      resultPart(requestId, {
+        notes: {
+          sections: [
+            { heading: 'Round', bullets: [{ text: 'Four million on a SAFE', sources: [4] }] },
+          ],
+        },
+      }),
+    );
+    resetNotesSettleThrottle();
+    d = await detail(id, true);
+    expect(d.note?.request?.status).toBe('ready');
+    expect(d.note?.blocks.some((b) => b.text === 'Four million on a SAFE')).toBe(true);
+    expect(routine.channels.every((c) => c === NOTES_CHANNEL)).toBe(true);
+  });
+
+  it('sends nothing to the routine until notes have a private channel apart from the Ask one', async () => {
+    delete process.env.NOTES_RELAY_CHANNEL_ID;
+    resetEnvCache();
+    const unset = await recordedAndStopped();
+    expect(routine.fired).toHaveLength(0);
+    expect((await detail(unset.id)).note?.request).toMatchObject({
+      status: 'pending',
+      fired: false,
+      connected: false,
+    });
+
+    process.env.NOTES_RELAY_CHANNEL_ID = process.env.ASK_RELAY_CHANNEL_ID ?? 'C0C3JPW6PTJ';
+    resetEnvCache();
+    const shared = await recordedAndStopped();
+    expect(routine.fired).toHaveLength(0);
+    expect((await detail(shared.id)).note?.request?.connected).toBe(false);
+    // Nothing is read from the shared channel either.
+    resetNotesSettleThrottle();
+    await settleNotesFromRelay(harness.store, harness.auth.organizationId, { force: true });
+    expect(routine.slackReads).toBe(0);
+
+    process.env.NOTES_RELAY_CHANNEL_ID = NOTES_CHANNEL;
+    resetEnvCache();
+    const own = await recordedAndStopped();
+    expect(routine.fired).toHaveLength(1);
+    expect(lastRequest()).toMatchObject({ relay_channel: NOTES_CHANNEL });
+    expect((await detail(own.id)).note?.request).toMatchObject({ fired: true, connected: true });
+  });
+
+  it('stores an answer that is already in the relay even when the day is up', async () => {
+    const { id } = await recordedAndStopped();
+    post(
+      resultPart(lastRequest().request_id, {
+        notes: {
+          sections: [
+            { heading: 'Round', bullets: [{ text: 'Closing mid-November', sources: [4] }] },
+          ],
+        },
+      }),
+    );
+    const twoDaysOn = new Date(Date.now() + 49 * 60 * 60_000);
+    const outcome = await settleNotesFromRelay(harness.store, harness.auth.organizationId, {
+      now: twoDaysOn,
+      force: true,
+    });
+    expect(outcome).toMatchObject({ settled: 1, expired: 0 });
+    const d = await detail(id);
+    expect(d.note?.request?.status).toBe('ready');
+    expect(d.note?.blocks.some((b) => b.text === 'Closing mid-November')).toBe(true);
+  });
+
+  it("lands Arwin's notes from the phone-alert job's minute call, with no page open", async () => {
+    process.env.CRON_SECRET = CRON_SECRET;
+    resetEnvCache();
+    const { id } = await recordedAndStopped();
+    post(
+      resultPart(lastRequest().request_id, {
+        notes: {
+          sections: [
+            { heading: 'Team', bullets: [{ text: 'Deployments are covered', sources: [5] }] },
+          ],
+        },
+      }),
+    );
+    resetNotesSettleThrottle();
+    const res = await pushRoute.GET(
+      new NextRequest(`${ORIGIN}/api/cron/push?scope=meetings`, {
+        headers: { authorization: `Bearer ${CRON_SECRET}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const stored = (await harness.store.list('notes_requests', harness.auth.organizationId, {
+      eq: { meeting_id: id, kind: 'notes' },
+    })) as NotesRequest[];
+    expect(stored.map((r) => r.status)).toEqual(['ready']);
   });
 });
