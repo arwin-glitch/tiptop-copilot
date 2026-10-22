@@ -44,6 +44,49 @@ export const BUCKET_ALLOWED_MIME_TYPES: readonly string[] = [
   ...BUCKET_HEIC_MIME_TYPES,
 ];
 
+/* ------------------------------------------------------- event buckets --
+ *
+ * The two Events buckets (20261023000100_event_media_buckets.sql, D-075).
+ * Same rule as above: the migration decides, these mirror it, and the test
+ * holds them to the SQL.
+ */
+
+/** The event buckets' migration. */
+export const EVENT_BUCKETS_MIGRATION_FILE =
+  'supabase/migrations/20261023000100_event_media_buckets.sql';
+
+/**
+ * PUBLIC `event-media`: processed derivatives of published, ungated media
+ * only (sharp re-encodes with EXIF stripped). Never SVG.
+ */
+export const EVENT_MEDIA_BUCKET = 'event-media';
+export const EVENT_MEDIA_MIME_TYPES = [
+  'image/webp',
+  'image/avif',
+  'image/jpeg',
+  'image/png',
+  'video/mp4',
+  'video/webm',
+] as const;
+export const EVENT_MEDIA_MAX_BYTES = 31_457_280; // 30 MB
+
+/** PRIVATE `event-originals`: uploads as they arrived, and every gated item. */
+export const EVENT_ORIGINALS_BUCKET = 'event-originals';
+export const EVENT_ORIGINALS_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/avif',
+  'image/gif',
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+] as const;
+export const EVENT_ORIGINALS_MAX_BYTES = 52_428_800; // 50 MB
+
 /**
  * A declared content type as it is compared: lowercased, without parameters
  * ("Text/Plain; charset=UTF-8" → "text/plain"). "" when there is none.

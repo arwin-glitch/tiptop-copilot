@@ -7,6 +7,13 @@ import {
   BUCKET_BASE_MIME_TYPES,
   BUCKET_HEIC_MIGRATION_FILE,
   BUCKET_HEIC_MIME_TYPES,
+  EVENT_BUCKETS_MIGRATION_FILE,
+  EVENT_MEDIA_BUCKET,
+  EVENT_MEDIA_MAX_BYTES,
+  EVENT_MEDIA_MIME_TYPES,
+  EVENT_ORIGINALS_BUCKET,
+  EVENT_ORIGINALS_MAX_BYTES,
+  EVENT_ORIGINALS_MIME_TYPES,
   isMimeTypeRefusal,
   normalizeMimeType,
 } from '@/lib/storage/allowed-types';
@@ -81,6 +88,52 @@ describe('the allowed types mirror the migrations', () => {
     expect(normalizeMimeType(' Text/Plain; charset=UTF-8 ')).toBe('text/plain');
     expect(normalizeMimeType('')).toBe('');
     expect(normalizeMimeType(undefined)).toBe('');
+  });
+});
+
+/** Each bucket insert in a migration: id, public flag, size limit and type list. */
+function bucketInserts(sql: string) {
+  const out: { id: string; isPublic: boolean; limit: number; types: string[] }[] = [];
+  for (const m of sql.matchAll(
+    /insert into storage\.buckets[^;]*?values \(\s*'([^']+)',\s*'[^']+',\s*(true|false),\s*(\d+),[^[]*array\[([\s\S]*?)\]/g,
+  )) {
+    out.push({
+      id: m[1]!,
+      isPublic: m[2] === 'true',
+      limit: Number(m[3]),
+      types: [...m[4]!.matchAll(/'([^']+)'/g)].map((t) => t[1]!),
+    });
+  }
+  return out;
+}
+
+describe('the event buckets mirror their migration (D-075)', () => {
+  const sql = read(path.basename(EVENT_BUCKETS_MIGRATION_FILE));
+  const buckets = bucketInserts(sql);
+  const media = buckets.find((b) => b.id === EVENT_MEDIA_BUCKET);
+  const originals = buckets.find((b) => b.id === EVENT_ORIGINALS_BUCKET);
+
+  it('creates exactly the two buckets', () => {
+    expect(buckets.map((b) => b.id)).toEqual([EVENT_MEDIA_BUCKET, EVENT_ORIGINALS_BUCKET]);
+  });
+
+  it('event-media is public, 30 MB, derivatives only and never SVG', () => {
+    expect(media).toMatchObject({ isPublic: true, limit: EVENT_MEDIA_MAX_BYTES });
+    expect(media!.types).toEqual([...EVENT_MEDIA_MIME_TYPES]);
+    expect(media!.types.some((t) => t.includes('svg'))).toBe(false);
+    // Re-running keeps it public, with exactly this list.
+    expect(sql).toMatch(/set public = true,/);
+  });
+
+  it('event-originals is private, 50 MB, and never SVG or HEIC', () => {
+    expect(originals).toMatchObject({ isPublic: false, limit: EVENT_ORIGINALS_MAX_BYTES });
+    expect(originals!.types).toEqual([...EVENT_ORIGINALS_MIME_TYPES]);
+    expect(originals!.types.some((t) => /svg|heic|heif|html/.test(t))).toBe(false);
+    expect(sql).toMatch(/set public = false,/);
+  });
+
+  it('opens no storage policy to browser roles', () => {
+    expect(sql).not.toMatch(/create policy/i);
   });
 });
 

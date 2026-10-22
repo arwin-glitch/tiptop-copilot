@@ -10,6 +10,24 @@ throughout.
 
 ## [Unreleased]
 
+- **Events, groundwork (D-075).** The foundation for Luma-style event pages
+  inside Copilot is in place, ahead of the screens: the database tables for
+  events, sessions, guests and their RSVPs, outside-editor and staff links,
+  version history, an edit log and media (a migration to run by hand:
+  `supabase/migrations/20261023000000_events.sql`, then
+  `20261023000100_event_media_buckets.sql` for two new storage buckets); the
+  page format every event is saved in, which refuses anything that could
+  carry a script, a style sheet or a raw web address; saving that merges two
+  people's edits field by field and says whose change won when they clash;
+  and the rules for who may change what (outside editors only the parts their
+  link allows, never the brand, gating, settings, guests or Publish). Event
+  pages at `/e/...` open without signing in, with their own strict security
+  policy, no Copilot service worker, theme script or desktop bar, and are
+  kept out of search engines where they are personal. Nothing here sends an
+  email, and nothing is public until someone presses Publish (which arrives
+  with the next part). Two demo events with invented guests show it in demo
+  mode.
+
 - **A routine's post that runs a little long no longer leaves its card on
   yesterday's copy.** When a routine wrote a note, a prep or a title longer
   than the app allows, or listed one item the app could not read (a meeting

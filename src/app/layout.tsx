@@ -1,9 +1,11 @@
 import type { Metadata, Viewport } from 'next';
+import { headers } from 'next/headers';
 import { Toaster } from 'sonner';
 import { DesktopAlertOpener } from '@/components/desktop/desktop-alert-opener';
 import { DesktopTitleBar } from '@/components/desktop/desktop-title-bar';
 import { ServiceWorkerRegistrar } from '@/components/shell/service-worker';
 import { FRAME_BOOT_SCRIPT } from '@/lib/desktop/frame-boot';
+import { SURFACE_HEADER } from '@/lib/events/surface';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -48,16 +50,38 @@ export const viewport: Viewport = {
  */
 const themeScript = `(function(){try{var t=localStorage.getItem('tiptop-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;if(t==='dark'||(t!=='light'&&d)){document.documentElement.classList.add('dark')}}catch(e){}})();`;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+/**
+ * Whether this request is for the public surface (event pages, booking):
+ * proxy.ts sets the header there and strips it everywhere else
+ * (lib/events/surface.ts). Reading it makes every route render per request,
+ * which the signed-in pages already did.
+ */
+async function isPublicSurface(): Promise<boolean> {
+  try {
+    return (await headers()).get(SURFACE_HEADER) === 'public';
+  } catch {
+    return false;
+  }
+}
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Guests on /e and /meet get none of Copilot's chrome: no theme script (an
+  // inline script the /e nonce CSP would refuse anyway), no desktop title bar
+  // or alert opener, and no service worker registration, so an LP never
+  // installs Copilot's worker or sees its offline page.
+  const publicSurface = await isPublicSurface();
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* eslint-disable-next-line no-restricted-syntax -- two static,
-            self-authored constants with no external input: the standard
-            no-flash theme bootstrap, and the desktop app's top-bar flag
-            (lib/desktop/frame-boot.ts). Neither can carry untrusted content.
-            Every other surface in the app renders text through <PlainText>. */}
-        <script dangerouslySetInnerHTML={{ __html: themeScript + FRAME_BOOT_SCRIPT }} />
+        {/* Two static, self-authored constants with no external input: the
+            standard no-flash theme bootstrap, and the desktop app's top-bar
+            flag (lib/desktop/frame-boot.ts). Neither can carry untrusted
+            content. Every other surface in the app renders text through
+            <PlainText>. */}
+        {publicSurface ? null : (
+          // eslint-disable-next-line no-restricted-syntax -- static constants, see above
+          <script dangerouslySetInnerHTML={{ __html: themeScript + FRAME_BOOT_SCRIPT }} />
+        )}
       </head>
       <body className="min-h-dvh antialiased">
         {/* The skip link outranks the demo banner deliberately. Both used to sit
@@ -73,11 +97,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             too, so the window can always be moved and closed). Shown only in
             the app's main window from 0.3.0; after the skip link, so that
             stays the first Tab stop. */}
-        <DesktopTitleBar />
+        {publicSurface ? null : <DesktopTitleBar />}
         {/* Follows a click on a desktop alert (0.4.0 and newer); renders nothing. */}
-        <DesktopAlertOpener />
+        {publicSurface ? null : <DesktopAlertOpener />}
         {children}
-        <ServiceWorkerRegistrar />
+        {publicSurface ? null : <ServiceWorkerRegistrar />}
         <Toaster
           position="bottom-right"
           // Above the phone tab bar, so an 8-second Undo toast never covers it.

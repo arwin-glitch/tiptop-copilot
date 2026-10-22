@@ -7,6 +7,7 @@ import { signedValue, verifySignedValue } from '@/lib/security/crypto';
 import { err, ok, type Result } from '@/lib/util/result';
 import {
   BUCKET_ALLOWED_MIME_TYPES,
+  EVENT_MEDIA_BUCKET,
   bucketAccepts,
   isMimeTypeRefusal,
   mimeTypeRefusalMessage,
@@ -17,7 +18,9 @@ import {
  *
  * The bucket is private. Access is always via a short-lived signed URL minted
  * *after* an authorization check in the route handler — there is no public
- * path and no method here that makes one.
+ * path and no method here that makes one. The single exception is
+ * eventMediaPublicUrl below, which only names objects in the separate public
+ * `event-media` bucket (published event pages, D-075).
  */
 
 export interface StorageProvider {
@@ -175,6 +178,24 @@ export class LocalStorageProvider implements StorageProvider {
     });
     return ok(`/api/files/local?token=${encodeURIComponent(signedValue(payload))}`);
   }
+}
+
+/**
+ * The ONE public URL this module makes (D-075, amending D-038): an object in
+ * the public `event-media` bucket, which holds only processed derivatives of
+ * published, ungated event media and OG cards (content-hashed paths). It
+ * cannot name any other bucket. Null when Supabase is not configured (demo
+ * mode and tests serve no event media) or the path is not a plain relative
+ * object path.
+ */
+export function eventMediaPublicUrl(objectPath: string): string | null {
+  const base = env().supabaseUrl;
+  if (!base) return null;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,399}$/.test(objectPath) || objectPath.includes('..')) {
+    return null;
+  }
+  const origin = base.replace(/\/+$/, '');
+  return `${origin}/storage/v1/object/public/${EVENT_MEDIA_BUCKET}/${objectPath}`;
 }
 
 /** Verify a locally-signed storage token. Returns the object path or null. */

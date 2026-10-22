@@ -42,6 +42,12 @@ self.addEventListener('fetch', (event) => {
   // Never touch API traffic: no caching, no interception.
   if (url.pathname.startsWith('/api/')) return;
 
+  // Never touch the public surface either: event pages (/e, D-075) and the
+  // booking page (/meet). A guest who once signed in to Copilot on this
+  // browser still has this worker installed; their event page must come
+  // straight from the network, never as Copilot's offline page.
+  if (/^\/(e|meet)(\/|$)/.test(url.pathname)) return;
+
   // Navigations go to the network. On failure, show the offline page rather
   // than a stale authenticated document.
   if (request.mode === 'navigate') {

@@ -1,6 +1,17 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { isSupabaseAuthCookie } from '@/lib/auth/cookies';
+import {
+  NONCE_HEADER,
+  SURFACE_HEADER,
+  allowsCamera,
+  eventCsp,
+  isEventPublicPath,
+  isPrivateEventPath,
+  isPublicSurfacePath,
+  newNonce,
+  wantsEventCsp,
+} from '@/lib/events/surface';
 
 /**
  * Next.js 16 renamed `middleware` to `proxy`. This runs on the Node runtime.
@@ -82,6 +93,20 @@ const PUBLIC_PATHS = [
   // its signed per-recipient token, and the click route redirects only to a
   // link from that campaign's own body.
   '/t',
+  // Event pages (D-075): /e/<slug>, personal invites and tickets, check-in
+  // QR landings, and the outside-editor and staff entries. Guests and
+  // outsiders have no Copilot session by design. Every page reads only the
+  // PUBLISHED snapshot through lib/services/event-public.ts, filtered for the
+  // viewer on the server; editor and staff pages re-check their link's
+  // cookie on every request (lib/events/editor-auth.ts). /events (the
+  // signed-in tab) stays private: the prefix test is segment-exact.
+  '/e',
+  // Their API: RSVP, invite responses, the view beacon, check-in, and the
+  // outside editor's scoped draft/ops/sync/media proxies. Each handler works
+  // out its actor (grant cookie, guest token, or nobody) and calls narrow
+  // services that take (eventId, actor) and return whitelisted fields only;
+  // nothing here reaches any other Copilot data. /api/events stays signed in.
+  '/api/e',
 ];
 
 /**
@@ -92,14 +117,17 @@ const PUBLIC_PATHS = [
  * redirects to /login with an explanation — not as a proxy-level error on every
  * route including the login page itself.
  */
-async function refreshSession(request: NextRequest): Promise<NextResponse> {
+async function refreshSession(
+  request: NextRequest,
+  forward: () => NextResponse = () => NextResponse.next({ request }),
+): Promise<NextResponse> {
   // Read process.env directly rather than through `env()`: this module is
   // reached by the proxy runtime, and the config module is `server-only`.
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
-  if (!url || !key) return NextResponse.next({ request });
+  if (!url || !key) return forward();
 
-  let response = NextResponse.next({ request });
+  let response = forward();
 
   try {
     const supabase = createServerClient(url, key, {
@@ -121,7 +149,7 @@ async function refreshSession(request: NextRequest): Promise<NextResponse> {
           for (const { name, value } of cookiesToSet) {
             request.cookies.set(name, value);
           }
-          response = NextResponse.next({ request });
+          response = forward();
           for (const { name, value, options } of cookiesToSet) {
             response.cookies.set(name, value, options);
           }
@@ -176,15 +204,84 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // session cookie in the app's window would fail to refresh, and auth-js
   // then clears every PKCE verifier in the request too: the very verifier the
   // sign-in is about to use, which would burn Google's single-use code.
+  // The public surface (lib/events/surface.ts): event pages and booking get
+  // a request header the root layout reads to leave Copilot's chrome off,
+  // and /e/* pages a fresh nonce and their own strict CSP, which Next.js
+  // reads off the request to stamp its scripts. A client cannot fake either
+  // header onto another page: both are stripped from every request that
+  // carries them.
+  const eventPage = wantsEventCsp(pathname);
+  const nonce = eventPage ? newNonce() : null;
+  const csp = nonce
+    ? eventCsp({
+        nonce,
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+        turnstile: Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY),
+        dev: process.env.NODE_ENV === 'development',
+      })
+    : null;
+  const surface: SurfaceExtras = {
+    publicSurface: isPublicSurfacePath(pathname),
+    nonce,
+    csp,
+  };
+  const rewriteHeaders =
+    surface.publicSurface ||
+    eventPage ||
+    request.headers.has(SURFACE_HEADER) ||
+    request.headers.has(NONCE_HEADER);
+  const forward = () => forwardRequest(request, surface);
+
   const response =
     supabaseSession && !pathname.startsWith('/api/auth/desktop/')
-      ? await refreshSession(request)
-      : NextResponse.next();
+      ? await refreshSession(request, rewriteHeaders ? forward : undefined)
+      : rewriteHeaders
+        ? forward()
+        : NextResponse.next();
 
   // The relayed briefing page sets its own, stricter, sandboxing CSP; a second
   // policy added here would be intersected with it and block its print button.
   if (OWN_CSP_PATH.test(pathname)) return withSecurityHeaders(response, { ownCsp: true });
+  // Event pages: their nonce CSP, no Referer to anywhere (a personal invite's
+  // token is in its path), and never indexed where the path is personal.
+  if (csp) {
+    return withSecurityHeaders(response, {
+      csp,
+      referrer: 'no-referrer',
+      noindex: isPrivateEventPath(pathname),
+      camera: allowsCamera(pathname),
+    });
+  }
+  if (isEventPublicPath(pathname)) {
+    return withSecurityHeaders(response, { referrer: 'no-referrer' });
+  }
   return withSecurityHeaders(response);
+}
+
+interface SurfaceExtras {
+  publicSurface: boolean;
+  nonce: string | null;
+  csp: string | null;
+}
+
+/**
+ * Pass the request on with the surface headers set, or stripped. Built from
+ * the request's headers at call time, so a cookie the session refresh has
+ * just rotated onto the request is carried too.
+ */
+function forwardRequest(request: NextRequest, surface: SurfaceExtras): NextResponse {
+  const headers = new Headers(request.headers);
+  headers.delete(NONCE_HEADER);
+  headers.delete('content-security-policy');
+  // Always SET the flag, never just delete it: Next applies an override only
+  // when the new header list is non-empty, so this also guarantees a forged
+  // value is replaced rather than passed through.
+  headers.set(SURFACE_HEADER, surface.publicSurface ? 'public' : 'app');
+  if (surface.nonce && surface.csp) {
+    headers.set(NONCE_HEADER, surface.nonce);
+    headers.set('Content-Security-Policy', surface.csp);
+  }
+  return NextResponse.next({ request: { headers } });
 }
 
 /** Routes that set their own Content-Security-Policy. */
@@ -192,7 +289,14 @@ const OWN_CSP_PATH = /^\/api\/briefings\/[a-z]+\/view$/;
 
 function withSecurityHeaders(
   response: NextResponse,
-  options: { ownCsp?: boolean } = {},
+  options: {
+    ownCsp?: boolean;
+    /** A route-specific policy in place of Copilot's (event pages). */
+    csp?: string;
+    referrer?: 'no-referrer';
+    noindex?: boolean;
+    camera?: boolean;
+  } = {},
 ): NextResponse {
   // 'unsafe-inline' on script-src is required for the Next.js bootstrap and the
   // pre-paint theme script. There is no user- or model-supplied HTML anywhere in
@@ -211,15 +315,16 @@ function withSecurityHeaders(
     "object-src 'none'",
   ].join('; ');
 
-  if (!options.ownCsp) response.headers.set('Content-Security-Policy', csp);
+  if (!options.ownCsp) response.headers.set('Content-Security-Policy', options.csp ?? csp);
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('X-Frame-Options', 'DENY');
-  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  response.headers.set('Referrer-Policy', options.referrer ?? 'strict-origin-when-cross-origin');
   response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
   response.headers.set(
     'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+    `camera=${options.camera ? '(self)' : '()'}, microphone=(), geolocation=(), payment=(), usb=()`,
   );
+  if (options.noindex) response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   return response;
 }
 

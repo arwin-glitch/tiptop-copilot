@@ -44,6 +44,7 @@ import type {
   ThesisVersion,
   UserProfile,
 } from '@/lib/types/domain';
+import { demoEvents } from './events-fixtures';
 import { demoGlance } from './glance-fixtures';
 import { demoCampaignId, demoCrmId, DEMO_IDS as ID } from './ids';
 
@@ -2190,6 +2191,8 @@ experiment, not the fundraise timing.`,
     routine_briefings: demoRoutineBriefings(now),
     ...demoCrm(now),
     ...demoCampaigns(now),
+    // Events (D-075): fictional pages, sessions and guests.
+    ...demoEvents(now),
   };
 }
 

@@ -242,6 +242,13 @@ after an authorization check. Filenames are normalised to a safe slug plus a
 random suffix; the original filename is stored as metadata only. MIME type is
 validated against a magic-byte sniff, not just the client-declared header.
 
+*Amended by D-075 (Events):* published event pages are public by design, so
+events get two buckets of their own. `event-media` is PUBLIC and holds only
+processed derivatives of published, ungated event media (re-encoded, EXIF
+stripped, content-hashed paths, no SVG) and OG cards; `event-originals` is
+PRIVATE and holds uploads and every gated item, served as 15-minute signed
+URLs. `deal-attachments` and everything else here is unchanged.
+
 ---
 
 ## Verification pass (session 2)
@@ -2556,3 +2563,108 @@ notes; the rest did not.
   follow-up snapshots read their first `max` items and count the rest.
 - The cards themselves do not show the skipped count; Diagnostics does, and
   the server log names the marker and the count (never the content).
+
+---
+
+### D-075 — Events: Luma-style event pages inside Copilot, built from one contract
+
+**Context.** TipTop runs its events on Luma (the AGM on Jan 25 2027, Founder
+Golf, dinners). Luma has no drafts, no CRM, no per-session guest lists, a
+title font as its only design control, and its guest list lives outside
+Copilot. Nick wants event pages that look as good as anything on the web,
+with the guest list, invites and check-in where the rest of his work is.
+The build is split across five parallel workstreams (platform, design and
+renderer, Studio and collaboration, guests and public routes, the Events tab
+and messages), so the shared parts had to be fixed first, in one contract
+commit, before any of them started.
+
+**Decision.**
+
+- **One page per event at `copilot.tiptop.vc/e/<slug>`**, with personal
+  invites (`/e/<slug>/i/<token>`), check-in QR landings (`/e/<slug>/c/<token>`),
+  the outside-editor entry (`/e/edit#k=…`) and the staff entry
+  (`/e/checkin#k=…`). `/e` and `/api/e` are public in `proxy.ts`; `/events`
+  and `/api/events` stay signed in (the prefix test is segment-exact).
+- **The page is a JSON document (EventDoc, `lib/events/schema.ts`)**: theme
+  tokens, ordered sections of typed blocks, page meta. Strict zod everywhere
+  (unknown keys are errors), exact hex colours, fonts and effects from enums,
+  bounded numbers, media by `event_media` id only, links through
+  `isAllowedHref`, rich text in the campaign grammar plus headings rendered to
+  React nodes. No field holds HTML, CSS or script.
+- **Draft and published are separate.** Studio edits `draft_doc` op by op;
+  Publish (owners only) copies it to `published_doc`. Guests only ever read
+  the published snapshot, filtered on the server for who they are.
+- **Edits are ops merged per key, not a CRDT** (`lib/events/ops.ts`,
+  `lib/events/merge.ts`). Each section, the theme and the page meta carry
+  `rev` and `keyRevs`; an update conflicts only when a key it sets changed
+  after its `baseRev`, so two people editing different fields of the same
+  section both win. Moves are last-writer-wins on one fractional-index key.
+  Each op is all-or-nothing. The server applies a batch inside a
+  compare-and-set on `events.draft_version`, retrying three times, and logs
+  every applied op in `event_edits` (activity, conflict attribution,
+  tombstones). Yjs is deferred: its Supabase providers are not production
+  grade and a socket server would sleep on Render's free plan.
+- **Capabilities in one module** (`lib/events/capabilities.ts`): owners (any
+  signed-in member) can do everything; outside editors only the draft, within
+  their link's scope (design, content, chosen sections), never brand-locked
+  theme parts, never section visibility, the brand kit, SEO, settings,
+  guests, messages, sharing, restore or publish; viewer links preview only;
+  staff links check in only. Studio greys out what the server refuses, and
+  the server refuses it anyway.
+- **Outside links** (`event_editors`, owners-only table): 256-bit secrets in
+  the URL fragment, only the SHA-256 and a 4-character hint stored, claimed
+  by an explicit POST into an httpOnly SameSite=Strict cookie that every
+  request re-checks (revoked, expired, token version, editing paused, event,
+  role, scope). One link per person, never an "anyone can edit" link.
+- **The public surface is chrome-free and locked down** (`lib/events/surface.ts`).
+  `proxy.ts` marks `/e/*` and `/meet/*` with a request header the root
+  layout reads to leave out the service-worker registrar, Copilot's theme
+  script and the desktop title bar and alert opener (and strips that header,
+  and any nonce, from every other request). `/e/*` pages get a fresh nonce
+  per request and their own CSP: `script-src 'self' 'nonce-…'
+  'strict-dynamic'`, Supabase only for images, media and fetches, allowlisted
+  embed frames, `base-uri 'none'`, `frame-ancestors 'none'`. `public/sw.js`
+  never intercepts `/e` or `/meet`. `Referrer-Policy: no-referrer` on event
+  pages; `X-Robots-Tag: noindex` on personal and staff paths, and
+  `robots.txt` keeps crawlers to published event pages.
+- **Media gets two buckets of its own, amending D-038** (see below and
+  `20261023000100_event_media_buckets.sql`): public `event-media` for
+  processed derivatives of published, ungated media (EXIF stripped,
+  content-hashed paths, no SVG, 30 MB) and private `event-originals` for
+  uploads and every gated item (15-minute signed URLs). `lib/storage/provider.ts`
+  gains one narrow `eventMediaPublicUrl()` that can only name `event-media`.
+- **Nothing sends email on its own.** Invites, confirmations, approvals,
+  reminders and updates are campaign drafts a person confirms in the
+  existing campaign flow; `notified_status` records only what a sent
+  campaign told a guest.
+- **Tables** (`20261023000000_events.sql`, additive and idempotent, RLS like
+  every org table, no anon policies): `events`, `event_slug_aliases`,
+  `event_sessions`, `event_guests`, `event_guest_sessions`, `event_editors`,
+  `event_presence`, `event_versions`, `event_edits`, `event_media`,
+  `event_page_views`, `event_share_links`. The atomic registration function
+  (`event_register`, row locks on the sessions) comes in its own migration.
+- **The contract** (`lib/events/contracts.ts`) declares every interface one
+  workstream calls on another (EventPage and RsvpSlot props, renderOgImage,
+  the block registry, theme presets and starters, the grant service, the
+  guest service, panel props, service signatures), and stubs each at its
+  owner's path so all five can build and test in demo mode from day 0.
+
+**Why.** The pages are same-origin with Copilot and partly written by
+outsiders, so the safety rules have to live in the data model and the
+proxy, not in each component. A strict document plus ops gives co-editing
+without a socket server, a property-level merge that suits 2 to 5 editors,
+and an audit trail of who changed what. Splitting by workstream only works
+if the shared files (proxy, store, domain types, audit, layout, service
+worker, dependencies) change once, in one place.
+
+**Known limits.**
+
+- Event pages share Copilot's origin and cookies. The CSP and the
+  no-HTML rule are the guard; serving events from `events.tiptop.vc` is the
+  stronger next step.
+- Reading the public-surface header makes every route render per request
+  (the few static pages were `/`, `/offline`, `/privacy`, not-found).
+- `app/manifest.ts` still adds Copilot's manifest link to event pages; it is
+  harmless without the service worker but is a follow-up.
+- Render's free plan sleeps and resets the in-process rate limiter; the
+  service should move to a paid instance before any invite goes out.

@@ -27,6 +27,18 @@ import type {
   EmailMessage,
   EmailThread,
   EncryptedProviderToken,
+  EventEdit,
+  EventEditor,
+  EventGuest,
+  EventGuestSession,
+  EventMedia,
+  EventPageView,
+  EventPresence,
+  EventRecord,
+  EventSession,
+  EventShareLink,
+  EventSlugAlias,
+  EventVersion,
   GeneratedDraft,
   Integration,
   KnowledgeChunk,
@@ -105,6 +117,22 @@ export interface TableMap {
   audit_events: AuditEvent;
   mcp_tokens: McpToken;
   desktop_handoffs: DesktopHandoff;
+  // Events (D-075, 20261023000000_events.sql). event_guest_sessions,
+  // event_presence and event_slug_aliases have no `id` column (composite or
+  // slug keys): use list/findOne/updateWhere/removeWhere/upsert for them,
+  // never get/update/remove.
+  events: EventRecord;
+  event_slug_aliases: EventSlugAlias;
+  event_sessions: EventSession;
+  event_guests: EventGuest;
+  event_guest_sessions: EventGuestSession;
+  event_editors: EventEditor;
+  event_presence: EventPresence;
+  event_versions: EventVersion;
+  event_edits: EventEdit;
+  event_media: EventMedia;
+  event_page_views: EventPageView;
+  event_share_links: EventShareLink;
   user_feedback: UserFeedback;
   sync_runs: SyncRun;
 }

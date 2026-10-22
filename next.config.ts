@@ -19,6 +19,39 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      // Event pages (D-075): no Referer leaves an event page (a personal
+      // invite's token is in its path). After the catch-all above, so this
+      // value wins; proxy.ts sets the same, plus the page's nonce CSP.
+      {
+        source: '/e',
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      },
+      {
+        source: '/e/:path*',
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      },
+      // The staff door list may open the camera (in-app QR scanner).
+      {
+        source: '/e/checkin/:path*',
+        headers: [
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(self), microphone=(), geolocation=(), interest-cohort=()',
+          },
+        ],
+      },
+      // Personal and staff paths are never indexed, whatever the event.
+      ...[
+        '/e/edit',
+        '/e/edit/:path*',
+        '/e/checkin',
+        '/e/checkin/:path*',
+        '/e/:slug/i/:path*',
+        '/e/:slug/c/:path*',
+      ].map((source) => ({
+        source,
+        headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' }],
+      })),
       {
         source: '/sw.js',
         headers: [

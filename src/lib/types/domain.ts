@@ -1435,3 +1435,389 @@ export interface SyncRun {
   started_at: IsoDateTime;
   finished_at: IsoDateTime | null;
 }
+
+/* ----------------------------------------------------------------- events */
+//
+// Event pages, guests and outside edit links (D-075). Tables in
+// supabase/migrations/20261023000000_events.sql. The page document stored in
+// draft_doc / published_doc is typed and validated by lib/events/schema.ts
+// (EventDoc); rows carry it raw (EventDocJson) because a stored document may
+// be an older schemaVersion, upgraded on read by parseEventDoc.
+
+export type EventStatus = 'draft' | 'published' | 'cancelled' | 'archived';
+export type EventVisibility = 'public' | 'unlisted' | 'private';
+export type EventAccess = 'open' | 'approval' | 'invite_only';
+
+export type EventVenueKind = 'in_person' | 'online' | 'hybrid';
+/** Who sees the address / online link: enforced on the server. */
+export type EventVenueReveal = 'public' | 'registered' | 'going';
+
+export interface EventVenue {
+  kind: EventVenueKind;
+  name: string | null;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  place_id: string | null;
+  maps_url: string | null;
+  online_url: string | null;
+  reveal: EventVenueReveal;
+  notes: string | null;
+}
+
+export type EventGuestWall = 'hidden' | 'count' | 'going' | 'public';
+
+export interface EventResponseSet {
+  /** Offer "Maybe" as well as Going and Can not go. */
+  maybe: boolean;
+  labels: { going: string; maybe: string; not_going: string };
+}
+
+export interface EventPlusOnes {
+  /** 0 = no plus-ones. */
+  max: number;
+  /** Plus-ones chosen per session rather than for the whole event. */
+  per_session: boolean;
+  collect_email: boolean;
+  /** Each plus-one answers the questions marked ask_plus_ones. */
+  ask_questions: boolean;
+}
+
+export interface EventRegistrationSettings {
+  /** "Accept registrations". */
+  open: boolean;
+  closes_at: IsoDateTime | null;
+  /** Show "N spots left". */
+  show_remaining: boolean;
+  response_set: EventResponseSet;
+  plus_ones: EventPlusOnes;
+  waitlist: boolean;
+  /** Promote the first party that fits when someone cancels. Off for LP events. */
+  auto_promote: boolean;
+  /** Hours a promoted waitlister has to confirm (v1 nice); null: no window. */
+  claim_window_hours: number | null;
+  /** Invite-only pages offer "Request an invite" (creates a pending request). */
+  request_invite: boolean;
+  guest_wall: EventGuestWall;
+}
+
+export interface EventComms {
+  /** Reminder drafts are prepared this many minutes before each session. */
+  reminder_offsets_minutes: number[];
+  sender: CampaignFromIdentity;
+}
+
+export type EventQuestionType =
+  | 'short_text'
+  | 'long_text'
+  | 'single_choice'
+  | 'multi_choice'
+  | 'yes_no'
+  | 'dietary'
+  | 'company'
+  | 'job_title'
+  | 'linkedin'
+  | 'url'
+  | 'phone'
+  | 'number'
+  // v1 nice
+  | 'terms';
+
+export interface EventQuestion {
+  id: Uuid;
+  type: EventQuestionType;
+  label: string;
+  help: string | null;
+  required: boolean;
+  /** Choices for single/multi choice (dietary has a preset list). */
+  options: string[];
+  /** Asked for one session only; null: the whole event. */
+  session_id: Uuid | null;
+  /** Each plus-one answers it too. */
+  ask_plus_ones: boolean;
+  position: number;
+  /** Removed questions keep their id so exports can say "(removed) Label". */
+  removed_at: IsoDateTime | null;
+}
+
+/** A page document as stored: parse with parseEventDoc (lib/events/schema.ts). */
+export type EventDocJson = Record<string, unknown>;
+
+/** A row of `events`. Named EventRecord: `Event` is the DOM's. */
+export interface EventRecord {
+  id: Uuid;
+  organization_id: Uuid;
+  slug: string;
+  title: string;
+  status: EventStatus;
+  visibility: EventVisibility;
+  access: EventAccess;
+  password_hash: string | null;
+  time_zone: string;
+  starts_at: IsoDateTime | null;
+  ends_at: IsoDateTime | null;
+  venue: EventVenue;
+  capacity: number | null;
+  registration: EventRegistrationSettings;
+  questions: EventQuestion[];
+  comms: EventComms;
+  draft_doc: EventDocJson;
+  draft_version: number;
+  published_doc: EventDocJson | null;
+  published_version: number;
+  /** The draft_version the last publish copied ("N changes since publish"). */
+  published_draft_version: number;
+  published_at: IsoDateTime | null;
+  published_by: Uuid | null;
+  /** The ICS SEQUENCE: bumped on any time or venue change. */
+  schedule_version: number;
+  og_image_path: string | null;
+  editing_paused: boolean;
+  cancel_message: string | null;
+  cancelled_at: IsoDateTime | null;
+  is_template: boolean;
+  created_by: Uuid | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export interface EventSlugAlias {
+  slug: string;
+  organization_id: Uuid;
+  event_id: Uuid;
+  created_at: IsoDateTime;
+}
+
+export interface EventSession {
+  id: Uuid;
+  organization_id: Uuid;
+  event_id: Uuid;
+  name: string;
+  description: string | null;
+  starts_at: IsoDateTime | null;
+  ends_at: IsoDateTime | null;
+  /** Null: the event's venue. */
+  venue: EventVenue | null;
+  capacity: number | null;
+  /** Null: inherit from the event's access mode. */
+  requires_approval: boolean | null;
+  /** Null: inherit from the event's registration settings. */
+  waitlist: boolean | null;
+  /** Empty: visible to everyone who can see the event. */
+  visible_to_tags: string[];
+  position: number;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export type EventGuestSource =
+  'invite' | 'public' | 'request' | 'import' | 'host' | 'walk_in' | 'plus_one';
+
+/** Per-session RSVP status. Luma: approved = going, pending_approval = pending. */
+export type EventGuestStatus =
+  'invited' | 'pending' | 'going' | 'maybe' | 'waitlist' | 'declined' | 'not_going';
+
+export const EVENT_GUEST_STATUSES: readonly EventGuestStatus[] = [
+  'invited',
+  'pending',
+  'going',
+  'maybe',
+  'waitlist',
+  'declined',
+  'not_going',
+];
+
+export interface EventGuest {
+  id: Uuid;
+  organization_id: Uuid;
+  event_id: Uuid;
+  /** Set for plus-ones: the guest who brought them. */
+  parent_guest_id: Uuid | null;
+  /** Lowercased; null for some plus-ones and walk-ins. */
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  company: string | null;
+  title: string | null;
+  phone: string | null;
+  record_id: Uuid | null;
+  tags: string[];
+  host_note: string | null;
+  /** { [question id]: answer } */
+  answers: Record<string, unknown>;
+  source: EventGuestSource;
+  token_version: number;
+  show_on_wall: boolean;
+  referral_code: string | null;
+  utm: Record<string, string> | null;
+  ip_hash: string | null;
+  /** { [session id]: status } the guest was last told about by a SENT campaign. */
+  notified_status: Record<Uuid, EventGuestStatus>;
+  registered_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+/** Primary key (guest_id, session_id): there is no `id`. */
+export interface EventGuestSession {
+  guest_id: Uuid;
+  session_id: Uuid;
+  organization_id: Uuid;
+  event_id: Uuid;
+  status: EventGuestStatus;
+  requested_at: IsoDateTime | null;
+  decided_by: Uuid | null;
+  decided_at: IsoDateTime | null;
+  decision_note: string | null;
+  claim_expires_at: IsoDateTime | null;
+  checked_in_at: IsoDateTime | null;
+  /** Actor key: 'u:<user id>' or 'g:<grant id>'. */
+  checked_in_by: string | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export type EventEditorRole = 'editor' | 'viewer' | 'checkin';
+
+/** What an outside editor's link may touch (lib/events/capabilities.ts). */
+export interface EventEditorScope {
+  design: boolean;
+  content: boolean;
+  sections: 'all' | Uuid[];
+  /** Brand locks (logo, palette, fonts, intro) bind this editor. On by default. */
+  brand_locked: boolean;
+}
+
+/** A personal outside link. Owners-only table; never send token_hash to a browser. */
+export interface EventEditor {
+  id: Uuid;
+  organization_id: Uuid;
+  event_id: Uuid;
+  label: string;
+  email: string | null;
+  role: EventEditorRole;
+  scope: EventEditorScope;
+  token_hash: string;
+  token_hint: string;
+  token_version: number;
+  password_hash: string | null;
+  expires_at: IsoDateTime;
+  revoked_at: IsoDateTime | null;
+  created_by: Uuid | null;
+  created_at: IsoDateTime;
+  first_claimed_at: IsoDateTime | null;
+  last_used_at: IsoDateTime | null;
+  last_ip_hash: string | null;
+  last_ua_hash: string | null;
+  use_count: number;
+}
+
+/** Primary key (event_id, actor_key): there is no `id`. */
+export interface EventPresence {
+  event_id: Uuid;
+  /** 'u:<user id>' or 'g:<grant id>'. */
+  actor_key: string;
+  organization_id: Uuid;
+  name: string;
+  color: string;
+  focused_section_id: Uuid | null;
+  typing: boolean;
+  last_seen_at: IsoDateTime;
+}
+
+export type EventVersionKind = 'autosave' | 'named' | 'published' | 'pre_restore' | 'restore';
+
+export interface EventVersion {
+  id: Uuid;
+  organization_id: Uuid;
+  event_id: Uuid;
+  version: number;
+  kind: EventVersionKind;
+  name: string | null;
+  doc: EventDocJson;
+  draft_version: number;
+  author_user_id: Uuid | null;
+  author_editor_id: Uuid | null;
+  author_name: string | null;
+  created_at: IsoDateTime;
+}
+
+export type EventEditOp = 'insert' | 'update' | 'move' | 'delete' | 'theme' | 'page';
+
+export interface EventEdit {
+  id: Uuid;
+  organization_id: Uuid;
+  event_id: Uuid;
+  section_id: Uuid | null;
+  op: EventEditOp;
+  keys: string[];
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  draft_version: number;
+  actor_key: string;
+  author_name: string;
+  ip_hash: string | null;
+  created_at: IsoDateTime;
+}
+
+export type EventMediaKind = 'image' | 'video' | 'logo' | 'file';
+export type EventMediaStatus = 'uploaded' | 'ready' | 'failed';
+
+export interface EventMediaVariant {
+  /** Width in px (0 for a file or the original). */
+  w: number;
+  format: 'avif' | 'webp' | 'jpg' | 'png' | 'mp4' | 'webm' | 'pdf' | 'pptx' | 'docx';
+  /** Object path: in event-media when public, event-originals when gated. */
+  path: string;
+  bytes: number;
+}
+
+export interface EventMedia {
+  id: Uuid;
+  organization_id: Uuid;
+  event_id: Uuid;
+  kind: EventMediaKind;
+  status: EventMediaStatus;
+  original_path: string;
+  original_name: string | null;
+  content_type: string | null;
+  bytes: number | null;
+  variants: EventMediaVariant[];
+  poster_path: string | null;
+  width: number | null;
+  height: number | null;
+  duration_ms: number | null;
+  thumbhash: string | null;
+  colors: string[];
+  alt: string | null;
+  decorative: boolean;
+  gated: boolean;
+  error: string | null;
+  created_by_actor: string;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+/** v1 nice. */
+export interface EventPageView {
+  id: Uuid;
+  organization_id: Uuid;
+  event_id: Uuid;
+  /** YYYY-MM-DD. */
+  day: string;
+  visitor_hash: string;
+  guest_id: Uuid | null;
+  source: string | null;
+  created_at: IsoDateTime;
+}
+
+/** v1 nice. */
+export interface EventShareLink {
+  id: Uuid;
+  organization_id: Uuid;
+  event_id: Uuid;
+  code: string;
+  label: string;
+  created_by: Uuid | null;
+  created_at: IsoDateTime;
+}

@@ -21,6 +21,10 @@ The realistic threats to an internal fund tool that reads a partner's mailbox:
 | T8 | A hostile attachment exploits a parser | Local parsing only, magic-byte sniffing, size and page ceilings |
 | T9 | Cross-site request forgery | Server actions (Next's origin check), not open POST routes |
 | T10 | An AI action with real-world consequences | There are none: AI never sends, transfers or decides. The only send is a person tapping Send in the email session, after the mailbox owner opts in |
+| T11 | Script in an event page (same origin as Copilot) written by an outside editor or a guest | No HTML/CSS/JS field anywhere in the EventDoc (strict zod, unknown keys refused, hrefs through `isAllowedHref`, media by id); rich text rendered to React nodes; per-request nonce CSP with `'strict-dynamic'` on `/e/*`; SVG uploads refused |
+| T12 | A leaked or forwarded outside-edit link | 256-bit secret in the URL fragment (never sent on GET, never in Referer or logs), only its SHA-256 stored, claimed by an explicit POST into an httpOnly SameSite=Strict cookie, re-checked on every request (revoked, expired, token version, paused, event, role, scope); one link per person, 14-day default and 90-day cap, regenerate/revoke/revoke-all; outsiders only ever reach the draft and never publish |
+| T13 | A forwarded personal invite opens gated content | Stateless HMAC tokens (`event-rsvp/v1`, `event-checkin/v1`) with no PII; rotating the guest's token version kills the link; gated sections removed on the server, gated files as 15-minute signed URLs; GETs never change state |
+| T14 | Event pages leak Copilot's chrome or data | `/e/*` and `/meet/*` are a marked public surface: no service worker, theme script or desktop chrome; public routes call only narrow event services with explicit organization and event filters; guest emails never appear on a public page |
 
 ---
 
@@ -199,6 +203,13 @@ lookups, tool calls and a full chat turn.
   length-capped.
 - **Private bucket.** Attachments live in a private Supabase bucket and are
   served through short-lived signed URLs, never public links.
+- **Event media (D-075).** The one exception is the public `event-media`
+  bucket: processed derivatives of *published, ungated* event media only,
+  re-encoded by sharp (EXIF and GPS stripped), content-hashed paths never
+  overwritten, no SVG, 30 MB. Originals and every gated item stay in the
+  private `event-originals` bucket behind 15-minute signed URLs.
+  `eventMediaPublicUrl()` can only name `event-media`. Anything in the public
+  bucket is world-readable and may linger in CDN caches after deletion.
 - **Failure is recorded, not thrown.** An unparseable file is stored with
   `needs_review: true` and low confidence. A partially-read deck that says so is
   more useful than a deal that will not open.
@@ -232,6 +243,20 @@ codebase — the pre-paint theme bootstrap in `layout.tsx` — and it carries an
 `eslint-disable-next-line` with a written justification. An ESLint rule blocks
 any other use.
 
+**Event pages (`/e/*`, D-075)** get their own policy instead
+(`lib/events/surface.ts`): a fresh nonce per request, `script-src 'self'
+'nonce-…' 'strict-dynamic'` (Cloudflare Turnstile added only when it is
+enabled), `img-src`/`media-src`/`connect-src` limited to the app and the
+Supabase project, `frame-src` limited to the embed allowlist (Google Maps,
+YouTube-nocookie, Vimeo, Loom, Spotify), `base-uri 'none'`, `object-src
+'none'`, `frame-ancestors 'none'`, plus `Referrer-Policy: no-referrer`.
+Personal and staff paths (`/e/edit`, `/e/checkin`, `/e/*/i/*`, `/e/*/c/*`) add
+`X-Robots-Tag: noindex`. The root layout leaves the theme bootstrap, the
+service-worker registrar and the desktop chrome off these pages, keyed on a
+request header `proxy.ts` sets there and strips (or overwrites) everywhere
+else, so a client cannot fake it. `public/sw.js` never intercepts `/e` or
+`/meet`.
+
 ---
 
 ## 9. Auditing
@@ -241,7 +266,12 @@ fetched, attachment extracted, deal created, fact corrected, decision recorded,
 analysis overridden, draft created, integration disconnected, data deleted,
 injection flagged, citation rejected, question asked, desktop alerts turned
 on or off for a computer (`push.desktop_enabled`, `push.desktop_disabled`,
-with the platform or the reason, never the token).
+with the platform or the reason, never the token), and every consequential
+Events action (`event.*`: created, published, unpublished, cancelled,
+deleted, slug changed, edit links created, claimed, regenerated and revoked,
+editing paused, version restored, guest status changes, imports, exports,
+check-ins, guest deletion). Draft edits themselves are logged per op in
+`event_edits` with the author's name as it was at the time.
 
 Client IPs are stored as an HMAC hash, never raw. Metadata is structured and
 non-sensitive by construction.
