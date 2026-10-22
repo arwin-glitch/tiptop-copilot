@@ -1199,3 +1199,79 @@ describe('booking hotfix: the hard hours, Central', () => {
     expect(lateDinner.ok).toBe(false);
   });
 });
+
+describe('Instant by default (D-078; it supersedes the D-074 Instant addendum)', () => {
+  const ZOOM_ROOM = 'https://example.zoom.us/j/5550001111?pwd=invented';
+
+  async function configure(over: Record<string, unknown> = {}) {
+    const current = await readBookingSettings(harness.store, harness.auth.organizationId);
+    const result = await saveBookingSettings(
+      harness.store,
+      harness.auth.organizationId,
+      harness.auth.userId,
+      { enabled: true, slug: SLUG, config: { ...current.config, approveFirst: false, ...over } },
+    );
+    expect(result.ok).toBe(true);
+  }
+
+  async function send(over: Record<string, unknown>, from: CalendarSource = source()) {
+    return submitBookingRequest(harness.store, SLUG, request(over), {
+      ipHash: 'hash-of-an-address',
+      now: NOW,
+      source: from,
+    });
+  }
+
+  async function rowsFor(email: string): Promise<BookingRequest[]> {
+    return harness.store.list('booking_requests', harness.auth.organizationId, {
+      eq: { email },
+    });
+  }
+
+  it('is on for a new link, and an old "instant: false" never keeps approval on', async () => {
+    expect(DEFAULT_BOOKING_CONFIG.approveFirst).toBe(false);
+    expect(parseBookingConfig({}).approveFirst).toBe(false);
+    expect(parseBookingConfig({ instant: false }).approveFirst).toBe(false);
+    expect(parseBookingConfig({ approveFirst: true }).approveFirst).toBe(true);
+  });
+
+  it('books a free call on the saved Zoom link straight away: one event, exactly as Approve makes it', async () => {
+    await configure({ callLink: ZOOM_ROOM });
+    const [slot] = await slots('call');
+    const result = await send({ start: slot!.start });
+    expect(result.ok && result.value.kind === 'saved' && result.value.result.status).toBe('booked');
+    expect(state.writes).toHaveLength(1);
+    expect(state.writes[0]).toMatchObject({
+      op: 'insert',
+      calendarId: MOCK_OWN_EMAIL,
+      sendUpdates: 'all',
+      conferenceDataVersion: 0,
+    });
+    expect(state.writes[0]!.body?.location).toBe(ZOOM_ROOM);
+    expect(state.writes[0]!.body?.attendees?.[0]).toEqual({
+      email: MOCK_OWN_EMAIL,
+      organizer: true,
+      responseStatus: 'accepted',
+    });
+    // Nobody decided it: the link's own rules did.
+    const [row] = await rowsFor('pat@acme.example');
+    expect(row).toMatchObject({ status: 'booked', decided_by: null, event_id: expect.any(String) });
+  });
+
+  it('a message stays a message', async () => {
+    await configure();
+    const note = await send({ type: 'message', start: null, note: 'Sharing our deck.' });
+    expect(note.ok && note.value.kind === 'saved' && note.value.result.status).toBe('message');
+    expect(state.writes).toEqual([]);
+    expect((await rowsFor('pat@acme.example'))[0]?.status).toBe('pending');
+  });
+
+  it('keeps the honeypot brake before anything is written', async () => {
+    await configure();
+    const [slot] = await slots('call');
+    const honeypot = await send({ start: slot!.start, website: 'http://spam.example' });
+    expect(honeypot.ok && honeypot.value.kind).toBe('ignored');
+    expect(state.writes).toEqual([]);
+    expect(await rowsFor('pat@acme.example')).toEqual([]);
+  });
+});

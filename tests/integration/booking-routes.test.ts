@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BookingPage } from '@/components/booking/booking-page';
 import { loadMeetPage, PAGE_VIEWS_PER_10_MIN } from '@/lib/booking/page-data';
-import { SENT_MESSAGE } from '@/lib/booking/public';
+import { bookedTitle, HELD_MESSAGE, MESSAGE_SENT, SENT_MESSAGE } from '@/lib/booking/public';
 import { DEMO_BOOKING_SETTINGS_ID } from '@/lib/demo/booking-fixtures';
 import { getStorage } from '@/lib/runtime';
 import { resetLimiters } from '@/lib/security/limits';
@@ -191,6 +191,14 @@ describe('what the page says happens next (hotfix, D-078)', () => {
       "Request sent. You'll get a calendar invitation once the time is booked.",
     );
   });
+
+  it('says a booked time is booked, and still names nobody who confirms it (instant)', () => {
+    expect(bookedTitle('Nick Avery')).toBe("You're booked with Nick");
+    expect(HELD_MESSAGE).toBe('Your time is held. The calendar invitation is on its way.');
+    for (const text of [bookedTitle('Nick Avery'), HELD_MESSAGE, MESSAGE_SENT]) {
+      expect(text).not.toMatch(/confirm|review|approv|Arwin|the team|someone/i);
+    }
+  });
 });
 
 describe('open times', () => {
@@ -251,6 +259,57 @@ describe('sending a request', () => {
     expect(rows[0]!.status).toBe('booked');
     expect(rows[0]!.ip_hash).toMatch(/^[0-9a-f]{16,}$/);
     expect(rows[0]!.ip_hash).not.toContain('203.0.113.7');
+  });
+
+  it('booking at once (the default), books a free time and says so; a message and the honeypot are not booked', async () => {
+    const org = harness.auth.organizationId;
+    const stored = await harness.store.get('booking_settings', org, DEMO_BOOKING_SETTINGS_ID);
+    await harness.store.update('booking_settings', org, DEMO_BOOKING_SETTINGS_ID, {
+      settings: { ...(stored!.settings as Record<string, unknown>), approveFirst: false },
+    });
+    const start = await firstCallSlot();
+    const booked = await requestRoute(
+      post('/api/meet/nick/request', {
+        name: 'Pat Lee',
+        email: 'pat@acme.example',
+        type: 'call',
+        start,
+      }),
+      params(),
+    );
+    expect(booked.status).toBe(200);
+    expect(await booked.json()).toMatchObject({
+      ok: true,
+      status: 'booked',
+      message: 'Booked.',
+      manageUrl: expect.stringMatching(/^\/meet\/nick\/b\//),
+    });
+    const [row] = await harness.store.list('booking_requests', harness.auth.organizationId, {
+      eq: { email: 'pat@acme.example' },
+    });
+    // Nobody decided it: the link's own rules did.
+    expect(row).toMatchObject({ status: 'booked', decided_by: null });
+
+    const note = await requestRoute(
+      post('/api/meet/nick/request', message('n@b.example')),
+      params(),
+    );
+    expect(await note.json()).toEqual({ ok: true, status: 'message', message: MESSAGE_SENT });
+    const robot = await requestRoute(
+      post(
+        '/api/meet/nick/request',
+        { name: 'Robo', email: 'robo@spam.example', type: 'call', start, website: 'x' },
+        { ip: '198.51.100.9' },
+      ),
+      params(),
+    );
+    // The honeypot hears what a person would, and nothing is kept.
+    expect(await robot.json()).toEqual({ ok: true, status: 'booked', message: 'Booked.' });
+    expect(
+      await harness.store.list('booking_requests', harness.auth.organizationId, {
+        eq: { email: 'robo@spam.example' },
+      }),
+    ).toEqual([]);
   });
 
   it('refuses one from another site, or with no origin at all', async () => {

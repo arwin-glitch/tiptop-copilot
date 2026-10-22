@@ -2702,6 +2702,8 @@ him), a public chatbot that calls itself Arwin, and "don't create chaos".
 - **Instant booking** exists in Settings and defaults off. Writes stay
   person-only (nothing writes to the calendar from the public page), so in
   this version "instant" only tags requests "Instant" in the drawer.
+  (Replaced: Instant booking now books, and is on by default; see the
+  Instant booking amendment below.)
 - **Settings > Booking link** (admins and the owner; `?tab=booking`): on/off,
   slug, the public card (display name, title, bio, firm, a photo), home city
   and other names for it, the places list (name, area, optional map link) and
@@ -2765,7 +2767,8 @@ him), a public chatbot that calls itself Arwin, and "don't create chaos".
   as travel and hides in person that day.
 - Requests are judged again at approval: one approved after the day filled up
   by hand is refused, not squeezed in.
-- Instant booking is stored but does not book on its own (above).
+- Instant booking is stored but does not book on its own (above). (No longer
+  true: see the Instant booking amendment below.)
 
 **Amended 2026-10-22, after Arwin tested the live link that day.** Four fixes,
 no migration (all in the settings document, read with defaults):
@@ -2795,6 +2798,62 @@ no migration (all in the settings document, read with defaults):
 - **No visitor-facing text says a person confirms** ("Arwin confirms", "Arwin
   will reply", "from the team" are gone from the page, the chatbot and the
   error messages); the chatbot still calls itself Arwin, the AI.
+
+**Amended 2026-10-22 (later the same day): Instant booking books.** Arwin:
+"if we click instant, just make sure it's auto approve." The switch was only
+stored, so every request still waited for Approve. Now, no migration:
+
+- **With Instant booking on, a request for a free time is booked straight
+  away.** Right after a call or in-person request is saved (form or chatbot
+  fill, both sent through the same request route), the service books it once
+  through the very core Approve uses (`bookOnHostCalendar` in
+  `lib/services/booking.ts`, which `approveBookingRequest` now calls too): the
+  re-check against the live calendar (the cache is bypassed) and every rule,
+  the claim on the row (`claimed_at`, so a double submit, a retry or a
+  person's Approve at the same moment can never make two events), and the
+  event on the host's main calendar through `lib/calendar/write.ts`, exactly
+  as Approve makes it (the host first on the guest list as organizer, the
+  visitor invited, sendUpdates `all`, the saved video link instead of Meet).
+  The row is marked approved with its calendar and event ids. It is a system
+  decision: `decided_by` is null, the write module's audit row has no user,
+  and the audit action is `booking.auto_approved` (ids and kinds only).
+- **The time is checked live before the request is kept.** With the switch
+  on, the submit's own check reads the calendar fresh, so a time taken since
+  the page loaded is refused ("That time is no longer open. Pick another
+  time.") and the page offers the next times, instead of keeping a request
+  that cannot be booked.
+- **When it cannot be booked on its own, nothing changes for the visitor.**
+  No calendar editing grant, the calendar unreachable, the time no longer
+  free, the row already claimed, or any write error: the request stays
+  pending, exactly as before, for a person on the Calendar tab (a refusal is
+  audited as `booking.approve_refused` with `instant: true`). It is tried once
+  and never retried. The visitor never sees an error for it.
+- **What the visitor is told.** The request route answers `status`:
+  `booked`, `pending` or `message`. Booked: "You're booked with <first name>",
+  the time in their zone (and the host's, when it reads differently) and "The
+  calendar invitation is on its way to <their email>." Pending: "Request
+  sent. You'll get a calendar invitation once the time is booked." No text
+  says a person confirms or reviews. The honeypot is answered as pending and
+  keeps nothing.
+- **Unchanged.** Instant booking off behaves exactly as before. Messages stay
+  messages. Every brake (the honeypot, the per-address and per-email limits,
+  the waiting caps, the six-a-day link cap, the five-meetings day) applies
+  before anything is written. The public page, its routes and the chatbot
+  still name no calendar write; the boundary test pins that only Approve and
+  the submit (with the switch on, after the row is kept) reach the core.
+- **On by default** for a new link (`DEFAULT_BOOKING_CONFIG.instant`). The
+  demo keeps it off, so it still shows requests waiting for Approve.
+- Known limit, as for Approve: if Google's answer is lost, the claim holds for
+  two minutes and the request stays pending; a person approving it after that
+  should check the calendar first, since the event may be there already.
+
+**Superseded by D-078** (part 2, the same evening): booking at once became
+how the link works, with no switch (`instant` is no longer read; the
+optional `approveFirst` replaces it, off by default), a held time instead of
+a pending request when calendar editing is off, and each booking's own page.
+`bookOnHostCalendar` and `booking.auto_approved` did not carry over: an
+instant booking is written by the submit itself, after its fresh re-check,
+through `lib/services/booking-calendar.ts`.
 
 ### D-077 — A public job board: published by a person, read from companies' own boards, off until switched on
 

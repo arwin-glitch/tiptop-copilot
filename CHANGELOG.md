@@ -68,7 +68,9 @@ throughout.
   and desktop and as a line on Today. If calendar editing is not turned on,
   bookings are held and go onto the calendar by themselves once it is.
   "Approve first" is still an option on the Booking tab's Overview, off.
-  Nothing here costs money. Run
+  This replaces the "Instant booking" switch added to Settings earlier the
+  same day: there is no switch to find any more, booking at once is simply
+  how the link works. Nothing here costs money. Run
   `supabase/migrations/20261022200000_booking_v2.sql`; until then bookings
   wait as requests, as before.
 - **A meeting deleted in Google Calendar is cancelled in Copilot too.** If
