@@ -62,7 +62,7 @@ export function KeepInTouchControl({
           ? `Stopped keep-in-touch reminders for ${name}.`
           : `Keep in touch with ${name}: ${cadenceLabel(saved).toLowerCase()}.`,
         result.data?.created.length
-          ? { description: `Already due, so “${result.data.created[0]}” is on your Tasks.` }
+          ? { description: `Already due, so “${result.data.created[0]}” is on Tasks.` }
           : undefined,
       );
       React.startTransition(() => router.refresh());

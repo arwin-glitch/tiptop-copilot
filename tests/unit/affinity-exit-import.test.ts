@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHarness, type Harness } from '../helpers/harness';
+import { makeLiveTeam } from '../helpers/live-team';
 import {
   estimateMegabytes,
   isOpenReminder,
@@ -9,6 +10,7 @@ import {
   type AffinityApiReminder,
 } from '@/lib/crm/affinity-exit-import';
 import type { DataStore } from '@/lib/db/store';
+import { DEMO_TEAMMATE } from '@/lib/demo/fixtures';
 import {
   AFFINITY_EXIT_IMPORT_ACTION,
   readAffinityExitImports,
@@ -393,6 +395,18 @@ describe('copying the open reminders', () => {
     expect(await store.get('tasks', org, reminderTaskId(org, 4002))).toBeNull();
     // The count asks Affinity for the open ones with a filter, once.
     expect(fake.calls.filter((c) => c.includes('totalCount=true'))).toHaveLength(1);
+  });
+
+  it('gives the tasks to the principal, whoever presses, made by who pressed', async () => {
+    // The owner who set the team up presses; the mailbox, and the work, is the demo user's.
+    await makeLiveTeam(store, harness.auth);
+    const fake = fakeAffinity(directory());
+    await press('reminders', fake, { userId: DEMO_TEAMMATE.id });
+    const deck = (await store.get('tasks', org, reminderTaskId(org, 4001))) as Task;
+    expect(deck).toMatchObject({
+      assigned_to: harness.auth.userId,
+      created_by: DEMO_TEAMMATE.id,
+    });
   });
 
   it('never adds a reminder twice, nor brings back a task someone finished', async () => {

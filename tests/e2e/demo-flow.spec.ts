@@ -240,9 +240,10 @@ test('diagnostics reports configuration without ever showing a value', async ({ 
   await expect(page.getByText(/Values are never shown/)).toBeVisible();
 
   const body = await page.locator('body').innerText();
-  // The e2e server runs with these; neither may appear on screen.
+  // The e2e server runs with these; none may appear on screen.
   expect(body).not.toContain('e2e-session-secret-not-a-production-value-000000');
   expect(body).not.toContain('ZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmUyZTJlMmU9');
+  expect(body).not.toContain('e2e-task-bridge-token-not-a-production-value');
 });
 
 test('the privacy notice is reachable without a session', async ({ page, context }) => {

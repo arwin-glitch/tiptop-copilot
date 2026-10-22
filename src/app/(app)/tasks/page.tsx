@@ -42,7 +42,7 @@ import {
   taskHref,
   wakeLabel,
 } from '@/lib/tasks/tasks-view';
-import { personShort } from '@/lib/tasks/task-people';
+import { assigneeChip } from '@/lib/tasks/task-people';
 import type { Task } from '@/lib/types/domain';
 import { settlesWithin } from '@/lib/util/settle';
 import { relativeTime } from '@/lib/util/time';
@@ -93,9 +93,9 @@ export default async function TasksPage() {
     readTaskCompanies(store, orgId, [...openTasks, ...snoozedTasks, ...completed]),
   ]);
   const timeZone = auth.profile.timezone;
-  // Names on rows only when there is more than one person to tell apart.
-  const assignee = (task: Task) =>
-    people.length > 1 ? personShort(people, task.assigned_to) : null;
+  // Names on rows only when there is more than one person to tell apart, and
+  // never the principal's: a row with no name is theirs.
+  const assignee = (task: Task) => assigneeChip(people, task.assigned_to);
   const controls = (task: Task): TaskControlsTask => ({
     title: task.title,
     detail: task.detail,

@@ -39,6 +39,23 @@ throughout.
   labels shows each calendar's labels and how many events in the next week
   carry each, read-only (D-070).
 
+- **Tasks go to the person whose mailbox Copilot reads.** Suggested tasks,
+  keep-in-touch check-ins, copied Affinity reminders and follow-ups added
+  without choosing someone used to land on whoever set the workspace up, so
+  on Tasks "Everyone" and that person showed the same list and the mailbox
+  person showed nothing. They now go to the mailbox person: the member whose
+  sign-in address is the connected Gmail address (else whoever connected it,
+  else the owner), and they keep going there while that mailbox needs
+  reconnecting. The person filter lists them first, a money or legal close
+  asks for their confirmation by default, and a row only names who it is for
+  when it is someone else (or "No one"). Handing a task to someone from its
+  menu still works and always sticks. Open and snoozed tasks already filed
+  the old way move with
+  `supabase/data-fixes/20261021002000_tasks_to_principal.sql`, run by hand in
+  the SQL editor after its two preview queries: only tasks no person added or
+  reassigned, each with an audit row, done tasks left alone, and running it
+  twice moves nothing.
+
 - **Calendar: Day, Week and Month, like Google Calendar.** The Calendar tab
   now opens on them: the view last used, else Week on a computer and Day on
   a phone. The **New calendar** switch goes back to the day list for anyone
