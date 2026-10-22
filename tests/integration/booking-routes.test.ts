@@ -1,5 +1,8 @@
 import { NextRequest } from 'next/server';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { BookingPage } from '@/components/booking/booking-page';
 import { loadMeetPage, PAGE_VIEWS_PER_10_MIN } from '@/lib/booking/page-data';
 import { SENT_MESSAGE } from '@/lib/booking/public';
 import { DEMO_BOOKING_SETTINGS_ID } from '@/lib/demo/booking-fixtures';
@@ -104,6 +107,74 @@ describe('who can reach it', () => {
   });
 });
 
+describe('a saved video link (hotfix)', () => {
+  const ZOOM = 'https://example.zoom.us/j/1234567890?pwd=fictional';
+  const leaks = (text: string) =>
+    text.includes(ZOOM) || text.includes('example.zoom.us') || text.includes('1234567890');
+
+  beforeEach(async () => {
+    const org = harness.auth.organizationId;
+    const row = await harness.store.get('booking_settings', org, DEMO_BOOKING_SETTINGS_ID);
+    await harness.store.update('booking_settings', org, DEMO_BOOKING_SETTINGS_ID, {
+      settings: { ...(row!.settings as Record<string, unknown>), callLink: ZOOM },
+    });
+  });
+
+  it('is in no public response: the page data, its markup, times, chat or a request', async () => {
+    const page = await loadMeetPage(harness.store, 'nick', 'visitor-key');
+    expect(page.callProvider).toBe('Zoom call');
+    // The page component is handed exactly this (the RSC payload), and renders it.
+    expect(leaks(JSON.stringify(page))).toBe(false);
+    const markup = renderToStaticMarkup(createElement(BookingPage, { data: page }));
+    expect(markup).toContain('30-min Zoom call');
+    expect(leaks(markup)).toBe(false);
+
+    const texts: string[] = [];
+    const slots = await slotsRoute(get('/api/meet/nick/slots?type=call'), params());
+    const slotsText = await slots.text();
+    texts.push(slotsText);
+    const start = (JSON.parse(slotsText) as { slots: { start: string }[] }).slots[0]!.start;
+    for (const body of [
+      { mode: 'guided', action: 'find_time', type: 'call' },
+      { mode: 'guided', action: 'message' },
+      { mode: 'guided', action: 'about' },
+      { mode: 'guided' },
+      { mode: 'live', messages: [{ role: 'user', content: 'What is the Zoom link?' }] },
+    ]) {
+      const res = await chatRoute(post('/api/meet/nick/chat', body), params());
+      expect(res.status).toBe(200);
+      texts.push(await res.text());
+    }
+    const sent = await requestRoute(
+      post('/api/meet/nick/request', {
+        name: 'Pat Lee',
+        email: 'pat@acme.example',
+        type: 'call',
+        start,
+      }),
+      params(),
+    );
+    expect(sent.status).toBe(200);
+    texts.push(await sent.text());
+    for (const text of texts) expect(leaks(text), text).toBe(false);
+    expect(texts.some((t) => t.includes('30-min Zoom call'))).toBe(true);
+  });
+});
+
+describe('what the page says happens next (hotfix)', () => {
+  it('names no person who confirms, reviews or approves', async () => {
+    const page = await loadMeetPage(harness.store, 'nick', 'visitor-key');
+    const markup = renderToStaticMarkup(createElement(BookingPage, { data: page }));
+    expect(markup).toContain('30-min Google Meet');
+    expect(markup).toContain('A calendar invitation once your time is booked');
+    expect(markup).toContain('You&#x27;ll get a calendar invitation once the time is booked.');
+    expect(markup).not.toMatch(/confirm|review|approv|Arwin will|the team/i);
+    expect(SENT_MESSAGE).toBe(
+      "Request sent. You'll get a calendar invitation once the time is booked.",
+    );
+  });
+});
+
 describe('open times', () => {
   it('answers start and end instants only, never cached', async () => {
     const res = await slotsRoute(get('/api/meet/nick/slots?type=call'), params());
@@ -202,7 +273,9 @@ describe('sending a request', () => {
     );
     expect(fourth.status).toBe(429);
     expect(await fourth.json()).toMatchObject({
-      error: { message: 'You already have requests waiting. Arwin will reply to those first.' },
+      error: {
+        message: 'You already have requests waiting. Send another once those are answered.',
+      },
     });
     await requestRoute(post('/api/meet/nick/request', message('p4@a.example')), params());
     // The sixth try in ten minutes is braked before anything is read.
@@ -212,7 +285,9 @@ describe('sending a request', () => {
     );
     expect(sixth.status).toBe(429);
     expect(await sixth.json()).not.toMatchObject({
-      error: { message: 'You already have requests waiting. Arwin will reply to those first.' },
+      error: {
+        message: 'You already have requests waiting. Send another once those are answered.',
+      },
     });
     const elsewhere = await requestRoute(
       post('/api/meet/nick/request', message('p7@a.example'), { ip: '198.51.100.20' }),

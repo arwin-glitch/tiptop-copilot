@@ -62,7 +62,7 @@ describe('the public chatbot prompt', () => {
 
   it('offers only calls when in person is off', () => {
     const calls = bookingChatSystemPrompt({ ...context, offersInPerson: false });
-    expect(calls).toContain('Meetings offered: a 30-minute call (Google Meet).');
+    expect(calls).toContain('Meetings offered: a 30-min Google Meet.');
     expect(calls).not.toContain('coffee');
   });
 

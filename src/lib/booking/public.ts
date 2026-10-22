@@ -26,6 +26,11 @@ export interface PublicBookingPage {
   places: Place[];
   allowCustomPlace: boolean;
   kinds: MeetingKind[];
+  /**
+   * What a call is on, as a label ("Zoom call", "Google Meet"): never the
+   * saved video link itself, which only goes in the invite (videoProviderLabel).
+   */
+  callProvider: string;
   chatbot: { enabled: boolean; mode: 'live' | 'guided' };
   /** The public FAQ text, for the guided helper's "About TipTop". */
   faq: string;
@@ -48,10 +53,44 @@ export interface PublicSlots {
 export const CLOSED_MESSAGE = 'This booking link is not taking bookings right now.';
 
 export const UNAVAILABLE_MESSAGE =
-  'Open times cannot be shown right now. Leave a message instead and Arwin will reply by email.';
+  'Open times cannot be shown right now. You can leave a message instead.';
 
-/** The confirmation the visitor sees. Copilot sends no email itself. */
-export const SENT_MESSAGE = 'Request sent. Arwin will confirm by email.';
+/**
+ * What the visitor sees once a request is in. Copilot sends no email itself:
+ * the calendar invitation comes from Google when the time is booked. No
+ * person is named as confirming it.
+ */
+export const SENT_MESSAGE =
+  "Request sent. You'll get a calendar invitation once the time is booked.";
+
+/* ------------------------------------------------------------ video calls */
+
+/**
+ * What a saved video link is, as words for the public page, its routes and
+ * its chatbot, which never see the link itself (it goes only in the invite):
+ * "Zoom call" for zoom.us and its subdomains, "Google Meet",
+ * "Microsoft Teams call", else "Video call". No link means Google Meet, the
+ * invite's own.
+ */
+export function videoProviderLabel(url: string | null | undefined): string {
+  const raw = (url ?? '').trim();
+  if (!raw) return 'Google Meet';
+  let host: string;
+  try {
+    host = new URL(raw).hostname.toLowerCase();
+  } catch {
+    return 'Video call';
+  }
+  if (host === 'zoom.us' || host.endsWith('.zoom.us')) return 'Zoom call';
+  if (host === 'meet.google.com') return 'Google Meet';
+  if (host === 'teams.microsoft.com' || host === 'teams.live.com') return 'Microsoft Teams call';
+  return 'Video call';
+}
+
+/** The call option's name: "30-min Zoom call", "30-min Google Meet". */
+export function callOptionLabel(provider: string): string {
+  return `30-min ${provider || 'Google Meet'}`;
+}
 
 /* ------------------------------------------------------------- formatting */
 

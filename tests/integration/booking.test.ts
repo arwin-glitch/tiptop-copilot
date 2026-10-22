@@ -308,7 +308,7 @@ describe('a visitor’s request', () => {
     expect(again.ok).toBe(false);
     if (!again.ok)
       expect(again.error.message).toBe(
-        'You already have 3 requests waiting. Arwin will reply to those first.',
+        'You already have 3 requests waiting. Send another once those are answered.',
       );
   });
 
@@ -347,7 +347,11 @@ describe('Approve', () => {
       location: '',
       start: { dateTime: slot!.start, timeZone: TZ },
       end: { dateTime: slot!.end, timeZone: TZ },
-      attendees: [{ email: 'pat@acme.example' }],
+      // The host first, as the organizer who has accepted; then the requester.
+      attendees: [
+        { email: MOCK_OWN_EMAIL, organizer: true, responseStatus: 'accepted' },
+        { email: 'pat@acme.example' },
+      ],
       conferenceData: {
         createRequest: {
           requestId: expect.any(String),
@@ -403,8 +407,71 @@ describe('Approve', () => {
       location: 'Juniper & Rye Coffee, Riverside',
       start: { dateTime: slot!.start, timeZone: TZ },
       end: { dateTime: slot!.end, timeZone: TZ },
-      attendees: [{ email: 'morgan@quarryline.example' }],
+      attendees: [
+        { email: MOCK_OWN_EMAIL, organizer: true, responseStatus: 'accepted' },
+        { email: 'morgan@quarryline.example' },
+      ],
     });
+  });
+
+  const ZOOM = 'https://example.zoom.us/j/1234567890?pwd=fictional';
+
+  async function saveCallLink(callLink: string) {
+    const current = await readBookingSettings(harness.store, harness.auth.organizationId);
+    const savedLink = await saveBookingSettings(
+      harness.store,
+      harness.auth.organizationId,
+      harness.auth.userId,
+      { enabled: true, slug: SLUG, config: { ...current.config, callLink } },
+    );
+    expect(savedLink.ok).toBe(true);
+  }
+
+  it('puts a call on the saved video link instead of Google Meet, the host as organizer (hotfix)', async () => {
+    await saveCallLink(ZOOM);
+    const [slot] = await slots('call');
+    const row = await saved({ start: slot!.start });
+    const approved = await approveBookingRequest(actor(), row.id, deps());
+    expect(approved.ok).toBe(true);
+    if (!approved.ok || approved.value.state !== 'approved') throw new Error('not approved');
+    expect(state.writes).toHaveLength(1);
+    const write = state.writes[0]!;
+    expect(write).toMatchObject({ op: 'insert', sendUpdates: 'all', conferenceDataVersion: 0 });
+    expect(write.body).toEqual({
+      summary: 'Nick <> Pat Lee (Acme)',
+      description: `Booked through the booking link.
+
+Join the call: ${ZOOM}
+
+Seed round for a clinic scheduling tool.
+
+Deck: https://deck.example/acme`,
+      location: ZOOM,
+      start: { dateTime: slot!.start, timeZone: TZ },
+      end: { dateTime: slot!.end, timeZone: TZ },
+      attendees: [
+        { email: MOCK_OWN_EMAIL, organizer: true, responseStatus: 'accepted' },
+        { email: 'pat@acme.example' },
+      ],
+    });
+    expect(approved.value.meetUrl).toBeNull();
+    expect((await audits('calendar.event_created'))[0]?.metadata).toMatchObject({
+      meet: false,
+      guests: 1,
+    });
+  });
+
+  it('carries the saved video link in the Google Calendar page without calendar editing (hotfix)', async () => {
+    await saveCallLink(ZOOM);
+    const [slot] = await slots('call');
+    const row = await saved({ start: slot!.start });
+    const result = await approveBookingRequest(actor(), row.id, deps(READ_SCOPES));
+    if (!result.ok || result.value.state !== 'needs_grant')
+      throw new Error('expected the fallback');
+    const url = new URL(result.value.templateUrl);
+    expect(url.searchParams.get('location')).toBe(ZOOM);
+    expect(url.searchParams.get('details')).toContain(`Join the call: ${ZOOM}`);
+    expect(state.writes).toEqual([]);
   });
 
   it('refuses, and writes nothing, when the time is no longer free', async () => {
@@ -448,7 +515,7 @@ describe('Approve', () => {
     const url = new URL(result.value.templateUrl);
     expect(url.origin + url.pathname).toBe('https://calendar.google.com/calendar/render');
     expect(url.searchParams.get('text')).toBe('Nick <> Pat Lee (Acme)');
-    expect(url.searchParams.get('add')).toBe('pat@acme.example');
+    expect(url.searchParams.get('add')).toBe(`${MOCK_OWN_EMAIL},pat@acme.example`);
     expect(url.searchParams.get('ctz')).toBe(TZ);
     expect(state.writes).toEqual([]);
     expect(
@@ -733,7 +800,7 @@ describe('review fixes', () => {
     if (!fourth.ok) {
       expect(fourth.error.code).toBe('rate_limited');
       expect(fourth.error.message).toBe(
-        'You already have requests waiting. Arwin will reply to those first.',
+        'You already have requests waiting. Send another once those are answered.',
       );
     }
     // Kept in the table, so a restart (fresh limiters) changes nothing.

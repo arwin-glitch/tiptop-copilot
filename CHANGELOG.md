@@ -56,7 +56,8 @@ throughout.
 - **A booking link people can use to ask Nick for time.** A public page at
   `/meet/<name>` (Nick's is `/meet/nick`), with its own TipTop look, his name,
   title, short bio and photo, works on a phone and in dark mode, and needs no
-  sign-in. Visitors pick a 30-minute call (Google Meet) or an hour in person
+  sign-in. Visitors pick a 30-minute call (on Nick's saved video link, such as
+  his Zoom room, else Google Meet) or an hour in person
   (coffee, lunch or dinner, at one of his listed places or one they suggest),
   then a time shown in their own time zone, and send a request. Only open
   times are shown: they come from all of Nick's calendars as Copilot reads

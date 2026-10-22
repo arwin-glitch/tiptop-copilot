@@ -28,11 +28,13 @@ import {
   CLOSED_MESSAGE,
   knownZone,
   UNAVAILABLE_MESSAGE,
+  videoProviderLabel,
   type PublicBookingPage,
   type PublicSlots,
 } from '@/lib/booking/public';
 import type { BookingRequestInput } from '@/lib/booking/request';
 import { calendarEditAccess } from '@/lib/calendar/edit-access';
+import { isEmailAddress } from '@/lib/calendar/edit-rules';
 import { sniffPhoto } from '@/lib/campaigns/photos';
 import {
   calendarSource,
@@ -92,7 +94,7 @@ export const MAX_OPEN_PER_ADDRESS = 3;
 export const MAX_NEW_HOLDS_PER_DAY = 6;
 
 export const BUSY_LINK_MESSAGE =
-  'This booking link has a lot of requests waiting right now. Leave a message instead and Arwin will reply by email.';
+  'This booking link has a lot of requests waiting right now. You can leave a message instead.';
 
 /**
  * One request at a time per organization, from the check of its time to
@@ -335,6 +337,7 @@ export function closedBookingPage(slug: string): PublicBookingPage {
     places: [],
     allowCustomPlace: false,
     kinds: [],
+    callProvider: videoProviderLabel(''),
     chatbot: { enabled: false, mode: 'guided' },
     faq: '',
   };
@@ -371,6 +374,8 @@ export async function publicBookingPage(
     places: inPerson ? config.places : [],
     allowCustomPlace: inPerson && config.allowCustomPlace,
     kinds: inPerson ? kinds : [],
+    // What a call is on, never the saved link: that goes only in the invite.
+    callProvider: videoProviderLabel(config.callLink),
     chatbot: { enabled: config.chatbotEnabled, mode: deps.chatMode ?? 'guided' },
     faq: config.faq,
   };
@@ -561,13 +566,13 @@ export async function submitBookingRequest(
     if (open >= MAX_OPEN_PER_EMAIL) {
       return err(
         'rate_limited',
-        `You already have ${MAX_OPEN_PER_EMAIL} requests waiting. Arwin will reply to those first.`,
+        `You already have ${MAX_OPEN_PER_EMAIL} requests waiting. Send another once those are answered.`,
       );
     }
     if (fromAddress >= MAX_OPEN_PER_ADDRESS) {
       return err(
         'rate_limited',
-        'You already have requests waiting. Arwin will reply to those first.',
+        'You already have requests waiting. Send another once those are answered.',
       );
     }
     if (holds >= MAX_NEW_HOLDS_PER_DAY) return err('rate_limited', BUSY_LINK_MESSAGE);
@@ -772,6 +777,22 @@ function hostNameFor(config: BookingConfig, host: HostIdentity): string {
 }
 
 /**
+ * The host's main calendar address, for the guest list: the main calendar's
+ * own id (Google names it by the account's address), else the connected
+ * account's, else the principal's.
+ */
+function hostCalendarEmail(
+  source: CalendarSource,
+  host: HostIdentity,
+  primaryId?: string | null,
+): string | null {
+  const found = [primaryId, ...source.ownEmails, host.email]
+    .map((e) => e?.trim().toLowerCase() ?? '')
+    .find((e) => isEmailAddress(e));
+  return found ?? null;
+}
+
+/**
  * Approve: re-check the time against the live calendar and every rule, then
  * create the event on the host's main calendar through the write module,
  * inviting the requester. Refused with the reason when the time is no longer
@@ -853,7 +874,10 @@ export async function approveBookingRequest(
     return ok({
       state: 'needs_grant',
       reason: access.reason ?? 'Calendar editing is off.',
-      templateUrl: googleCalendarTemplateUrl(hostName, approvable, hostZone),
+      templateUrl: googleCalendarTemplateUrl(hostName, approvable, hostZone, {
+        callLink: settings.config.callLink,
+        hostEmail: hostCalendarEmail(source, host),
+      }),
     });
   }
 
@@ -892,7 +916,10 @@ export async function approveBookingRequest(
     { store: ctx.store, organizationId: ctx.organizationId, userId: ctx.userId, source },
     {
       calendarId: primary.id,
-      draft: bookingEventDraft(hostName, approvable, hostZone),
+      draft: bookingEventDraft(hostName, approvable, hostZone, {
+        callLink: settings.config.callLink,
+        hostEmail: hostCalendarEmail(source, host, primary.id),
+      }),
       // Approving a booking is the person's Send: the requester gets the invitation.
       notify: 'send',
     },
