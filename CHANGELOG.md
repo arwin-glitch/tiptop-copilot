@@ -10,6 +10,14 @@ throughout.
 
 ## [Unreleased]
 
+- **Campaigns: a BCC choice made right after typing the address sticks.**
+  Typing a BCC address and then clicking "The first email only" (or "Every
+  email") straight away lost the click while the address saved, so it took
+  a second click. The click now counts: the choice shows at once and is
+  saved right after the address, and a reload and the review show it. The
+  CC and BCC fields no longer lock while the other one saves, either. Each
+  save still makes an earlier review stale, as before.
+
 - **Tasks go to the person whose mailbox Copilot reads.** Suggested tasks,
   keep-in-touch check-ins, copied Affinity reminders and follow-ups added
   without choosing someone used to land on whoever set the workspace up, so

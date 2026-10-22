@@ -13,6 +13,7 @@ import {
 } from '@/lib/campaigns/copies';
 import type { CampaignBccMode } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
+import { createSaveQueue, type SaveQueue } from '@/lib/util/save-queue';
 import { campaignCall, jsonBody } from './campaign-api';
 
 interface Copies {
@@ -21,11 +22,20 @@ interface Copies {
   bccMode: CampaignBccMode;
 }
 
+type CopyKey = 'cc' | 'bcc' | 'mode';
+
 /**
  * The campaign's CC and BCC, both empty by default. Each list saves when you
  * leave it (or press Enter), and only when every entry is a real address:
  * the server refuses anything else whole, and so does this. Saving makes any
  * earlier review stale, so the review always shows what is saved.
+ *
+ * Saves go one at a time in the order they were made, and nothing waits
+ * disabled for an earlier one (see createSaveQueue): leaving the BCC field by
+ * clicking "The first email only" saves the list, then the choice, where the
+ * click used to land on a button disabled by the list's save. The buttons
+ * show a choice at once; a refused one goes back to what is saved. Each save
+ * is its own draft edit on the server, so each makes an earlier review stale.
  */
 export function CampaignCopies({
   campaignId,
@@ -44,41 +54,93 @@ export function CampaignCopies({
     cc: formatCopyList(copies.cc),
     bcc: formatCopyList(copies.bcc),
   });
-  const [saved, setSaved] = React.useState(copies);
   const [errors, setErrors] = React.useState<{ cc?: string; bcc?: string }>({});
-  const [saving, setSaving] = React.useState<'cc' | 'bcc' | 'mode' | null>(null);
+  /** The save on its way to the server now, if any. */
+  const [saving, setSaving] = React.useState<CopyKey | null>(null);
+  /** Where the BCC goes as the buttons show it: the last choice, saved or still to be. */
+  const [mode, setMode] = React.useState<CampaignBccMode>(copies.bccMode);
 
-  const save = async (key: 'cc' | 'bcc' | 'mode', patch: Record<string, string>) => {
+  // Read by saves that wait their turn, so each sends what is current then.
+  const saved = React.useRef<Copies>(copies);
+  const wantedMode = React.useRef<CampaignBccMode>(copies.bccMode);
+  /** Per list, the text handed to a save not finished yet: the same text again is no new save. */
+  const sending = React.useRef<{ cc?: string; bcc?: string }>({});
+  /** Choices of where the BCC goes, queued or on their way. */
+  const modesWaiting = React.useRef(0);
+  const busy = React.useRef(onBusy);
+  React.useEffect(() => {
+    busy.current = onBusy;
+  });
+  const queue = React.useRef<SaveQueue | null>(null);
+  /** Queue a save behind any still on its way (made on the first, from an event). */
+  const enqueue = (run: () => Promise<void>) => {
+    queue.current ??= createSaveQueue((on) => busy.current(on ? 'the CC/BCC change' : null));
+    void queue.current.add(run);
+  };
+
+  /** One PATCH; reports its own failure. */
+  const send = async (key: CopyKey, patch: Record<string, string>) => {
     setSaving(key);
-    onBusy('the CC/BCC change');
     const r = await campaignCall<{ copies: Copies }>(
       `/api/campaigns/${campaignId}/copies`,
       jsonBody('PATCH', patch),
     );
     setSaving(null);
-    onBusy(null);
+    if (key !== 'mode' && sending.current[key] === patch[key]) sending.current[key] = undefined;
     if (!r.ok) {
-      if (key === 'mode') toast.error(r.message);
-      else setErrors((e) => ({ ...e, [key]: r.message }));
+      if (key === 'mode') {
+        toast.error(r.message);
+        // Back to what is saved, unless a later choice is still to be sent.
+        if (wantedMode.current === patch.bccMode) {
+          wantedMode.current = saved.current.bccMode;
+          setMode(saved.current.bccMode);
+        }
+      } else {
+        setErrors((e) => ({ ...e, [key]: r.message }));
+      }
       return;
     }
-    setSaved(r.data.copies);
+    saved.current = r.data.copies;
     if (key !== 'mode') {
-      setText((t) => ({ ...t, [key]: formatCopyList(r.data.copies[key]) }));
+      const sent = patch[key];
+      // The saved list, tidied, unless the field was changed again meanwhile.
+      setText((t) => (t[key] === sent ? { ...t, [key]: formatCopyList(r.data.copies[key]) } : t));
+    }
+    if (modesWaiting.current === 0) {
+      wantedMode.current = r.data.copies.bccMode;
+      setMode(r.data.copies.bccMode);
     }
     onChange();
   };
 
   const commit = (key: 'cc' | 'bcc') => {
     const value = text[key];
-    if (value.trim() === formatCopyList(saved[key])) return;
+    const current = sending.current[key] ?? formatCopyList(saved.current[key]);
+    if (value.trim() === current.trim()) return;
     const parsed = parseCopyAddresses(value);
     if (!parsed.ok) {
       setErrors((e) => ({ ...e, [key]: parsed.message }));
       return;
     }
     setErrors((e) => ({ ...e, [key]: undefined }));
-    void save(key, { [key]: value });
+    sending.current[key] = value;
+    enqueue(() => send(key, { [key]: value }));
+  };
+
+  const choose = (next: CampaignBccMode) => {
+    if (wantedMode.current === next) return;
+    wantedMode.current = next;
+    setMode(next);
+    modesWaiting.current++;
+    enqueue(async () => {
+      try {
+        // The choice as it stands now: clicked twice while waiting, only the last is sent.
+        const wanted = wantedMode.current;
+        if (wanted !== saved.current.bccMode) await send('mode', { bccMode: wanted });
+      } finally {
+        modesWaiting.current--;
+      }
+    });
   };
 
   const field = (key: 'cc' | 'bcc', label: string, hint: string) => {
@@ -95,7 +157,6 @@ export function CampaignCopies({
           placeholder="partner@firm.example, ops@firm.example"
           aria-invalid={error ? true : undefined}
           aria-describedby={`${id}-hint`}
-          disabled={saving !== null && saving !== key}
           onChange={(e) => {
             const value = e.target.value;
             setText((t) => ({ ...t, [key]: value }));
@@ -149,18 +210,15 @@ export function CampaignCopies({
                   ['every', 'Every email'],
                   ['first', 'The first email only'],
                 ] as const
-              ).map(([mode, label]) => (
+              ).map(([value, label]) => (
                 <button
-                  key={mode}
+                  key={value}
                   type="button"
-                  aria-pressed={saved.bccMode === mode}
-                  disabled={saving !== null}
-                  onClick={() => {
-                    if (saved.bccMode !== mode) void save('mode', { bccMode: mode });
-                  }}
+                  aria-pressed={mode === value}
+                  onClick={() => choose(value)}
                   className={cn(
                     'min-h-9 rounded px-3 text-sm',
-                    saved.bccMode === mode
+                    mode === value
                       ? 'bg-[var(--primary)] font-medium text-[var(--primary-fg)]'
                       : 'text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
                   )}
