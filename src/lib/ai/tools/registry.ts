@@ -9,7 +9,6 @@ import { log } from '@/lib/security/redact';
 import { truncate } from '@/lib/util/text';
 import { isAutoAsk } from '@/lib/portfolio/requests';
 import type {
-  CalendarEvent,
   Citation,
   Deal,
   DealAnalysis,
@@ -28,6 +27,7 @@ import { createTask } from '@/lib/services/tasks';
 import { addNote, compareDeals } from '@/lib/services/deals';
 import { analyzeDeal } from '@/lib/services/deal-analysis';
 import { createDraft } from '@/lib/services/drafts';
+import { listEventsWithLabels } from '@/lib/services/calendar-labels';
 
 /**
  * The allowlisted server-side tool layer.
@@ -643,23 +643,31 @@ const searchKnowledgeTool: ToolSpec<
   },
 };
 
-const listCalendarEvents: ToolSpec<z.ZodObject<{ days: z.ZodOptional<z.ZodNumber> }>> = {
+const listCalendarEvents: ToolSpec<
+  z.ZodObject<{ days: z.ZodOptional<z.ZodNumber>; label: z.ZodOptional<z.ZodString> }>
+> = {
   name: 'list_calendar_events',
-  description: 'Calendar events for today or the next N days, with attendees.',
-  schema: z.object({ days: z.number().int().min(1).max(14).optional() }),
+  description:
+    'Calendar events (main calendar) for today or the next N days, with attendees and each event\'s colour label as Nick names it in Google Calendar (e.g. a portfolio, LP or travel label; null when it has none). Pass `label` to list only events with that label ("none" for events without one); the result lists the labels the calendar has.',
+  schema: z.object({
+    days: z.number().int().min(1).max(14).optional(),
+    label: z.string().trim().min(1).max(80).optional(),
+  }),
   mutates: false,
   async run(input, ctx) {
     const store = getStore();
     const window = todayWindow(ctx.auth.profile.timezone);
     const end = new Date(window.start.getTime() + (input.days ?? 1) * 86_400_000);
-    const events = (await store.list(
-      'calendar_events',
-      ctx.auth.organizationId,
-      { gte: { starts_at: window.start.toISOString() }, lt: { starts_at: end.toISOString() } },
-      { orderBy: [{ field: 'starts_at', direction: 'asc' }] },
-    )) as CalendarEvent[];
+    // Labels are read live from Google Calendar (read-only), as the Calendar tab reads them.
+    const listed = await listEventsWithLabels(store, ctx.auth.organizationId, {
+      window: { start: window.start, end },
+      timeZone: ctx.auth.profile.timezone,
+      ownEmail: ctx.auth.profile.email,
+      label: input.label ?? null,
+    });
+    const events = listed.events;
 
-    const citations = events.map((e) => {
+    const citations = events.map(({ event: e }) => {
       const id = `event:${e.id}`;
       addCitation(ctx, {
         id,
@@ -680,17 +688,23 @@ const listCalendarEvents: ToolSpec<z.ZodObject<{ days: z.ZodOptional<z.ZodNumber
     return {
       result: {
         count: events.length,
-        events: events.map((e) => ({
+        ...(input.label ? { label_filter: input.label } : {}),
+        labels_on_calendar: listed.labels,
+        labels_read: listed.labelsRead,
+        events: events.map(({ event: e, label }) => ({
           source_id: `event:${e.id}`,
           title: e.title,
           starts_at: e.starts_at,
           ends_at: e.ends_at,
+          label,
           // Attendee list only; private descriptions are not surfaced here.
           attendees: e.attendees.map((a) => a.email),
         })),
         citations,
       },
-      summary: `${events.length} calendar event(s) in the window.`,
+      summary: input.label
+        ? `${events.length} calendar event(s) labelled "${input.label}" in the window.`
+        : `${events.length} calendar event(s) in the window.`,
     };
   },
 };

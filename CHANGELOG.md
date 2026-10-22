@@ -26,6 +26,36 @@ throughout.
   too, in their time zone, so their first Today of the day no longer waits
   for it.
 
+- **Calendar: Google's colour labels, a clear look for every event, and "How
+  you got here" that finds the reason.** The Day, Week and Month views now
+  read each calendar's colour labels live from Google Calendar (a rename shows
+  within a minute; nothing is stored). An event takes its label's colour, and
+  the label's name shows after the time on the event, on its card, and in a
+  row of label chips above the grid: tap one to see only those events
+  (several add up, "Unlabelled" too), and the choice is remembered. On a
+  calendar with labels, the card's colours become Google's label picker, with
+  "No label" and a link to edit the labels in Google Calendar; a label change
+  never emails anyone, and editing or answering an event never touches its
+  label. When Copilot's own data is clear (a portfolio founder,
+  an LP, a deal founder, another VC, only the team, a flight, a registration)
+  the card suggests one of the calendar's labels, and nothing changes until
+  someone taps "Use it". Ask Arwin can say which label each event has and
+  list one label's events ("What Portcos meetings does Nick have this
+  week?"). Every event now follows one rule each: filled with its colour;
+  faded once it is over; outlined with a "?" while Nick hasn't answered;
+  striped for maybe; struck through when declined; a bell on meetings, none
+  on blocks, which are no longer dashed or grey. A **Key** button above the
+  grid explains it. "How you got here" no longer gives up on events without
+  other guests: it finds the email that put the event on the calendar (from
+  the organizer, a ticketing site in the description, the title's words, the
+  invitation, a meeting note or an earlier event), shows the best one to
+  three with Copilot and Gmail links, or says what it checked and offers
+  **Search the Inbox** (the Inbox now opens on a search from `?q=`). It works
+  on every event's card and in the day list. The card now opens beside the
+  whole day, so it never covers that day's other events. Diagnostics › Event
+  labels shows each calendar's labels and how many events in the next week
+  carry each, read-only (D-070).
+
 - **Tasks go to the person whose mailbox Copilot reads.** Suggested tasks,
   keep-in-touch check-ins, copied Affinity reminders and follow-ups added
   without choosing someone used to land on whoever set the workspace up, so

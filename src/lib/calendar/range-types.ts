@@ -13,6 +13,16 @@ export interface CalendarColor {
   foreground: string;
 }
 
+/**
+ * One of a calendar's colour labels as Google names it ("Travel", "LPs"...):
+ * read live from Google, never stored. `name` can be empty in Google.
+ */
+export interface EventLabel {
+  id: string;
+  name: string | null;
+  color: CalendarColor;
+}
+
 export interface CalendarInfo {
   id: string;
   /** Google's own label: the person's name for it, else the calendar's. */
@@ -25,6 +35,11 @@ export interface CalendarInfo {
   /** Google Calendar's own checkbox, the starting point for the toggles here. */
   selectedInGoogle: boolean;
   timeZone: string | null;
+  /**
+   * Its colour labels, in Google's order: read with the range for the
+   * calendars shown (empty for the others, and when it has none).
+   */
+  labels: EventLabel[];
 }
 
 export interface EventPaletteEntry extends CalendarColor {
@@ -83,7 +98,14 @@ export interface RangeEvent {
   /** Google is still creating the Meet link. */
   meetPending: boolean;
   colorId: string | null;
-  /** Google's colour for it: its own colorId's, else its calendar's. */
+  /** Google's eventLabelId on it, as read (null when it has none). */
+  labelId: string | null;
+  /** That label as its calendar defines it; null when it has none, or the calendar does not. */
+  label: EventLabel | null;
+  /**
+   * Google's colour for it: its label's, else its own colorId's, else its
+   * calendar's.
+   */
   color: CalendarColor;
   organizer: { email: string; name: string | null; self: boolean } | null;
   attendees: RangeAttendee[];

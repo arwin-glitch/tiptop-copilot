@@ -279,6 +279,8 @@ describe('reading Google’s own pages', () => {
       maxResults: '250',
       timeMin: '2026-10-18T05:00:00.000Z',
       timeMax: '2026-10-25T05:00:00.000Z',
+      // Google's colour labels: each event comes back with its eventLabelId.
+      eventLabelVersion: '1',
     });
     expect(new URL(String(fetchMock.mock.calls[1]![0])).searchParams.get('pageToken')).toBe('p2');
   });
@@ -290,6 +292,7 @@ describe('reading Google’s own pages', () => {
       kind: 'google' as const,
       listCalendars: async () => ok(state.calendars),
       getColors: async () => ok(state.colors),
+      getCalendar: async (id: string) => ok({ id }),
       listRange,
     } as unknown as CalendarSource['provider'];
     source = { provider: google, integration: null, ownEmails: [MOCK_OWN_EMAIL], demo: false };
@@ -436,6 +439,7 @@ describe('each person’s calendar settings', () => {
       preview: true,
       view: 'month',
       shown: { [MOCK_DEALS_CALENDAR]: true, [MOCK_TEAM_CALENDAR]: false },
+      labelFilter: [],
     });
   });
 
@@ -455,6 +459,7 @@ describe('each person’s calendar settings', () => {
       preview: false,
       view: 'week',
       shown: { [MOCK_TEAM_CALENDAR]: false },
+      labelFilter: [],
     });
     await saveCalendarPrefs(harness.store, organizationId, userId, { preview: true }, minute(3));
     expect((await read()).preview).toBe(true);
@@ -463,7 +468,7 @@ describe('each person’s calendar settings', () => {
   it('keep an older "off" the switch set: turned off after being on', async () => {
     await legacyRow(1, { preview: true, view: 'day' });
     await legacyRow(2, { preview: false, view: 'day' });
-    expect(await read()).toEqual({ preview: false, view: 'day', shown: {} });
+    expect(await read()).toEqual({ preview: false, view: 'day', shown: {}, labelFilter: [] });
     // Still off after a later calendar toggle on views opened by address.
     await legacyRow(3, { preview: false, view: 'day', shown: { [MOCK_TEAM_CALENDAR]: false } });
     expect((await read()).preview).toBe(false);
@@ -480,6 +485,7 @@ describe('each person’s calendar settings', () => {
       preview: true,
       view: 'week',
       shown: { [MOCK_DEALS_CALENDAR]: true },
+      labelFilter: [],
     });
     await legacyRow(2, {
       preview: false,
@@ -502,11 +508,13 @@ describe('each person’s calendar settings', () => {
       preview: true,
       view: 'day',
       shown: { [MOCK_DEALS_CALENDAR]: true },
+      labelFilter: [],
     });
     expect(await read()).toEqual({
       preview: true,
       view: 'day',
       shown: { [MOCK_DEALS_CALENDAR]: true },
+      labelFilter: [],
     });
   });
 });

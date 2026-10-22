@@ -11,6 +11,7 @@ import {
 } from '@/lib/calendar/edit-rules';
 import { inclusiveLastDay, instantFromFields, wallFields } from '@/lib/calendar/draft';
 import { shortTime } from '@/lib/calendar/grid';
+import { labelText } from '@/lib/calendar/labels';
 import type { CalendarInfo, EventPaletteEntry, RangeEvent } from '@/lib/calendar/range-types';
 import { addDaysToKey } from '@/lib/util/time';
 import { cn } from '@/lib/util/cn';
@@ -27,9 +28,10 @@ import { swatchStyle, tickStyle } from './event-style';
  * opened beside the slot with the dragged placeholder still showing (a sheet
  * from the bottom on a phone), and the full editor: title, start and end,
  * all day, the time zone the times are shown in, the calendar, guests,
- * Google Meet, place, description and Google's own event colours. Saving
- * hands the draft back; the page asks the guests question and talks to the
- * server.
+ * Google Meet, place, description and Google's own event colours (or, on a
+ * calendar with colour labels, its labels, as Google's editor shows them).
+ * Saving hands the draft back; the page asks the guests question and talks
+ * to the server.
  */
 
 export interface EditorState {
@@ -57,6 +59,7 @@ interface Fields {
   location: string;
   description: string;
   colorId: string | null;
+  labelId: string | null;
   calendarId: string;
 }
 
@@ -89,11 +92,22 @@ function toFields(state: EditorState, timeZone: string): Fields {
     location: draft.location ?? '',
     description: draft.description ?? '',
     colorId: draft.colorId ?? null,
+    labelId: draft.labelId ?? null,
     calendarId: state.calendarId,
   };
 }
 
-function toDraft(fields: Fields, base: EventDraft, timeZone: string): EventDraft | string {
+/**
+ * The draft to save. `labelled`: the calendar it is saved on has colour
+ * labels, so the label picked counts; on one without, the label is left as
+ * it was (nothing to pick, and nothing to clear).
+ */
+function toDraft(
+  fields: Fields,
+  base: EventDraft,
+  timeZone: string,
+  labelled: boolean,
+): EventDraft | string {
   let start: string | null;
   let end: string | null;
   if (fields.allDay) {
@@ -115,6 +129,7 @@ function toDraft(fields: Fields, base: EventDraft, timeZone: string): EventDraft
     location: fields.location,
     description: fields.description,
     colorId: fields.colorId,
+    ...(labelled ? { labelId: fields.labelId } : {}),
   };
   return timesProblem(draft) ?? draft;
 }
@@ -258,10 +273,17 @@ function EditorBody({
   const recurring = Boolean(state.event?.recurringEventId);
   const existingMeet = state.event?.meetUrl ?? null;
   const calendar = calendars.find((c) => c.id === fields.calendarId) ?? null;
+  const labels = calendar?.labels ?? [];
+  // Another calendar's labels are its own: one not on the new calendar is dropped.
+  const setCalendar = (calendarId: string) => {
+    const next = calendars.find((c) => c.id === calendarId);
+    const keep = next?.labels.some((l) => l.id === fields.labelId);
+    set({ calendarId, ...(keep ? {} : { labelId: null }) });
+  };
 
   const submit = (e?: React.FormEvent) => {
     e?.preventDefault();
-    const draft = toDraft(fields, state.draft, timeZone);
+    const draft = toDraft(fields, state.draft, timeZone, labels.length > 0);
     if (typeof draft === 'string') {
       setProblem(draft);
       return;
@@ -308,7 +330,7 @@ function EditorBody({
             <Select
               id="quick-calendar"
               value={fields.calendarId}
-              onChange={(e) => set({ calendarId: e.target.value })}
+              onChange={(e) => setCalendar(e.target.value)}
             >
               {calendars.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -324,7 +346,7 @@ function EditorBody({
             type="button"
             variant="ghost"
             onClick={() => {
-              const draft = toDraft(fields, state.draft, timeZone);
+              const draft = toDraft(fields, state.draft, timeZone, labels.length > 0);
               if (typeof draft === 'string') setProblem(draft);
               else onMoreOptions(draft, fields.calendarId);
             }}
@@ -447,7 +469,7 @@ function EditorBody({
             id="event-calendar"
             value={fields.calendarId}
             disabled={recurring}
-            onChange={(e) => set({ calendarId: e.target.value })}
+            onChange={(e) => setCalendar(e.target.value)}
           >
             {calendars.map((c) => (
               <option key={c.id} value={c.id}>
@@ -511,7 +533,51 @@ function EditorBody({
           />
         </Field>
 
-        {palette.length > 0 ? (
+        {labels.length > 0 ? (
+          <fieldset>
+            <legend className="mb-1.5 text-sm font-medium">Label</legend>
+            <div role="radiogroup" aria-label="Event label" className="flex flex-wrap gap-1.5">
+              {[
+                ...labels.map((l) => ({
+                  id: l.id as string | null,
+                  name: labelText(l),
+                  background: l.color.background as string | null,
+                })),
+                { id: null as string | null, name: 'No label', background: null as string | null },
+              ].map((c) => {
+                const on = fields.labelId === c.id;
+                return (
+                  <button
+                    key={c.id ?? 'none'}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => set({ labelId: c.id })}
+                    className={cn(
+                      'inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium',
+                      on
+                        ? 'border-[var(--fg)] bg-[var(--bg-hover)] text-[var(--fg)]'
+                        : 'border-[var(--border-strong)] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
+                    )}
+                  >
+                    {c.background ? (
+                      <span
+                        aria-hidden
+                        className="flex size-3.5 items-center justify-center rounded-full border"
+                        style={swatchStyle(c.background)}
+                      >
+                        {on ? <Check className="size-2.5" style={tickStyle(c.background)} /> : null}
+                      </span>
+                    ) : on ? (
+                      <Check className="size-3.5" aria-hidden />
+                    ) : null}
+                    {c.name}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+        ) : palette.length > 0 ? (
           <fieldset>
             <legend className="mb-1.5 text-sm font-medium">Event colour</legend>
             <div

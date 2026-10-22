@@ -22,6 +22,7 @@ import {
   colorRequest,
   colorRule,
   isColorOnly,
+  labelRequest,
   respondRule,
   rsvpRequest,
   type RsvpResponse,
@@ -35,17 +36,18 @@ import type {
 } from './google-types';
 import {
   invalidateCalendarCache,
+  readCalendarLabels,
   readCalendarList,
   toRangeEvent,
   type CalendarSource,
 } from './range-reader';
-import type { CalendarInfo, RangeEvent } from './range-types';
+import type { CalendarInfo, EventLabel, RangeEvent } from './range-types';
 
 /**
  * The Calendar tab's only way to change a calendar: create, change, move and
  * delete one event at a time, answer an invitation (Going? Yes / No / Maybe)
- * and pick an event's colour, on a person's tap. Imported by the Calendar
- * tab's edit route alone (a test pins that).
+ * and pick an event's colour or colour label, on a person's tap. Imported by
+ * the Calendar tab's edit route alone (a test pins that).
  *
  * Every write is refused here, before Google is asked, unless:
  * - calendar editing is turned on (the opt-in event scope; the demo's
@@ -59,7 +61,11 @@ import type { CalendarInfo, RangeEvent } from './range-types';
  * page shows every time guests are involved: `notify` is required, and only
  * 'send' becomes Google's sendUpdates 'all'. Everything else is 'none'. An
  * answer asks "Send your response to the organizer?" the same way. A colour
- * change is always 'none' and is never asked about.
+ * or label change is always 'none' and is never asked about. Only a write
+ * that sets or clears a label names eventLabelVersion=1 (Google applies
+ * eventLabelId only then): Google documents that, with it, a write without
+ * eventLabelId removes the event's label and a colorId is ignored, so an
+ * edit, an answer or a colour never sends it and never touches the label.
  */
 
 export interface WriteContext {
@@ -90,13 +96,49 @@ async function writableCalendar(
   if (!access.allowed) return refuse(access.reason ?? EDITING_OFF_MESSAGE);
   const list = await readCalendarList(ctx.source, ctx.organizationId);
   if (!list.ok) return list;
-  const calendar = list.value.calendars.find((c) => c.id === calendarId);
-  if (!calendar) return err('not_found', 'That calendar is not on your list.');
-  if (!calendar.writable) return refuse('This calendar is view-only for this account.');
-  return ok({ calendar, colors: list.value.colors });
+  const listed = list.value.calendars.find((c) => c.id === calendarId);
+  if (!listed) return err('not_found', 'That calendar is not on your list.');
+  if (!listed.writable) return refuse('This calendar is view-only for this account.');
+  // Its colour labels, live (cached under a minute): to check a label picked, and to draw it after.
+  const labels = await readCalendarLabels(ctx.source, ctx.organizationId, calendarId);
+  return ok({ calendar: { ...listed, labels }, colors: list.value.colors });
 }
 
-function checkDraft(changes: Partial<EventDraft>, colors: GCalColors | null): string | null {
+/** A label must be one the calendar has now (null clears it). */
+function labelProblem(labelId: string | null | undefined, labels: readonly EventLabel[]) {
+  if (labelId === undefined || labelId === null) return null;
+  return labels.some((l) => l.id === labelId)
+    ? null
+    : 'That label is not on this calendar any more. Refresh and pick again.';
+}
+
+/**
+ * eventLabelVersion=1 only on a write that carries an eventLabelId (a label
+ * set, or cleared with ''). Google applies eventLabelId only with it, and
+ * with it ignores a colorId and documents that a write leaving eventLabelId
+ * out removes the event's label. So an edit, an answer, a colour or a new
+ * event without a label never sends it, and Google leaves the label alone.
+ */
+function labelVersion(body: GCalEventWrite): 0 | 1 {
+  return body.eventLabelId !== undefined ? 1 : 0;
+}
+
+/**
+ * The event Google sent back from a write that did not touch the label, with
+ * the label it had before when the answer leaves it out (a write without
+ * eventLabelVersion=1 may not echo it): so the page keeps drawing it.
+ */
+function keepLabel(written: GCalEvent, before: GCalEvent | null, version: 0 | 1): GCalEvent {
+  if (version === 1 || written.eventLabelId !== undefined || !before?.eventLabelId) return written;
+  return { ...written, eventLabelId: before.eventLabelId };
+}
+
+function checkDraft(
+  changes: Partial<EventDraft>,
+  colors: GCalColors | null,
+  /** The calendar's labels; null to leave the label to a later check (a move). */
+  labels: readonly EventLabel[] | null,
+): string | null {
   const times = [changes.start, changes.end, changes.allDay, changes.timeZone];
   if (times.some((t) => t !== undefined)) {
     if (times.some((t) => t === undefined)) return 'Send the start, end and time zone together.';
@@ -113,7 +155,7 @@ function checkDraft(changes: Partial<EventDraft>, colors: GCalColors | null): st
   if (changes.colorId && colors?.event && !colors.event[changes.colorId]) {
     return 'Pick one of Google’s event colours.';
   }
-  return null;
+  return labels ? labelProblem(changes.labelId, labels) : null;
 }
 
 /** A create sends no nulls: there is nothing to clear yet. */
@@ -122,6 +164,8 @@ function withoutNulls(body: GCalEventWrite): GCalEventWrite {
     d ? Object.fromEntries(Object.entries(d).filter(([, v]) => v !== null && v !== undefined)) : d;
   const out: GCalEventWrite = { ...body, start: strip(body.start), end: strip(body.end) };
   if (out.colorId === null) delete out.colorId;
+  // No label to clear on a new event.
+  if (!out.eventLabelId) delete out.eventLabelId;
   return out;
 }
 
@@ -157,7 +201,7 @@ export async function createCalendarEvent(
   const target = await writableCalendar(ctx, input.calendarId);
   if (!target.ok) return target;
   const { calendar, colors } = target.value;
-  const problem = checkDraft(input.draft, colors);
+  const problem = checkDraft(input.draft, colors, calendar.labels);
   if (problem) return err('invalid_input', problem);
 
   const { body, conferenceDataVersion } = draftToWrite(input.draft, {
@@ -165,9 +209,11 @@ export async function createCalendarEvent(
     requestId: newId(),
   });
   const sendUpdates = sendUpdatesFor(input.notify);
-  const created = await ctx.source.provider.insertEvent(calendar.id, withoutNulls(body), {
+  const insert = withoutNulls(body);
+  const created = await ctx.source.provider.insertEvent(calendar.id, insert, {
     sendUpdates,
     conferenceDataVersion,
+    eventLabelVersion: labelVersion(insert),
   });
   if (!created.ok) return created;
   invalidateCalendarCache(ctx.organizationId, [calendar.id]);
@@ -241,7 +287,11 @@ export async function updateCalendarEvent(
   const source = await writableCalendar(ctx, input.calendarId);
   if (!source.ok) return source;
   const { calendar, colors } = source.value;
-  const problem = checkDraft(input.changes, colors);
+  // A label is checked against the calendar the event ends up on.
+  const moving = Boolean(
+    input.destinationCalendarId && input.destinationCalendarId !== calendar.id,
+  );
+  const problem = checkDraft(input.changes, colors, moving ? null : calendar.labels);
   if (problem) return err('invalid_input', problem);
 
   const found = await changeableTarget(ctx, calendar, input.eventId, input.scope);
@@ -307,6 +357,8 @@ export async function updateCalendarEvent(
   if (destinationId) {
     const destination = await writableCalendar(ctx, destinationId);
     if (!destination.ok) return destination;
+    const wrong = labelProblem(input.changes.labelId, destination.value.calendar.labels);
+    if (wrong) return err('invalid_input', wrong);
     if (instance.recurringEventId && !series) {
       return err(
         'invalid_input',
@@ -318,20 +370,22 @@ export async function updateCalendarEvent(
     });
     if (!moved.ok) return moved;
     finalCalendar = destination.value.calendar;
-    latest = moved.value;
+    latest = keepLabel(moved.value, existing, 0);
     changed = true;
   }
 
   if (Object.keys(body).length > 0) {
+    const version = labelVersion(body);
     const patched = await ctx.source.provider.patchEvent(finalCalendar.id, targetId, body, {
       sendUpdates,
       conferenceDataVersion,
+      eventLabelVersion: version,
     });
     if (!patched.ok) {
       if (changed) invalidateCalendarCache(ctx.organizationId, [calendar.id, finalCalendar.id]);
       return patched;
     }
-    latest = patched.value;
+    latest = keepLabel(patched.value, latest, version);
     changed = true;
   }
 
@@ -438,6 +492,7 @@ export async function respondToCalendarEvent(
   const { existing, targetId, series } = found.value;
   const request = rsvpRequest(existing, input.response, input.notify, own);
   if (!request) return refuse('You are not on the guest list.');
+  // An answer never names the label switch, so Google leaves the label alone.
   const patched = await ctx.source.provider.patchEvent(calendar.id, targetId, request.body, {
     sendUpdates: request.sendUpdates,
   });
@@ -451,7 +506,9 @@ export async function respondToCalendarEvent(
     notified: request.sendUpdates === 'all',
   });
   return ok({
-    event: series ? null : toRangeEvent(patched.value, calendar, colors, own),
+    event: series
+      ? null
+      : toRangeEvent(keepLabel(patched.value, existing, 0), calendar, colors, own),
     reload: series,
   });
 }
@@ -472,7 +529,7 @@ export async function recolorCalendarEvent(
   const source = await writableCalendar(ctx, input.calendarId);
   if (!source.ok) return source;
   const { calendar, colors } = source.value;
-  const problem = checkDraft({ colorId: input.colorId }, colors);
+  const problem = checkDraft({ colorId: input.colorId }, colors, calendar.labels);
   if (problem) return err('invalid_input', problem);
   const own = ctx.source.ownEmails;
   const found = await cardTarget(ctx, calendar, input.eventId, input.scope, (event) => {
@@ -480,7 +537,7 @@ export async function recolorCalendarEvent(
     return { ok: rule.canColor, reason: rule.reason };
   });
   if (!found.ok) return found;
-  const { targetId, series } = found.value;
+  const { existing, targetId, series } = found.value;
   const request = colorRequest(input.colorId);
   const patched = await ctx.source.provider.patchEvent(calendar.id, targetId, request.body, {
     sendUpdates: request.sendUpdates,
@@ -492,6 +549,61 @@ export async function recolorCalendarEvent(
     primary: calendar.primary,
     scope: series ? 'all' : 'this',
     kind: 'color',
+    notified: false,
+  });
+  return ok({
+    event: series
+      ? null
+      : toRangeEvent(keepLabel(patched.value, existing, 0), calendar, colors, own),
+    reload: series,
+  });
+}
+
+export interface RelabelInput {
+  calendarId: string;
+  eventId: string;
+  scope: RecurringScope;
+  /** One of the calendar's colour labels, or null for none. */
+  labelId: string | null;
+}
+
+/**
+ * A colour label from the event's card (or its suggested label, tapped):
+ * Google's eventLabelId alone, with eventLabelVersion=1, under the colour's
+ * rules (calendar editing on, a writable calendar, an event Nick may change
+ * or his own copy of an invitation), and never an email.
+ */
+export async function relabelCalendarEvent(
+  ctx: WriteContext,
+  input: RelabelInput,
+): Promise<Result<WriteResult>> {
+  const source = await writableCalendar(ctx, input.calendarId);
+  if (!source.ok) return source;
+  const { calendar, colors } = source.value;
+  if (calendar.labels.length === 0) {
+    return err('invalid_input', 'This calendar has no labels. Pick one of Google’s colours.');
+  }
+  const problem = labelProblem(input.labelId, calendar.labels);
+  if (problem) return err('invalid_input', problem);
+  const own = ctx.source.ownEmails;
+  const found = await cardTarget(ctx, calendar, input.eventId, input.scope, (event) => {
+    const rule = colorRule(event, calendar.accessRole, own);
+    return { ok: rule.canColor, reason: rule.reason };
+  });
+  if (!found.ok) return found;
+  const { targetId, series } = found.value;
+  const request = labelRequest(input.labelId);
+  const patched = await ctx.source.provider.patchEvent(calendar.id, targetId, request.body, {
+    sendUpdates: request.sendUpdates,
+    eventLabelVersion: request.eventLabelVersion,
+  });
+  if (!patched.ok) return patched;
+  invalidateCalendarCache(ctx.organizationId, [calendar.id]);
+  await audit(ctx, 'calendar.event_updated', targetId, {
+    primary: calendar.primary,
+    scope: series ? 'all' : 'this',
+    kind: 'label',
+    cleared: input.labelId === null,
     notified: false,
   });
   return ok({

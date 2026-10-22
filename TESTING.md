@@ -66,8 +66,10 @@ Pure logic, no store, no harness.
 | `updates-refresh-action.test.ts` | The Refresh action: sign-in first, six a minute per user, nothing read while sign-in is unrestricted |
 | `calendar-grid.test.ts` | The calendar views' arithmetic: Day/Week/Month ranges, stepping, labels, DST-safe placement, side-by-side overlaps; Google's overlap layout on a busy day (cascading over long blocks, side by side within 45 minutes, the minimum chip width, "+N" folds, no event lost, the same whatever the order); month packing with "+N more" |
 | `calendar-colors.test.ts` | Colours from Google: an event's colorId, else its calendar's; the palette and its names |
+| `calendar-labels.test.ts` | Google's colour labels and the looks (D-070): reading a calendar's labels, an event's colour (its label's, else its colorId's, else its calendar's), a label write is eventLabelId alone with eventLabelVersion=1 and never an email while a colour write never carries the version, the legend and its filter, a label asked for by any spelling, how an event looks (ended, not answered, maybe, declined), and the suggested label with every case where it stays quiet |
+| `calendar-origin.test.ts` | "How you got here" for a guest-less event: the search terms an event gives (organizer, linked sites, distinctive title words), the ranking of what a search found (the ticket email first, the invitation, a meeting note or an earlier event after the emails, nothing below the bar), and the words and Inbox search when nothing turns up |
 | `calendar-edit-rules.test.ts` | Who may change an event, the guests prompt every time guests are involved, only Send becomes sendUpdates "all", recurring scopes, what a change sends |
-| `calendar-write-boundary.test.ts` | Only the Calendar tab's edit route reaches a calendar write; the readers, pings and parity check name none; nothing defaults to emailing guests; a colour from the event card has no `notify` and is always sendUpdates "none"; the calendar-editing scope is asked for only by the opt-in flow |
+| `calendar-write-boundary.test.ts` | Only the Calendar tab's edit route reaches a calendar write; the readers, pings and parity check name none; nothing defaults to emailing guests; a colour or a label from the event card has no `notify` and is always sendUpdates "none", and only the label request and the write module name the label switch; the label, look and origin modules name no write; the calendar-editing scope is asked for only by the opt-in flow |
 | `calendar-event-actions.test.ts` | The event card's requests: Going? sends only Nick's own entry (Google's answer-only form, `attendeesOmitted`) and maps Send / Don't send to sendUpdates "all" / "none"; a colour is colorId alone, never an email; Duplicate's draft; which options a card offers (read-only events get only Join, Copy link, Email guests, Open in Google); the repeat rule, the guests' answers and a description as safe words and links |
 
 `env-boundary.test.ts` is worth singling out: it walks every file in `src/`,
@@ -99,6 +101,7 @@ the model provider, and that one is deterministic rather than canned.
 | `calendar-range.test.ts` | The new views' reader over the mock calendar and Google's pages: calendars, recurring instances, all-day, colours, verdicts, caching; the parity check; per-person settings (the new views by default, the switch's "off" kept, older rows read as the switch left them) |
 | `calendar-edit.test.ts` | Writes against the mock calendar: create with Meet and guests, Send vs Don't send, move, resize, move calendars, delete with and without cancellations, recurring scopes, refusals without the grant or on view-only events |
 | `calendar-event-card.test.ts` | The event card's writes against the mock calendar: Duplicate saves a new id, a colour records colorId alone with sendUpdates "none" (from the editor too, even with Send), Going? Send vs Don't send with every other guest's entry left as it was, refusals for the organizer, a view-only calendar and no grant |
+| `calendar-labels.test.ts` | Google's colour labels over the mock calendar and Google's endpoints (fetch stubbed): reads send eventLabelVersion=1 and come back with each event's label and colour, labels kept under a minute, a calendar whose labels fail still draws; a label write is exactly {eventLabelId} with eventLabelVersion=1 and sendUpdates "none" (cleared with ""), refused without the grant, on a view-only calendar and for a label the calendar lacks; a colour, an edit and an answer never send the version and leave the label on (the mock drops a label a write sends the version without); Ask's calendar tool returns label names and filters by them; the suggested label from Copilot's data; the ticket email found for a guest-less registration, and the "nothing found" words; Diagnostics' counts; the legend's filter remembered |
 
 ### The harness
 
@@ -154,10 +157,23 @@ no chip is wholly covered. Esc on a long block's card leaves the meetings drawn
 over it on top and clickable, and a meeting dragged into a crowded row stays
 drawn, on top, with nothing else moving and nothing saved on Esc.
 
+**`calendar-display.spec.ts`** runs after `calendar-default.spec.ts` and before
+`calendar-event-card.spec.ts` (which answers the board meeting it shows as
+unanswered), over the demo's mock calendar (D-070): the labels of the
+calendars shown are filter chips above the grid, remembered, Month included;
+an event's label name shows on its chip and its card, whose picker lists the
+labels by name; picking one sends a single PATCH with the label alone and asks
+nothing; a suggested label shows on the card and is applied only on a tap;
+the Key explains every look; an ended, an unanswered, a maybe and a declined
+event each look different while a block is filled like any event (no dashes,
+no grey); a guest-less registration's card finds its ticket email with the
+Copilot and Gmail links; and an event nothing explains says what was checked
+and opens the Inbox on the search. It leaves no filter or label behind.
+
 **`calendar-event-card.spec.ts`** covers the new calendar's event card over the
 demo's mock calendar: a click opens it beside the event (not a centred dialog)
-with Google's options; a press on an empty slot only closes it; a colour asks
-nothing and stays; Duplicate opens the editor prefilled and, with guests, asks
+with Google's options; a press on an empty slot only closes it; a colour (on
+the team calendar, which has no labels) asks nothing and stays; Duplicate opens the editor prefilled and, with guests, asks
 the invitations question; Going? asks "Send your response to the organizer?"
 and Cancel or Esc writes nothing (Send is never focused first); a read-only
 event offers only what writes nothing; Email guests opens the compose window

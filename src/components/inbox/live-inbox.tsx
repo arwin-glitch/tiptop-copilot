@@ -140,9 +140,12 @@ export function LiveInbox({
   initial,
   timeZone,
   opened = null,
+  initialQuery = '',
 }: {
   initial: LiveThreadList;
   timeZone: string;
+  /** A search the page opened on (`/inbox?q=`): `initial` is already its results. */
+  initialQuery?: string;
   /**
    * A conversation a link asked for (`/inbox?thread=<id>`), opened in the
    * reading pane whether or not it is in the list; or why it could not be.
@@ -151,8 +154,8 @@ export function LiveInbox({
   opened?: OpenedThread | null;
 }) {
   const [tab, setTab] = React.useState<InboxTab>('primary');
-  const [query, setQuery] = React.useState('');
-  const [searched, setSearched] = React.useState('');
+  const [query, setQuery] = React.useState(initialQuery);
+  const [searched, setSearched] = React.useState(initialQuery);
   const [list, setList] = React.useState<LiveThreadList>(initial);
   const [loading, setLoading] = React.useState(false);
   const [loadingMore, setLoadingMore] = React.useState(false);
@@ -186,6 +189,14 @@ export function LiveInbox({
   React.useEffect(() => {
     lastLoad.current = Date.now();
   }, []);
+  // A search the page opened on stays in the box; the address goes back to the Inbox.
+  React.useEffect(() => {
+    if (!initialQuery) return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('q')) return;
+    url.searchParams.delete('q');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [initialQuery]);
   const { canAct, canLabel, mailbox, labelChoices } = list;
 
   const load = React.useCallback(

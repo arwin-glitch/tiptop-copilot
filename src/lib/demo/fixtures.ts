@@ -455,6 +455,7 @@ export function buildDemoDb(now: Date = new Date()): DemoDb {
     thread(ID.threadNewsletter, 'The Vertical — this week in industry AI', hoursAgo(now, 14), 1),
     thread(ID.threadCoInvestor, 'Ridgeline: are you looking at Vetrix?', hoursAgo(now, 3), 1),
     thread(ID.threadPlumbline, 'Plumbline — construction estimating, seed', daysAgo(now, 9), 1),
+    thread(ID.threadMixerTicket, 'Your ticket: Harborlight Founders Mixer', daysAgo(now, 4), 1),
   ];
 
   function thread(id: string, subject: string, lastMessageAt: string, count: number): EmailThread {
@@ -636,6 +637,20 @@ Looking forward to talking,
 Anna Kowalczyk
 Co-founder, Plumbline`;
 
+  // A registration's confirmation: the email that put the guest-less
+  // "Harborlight Founders Mixer" on the demo calendar (lib/calendar/mock-calendar.ts),
+  // which the Calendar card finds for "How you got here".
+  const mixerTicketBody = `You're in!
+
+Harborlight Founders Mixer
+The Lantern Room, Austin
+
+Your ticket and the details are at https://tickets.harborlight-mixer.demo/order/demo-1234.
+We've added it to your calendar.
+
+See you there,
+Harborlight Events`;
+
   const email_messages: EmailMessage[] = [
     message({
       id: ID.msgVetrixIntro,
@@ -774,6 +789,19 @@ Co-founder, Plumbline`;
       dealId: ID.dealPlumbline,
       injectionFlagged: true,
       labels: ['INBOX'],
+    }),
+    message({
+      id: ID.msgMixerTicket,
+      threadId: ID.threadMixerTicket,
+      subject: 'Your ticket: Harborlight Founders Mixer',
+      fromName: 'Harborlight Events',
+      fromAddress: 'tickets@harborlight-mixer.demo',
+      sentAt: daysAgo(now, 4),
+      body: mixerTicketBody,
+      category: 'administrative',
+      importance: 8,
+      unread: false,
+      labels: ['CATEGORY_UPDATES'],
     }),
   ];
 

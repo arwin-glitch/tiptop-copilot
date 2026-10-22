@@ -2166,6 +2166,144 @@ Calendar", and the new views to be what the tab opens on.
 - Between 640 and about 655px Week's columns are a little short of two
   36px chips side by side, so those are drawn 34-35px wide.
 
+### D-070 — Calendar: Google's colour labels, one look per event, and "How you got here" that finds the reason
+
+**Context.** Arwin used the new views on Nick's real calendar and raised
+three things. In Day view, events that had already happened, Copilot's
+blocks (a dashed, muted chip) and invitations Nick had not answered all
+looked grey or dashed, so grey meant three things. The card's "How you got
+here" only looked for a dossier note and recent email _with the guests_, so
+for a registration, a conference party, a hold or an invitation from a list
+(no other guests) it always said "No dossier note and no recent email with
+them." And Nick's calendar is organised by Google's named colour labels,
+which the views did not show: "add the labels for the colors… that's the
+most important, and Copilot should be able to handle that as well, real
+time."
+
+**Decision.**
+
+- **Labels, live, never stored.** Google keeps labels on the calendar
+  (`labelProperties.eventLabels`: id, `#rrggbb`, optional name) and an event
+  points at one with `eventLabelId`. Google processes label fields only on
+  requests carrying `eventLabelVersion=1`, and with it ignores `colorId`. So
+  every read the views make sends it: `calendars.get` once per calendar
+  shown, beside the range read, and `events.list` and `events.get`. The
+  labels are cached in memory for 45 seconds (a rename in Google shows within
+  a minute) and never written to the database. Reading needs only the
+  read-only scope already held. A calendar whose labels cannot be read just
+  shows none; the range still draws.
+- **Colour order.** An event's colour is its label's, else its own
+  `colorId`'s, else its calendar's (`eventColor`).
+- **Where the names show.** After the time on a chip when there is room
+  (never at the title's cost), on the card ("Label: …" with its dot), and as
+  a legend of filter chips above the grid (Day, Week, Month): the labels of
+  the calendars shown, once each by name, plus "Unlabelled". Tapping chips
+  shows only those labels' events; the choice is remembered with the other
+  calendar settings (`labelFilter` on the `calendar.prefs_set` row). A saved
+  key that no longer matches a label shown is ignored, so a rename in Google
+  never empties the view.
+- **Writing a label.** Where the event's calendar has labels, the card's
+  colour row is Google's label picker (dot and name, the current one ticked,
+  plus "No label") and the editor shows the same; a calendar without labels
+  keeps the eleven colours. A label write is `eventLabelId` alone (empty
+  clears it) with `eventLabelVersion=1` and `sendUpdates: 'none'`
+  (`labelRequest`), through `lib/calendar/write.ts` under the colour's
+  rules: the editing grant, a writable calendar, an event Nick may change or
+  his own copy of an invitation, and a label the calendar has now. It never
+  emails and never asks about guests; a repeating event keeps the "This
+  event / All events" question. Only a write that carries `eventLabelId` (a
+  label set or cleared) sends the version. Google's Events reference says
+  that with it a write leaving `eventLabelId` out removes the label, and
+  that it makes Google ignore `colorId`; so an edit, an answer to an
+  invitation, a colour or a new event without a label never sends it and
+  Google leaves the label alone. When the event Google sends back from such
+  a write leaves the label out, the page keeps the label it read before. The
+  mock calendar applies that strict reading, so a write that sent the version
+  without a label would wipe the label in the tests. Label definitions are
+  never changed here: "Edit labels in Google Calendar" links out.
+- **A suggested label, never applied by itself.** For an unlabelled event on
+  a calendar with labels, the card (once open) may suggest one of the
+  calendar's _existing_ labels when Copilot's own data is clear: a guest from
+  a portfolio company, a label named like Portfolio or Portcos; an LP or
+  Fund II prospect, LPs or investor relations; a founder of a deal in the
+  pipeline, Founders, or Diligence when the deal is in diligence; another VC
+  firm, VCs or investors; only the team, Internal or Team; a flight, hotel or
+  booking, Travel; a registration, Event. Label names are matched by whole
+  words, any case. With people of several kinds on it, the first kind in
+  this order decides: portfolio, deal founder, LP, other VC (a board
+  meeting with other VCs on it is Portfolio); Internal only when everyone is
+  on the team. No clear sign (an outsider Copilot doesn't know with only the
+  team), no fitting label or two fitting labels mean no suggestion. "Use it"
+  is the same label write as the picker; without the grant the suggestion
+  shows with the editing note.
+- **Ask Arwin.** `list_calendar_events` returns each event's label name
+  (read live, as the tab reads it) and the labels the main calendar has, and
+  takes `label` to list only those ("Portcos", "none"). The Today page is
+  untouched.
+- **One look per state** (`lib/calendar/event-look.ts`, `event-style.ts`),
+  in Day, Week, Month and the "+N" lists, light and dark. The fill is the
+  colour above, and nothing else turns an event grey. Ended: the whole chip
+  at 55% opacity (the card says "Ended"). Not answered (`needsAction`):
+  Google's outline, the theme's surface inside a border in the event's
+  colour with a 4px left edge, and a "?" ("Not answered yet"). Maybe: the
+  same outline over diagonal stripes of the colour ("Maybe"). Declined: the
+  title struck through, faded ("Declined"). Copilot's verdict is the bell
+  alone: a meeting has it (it pings 5 minutes before), a block does not. The
+  block's dashed, muted style is gone; the Hold tag stays. A "Key" above the
+  grid explains exactly these, drawn with the grid's own styles, and lists
+  the labels.
+- **"How you got here" finds the reason** (`lib/calendar/origin.ts`, pure,
+  and `lib/services/calendar-origin.ts`). The dossier note, the prep note
+  and the latest emails with the guests come first, as before. When they say
+  nothing, it looks, read-only, for the email that put the event on the
+  calendar: by the organizer's address and domain (not a free mailbox, a
+  calendar id or Nick's own), by the sites the description and location link
+  to (video and Google links left out), by the title's distinctive words (no
+  dates, times, numbers or common words), and Google's own invitation; plus a
+  meeting note or an earlier event with the same title. The sources are the
+  synced mail, meeting notes and events in the store, and, with Gmail
+  connected, one read-only Gmail search. Candidates are scored (sender,
+  linked site, title words, invitation, registration words; an email sent
+  after the event is marked down) and the best one to three are shown as
+  short lines ("Registration email from …, Oct 17") with the two-option
+  Copilot and Gmail links. With nothing found it says in plain words what it
+  checked and offers "Search the Inbox for '…'", which opens the Inbox on
+  that search (`/inbox?q=`, new and small). Results are cached per event for
+  ten minutes; the card loads them after it opens and the day list streams
+  them in, so the grid never waits. The card shows the box for every event
+  now, not only main-calendar meetings.
+- **The card sits beside the whole day** in Day and Week (its anchor is the
+  day column's width at the event's height), so it never covers that day's
+  other events, which stay clickable.
+- **Diagnostics › Event labels** (read-only, rate-limited): each calendar's
+  labels as Google has them (name and colour) and how many events in the
+  next seven days carry each, with the unlabelled and unknown-label counts.
+- **Demo.** The mock calendar's main and Personal calendars define fictional
+  labels (generic VC words) and some events carry one; the team calendar has
+  none, so it keeps the eleven colours. It also has a past event, an
+  invitation Nick said maybe to, one he declined, and a guest-less
+  registration whose ticket email is in the demo mailbox.
+
+**Known limits** (only a real read can settle these):
+
+- Google documents `eventLabelVersion=1` on event writes (insert, import,
+  update, patch); it does not say whether `calendars.get`, `events.list` or
+  `events.get` need or accept it. It is sent on those reads too, and a 400
+  is retried once without it, so a refusal costs the labels, never the
+  calendar or a write (every write reads the event first).
+- The guide does not say whether `colorId` still comes back on reads made
+  with the version, or whether `eventLabelId` comes back without it. Both
+  are handled: a label wins when present, else `colorId` as before.
+- Whether Google keeps or drops an event's `colorId` once a label is set is
+  not documented; the label wins either way, as Google draws it.
+- Whether a PATCH with the version and no `eventLabelId` really drops the
+  label (the reference's words cover insert, import, update and patch alike)
+  is not tested against Google. Nothing here sends that combination, so
+  either way no edit or answer can remove a label.
+- The suggestion's LP match by firm needs the firm's name and the guest's
+  domain to be the same words ("Alder Endowment" and `alder-endowment.…`);
+  anything looser stays quiet on purpose.
+
 ### D-071 — Alerts and the daily outlook follow the principal; member reads are scoped
 
 **Context.** D-068 named the principal, the member whose mailbox Copilot

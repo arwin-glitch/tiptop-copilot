@@ -338,6 +338,11 @@ export interface EventDraft {
   meet?: boolean;
   /** Google's event colorId, or null for the calendar's colour. */
   colorId?: string | null;
+  /**
+   * One of the calendar's colour labels, or null for none (calendars that
+   * have labels pick a label instead of a colour, as in Google).
+   */
+  labelId?: string | null;
 }
 
 /** Why a draft's times cannot be saved, or null when they can. */
@@ -403,6 +408,8 @@ export function draftToWrite(
   if (draft.description !== undefined) body.description = draft.description;
   if (draft.location !== undefined) body.location = draft.location.trim();
   if (draft.colorId !== undefined) body.colorId = draft.colorId;
+  // Google clears a label with an empty eventLabelId.
+  if (draft.labelId !== undefined) body.eventLabelId = draft.labelId ?? '';
   if (
     draft.start !== undefined &&
     draft.end !== undefined &&

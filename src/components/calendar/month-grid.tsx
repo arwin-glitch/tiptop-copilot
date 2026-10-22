@@ -9,12 +9,22 @@ import {
   shortTime,
   weekdayShort,
 } from '@/lib/calendar/grid';
+import { eventLook } from '@/lib/calendar/event-look';
+import { labelText } from '@/lib/calendar/labels';
 import type { CalendarInfo, RangeEvent } from '@/lib/calendar/range-types';
 import { cn } from '@/lib/util/cn';
 import { addDaysToKey } from '@/lib/util/time';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { chipLabel, chipStyle, HOLD_TAG_CLASS, swatchStyle } from './event-style';
-import type { PendingSlot } from './time-grid';
+import {
+  ASK_GLYPH_CLASS,
+  chipLabel,
+  chipStyle,
+  dotStyle,
+  HOLD_TAG_CLASS,
+  lookOpacity,
+  titleStyle,
+} from './event-style';
+import { lookAttr, type PendingSlot } from './time-grid';
 
 /**
  * The Month view: whole weeks, each day with as many events as fit and a
@@ -25,7 +35,10 @@ import type { PendingSlot } from './time-grid';
  * a day to add an all-day event there, or drag across days (into the next
  * week too) for one event over all of them. The days stay marked while the
  * new event's quick editor is open beside them. A click on an event opens its
- * card beside it.
+ * card beside it. Events are drawn in their look, as in Day and Week: faded
+ * once over, a hollow dot and a "?" while Nick has not answered, striped for
+ * maybe, struck through when declined; the colour label follows the title
+ * where there is room.
  */
 
 const LANE_PX = 20;
@@ -45,6 +58,7 @@ export function MonthGrid({
   events,
   timeZone,
   today,
+  nowMs,
   calendars,
   canEdit,
   compact,
@@ -60,6 +74,8 @@ export function MonthGrid({
   events: RangeEvent[];
   timeZone: string;
   today: string;
+  /** Null until the page is in the browser, so the server and browser draw the same. */
+  nowMs: number | null;
   calendars: ReadonlyMap<string, CalendarInfo>;
   canEdit: boolean;
   /** A phone: fewer lanes per day, and titles rather than times. */
@@ -86,6 +102,7 @@ export function MonthGrid({
     [events, timeZone],
   );
   const gridRef = React.useRef<HTMLDivElement>(null);
+  const lookOf = (e: RangeEvent) => eventLook(e, { nowMs, today });
   const drag = React.useRef<{
     event: RangeEvent;
     from: string;
@@ -267,12 +284,14 @@ export function MonthGrid({
               const editable = canEdit && event.canModify;
               const when =
                 event.allDay || !event.startsAt ? 'all day' : shortTime(event.startsAt, timeZone);
+              const look = lookOf(event);
               return (
                 <button
                   key={`${s.key}-${s.startCol}`}
                   type="button"
                   data-event-chip
                   data-event-key={event.key}
+                  data-look={lookAttr(look)}
                   onPointerDown={(e) => {
                     if (!editable || e.button !== 0 || e.pointerType === 'touch') return;
                     drag.current = {
@@ -284,7 +303,12 @@ export function MonthGrid({
                     };
                   }}
                   onClick={(e) => onOpen(event, e.currentTarget)}
-                  aria-label={chipLabel(event, when, calendars.get(event.calendarId)?.name ?? null)}
+                  aria-label={chipLabel(
+                    event,
+                    when,
+                    calendars.get(event.calendarId)?.name ?? null,
+                    look,
+                  )}
                   className={cn(
                     'absolute flex items-center gap-1 truncate rounded-[4px] px-1 text-left text-[11.5px] leading-[18px] focus-visible:outline-2 focus-visible:outline-[var(--focus)]',
                     bar
@@ -293,21 +317,27 @@ export function MonthGrid({
                     editable && 'cursor-grab',
                     s.continuesBefore && 'rounded-l-none',
                     s.continuesAfter && 'rounded-r-none',
-                    hover?.key === s.key && 'opacity-60',
                   )}
                   style={{
                     top: 28 + s.lane * LANE_PX,
                     left: `calc(${(s.startCol / 7) * 100}% + 2px)`,
                     width: `calc(${((s.endCol - s.startCol + 1) / 7) * 100}% - 4px)`,
-                    ...(bar ? chipStyle(event) : {}),
+                    ...(bar ? chipStyle(event, { look }) : { opacity: lookOpacity(look) }),
+                    // Being dragged to another day: drawn faint where it was.
+                    ...(hover?.key === s.key ? { opacity: 0.6 } : {}),
                   }}
                 >
                   {!bar ? (
                     <span
                       aria-hidden
                       className="size-2 shrink-0 rounded-full border"
-                      style={swatchStyle(event.color.background, !event.verdict.meeting)}
+                      style={dotStyle(event, look)}
                     />
+                  ) : null}
+                  {look.response === 'needsAction' && !compact ? (
+                    <span aria-hidden className={ASK_GLYPH_CLASS}>
+                      ?
+                    </span>
                   ) : null}
                   {!bar && !compact ? (
                     <span className="shrink-0 text-[var(--fg-muted)] tabular-nums">{when}</span>
@@ -315,13 +345,16 @@ export function MonthGrid({
                   <span
                     className={cn(
                       'min-w-0 truncate',
-                      !bar &&
-                        (event.verdict.meeting
-                          ? 'font-medium text-[var(--fg)]'
-                          : 'text-[var(--fg-muted)]'),
+                      !bar && 'text-[var(--fg)]',
+                      !bar && event.verdict.meeting && 'font-medium',
                     )}
                   >
-                    {event.title}
+                    <span style={titleStyle(look)}>{event.title}</span>
+                    {event.label && !compact ? (
+                      <span data-chip-label="" className="font-normal opacity-75">
+                        {` · ${labelText(event.label)}`}
+                      </span>
+                    ) : null}
                   </span>
                   {event.hold && !compact ? <span className={HOLD_TAG_CLASS}>Hold</span> : null}
                 </button>
@@ -372,14 +405,22 @@ export function MonthGrid({
                             <span
                               aria-hidden
                               className="size-2 shrink-0 rounded-full border"
-                              style={swatchStyle(e.color.background, !e.verdict.meeting)}
+                              style={dotStyle(e, lookOf(e))}
                             />
                             <span className="shrink-0 text-xs text-[var(--fg-muted)] tabular-nums">
                               {e.allDay || !e.startsAt
                                 ? 'All day'
                                 : shortTime(e.startsAt, timeZone)}
                             </span>
-                            <span className="min-w-0 truncate">{e.title}</span>
+                            <span
+                              className="min-w-0 truncate"
+                              style={{
+                                ...titleStyle(lookOf(e)),
+                                opacity: lookOf(e).past ? 0.7 : undefined,
+                              }}
+                            >
+                              {e.title}
+                            </span>
                           </button>
                         </li>
                       ))}

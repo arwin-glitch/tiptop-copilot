@@ -450,7 +450,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'calendar',
     name: 'Calendar',
     href: '/calendar',
-    purpose: 'Day, week or month, like Google Calendar. Every event marked meeting or block.',
+    purpose:
+      'Day, week or month, like Google Calendar, labels and all. Meetings ping; blocks never do.',
     subtabs: [],
     steps: [
       navStep('/calendar', 'Your calendar, live', 'Calendar shows the week like Google Calendar.'),
@@ -462,8 +463,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
       },
       {
         target: 'calendar-entries',
-        title: 'Meetings and blocks',
-        body: 'Each event says meeting or block. Meetings ping 5 minutes before. Click one for its options.',
+        title: 'Labels, looks and the bell',
+        body: "Colours are Google's labels; tap one to filter. Key explains each look. A bell pings 5 minutes before.",
         placement: 'top',
         grand: true,
       },

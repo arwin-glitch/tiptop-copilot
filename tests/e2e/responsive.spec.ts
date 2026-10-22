@@ -93,6 +93,8 @@ const PAGES = [
   '/calendar?view=week',
   '/calendar?view=month',
   '/diagnostics?tab=parity',
+  // Each calendar's colour labels, a table per calendar.
+  '/diagnostics?tab=labels',
 ];
 
 /** No sideways scroll beyond a few pixels of rounding. */

@@ -6,6 +6,7 @@ import {
   createCalendarEvent,
   deleteCalendarEvent,
   recolorCalendarEvent,
+  relabelCalendarEvent,
   respondToCalendarEvent,
   updateCalendarEvent,
   type WriteContext,
@@ -26,8 +27,10 @@ export const dynamic = 'force-dynamic';
  *
  * PATCH also takes the event card's one-tap writes: `kind: 'respond'` (Going?
  * Yes / No / Maybe, with `notify` from "Send your response to the
- * organizer?") and `kind: 'color'` (Google's colorId alone; it has no
- * `notify`, since a colour change never emails anyone).
+ * organizer?"), `kind: 'color'` (Google's colorId alone; it has no
+ * `notify`, since a colour change never emails anyone) and `kind: 'label'`
+ * (one of the calendar's colour labels, Google's eventLabelId alone, under
+ * the colour's rules: no `notify` either).
  */
 
 const CALENDAR_ID = z.string().trim().min(1).max(320);
@@ -39,6 +42,12 @@ const EVENT_ID = z
   .regex(/^[A-Za-z0-9_\-.@]+$/);
 const NOTIFY = z.enum(['send', 'dont_send']);
 const SCOPE = z.enum(['this', 'all']);
+// Google's label ids are UUIDs; anything id-shaped is let through to the calendar's own check.
+const LABEL_ID = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_\-]+$/);
 
 const DRAFT = z.object({
   title: z.string().max(1024),
@@ -55,6 +64,7 @@ const DRAFT = z.object({
     .regex(/^\d{1,2}$/)
     .nullable()
     .optional(),
+  labelId: LABEL_ID.nullable().optional(),
 });
 
 const CREATE = z
@@ -93,6 +103,16 @@ const COLOR = z
       .string()
       .regex(/^\d{1,2}$/)
       .nullable(),
+  })
+  .strict();
+
+const LABEL = z
+  .object({
+    kind: z.literal('label'),
+    calendarId: CALENDAR_ID,
+    eventId: EVENT_ID,
+    scope: SCOPE,
+    labelId: LABEL_ID.nullable(),
   })
   .strict();
 
@@ -151,6 +171,14 @@ export async function PATCH(request: NextRequest) {
     if (!ctx) return fail(NOT_CONNECTED);
     const { kind: _kind, ...input } = parsed.data;
     return respond(await recolorCalendarEvent(ctx, input));
+  }
+  if (kind === 'label') {
+    const parsed = LABEL.safeParse(body);
+    if (!parsed.success) return fail(INVALID('Pick one of this calendar’s labels.'));
+    const ctx = await context(gate.auth);
+    if (!ctx) return fail(NOT_CONNECTED);
+    const { kind: _kind, ...input } = parsed.data;
+    return respond(await relabelCalendarEvent(ctx, input));
   }
   const parsed = UPDATE.safeParse(body);
   if (!parsed.success) return fail(INVALID('Check the change and try again.'));

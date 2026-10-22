@@ -20,11 +20,20 @@ import {
   SNAP_MINUTES,
   weekdayShort,
 } from '@/lib/calendar/grid';
+import { eventLook, type EventLook } from '@/lib/calendar/event-look';
+import { labelText } from '@/lib/calendar/labels';
 import type { CalendarInfo, RangeEvent } from '@/lib/calendar/range-types';
 import { cn } from '@/lib/util/cn';
 import { addDaysToKey, localClock, localDateKey } from '@/lib/util/time';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { chipLabel, chipStyle, HOLD_TAG_CLASS, swatchStyle } from './event-style';
+import {
+  ASK_GLYPH_CLASS,
+  chipLabel,
+  chipStyle,
+  dotStyle,
+  HOLD_TAG_CLASS,
+  titleStyle,
+} from './event-style';
 
 /**
  * The Day and Week views: an hour gutter, one column per day, an all-day row
@@ -43,9 +52,12 @@ import { chipLabel, chipStyle, HOLD_TAG_CLASS, swatchStyle } from './event-style
  * touch screen a tap does, and dragging is left to scrolling.
  *
  * Titles wrap over as many lines as the event's height allows, with the time
- * below when there is room. A title never breaks inside a word: a word too
- * long for its chip ends in an ellipsis, a narrow chip shows only the start of
- * its title, and a sliver on a phone only its colour.
+ * below when there is room (and the event's colour label after it). A title
+ * never breaks inside a word: a word too long for its chip ends in an
+ * ellipsis, a narrow chip shows only the start of its title, and a sliver on
+ * a phone only its colour. Each chip is drawn in its look (event-style.ts):
+ * faded once over, outlined with a "?" while Nick has not answered, striped
+ * for maybe, struck through when declined; a meeting has the bell.
  */
 
 export const HOUR_PX = 48;
@@ -71,6 +83,7 @@ const CHIP_INSET_PX = 14;
 const NARROW_CHIP_INSET_PX = 6;
 const HOLD_TAG_PX = 32;
 const BELL_PX = 16;
+const ASK_GLYPH_PX = 18;
 /**
  * Chips stack by start (1 up); a chip being dragged goes above them all, under
  * only the new event's placeholder (900) and the time line (910). A focused
@@ -278,6 +291,7 @@ export function TimeGrid({
 
   const timed = events.filter((e) => !inAllDayRow(e) && e.startsAt);
   const allDay = events.filter((e) => inAllDayRow(e));
+  const lookOf = (e: RangeEvent) => eventLook(e, { nowMs, today });
 
   // While dragging, the event is drawn where it would land, over the rest,
   // which keep the places they had (the layout below reads `timed`), so none
@@ -493,17 +507,19 @@ export function TimeGrid({
         canEdit={canEdit}
         maxLanes={single ? 6 : 3}
         pending={newSlot?.allDay ? newSlot : null}
+        lookOf={lookOf}
         onOpen={onOpen}
         onCreateAllDay={onCreateAllDay}
         onShiftDays={onShiftDays}
         onPickDay={onPickDay}
       />
 
-      {/* On a computer the hours fill the window below the bar, so the page
-          itself does not scroll as well (a 900px-tall laptop included). */}
+      {/* On a computer the hours fill the window below the bar and the
+          labels row, so the page itself does not scroll as well (a
+          900px-tall laptop included). */}
       <div
         ref={scrollRef}
-        className="relative h-[min(62dvh,40rem)] scrollbar-thin overflow-y-auto overscroll-contain sm:h-[clamp(22rem,calc(100dvh-24rem),46rem)]"
+        className="relative h-[min(62dvh,40rem)] scrollbar-thin overflow-y-auto overscroll-contain sm:h-[clamp(22rem,calc(100dvh-26.5rem),46rem)]"
       >
         <div
           ref={contentRef}
@@ -560,6 +576,7 @@ export function TimeGrid({
               <div
                 key={d}
                 data-date={d}
+                data-day-column=""
                 className={cn(
                   'relative border-l border-[var(--border)]',
                   d === today && 'bg-[var(--accent-soft)]/30',
@@ -587,6 +604,7 @@ export function TimeGrid({
                         width={fold.width}
                         z={fold.z}
                         timeZone={timeZone}
+                        lookOf={lookOf}
                         onOpen={onOpen}
                       />
                     );
@@ -610,8 +628,8 @@ export function TimeGrid({
                     localDateKey(new Date(Date.parse(event.endsAt) - 1), timeZone) === d;
                   const dragging = drag && drag.mode !== 'create' && drag.event.key === event.key;
                   const when = `${shortTime(event.startsAt!, timeZone)} – ${shortTime(event.endsAt ?? event.startsAt!, timeZone)}`;
-                  const past =
-                    nowMs !== null && event.endsAt !== null && Date.parse(event.endsAt) < nowMs;
+                  const look = lookOf(event);
+                  const asking = look.response === 'needsAction';
                   const compact = height < 34;
                   // How wide it is drawn: a narrow chip gets one line, a sliver only its colour.
                   const widthPx = place.width * columnPx - CHIP_GAP_PX;
@@ -622,7 +640,8 @@ export function TimeGrid({
                     widthPx -
                     (narrow ? NARROW_CHIP_INSET_PX : CHIP_INSET_PX) -
                     (event.hold && !narrow ? HOLD_TAG_PX : 0) -
-                    (event.verdict.meeting && !narrow ? BELL_PX : 0);
+                    (event.verdict.meeting && !narrow ? BELL_PX : 0) -
+                    (asking && !narrow ? ASK_GLYPH_PX : 0);
                   const oneLine = compact || narrow || titlePx < MIN_WRAP_TITLE_PX;
                   // As many lines of title as the height allows; the time follows if room is left.
                   const titleLines = Math.max(1, Math.floor((height - 4) / CHIP_LINE_PX));
@@ -633,19 +652,20 @@ export function TimeGrid({
                       data-event-chip
                       data-event-key={event.key}
                       data-cascaded={place.cascaded ? '' : undefined}
+                      data-look={lookAttr(look)}
                       onPointerDown={(e) => onChipPointerDown(e, event)}
                       onClick={(e) => onOpen(event, e.currentTarget)}
                       aria-label={chipLabel(
                         event,
                         when,
                         calendars.get(event.calendarId)?.name ?? null,
+                        look,
                       )}
                       className={cn(
                         'absolute z-[var(--chip-z)] flex flex-col overflow-hidden rounded-[5px] border text-left text-[12px] leading-tight [overflow-wrap:normal] [word-break:normal] transition-shadow focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]',
                         narrow ? 'px-0.5' : 'px-1.5',
                         compact ? 'py-0' : 'py-0.5',
                         editable(event) && 'cursor-grab active:cursor-grabbing',
-                        past && !dragging && 'opacity-75',
                       )}
                       style={chipBoxStyle(event, {
                         top,
@@ -655,6 +675,7 @@ export function TimeGrid({
                         z: dragging ? Z_DRAGGING : place.z,
                         dragging: Boolean(dragging),
                         cascaded: place.cascaded,
+                        look,
                       })}
                     >
                       {colourOnly ? null : (
@@ -664,6 +685,11 @@ export function TimeGrid({
                             oneLine && 'items-center',
                           )}
                         >
+                          {asking && !narrow ? (
+                            <span aria-hidden className={cn(ASK_GLYPH_CLASS, 'mt-px')}>
+                              ?
+                            </span>
+                          ) : null}
                           <span
                             data-chip-title=""
                             className={cn(
@@ -671,16 +697,17 @@ export function TimeGrid({
                               oneLine && 'truncate',
                               event.verdict.meeting ? 'font-semibold' : 'font-medium',
                             )}
-                            style={
-                              oneLine
-                                ? undefined
+                            style={{
+                              ...titleStyle(look),
+                              ...(oneLine
+                                ? {}
                                 : {
                                     display: '-webkit-box',
                                     WebkitBoxOrient: 'vertical',
                                     WebkitLineClamp: titleLines,
                                     overflow: 'hidden',
-                                  }
-                            }
+                                  }),
+                            }}
                           >
                             {oneLine ? event.title : <TitleWords title={event.title} />}
                             {compact && !narrow ? (
@@ -705,7 +732,12 @@ export function TimeGrid({
                         </span>
                       )}
                       {!compact && !narrow ? (
-                        <span className="block truncate opacity-80">{when}</span>
+                        <span className="block truncate opacity-80">
+                          {when}
+                          {event.label ? (
+                            <span data-chip-label="">{` · ${labelText(event.label)}`}</span>
+                          ) : null}
+                        </span>
                       ) : null}
                       {editable(event) && endsHere ? (
                         <span
@@ -791,9 +823,13 @@ function chipBoxStyle(
     z: number;
     dragging: boolean;
     cascaded: boolean;
+    look: EventLook;
   },
 ): React.CSSProperties {
-  const { zIndex: _ignored, ...colours } = chipStyle(event, { dragging: box.dragging });
+  const { zIndex: _ignored, ...colours } = chipStyle(event, {
+    dragging: box.dragging,
+    look: box.look,
+  });
   return {
     top: box.top,
     height: box.height,
@@ -817,6 +853,7 @@ function FoldChip({
   width,
   z,
   timeZone,
+  lookOf,
   onOpen,
 }: {
   events: RangeEvent[];
@@ -826,6 +863,7 @@ function FoldChip({
   width: number;
   z: number;
   timeZone: string;
+  lookOf: (event: RangeEvent) => EventLook;
   onOpen: (event: RangeEvent, element: HTMLElement) => void;
 }) {
   const trigger = React.useRef<HTMLButtonElement>(null);
@@ -865,12 +903,17 @@ function FoldChip({
                 <span
                   aria-hidden
                   className="size-2 shrink-0 rounded-full border"
-                  style={swatchStyle(e.color.background, !e.verdict.meeting)}
+                  style={dotStyle(e, lookOf(e))}
                 />
                 <span className="shrink-0 text-xs text-[var(--fg-muted)] tabular-nums">
                   {e.startsAt ? shortTime(e.startsAt, timeZone) : ''}
                 </span>
-                <span className="min-w-0 truncate">{e.title}</span>
+                <span
+                  className="min-w-0 truncate"
+                  style={{ ...titleStyle(lookOf(e)), opacity: lookOf(e).past ? 0.7 : undefined }}
+                >
+                  {e.title}
+                </span>
                 {e.hold ? <span className={HOLD_TAG_CLASS}>Hold</span> : null}
               </button>
             </li>
@@ -896,6 +939,12 @@ function zoneShort(timeZone: string, nowMs: number | null): string {
   );
 }
 
+/** The look as a data attribute, for the tests and the key: "past needsAction". */
+export function lookAttr(look: EventLook): string | undefined {
+  const parts = [look.past ? 'past' : null, look.response].filter(Boolean);
+  return parts.length ? parts.join(' ') : undefined;
+}
+
 /* ------------------------------------------------------- the all-day row */
 
 function AllDayRow({
@@ -907,6 +956,7 @@ function AllDayRow({
   canEdit,
   maxLanes,
   pending,
+  lookOf,
   onOpen,
   onCreateAllDay,
   onShiftDays,
@@ -920,6 +970,7 @@ function AllDayRow({
   canEdit: boolean;
   maxLanes: number;
   pending: PendingSlot | null;
+  lookOf: (event: RangeEvent) => EventLook;
   onOpen: (event: RangeEvent, element: HTMLElement) => void;
   onCreateAllDay: (day: string, endKey?: string) => void;
   onShiftDays: (event: RangeEvent, days: number) => void;
@@ -1067,12 +1118,14 @@ function AllDayRow({
         const endCol = Math.max(startCol, Math.min(days.length - 1, s.endCol + shift));
         const width = endCol - startCol + 1;
         const editable = canEdit && event.canModify;
+        const look = lookOf(event);
         return (
           <button
             key={`${s.key}-${s.startCol}`}
             type="button"
             data-event-chip
             data-event-key={event.key}
+            data-look={lookAttr(look)}
             onPointerDown={(e) => {
               if (!editable || e.button !== 0 || e.pointerType === 'touch') return;
               drag.current = { event, col: colOf(e.clientX), x: e.clientX, moved: false };
@@ -1080,7 +1133,12 @@ function AllDayRow({
             onClick={(e) => {
               if (!drag.current?.moved) onOpen(event, e.currentTarget);
             }}
-            aria-label={chipLabel(event, 'all day', calendars.get(event.calendarId)?.name ?? null)}
+            aria-label={chipLabel(
+              event,
+              'all day',
+              calendars.get(event.calendarId)?.name ?? null,
+              look,
+            )}
             className={cn(
               'absolute flex items-center gap-1 rounded-[5px] border px-1.5 text-left text-[12px] leading-[18px] font-medium focus-visible:outline-2 focus-visible:outline-[var(--focus)]',
               editable && 'cursor-grab',
@@ -1091,10 +1149,22 @@ function AllDayRow({
               top: 3 + s.lane * ALL_DAY_LANE_PX,
               left: `calc(${GUTTER_PX}px + (100% - ${GUTTER_PX}px) * ${startCol / days.length} + 2px)`,
               width: `calc((100% - ${GUTTER_PX}px) * ${width / days.length} - 4px)`,
-              ...chipStyle(event, { dragging: shift !== 0 }),
+              ...chipStyle(event, { dragging: shift !== 0, look }),
             }}
           >
-            <span className="min-w-0 flex-1 truncate">{event.title}</span>
+            {look.response === 'needsAction' ? (
+              <span aria-hidden className={ASK_GLYPH_CLASS}>
+                ?
+              </span>
+            ) : null}
+            <span className="min-w-0 flex-1 truncate">
+              <span style={titleStyle(look)}>{event.title}</span>
+              {event.label ? (
+                <span data-chip-label="" className="font-normal opacity-80">
+                  {` · ${labelText(event.label)}`}
+                </span>
+              ) : null}
+            </span>
             {event.hold ? <span className={HOLD_TAG_CLASS}>Hold</span> : null}
           </button>
         );
