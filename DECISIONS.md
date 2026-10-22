@@ -2227,9 +2227,13 @@ time."
   pipeline, Founders, or Diligence when the deal is in diligence; another VC
   firm, VCs or investors; only the team, Internal or Team; a flight, hotel or
   booking, Travel; a registration, Event. Label names are matched by whole
-  words, any case. Mixed signals, no fitting label or two fitting labels mean
-  no suggestion. "Use it" is the same label write as the picker; without the
-  grant the suggestion shows with the editing note.
+  words, any case. With people of several kinds on it, the first kind in
+  this order decides: portfolio, deal founder, LP, other VC (a board
+  meeting with other VCs on it is Portfolio); Internal only when everyone is
+  on the team. No clear sign (an outsider Copilot doesn't know with only the
+  team), no fitting label or two fitting labels mean no suggestion. "Use it"
+  is the same label write as the picker; without the grant the suggestion
+  shows with the editing note.
 - **Ask Arwin.** `list_calendar_events` returns each event's label name
   (read live, as the tab reads it) and the labels the main calendar has, and
   takes `label` to list only those ("Portcos", "none"). The Today page is

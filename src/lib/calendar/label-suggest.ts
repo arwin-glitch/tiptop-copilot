@@ -5,13 +5,15 @@ import type { EventLabel, RangeEvent } from './range-types';
  * A suggested colour label for an unlabelled event, from what Copilot
  * already knows, and only one of the calendar's own labels (never a new
  * one). It is a suggestion until a person taps "Use it"; nothing here
- * writes. When the signs are mixed, or no label's name clearly fits, there
- * is no suggestion: better none than a wrong one (D-070).
+ * writes. With no clear sign, or when no single label's name fits, there is
+ * no suggestion: better none than a wrong one (D-070). With people of several
+ * kinds on it, the first kind below decides: a board meeting with other
+ * VCs on it is Portfolio.
  *
  * - Guests from a portfolio company: a label named like Portfolio / Portcos.
- * - An LP or Fund II prospect: a label named like LPs / Investor relations.
  * - A founder of a deal in the pipeline: Founders, or Diligence when the
  *   deal is in diligence.
+ * - An LP or Fund II prospect: a label named like LPs / Investor relations.
  * - People from other VC firms: VCs / Investors / Co-investors.
  * - Only people from Nick's own team: Internal / Team.
  * - A flight, hotel or booking: Travel. An event registration: Event.
