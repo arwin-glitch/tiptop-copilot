@@ -200,10 +200,8 @@ test.describe('motion', () => {
     await expect(pause).toBeVisible();
     await pause.click();
     await expect(page.locator('[data-event-root]')).toHaveAttribute('data-paused', 'true');
-    await expect(page.getByRole('button', { name: 'Play animations' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    // The label says what a tap does now (no aria-pressed on a label that flips).
+    await expect(page.getByRole('button', { name: 'Play animations' })).toBeVisible();
     const running = await page.evaluate(
       () =>
         document
@@ -288,5 +286,120 @@ test.describe('every launch preset', () => {
       expect(res?.status(), preset.id).toBe(200);
       await expect(page.locator(`[data-event-root][data-preset="${preset.id}"]`)).toBeVisible();
     }
+  });
+});
+
+test.describe('design review fixes', () => {
+  test('every section finishes its entrance, the footer too, at the bottom of the page', async ({
+    page,
+  }) => {
+    for (const id of ['tiptop-signature', 'annual-letter', 'starfield']) {
+      await page.goto(`/e/theme_preview/${id}`);
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      await page.waitForTimeout(600);
+      const opacities = await page.evaluate(() =>
+        [...document.querySelectorAll('.ev-section__inner')].map((el) =>
+          Number(getComputedStyle(el).opacity),
+        ),
+      );
+      expect(opacities.at(-1), `${id} footer`).toBe(1);
+    }
+  });
+
+  test('headline effects never move the page (CLS ≤ 0.1), and endless motion has a Pause', async ({
+    browser,
+    baseURL,
+  }) => {
+    const context = await browser.newContext({
+      baseURL,
+      storageState: SIGNED_IN,
+      viewport: { width: 412, height: 823 },
+    });
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      (window as unknown as { __cls: number }).__cls = 0;
+      new PerformanceObserver((list) => {
+        for (const e of list.getEntries() as (PerformanceEntry & {
+          value: number;
+          hadRecentInput: boolean;
+        })[]) {
+          if (!e.hadRecentInput) (window as unknown as { __cls: number }).__cls += e.value;
+        }
+      }).observe({ type: 'layout-shift', buffered: true });
+    });
+    for (const id of [
+      'pitch-putt-clubhouse',
+      'boarding-pass',
+      'kinetic-poster',
+      'pixel-terminal',
+    ]) {
+      // The first visit warms the font cache: what is measured is the
+      // effects themselves (a font swap on a cold cache is a separate cost).
+      await page.goto(`/e/theme_preview/${id}`);
+      await page.evaluate(() => document.fonts.ready);
+      await page.goto(`/e/theme_preview/${id}`);
+      await page.waitForTimeout(3500);
+      const cls = await page.evaluate(() => (window as unknown as { __cls: number }).__cls);
+      expect(cls, `${id} CLS`).toBeLessThanOrEqual(0.1);
+      const endless = await page.evaluate(
+        () =>
+          document
+            .getAnimations()
+            .filter(
+              (a) => a.playState === 'running' && a.effect?.getTiming().iterations === Infinity,
+            ).length,
+      );
+      if (endless > 0) await expect(page.locator('.ev-pause'), id).toBeVisible();
+    }
+    await context.close();
+  });
+
+  test('hero text gets a scrim over a gradient, and a dark page switched to Light is light', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/e/theme_preview/botanical-garden-party');
+    await expect(page.locator('[data-block="hero"][data-text-scrim]')).toHaveCount(1);
+    await page.goto('/e/theme_preview/annual-letter');
+    await expect(page.locator('[data-block="hero"][data-text-scrim]')).toHaveCount(0);
+
+    await page.goto('/e/theme_preview/boardroom-noir?mode=light');
+    const read = await page.evaluate(() => {
+      const root = document.querySelector('[data-event-root]')!;
+      const title = document.querySelector('[data-block="hero"] .ev-headline')!;
+      return { bg: getComputedStyle(root).backgroundColor, text: getComputedStyle(title).color };
+    });
+    expect(hexLuminance(read.bg)).toBeGreaterThan(0.6);
+    expect(ratio(read.text, read.bg)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  test('one long word in the headline fits a phone', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/e/theme_preview/kinetic-poster');
+    const overflow = await page.evaluate(() => {
+      const fit = document.querySelector<HTMLElement>('[data-block="hero"] .ev-hl-fit')!;
+      fit.textContent = 'Infrastructure review meeting';
+      fit.style.setProperty('--ev-hl-longest', '14');
+      const right = Math.max(
+        ...[...document.querySelectorAll('[data-block="hero"] .ev-hero__text *')].map(
+          (el) => el.getBoundingClientRect().right,
+        ),
+      );
+      return right - document.documentElement.clientWidth;
+    });
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+
+  test('the envelope intro makes the page inert, then hands focus to the heading', async ({
+    page,
+  }) => {
+    await page.goto('/e/theme_preview/envelope-wax-seal?intro=1');
+    await expect(page.locator('.ev-intro')).toBeVisible();
+    await expect(page.locator('.ev-page')).toHaveAttribute('inert', '');
+    await page.getByRole('button', { name: 'Skip' }).click();
+    await expect(page.locator('.ev-intro')).toHaveCount(0, { timeout: 3000 });
+    await expect(page.locator('.ev-page')).not.toHaveAttribute('inert', '');
+    await expect(page.locator('h1').first()).toBeFocused();
   });
 });

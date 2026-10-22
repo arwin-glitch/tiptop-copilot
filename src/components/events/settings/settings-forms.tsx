@@ -232,7 +232,7 @@ export function DetailsForm({ eventId, initial }: { eventId: string; initial: De
       </Field>
       {inPerson ? (
         <>
-          <Field label="Address" htmlFor="event-venue-address">
+          <Field label="Street and city" htmlFor="event-venue-address">
             <Input
               id="event-venue-address"
               value={venue.address ?? ''}
@@ -280,7 +280,7 @@ export function DetailsForm({ eventId, initial }: { eventId: string; initial: De
         />
       </Field>
       <Field
-        label="Show the address and links to"
+        label="Who sees where it is"
         htmlFor="event-venue-reveal"
         hint="Pending requests and the waitlist never see a hidden address."
       >

@@ -64,6 +64,8 @@ export function ThemeThumbnail({
   } as CSSProperties;
   return (
     <div
+      // A picture of the theme: the gallery's own label names it.
+      aria-hidden="true"
       className={`ev-theme-thumb ${className ?? ''}`}
       data-dark={dark ? 'true' : undefined}
       style={style}

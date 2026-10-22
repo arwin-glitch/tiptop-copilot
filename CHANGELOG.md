@@ -10,6 +10,40 @@ throughout.
 
 ## [Unreleased]
 
+- **Events, fixed before anyone sees them (D-075).** Three reviews (security,
+  design, and how guests and hosts actually use it) found problems; these are
+  fixed:
+  - Someone who asks for an invite to an invite-only event can no longer make
+    themselves "Going" through their own link: the host always decides. A
+    pending request or a place on the waitlist no longer shows the address or
+    the details meant for registered guests, and a session's own address (the
+    reception's) shows only to people going to that session.
+  - The "Request an invite" form no longer tells strangers whether an email
+    is already on the guest list, and a flood of sign-ups is capped per event.
+  - Videos lose the location and phone details hidden inside them before
+    anyone can see them.
+  - The waitlist is first come, first served, including a plus-one waiting on
+    their own, and "Move to waitlist" now really means the back of the line.
+  - Pending requests and waitlisted guests show up under Pending and Waitlist
+    even when they are Going to another session; Decline only touches the
+    requests you mean.
+  - The event's title, time zone and venue can be edited in Manage, under
+    Details. "Duplicate as next year" keeps the agenda tied to its sessions.
+    The annual-meeting starter comes with plus-ones for the evening, a
+    dietary question and "Who would you like to meet?".
+  - A drafted message can no longer go out with dead personal links, or tell
+    someone a status they no longer have, and no false "Draft an update"
+    appears for changes made before the page went live.
+  - Every theme is readable: text over colourful backgrounds gets a soft
+    backing just strong enough, small gold labels are a touch darker while
+    the gold lines stay gold, switching a dark theme to Light gives a light
+    page, the page footer no longer stays faded, and Studio's colour checks
+    now test everything the page draws.
+  - Pages no longer jump while the headline animates, endless motion always
+    has a Pause button, Undo works straight after a change (even offline),
+    the theme pickers show real previews, and long words in a headline fit
+    on a phone.
+
 - **Events, all the parts working together (D-075).** The five parts of
   Events now run as one: make an event from a starter, design it in Studio,
   share a design-only link with an outside designer, publish, take RSVPs

@@ -2918,3 +2918,72 @@ promoted waitlisters (v1 nice) is not built; `claim_expires_at` stays empty.
 - **A starter's sessions set the event's span**: the dialog's end follows
   the start, and the server never stores an end before the last session.
 
+*Review fix-up (the security, design and guest-flow reviews before deploy,
+part of D-075).*
+
+- **The host decides every self-registration.** `needsApproval` treats an
+  invite request (`source: 'request'`) as always needing the host. On a
+  personal link, a self-registrant who needs approval stays Pending through
+  Maybe or Going (and after "can't go"); a row the host decided on
+  (`decided_at`: approved or put on the waitlist) is vetted for that session
+  and comes back without asking again. Moving a guest back to Pending clears
+  the decision.
+- **Registered means a place the host granted: Going or Maybe.** Pending
+  and Waitlist never see Registered-gated sections or a "registered"
+  address. A session's own venue is revealed by the status in that session
+  (`viewerForSession`).
+- **The waitlist is first in, first out.** A newcomer queues while someone
+  already waiting would fit a free seat (the form reads such a session as
+  full); a plus-one waiting behind a Going host is a party of its own for
+  promotion; a move into the waitlist goes to the back. Raising a session's
+  capacity with auto-promote on seats the line.
+- **Per-session statuses count where they wait.** Tabs, counts, Today's
+  line and status audiences treat Going, Pending, Waitlist, Maybe and Invited
+  as "in any session"; Not going and Declined stay guest-level.
+- **No guest-list oracle.** On approval and invite-only events an email
+  already on the list gets exactly a new request's answer (no link, a signed
+  cookie for a guest that does not exist) and an `event.rsvp_duplicate`
+  audit entry; new requests there get no link in the answer either. Open
+  events keep the plain message. A per-event cap (50 self-registrations an
+  hour) does not depend on the caller's address.
+- **CF-Connecting-IP is believed only behind Cloudflare**: on Render
+  (`RENDER=true`) or with `TRUST_CF_CONNECTING_IP=true`; Vercel uses its own
+  `x-vercel-forwarded-for`; elsewhere the last X-Forwarded-For hop.
+- **Event messages are checked at review and at Send** for personal links
+  that no longer open (rotated, guest removed, page unpublished) and, for a
+  status notice, people whose status changed since the draft. A notice about
+  one session of a multi-session event names it. The "update" prompt counts
+  only schedule changes after the first publish
+  (`events.published_schedule_version`, added to the events migration, which
+  has not been applied anywhere).
+- **One contrast check for the whole theme** (`lib/events/theme/check.ts`):
+  palette pairs at 4.5 for all text (links on cards and muted text on bands
+  included), the accent band, and the hero's text over the background as
+  drawn. Small labels in the highlight colour use its reading tone
+  (`--ev-highlight-text`, `readableHighlight`), so TipTop's gold stays exact
+  for rules and large accents. Studio's badges and the publish checklist read
+  the same check.
+- **Readable heroes by construction.** When the hero's text would fall below
+  AA over the engine's colours (as drawn: layer opacity, pattern lines,
+  particle grounds, veil), a soft scrim of the band's own background goes
+  behind the text, at the weakest strength that reaches 4.5:1 over every
+  colour (`heroTextScrim`). A page-wide background in an explicit Light or
+  Dark mode that fights its colours draws pale tints of that palette; in
+  Auto the page takes the backdrop's tone (`data-page-tone`).
+- **Effects never move the layout**: split-flap and scramble cells are sized
+  by the final letter, the typewriter keeps the untyped rest in place, and
+  weight-breathe animates a copy over the heaviest one. The theme's display
+  and body faces are preloaded. Endless page motion (kinetic ticker, sponsors
+  marquee) counts as looping, so the Pause control appears.
+- **Undo works before autosave**: an unsaved change leaves the queue (Redo
+  re-queues it), an in-flight one is undone once confirmed.
+- **An old slug's personal invite or ticket path redirects only after the
+  token is verified on the event it now names** (a forged token is a 404, so
+  a private event's new slug never leaks); the outside-editor claim is
+  same-origin only, like the staff claim.
+- **Video metadata is wiped in place** before the public bucket (MP4
+  `udta`/`meta`/`uuid` become zeroed `free` boxes; WebM Tags and Attachments
+  become Void elements, sizes unchanged); a file that cannot be walked is
+  refused. Outside uploads are charged by the bytes that arrived; refused
+  originals and uploads whose ticket expired are deleted.
+

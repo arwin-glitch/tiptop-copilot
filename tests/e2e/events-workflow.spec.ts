@@ -238,6 +238,23 @@ test('1. a new event from the AGM starter and a theme', async ({ page }) => {
   state.reception = sessions[1]!.id;
   expect(detail.json.event).toMatchObject({ status: 'draft', access: 'invite_only' });
   expect((await draftDoc(page)).theme.presetId).toBe('annual-letter');
+  // What the AGM starter promises is set up: a plus-one per session and its questions.
+  expect(detail.json.event.registration.plus_ones).toMatchObject({ max: 1, per_session: true });
+
+  // The venue is set in Manage → Details, its address for Going guests only.
+  await page.goto(`/events/${state.eventId}?tab=settings`);
+  const details = page.locator('form[data-form="event-details"]');
+  await details.getByLabel('Venue name').fill('The Glasshouse');
+  await details.getByLabel('Street and city').fill('12 Example Street, Springfield');
+  await details.getByLabel('Who sees where it is').selectOption('going');
+  await details.getByRole('button', { name: 'Save details' }).click();
+  await expect(page.getByText('Details saved.')).toBeVisible();
+  const saved = await call(page, 'GET', `/api/events/${state.eventId}`);
+  expect(saved.json.event.venue).toMatchObject({
+    name: 'The Glasshouse',
+    address: '12 Example Street, Springfield',
+    reveal: 'going',
+  });
 });
 
 test('2. the owner designs it in Studio: theme, effects and the cover', async ({ page }) => {
@@ -372,6 +389,9 @@ test('4. the owner publishes, and /e/<slug> serves the published page', async ({
   await expect(guest.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
   await expect(guest.locator('[data-event-root]')).toContainText(HEADLINE);
   await expect(guest.locator('[data-rsvp-invite-only]')).toContainText('By invitation');
+  // The venue set in Manage: its name for everyone, its address only for Going guests.
+  await expect(guest.locator('[data-event-root]')).toContainText('The Glasshouse');
+  await expect(guest.locator('[data-event-root]')).not.toContainText('12 Example Street');
   await guest.screenshot({ path: path.join(SHOTS, 'public-1440.png'), fullPage: true });
   await guest.context().close();
 });
@@ -460,6 +480,8 @@ test('6. a personal invite answers per session: the meeting yes, the reception n
   await guest.getByRole('link', { name: 'View my ticket' }).click();
   await guest.waitForURL(/\/ticket$/);
   await expect(guest.locator('[data-ticket]')).toContainText('Annual Meeting');
+  // Going (to the meeting): the address is theirs now.
+  await expect(guest.locator('[data-ticket]')).toContainText('12 Example Street');
   await guest.context().close();
 
   const answered = await guestByEmail(page, 'riley.northwind@example.com');

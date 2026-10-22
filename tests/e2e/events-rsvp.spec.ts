@@ -170,6 +170,7 @@ test('a personal invite answers per session with a plus-one, then shows the tick
 
 test('an invite-only page offers "Request an invite", which waits for approval', async ({
   browser,
+  page: hostPage,
 }, testInfo) => {
   const page = await guestPage(browser, testInfo.project.use.baseURL);
   await page.goto(`/e/${SLUG}`);
@@ -181,7 +182,33 @@ test('an invite-only page offers "Request an invite", which waits for approval',
   const form = await fillPublicForm(page, 'jamie.request@example.com', 'Annual Meeting');
   await form.getByRole('button', { name: 'Request an invite' }).click();
   await expect(page.locator('[data-rsvp-result]')).toContainText('Request received');
+  // A pending request is not a place: the remembered page still hides the address.
+  await page.goto(`/e/${SLUG}`);
+  await expect(page.locator('body')).not.toContainText('100 Example Avenue');
   await page.context().close();
+
+  // Their own personal link cannot skip the host: Maybe, then Going, stays a request.
+  const roster = await host(hostPage, 'GET', `/api/events/${EVENT}/guests`);
+  const jamie = roster.json.roster.guests.find(
+    (g: { email: string }) => g.email === 'jamie.request@example.com',
+  );
+  const { invite } = await links(hostPage, jamie.id);
+  const own = await guestPage(browser, testInfo.project.use.baseURL);
+  for (const answer of ['Maybe', 'Count me in']) {
+    await own.goto(invite);
+    const change = own.getByRole('button', { name: 'Change my RSVP' });
+    if (await change.isVisible().catch(() => false)) await change.click();
+    const mine = own.locator('form[data-rsvp-form="invite"]');
+    await mine
+      .getByRole('group', { name: /Your answer for Annual Meeting/ })
+      .getByRole('button', { name: answer })
+      .click();
+    await mine.getByRole('button', { name: /^(Send|Update) my RSVP$/ }).click();
+    await expect(own.locator('[data-rsvp-result]')).toContainText('Request received');
+  }
+  await own.context().close();
+  const after = await host(hostPage, 'GET', `/api/events/${EVENT}/guests/${jamie.id}`);
+  expect(after.json.detail.guest.sessions[MEETING].status).toBe('pending');
 });
 
 test('an open event registers people and remembers them', async ({

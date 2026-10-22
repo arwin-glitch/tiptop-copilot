@@ -78,6 +78,7 @@ Pure logic, no store, no harness.
 | `events-versions.test.ts` | Version history: autosave every 5 minutes of activity, forced on session end, named versions, the list's per-version summary, retention (newest 100 autosaves, 30 days), non-destructive restore with pre_restore and tombstones for sync, outside links refused, the per-section activity log |
 | `events-sync.test.ts` | Studio's sync poll: presence (others only, the soft-lock window, stale rows ignored), changed sections and tombstones after a sync point, the whole doc when the log cannot reach back, one event per link |
 | `event-media.test.ts` | The media pipeline on the local stand-in buckets: bytes decide the type (SVG, HEIC refused), sharp applies orientation and drops EXIF/GPS at every size, never enlarges, keeps logos transparent; signed upload → process → public derivatives; gated media private behind signed URLs and left off the share card; gated toggles move buckets; files and videos; deletes keep shared objects; outside editors' limits |
+| `events-review-fixes.test.ts` | The pre-deploy review fixes (D-075), each failing on the code before them: an invite request cannot reach Going over HTTP (Maybe, then Going; Can't go, then Going) and its ticket hides the address; a known email on an invite-only form gets exactly a new request's answer and the per-event cap answers 429; the outside-editor claim refuses a cross-site POST; an old slug redirects only a real personal link; Pending/Waitlist tabs, counts and audiences see per-session requests; Duplicate remaps session-tied agenda items and show-if conditions; removing a session clears conditions on it; MP4/WebM metadata wiped in place; stale or unpublished personal links and changed notice statuses stop a send; no update prompt for pre-publish edits; the AGM starter's plus-ones, questions and tied agenda; Maybe is TENTATIVE in a personal calendar file; session-scoped dietary counts; rotating links retires plus-ones' QR codes; raising capacity seats the waitlist |
 | `events-integration.test.ts` | The seams between the five Events workstreams once merged (D-075): a staff link claimed through the staff entry with the check-in role and its cookie set only on the door list, its API and the QR paths; a private event open only through personal links; field gating accepted by the block registry and owner-only; the RSVP moment reaching the effects layer; `{{rsvp_link}}` literal on a page; Studio's sync running on syncDraft; an invite draft over the real guest list carrying each guest's own link; a starter's sessions setting the event's span |
 
 `env-boundary.test.ts` is worth singling out: it walks every file in `src/`,
@@ -167,7 +168,19 @@ public page with its nonce CSP and noindex, an approval RSVP for both sessions
 approved in Guests, a personal invite answering per session, check-in by the
 host's QR scan and by a staff link's door list (its cookie paths checked), and
 an invite drafted as a campaign that sends nothing. The guest page, the ticket,
-the door list and the host's event pages then run again at 390 px.
+the door list and the host's event pages then run again at 390 px. Since the
+review fix-up it also sets the venue in Manage → Details (address for Going
+guests only) and checks it on the public page and the ticket.
+
+**`events-render.spec.ts`** also covers the design review fixes: every
+section (the footer too) finishes its entrance at the bottom of the page,
+headline effects keep CLS at or under 0.1 with a warm font cache and endless
+motion always shows the Pause control, a gradient hero gets its text scrim
+and a dark theme switched to Light renders light and readable, one long
+headline word fits a 390 px phone, and the envelope intro makes the page
+inert and hands focus to the heading. **`events-rsvp.spec.ts`** checks that a
+pending invite request hides the address on the remembered page and stays
+Pending through Maybe and Going on its own personal link.
 
 **`calendar-default.spec.ts`** runs first of the calendar specs: a plain
 `/calendar` opens Week for a person who has chosen nothing, with no "New
