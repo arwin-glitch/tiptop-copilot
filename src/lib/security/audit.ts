@@ -115,7 +115,35 @@ export type AuditAction =
   | 'thesis.updated'
   | 'account.data_deleted'
   | 'security.injection_flagged'
-  | 'security.citation_rejected';
+  | 'security.citation_rejected'
+  // Copilot Notes (D-076). Names and ids only: never transcript text, a
+  // share token, a speech key or a voice identifier.
+  | 'notes.beta_set'
+  | 'notes.meeting_created'
+  | 'notes.meeting_updated'
+  | 'notes.meeting_deleted'
+  | 'notes.consent_confirmed'
+  | 'notes.start_blocked'
+  | 'notes.start'
+  | 'notes.paused'
+  | 'notes.resumed'
+  | 'notes.stop'
+  | 'notes.stt_token_minted'
+  | 'notes.segment_edited'
+  | 'notes.speaker_relabelled'
+  | 'notes.speaker_split'
+  | 'notes.speakers_merged'
+  | 'notes.generated'
+  | 'notes.chat_asked'
+  | 'notes.action_item_tasked'
+  | 'notes.share.create'
+  | 'notes.share.revoke'
+  | 'notes.share.view'
+  | 'notes.template_created'
+  | 'notes.folder_created'
+  | 'notes.recipe_created'
+  | 'voice.consent'
+  | 'voice.revoke';
 
 export interface AuditInput {
   organizationId: string;

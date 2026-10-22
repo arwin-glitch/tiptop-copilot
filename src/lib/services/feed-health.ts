@@ -594,10 +594,11 @@ export async function readNotesArrival(
   store: DataStore,
   organizationId: string,
 ): Promise<string | null> {
+  // Granola's deliveries only: a Copilot Notes write (D-076) is not this feed.
   const rows = (await store.list(
     'meeting_notes',
     organizationId,
-    {},
+    { eq: { provider: 'granola' } },
     { orderBy: [{ field: 'updated_at', direction: 'desc' }], limit: 1 },
   )) as MeetingNote[];
   return rows[0]?.updated_at ?? null;

@@ -17,6 +17,7 @@ import { log } from '@/lib/security/redact';
 import type { CalendarEvent, EmailMessage, Integration, MeetingNote } from '@/lib/types/domain';
 import { processWide } from '@/lib/util/process-state';
 import { localDateKey } from '@/lib/util/time';
+import { isTeamVisibleNote } from '@/lib/notes/visibility';
 
 /**
  * "How you got here" for an event the guests say nothing about (no other
@@ -160,15 +161,15 @@ async function sameTitle(
   const longest = [...terms.titleWords].sort((a, b) => b.length - a.length)[0];
   if (!longest) return [];
   const [notes, events] = await Promise.all([
-    safe(
-      'meeting notes',
-      () =>
+    safe('meeting notes', () =>
+      (
         store.list(
           'meeting_notes',
           organizationId,
           { textSearch: { columns: ['title'], query: longest } },
           { limit: 5, orderBy: [{ field: 'occurred_at', direction: 'desc' }] },
-        ) as Promise<MeetingNote[]>,
+        ) as Promise<MeetingNote[]>
+      ).then((rows) => rows.filter((note) => isTeamVisibleNote(note))),
     ),
     safe(
       'earlier events',

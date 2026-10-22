@@ -2556,3 +2556,77 @@ notes; the rest did not.
   follow-up snapshots read their first `max` items and count the rest.
 - The cards themselves do not show the skipped count; Diagnostics does, and
   the server log names the marker and the count (never the content).
+
+### D-076 — Copilot Notes: bot-free meeting notes, and the contract the recorder and the screens build on
+
+**Context.** Granola takes Nick's meeting notes today. Its transcripts label
+people "Me" and "Them" on the desktop, it cannot name people in person, its
+transparency features are off by default (and a class action filed on 30 Jul
+2026 targets silent capture), and the routines can only read its summaries.
+Copilot already holds the calendar, the CRM and Tasks, so it can name people
+from the invite, file notes against the right deal and company, and turn
+promises into tasks. Three workstreams build it in parallel (the core, the
+screens, the web recorder; native desktop capture is deferred, as there is no
+Rust toolchain to build it), so the core lands a contract first.
+
+**Decision.**
+
+- **Behind a flag, off by default.** `NOTES_ENABLED` is `off` (routes answer
+  404), `beta` (each person's "Copilot Notes (beta)" switch, kept as
+  `notes.beta_set` audit rows like the Calendar's settings) or `on`. The
+  migration (`20261024000000_copilot_notes.sql`) is applied by hand before the
+  flag is turned on; until then every read answers "not set up yet".
+- **The contract is `lib/types/notes.ts`**: every row shape, the speech
+  session and event shapes, and each route's body and answer, with the zod
+  schemas in `lib/notes/schemas.ts` checked against them (`satisfies`) and
+  the paths in `lib/notes/api.ts`. Client-safe throughout.
+- **No audio, ever, in v1.** The browser streams straight to the speech
+  vendor with a key minted for 60 seconds (`/stt-token`); only finished text
+  lines come back (`/segments`, at most 200 per post, upserted on a
+  per-meeting `seq`). `meetings.audio_retained` is pinned false by a check.
+- **One seam for speech-to-text** (`lib/transcribe`): Speechmatics by default
+  (the only vendor that names enrolled voices live), AssemblyAI as the
+  fallback, and a mock in demo mode that plays a scripted, fictional
+  three-person call and calls nobody. The vendor key never leaves the server.
+- **Lines are stored by voice, never by name.** `cluster_key` is `mic`,
+  `sys:<label>` or `mix:<label>` (`#n` after a split), and the name lives on
+  `meeting_speakers` alone, so renaming a voice is one update and every line
+  follows. The naming ladder, strongest first: the mic is the recorder;
+  a person's pick (locked); a consented voiceprint; the meeting app's roster;
+  calendar elimination; transcript cues (suggestions only). Spellings come
+  from the invite or the CRM.
+- **Consent is a hard gate.** Start needs `consent.confirmed: true` and a
+  method, logged in `meeting_consent_log` with the wording; a meeting matching
+  a never-record rule is refused. Default rules cover legal and family words
+  in a title; anything specific to the firm is a `recording_rules` row added
+  in Settings, never a name in this public repository.
+- **Private by default.** A meeting is the recorder's, plus `shared_with`,
+  unless marked `team`; a private folder keeps its meetings private. A meeting
+  someone may not see is "not found". Policies use `can_read_meeting()`.
+- **Copilot's notes are `meeting_notes` rows** (`provider = 'copilot'`,
+  `external_id` = the meeting id) with new nullable columns, so the deal,
+  company and network pages read them unchanged. The first notes are a draft
+  made by rules (typed notes verbatim, lines with numbers or decisions,
+  "I'll / we'll / let's" as action items, each with its source lines; `model`
+  `none`); the AI pass replaces the draft behind the same shapes.
+- **Share links store a hash only** (HMAC under `NOTES_SHARE_PEPPER`), share
+  the summary unless the transcript is switched on, expire in 7, 30 or 90 days
+  (90 at most, by a check), revoke at once, and show no email address.
+- **Voiceprints are opt-in biometric data.** Consent (oneself by checkbox,
+  anyone else with evidence) in `voice_profiles`; the identifier itself in
+  `voice_identifiers`, sealed with `VOICEPRINT_ENC_KEY`, readable by no browser
+  role, never returned, deleted at once on withdrawal.
+- **The microphone and screen capture are allowed for Copilot's own origin on
+  its signed-in pages** (Permissions-Policy `self`), not on the pages
+  outsiders open. Scoping it to the meeting page alone would block "Take
+  notes" opened from another page, because the policy belongs to the document
+  and Copilot navigates without loading a new one.
+
+**Consequences.** The screens and the web recorder build against the types
+and the demo data (a finished meeting nine days back, one scheduled two hours
+ahead). Still to come on the core: the AI notes, transcript-cue and calendar
+elimination passes, MCP meeting tools, firing the follow-up routine, the
+Granola pairing in existing readers, and a purge job for the trash and
+expired voice identifiers. A person must add the vendor keys, the pepper and
+the voiceprint key on Render, and apply the migration before turning the flag
+on.

@@ -13,6 +13,7 @@ import type {
 } from '@/lib/types/domain';
 import { searchRecords } from './crm';
 import { readFollowUps } from './follow-ups';
+import { isTeamVisibleNote } from '@/lib/notes/visibility';
 
 /**
  * One search box across the app: deals, portfolio companies, Fund II LPs,
@@ -96,13 +97,13 @@ export async function searchEverything(
             limit: PER_SOURCE,
           }) as Promise<NetworkContact[]>,
       ),
-      safe(
-        'meetings',
-        () =>
+      safe('meetings', () =>
+        (
           store.list('meeting_notes', organizationId, like(['title']), {
             limit: PER_SOURCE,
             orderBy: [{ field: 'occurred_at', direction: 'desc' }],
-          }) as Promise<MeetingNote[]>,
+          }) as Promise<MeetingNote[]>
+        ).then((rows) => rows.filter((note) => isTeamVisibleNote(note))),
       ),
       safe(
         'tasks',

@@ -48,6 +48,15 @@ action.
   dropped at once if the app loses access to the channel), and never written
   to the database, disk, logs or the browser. The tab reads nothing while
   sign-in is open to every Google account.
+- Meeting audio (Copilot Notes, D-076). The browser streams it straight to
+  the speech vendor with a key that lives 60 seconds; it never reaches
+  Copilot's server or database, and the schema refuses a meeting marked as
+  keeping audio. A reconnect replays at most 30 seconds held in the browser's
+  memory, never on disk. Transcripts are kept, private to the person who
+  recorded them unless they share them with the team; recording cannot start
+  until they confirm everyone was told, and never on a meeting that matches a
+  never-record rule. Voice identifiers are kept only for people who consented,
+  encrypted, deleted within a year of last use, and at once on withdrawal.
 
 ---
 

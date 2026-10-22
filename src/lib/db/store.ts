@@ -46,6 +46,20 @@ import type {
   UserFeedback,
   UserProfile,
 } from '@/lib/types/domain';
+import type {
+  Meeting,
+  MeetingConsentLogEntry,
+  MeetingFolder,
+  MeetingParticipant,
+  MeetingSpeaker,
+  NoteRecipe,
+  NoteShareLink,
+  NoteTemplate,
+  RecordingRule,
+  TranscriptSegment,
+  VoiceIdentifier,
+  VoiceProfile,
+} from '@/lib/types/notes';
 
 /**
  * The persistence seam. Two implementations exist:
@@ -107,6 +121,19 @@ export interface TableMap {
   desktop_handoffs: DesktopHandoff;
   user_feedback: UserFeedback;
   sync_runs: SyncRun;
+  // Copilot Notes (D-076; supabase/migrations/20261024000000_copilot_notes.sql).
+  meetings: Meeting;
+  meeting_participants: MeetingParticipant;
+  meeting_speakers: MeetingSpeaker;
+  transcript_segments: TranscriptSegment;
+  meeting_folders: MeetingFolder;
+  note_templates: NoteTemplate;
+  note_recipes: NoteRecipe;
+  note_share_links: NoteShareLink;
+  meeting_consent_log: MeetingConsentLogEntry;
+  voice_profiles: VoiceProfile;
+  voice_identifiers: VoiceIdentifier;
+  recording_rules: RecordingRule;
 }
 
 export type TableName = keyof TableMap;

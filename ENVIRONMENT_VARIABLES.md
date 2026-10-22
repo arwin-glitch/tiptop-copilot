@@ -461,6 +461,51 @@ in-app updates can stop until a new one is set.
 
 ---
 
+## Copilot Notes
+
+Meeting transcripts and notes recorded by Copilot itself (D-076). Off until
+`NOTES_ENABLED` is set; apply `20261024000000_copilot_notes.sql` first. Every
+value here is set by a person on Render, never by an agent and never in the
+repository. The browser never sees a long-lived key: it gets a speech key that
+lives 60 seconds. Demo mode needs none of these and calls no vendor.
+
+### `NOTES_ENABLED`
+
+`off` (unset: the feature is hidden and its routes answer 404), `beta` (on for
+whoever turns on "Copilot Notes (beta)" in Settings) or `on` (everyone).
+
+### `TRANSCRIBER_PROVIDER` · `TRANSCRIBER_REGION`
+
+`speechmatics` (default) or `assemblyai`, and the vendor region the browser
+streams to (`us` by default, which keeps the data in the US).
+
+### `SPEECHMATICS_API_KEY` · `ASSEMBLYAI_API_KEY`
+
+The vendor keys; only the one for `TRANSCRIBER_PROVIDER` is used. Unset, the
+Record button says recording is not set up yet; typed notes still work. Do not
+opt either account into model training (Speechmatics' training discount opts
+your audio in; AssemblyAI keeps nothing once training is opted out).
+
+### `NOTES_SHARE_PEPPER`
+
+32 or more random characters. Every share link's token is stored only as an
+HMAC under it. Unset, notes cannot be shared by link. Changing it breaks every
+existing link.
+
+### `VOICEPRINT_ENC_KEY`
+
+32 random bytes, base64, like `APP_ENCRYPTION_KEY` but a different value.
+Seals voice identifiers (biometric data) at rest. Unset, nobody can be
+enrolled; names come from the mic, the calendar and taps.
+
+### `MEETING_FOLLOWUP_FIRE_URL` · `MEETING_FOLLOWUP_FIRE_TOKEN`
+
+The meeting-follow-up routine's API trigger, so the recap starts as soon as a
+meeting's notes are ready. Unset, the routine's own schedule picks the meeting
+up instead.
+
+---
+
 ## Ceilings
 
 All optional, all defaulted. These are **environment ceilings**: per-organization

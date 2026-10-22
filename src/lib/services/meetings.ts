@@ -4,6 +4,7 @@ import type { DataStore } from '@/lib/db/store';
 import { scanForInjection } from '@/lib/security/injection';
 import { err, ok, type Result } from '@/lib/util/result';
 import type { CalendarEvent, Deal, MeetingNote, PortfolioCompany } from '@/lib/types/domain';
+import { isTeamVisibleNote } from '@/lib/notes/visibility';
 
 /**
  * Meeting notes from Granola.
@@ -191,12 +192,14 @@ export async function ingestGranolaNote(
 const NOTE_LIMIT = 200;
 
 async function recentNotes(store: DataStore, organizationId: string): Promise<MeetingNote[]> {
-  return (await store.list(
+  const rows = (await store.list(
     'meeting_notes',
     organizationId,
     {},
     { orderBy: [{ field: 'occurred_at', direction: 'desc' }], limit: NOTE_LIMIT },
   )) as MeetingNote[];
+  // A private Copilot note stays off the shared deal, company and network pages.
+  return rows.filter((note) => isTeamVisibleNote(note));
 }
 
 function attendeeDomains(note: MeetingNote): Set<string> {
@@ -369,10 +372,12 @@ export async function catchUpSince(
   organizationId: string,
   now: Date = new Date(),
 ): Promise<string | null> {
+  // Granola's own notes only: a Copilot note (D-076) says nothing about what
+  // Granola has delivered, and must not move this window past its notes.
   const newest = (await store.list(
     'meeting_notes',
     organizationId,
-    {},
+    { eq: { provider: 'granola' } },
     { orderBy: [{ field: 'occurred_at', direction: 'desc' }], limit: 1 },
   )) as MeetingNote[];
 
@@ -476,5 +481,5 @@ export async function listMeetingNotes(
     limit: options.limit ?? 500,
   })) as MeetingNote[];
 
-  return notes;
+  return notes.filter((note) => isTeamVisibleNote(note));
 }

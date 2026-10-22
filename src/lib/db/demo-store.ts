@@ -309,4 +309,5 @@ export class DemoStore implements DataStore {
   }
 }
 
-export const DEMO_STORE_VERSION = 13;
+// Bumped for Copilot Notes' demo tables (D-076).
+export const DEMO_STORE_VERSION = 15;

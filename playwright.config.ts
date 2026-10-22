@@ -43,6 +43,8 @@ export default defineConfig({
       SESSION_SECRET: 'e2e-session-secret-not-a-production-value-000000',
       // Lets tasks-principal.spec.ts post a routine's task as the routines do.
       TASK_BRIDGE_TOKEN: 'e2e-task-bridge-token-not-a-production-value',
+      // Copilot Notes (D-076) is off by default; the e2e server turns it on.
+      NOTES_ENABLED: 'on',
     },
   },
 });

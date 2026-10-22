@@ -232,6 +232,16 @@ codebase — the pre-paint theme bootstrap in `layout.tsx` — and it carries an
 `eslint-disable-next-line` with a written justification. An ESLint rule blocks
 any other use.
 
+`Permissions-Policy` keeps the camera off everywhere. The microphone and
+screen capture are allowed for Copilot's own origin (`self`) on its signed-in
+pages, for the Copilot Notes recorder (D-076); the browser still asks before
+either starts. They stay off on the pages outsiders open (`/n`, `/meet`,
+`/t`). Allowing them only on the meeting page would not work: the policy
+belongs to the document, and Copilot moves between pages without loading a
+new one. `connect-src` adds the two speech vendors' sockets. A shared note's
+page (`/n/<token>`) is also sent `X-Robots-Tag: noindex, nofollow`,
+`Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
+
 ---
 
 ## 9. Auditing

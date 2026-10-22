@@ -10,6 +10,23 @@ throughout.
 
 ## [Unreleased]
 
+- **Copilot Notes, the groundwork (off by default).** Copilot can now keep
+  its own meetings, transcripts and notes, ready for the recorder and the
+  Notes screens that come next: a meeting made from a calendar event (or "+
+  New note"), a consent step that has to be ticked before recording starts,
+  a never-record list (legal and family meetings by default), transcript
+  lines saved as they arrive and safe to send twice, voices named the moment
+  the person recording speaks and "Guest 1", "Guest 2" for everyone else
+  until someone picks a name, one tap to rename a voice everywhere, split a
+  voice or merge two, draft notes and action items with a link back to the
+  lines they came from, "Add to Tasks", share links that expire and can be
+  revoked, and opt-in voice consent. No audio is ever stored. It all stays
+  hidden until `NOTES_ENABLED` is set, after the new database migration has
+  been applied. Pages may now ask for the microphone and screen sharing (only
+  Copilot itself, and the browser still asks first); pages people outside
+  the team open still cannot. Demo mode plays a made-up three-person call
+  instead of calling any speech service. (D-076)
+
 - **A routine's post that runs a little long no longer leaves its card on
   yesterday's copy.** When a routine wrote a note, a prep or a title longer
   than the app allows, or listed one item the app could not read (a meeting

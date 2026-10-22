@@ -77,6 +77,12 @@ const PUBLIC_PATHS = [
   // a Bearer header or the last path segment — never a session cookie; the
   // route checks the token itself (lib/mcp/http.ts).
   '/api/mcp',
+  // Copilot Notes share links (D-076): /n/<token> is the read-only page a
+  // shared summary opens on. The page checks the token's hash itself, shows
+  // nothing for a revoked or expired one, and brakes per address; only this
+  // prefix, so nothing else under /n is public by accident. The API routes
+  // that make and revoke links stay signed in.
+  '/n',
   // Campaign tracking: the open pixel, tracked links and unsubscribe, loaded
   // by recipients' mail clients with no session. Each route authenticates by
   // its signed per-recipient token, and the click route redirects only to a
@@ -161,10 +167,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
           { ok: false, error: { code: 'unauthenticated', message: 'Sign in to continue.' } },
           { status: 401 },
         ),
+        { pathname },
       );
     }
     const target = new URL('/login', request.url);
-    return withSecurityHeaders(NextResponse.redirect(target));
+    return withSecurityHeaders(NextResponse.redirect(target), { pathname });
   }
 
   // Only when a Supabase session is actually present. Demo sessions are signed
@@ -184,15 +191,45 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // The relayed briefing page sets its own, stricter, sandboxing CSP; a second
   // policy added here would be intersected with it and block its print button.
   if (OWN_CSP_PATH.test(pathname)) return withSecurityHeaders(response, { ownCsp: true });
-  return withSecurityHeaders(response);
+  return withSecurityHeaders(response, { pathname });
 }
 
 /** Routes that set their own Content-Security-Policy. */
 const OWN_CSP_PATH = /^\/api\/briefings\/[a-z]+\/view$/;
 
+/**
+ * Pages people outside the team open: a shared note, the booking page, campaign
+ * tracking. They never record, so the microphone and screen capture stay off
+ * there even though Copilot's own pages may ask for them.
+ */
+const OUTSIDER_PAGE = /^\/(n|meet|t)(\/|$)/;
+
+/** A shared note's page: never indexed, never cached, and no referrer leaves it. */
+const SHARED_NOTE_PAGE = /^\/n(\/|$)/;
+
+/**
+ * Permissions-Policy. Copilot Notes records in the browser (D-076): the
+ * microphone, and the meeting's audio through screen or tab sharing. Both are
+ * allowed for Copilot's own origin only (`self`), never for a frame from
+ * anywhere else, and the browser still asks the person before either starts.
+ *
+ * Allowed on every signed-in page rather than only the meeting page because
+ * the policy belongs to the document, and Copilot moves between pages without
+ * loading a new one: opened from Today or the Calendar, the meeting page runs
+ * in the document Today or the Calendar loaded, under that page's policy. A
+ * policy scoped to /meetings alone would block the microphone exactly when
+ * someone clicks "Take notes".
+ */
+function permissionsPolicyFor(pathname: string): string {
+  const capture = OUTSIDER_PAGE.test(pathname)
+    ? 'microphone=(), display-capture=()'
+    : 'microphone=(self), display-capture=(self)';
+  return `camera=(), ${capture}, geolocation=(), payment=(), usb=()`;
+}
+
 function withSecurityHeaders(
   response: NextResponse,
-  options: { ownCsp?: boolean } = {},
+  options: { ownCsp?: boolean; pathname?: string } = {},
 ): NextResponse {
   // 'unsafe-inline' on script-src is required for the Next.js bootstrap and the
   // pre-paint theme script. There is no user- or model-supplied HTML anywhere in
@@ -204,7 +241,9 @@ function withSecurityHeaders(
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    "connect-src 'self' https://*.supabase.co https://*.supabase.in",
+    // The speech vendors' sockets, which the meeting recorder streams to
+    // directly with a 60-second key (D-076); audio never passes through here.
+    "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.rt.speechmatics.com wss://streaming.assemblyai.com",
     "frame-ancestors 'none'",
     "form-action 'self'",
     "base-uri 'self'",
@@ -216,10 +255,19 @@ function withSecurityHeaders(
   response.headers.set('X-Frame-Options', 'DENY');
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  const pathname = options.pathname ?? '';
+  // A briefing view (ownCsp) is an API route and records nothing.
   response.headers.set(
     'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+    options.ownCsp
+      ? 'camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=()'
+      : permissionsPolicyFor(pathname),
   );
+  if (SHARED_NOTE_PAGE.test(pathname)) {
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    response.headers.set('Referrer-Policy', 'no-referrer');
+    response.headers.set('Cache-Control', 'no-store');
+  }
   return response;
 }
 

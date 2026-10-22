@@ -6,8 +6,14 @@
  * string, `0`, or an empty array. "Unknown" is a first-class value everywhere.
  */
 
+import type { CopilotNoteFields } from './notes';
+
 export type Uuid = string;
 export type IsoDateTime = string;
+
+// Copilot Notes' shapes (meetings, speakers, transcript lines, the API) live
+// in notes.ts and are re-exported here, so either import path works.
+export type * from './notes';
 
 /* ----------------------------------------------------------- organization */
 
@@ -624,8 +630,12 @@ export interface KnowledgeChunk {
   created_at: IsoDateTime;
 }
 
+/** Where a meeting note came from: Granola's export, or Copilot's own recorder. */
+export type MeetingNoteProvider = 'granola' | 'copilot';
+
 /**
- * A meeting note ingested from an external note-taker (Granola today).
+ * A meeting note ingested from an external note-taker (Granola), or written by
+ * Copilot Notes (provider 'copilot', with the CopilotNoteFields filled).
  *
  * `content` is untrusted third-party text: it is scanned on ingestion and
  * `injection_flagged` annotates anything instruction-shaped, but the text is
@@ -633,10 +643,11 @@ export interface KnowledgeChunk {
  * companies and people are derived at read time from `attendees` — never
  * persisted — so a wrong inference cannot outlive the records it was made from.
  */
-export interface MeetingNote {
+export interface MeetingNote extends CopilotNoteFields {
   id: Uuid;
   organization_id: Uuid;
-  provider: 'granola';
+  /** 'granola' (ingested) or 'copilot' (Copilot Notes, D-076; extra fields in CopilotNoteFields). */
+  provider: MeetingNoteProvider;
   /** The note's identity in the source system; ingestion upserts on this. */
   external_id: string;
   title: string;

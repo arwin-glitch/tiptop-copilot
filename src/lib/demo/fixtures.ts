@@ -46,6 +46,7 @@ import type {
 } from '@/lib/types/domain';
 import { demoGlance } from './glance-fixtures';
 import { demoCampaignId, demoCrmId, DEMO_IDS as ID } from './ids';
+import { demoNotes } from './notes-fixtures';
 
 /**
  * Fictional demo data.
@@ -2153,6 +2154,9 @@ experiment, not the fundraise timing.`,
   // Suggested tasks with the routine's short labels, for Today's "At a glance".
   const glance = demoGlance(now);
 
+  // Copilot Notes (D-076): its tables, and its one note row beside Granola's.
+  const { meeting_notes: copilotNotes, ...notesTables } = demoNotes(now);
+
   return {
     organizations,
     organization_members,
@@ -2186,10 +2190,11 @@ experiment, not the fundraise timing.`,
     audit_events: [...audit_events, ...glance.audit_events],
     user_feedback: [],
     sync_runs: [],
-    meeting_notes,
+    meeting_notes: [...meeting_notes, ...copilotNotes],
     routine_briefings: demoRoutineBriefings(now),
     ...demoCrm(now),
     ...demoCampaigns(now),
+    ...notesTables,
   };
 }
 

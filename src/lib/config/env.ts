@@ -212,6 +212,52 @@ export interface AppEnv {
    * enough.
    */
   desktopReleaseToken: string | undefined;
+
+  /**
+   * Copilot Notes (D-076), off by default. 'off' hides the feature and its
+   * routes answer 404; 'beta' shows it to whoever turns on the "Copilot Notes
+   * (beta)" switch in Settings; 'on' shows it to everyone.
+   */
+  notesEnabled: NotesMode;
+  /**
+   * The speech-to-text vendor for live transcripts. The long-lived keys stay
+   * here, on the server; the browser only ever gets a 60-second key minted
+   * from them (lib/transcribe). Unset keys mean recording reports itself not
+   * set up; demo mode always uses the scripted mock and calls no vendor.
+   */
+  transcriberProvider: 'speechmatics' | 'assemblyai';
+  /** The vendor region the browser streams to ('us' keeps data in the US). */
+  transcriberRegion: string;
+  speechmaticsApiKey: string | undefined;
+  assemblyaiApiKey: string | undefined;
+  /**
+   * 32 random bytes, base64: seals voice identifiers (biometric data) at rest.
+   * Unset means nobody can be enrolled; consent can still be recorded.
+   */
+  voiceprintEncKey: string | undefined;
+  /**
+   * Mixed into every share-link token's hash, so a leaked table of hashes
+   * cannot be checked against guesses without it. Unset means share links
+   * cannot be made outside demo mode.
+   */
+  notesSharePepper: string | undefined;
+  /**
+   * The meeting-follow-up routine's API trigger (its /fire URL and token), so
+   * the recap starts as soon as a meeting's notes are ready. Unset: the
+   * routine's own schedule picks the meeting up instead.
+   */
+  meetingFollowupFireUrl: string | undefined;
+  meetingFollowupFireToken: string | undefined;
+}
+
+export type NotesMode = 'off' | 'beta' | 'on';
+
+/** NOTES_ENABLED: 'on' (or true/1/yes), 'beta', anything else off. */
+function notesMode(value: string | undefined): NotesMode {
+  const v = (value ?? '').trim().toLowerCase();
+  if (v === 'beta') return 'beta';
+  if (['on', 'true', '1', 'yes'].includes(v)) return 'on';
+  return 'off';
 }
 
 /** The desktop app's release repository when DESKTOP_RELEASE_REPO is unset or malformed. */
@@ -304,6 +350,21 @@ export function env(): AppEnv {
       return repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? repo : DEFAULT_DESKTOP_RELEASE_REPO;
     })(),
     desktopReleaseToken: str('DESKTOP_RELEASE_TOKEN'),
+    notesEnabled: notesMode(str('NOTES_ENABLED')),
+    transcriberProvider:
+      (str('TRANSCRIBER_PROVIDER') ?? '').toLowerCase() === 'assemblyai'
+        ? 'assemblyai'
+        : 'speechmatics',
+    transcriberRegion: ((): string => {
+      const region = (str('TRANSCRIBER_REGION') ?? 'us').toLowerCase();
+      return /^[a-z][a-z0-9]{1,5}$/.test(region) ? region : 'us';
+    })(),
+    speechmaticsApiKey: str('SPEECHMATICS_API_KEY'),
+    assemblyaiApiKey: str('ASSEMBLYAI_API_KEY'),
+    voiceprintEncKey: str('VOICEPRINT_ENC_KEY'),
+    notesSharePepper: str('NOTES_SHARE_PEPPER'),
+    meetingFollowupFireUrl: str('MEETING_FOLLOWUP_FIRE_URL'),
+    meetingFollowupFireToken: str('MEETING_FOLLOWUP_FIRE_TOKEN'),
   };
   return cached;
 }
@@ -728,6 +789,90 @@ export function capabilityReport(
           ? 'Set. The Updates tab reads the dealflow and digest channels live. Each private channel also needs the groups:history scope and the bot invited; /updates shows the status per channel.'
           : 'Not set. The Updates tab shows setup steps instead of reports; nothing else is affected.',
     variables: ['ASK_RELAY_SLACK_TOKEN', 'AUTH_ALLOWED_EMAIL_DOMAINS'],
+    required: false,
+  });
+
+  // Copilot Notes (D-076). Off by default; each row reports presence only.
+  const speechKey =
+    e.transcriberProvider === 'assemblyai' ? e.assemblyaiApiKey : e.speechmaticsApiKey;
+  const speechVar =
+    e.transcriberProvider === 'assemblyai' ? 'ASSEMBLYAI_API_KEY' : 'SPEECHMATICS_API_KEY';
+  checks.push({
+    key: 'notes',
+    label: 'Copilot Notes (meeting transcripts)',
+    status:
+      e.notesEnabled === 'off'
+        ? 'optional-missing'
+        : e.demoMode
+          ? 'demo'
+          : has(speechKey)
+            ? 'ready'
+            : 'missing',
+    detail:
+      e.notesEnabled === 'off'
+        ? 'Off (NOTES_ENABLED is not set). Meetings are not recorded; Granola notes are unaffected.'
+        : e.demoMode
+          ? 'Demo mode: recording plays a scripted, fictional call and calls no speech vendor.'
+          : has(speechKey)
+            ? `${e.notesEnabled === 'beta' ? 'Beta: on for whoever turns on the Settings switch.' : 'On for everyone.'} Speech-to-text: ${e.transcriberProvider} (${e.transcriberRegion} region). The browser gets a 60-second key; audio is never stored.`
+            : `Turned on, but ${speechVar} is not set, so recording says it is not set up yet.`,
+    variables: [
+      'NOTES_ENABLED',
+      'TRANSCRIBER_PROVIDER',
+      'TRANSCRIBER_REGION',
+      'SPEECHMATICS_API_KEY',
+      'ASSEMBLYAI_API_KEY',
+    ],
+    required: false,
+  });
+
+  checks.push({
+    key: 'notes-share',
+    label: 'Copilot Notes share links',
+    status: has(e.notesSharePepper)
+      ? (e.notesSharePepper?.length ?? 0) >= 32
+        ? 'ready'
+        : 'missing'
+      : e.demoMode
+        ? 'demo'
+        : 'optional-missing',
+    detail: has(e.notesSharePepper)
+      ? (e.notesSharePepper?.length ?? 0) >= 32
+        ? 'Present. Only a peppered hash of each link is stored.'
+        : 'Present but shorter than 32 characters; share links stay off until it is longer.'
+      : 'Not set. Notes cannot be shared by link; everything else works.',
+    variables: ['NOTES_SHARE_PEPPER'],
+    required: false,
+  });
+
+  const voiceKeyOk = (() => {
+    if (!e.voiceprintEncKey) return false;
+    try {
+      return Buffer.from(e.voiceprintEncKey, 'base64').length === 32;
+    } catch {
+      return false;
+    }
+  })();
+  checks.push({
+    key: 'notes-voice',
+    label: 'Copilot Notes voice profiles (opt-in)',
+    status: voiceKeyOk ? 'ready' : 'optional-missing',
+    detail: voiceKeyOk
+      ? 'Present and decodes to 32 bytes. Voice identifiers are sealed with it, for people who consented only.'
+      : 'Not set (or not 32 bytes, base64). Nobody can be enrolled; names come from the calendar and from taps instead.',
+    variables: ['VOICEPRINT_ENC_KEY'],
+    required: false,
+  });
+
+  const followUp = has(e.meetingFollowupFireUrl) && has(e.meetingFollowupFireToken);
+  checks.push({
+    key: 'meeting-followup',
+    label: 'Meeting recap trigger',
+    status: followUp ? 'ready' : 'optional-missing',
+    detail: followUp
+      ? "Set. The meeting-follow-up routine starts as soon as a meeting's notes are ready."
+      : 'Not set. The meeting-follow-up routine picks new notes up on its own schedule.',
+    variables: ['MEETING_FOLLOWUP_FIRE_URL', 'MEETING_FOLLOWUP_FIRE_TOKEN'],
     required: false,
   });
 

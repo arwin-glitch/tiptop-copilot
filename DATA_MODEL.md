@@ -552,6 +552,37 @@ read. An email without copies is read as before. Until the
 migration is applied, rows come back without these columns and the features
 stay hidden; nothing writes them.
 
+## 6c. Copilot Notes
+
+Meetings Copilot records and transcribes itself, without a bot
+(`20261024000000_copilot_notes.sql`; D-076). Off by default
+(`NOTES_ENABLED`). Shapes and the API contract: `lib/types/notes.ts`; request
+schemas `lib/notes/schemas.ts`; services `lib/services/notes.ts` (meetings,
+consent and recording state, lines, voices, templates, folders, recipes),
+`notes-generate.ts` (notes, action items, chat), `notes-share.ts`,
+`notes-search.ts` and `voice-profiles.ts`; routes under `/api/notes`.
+
+| Table | Purpose |
+| --- | --- |
+| `meetings` | One conversation: the Google event it belongs to (`provider_event_id`, `recurring_event_id`, `calendar_id`), `kind`, `platform`, `capture_source`, `status` (`scheduled`, `recording`, `paused`, `processing`, `ready`, `failed`, `discarded`), `recorded_by` (the only person who may mint speech keys and upload lines), `visibility` (`private` by default, or `team`) plus `shared_with`, `folder_id`, `template_id` (`builtin:<key>` or a custom template's id), the consent step (`consent_state` `pending`/`confirmed`/`blocked`, `consent_method`, `consent_at`, `consent_by`, `consent_notice_text`, `never_record_match`), `audio_retained` (pinned false by a check: no audio is ever stored), `granola_external_id` (pairs it with Granola's note while both run), `last_seq`, `injection_flagged` and `deleted_at` (7-day trash). One live meeting per event per recorder. |
+| `meeting_participants` | Who was invited or present: lowercased `email`, `name`, `role` (`organizer`, `guest`, `self`), `source` (`calendar`, `roster`, `manual`), `crm_person_id`, `user_id` for a teammate, `is_external`. |
+| `meeting_speakers` | One row per voice, unique on `(meeting_id, cluster_key)`. `cluster_key` is `mic`, `sys:<label>`, `mix:<label>`, or `<key>#n` after a split. The name lives here only (`display_name`, `person_email`, `crm_person_id`, else `guest_number`), with the evidence behind it (`source`: `channel` > `manual` > `voiceprint` > `roster` > `calendar` > `llm_cue`), `confidence`, `locked` (a person picked it; automation never overrides it), ranked `suggestions`, and `merged_into` / `split_from` / `split_at_seq`. |
+| `transcript_segments` | The lines, unique on `(meeting_id, seq)` (uploads upsert on it, so a retried batch changes nothing), keyed by `cluster_key` (a foreign key to the voice), with `track`, `start_ms`/`end_ms` from the start of the recording, `text` (untrusted, as heard), `edited_text` (a person's fix; the original stays), `confidence`, `is_final`, and a `search_vector`. |
+| `meeting_notes` (extended) | Copilot's notes are rows with `provider = 'copilot'` and `external_id` = the meeting's id, so the deal, company and network pages read them as they read Granola's. New columns: `meeting_id`, `user_notes` (the notepad, word for word), `enhanced_blocks` (each block `typed` or `ai`, with the transcript ranges behind it), `action_items` (owner from the resolved names, `due`, `isPrincipalPromise`, `taskId` once added to Tasks), `template_id`, `prompt_version`, `model`, `generated_at`, `edited_at`, `visibility` (`team` for every Granola row) and `owner_id`, plus a `search_vector`. `content` keeps a plain-text copy for the older readers. |
+| `note_templates`, `note_recipes` | Custom templates (purpose, length, sections, prompt, an `auto_rule` by meeting type, guest domain or title words) and saved chat prompts. The five built-in templates are constants, not rows. |
+| `meeting_folders` | Folders; `is_private` keeps every meeting in it private (the "Coaching" folder), and routines and MCP leave it out. |
+| `note_share_links` | `token_hash` only (HMAC-SHA256 of the token under `NOTES_SHARE_PEPPER`), `include_transcript` (off by default), `expires_at` (90 days at most, by a check), `revoked_at`, `view_count`, `last_viewed_at`. |
+| `meeting_consent_log` | Append-only: the notice copied, consent confirmed (with method and wording), a start blocked by a never-record rule, recording started, paused, resumed, stopped; who and when. |
+| `voice_profiles` | Opt-in voice enrolment consent per person: `consent_status` (`not_asked`, `granted`, `revoked`), `consent_evidence` (`self_checkbox` for oneself only; `written` or `verbal_recorded` for anyone else), `consent_text_version`, who recorded it, `enrolled_at`, `last_used_at`, `expires_at`, `revoked_at`. |
+| `voice_identifiers` | The encrypted voice identifier (AES-256-GCM under `VOICEPRINT_ENC_KEY`, bound to the profile) and its model version, expiring within a year of last use. RLS on with no policy: server only, never returned by a route, never exported. Withdrawing consent deletes it at once. |
+| `recording_rules` | Never-record rules by title words, guest domain or address, or calendar. Built-in defaults (legal and family words in the title) live in `lib/notes/never-record.ts`; anything specific to the firm is a row, never a name in code. |
+
+A meeting and everything under it is read only where its visibility allows
+(`can_read_meeting()` in the policies; `canSeeMeeting` in the service, which
+answers "not found" otherwise). Every read degrades to "not set up yet" until
+the migration is applied, and the feature stays off until `NOTES_ENABLED` is
+set, which must happen after the migration, never before.
+
 ---
 
 ## 7. Row-level security
