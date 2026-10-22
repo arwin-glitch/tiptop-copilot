@@ -5,6 +5,7 @@ import type { EventTheme } from '@/lib/events/schema';
 import { primaryPalette, engineColors } from '@/lib/events/theme/tokens';
 import { backgroundTone, posterGradient } from '@/components/events/effects/background-layer';
 import { patternStyle } from '@/components/events/effects/patterns';
+import './event-fonts.css';
 import './theme-thumbnail.css';
 
 /**

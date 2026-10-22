@@ -3,7 +3,7 @@ import type { EventTheme, Palette } from '@/lib/events/schema';
 import { isHex, mix } from '@/lib/events/theme/color';
 import { luminance } from '@/lib/events/theme/contrast';
 import { boolOption, numOption } from '@/lib/events/theme/effects';
-import { engineColors } from '@/lib/events/theme/tokens';
+import { engineColorsForMode, toneOfColors } from '@/lib/events/theme/readability';
 import type { RenderContext } from '@/components/events/render/context';
 import { EvImage, EvVideo } from '@/components/events/render/media';
 import type { IslandMotion } from './motion-runtime';
@@ -42,39 +42,12 @@ export function posterGradient(colors: readonly string[]): string {
   ].join(', ');
 }
 
-/** Whether text over this background needs the dark palette, the light one, or a veil. */
+/**
+ * Whether text over this background needs the dark palette, the light one, or
+ * neither (lib/events/theme/readability.ts, with the colours as drawn).
+ */
 export function backgroundTone(theme: EventTheme, palette: Palette): 'dark' | 'light' | null {
-  const bg = theme.background;
-  if (bg.engine === 'image' || bg.engine === 'video') return 'dark';
-  if (bg.engine === 'solid') return null;
-  const colors = engineColors(theme, palette);
-  if (bg.engine === 'pattern') {
-    // A hero pattern paints its ground (the first colour); a page pattern sits on the page.
-    const ground = colors[0];
-    if (bg.scope !== 'hero' || !ground) return null;
-    const l = luminance(ground);
-    return l < 0.25 ? 'dark' : l > 0.6 ? 'light' : null;
-  }
-  if (bg.engine === 'particles') {
-    // Particle fields sit on their first colour when it is a ground, else on the page.
-    const ground = colors[0];
-    return ground && luminance(ground) < 0.2 ? 'dark' : null;
-  }
-  const avg = colors.reduce((sum, c) => sum + luminance(c), 0) / Math.max(1, colors.length);
-  // Engines drawn over a back colour (grain, dither, waves, smoke, god rays,
-  // metaballs, swirl) read mostly as that colour; a mesh blends them all.
-  const variant = bg.options.variant;
-  const overBack =
-    bg.engine !== 'mesh' &&
-    bg.engine !== 'linear' &&
-    bg.engine !== 'radial' &&
-    bg.engine !== 'conic'
-      ? true
-      : bg.engine === 'mesh' && (variant === 'metaballs' || variant === 'swirl');
-  const rest = colors.slice(1);
-  const restAvg = rest.length ? rest.reduce((sum, c) => sum + luminance(c), 0) / rest.length : avg;
-  const tone = overBack ? 0.6 * luminance(colors[0] ?? '#000000') + 0.4 * restAvg : avg;
-  return tone < 0.3 ? 'dark' : 'light';
+  return toneOfColors(theme, engineColorsForMode(theme, palette));
 }
 
 function linearCss(theme: EventTheme, colors: string[]): string {
@@ -107,7 +80,9 @@ export function BackgroundLayer({ theme, ctx, scope, islandMotion }: BackgroundL
   const bg = theme.background;
   if (bg.engine === 'solid') return null;
   const palette = theme.mode === 'dark' ? theme.paletteDark : theme.palette;
-  const colors = engineColors(theme, palette);
+  // A page-wide background in an explicit mode that fights its colours draws
+  // pale tints of that palette instead (Boardroom Noir switched to Light).
+  const colors = engineColorsForMode(theme, palette);
   const intensity = Math.max(0.15, Math.min(1, bg.intensity));
   const animate = ctx.motion === 'full' && ctx.mode !== 'og';
   const veil = numOption(bg.options, 'veil', 0);

@@ -38,23 +38,40 @@ export function Headline({
   const fieldAttr = ctx.studio && field ? { 'data-field': `props.${field}` } : {};
   const animated = ctx.motion === 'full' && !ctx.studio && ctx.mode !== 'og';
   const base = { className: `ev-headline ${className ?? ''}`, 'data-hl': effect, ...fieldAttr };
+  // The longest word scales the headline down on a narrow screen so one long
+  // word ("Infrastructure") never runs off the edge (event.css .ev-hl-fit).
+  const longest = Math.max(1, ...text.split(/\s+/).map((w) => Array.from(w).length));
+  const fit = {
+    className: 'ev-hl-fit',
+    style: { '--ev-hl-longest': String(longest) } as CSSProperties,
+  };
 
-  if (!animated || effect === 'none') {
+  if (ctx.studio) {
+    // Studio's inline editing needs the heading to be one text node.
     return <Tag {...base}>{text}</Tag>;
+  }
+  if (!animated || effect === 'none') {
+    return (
+      <Tag {...base}>
+        <span {...fit}>{text}</span>
+      </Tag>
+    );
   }
   if (SCRIPTED.has(effect)) {
     return (
       <Tag {...base} aria-label={text}>
-        <HeadlineIsland
-          text={text}
-          effect={effect as 'split_flap'}
-          speed={ctx.theme.motion.headlineSpeed}
-          motion={{
-            master: ctx.theme.motion.master,
-            level: ctx.motion,
-            forced: forcesFullMotion(ctx.motionPreview),
-          }}
-        />
+        <span {...fit}>
+          <HeadlineIsland
+            text={text}
+            effect={effect as 'split_flap'}
+            speed={ctx.theme.motion.headlineSpeed}
+            motion={{
+              master: ctx.theme.motion.master,
+              level: ctx.motion,
+              forced: forcesFullMotion(ctx.motionPreview),
+            }}
+          />
+        </span>
       </Tag>
     );
   }
@@ -70,7 +87,7 @@ export function Headline({
     let i = 0;
     return (
       <Tag {...base} aria-label={text}>
-        <span aria-hidden="true">
+        <span aria-hidden="true" {...fit}>
           {words.map((word, k) => {
             if (!word.trim()) return <span key={k}>{word}</span>;
             if (!letters) {
@@ -102,12 +119,27 @@ export function Headline({
       </Tag>
     );
   }
+  if (effect === 'weight_breathe') {
+    // The box is sized by the text at its heaviest (hidden, in the flow); the
+    // breathing copy sits over it, so the page below never jumps as the
+    // weight changes (design review: CLS 0.2, every 2.5 s, forever).
+    return (
+      <Tag {...base} aria-label={text}>
+        <span {...fit}>
+          <span className="ev-breathe" aria-hidden="true">
+            <span className="ev-breathe__size">{text}</span>
+            <span className="ev-breathe__live">{text}</span>
+          </span>
+        </span>
+      </Tag>
+    );
+  }
   if (effect === 'neon' && text.length > 2) {
     // One letter flickers, rarely and briefly (never above 3 flashes a second).
     const at = Math.min(text.length - 1, Math.max(1, Math.floor(text.length * 0.6)));
     return (
       <Tag {...base} aria-label={text}>
-        <span aria-hidden="true">
+        <span aria-hidden="true" {...fit}>
           {text.slice(0, at)}
           <span className="ev-hl-flicker">{text.charAt(at)}</span>
           {text.slice(at + 1)}
@@ -115,5 +147,9 @@ export function Headline({
       </Tag>
     );
   }
-  return <Tag {...base}>{text}</Tag>;
+  return (
+    <Tag {...base}>
+      <span {...fit}>{text}</span>
+    </Tag>
+  );
 }

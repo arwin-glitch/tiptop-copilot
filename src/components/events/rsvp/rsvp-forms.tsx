@@ -115,6 +115,8 @@ export function PublicForm({
   const [website, setWebsite] = useState('');
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [summary, setSummary] = useState('');
+  const formRef = useRef<HTMLFormElement>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const questions = useMemo(
@@ -148,7 +150,17 @@ export function PublicForm({
     for (const p of plusOnes)
       if (!p.firstName.trim()) next[`${p.key}:firstName`] = 'Your guest needs a name.';
     setErrors(next);
-    return Object.keys(next).length === 0;
+    const count = Object.keys(next).length;
+    // Say so, and take the person to the first thing to fix (screen readers
+    // otherwise hear nothing when Register does not go through).
+    setSummary(count ? `Fix ${count} ${count === 1 ? 'field' : 'fields'} to continue.` : '');
+    if (count) {
+      window.requestAnimationFrame(() => {
+        const first = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+        first?.focus();
+      });
+    }
+    return count === 0;
   }
 
   async function submit(e: React.FormEvent) {
@@ -187,7 +199,10 @@ export function PublicForm({
   }
 
   return (
-    <form className="evu-stack" onSubmit={submit} noValidate data-rsvp-form="public">
+    <form ref={formRef} className="evu-stack" onSubmit={submit} noValidate data-rsvp-form="public">
+      <p className="evu-sr-only" role="status" aria-live="polite">
+        {summary}
+      </p>
       <div className="evu-grid2">
         <div>
           <label className="evu-label" htmlFor="rsvp-first">
@@ -202,10 +217,16 @@ export function PublicForm({
             autoComplete="given-name"
             maxLength={100}
             value={firstName}
+            aria-required="true"
             aria-invalid={errors.firstName ? true : undefined}
+            aria-describedby={errors.firstName ? 'rsvp-first-error' : undefined}
             onChange={(e) => setFirstName(e.target.value)}
           />
-          {errors.firstName ? <p className="evu-error">{errors.firstName}</p> : null}
+          {errors.firstName ? (
+            <p className="evu-error" id="rsvp-first-error">
+              {errors.firstName}
+            </p>
+          ) : null}
         </div>
         <div>
           <label className="evu-label" htmlFor="rsvp-last">
@@ -235,10 +256,16 @@ export function PublicForm({
           autoComplete="email"
           maxLength={320}
           value={email}
+          aria-required="true"
           aria-invalid={errors.email ? true : undefined}
+          aria-describedby={errors.email ? 'rsvp-email-error' : undefined}
           onChange={(e) => setEmail(e.target.value)}
         />
-        {errors.email ? <p className="evu-error">{errors.email}</p> : null}
+        {errors.email ? (
+          <p className="evu-error" id="rsvp-email-error">
+            {errors.email}
+          </p>
+        ) : null}
       </div>
       <div>
         <label className="evu-label" htmlFor="rsvp-company">

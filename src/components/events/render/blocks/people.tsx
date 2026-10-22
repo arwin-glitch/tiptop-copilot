@@ -218,7 +218,11 @@ export function SponsorsView({ section, ctx }: BlockViewProps) {
     return (
       <>
         {head}
-        <div className="ev-marquee" aria-label={items.map((s) => txt(ctx, s.name)).join(', ')}>
+        <div
+          className="ev-marquee"
+          role="group"
+          aria-label={items.map((s) => txt(ctx, s.name)).join(', ')}
+        >
           <div className="ev-marquee__track" aria-hidden="true">
             {[0, 1].map((copy) => (
               <span key={copy} className="ev-marquee__set">

@@ -10,6 +10,11 @@
   color: var(--tt-text);
   container-type: inline-size;
 }
+/* Galleries' 16:10 card. */
+.ev-theme-thumb--wide {
+  aspect-ratio: 16 / 10;
+  border-radius: 6px;
+}
 .ev-theme-thumb__bg {
   position: absolute;
   inset: 0;

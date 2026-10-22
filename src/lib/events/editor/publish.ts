@@ -1,11 +1,6 @@
 import type { EventPublicFacts } from '@/lib/events/contracts';
-import {
-  orderedSections,
-  type EventDoc,
-  type EventSection,
-  type Palette,
-} from '@/lib/events/schema';
-import { checkPalette } from './contrast';
+import { orderedSections, type EventDoc, type EventSection } from '@/lib/events/schema';
+import { themeContrastProblems } from '@/lib/events/theme/check';
 
 /**
  * The Publish dialog's two halves (owners): the section-level diff since the
@@ -204,15 +199,9 @@ export function readyChecklist(input: {
       (m): m is StudioMediaItem =>
         !!m && (m.kind === 'image' || m.kind === 'logo') && !m.decorative && !m.alt?.trim(),
     );
-  const palettes: { name: string; palette: Palette }[] = [
-    { name: 'light', palette: doc.theme.palette },
-  ];
-  if (doc.theme.mode !== 'light') palettes.push({ name: 'dark', palette: doc.theme.paletteDark });
-  const failing = palettes.flatMap(({ name, palette }) =>
-    checkPalette(palette)
-      .filter((p) => p.ratio < 4.5)
-      .map((p) => `${p.label} (${name}, ${p.ratio.toFixed(1)}:1)`),
-  );
+  // The renderer's own check for the whole theme: palettes, bands and the
+  // hero's text over the background (lib/events/theme/check.ts).
+  const failing = themeContrastProblems(doc.theme);
   const empty = doc.sections.filter(isEmptySection);
   const hasRsvp = doc.sections.some((s) => s.type === 'rsvp' && s.visibility.mode !== 'hidden');
   return [

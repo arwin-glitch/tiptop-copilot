@@ -57,6 +57,7 @@ export function IntroGate({
   const [ready, setReady] = useState(false);
   const timers = useRef<number[]>([]);
   const openRef = useRef<HTMLButtonElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const finish = useCallback(() => {
     setPhase('done');
@@ -139,6 +140,25 @@ export function IntroGate({
     return () => list.forEach((t) => window.clearTimeout(t));
   }, []);
 
+  // A modal really is modal: the page behind it is inert while it shows, and
+  // focus lands on the page's heading when it goes (not on <body>).
+  const showing = ready && phase !== 'done';
+  useEffect(() => {
+    const page = rootRef.current?.closest('[data-event-root]');
+    if (!showing || !page) return;
+    const behind = [...page.querySelectorAll<HTMLElement>('.ev-page, .ev-dock, .ev-pause')];
+    for (const el of behind) el.inert = true;
+    return () => {
+      for (const el of behind) el.inert = false;
+      const heading =
+        page.querySelector<HTMLElement>('h1') ?? page.querySelector<HTMLElement>('#main');
+      if (heading) {
+        if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1');
+        heading.focus({ preventScroll: true });
+      }
+    };
+  }, [showing]);
+
   if (phase === 'done') return null;
 
   const style = {
@@ -158,6 +178,7 @@ export function IntroGate({
 
   return (
     <div
+      ref={rootRef}
       className="ev-intro"
       data-kind={kind}
       data-phase={phase}
@@ -178,9 +199,9 @@ export function IntroGate({
             type="button"
             className="ev-env-stage"
             onClick={open}
-            aria-label="Open the invitation"
+            aria-label="Open your invitation"
           >
-            <span className="ev-env">
+            <span className="ev-env" aria-hidden="true">
               <span className="ev-env__front">
                 <span className="ev-env__stamp">
                   {envelope.stampUrl ? (

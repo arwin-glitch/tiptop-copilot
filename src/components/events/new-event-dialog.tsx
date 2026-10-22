@@ -10,6 +10,8 @@ import { Field, Input, Select } from '@/components/ui/form';
 import { filterChipClassName } from '@/components/ui/toolbar';
 import { eventsApi } from '@/components/events/events-client';
 import type { StarterCard, ThemeCard } from '@/components/events/library/gallery-data';
+import { ThemeThumbnail } from '@/components/events/render/theme-thumbnail';
+import { THEME_PRESETS } from '@/lib/events/themes';
 import { cn } from '@/lib/util/cn';
 import { SUPPORTED_TIMEZONES, addDaysToKey, localDateKey, wallTimeToUtc } from '@/lib/util/time';
 
@@ -337,7 +339,7 @@ export function NewEventDialog({
                           : 'border-[var(--border)] hover:bg-[var(--bg-hover)]',
                       )}
                     >
-                      <ThemeSwatchArt theme={t} />
+                      <ThemePreview theme={t} />
                       <span className="mt-2 block text-sm font-medium">{t.name}</span>
                       <span className="block text-xs text-[var(--fg-subtle)]">{t.display}</span>
                     </button>
@@ -451,6 +453,18 @@ export function NewEventDialog({
 }
 
 /** A theme's look in miniature: its light page with the accent and gold, and a dark strip. */
+/**
+ * The theme's real preview (its background poster, display font, accent and
+ * highlight) where the preset is known; the wireframe swatch otherwise.
+ */
+function ThemePreview({ theme }: { theme: ThemeCard }) {
+  const preset = THEME_PRESETS.find((p) => p.id === theme.id);
+  if (!preset) return <ThemeSwatchArt theme={theme} />;
+  return (
+    <ThemeThumbnail theme={preset.theme} title={theme.name} className="ev-theme-thumb--wide" />
+  );
+}
+
 export function ThemeSwatchArt({ theme, className }: { theme: ThemeCard; className?: string }) {
   return (
     <span

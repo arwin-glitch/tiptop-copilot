@@ -191,9 +191,9 @@ describe('contrast', () => {
     expect(contrastRatio(fixed, '#FFFFFF')).toBeGreaterThanOrEqual(4.5);
     expect(fixContrast('#000000', '#FFFFFF')).toBe('#000000');
     const signature = getThemePreset('tiptop-signature').theme;
-    expect(checkPalette(signature.palette).every((p) => p.ratio >= 4.5)).toBe(true);
+    expect(checkPalette(signature.palette).every((p) => p.passes)).toBe(true);
     const fromLogo = paletteFromColors(['#E4572E', '#29335C'], signature.palette);
-    expect(checkPalette(fromLogo).every((p) => p.ratio >= 4.5)).toBe(true);
+    expect(checkPalette(fromLogo).every((p) => p.passes)).toBe(true);
   });
 });
 

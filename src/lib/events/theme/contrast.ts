@@ -50,12 +50,19 @@ export interface ContrastPair {
   /** Plain-language name of where this pair appears. */
   label: string;
   target: ContrastTarget;
+  /**
+   * The renderer draws the foreground's READING TONE (readableHighlight), not
+   * the token itself: small labels in the highlight colour.
+   */
+  reading?: true;
 }
 
 /**
- * The pairs the renderer actually draws (event.css). Muted text is body-size
- * copy (times, captions), so it needs 4.5 too; the highlight token is used
- * for rules, labels in caps and display accents, so 3 (large/UI) applies.
+ * The pairs the renderer actually draws (event.css). Everything at body or
+ * label size needs 4.5: text, muted copy, links, and the small labels drawn in
+ * the highlight colour (eyebrows, agenda times), which use its reading tone
+ * (--ev-highlight-text, darkened or lightened just enough). The highlight
+ * itself is drawn only as rules and large display accents, where 3 applies.
  */
 export const CONTRAST_PAIRS: readonly ContrastPair[] = [
   { fg: 'text', bg: 'bg', label: 'Text on the page', target: 4.5 },
@@ -63,22 +70,38 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
   { fg: 'text', bg: 'surfaceAlt', label: 'Text on alternate bands', target: 4.5 },
   { fg: 'muted', bg: 'bg', label: 'Secondary text on the page', target: 4.5 },
   { fg: 'muted', bg: 'surface', label: 'Secondary text on cards', target: 4.5 },
+  { fg: 'muted', bg: 'surfaceAlt', label: 'Secondary text on alternate bands', target: 4.5 },
   { fg: 'accentFg', bg: 'accent', label: 'Button text', target: 4.5 },
   { fg: 'accent', bg: 'bg', label: 'Links and outline buttons on the page', target: 4.5 },
-  { fg: 'accent', bg: 'surface', label: 'Links on cards', target: 3 },
-  { fg: 'highlight', bg: 'bg', label: 'Labels and rules (highlight)', target: 3 },
+  { fg: 'accent', bg: 'surface', label: 'Links on cards', target: 4.5 },
+  { fg: 'highlight', bg: 'bg', label: 'Small labels on the page', target: 4.5, reading: true },
+  { fg: 'highlight', bg: 'surface', label: 'Small labels on cards', target: 4.5, reading: true },
+  { fg: 'highlight', bg: 'bg', label: 'Rules and large accents (highlight)', target: 3 },
 ];
 
 export interface PairResult extends ContrastPair {
+  /** The colours compared (the reading tone for `reading` pairs). */
+  fgColor: string;
+  bgColor: string;
   ratio: number;
   grade: ContrastGrade;
   passes: boolean;
 }
 
 export function checkPalette(palette: Palette): PairResult[] {
+  const reading = readableHighlight(palette);
   return CONTRAST_PAIRS.map((pair) => {
-    const ratio = contrastRatio(palette[pair.fg], palette[pair.bg]);
-    return { ...pair, ratio, grade: contrastGrade(ratio), passes: ratio >= pair.target };
+    const fgColor = pair.reading ? reading : palette[pair.fg];
+    const bgColor = palette[pair.bg];
+    const ratio = contrastRatio(fgColor, bgColor);
+    return {
+      ...pair,
+      fgColor,
+      bgColor,
+      ratio,
+      grade: contrastGrade(ratio),
+      passes: ratio >= pair.target,
+    };
   });
 }
 
@@ -106,6 +129,22 @@ export function fixContrast(fg: string, bg: string, target: number = 4.5): strin
     }
   }
   return contrastRatio('#000000', bg) >= contrastRatio('#FFFFFF', bg) ? '#000000' : '#FFFFFF';
+}
+
+/**
+ * The highlight's reading tone: the same hue moved just far enough in
+ * lightness to reach 4.5:1 on the page, cards and alternate bands. Small
+ * labels (eyebrows, agenda times, "PARKING") use it; rules and large display
+ * accents keep the brand's exact highlight (TipTop's gold stays gold).
+ */
+export function readableHighlight(palette: Palette): string {
+  let color = palette.highlight;
+  for (let pass = 0; pass < 2; pass++) {
+    for (const bg of [palette.bg, palette.surface, palette.surfaceAlt]) {
+      color = fixContrast(color, bg, 4.5);
+    }
+  }
+  return color.toUpperCase();
 }
 
 /** Black or white, whichever reads better on `bg` (auto-contrast for chips over media). */

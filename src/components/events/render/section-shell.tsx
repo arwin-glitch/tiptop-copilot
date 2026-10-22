@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type { EventSection, EventTheme } from '@/lib/events/schema';
 import type { RenderContext } from './context';
 import { EvMedia } from './media';
@@ -47,8 +47,14 @@ export function SectionShell({
   children,
   background,
   selected = false,
+  textScrim = 0,
 }: {
   selected?: boolean;
+  /**
+   * How strong a scrim of the band's own background sits behind the hero's
+   * text (lib/events/theme/readability.ts heroTextScrim): 0 for none.
+   */
+  textScrim?: number;
   section: EventSection;
   ctx: RenderContext;
   band: Band;
@@ -82,6 +88,12 @@ export function SectionShell({
       data-divider={first ? undefined : divider}
       data-entrance={entrance}
       data-selected={selected ? 'true' : undefined}
+      data-text-scrim={textScrim > 0 ? '' : undefined}
+      style={
+        textScrim > 0
+          ? ({ '--ev-text-scrim': `${Math.round(textScrim * 100)}%` } as CSSProperties)
+          : undefined
+      }
     >
       {background}
       {media ? (

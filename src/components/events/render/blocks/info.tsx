@@ -127,8 +127,13 @@ export function DetailsView({ section, ctx }: BlockViewProps) {
         <dl className="ev-card ev-details-card">
           {items.map((it, i) => (
             <div key={i} className="ev-details-card__row">
-              <span className="ev-details-card__icon">{it.icon}</span>
-              <dt>{it.label}</dt>
+              {/* dl > div > (dt, dd): the icon lives inside the term. */}
+              <dt>
+                <span className="ev-details-card__icon" aria-hidden="true">
+                  {it.icon}
+                </span>
+                {it.label}
+              </dt>
               <dd>
                 {it.value}
                 {it.hint}

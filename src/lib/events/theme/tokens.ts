@@ -2,7 +2,7 @@ import { fontStack } from '@/lib/events/fonts';
 import type { EventTheme, Palette } from '@/lib/events/schema';
 import { PALETTE_TOKENS } from '@/lib/events/schema';
 import { hexToOklch, isHex, oklchToHex } from './color';
-import { contrastRatio, fixContrast } from './contrast';
+import { contrastRatio, fixContrast, readableHighlight } from './contrast';
 import { CHROMES, type ThemeChrome } from './effects';
 import { gradientStopsFrom } from './palette';
 
@@ -36,19 +36,28 @@ function safeHex(value: string, fallback: string): string {
   return isHex(value) ? value : fallback;
 }
 
-/** `--ev-l-bg`, `--ev-d-accent`, … for one palette. */
+/**
+ * `--ev-l-bg`, `--ev-d-accent`, … for one palette, plus the highlight's
+ * reading tone (`--ev-l-highlight-text`): small labels in the highlight
+ * colour reach 4.5:1 while rules keep the exact brand highlight.
+ */
 export function paletteVars(palette: Palette, prefix: 'l' | 'd'): Record<string, string> {
   const out: Record<string, string> = {};
   for (const token of PALETTE_TOKENS) {
     out[`--ev-${prefix}-${KEBAB[token]}`] = safeHex(palette[token], '#000000');
   }
+  const safe = Object.fromEntries(
+    PALETTE_TOKENS.map((t) => [t, safeHex(palette[t], '#000000')]),
+  ) as Palette;
+  out[`--ev-${prefix}-highlight-text`] = readableHighlight(safe);
   return out;
 }
 
 /**
  * The accent band (a section with background 'accent'): a DEEP tone of the
  * accent with the most readable of the palette's light colours on it, and a
- * highlight lifted to 3:1 on it. TipTop Signature's emerald agenda band is
+ * highlight lifted to 4.5:1 on it (agenda times are small text). TipTop
+ * Signature's emerald agenda band is
  * this. In a dark palette the band is the alternate surface instead (dark
  * mode stays near-black, never coloured surfaces).
  */
@@ -57,7 +66,11 @@ export function accentBand(
   dark: boolean,
 ): { bg: string; fg: string; highlight: string } {
   if (dark) {
-    return { bg: palette.surfaceAlt, fg: palette.text, highlight: palette.highlight };
+    return {
+      bg: palette.surfaceAlt,
+      fg: palette.text,
+      highlight: fixContrast(palette.highlight, palette.surfaceAlt, 4.5),
+    };
   }
   const a = hexToOklch(palette.accent);
   const bg = oklchToHex({ ...a, l: Math.min(a.l, 0.36) });
@@ -66,7 +79,7 @@ export function accentBand(
     (best, c) => (contrastRatio(c, bg) > contrastRatio(best, bg) ? c : best),
     candidates[0] as string,
   );
-  return { bg, fg, highlight: fixContrast(palette.highlight, bg, 3) };
+  return { bg, fg, highlight: fixContrast(palette.highlight, bg, 4.5) };
 }
 
 function bandVars(palette: Palette, prefix: 'l' | 'd'): Record<string, string> {

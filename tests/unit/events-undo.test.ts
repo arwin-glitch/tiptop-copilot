@@ -299,3 +299,60 @@ describe('two people editing', () => {
     expect(hero(a.confirmed).props.headline).toBe('Fresh');
   });
 });
+
+describe('undo before autosave (design review)', () => {
+  it('undoes an unsaved edit locally, with no round trip, and redo puts it back', async () => {
+    const a = await client();
+    const before = (hero(a.display).props as { headline?: string }).headline;
+    a.apply(
+      sectionUpdate(hero(a.display), { 'props.headline': 'Typed just now' }),
+      'Edit headline',
+    );
+    expect(a.canUndo).toBe(true);
+    expect(a.undo()).toBe(true);
+    expect((hero(a.display).props as { headline?: string }).headline).toBe(before);
+    expect(a.hasUnsaved).toBe(false);
+    expect(a.canRedo).toBe(true);
+    expect(a.redo()).toBe(true);
+    expect((hero(a.display).props as { headline?: string }).headline).toBe('Typed just now');
+    // And it still saves normally.
+    await send(a, riley);
+    expect((hero((await serverDoc()).doc).props as { headline?: string }).headline).toBe(
+      'Typed just now',
+    );
+  });
+
+  it('works offline: queued ops that failed to send are undone locally too', async () => {
+    const a = await client();
+    a.apply(sectionUpdate(hero(a.display), { 'props.headline': 'Offline edit' }), 'Edit');
+    expect(a.takeBatch()).not.toBeNull();
+    a.requeue(); // the network failed
+    expect(a.undo()).toBe(true);
+    expect(a.pending).toHaveLength(0);
+  });
+
+  it('redo right after undoing a saved change takes the queued undo back', async () => {
+    const a = await client();
+    a.apply(sectionUpdate(hero(a.display), { 'props.headline': 'Saved edit' }), 'Edit');
+    await send(a, riley);
+    expect(a.undo()).toBe(true); // queues the inverse
+    expect(a.canRedo).toBe(true);
+    expect(a.redo()).toBe(true); // before the inverse was saved
+    expect(a.hasUnsaved).toBe(false);
+    expect((hero(a.display).props as { headline?: string }).headline).toBe('Saved edit');
+    expect(a.canUndo).toBe(true);
+  });
+
+  it('an edit undone while in flight is undone once the server confirms it', async () => {
+    const a = await client();
+    const before = (hero(a.display).props as { headline?: string }).headline;
+    a.apply(sectionUpdate(hero(a.display), { 'props.headline': 'In flight' }), 'Edit');
+    const batch = a.takeBatch()!;
+    expect(a.undo()).toBe(true);
+    const result = await applyDraftOps(h.store, riley, EVENT, batch);
+    if (!result.ok) throw new Error(result.error.message);
+    a.ack(result.value);
+    await send(a, riley); // the inverse
+    expect((hero((await serverDoc()).doc).props as { headline?: string }).headline).toBe(before);
+  });
+});

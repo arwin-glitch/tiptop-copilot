@@ -28,9 +28,30 @@
   display: grid;
   gap: calc(var(--ev-gap) * 0.9);
   justify-items: start;
+  /* One wide word can never widen the subtitle and meta beside it. */
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
 }
 [data-event-root][data-align='center'] .ev-section:not([data-align='left']) .ev-hero__text {
   justify-items: center;
+}
+/* The text scrim (section-shell.tsx data-text-scrim): a soft panel of the
+   band's own background behind the hero's text, exactly as strong as AA over
+   the engine needs (lib/events/theme/readability.ts heroTextScrim). Low
+   specificity, so variants that position the text keep their rules. */
+[data-event-root] :where(.ev-section[data-text-scrim]) .ev-hero__text {
+  position: relative;
+  isolation: isolate;
+}
+[data-event-root] :where(.ev-section[data-text-scrim]) .ev-hero__text::after {
+  content: '';
+  position: absolute;
+  inset: -2.5rem -4rem;
+  z-index: -1;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ev-bg) var(--ev-text-scrim, 70%), transparent);
+  filter: blur(36px);
+  pointer-events: none;
 }
 [data-event-root] .ev-hero__title {
   max-width: 16ch;
@@ -53,7 +74,7 @@
   font-size: 0.8rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root][data-align='center'] .ev-section:not([data-align='left']) .ev-hero__meta {
   justify-content: center;
@@ -96,7 +117,7 @@
 }
 [data-event-root] .ev-hero__x {
   margin-inline: 0.7em;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 
 /* Centered: a gold rule above the title in hairline themes. */
@@ -317,7 +338,7 @@
   font-weight: var(--ev-display-weight);
   font-size: clamp(1.2rem, 3cqi, 2rem);
   letter-spacing: 0.02em;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-ticker__track {
   display: inline-flex;
@@ -397,7 +418,7 @@
 }
 [data-event-root] .ev-hero[data-chrome='terminal'] .ev-hero__title::before {
   content: '> ';
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-term__bar {
   display: flex;
@@ -551,7 +572,7 @@
   font-size: 0.7rem;
   letter-spacing: 0.26em;
   text-transform: uppercase;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-invite-card .ev-hero__title {
   font-size: clamp(2.2rem, 7cqi, 3.8rem);
@@ -586,7 +607,7 @@
   flex: none;
   width: 1.05em;
   height: 1.05em;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-local-time {
   display: block;
@@ -601,7 +622,7 @@
 }
 [data-event-root] .ev-details-card__row {
   display: grid;
-  grid-template-columns: 1.6rem 6.5rem 1fr;
+  grid-template-columns: 8.85rem 1fr;
   align-items: baseline;
   gap: 0.75rem;
   padding-block: 0.95rem;
@@ -613,10 +634,16 @@
 [data-event-root] .ev-details-card__icon svg {
   width: 1.1rem;
   height: 1.1rem;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
   translate: 0 0.15em;
 }
+[data-event-root] .ev-details-card__icon {
+  flex: 0 0 1.6rem;
+}
 [data-event-root] .ev-details-card dt {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
   font-family: var(--ev-font-mono);
   font-size: 0.72rem;
   letter-spacing: 0.12em;
@@ -628,10 +655,11 @@
 }
 @container ev (max-width: 520px) {
   [data-event-root] .ev-details-card__row {
-    grid-template-columns: 1.6rem 1fr;
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
   }
   [data-event-root] .ev-details-card__row dd {
-    grid-column: 2;
+    padding-left: 2.35rem;
   }
 }
 
@@ -665,7 +693,7 @@
   font-size: 0.68rem;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-ticket__title {
   margin: 0.35rem 0 1rem;
@@ -754,7 +782,9 @@
 }
 /* The RSVP form (WS4) lists the sessions itself with their checkboxes or
    answers: while it shows, the block's own summary list steps aside. */
-[data-event-root] .ev-rsvp__card:has([data-rsvp-form] [data-session]) .ev-rsvp__sessions {
+[data-event-root]
+  .ev-rsvp__card:has([data-rsvp-static] li, [data-rsvp-form] [data-session])
+  .ev-rsvp__sessions {
   display: none;
 }
 [data-event-root] .ev-rsvp__sessions li {
@@ -770,7 +800,7 @@
   flex: none;
   width: 1rem;
   height: 1rem;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
   translate: 0 0.12em;
 }
 [data-event-root] .ev-rsvp__sessions strong {
@@ -828,7 +858,7 @@
   font-family: var(--ev-font-mono);
   font-size: 0.82rem;
   letter-spacing: 0.04em;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
   padding-top: 0.2em;
   font-variant-numeric: tabular-nums;
 }
@@ -1003,7 +1033,7 @@
   place-items: center;
   font-family: var(--ev-font-display);
   font-size: 1.3rem;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-scorecard__time {
   font-family: var(--ev-font-mono);
@@ -1037,7 +1067,7 @@
   font-size: 0.72rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-menu__title {
   font-family: var(--ev-font-display);
@@ -1071,7 +1101,7 @@
   overflow-x: auto;
 }
 [data-event-root] .ev-terminal__prompt {
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-terminal__line {
   display: flex;
@@ -1085,7 +1115,7 @@
 }
 [data-event-root] .ev-terminal__time {
   min-width: 6.5rem;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-terminal__name {
   font-weight: 600;
@@ -1176,7 +1206,7 @@
   font-weight: var(--ev-display-weight);
   font-size: 4.2em;
   line-height: 0.82;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-text[data-variant='drop_cap'] .ev-text__body {
   text-align: left;
@@ -1211,7 +1241,7 @@
   flex: none;
   width: 1.1rem;
   height: 1.1rem;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
   transition: transform 220ms var(--ev-ease);
 }
 [data-event-root] .ev-faq__item[open] summary svg {
@@ -1276,11 +1306,11 @@
 }
 [data-event-root] .ev-quote blockquote p::before {
   content: '“';
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-quote blockquote p::after {
   content: '”';
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-quote figcaption {
   display: inline-flex;
@@ -1397,7 +1427,7 @@
 [data-event-root] .ev-leaderboard__pos {
   font-family: var(--ev-font-mono);
   font-weight: 700;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-leaderboard .ev-person-photo {
   width: 48px;
@@ -1503,7 +1533,7 @@
 }
 [data-event-root] .ev-lockup__x {
   margin-inline: 0.45em;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
   font-weight: 300;
 }
 
@@ -1606,7 +1636,7 @@
   font-weight: 500;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-venue__actions {
   display: flex;
@@ -1666,7 +1696,7 @@
 [data-event-root] .ev-countdown__big {
   font-size: clamp(3.5rem, 12cqi, 7rem);
   line-height: 0.9;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
   font-variant-numeric: tabular-nums;
 }
 [data-event-root] .ev-countdown__cells {
@@ -2157,7 +2187,7 @@
 [data-event-root] .ev-info-card__icon {
   width: 1.5rem;
   height: 1.5rem;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-info-card__title {
   font-family: var(--ev-font-display);
@@ -2217,7 +2247,7 @@
 }
 [data-event-root][data-chrome='terminal'] .ev-h2::before {
   content: '# ';
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 /* Deco chrome: stepped corners on cards. */
 [data-event-root][data-chrome='deco'] .ev-rsvp__card,

@@ -10,6 +10,11 @@ import { useInView, useLiveMotionScale, type IslandMotion } from './motion-runti
  * name is always the real text, via aria-label); this island only animates
  * the visible glyphs once, when the heading first comes into view, and never
  * runs under reduced motion, Pause or master Off.
+ *
+ * Layout never moves while it plays (design review: split-flap CLS 0.8):
+ * every glyph cell holds its FINAL letter in the flow (invisible) and the
+ * cycling letter sits over it, absolutely positioned; the typewriter keeps
+ * the untyped rest in place, hidden, and its caret takes no width.
  */
 
 const FLAP = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -71,18 +76,26 @@ export function HeadlineIsland({
     };
   }, [inView, scale, text, effect, speed]);
 
+  if (effect === 'typewriter') {
+    const chars = Array.from(text);
+    const typed = Array.from(shown).length;
+    return (
+      <span ref={ref} className="ev-hl-island" data-effect={effect} aria-hidden="true">
+        {chars.slice(0, typed).join('')}
+        {caret ? <span className="ev-caret ev-caret--typing" /> : null}
+        <span className="ev-tw-rest">{chars.slice(typed).join('')}</span>
+      </span>
+    );
+  }
   return (
     <span ref={ref} className="ev-hl-island" data-effect={effect} aria-hidden="true">
-      {effect === 'split_flap' ? <Flaps text={text} shown={shown} /> : shown}
-      {caret ? <span className="ev-caret" /> : null}
+      <Cells text={text} shown={shown} tile={effect === 'split_flap'} />
     </span>
   );
 }
 
-/** Split-flap tiles grouped by word, so a line never breaks inside a word. */
-function Flaps({ text, shown }: { text: string; shown: string }) {
-  const target = Array.from(text);
-  const current = Array.from(shown);
+/** Words of a headline, as [start, end) character ranges. */
+function wordsOf(target: readonly string[]): { start: number; end: number }[] {
   const words: { start: number; end: number }[] = [];
   let start = -1;
   target.forEach((ch, i) => {
@@ -92,15 +105,30 @@ function Flaps({ text, shown }: { text: string; shown: string }) {
     } else if (start < 0) start = i;
   });
   if (start >= 0) words.push({ start, end: target.length });
+  return words;
+}
+
+/**
+ * Glyph cells grouped by word (a line never breaks inside a word). Each cell
+ * is sized by its final letter; the cycling one is drawn over it.
+ */
+function Cells({ text, shown, tile }: { text: string; shown: string; tile: boolean }) {
+  const target = Array.from(text);
+  const current = Array.from(shown);
+  const words = wordsOf(target);
   return (
     <>
       {words.map((w, k) => (
-        <span key={k} className="ev-flap-word">
-          {current.slice(w.start, w.end).map((ch, i) => (
-            <span key={i} className="ev-flap">
-              {ch}
-            </span>
-          ))}
+        <span key={k}>
+          {k > 0 && !tile ? ' ' : null}
+          <span className={tile ? 'ev-flap-word' : 'ev-gl-word'}>
+            {target.slice(w.start, w.end).map((ch, i) => (
+              <span key={i} className={tile ? 'ev-flap ev-gl' : 'ev-gl'}>
+                <span className="ev-gl__final">{ch}</span>
+                <span className="ev-gl__spin">{current[w.start + i] ?? ch}</span>
+              </span>
+            ))}
+          </span>
         </span>
       ))}
     </>

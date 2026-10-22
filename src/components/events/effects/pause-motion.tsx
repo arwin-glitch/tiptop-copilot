@@ -36,11 +36,13 @@ export function PauseMotion({
       type="button"
       className="ev-pause"
       data-position={position}
-      aria-pressed={paused}
+      data-paused={paused ? 'true' : undefined}
+      // The label says what a tap does (no aria-pressed: "Play, pressed" misleads).
+      aria-label={paused ? 'Play animations' : 'Pause animations'}
       onClick={() => setMotionPaused(!paused)}
     >
       {paused ? <Play aria-hidden="true" size={14} /> : <Pause aria-hidden="true" size={14} />}
-      <span>{paused ? 'Play animations' : 'Pause animations'}</span>
+      <span className="ev-pause__label">{paused ? 'Play animations' : 'Pause animations'}</span>
     </button>
   );
 }

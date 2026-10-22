@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { checkPalette, fixContrast } from '@/lib/events/editor/contrast';
+import { checkTheme } from '@/lib/events/theme/check';
 import { DEFAULT_THEME_PRESET_ID, getThemePreset } from '@/lib/events/themes';
 import {
   CONTENT_WIDTHS,
@@ -10,9 +11,11 @@ import {
   HEX_COLOR_RE,
   PALETTE_TOKENS,
   type EventTheme,
+  type FontId,
   type JsonValue,
   type Palette,
 } from '@/lib/events/schema';
+import { FONT_LIBRARY } from '@/lib/events/fonts';
 import { cn } from '@/lib/util/cn';
 import { Button } from '@/components/ui/button';
 import { Input, Switch } from '@/components/ui/form';
@@ -57,7 +60,13 @@ export function BrandPanel() {
   const layoutDenied = studio.themeDenied('layout');
   const modeDenied = studio.themeDenied('mode');
   const brandDenied = studio.themeDenied('brand');
-  const results = checkPalette(palette);
+  // The renderer's whole-theme check for the palette being edited: its
+  // pairs, the accent band, and the hero's text over the background.
+  const paletteChecks = checkPalette(palette);
+  const results = checkTheme({ ...theme, mode: editDark ? 'dark' : 'light' }).map((r) => ({
+    ...r,
+    pair: paletteChecks.find((p) => p.label === r.label) ?? null,
+  }));
 
   const setPalette = (token: keyof Palette, hex: string) =>
     studio.updateTheme(
@@ -160,19 +169,24 @@ export function BrandPanel() {
               <span
                 className={cn(
                   'w-14 shrink-0 rounded px-1 py-0.5 text-center font-semibold',
-                  r.ratio >= 4.5 ? 'bg-[var(--ok-soft)]' : 'bg-[var(--danger-soft)]',
+                  r.passes ? 'bg-[var(--ok-soft)]' : 'bg-[var(--danger-soft)]',
                 )}
               >
-                {r.grade}
+                {r.passes ? r.grade : 'Fail'}
               </span>
-              <span className="min-w-0 flex-1 truncate">
+              <span className="min-w-0 flex-1 truncate" title={`Needs ${r.target}:1`}>
                 {r.label} · {r.ratio.toFixed(1)}:1
               </span>
-              {r.ratio < 4.5 && !paletteDenied ? (
+              {!r.passes && r.pair && !paletteDenied ? (
                 <button
                   type="button"
                   className="rounded px-1.5 py-0.5 text-[var(--accent)] underline-offset-2 hover:underline"
-                  onClick={() => setPalette(r.fg, fixContrast(palette[r.fg], palette[r.bg]))}
+                  onClick={() =>
+                    setPalette(
+                      r.pair!.fg,
+                      fixContrast(palette[r.pair!.fg], palette[r.pair!.bg], r.target),
+                    )
+                  }
                 >
                   Fix
                 </button>
@@ -192,6 +206,7 @@ export function BrandPanel() {
             label={slot === 'display' ? 'Headlines' : slot === 'body' ? 'Body' : 'Numbers and code'}
             value={theme.typography[slot]}
             options={FONT_IDS}
+            labelOf={(id) => FONT_LIBRARY[id as FontId]?.name ?? id}
             disabled={Boolean(fontsDenied)}
             onChange={(v) => setTypography({ [slot]: v } as Partial<EventTheme['typography']>)}
           />

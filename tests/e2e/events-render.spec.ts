@@ -223,7 +223,7 @@ test.describe('motion', () => {
     const intro = page.locator('.ev-intro');
     await expect(intro).toBeVisible();
     await expect(intro.getByText('Dear Sarah,')).toBeVisible();
-    await page.getByRole('button', { name: 'Open the invitation' }).click();
+    await page.getByRole('button', { name: 'Open your invitation' }).click();
     await expect(intro).toHaveCount(0, { timeout: 6000 });
     // Once per visitor (this tab): a reload goes straight to the page.
     await page.reload();

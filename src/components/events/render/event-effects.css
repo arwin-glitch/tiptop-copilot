@@ -394,7 +394,11 @@
 }
 [data-event-root] .ev-finish__vignette {
   opacity: var(--ev-vignette);
-  background: radial-gradient(ellipse 85% 75% at 50% 45%, transparent 55%, rgb(0 0 0 / 0.65) 100%);
+  background: radial-gradient(
+    ellipse 85% 75% at 50% 45%,
+    transparent 55%,
+    var(--ev-vignette-c, rgb(0 0 0 / 0.65)) 100%
+  );
 }
 
 /* Foil on headings, emboss (theme.finish.foil / .emboss). The fill goes
@@ -518,8 +522,43 @@
 [data-event-root][data-motion='full'] .ev-hl-flicker {
   animation: ev-neon-flicker 9s linear infinite;
 }
-[data-event-root][data-motion='full'] .ev-headline[data-hl='weight_breathe'] {
+/* Weight-breathe: the heaviest copy sizes the box; the live copy breathes over it. */
+[data-event-root] .ev-breathe {
+  position: relative;
+  display: block;
+}
+[data-event-root] .ev-breathe__size {
+  visibility: hidden;
+  font-weight: 900;
+}
+[data-event-root] .ev-breathe__live {
+  position: absolute;
+  inset: 0;
+}
+[data-event-root][data-motion='full'] .ev-breathe__live {
   animation: ev-breathe calc(5s / var(--ev-headline-speed, 1)) ease-in-out infinite;
+}
+/* Glyph cells (split-flap, scramble): sized by the final letter. */
+[data-event-root] .ev-gl-word {
+  display: inline-block;
+  white-space: nowrap;
+}
+[data-event-root] .ev-gl {
+  position: relative;
+  display: inline-block;
+}
+[data-event-root] .ev-gl__final {
+  visibility: hidden;
+}
+[data-event-root] .ev-gl__spin {
+  position: absolute;
+  inset: 0;
+  padding: inherit;
+  text-align: center;
+}
+/* Typewriter: the untyped rest keeps its place, hidden. */
+[data-event-root] .ev-tw-rest {
+  visibility: hidden;
 }
 [data-event-root] .ev-hl-island[data-effect='split_flap'] {
   display: inline-flex;
@@ -553,6 +592,8 @@
     opacity: 0;
   }
 }
+/* A blinking caret stops within five seconds (WCAG 2.2.2: no endless
+   motion without a Pause). */
 [data-event-root] .ev-caret {
   display: inline-block;
   width: 0.5em;
@@ -560,7 +601,24 @@
   margin-left: 0.08em;
   vertical-align: -0.08em;
   background: currentColor;
-  animation: ev-caret 1s steps(1) infinite;
+  animation: ev-caret 1s steps(1) 5;
+}
+/* While typing it takes no width, so the line never re-wraps under it. */
+[data-event-root] .ev-caret--typing {
+  width: 0;
+  margin-left: 0;
+  overflow: visible;
+  position: relative;
+  background: none;
+}
+[data-event-root] .ev-caret--typing::after {
+  content: '';
+  position: absolute;
+  left: 0.04em;
+  top: 0;
+  width: 0.5em;
+  height: 100%;
+  background: currentColor;
 }
 
 /* ---------------------------------------------------------------- intros */
@@ -1278,6 +1336,28 @@ html:has([data-event-root] .ev-intro[data-ready]:not([data-phase='leave'])) {
   font-weight: 500;
   cursor: pointer;
   box-shadow: 0 6px 18px -10px rgb(0 0 0 / 0.4);
+}
+/* On a phone: a 44px round icon button that covers nothing, and room
+   below the content so it never sits over the last lines. */
+@media (max-width: 480px) {
+  [data-event-root] .ev-pause {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+  [data-event-root] .ev-pause__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+[data-event-root][data-looping='true'] .ev-page {
+  padding-bottom: calc(64px + env(safe-area-inset-bottom));
 }
 [data-event-root] .ev-pause[data-position='bottom-right'] {
   right: 1rem;

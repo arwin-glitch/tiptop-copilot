@@ -1,10 +1,13 @@
 import type { Palette } from '@/lib/events/schema';
+import { checkPalette as rendererPairs } from '@/lib/events/theme/contrast';
 
 /**
- * WCAG 2.x contrast for Studio's live badges and the publish checklist.
- * (WS2's lib/events/theme/contrast.ts is the renderer's copy; this one is
- * kept small and pure for the editor.) Fix changes a colour only when the
- * host clicks it, keeping its hue and moving its lightness.
+ * Studio's colour helpers: Fix (changes a colour only when the host clicks
+ * it, keeping its hue and moving its lightness) and Theme from logo. The
+ * CHECK itself is the renderer's: checkPalette here is
+ * lib/events/theme/contrast.ts's pairs (and Studio's badges and the publish
+ * checklist read lib/events/theme/check.ts for the whole theme), so the
+ * editor can never show AA for a pair the page draws below it.
  */
 
 function channel(c: number): number {
@@ -46,28 +49,27 @@ export function grade(ratio: number): ContrastGrade {
   return 'Fail';
 }
 
-/** The text/background pairs every page uses, each needing 4.5:1. */
-export const CONTRAST_PAIRS: { fg: keyof Palette; bg: keyof Palette; label: string }[] = [
-  { fg: 'text', bg: 'bg', label: 'Text on page' },
-  { fg: 'muted', bg: 'bg', label: 'Muted text on page' },
-  { fg: 'text', bg: 'surface', label: 'Text on cards' },
-  { fg: 'text', bg: 'surfaceAlt', label: 'Text on alternate bands' },
-  { fg: 'accentFg', bg: 'accent', label: 'Button text' },
-];
-
 export interface PairResult {
   fg: keyof Palette;
   bg: keyof Palette;
   label: string;
   ratio: number;
   grade: ContrastGrade;
+  target: number;
+  passes: boolean;
 }
 
+/** The renderer's palette pairs (lib/events/theme/contrast.ts), with Studio's grade labels. */
 export function checkPalette(palette: Palette): PairResult[] {
-  return CONTRAST_PAIRS.map((pair) => {
-    const ratio = contrastRatio(palette[pair.fg], palette[pair.bg]);
-    return { ...pair, ratio, grade: grade(ratio) };
-  });
+  return rendererPairs(palette).map((p) => ({
+    fg: p.fg,
+    bg: p.bg,
+    label: p.label,
+    ratio: p.ratio,
+    grade: grade(p.ratio),
+    target: p.target,
+    passes: p.passes,
+  }));
 }
 
 function rgbToHsl([r, g, b]: [number, number, number]): [number, number, number] {

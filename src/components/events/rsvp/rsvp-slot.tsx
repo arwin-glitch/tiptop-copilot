@@ -39,11 +39,14 @@ function readRequestParam(): boolean {
 
 function StaticMock({ labels, context }: { labels: SlotLabels; context: EventRsvpContext | null }) {
   return (
-    <div className="evu-card evu-stack" data-rsvp-static>
+    <div
+      className={context?.registration.sessions.length ? 'evu-card evu-stack' : 'evu-stack'}
+      data-rsvp-static
+    >
       {context?.registration.sessions.length ? (
         <ul className="evu-list">
           {context.registration.sessions.map((s) => (
-            <li key={s.id}>
+            <li key={s.id} className="evu-stack">
               <strong>{s.name}</strong>
               <SessionTime
                 startsAt={s.startsAt}

@@ -53,7 +53,9 @@ export function CountUp({ value, motion }: { value: string; motion: IslandMotion
   }, [inView, scale, value]);
 
   return (
-    <span ref={ref} aria-label={value}>
+    <span ref={ref}>
+      {/* Screen readers get the real number, never the digits mid-count. */}
+      <span className="ev-sr">{value}</span>
       <span aria-hidden="true">{shown}</span>
     </span>
   );

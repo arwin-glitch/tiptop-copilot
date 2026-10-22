@@ -1,6 +1,7 @@
 import type { EventMedia, EventRecord, EventSession } from '@/lib/types/domain';
 import { EVENT_SLUG_RE, RESERVED_EVENT_SLUGS } from './contracts';
-import type { BlockType, EventDoc, Palette } from './schema';
+import type { BlockType, EventDoc } from './schema';
+import { themeContrastProblems } from './theme/check';
 
 /**
  * The "Ready to publish" checklist (D-075). Pure and isomorphic: the Publish
@@ -88,32 +89,13 @@ export function contrastRatio(a: string, b: string): number {
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
-/** Text/background pairs every page uses, AA (4.5:1) each. */
-const PAIRS: [keyof Palette, keyof Palette, string][] = [
-  ['text', 'bg', 'text on the background'],
-  ['text', 'surface', 'text on cards'],
-  ['muted', 'bg', 'secondary text'],
-  ['accentFg', 'accent', 'button text'],
-];
-
+/**
+ * Contrast problems for the publish checklist: the renderer's own check for
+ * the whole theme (lib/events/theme/check.ts), so the checklist can never
+ * pass a pair the page draws below AA.
+ */
 export function contrastProblems(theme: EventDoc['theme']): string[] {
-  const palettes: [Palette, string][] =
-    theme.mode === 'light'
-      ? [[theme.palette, '']]
-      : theme.mode === 'dark'
-        ? [[theme.paletteDark, '']]
-        : [
-            [theme.palette, 'light: '],
-            [theme.paletteDark, 'dark: '],
-          ];
-  const problems: string[] = [];
-  for (const [p, prefix] of palettes) {
-    for (const [fg, bg, label] of PAIRS) {
-      const ratio = contrastRatio(p[fg], p[bg]);
-      if (ratio < 4.5) problems.push(`${prefix}${label} is ${ratio.toFixed(1)}:1 (needs 4.5:1)`);
-    }
-  }
-  return problems;
+  return themeContrastProblems(theme);
 }
 
 /* ------------------------------------------------------------ the list */

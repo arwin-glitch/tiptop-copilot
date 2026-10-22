@@ -1,9 +1,11 @@
 import type { CSSProperties } from 'react';
+import { FONT_LIBRARY } from '@/lib/events/fonts';
 import type { EventPageProps } from '@/lib/events/contracts';
 import { orderedSections, type EventSection, type EventTheme } from '@/lib/events/schema';
 import { mergePlainText } from '@/lib/events/richtext';
 import { hexToRgb } from '@/lib/events/theme/color';
 import { forcesFullMotion, hasLoopingMotion, motionLevel } from '@/lib/events/theme/motion';
+import { heroTextScrim } from '@/lib/events/theme/readability';
 import { primaryPalette, themeAttributes, themeVars } from '@/lib/events/theme/tokens';
 import { BackgroundLayer, backgroundTone } from '@/components/events/effects/background-layer';
 import { FinishLayer } from '@/components/events/effects/finish-layer';
@@ -18,6 +20,7 @@ import { initials } from './blocks/shared';
 import type { RenderContext } from './context';
 import { formatShortDate, venueCity } from './format';
 import { resolveMediaRef } from './media';
+import { FontPreload } from './font-preload';
 import { SectionShell, sectionBand } from './section-shell';
 import './event-fonts.css';
 import './event.css';
@@ -90,7 +93,11 @@ export function EventPage({
   const palette = primaryPalette(theme);
   const tone = backgroundTone(theme, palette);
   const heroTone = theme.background.scope === 'hero' ? tone : null;
+  // A page-wide background sets the tone of the whole page (event.css reads
+  // data-page-tone): readable in Auto whatever the visitor's setting.
   const pageTone = theme.background.scope === 'page' ? tone : null;
+  // A scrim behind the hero's text when it would fall below AA over the engine.
+  const heroScrim = heroTextScrim(theme, tone);
   const merge = { first_name: viewer.firstName, name: viewer.name, company: viewer.company };
 
   const ctx: RenderContext = {
@@ -108,7 +115,32 @@ export function EventPage({
     heroId: hero?.id ?? null,
   };
 
-  const looping = hasLoopingMotion(theme) && level === 'full';
+  // The display and body faces start downloading with the HTML, so the
+  // headline rarely swaps fonts after first paint (a layout shift).
+  const fontHrefs: string[] = [];
+  if (mode !== 'og') {
+    const faces: [typeof theme.typography.display, number][] = [
+      [theme.typography.display, theme.typography.displayWeight],
+      [theme.typography.body, 400],
+    ];
+    for (const [id, weight] of faces) {
+      const files = (FONT_LIBRARY[id]?.files ?? []).filter((f) => f.style === 'normal');
+      const fits = (w: string) => {
+        const [lo, hi] = w.split(' ').map(Number);
+        return hi === undefined ? lo === weight : weight >= lo! && weight <= hi;
+      };
+      const file = files.find((f) => fits(f.weight)) ?? files[0];
+      if (file && !fontHrefs.includes(`/event-fonts/${file.file}`)) {
+        fontHrefs.push(`/event-fonts/${file.file}`);
+      }
+    }
+  }
+  // Endless motion from the page itself counts too (a kinetic hero's ticker,
+  // a sponsors marquee): the Pause control must be there (WCAG 2.2.2).
+  const sectionLoops = sections.some(
+    (s) => (s.type === 'hero' && s.variant === 'kinetic') || s.variant === 'marquee',
+  );
+  const looping = (hasLoopingMotion(theme) || sectionLoops) && level === 'full';
   const filter = duotone(theme);
   const style = {
     ...themeVars(theme),
@@ -159,6 +191,7 @@ export function EventPage({
       {...themeAttributes(theme)}
       style={style}
     >
+      {fontHrefs.length ? <FontPreload hrefs={fontHrefs} /> : null}
       {filter ? (
         <svg className="ev-defs" aria-hidden="true" focusable="false" width="0" height="0">
           <filter id={filter.id} colorInterpolationFilters="sRGB">
@@ -209,6 +242,7 @@ export function EventPage({
               first={i === 0}
               anchor={anchorFor(section, rsvpSection?.id ?? null)}
               selected={studio && selectedSectionId === section.id}
+              textScrim={isHero ? heroScrim : 0}
               background={
                 isHero && theme.background.scope === 'hero' ? (
                   <>

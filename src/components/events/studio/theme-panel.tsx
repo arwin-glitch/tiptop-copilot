@@ -10,6 +10,7 @@ import type { EventTheme, FontId, ThemeKey } from '@/lib/events/schema';
 import { cn } from '@/lib/util/cn';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/form';
+import { ThemeThumbnail } from '@/components/events/render/theme-thumbnail';
 import { Denied } from './inspector';
 import { useStudio } from './studio-context';
 
@@ -194,9 +195,10 @@ export function ThemePanel() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      <ul aria-label="Theme presets" className="grid grid-cols-2 gap-2">
+      {/* One column of real previews (background, display font, accent):
+          two colour pills could not tell the themes apart. */}
+      <ul aria-label="Theme presets" className="grid grid-cols-1 gap-2">
         {presets.map((preset) => {
-          const p = preset.theme.palette;
           const current = theme.presetId === preset.id;
           return (
             <li key={preset.id}>
@@ -212,21 +214,25 @@ export function ThemePanel() {
                     : 'border-[var(--border)]',
                 )}
               >
-                <span
-                  aria-hidden="true"
-                  className="flex h-12 items-end gap-1 p-1.5"
-                  style={{ backgroundColor: p.bg }}
-                >
-                  <span className="h-6 w-3 rounded-sm" style={{ backgroundColor: p.accent }} />
-                  <span className="h-4 w-3 rounded-sm" style={{ backgroundColor: p.highlight }} />
-                  <span className="ml-auto text-sm font-semibold" style={{ color: p.text }}>
-                    Aa
-                  </span>
-                </span>
+                <ThemeThumbnail
+                  theme={preset.theme}
+                  title={preset.name}
+                  className="ev-theme-thumb--wide"
+                />
                 <span className="block truncate px-1.5 py-1 text-[11px] font-medium">
                   {preset.name}
                 </span>
               </button>
+              {studio.boot.actor.owner ? (
+                <a
+                  href={`/e/theme_preview/${preset.id}`}
+                  target="_blank"
+                  rel="noopener"
+                  className="mt-0.5 inline-block text-[11px] text-[var(--accent)] underline-offset-2 hover:underline"
+                >
+                  Open full preview
+                </a>
+              ) : null}
             </li>
           );
         })}

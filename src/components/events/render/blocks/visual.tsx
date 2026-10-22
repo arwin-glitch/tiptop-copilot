@@ -24,7 +24,13 @@ export function GalleryView({ section, ctx }: BlockViewProps) {
     <>
       <SectionHeading ctx={ctx} heading={txt(ctx, p.heading)} />
       {images.length ? (
-        <ul className={`ev-gallery ev-gallery--${v}`}>
+        <ul
+          className={`ev-gallery ev-gallery--${v}`}
+          // A carousel scrolls sideways: it must be reachable by keyboard.
+          {...(v === 'carousel'
+            ? { tabIndex: 0, 'aria-label': txt(ctx, p.heading) || 'Photo gallery' }
+            : {})}
+        >
           {images.map((img, i) => (
             <li
               key={i}

@@ -31,10 +31,13 @@
   --ev-accent-fg: var(--ev-l-accent-fg);
   --ev-border: var(--ev-l-border);
   --ev-highlight: var(--ev-l-highlight);
+  --ev-highlight-text: var(--ev-l-highlight-text);
   --ev-gradient: var(--ev-l-gradient);
   --ev-band-bg: var(--ev-l-band-bg);
   --ev-band-fg: var(--ev-l-band-fg);
   --ev-band-hl: var(--ev-l-band-hl);
+  /* A vignette darkens a dark page; on a light page it stays a whisper. */
+  --ev-vignette-c: rgb(0 0 0 / 0.22);
   --ev-motion-k: 0.75;
   --ev-gutter: clamp(1rem, 5cqi, 3rem);
   --ev-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
@@ -52,10 +55,12 @@
   --ev-accent-fg: var(--ev-d-accent-fg);
   --ev-border: var(--ev-d-border);
   --ev-highlight: var(--ev-d-highlight);
+  --ev-highlight-text: var(--ev-d-highlight-text);
   --ev-gradient: var(--ev-d-gradient);
   --ev-band-bg: var(--ev-d-band-bg);
   --ev-band-fg: var(--ev-d-band-fg);
   --ev-band-hl: var(--ev-d-band-hl);
+  --ev-vignette-c: rgb(0 0 0 / 0.65);
   color-scheme: dark;
 }
 
@@ -70,12 +75,56 @@
     --ev-accent-fg: var(--ev-d-accent-fg);
     --ev-border: var(--ev-d-border);
     --ev-highlight: var(--ev-d-highlight);
+    --ev-highlight-text: var(--ev-d-highlight-text);
     --ev-gradient: var(--ev-d-gradient);
     --ev-band-bg: var(--ev-d-band-bg);
     --ev-band-fg: var(--ev-d-band-fg);
     --ev-band-hl: var(--ev-d-band-hl);
+    --ev-vignette-c: rgb(0 0 0 / 0.65);
     color-scheme: dark;
   }
+}
+
+/* A page-wide background sets the whole page's tone (event-page.tsx
+   data-page-tone; lib/events/theme/readability.ts): in Auto, a dark-native
+   page stays readable on a light-mode device and the other way round. In an
+   explicit Light or Dark mode the background is drawn in that palette's own
+   tints instead, so the tone already matches and this changes nothing. */
+[data-event-root][data-page-tone='dark'] {
+  --ev-bg: var(--ev-d-bg);
+  --ev-surface: var(--ev-d-surface);
+  --ev-surface-alt: var(--ev-d-surface-alt);
+  --ev-text: var(--ev-d-text);
+  --ev-muted: var(--ev-d-muted);
+  --ev-accent: var(--ev-d-accent);
+  --ev-accent-fg: var(--ev-d-accent-fg);
+  --ev-border: var(--ev-d-border);
+  --ev-highlight: var(--ev-d-highlight);
+  --ev-highlight-text: var(--ev-d-highlight-text);
+  --ev-gradient: var(--ev-d-gradient);
+  --ev-band-bg: var(--ev-d-band-bg);
+  --ev-band-fg: var(--ev-d-band-fg);
+  --ev-band-hl: var(--ev-d-band-hl);
+  --ev-vignette-c: rgb(0 0 0 / 0.65);
+  color-scheme: dark;
+}
+[data-event-root][data-page-tone='light'] {
+  --ev-bg: var(--ev-l-bg);
+  --ev-surface: var(--ev-l-surface);
+  --ev-surface-alt: var(--ev-l-surface-alt);
+  --ev-text: var(--ev-l-text);
+  --ev-muted: var(--ev-l-muted);
+  --ev-accent: var(--ev-l-accent);
+  --ev-accent-fg: var(--ev-l-accent-fg);
+  --ev-border: var(--ev-l-border);
+  --ev-highlight: var(--ev-l-highlight);
+  --ev-highlight-text: var(--ev-l-highlight-text);
+  --ev-gradient: var(--ev-l-gradient);
+  --ev-band-bg: var(--ev-l-band-bg);
+  --ev-band-fg: var(--ev-l-band-fg);
+  --ev-band-hl: var(--ev-l-band-hl);
+  --ev-vignette-c: rgb(0 0 0 / 0.22);
+  color-scheme: light;
 }
 
 [data-event-root][data-master='off'] {
@@ -99,6 +148,7 @@
   --ev-accent-fg: var(--ev-d-accent-fg);
   --ev-border: var(--ev-d-border);
   --ev-highlight: var(--ev-d-highlight);
+  --ev-highlight-text: var(--ev-d-highlight-text);
   --ev-gradient: var(--ev-d-gradient);
   --ev-section-bg: var(--ev-d-bg);
   color-scheme: dark;
@@ -114,6 +164,7 @@
   --ev-accent-fg: var(--ev-l-accent-fg);
   --ev-border: var(--ev-l-border);
   --ev-highlight: var(--ev-l-highlight);
+  --ev-highlight-text: var(--ev-l-highlight-text);
   --ev-gradient: var(--ev-l-gradient);
   --ev-section-bg: var(--ev-l-bg);
   color-scheme: light;
@@ -138,6 +189,7 @@
   --ev-surface-alt: color-mix(in srgb, var(--ev-band-fg) 14%, var(--ev-band-bg));
   --ev-border: color-mix(in srgb, var(--ev-band-fg) 26%, var(--ev-band-bg));
   --ev-highlight: var(--ev-band-hl);
+  --ev-highlight-text: var(--ev-band-hl);
   --ev-accent: var(--ev-band-fg);
   --ev-accent-fg: var(--ev-band-bg);
   color: var(--ev-text);
@@ -237,6 +289,18 @@
   font-variant-numeric: normal;
 }
 
+/* One long word never runs off a narrow screen: the headline's inner span
+   is capped so its longest word fits the width (headline.tsx sets
+   --ev-hl-longest; 1em keeps the variant's own size whenever it fits). */
+[data-event-root] .ev-hl-fit {
+  font-size: min(
+    1em,
+    calc((100cqi - 2 * var(--ev-gutter)) / (var(--ev-hl-longest, 1) * var(--ev-hl-char, 0.62)))
+  );
+}
+[data-event-root][data-display-case='upper'] .ev-hl-fit {
+  --ev-hl-char: 0.74;
+}
 [data-event-root] .ev-headline {
   font-size: var(--ev-fs-h1);
   line-height: 1.02;
@@ -269,7 +333,7 @@
   font-weight: 500;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-eyebrow[data-empty] {
   opacity: 0.45;
@@ -310,7 +374,7 @@
   margin-top: 0.35em;
 }
 [data-event-root] .ev-rich li::marker {
-  color: var(--ev-highlight);
+  color: var(--ev-highlight-text);
 }
 [data-event-root] .ev-rich blockquote {
   border-left: 2px solid var(--ev-rule-c);

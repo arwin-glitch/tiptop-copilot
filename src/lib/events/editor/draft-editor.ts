@@ -36,6 +36,11 @@ import { coalesce, newClientId, opKeys, opTarget } from './doc-ops';
  * inverse as a NEW rev-checked op; if someone changed that key since, it
  * comes back as a conflict and Studio says "Can't undo – Morgan changed this
  * since", so undo never overwrites a collaborator.
+ *
+ * A change not saved yet (autosave waits 1.2 s; offline it waits for the
+ * network) is undone LOCALLY: it simply leaves the queue, and Redo puts it
+ * back, with no round trip. A change in flight is undone as soon as the
+ * server confirms it.
  */
 
 export const UNDO_LIMIT = 100;
@@ -102,6 +107,12 @@ export class DraftEditor {
   private queue: PendingOp[] = [];
   private undoStack: UndoEntry[] = [];
   private redoStack: UndoEntry[] = [];
+  /** Unsaved changes taken back by Undo, newest last (Redo re-queues them). */
+  private localRedo: PendingOp[] = [];
+  /** Queued undos of saved changes, by the undo op's id (Redo before it is saved). */
+  private queuedUndos = new Map<string, UndoEntry>();
+  /** An in-flight change the person undid: undone as soon as it is confirmed. */
+  private undoOnAck: string | null = null;
   /** target:key → the rev this person's own write produced. */
   private myWrites = new Map<string, number>();
   private conflictList: StudioConflict[] = [];
@@ -169,20 +180,39 @@ export class DraftEditor {
     return this.noticeList;
   }
 
+  /** The newest unsaved change Undo can take back locally, if any. */
+  private localUndoable(): PendingOp | null {
+    const last = this.queue.at(-1);
+    return last && (last.origin === 'edit' || last.origin === 'redo') ? last : null;
+  }
+
+  /** The newest queued (unsaved) undo that Redo can take back locally, if any. */
+  private localRedoable(): PendingOp | null {
+    const last = this.queue.at(-1);
+    return last && !last.sent && last.origin === 'undo' && this.queuedUndos.has(last.op.opId)
+      ? last
+      : null;
+  }
+
   get canUndo(): boolean {
-    return this.undoStack.length > 0;
+    return this.localUndoable() !== null || this.undoStack.length > 0;
   }
 
   get canRedo(): boolean {
-    return this.redoStack.length > 0;
+    return this.localRedo.length > 0 || this.localRedoable() !== null || this.redoStack.length > 0;
   }
 
   get undoLabel(): string | null {
-    return this.undoStack.at(-1)?.label ?? null;
+    return this.localUndoable()?.label ?? this.undoStack.at(-1)?.label ?? null;
   }
 
   get redoLabel(): string | null {
-    return this.redoStack.at(-1)?.label ?? null;
+    return (
+      this.localRedo.at(-1)?.label ??
+      this.localRedoable()?.label ??
+      this.redoStack.at(-1)?.label ??
+      null
+    );
   }
 
   /** What Studio shows: confirmed + pending, through the server's own merge. */
@@ -217,7 +247,10 @@ export class DraftEditor {
    * target fold into one (one undo step per field burst).
    */
   apply(op: DraftOp, label = 'Edit', origin: OpOrigin = 'edit'): void {
-    if (origin === 'edit' || origin === 'resolve') this.redoStack = [];
+    if (origin === 'edit' || origin === 'resolve') {
+      this.redoStack = [];
+      this.localRedo = [];
+    }
     const last = this.queue.at(-1);
     if (last && !last.sent && last.origin === origin && origin === 'edit') {
       const folded = coalesce(last.op, op);
@@ -351,9 +384,13 @@ export class DraftEditor {
       };
       if (p.origin === 'undo') this.redoStack.push(entry);
       else this.undoStack.push(entry);
+      this.queuedUndos.delete(p.op.opId);
       if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
       if (this.redoStack.length > UNDO_LIMIT) this.redoStack.shift();
     }
+    for (const p of sent) this.queuedUndos.delete(p.op.opId);
+    const undoNow = this.undoOnAck;
+    this.undoOnAck = null;
 
     for (const conflict of result.conflicts) {
       const p = sent.find((s) => s.op.opId === conflict.opId);
@@ -362,6 +399,11 @@ export class DraftEditor {
     }
 
     for (const p of this.queue) this.rebaseOne(p);
+    // Undone while it was in flight: now that it is saved, undo it.
+    if (undoNow && this.undoStack.at(-1)?.op.opId === undoNow) {
+      this.undo();
+      return;
+    }
     this.emit();
   }
 
@@ -411,6 +453,9 @@ export class DraftEditor {
     this.queue = [];
     this.undoStack = [];
     this.redoStack = [];
+    this.localRedo = [];
+    this.queuedUndos.clear();
+    this.undoOnAck = null;
     this.myWrites.clear();
     this.conflictList = [];
     this.emit();
@@ -419,6 +464,20 @@ export class DraftEditor {
   /* ---------------------------------------------------------- undo, redo */
 
   undo(): boolean {
+    const local = this.localUndoable();
+    if (local && !local.sent) {
+      // Not saved yet: it just leaves the queue (no round trip, works offline).
+      this.queue.pop();
+      this.localRedo.push(local);
+      this.emit();
+      return true;
+    }
+    if (local && local.sent) {
+      // In flight: undone the moment the server confirms it.
+      this.undoOnAck = local.op.opId;
+      this.emit();
+      return true;
+    }
     const entry = this.undoStack.pop();
     if (!entry) return false;
     const inverse = invertOp(entry.op, entry.before, newClientId(), entry.revAfter);
@@ -427,11 +486,30 @@ export class DraftEditor {
       this.emit();
       return false;
     }
+    this.queuedUndos.set(inverse.opId, entry);
     this.apply(inverse, entry.label, 'undo');
     return true;
   }
 
   redo(): boolean {
+    const local = this.localRedo.pop();
+    if (local) {
+      const entry: PendingOp = { ...local, sent: false };
+      this.rebaseOne(entry);
+      this.queue.push(entry);
+      this.emit();
+      return true;
+    }
+    const queuedUndo = this.localRedoable();
+    if (queuedUndo) {
+      // An undo not saved yet: drop it, and the change it undid is back.
+      this.queue.pop();
+      const entry = this.queuedUndos.get(queuedUndo.op.opId)!;
+      this.queuedUndos.delete(queuedUndo.op.opId);
+      this.undoStack.push(entry);
+      this.emit();
+      return true;
+    }
     const entry = this.redoStack.pop();
     if (!entry) return false;
     const again = invertOp(entry.op, entry.before, newClientId(), entry.revAfter);

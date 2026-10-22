@@ -171,6 +171,7 @@ function ContentTab({
 }) {
   const studio = useStudio();
   const definition = blockRegistry.get(section.type);
+  const defaultProps = (definition?.defaults().props ?? {}) as Record<string, JsonValue>;
   const { fields } = fieldsFor(definition, section);
   const nameDenied = lockText ?? studio.sectionDenied(section.id, 'name');
   return (
@@ -212,7 +213,9 @@ function ContentTab({
           <FieldInput
             key={field.key}
             field={field}
-            value={section.props[field.key]}
+            // An absent prop shows the block's default (what the canvas renders):
+            // "Show the date" reads on when the date is on.
+            value={section.props[field.key] ?? defaultProps[field.key]}
             denied={denied}
             idPrefix={`sec-${section.id}`}
             media={studio.mediaItems}
@@ -630,6 +633,7 @@ export function Choice({
   disabled,
   denied,
   onChange,
+  labelOf,
 }: {
   label: string;
   value: string;
@@ -637,6 +641,8 @@ export function Choice({
   disabled?: boolean;
   denied?: string | null;
   onChange: (value: string) => void;
+  /** A display name for an option (font families); words(option) otherwise. */
+  labelOf?: (option: string) => string;
 }) {
   const id = React.useId();
   return (
@@ -647,7 +653,7 @@ export function Choice({
       <Select id={id} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
         {options.map((o) => (
           <option key={o} value={o}>
-            {words(o)}
+            {labelOf ? labelOf(o) : words(o)}
           </option>
         ))}
       </Select>

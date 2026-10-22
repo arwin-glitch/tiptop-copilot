@@ -46,6 +46,13 @@ vi.mock('@/lib/services/event-guests', async (importOriginal) => {
   };
 });
 
+// The guest list above is fictional, so the send-time check that each
+// personal link is still the guest's current one (event-campaign-links.ts,
+// covered in tests/unit/events-review-fixes.test.ts) is answered as current.
+vi.mock('@/lib/services/event-campaign-links', () => ({
+  eventLinkCheck: vi.fn(async () => ({ live: true, stale: 0, changedStatus: 0 })),
+}));
+
 const EVENT = DEMO_EVENT_IDS.annualMeeting;
 const APP = 'https://copilot.example';
 const MAIL_APP = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15';
