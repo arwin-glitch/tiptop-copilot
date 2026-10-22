@@ -2655,8 +2655,9 @@ him), a public chatbot that calls itself Arwin, and "don't create chaos".
   a plain address (no `?cc=`, no doubled dots, no invisible characters), text
   loses control, invisible and direction-changing characters and angle
   brackets (one-line fields also lose line breaks), and a deck or map link must
-  be http(s). Confirmation: "Request sent. Arwin will confirm by email."
-  Copilot sends no email.
+  be http(s). Confirmation: "Request sent. You'll get a calendar invitation
+  once the time is booked." No visitor-facing text says a person (Arwin, the
+  team, "we") confirms, reviews or approves. Copilot sends no email.
 - **Approve is the only write, and a person's.** A "Booking requests" button
   over the Calendar page's header (out of the flow, so the calendar does not
   move by a pixel) opens a drawer listing everything a visitor entered; Today's
@@ -2674,9 +2675,14 @@ him), a public chatbot that calls itself Arwin, and "don't create chaos".
   creates the event on his main calendar through `lib/calendar/write.ts`:
   "<Host first name> <> <Name> (<Company>)", with "Coffee: ", "Lunch: " or
   "Dinner: " in front in person, the note, deck and map link in the
-  description, Google Meet for a call, the place as location, the requester as
-  the guest, and `notify: 'send'` (sendUpdates `all`: approving is the
-  person's Send). The drawer asks once more first ("Add to Nick's calendar and
+  description, the place as location, and for a call the host's saved video
+  link (Settings > Booking link > "Video link for calls", `callLink`: location
+  plus a "Join the call:" line, no Meet) or else Google Meet; the host's main
+  calendar address first on the guest list as `{ organizer: true,
+  responseStatus: 'accepted' }` (never emailed), then the requester, once each;
+  and `notify: 'send'` (sendUpdates `all`: approving is the person's Send). The
+  public page, its routes and the chatbot never see the video link, only a
+  label from `videoProviderLabel` ("30-min Zoom call"). The drawer asks once more first ("Add to Nick's calendar and
   email an invitation to …?"), marks every address "Email not checked", and
   offers only Decline once a request's time has passed (Today's count leaves
   those out). If Google's answer is lost (a timeout), the claim stays for its

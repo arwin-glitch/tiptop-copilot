@@ -11,6 +11,7 @@ import { KIND_LABEL, type MeetingKind } from '@/lib/booking/config';
 import {
   CLOSED_MESSAGE,
   SENT_MESSAGE,
+  callOptionLabel,
   dayKeyIn,
   dayLabel,
   distinctZones,
@@ -37,9 +38,9 @@ import { BookingChat } from './booking-chat';
 /**
  * The public booking page (/meet/<slug>): the host's card, then one form —
  * a call or an in-person coffee, lunch or dinner, a time in the visitor's
- * own zone, a place, and who they are. Sending keeps a request for Arwin to
- * confirm; nothing is booked from here. The chatbot can fill the form; the
- * visitor still presses Send.
+ * own zone, a place, and who they are. Sending keeps a request; nothing is
+ * booked from here, and the calendar invitation follows once the time is
+ * booked. The chatbot can fill the form; the visitor still presses Send.
  */
 
 const noSubscribe = () => () => {};
@@ -109,9 +110,12 @@ function Shell({ firmName, children }: { firmName: string; children: React.React
 function HostCard({
   host,
   inPerson,
+  callLabel,
 }: {
   host: NonNullable<PublicBookingPage['host']>;
   inPerson: boolean;
+  /** "30-min Zoom call": what a call is on, never its link. */
+  callLabel: string;
 }) {
   return (
     <section
@@ -152,7 +156,7 @@ function HostCard({
       <ul className="mt-5 space-y-2 border-t border-[var(--border)] pt-4 text-sm text-[var(--fg-muted)]">
         <li className="flex items-center gap-2">
           <Video className="size-4 text-[var(--accent)]" aria-hidden="true" />
-          30-minute call on Google Meet
+          {callLabel}
         </li>
         {inPerson ? (
           <li className="flex items-center gap-2">
@@ -161,8 +165,8 @@ function HostCard({
           </li>
         ) : null}
         <li className="flex items-center gap-2">
-          <CalendarCheck2 className="size-4 text-[var(--accent)]" aria-hidden="true" />
-          Arwin confirms every request by email
+          <CalendarCheck2 className="size-4 text-[var(--accent)]" aria-hidden="true" />A calendar
+          invitation once your time is booked
         </li>
       </ul>
     </section>
@@ -192,6 +196,7 @@ function OpenPage({
   detectedZone: string | null;
 }) {
   const host = data.host!;
+  const callLabel = callOptionLabel(data.callProvider);
   const [form, setForm] = React.useState<BookingFormState>(EMPTY_FORM);
   // In person the visitor will be in the host's city, so its times read in
   // the host's own clock (coffee at 8:30 AM, not 9:30 PM in Manila) unless
@@ -347,11 +352,11 @@ function OpenPage({
           <h1 className="mt-3 font-serif text-2xl font-semibold">{SENT_MESSAGE}</h1>
           <p className="mt-2 text-sm text-[var(--fg-muted)]">
             {sent.type === 'message'
-              ? `Your message is with ${host.displayName}'s team.`
-              : `${sent.type === 'call' ? '30-minute call' : `${KIND_LABEL[sent.kind as MeetingKind]}, 1 hour`} · ${slotLabel(sent.start!, zone)} (${zoneName(zone, new Date(sent.start!))})${place ? ` · ${place}` : ''}`}
+              ? `Your message for ${host.displayName} was sent.`
+              : `${sent.type === 'call' ? callLabel : `${KIND_LABEL[sent.kind as MeetingKind]}, 1 hour`} · ${slotLabel(sent.start!, zone)} (${zoneName(zone, new Date(sent.start!))})${place ? ` · ${place}` : ''}`}
           </p>
           <p className="mt-4 text-xs text-[var(--fg-subtle)]">
-            Nothing is booked until Arwin confirms. Watch for an email from the team.
+            Nothing is on the calendar yet. Watch your inbox for the invitation.
           </p>
           <Button
             className="mt-5"
@@ -376,7 +381,7 @@ function OpenPage({
     <Shell firmName={host.firmName || 'TipTop Ventures'}>
       <div className="grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:items-start">
         <div className="lg:sticky lg:top-6">
-          <HostCard host={host} inPerson={data.offers.inPerson} />
+          <HostCard host={host} inPerson={data.offers.inPerson} callLabel={callLabel} />
         </div>
 
         <div ref={formRef} className="scroll-mt-4">
@@ -392,8 +397,8 @@ function OpenPage({
               </h2>
               <p className="mt-1 text-sm text-[var(--fg-muted)]">
                 {form.type === 'message'
-                  ? `Arwin will pass it to ${host.displayName} and reply by email.`
-                  : 'Pick what suits you. Arwin confirms by email; nothing is booked until then.'}
+                  ? `Your message goes to ${host.displayName}.`
+                  : "Pick what suits you. You'll get a calendar invitation once the time is booked."}
               </p>
               {filledByChat ? (
                 <Notice className="mt-3">
@@ -410,8 +415,8 @@ function OpenPage({
                     selected={form.type === 'call'}
                     onSelect={() => update({ type: 'call' })}
                     icon={<Video className="size-4" aria-hidden="true" />}
-                    title="30-minute call"
-                    body="Google Meet, link in the invite"
+                    title={callLabel}
+                    body="Link in the calendar invitation"
                   />
                   {data.offers.inPerson ? (
                     <TypeOption
@@ -743,6 +748,7 @@ function OpenPage({
           hostName={host.displayName}
           firmName={host.firmName}
           kinds={data.offers.inPerson ? data.kinds : []}
+          callLabel={callLabel}
           zone={visitorZone}
           onFill={fillFromChat}
         />

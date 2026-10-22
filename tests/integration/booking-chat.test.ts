@@ -441,6 +441,7 @@ describe('the public page and its times', () => {
     expect(Object.keys(page).sort()).toEqual(
       [
         'allowCustomPlace',
+        'callProvider',
         'chatbot',
         'faq',
         'host',
@@ -482,6 +483,87 @@ describe('the public page and its times', () => {
       expectNothingPrivate(times, `the ${kind ?? type} times`);
       expect(JSON.stringify(times)).not.toContain(MOCK_OWN_EMAIL);
     }
+  });
+});
+
+describe('a saved video link (hotfix)', () => {
+  const ZOOM = 'https://example.zoom.us/j/1234567890?pwd=fictional';
+  const leaks = (value: unknown) => {
+    const text = JSON.stringify(value);
+    return text.includes(ZOOM) || text.includes('example.zoom.us') || text.includes('1234567890');
+  };
+
+  beforeEach(async () => {
+    const found = await resolveOpenLink(harness.store, SLUG);
+    if (!found.open) throw new Error('closed');
+    await harness.store.update(
+      'booking_settings',
+      harness.auth.organizationId,
+      DEMO_BOOKING_SETTINGS_ID,
+      { settings: { ...(found.link.row.settings as Record<string, unknown>), callLink: ZOOM } },
+    );
+  });
+
+  it('is named, never shown, on the public page and its times', async () => {
+    const page = await publicBookingPage(harness.store, SLUG, { now: NOW });
+    expect(page.callProvider).toBe('Zoom call');
+    expect(leaks(page)).toBe(false);
+    const times = await publicSlots(
+      harness.store,
+      SLUG,
+      { type: 'call', kind: null },
+      { now: NOW, source: source() },
+    );
+    expect(times.slots.length).toBeGreaterThan(0);
+    expect(leaks(times)).toBe(false);
+  });
+
+  it('never reaches the model, its tools or the reply; calls read as a Zoom call', async () => {
+    const model = new FakeModel(async (call) => {
+      const calls = await call('find_open_slots', { meeting_type: 'call' });
+      const start = (JSON.parse(calls.content) as { slots: { start: string }[] }).slots[0]!.start;
+      await call('get_faq', {});
+      await call('fill_form', { name: 'Pat Lee', email: 'pat@acme.example', start });
+    });
+    const reply = await chat(ask('Can we do a Zoom? What is the link?'), model);
+    const request = model.requests[0]!;
+    expect(request.system).toContain('Meetings offered: a 30-min Zoom call, or a 1-hour');
+    expect(leaks(request.system)).toBe(false);
+    expect(leaks(request.tools)).toBe(false);
+    expect(JSON.parse(model.outcomes[0]!.content)).toMatchObject({ meeting: '30-min Zoom call' });
+    expect(leaks(model.outcomes)).toBe(false);
+    expect(leaks(reply)).toBe(false);
+  });
+
+  it('never reaches the guided helper either', async () => {
+    const found = await chat(
+      CHAT_REQUEST.parse({ mode: 'guided', action: 'find_time', type: 'call' }),
+    );
+    expect(found.reply).toMatch(/^Here are the next open times for a 30-min Zoom call,/);
+    for (const body of [
+      found,
+      await chat(CHAT_REQUEST.parse({ mode: 'guided', action: 'about' })),
+      await chat(CHAT_REQUEST.parse({ mode: 'guided', action: 'message' })),
+      await chat(CHAT_REQUEST.parse({ mode: 'guided' })),
+    ]) {
+      expect(leaks(body)).toBe(false);
+    }
+  });
+});
+
+describe('what the chatbot says happens next (hotfix)', () => {
+  it('never says a person confirms, reviews or approves', async () => {
+    const model = new FakeModel(async () => {});
+    await chat(ask('What happens after I send it?'), model);
+    const system = model.requests[0]!.system;
+    expect(system).toContain(
+      'After they send it, they get a calendar invitation once the time is booked.',
+    );
+    expect(system).not.toMatch(/Arwin (will )?confirm|will (confirm|review|approve)/i);
+    const message = await chat(CHAT_REQUEST.parse({ mode: 'guided', action: 'message' }));
+    expect(message.reply).toBe(
+      'Write your message (and a deck link, if you like) in the form, then press Send.',
+    );
   });
 });
 
