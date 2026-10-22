@@ -90,8 +90,8 @@ export function BookingsPanel(props: BookingsPanelProps) {
           data-tour="booking-waiting"
         >
           <p className="min-w-0 flex-1 text-sm">
-            <span className="font-semibold">{props.waitingCount} waiting for approval.</span>{' '}
-            Approve first is on: each one goes on the calendar when someone approves it.
+            <span className="font-semibold">{props.waitingCount} waiting for approval.</span> Each
+            one goes on the calendar when someone approves it.
           </p>
           {props.waiting}
         </div>

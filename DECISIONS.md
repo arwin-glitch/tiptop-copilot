@@ -2759,3 +2759,89 @@ him), a public chatbot that calls itself Arwin, and "don't create chaos".
 - Requests are judged again at approval: one approved after the day filled up
   by hand is refused, not squeezed in.
 - Instant booking is stored but does not book on its own (above).
+
+---
+
+### D-078 — The Booking tab: a month planner, instant by default, and why no times
+
+**Context.** The booking link (D-074) lived in Settings > Booking link, opened a
+fixed 21 days, and waited for a person's Approve. Arwin (Oct 22, after the link
+went to Nick): it should book instantly ("didn't I mention the rules
+already?"), never say a person confirms, have its own tab rather than a
+Settings section, open month by month ("which month are we wanting to open"),
+and cost nothing. An empty public page with no way to see why was the other
+complaint.
+
+**Decision (the tab builder's part; bookings, cancel and reschedule are the
+flows builder's, the chatbot the chat builder's).**
+
+- **A top-level Booking tab** (`/booking`, Working, after Calendar), one
+  subtab per section in the URL (`?tab=`; `lib/booking/tabs.ts`): Overview,
+  Availability (`&view=planner|hours|rules`), Bookings (`&scope=upcoming|past|
+  messages`), Profile, Places, Chatbot, Calendars. No long scroll. Settings >
+  Booking link is a short card linking here and `/settings?tab=booking`
+  redirects; the Calendar tab's requests button is a small "Booking link"
+  shortcut, and `/calendar#booking-requests` (Today's line) goes on to
+  `/booking?tab=bookings#booking-requests`, where the approve-first drawer
+  opens as before.
+- **Months, not days** (`lib/booking/months.ts`, pure). The window is "this
+  month through <month>": rolling by default (this month and the next one,
+  `rollingMonths: 1`, so a new month opens the next by itself) or fixed at
+  `openThrough`, never past this month and the next six
+  (`MAX_MONTHS_AHEAD = 6`; the save refuses more). Each month on the strip is
+  its own switch: closing one adds it to `closedMonths`; opening one past the
+  window fixes the window through it and keeps the months between closed, so
+  a tap never opens a month nobody tapped; "Keep rolling" turns a fixed
+  window back into the same rolling one. Days: `closedDates`, `closedRanges`
+  (with a label) and `dateHours` (shorter hours on a day). Rules always win:
+  the planner can only close or shorten, never open what a rule closes (a
+  Friday, the notice, the 8:00 to 18:00 Central bounds, a day away). Past
+  entries drop off on save. `horizonDays` is gone; the busy read covers the
+  open months in parts of at most 60 days (the range reader takes 62).
+- **Every refusal has a rule code** (`ReasonCode` in `lib/booking/engine.ts`:
+  past, weekday, month_closed, date_closed, not_open, hours, notice,
+  in_person_paused, away, link_cap, meeting_cap, busy, waiting, stack) beside
+  its plain words; `slotProblem` still returns the words. `dayPlans` runs any
+  run of days through the same rules as the public page.
+- **The live preview** (`GET /api/booking/preview?month=` or `?from=&days=`,
+  signed in, any member, at most 42 days; `lib/services/booking-planner.ts`)
+  reads the calendar exactly as a visitor's page does and returns, per day
+  and per kind (call, coffee, lunch, dinner), the open start times or the
+  rule that closes it. Times only, never a title or guest. When the calendar
+  cannot be read it shows the rules alone, marked ("Visitors see no times
+  until it can be read"). The month grid, the day panel and Overview's "Why
+  no times?" (the next 14 days) all draw from it, so nobody stares at an
+  empty page again.
+- **A panel saves only its own fields** (`PATCH /api/booking/settings`, admin
+  or owner): the stored settings with only the sent `PANEL_KEYS` changed,
+  checked as a whole by the same strict schema. Never the photo (only an
+  upload) or the chatbot (its own route), so the panels and the chatbot never
+  undo each other. Planner taps save at once; hours, rules, profile and
+  places have a Save.
+- **Instant is the default** (`approveFirst: false`); Approve first is an
+  optional switch on Overview. Overview also shows one big on/off, the link
+  (copy, open, rename), and the checks: link on, calendar editing on, profile
+  filled, places set, open times in the next two weeks, and which months are
+  open (a fixed window ending inside two weeks warns). With calendar editing
+  off a banner at the top says "Turn on calendar editing so invites go out
+  automatically".
+- **Calendars** (`lib/booking/calendar-choices.ts`, pure; `GET
+  /api/booking/calendars`): by default his main calendar, every one he owns,
+  every one ticked in Google and every one turned on in Copilot count; a
+  switch on the Calendars list adds or drops any other (`calendarChoices`,
+  only real overrides kept). His main calendar always counts; a teammate's
+  own calendar never does ("Teammate · never counts").
+- **Bookings** reads the flows builder's `GET /api/booking/bookings?scope=`
+  and cancels through `POST /api/booking/bookings/[id]/cancel` (with an
+  optional note); until that lands the list says it is not switched on. The
+  tab's copy of the `LinkBooking` shape is `components/booking/tab/types.ts`.
+- **The chatbot's config** is `BookingConfig.chatbot` (`ChatbotConfig` from
+  `lib/booking/chatbot-config.ts`, read with a fallback to the older
+  `chatbotEnabled`/`faq`); the monthly AI spend setting is gone (the chat
+  module keeps its old $20 brake as a constant until its zero-spend version
+  replaces it). The Chatbot subtab mounts the chatbot builder's panel.
+
+**Known limits.** A fixed window that has passed shows no times until a month
+is opened (Overview warns two weeks ahead). The busy read now spans up to seven
+months, in parts, cached a minute like before. The preview reads the saved
+settings, so a change shows after its save (planner taps save at once).

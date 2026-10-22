@@ -70,9 +70,12 @@ async function fillAboutYou(page: Page, name: string, email: string, company: st
     .fill('A short intro to what we are building.');
 }
 
-/** Booking requests open from the button over the Calendar page's header, in a drawer. */
+/**
+ * Booking requests (Approve first) open from the button on the Booking
+ * tab's Bookings subtab, in a drawer (D-078: it left the Calendar header).
+ */
 async function openRequests(page: Page) {
-  await page.goto('/calendar');
+  await page.goto('/booking?tab=bookings');
   const button = page.getByRole('button', { name: /^Booking requests/ });
   await expect(button).toBeVisible();
   await button.click();
@@ -252,15 +255,16 @@ test.describe('in Copilot', () => {
     const line = page.getByText(/\d+ booking requests? waiting\./);
     await expect(line).toBeVisible();
     await page.getByRole('link', { name: 'Review in Calendar →' }).click();
-    await expect(page).toHaveURL(/\/calendar#booking-requests$/);
+    // The old drawer address on the Calendar tab goes on to the Booking tab (D-078).
+    await expect(page).toHaveURL(/\/booking\?tab=bookings#booking-requests$/);
     // The link opens the drawer itself.
     const drawer = page.getByRole('dialog', { name: 'Booking requests' });
     await expect(drawer).toBeVisible();
     await expect(drawer.getByRole('listitem').first()).toBeVisible();
-    // Closed, it stays closed on a reload, and the calendar is where it was.
+    // Closed, it stays closed on a reload.
     await drawer.getByRole('button', { name: 'Close' }).click();
     await expect(drawer).toHaveCount(0);
-    await expect(page).toHaveURL(/\/calendar$/);
+    await expect(page).toHaveURL(/\/booking\?tab=bookings$/);
   });
 
   test('approve the call: re-checked, then on the calendar with the invite sent', async ({
@@ -318,36 +322,42 @@ test.describe('in Copilot', () => {
     await page.screenshot({ animations: 'disabled', path: shot('copilot-decline-draft') });
   });
 
-  test('the button sits beside the title, on a phone too, and moves nothing', async ({ page }) => {
+  test('the Calendar tab keeps a small Booking link shortcut, on a phone too, moving nothing', async ({
+    page,
+  }) => {
     await page.goto('/calendar');
-    const button = page.getByRole('button', { name: /^Booking requests/ });
-    await expect(button).toBeVisible();
+    const shortcut = page.getByRole('link', { name: /^Booking link/ });
+    await expect(shortcut).toBeVisible();
+    await expect(shortcut).toHaveAttribute('href', '/booking');
     await page.screenshot({
       animations: 'disabled',
       path: shot('copilot-calendar-header'),
       clip: { x: 0, y: 0, width: 1366, height: 320 },
     });
     await page.setViewportSize({ width: 390, height: 844 });
-    const phone = page.getByRole('button', { name: /^Requests/ });
-    await expect(phone).toBeVisible();
+    await expect(shortcut).toBeVisible();
     const tour = (await page.getByRole('button', { name: 'Tour this page' }).boundingBox())!;
-    const box = (await phone.boundingBox())!;
+    const box = (await shortcut.boundingBox())!;
     expect(box.x).toBeGreaterThan(tour.x + tour.width);
     expect(box.x + box.width).toBeLessThanOrEqual(390);
     await expectNoSidewaysScroll(page);
     await page.screenshot({ animations: 'disabled', path: shot('copilot-calendar-phone') });
   });
 
-  test('Settings has the Booking link tab, off-switch and all', async ({ page }) => {
+  test('the Booking tab has the off-switch, and the chatbot its answers', async ({ page }) => {
+    // Settings' old address lands on the Booking tab (D-078).
     await page.goto('/settings?tab=booking');
-    await expect(page.getByRole('tab', { name: 'Booking link' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await page.waitForURL(/\/booking$/);
     await expect(page.getByRole('switch', { name: 'Take bookings' })).toBeChecked();
-    await page.getByRole('tab', { name: 'Chatbot' }).click();
-    await expect(page.getByLabel('Public FAQ for the chatbot')).toHaveValue(/invented fund/);
-    await expect(page.getByLabel('Monthly AI cost cap (US$)')).toHaveValue('20');
+    await page
+      .getByRole('navigation', { name: 'Booking sections' })
+      .getByRole('link', { name: 'Chatbot' })
+      .click();
+    await expect(
+      page.getByText('TipTop VC (Demo) is an invented fund', { exact: false }),
+    ).toBeVisible();
+    // No spend setting any more: the chatbot costs nothing.
+    await expect(page.getByLabel('Monthly AI cost cap (US$)')).toHaveCount(0);
     await page.screenshot({ animations: 'disabled', path: shot('copilot-settings') });
   });
 });

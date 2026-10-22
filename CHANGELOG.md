@@ -10,6 +10,47 @@ throughout.
 
 ## [Unreleased]
 
+- **The booking link has its own Booking tab.** It sits in the menu right
+  after Calendar, at `/booking`, one short section per subtab (no long
+  scroll):
+  - **Overview:** the link with Copy and Open, one big on/off switch, and
+    what happens when someone picks a free time: **Instant** (the default:
+    it goes straight on Nick's calendar, because his rules already decide
+    what is free) or **Approve first**. A row of checks says what is missing
+    (calendar editing, the profile, places, open times in the next two weeks,
+    which months are open), and **Why no times?** lists each of the next 14
+    days with the rule that closes it: not a meeting day, month closed, day
+    closed, in person paused on a trip, away, the day's cap, a full day,
+    too soon, a back-to-back stack, or fully busy.
+  - **Availability:** a strip of this month and the next six, each with its
+    own Open/Closed switch ("which month are we opening?"). By default this
+    month and next are open and it rolls on by itself; opening a later month
+    opens just that one. A calendar of the month shows a live preview of the
+    exact times visitors see (calls, coffee, lunch, dinner), worked out by
+    the same rules as the public page. Tap a day to see its times, close it,
+    or give it shorter hours (the rules always win: nothing here can open a
+    time they close). Close a run of days for a holiday. The hours and the
+    rules (buffers, notice, caps, back-to-back) moved here from Settings, and
+    keep the 8:00 AM to 6:00 PM Central bounds (dinner 6-7 PM).
+  - **Bookings:** upcoming, past and messages, each with who, when (Central
+    and their own time), call or in person and where, guests, the note and
+    deck, and its status (Booked, Held, Waiting, Cancelled with their note).
+    Cancel (with an optional note) and Open in Calendar. While Approve first
+    is on, waiting requests open in the same Approve/Decline drawer as before.
+  - **Profile** and **Places**, moved from Settings unchanged (photo included).
+  - **Chatbot:** the page's Arwin chatbot and its answers.
+  - **Calendars:** which of Nick's calendars block his time. By default his
+    main one, his own (personal, family) and the ones ticked in Google; any
+    other can be switched on or off. His main calendar always counts, a
+    teammate's never does.
+
+  When calendar editing is off, a banner at the top says to turn it on so
+  invites go out automatically. Settings > Booking link is now a short card
+  that opens the tab (its old address goes straight there), and the
+  Calendar tab's "Booking requests" button became a small "Booking link"
+  shortcut. The chatbot's monthly AI spend setting is gone: it is meant to
+  cost nothing. Help and the guided tour cover the new tab.
+
 - **A booking link people can use to ask Nick for time.** A public page at
   `/meet/<name>` (Nick's is `/meet/nick`), with its own TipTop look, his name,
   title, short bio and photo, works on a phone and in dark mode, and needs no

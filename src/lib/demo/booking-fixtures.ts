@@ -1,3 +1,4 @@
+import { readChatbotConfig } from '@/lib/booking/chatbot-config';
 import { DEFAULT_BOOKING_CONFIG, type BookingConfig } from '@/lib/booking/config';
 import type { BookingRequest, BookingSettingsRow } from '@/lib/types/domain';
 import { addDaysToKey, localDateKey, wallTimeToUtc } from '@/lib/util/time';
@@ -18,6 +19,13 @@ const id = (n: number) => `${NS}${n.toString(16).padStart(12, '0')}`;
 
 export const DEMO_BOOKING_SLUG = 'nick';
 export const DEMO_BOOKING_SETTINGS_ID = id(0xb00c);
+
+const DEMO_FAQ = [
+  'TipTop VC (Demo) is an invented fund used to show this page.',
+  'Stage: pre-seed and seed software companies.',
+  'Check size: an invented $250K to $500K first check.',
+  'Pitching: share a deck link in the form; the team reads every one.',
+].join('\n');
 
 export const DEMO_BOOKING_CONFIG: BookingConfig = {
   ...structuredClone(DEFAULT_BOOKING_CONFIG),
@@ -47,12 +55,9 @@ export const DEMO_BOOKING_CONFIG: BookingConfig = {
       mapUrl: 'https://maps.example/saltgrass-table',
     },
   ],
-  faq: [
-    'TipTop VC (Demo) is an invented fund used to show this page.',
-    'Stage: pre-seed and seed software companies.',
-    'Check size: an invented $250K to $500K first check.',
-    'Pitching: share a deck link in the form; the team reads every one.',
-  ].join('\n'),
+  faq: DEMO_FAQ,
+  // The chatbot's own field (D-078), read from the same invented FAQ.
+  chatbot: readChatbotConfig({ faq: DEMO_FAQ }),
 };
 
 /** The next Tuesday-to-Thursday dates at least `minDays` ahead, demo time. */

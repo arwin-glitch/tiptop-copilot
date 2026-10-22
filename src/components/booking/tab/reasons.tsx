@@ -39,10 +39,13 @@ const TONE_CLASS: Record<ReasonTone, string> = {
 export function ReasonChip({
   code,
   reason,
+  wrap = false,
   className,
 }: {
   code: PreviewCode;
   reason: string | null;
+  /** Let the label wrap (a narrow calendar cell) instead of cutting it short. */
+  wrap?: boolean;
   className?: string;
 }) {
   const chip = REASON_CHIP[code];
@@ -51,12 +54,13 @@ export function ReasonChip({
       title={reason ?? undefined}
       data-reason={code}
       className={cn(
-        'inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] leading-4 font-medium',
+        'inline-flex max-w-full items-center border px-2 py-0.5 text-[11px] leading-4 font-medium',
+        wrap ? 'rounded-md' : 'rounded-full',
         TONE_CLASS[chip.tone],
         className,
       )}
     >
-      <span className="truncate">{chip.label}</span>
+      <span className={wrap ? 'leading-tight' : 'truncate'}>{chip.label}</span>
       {reason ? <span className="sr-only">: {reason}</span> : null}
     </span>
   );

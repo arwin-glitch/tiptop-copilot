@@ -470,7 +470,7 @@ function DayCell({
         count > 0
           ? 'border-[var(--ok)]/40 bg-[var(--ok-soft)] hover:brightness-105'
           : 'border-[var(--border)] bg-[var(--bg-sunken)] hover:bg-[var(--bg-hover)]',
-        date < today && 'opacity-50',
+        (date < today || firstPlan?.code === 'weekday') && count === 0 && 'opacity-50',
         selected && 'ring-2 ring-[var(--accent)]',
       )}
     >
@@ -507,10 +507,13 @@ function DayCell({
             })}
           </span>
         </>
-      ) : firstPlan?.code && firstPlan.code !== 'past' ? (
+      ) : firstPlan?.code && firstPlan.code !== 'past' && firstPlan.code !== 'weekday' ? (
+        // A Monday or a weekend needs no chip: the dim cell says it. Every
+        // other rule is named, in full words that wrap inside the cell.
         <ReasonChip
           code={firstPlan.code}
           reason={firstPlan.reason}
+          wrap
           className="hidden px-1.5 text-[10px] sm:inline-flex"
         />
       ) : null}
