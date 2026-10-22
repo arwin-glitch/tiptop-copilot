@@ -1,6 +1,7 @@
 import type {
   AiUsageRecord,
   AuditEvent,
+  BookingChatQuestion,
   BookingRequest,
   BookingSettingsRow,
   CalendarEvent,
@@ -111,6 +112,7 @@ export interface TableMap {
   sync_runs: SyncRun;
   booking_settings: BookingSettingsRow;
   booking_requests: BookingRequest;
+  booking_chat_questions: BookingChatQuestion;
 }
 
 export type TableName = keyof TableMap;

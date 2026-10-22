@@ -197,3 +197,89 @@ export async function settleAnswersFromSlack(
   })();
   return askState.inFlight;
 }
+
+/* ------------------------------------------------- shared with other routines */
+
+/**
+ * Fire any routine's API trigger with a text payload: the same call
+ * `fireAskRoutine` makes, for another routine with its own URL and token
+ * (the booking page assistant, lib/booking/chat-bridge.ts). Starts a routine
+ * on its owner's Claude plan; it is not a model call and bills nothing.
+ * Best-effort: false on any refusal or failure, never a throw.
+ */
+export async function fireRoutineWithText(
+  target: { url: string; token: string },
+  text: string,
+  fetchImpl: typeof fetch = fetch,
+  label = 'Routine',
+): Promise<boolean> {
+  try {
+    const response = await fetchImpl(target.url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${target.token}`,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'experimental-cc-routine-2026-04-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(FIRE_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      log.warn(`${label} trigger refused the request`, { status: response.status });
+      return false;
+    }
+    return true;
+  } catch (error) {
+    log.warn(`${label} trigger could not be reached`, {
+      reason: error instanceof Error ? error.message : 'unknown',
+    });
+    return false;
+  }
+}
+
+/** One message from a relay channel's history, as Slack returns it. */
+export interface RelayChannelMessage {
+  text?: unknown;
+  user?: unknown;
+  subtype?: unknown;
+  ts?: unknown;
+}
+
+/**
+ * The newest messages in a relay channel, read with the relay's read-only
+ * token, or null when it could not be read. The same read
+ * `settleAnswersFromSlack` makes, for another reader with its own channel.
+ */
+export async function readRelayChannel(
+  channelId: string,
+  fetchImpl: typeof fetch = fetch,
+  limit = 100,
+): Promise<RelayChannelMessage[] | null> {
+  const e = env();
+  if (!e.askRelaySlackToken) return null;
+  try {
+    const url = `https://slack.com/api/conversations.history?channel=${encodeURIComponent(
+      channelId,
+    )}&limit=${Math.max(1, Math.min(200, Math.floor(limit)))}`;
+    const response = await fetchImpl(url, {
+      headers: { Authorization: `Bearer ${e.askRelaySlackToken}` },
+      signal: AbortSignal.timeout(SLACK_TIMEOUT_MS),
+    });
+    const body = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      messages?: RelayChannelMessage[];
+    };
+    if (!body.ok) {
+      log.warn('Slack relay channel could not be read', { error: body.error ?? 'unknown' });
+      return null;
+    }
+    return Array.isArray(body.messages) ? body.messages : [];
+  } catch (error) {
+    log.warn('Slack relay channel could not be read', {
+      reason: error instanceof Error ? error.message : 'unknown',
+    });
+    return null;
+  }
+}

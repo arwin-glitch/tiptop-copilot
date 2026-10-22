@@ -108,6 +108,7 @@ export type AuditAction =
   | 'booking.approve_refused'
   | 'booking.declined'
   | 'booking.handled'
+  | 'booking.chatbot_updated'
   | 'draft.created'
   | 'chat.question_asked'
   | 'brief.generated'

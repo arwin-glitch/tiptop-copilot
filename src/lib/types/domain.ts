@@ -1394,6 +1394,25 @@ export interface BookingRequest {
 }
 
 /**
+ * A question a visitor asked the booking page assistant that no written
+ * answer matched, sent to the booking assistant routine (D-078,
+ * supabase/migrations/20261022200100_booking_chat.sql). Written only by the
+ * server; `answer` is the routine's reply after lib/booking/chat-bridge.ts
+ * made it plain.
+ */
+export interface BookingChatQuestion {
+  id: Uuid;
+  organization_id: Uuid;
+  question: string;
+  answer: string | null;
+  status: 'pending' | 'answered' | 'expired';
+  /** A keyed hash of the visitor's address, for the per-address cap; never the address. */
+  ip_hash: string | null;
+  created_at: IsoDateTime;
+  answered_at: IsoDateTime | null;
+}
+
+/**
  * A token a Claude client (a claude.ai custom connector, a Claude Code session,
  * a cloud routine) uses to read the CRM through the MCP endpoint. Only the
  * SHA-256 of the token is stored; the token itself is shown once, at creation.
