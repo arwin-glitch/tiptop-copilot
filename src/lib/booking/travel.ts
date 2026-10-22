@@ -85,9 +85,20 @@ function words(text: string): string {
     .trim()} `;
 }
 
+/**
+ * A name as typed, and its city part when it was typed "City, State": a home
+ * city saved as "Harbor City, Lakeshire" still matches "Flight to Harbor
+ * City" or "12 Main St, Harbor City, LK".
+ */
+function nameForms(name: string): string[] {
+  const city = name.split(',')[0]?.trim() ?? '';
+  return city && city !== name.trim() ? [name, city] : [name];
+}
+
 function namesAny(text: string, names: readonly string[]): boolean {
   const haystack = words(text);
   return names
+    .flatMap(nameForms)
     .filter((n) => n.trim().length >= 2)
     .some((name) => {
       const needle = words(name).trim();
