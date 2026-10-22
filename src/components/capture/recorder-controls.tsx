@@ -1,10 +1,26 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, Mic, MonitorUp, Pause, Play, RefreshCw, Square, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Cpu,
+  Mic,
+  MonitorUp,
+  Pause,
+  Play,
+  RefreshCw,
+  Square,
+  X,
+} from 'lucide-react';
 import { formatOffset } from '@/lib/notes/api';
 import type { MeetingRecorderApi } from '@/lib/capture/use-meeting-recorder';
-import type { RecorderWarning, SocketState, TrackSnapshot } from '@/lib/capture/types';
+import type {
+  EngineState,
+  RecorderSnapshot,
+  RecorderWarning,
+  TrackSnapshot,
+} from '@/lib/capture/types';
+import { WHISPER_CHOICES, formatMb } from '@/lib/transcribe/models';
 import type { TranscriptTrack } from '@/lib/types/notes';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,8 +29,9 @@ import { LevelMeter } from './level-meter';
 
 /**
  * The recorder while it runs (D-076, WS3): a red pill with the time, a meter
- * per track, what the connection is doing, warnings with the button that
- * fixes them, and Pause / Resume / Stop. It does not start a recording: the
+ * per track, what the on-device speech engine is doing (getting ready the
+ * first time, transcribing, finishing the transcript after Stop), warnings
+ * with the button that fixes them, and Pause / Resume / Stop. It does not start a recording: the
  * meeting page's consent step does that, and only once the box is ticked.
  * The meeting page (WS2) can mount this as it is or use the hook directly.
  */
@@ -25,12 +42,12 @@ const TRACK_LABEL: Record<TranscriptTrack, string> = {
   mixed: 'Microphone (everyone)',
 };
 
-const SOCKET_LABEL: Record<SocketState, string> = {
+const ENGINE_LABEL: Record<EngineState, string> = {
   idle: 'Waiting',
-  connecting: 'Connecting',
+  starting: 'Starting',
   open: 'Transcribing',
-  reconnecting: 'Reconnecting',
-  closed: 'Closed',
+  restarting: 'Restarting',
+  closed: 'Done',
   failed: 'Stopped',
 };
 
@@ -75,7 +92,7 @@ export function RecorderControls({
         {controls ? <StatusPill status={state.status} elapsedMs={state.elapsedMs} /> : null}
         {state.provider ? (
           <Badge tone="outline" data-testid="recorder-provider">
-            {state.provider === 'mock' ? 'Demo speech' : state.provider}
+            {state.provider === 'mock' ? 'Demo speech' : 'On this computer'}
           </Badge>
         ) : null}
         <span className="text-mini text-[var(--fg-muted)]" data-testid="upload-status">
@@ -123,6 +140,8 @@ export function RecorderControls({
         ) : null}
       </div>
 
+      <SpeechStatus state={state} />
+
       {tracks.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {tracks.map((t) => (
@@ -134,12 +153,12 @@ export function RecorderControls({
               level={t.level}
               live={t.live && !paused}
               hint={
-                <span data-testid={`socket-${t.track}`} data-socket={t.socket}>
-                  {!t.live
+                <span data-testid={`engine-${t.track}`} data-engine={t.engine}>
+                  {!t.live && t.engine !== 'open'
                     ? 'Not shared'
                     : t.muted
                       ? 'Paused by the device'
-                      : SOCKET_LABEL[t.socket]}
+                      : ENGINE_LABEL[t.engine]}
                 </span>
               }
             />
@@ -169,6 +188,48 @@ export function RecorderControls({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * The speech engine in a line: "Getting speech ready… 45% of 320 MB (first
+ * time only)" while the model downloads, "Finishing transcript… 0:42 of audio
+ * left" after Stop, and which model runs where while recording.
+ */
+function SpeechStatus({ state }: { state: RecorderSnapshot }) {
+  const speech = state.speech;
+  if (state.provider !== 'browser-whisper' || speech.phase === 'idle') return null;
+  const active = ['starting', 'recording', 'paused', 'stopping'].includes(state.status);
+  if (!active) return null;
+  let text: string;
+  if (state.status === 'stopping') {
+    text =
+      speech.backlogMs > 1000
+        ? `Finishing transcript… ${formatOffset(speech.backlogMs)} of audio left. Keep this page open.`
+        : 'Finishing transcript…';
+  } else if (speech.phase === 'loading') {
+    const pct = speech.progress === null ? null : Math.round(speech.progress * 100);
+    text =
+      speech.totalMb > 1
+        ? `Getting speech ready… ${pct ?? 0}% of ${formatMb(speech.totalMb)} (first time only; then it is saved in this browser). Everything said meanwhile is kept.`
+        : 'Getting speech ready…';
+  } else if (speech.phase === 'failed') {
+    text = speech.message ?? 'Speech stopped on this computer.';
+  } else {
+    const model = speech.model ? WHISPER_CHOICES[speech.model].label : 'Whisper';
+    const where = speech.device === 'webgpu' ? 'the graphics chip' : 'the processor';
+    text = `${model} model, on ${where}. Audio never leaves this computer.`;
+  }
+  return (
+    <p
+      className="text-mini flex items-center gap-1.5 text-[var(--fg-muted)]"
+      data-testid="speech-status"
+      data-phase={state.status === 'stopping' ? 'finishing' : speech.phase}
+      aria-live="polite"
+    >
+      <Cpu className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="min-w-0">{text}</span>
+    </p>
   );
 }
 

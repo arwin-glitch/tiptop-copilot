@@ -7,10 +7,10 @@ import { MOCK_CALL_LINES } from '../../src/lib/transcribe/mock-script';
  * Copilot Notes (D-076) with the browser recorder mounted behind the meeting
  * page: the integration of the screens (notes-ui) and the web recorder
  * (notes-capture) on the core. Chromium's fake microphone and an auto-picked
- * shared screen stand in for the devices, the recorder's worklets and sockets
- * run for real, and demo mode's mock speech vendor hears them (?capture=live
+ * shared screen stand in for the devices, the recorder's worklets and engines
+ * run for real, and demo mode's speech engine hears them (?capture=live
  * picks the recorder over the scripted call; outside demo mode it is the
- * only engine). Fictional people only; nothing reaches a vendor or a model.
+ * only engine). Fictional people only; nothing reaches a speech service or a model.
  *
  * Desktop: the calendar's "Take notes" → consent → both tracks recording →
  * the live transcript with names → a voice named from the invite → typed
@@ -121,7 +121,7 @@ test('the calendar to notes on a company page, with the browser recorder', async
   await page.waitForURL(/\/meetings\/[0-9a-f-]{36}\?start=1/);
   const meetingId = new URL(page.url()).pathname.split('/').pop() as string;
 
-  // The same page with the browser recorder against the demo vendor.
+  // The same page with the browser recorder against the demo speech engine.
   await page.goto(`/meetings/${meetingId}?start=1&capture=live&mockSpeed=12`);
   const consent = consentDialog(page);
   await expect(consent).toBeVisible();
@@ -137,13 +137,13 @@ test('the calendar to notes on a company page, with the browser recorder', async
   await start.click();
   await expect(consent).toHaveCount(0);
 
-  // Both tracks capture: the recorder's meters and sockets, under the page's own pill.
+  // Both tracks capture: the recorder's meters and engines, under the page's own pill.
   await expect(page.locator('[data-recording-pill="recording"]')).toBeVisible();
   const controls = page.getByTestId('recorder-controls');
   await expect(controls).toHaveAttribute('data-status', 'recording');
   await expect(controls.getByTestId('recorder-provider')).toHaveText('Demo speech');
-  await expect(controls.getByTestId('socket-mic')).toHaveAttribute('data-socket', 'open');
-  await expect(controls.getByTestId('socket-system')).toHaveAttribute('data-socket', 'open');
+  await expect(controls.getByTestId('engine-mic')).toHaveAttribute('data-engine', 'open');
+  await expect(controls.getByTestId('engine-system')).toHaveAttribute('data-engine', 'open');
   // The page has the one Pause / Stop: the recorder's own buttons are not drawn twice.
   await expect(controls.getByRole('button', { name: 'Stop recording' })).toHaveCount(0);
 
@@ -169,7 +169,7 @@ test('the calendar to notes on a company page, with the browser recorder', async
   await expect(live.getByRole('button', { name: /^Maya Chen/ }).first()).toBeVisible();
 
   // Her consent is on file: open her name again and remember her voice from
-  // the live session (the vendor's identifiers for that one voice, sealed).
+  // the live session (that one voice's voiceprint from this computer, sealed).
   await live.getByRole('button', { name: 'Maya Chen: change who this is' }).first().click();
   const again = page.getByRole('dialog', { name: 'This is…' });
   await again.getByRole('checkbox', { name: /Remember this voice/ }).check();
@@ -255,8 +255,8 @@ test.describe('on a 390px phone', () => {
     // One diarized track: the microphone hears everyone.
     const controls = page.getByTestId('recorder-controls');
     await expect(controls).toHaveAttribute('data-status', 'recording');
-    await expect(controls.getByTestId('socket-mixed')).toHaveAttribute('data-socket', 'open');
-    await expect(controls.getByTestId('socket-system')).toHaveCount(0);
+    await expect(controls.getByTestId('engine-mixed')).toHaveAttribute('data-engine', 'open');
+    await expect(controls.getByTestId('engine-system')).toHaveCount(0);
 
     const live = transcript(page);
     await expect(live).toBeVisible();

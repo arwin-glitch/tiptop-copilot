@@ -220,17 +220,6 @@ export interface AppEnv {
    */
   notesEnabled: NotesMode;
   /**
-   * The speech-to-text vendor for live transcripts. The long-lived keys stay
-   * here, on the server; the browser only ever gets a 60-second key minted
-   * from them (lib/transcribe). Unset keys mean recording reports itself not
-   * set up; demo mode always uses the scripted mock and calls no vendor.
-   */
-  transcriberProvider: 'speechmatics' | 'assemblyai';
-  /** The vendor region the browser streams to ('us' keeps data in the US). */
-  transcriberRegion: string;
-  speechmaticsApiKey: string | undefined;
-  assemblyaiApiKey: string | undefined;
-  /**
    * 32 random bytes, base64: seals voice identifiers (biometric data) at rest.
    * Unset means nobody can be enrolled; consent can still be recorded.
    */
@@ -351,16 +340,6 @@ export function env(): AppEnv {
     })(),
     desktopReleaseToken: str('DESKTOP_RELEASE_TOKEN'),
     notesEnabled: notesMode(str('NOTES_ENABLED')),
-    transcriberProvider:
-      (str('TRANSCRIBER_PROVIDER') ?? '').toLowerCase() === 'assemblyai'
-        ? 'assemblyai'
-        : 'speechmatics',
-    transcriberRegion: ((): string => {
-      const region = (str('TRANSCRIBER_REGION') ?? 'us').toLowerCase();
-      return /^[a-z][a-z0-9]{1,5}$/.test(region) ? region : 'us';
-    })(),
-    speechmaticsApiKey: str('SPEECHMATICS_API_KEY'),
-    assemblyaiApiKey: str('ASSEMBLYAI_API_KEY'),
     voiceprintEncKey: str('VOICEPRINT_ENC_KEY'),
     notesSharePepper: str('NOTES_SHARE_PEPPER'),
     meetingFollowupFireUrl: str('MEETING_FOLLOWUP_FIRE_URL'),
@@ -793,36 +772,18 @@ export function capabilityReport(
   });
 
   // Copilot Notes (D-076). Off by default; each row reports presence only.
-  const speechKey =
-    e.transcriberProvider === 'assemblyai' ? e.assemblyaiApiKey : e.speechmaticsApiKey;
-  const speechVar =
-    e.transcriberProvider === 'assemblyai' ? 'ASSEMBLYAI_API_KEY' : 'SPEECHMATICS_API_KEY';
+  // Speech-to-text needs no key: Whisper runs in the recorder's own browser.
   checks.push({
     key: 'notes',
     label: 'Copilot Notes (meeting transcripts)',
-    status:
-      e.notesEnabled === 'off'
-        ? 'optional-missing'
-        : e.demoMode
-          ? 'demo'
-          : has(speechKey)
-            ? 'ready'
-            : 'missing',
+    status: e.notesEnabled === 'off' ? 'optional-missing' : e.demoMode ? 'demo' : 'ready',
     detail:
       e.notesEnabled === 'off'
         ? 'Off (NOTES_ENABLED is not set). Meetings are not recorded; Granola notes are unaffected.'
         : e.demoMode
-          ? 'Demo mode: recording plays a scripted, fictional call and calls no speech vendor.'
-          : has(speechKey)
-            ? `${e.notesEnabled === 'beta' ? 'Beta: on for whoever turns on the Settings switch.' : 'On for everyone.'} Speech-to-text: ${e.transcriberProvider} (${e.transcriberRegion} region). The browser gets a 60-second key; audio is never stored.`
-            : `Turned on, but ${speechVar} is not set, so recording says it is not set up yet.`,
-    variables: [
-      'NOTES_ENABLED',
-      'TRANSCRIBER_PROVIDER',
-      'TRANSCRIBER_REGION',
-      'SPEECHMATICS_API_KEY',
-      'ASSEMBLYAI_API_KEY',
-    ],
+          ? 'Demo mode: recording plays a scripted, fictional call and runs no speech model.'
+          : `${e.notesEnabled === 'beta' ? 'Beta: on for whoever turns on the Settings switch.' : 'On for everyone.'} Speech-to-text runs free in the recorder's browser (Whisper); audio never leaves that computer.`,
+    variables: ['NOTES_ENABLED'],
     required: false,
   });
 

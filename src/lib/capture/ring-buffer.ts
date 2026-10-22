@@ -1,10 +1,11 @@
 import { SAMPLES_PER_MS } from './types';
 
 /**
- * The reconnect buffer (D-076): the last 30 seconds of one track's audio, in
- * memory only, never written to disk or sent anywhere but the vendor socket.
- * When a socket drops, the new socket is fed the audio from where the vendor
- * last finished a line, so the transcript has no gap and no repeat.
+ * The replay buffer (D-076): the last 30 seconds of one track's audio, in
+ * memory only, never written to disk or sent anywhere but this computer's
+ * speech worker. When an engine has to restart, the new one is fed the audio
+ * from where the last one finished a line, so the transcript has no gap and
+ * no repeat.
  *
  * Positions are in samples of the recording's own clock (16 kHz, pauses
  * excluded), so a chunk's place never depends on when it arrived.
@@ -87,7 +88,7 @@ export class AudioRingBuffer {
 
   /**
    * The chunks covering `fromSample` onward. The first chunk may start a
-   * little before it: a chunk is never cut, so the vendor hears whole chunks
+   * little before it: a chunk is never cut, so the engine hears whole chunks
    * and the first words may repeat by a fraction of a second, which the
    * recorder's de-duplication absorbs.
    */

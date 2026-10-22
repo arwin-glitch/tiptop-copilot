@@ -38,10 +38,13 @@ describe('microphone and screen capture', () => {
     }
   });
 
-  it("let the recorder reach the speech vendors' sockets", async () => {
+  it('let the speech worker run and download its free models, and reach no speech vendor', async () => {
     const csp = (await headersFor('/meetings/abc')).headers.get('content-security-policy') ?? '';
-    expect(csp).toContain('wss://*.rt.speechmatics.com');
-    expect(csp).toContain('wss://streaming.assemblyai.com');
+    expect(csp).toContain("'wasm-unsafe-eval'");
+    expect(csp).toMatch(/worker-src 'self' blob:/);
+    expect(csp).toContain('https://huggingface.co');
+    expect(csp).toContain('https://*.hf.co');
+    expect(csp).not.toMatch(/speechmatics|assemblyai|wss:/);
   });
 });
 

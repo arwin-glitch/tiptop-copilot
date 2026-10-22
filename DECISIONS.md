@@ -2580,14 +2580,14 @@ Rust toolchain to build it), so the core lands a contract first.
   session and event shapes, and each route's body and answer, with the zod
   schemas in `lib/notes/schemas.ts` checked against them (`satisfies`) and
   the paths in `lib/notes/api.ts`. Client-safe throughout.
-- **No audio, ever, in v1.** The browser streams straight to the speech
-  vendor with a key minted for 60 seconds (`/stt-token`); only finished text
-  lines come back (`/segments`, at most 200 per post, upserted on a
-  per-meeting `seq`). `meetings.audio_retained` is pinned false by a check.
-- **One seam for speech-to-text** (`lib/transcribe`): Speechmatics by default
-  (the only vendor that names enrolled voices live), AssemblyAI as the
-  fallback, and a mock in demo mode that plays a scripted, fictional
-  three-person call and calls nobody. The vendor key never leaves the server.
+- **No audio, ever, in v1.** The browser transcribes on the device (see
+  "Zero spend" below; the first design streamed to a paid vendor); only
+  finished text lines come back (`/segments`, at most 200 per post, upserted
+  on a per-meeting `seq`). `meetings.audio_retained` is pinned false by a
+  check.
+- **One seam for speech-to-text** (`lib/transcribe`): Whisper in the
+  recorder's browser (`browser-whisper`), and a mock in demo mode that plays a
+  scripted, fictional three-person call and runs no model. No key anywhere.
 - **Lines are stored by voice, never by name.** `cluster_key` is `mic`,
   `sys:<label>` or `mix:<label>` (`#n` after a split), and the name lives on
   `meeting_speakers` alone, so renaming a voice is one update and every line
@@ -2627,9 +2627,9 @@ and the demo data (a finished meeting nine days back, one scheduled two hours
 ahead). Still to come on the core: the AI notes, transcript-cue and calendar
 elimination passes, MCP meeting tools, firing the follow-up routine, the
 Granola pairing in existing readers, and a purge job for the trash and
-expired voice identifiers. A person must add the vendor keys, the pepper and
-the voiceprint key on Render, and apply the migration before turning the flag
-on.
+expired voice identifiers. A person must add the pepper and the voiceprint
+key on Render (speech needs no key), and apply the migration before turning
+the flag on.
 
 **Addendum: the core, part 2.** What landed on top of the contract, and the
 calls made while building it. Everything is additive to the contract: new
@@ -2828,3 +2828,88 @@ routes, and optional fields on existing answers.
 - **Lists and cards use the core's readers:** the calendar card reads the
   `by-event` lookup in one call (series included), the Notes tab shows the
   viewer's Copilot count, and the Granola chip lists Granola's notes only.
+
+**Zero spend: speech on the device (notes-speech).** Arwin, on the first
+build: "there shouldnt be any spending here". Speech-to-text now costs
+nothing and needs no key: the recorder's own browser transcribes, and the
+paid design above (Speechmatics, AssemblyAI, the 60-second keys) is gone from
+the code. This supersedes the speech parts of the contract, the core and the
+web recorder above.
+
+- **Whisper in a Web Worker, per track.** `src/workers/speech.worker.ts` runs
+  transformers.js (`@huggingface/transformers` 4.3.1, ONNX Runtime Web) in the
+  browser: WebGPU when there is one (a full-precision encoder and a 4-bit
+  decoder), WebAssembly otherwise (8-bit). The mic and the meeting audio each
+  get a worker, so on a processor they use two cores; Best shares one, its
+  model being too big to load twice. A worker stays warm two minutes after a
+  pause, so Resume starts at once. The provider is `browser-whisper`; demo
+  mode keeps the scripted `mock`.
+- **Free, pinned, cached.** Fast is Whisper Base (about 210 MB on WebGPU, 81 MB
+  on the processor), Better is Whisper Small (590 / 253 MB), Best is Large v3
+  Turbo (about 1.6 GB, WebGPU with 16-bit support only); English meetings get
+  the English-only weights. Every model is pinned to an exact revision on
+  huggingface.co and cached by the browser after its first download
+  (`lib/transcribe/models.ts`). ONNX Runtime's WebAssembly binary is the
+  bundler's copy of the installed package in `/_next/static/media/`, never a
+  CDN. The choice is kept in the browser (Settings, Notes, Speech), because
+  the model is cached there and what keeps up depends on the computer.
+- **Chunked where people pause, never dropped.** An energy voice-activity
+  detector against a learned noise floor (`lib/capture/vad.ts`) cuts speech
+  into 5 to 25 second stretches at pauses; silence is never sent (it is where
+  Whisper invents "Thank you."); a stretch cut without a pause overlaps the
+  next by a second and the repeated words go once (`text-dedupe.ts`). When the
+  model is slower than speech, stretches queue in the worker; Stop transcribes
+  everything queued before telling the server ("Finishing transcript… 0:42 of
+  audio left"), and finish waits as long as the work keeps moving (two
+  minutes without progress gives up). The first download never loses words:
+  the worker takes audio before its model is ready. Live partials run only
+  where they are cheap (WebGPU, queue empty).
+- **Who's talking, free.** The mic is the recorder, always. On the meeting
+  audio (and the in-person track) pyannote's segmentation model finds speaker
+  turns in each stretch and WavLM's speaker-verification head turns each
+  speaker's audio into an embedding; `lib/speakers/online-clusterer.ts`
+  clusters them online (cosine similarity, a threshold that adapts to the
+  meeting within 0.80 to 0.92, short turns never starting a voice, small
+  voices merged into a near one, eight at most) into `sys:A`, `sys:B`… Both
+  models run on the processor beside Whisper (108 MB once). Lines already
+  sent keep their label when a small voice merges; Merge joins them in one
+  tap. The naming ladder above is unchanged.
+- **Voiceprints are embeddings.** A consented person's voiceprint is their
+  voice's centroid (base64 Float32, `lib/transcribe/voiceprint.ts`), made in
+  the browser on "Remember this voice" (or a solo clip) and sealed by the
+  server as before; the model version stored is the embedding model's, and a
+  voiceprint from another version never matches. A recording's speech setup
+  carries the consented, enrolled voices on the invite plus the team, to that
+  browser's worker only, where they seed the clustering, so a match is named
+  `sys:<profile id>` from its first turn. Everyone else's voice is clustered
+  on the device and never leaves it: guests' embeddings are not uploaded, not
+  even for matching. `voice_profiles.provider` is `on_device`.
+- **The server hands out settings, not keys.** `POST /speech-setup` replaces
+  `/stt-token`: per track, the language, the invite's and the CRM's names to
+  spell right (capitals fixed on finished lines only, never a word swapped)
+  and the known voices; 60 an hour per person, recorder only, while
+  recording. The recorder asks once and keeps the answer for restarts and
+  resumes. `/voice-profiles/enroll-session` stays as the consent check before
+  a solo clip is captured. Audit `notes.stt_token_minted` is
+  `notes.speech_setup`.
+- **Restarts, not reconnects.** Going offline no longer touches speech, only
+  saving lines; the 30-second in-memory buffer now replays into a speech
+  engine that had to restart (a lost graphics chip, a crashed worker).
+- **Policies.** `connect-src` drops the vendors' sockets and adds
+  huggingface.co and `*.hf.co` (downloads only); `worker-src 'self' blob:`;
+  `script-src` adds `'wasm-unsafe-eval'`. The vendor environment variables
+  are gone; nothing for speech needs setting on Render.
+- **Checked with a real model once, locally.** A fictional two-voice clip
+  (Windows' built-in voices) through Chromium's fake microphone, in-person
+  mode, Whisper Fast on WebAssembly: models ready 14 s after Start on a first
+  run, the first line 4 s later, every sentence transcribed (8 of 9 checked
+  words; "twelve thousand" came out as "$12,000"), the two voices told apart
+  correctly through two and a half loops, and the transcript finished 4 s
+  after Stop. The tests use a fake model (`lib/capture/fake-adapter.ts`), in
+  Node and in a real Chromium (`tests/e2e/capture-whisper.spec.ts`).
+- **Still open.** The smoke test ran on the processor (WebAssembly, forced),
+  so the graphics-chip path, and Better and Best, need checking on Nick's
+  computer; the voice
+  thresholds were tuned on synthetic and built-in voices, not real calls; the
+  Tauri desktop app can use the same web recorder (its webview is Chromium on
+  Windows) until native capture is built.

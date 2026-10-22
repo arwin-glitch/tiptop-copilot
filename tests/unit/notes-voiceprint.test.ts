@@ -5,17 +5,22 @@ import {
   sealIdentifiers,
   voiceprintSealingAvailable,
 } from '@/lib/notes/voiceprint-seal';
-import { AssemblyAITranscriber } from '@/lib/transcribe/assemblyai';
+import { BrowserWhisperTranscriber } from '@/lib/transcribe/browser-whisper';
 import { MockTranscriber } from '@/lib/transcribe/mock';
 import { mockVoiceIdentifiers } from '@/lib/transcribe/mock-script';
-import { getSpeakersMessage, speakerIdentifiersFor } from '@/lib/transcribe/socket-url';
-import { speechmaticsStartRecognition } from '@/lib/transcribe/speechmatics';
+import {
+  cosine,
+  decodeVoiceprint,
+  encodeVoiceprint,
+  isVoiceprint,
+  syntheticVoiceprint,
+} from '@/lib/transcribe/voiceprint';
 
 /**
- * Voice profiles (D-076): identifiers sealed at rest with VOICEPRINT_ENC_KEY
- * and bound to their profile, enrolment sessions, and the GetSpeakers
- * helpers the recorder uses. No vendor is called; the identifiers here are
- * made up.
+ * Voice profiles (D-076): voiceprints (speaker embeddings made in the
+ * recorder's browser) sealed at rest with VOICEPRINT_ENC_KEY and bound to
+ * their profile, enrolment settings, and the voiceprint codec. Nothing is
+ * called; every voiceprint here is a made-up vector.
  */
 
 const PROFILE = '3b9d2f2c-6a7e-4c1b-9d8e-1f2a3b4c5d6e';
@@ -72,89 +77,58 @@ describe('sealing voice identifiers', () => {
   });
 });
 
-describe('enrolment sessions', () => {
-  it('Speechmatics: a diarized mic clip that recognises nobody', () => {
-    const start = speechmaticsStartRecognition(
-      'mic',
-      'en',
-      [{ label: PROFILE, identifiers: ['x'] }],
-      [],
-      'enrollment',
-    ) as { transcription_config: Record<string, unknown> };
-    expect(start.transcription_config).toMatchObject({
-      diarization: 'speaker',
-      operating_point: 'enhanced',
-      speaker_diarization_config: { max_speakers: 2 },
+describe('enrolment settings', () => {
+  it('a solo clip is told apart like a mixed track and recognises nobody', () => {
+    const session = new BrowserWhisperTranscriber().session({
+      meetingId: PROFILE,
+      track: 'mixed',
+      language: 'en',
+      knownVoices: [],
+      vocabulary: [],
+      purpose: 'enrollment',
     });
-    expect(JSON.stringify(start)).not.toContain('speaker_identifiers');
+    expect(session).toMatchObject({ provider: 'browser-whisper', track: 'mixed', knownVoices: [] });
   });
 
-  it('a meeting mic stays undiarized; the meeting audio recognises consented voices by profile id', () => {
-    const mic = speechmaticsStartRecognition(
-      'mic',
-      'en',
-      [{ label: PROFILE, identifiers: ['x'] }],
-      [],
-    ) as {
-      transcription_config: Record<string, unknown>;
-    };
-    expect(mic.transcription_config.diarization).toBeUndefined();
-    const system = speechmaticsStartRecognition(
-      'system',
-      'en',
-      [{ label: PROFILE, identifiers: ['x'] }],
-      [],
+  it('the demo plays an enrolment script and posts a made-up voiceprint', () => {
+    const session = new MockTranscriber().session({
+      meetingId: 'm',
+      track: 'mixed',
+      language: 'en',
+      knownVoices: [],
+      vocabulary: [],
+      purpose: 'enrollment',
+    });
+    expect(session.sessionConfig).toMatchObject({ script: 'voice-enrollment', enrollment: true });
+    const [print] = mockVoiceIdentifiers('dana@acmerobotics.example');
+    expect(print && isVoiceprint(print)).toBe(true);
+    expect(mockVoiceIdentifiers('DANA@acmerobotics.example')).toEqual(
+      mockVoiceIdentifiers('dana@acmerobotics.example'),
     );
-    expect(JSON.stringify(system)).toContain(`"label":"${PROFILE}"`);
-  });
-
-  it('AssemblyAI cannot remember a voice, and says so before calling anyone', async () => {
-    let called = false;
-    const fetchImpl = (async () => {
-      called = true;
-      return new Response('{}');
-    }) as unknown as typeof fetch;
-    const minted = await new AssemblyAITranscriber('test-key-not-real', fetchImpl).mintSession({
-      meetingId: 'm',
-      track: 'mic',
-      language: 'en',
-      knownSpeakers: [],
-      vocabulary: [],
-      purpose: 'enrollment',
-    });
-    expect(minted.ok).toBe(false);
-    expect(called).toBe(false);
-  });
-
-  it('the demo plays an enrolment script instead of opening a socket', async () => {
-    const minted = await new MockTranscriber().mintSession({
-      meetingId: 'm',
-      track: 'mic',
-      language: 'en',
-      knownSpeakers: [],
-      vocabulary: [],
-      purpose: 'enrollment',
-    });
-    expect(minted.ok && minted.value.sessionConfig).toMatchObject({
-      script: 'voice-enrollment',
-      enrollment: true,
-    });
-    expect(mockVoiceIdentifiers('dana@acmerobotics.example')).toHaveLength(2);
   });
 });
 
-describe('GetSpeakers', () => {
-  it('asks for the identifiers and keeps only the voice asked about', () => {
-    expect(JSON.parse(getSpeakersMessage())).toEqual({ message: 'GetSpeakers', final: true });
-    const result = {
-      message: 'SpeakersResult',
-      speakers: [
-        { label: 'S1', speaker_identifiers: ['a1', 'a2'] },
-        { label: 'S2', speaker_identifiers: ['b1'] },
-      ],
-    };
-    expect(speakerIdentifiersFor(result, 'S2')).toEqual(['b1']);
-    expect(speakerIdentifiersFor(result, 'S9')).toBeNull();
-    expect(speakerIdentifiersFor({ message: 'AddTranscript' }, 'S1')).toBeNull();
+describe('the voiceprint codec', () => {
+  it('round-trips a vector at unit length', () => {
+    const vector = syntheticVoiceprint('a made-up voice');
+    const decoded = decodeVoiceprint(encodeVoiceprint(vector.map((v) => v * 3)));
+    expect(decoded).not.toBeNull();
+    expect(decoded).toHaveLength(512);
+    expect(cosine(decoded!, vector)).toBeCloseTo(1, 5);
+  });
+
+  it('refuses what is not a voiceprint', () => {
+    expect(decodeVoiceprint('not base64!')).toBeNull();
+    expect(decodeVoiceprint('AAAA')).toBeNull(); // one float: too few dimensions
+    expect(decodeVoiceprint(encodeVoiceprint(new Float32Array(512)))).toBeNull(); // all zeros
+    const nan = new DataView(new ArrayBuffer(512 * 4));
+    nan.setFloat32(0, Number.NaN, true);
+    let binary = '';
+    for (const b of new Uint8Array(nan.buffer)) binary += String.fromCharCode(b);
+    expect(decodeVoiceprint(btoa(binary))).toBeNull();
+  });
+
+  it('tells two made-up voices apart', () => {
+    expect(cosine(syntheticVoiceprint('one'), syntheticVoiceprint('two'))).toBeLessThan(0.3);
   });
 });

@@ -1,14 +1,15 @@
 import type { TranscriptTrack } from '@/lib/types/notes';
 
 /**
- * Turning a vendor's finished words into transcript lines (D-076).
+ * Turning the speech engine's finished pieces into transcript lines (D-076).
  *
- * Speechmatics finishes words every second or two, mid-sentence; a line per
- * message would make a transcript of fragments. The assembler joins one
+ * Whisper finishes a stretch of speech at a time, and a stretch can end
+ * mid-sentence (the chunker cuts at the longest pause it can find); a line
+ * per piece would make a transcript of fragments. The assembler joins one
  * voice's finished pieces into a line and closes it at the end of a
  * sentence, when the voice changes, after a pause, or when it grows long.
- * AssemblyAI and the mock already finish whole turns, which pass through as
- * they are (each ends a sentence).
+ * The demo engine already finishes whole turns, which pass through as they
+ * are (each ends a sentence).
  */
 
 export interface FinishedPiece {
@@ -22,7 +23,7 @@ export interface FinishedPiece {
 }
 
 export interface AssembledLine extends FinishedPiece {
-  /** How many vendor pieces went into the line. */
+  /** How many engine pieces went into the line. */
   pieces: number;
 }
 

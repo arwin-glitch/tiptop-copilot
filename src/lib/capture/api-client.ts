@@ -7,7 +7,7 @@ import type {
   StartRecordingRequest,
   StopRecordingRequest,
   StopRecordingResponse,
-  SttTokenResponse,
+  SpeechSetupResponse,
   TranscriptTrack,
   UploadSegmentsResponse,
 } from '@/lib/types/notes';
@@ -96,8 +96,8 @@ export class NotesClient {
     return this.call<StopRecordingResponse>(NOTES_API.stop(meetingId), 'POST', body);
   }
 
-  sttToken(meetingId: string, tracks: TranscriptTrack[]) {
-    return this.call<SttTokenResponse>(NOTES_API.sttToken(meetingId), 'POST', { tracks });
+  speechSetup(meetingId: string, tracks: TranscriptTrack[]) {
+    return this.call<SpeechSetupResponse>(NOTES_API.speechSetup(meetingId), 'POST', { tracks });
   }
 
   uploadSegments(

@@ -103,7 +103,7 @@ export default async function MeetingPage({
   const speed = Number.parseFloat(single(query.mockSpeed) ?? '');
   const demo = isDemoMode();
   // The browser recorder everywhere; demo mode plays the scripted call (no
-  // microphone needed) unless ?capture=live asks for the recorder against the mock vendor.
+  // microphone needed) unless ?capture=live asks for the recorder against the demo engine.
   const engine = demo && single(query.capture) !== 'live' ? 'scripted' : 'live';
   const when = meeting.startedAt ?? meeting.scheduledStart ?? meeting.createdAt;
   // The live state (recording, notes ready) is in the bar below, which keeps up.

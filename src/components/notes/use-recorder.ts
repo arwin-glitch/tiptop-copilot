@@ -16,7 +16,7 @@ import {
   type SegmentUpload,
   type StopReason,
   type StopRecordingResponse,
-  type SttTokenResponse,
+  type SpeechSetupResponse,
   type TranscriptTrack,
   type UploadSegmentsResponse,
   type VoiceEnrollRequest,
@@ -25,15 +25,16 @@ import { notesCall } from './api-client';
 
 /**
  * The meeting page's recorder (D-076), in the order the contract sets:
- * POST /start with the consent step, POST /stt-token, lines posted to
+ * POST /start with the consent step, POST /speech-setup, lines posted to
  * /segments with a rising seq (a retried batch is safe), /pause, then /stop
  * with the last lines and the notepad saved first.
  *
  * Two engines sit behind one handle:
  * - 'live': the browser recorder (lib/capture). The microphone is the person
  *   at this computer, the shared meeting tab or screen is everyone else, each
- *   streamed straight to the speech vendor with a 60-second key. In demo mode
- *   it talks to the mock vendor, so the whole pipeline runs with no vendor.
+ *   transcribed on this computer by Whisper in a Web Worker: free, and the
+ *   audio never leaves the device. In demo mode it plays the demo engine, so
+ *   the whole pipeline runs with no model.
  * - 'scripted': demo mode only. Plays the fictional call from
  *   lib/transcribe/mock-script.ts with no microphone at all, so the demo works
  *   on any machine and the screen tests need no fake devices.
@@ -83,9 +84,9 @@ export interface RecorderHandle {
   stop(): Promise<StopRecordingResponse | null>;
   /**
    * "Remember this voice" for a consented person, once the server said
-   * 'requested': the voice's identifiers from the live session, sealed by
-   * the server. 'unavailable' when nothing records here or the vendor gave
-   * none yet.
+   * 'requested': the voice's voiceprint from this computer's speech worker,
+   * sealed by the server. 'unavailable' when nothing records here or the
+   * worker has not heard that voice yet.
    */
   rememberVoice(
     clusterKey: string,
@@ -250,17 +251,17 @@ function useScriptedRecorder(options: RecorderOptions, enabled: boolean): Record
     }, 400);
   }, [flush]);
 
-  const mintSessions = React.useCallback(async (): Promise<boolean> => {
-    const minted = await notesCall<Omit<SttTokenResponse, 'ok'>>(
+  const speechSetup = React.useCallback(async (): Promise<boolean> => {
+    const setup = await notesCall<Omit<SpeechSetupResponse, 'ok'>>(
       'POST',
-      NOTES_API.sttToken(meetingId),
+      NOTES_API.speechSetup(meetingId),
       { tracks: tracks.current },
     );
-    if (!minted.ok) {
-      setError(minted.message);
+    if (!setup.ok) {
+      setError(setup.message);
       return false;
     }
-    if (minted.provider !== 'mock') {
+    if (setup.provider !== 'mock') {
       setError('The scripted demo call runs only in demo mode. Reload the page to record live.');
       return false;
     }
@@ -339,7 +340,7 @@ function useScriptedRecorder(options: RecorderOptions, enabled: boolean): Record
         return false;
       }
       latest.current.onMeeting(started.meeting);
-      if (!(await mintSessions())) {
+      if (!(await speechSetup())) {
         setPhase('interrupted');
         return false;
       }
@@ -349,7 +350,7 @@ function useScriptedRecorder(options: RecorderOptions, enabled: boolean): Record
       void play(clock.current);
       return true;
     },
-    [canRecord, meetingId, mintSessions, play],
+    [canRecord, meetingId, speechSetup, play],
   );
 
   const pause = React.useCallback(async () => {
@@ -378,8 +379,7 @@ function useScriptedRecorder(options: RecorderOptions, enabled: boolean): Record
       }
       latest.current.onMeeting(res.meeting);
     }
-    // A fresh key on every reconnect: the old one only opened the old socket.
-    if (!(await mintSessions())) return;
+    if (!(await speechSetup())) return;
     if (phase === 'interrupted') {
       clock.current = Math.max(clock.current, latest.current.lastLineEndMs);
       nextSeq.current = Math.max(nextSeq.current, (current.lastSeq ?? -1) + 1);
@@ -387,7 +387,7 @@ function useScriptedRecorder(options: RecorderOptions, enabled: boolean): Record
     runningSince.current = Date.now();
     setPhase('recording');
     void play(clock.current);
-  }, [meetingId, mintSessions, phase, play]);
+  }, [meetingId, speechSetup, phase, play]);
 
   const stop = React.useCallback(async (): Promise<StopRecordingResponse | null> => {
     abort.current?.abort();
@@ -428,7 +428,7 @@ function useScriptedRecorder(options: RecorderOptions, enabled: boolean): Record
     pause,
     resume,
     stop,
-    // The scripted call has no speech session to ask.
+    // The scripted call has no speech worker to ask.
     rememberVoice: async () => 'unavailable',
   };
 }
@@ -473,7 +473,7 @@ function useLiveRecorder(options: RecorderOptions, enabled: boolean): RecorderHa
   const rec = useMeetingRecorder({
     meetingId,
     mode: options.meeting.kind === 'in_person' ? 'mic_only' : 'call',
-    // Demo mode plays the mock vendor faster than real time.
+    // Demo mode plays the demo engine faster than real time.
     tuning: demo ? { mockSpeed } : undefined,
   });
   const state = rec.state;

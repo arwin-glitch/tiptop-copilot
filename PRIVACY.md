@@ -48,18 +48,22 @@ action.
   dropped at once if the app loses access to the channel), and never written
   to the database, disk, logs or the browser. The tab reads nothing while
   sign-in is open to every Google account.
-- Meeting audio (Copilot Notes, D-076). The browser streams it straight to
-  the speech vendor with a key that lives 60 seconds; it never reaches
-  Copilot's server or database, and the schema refuses a meeting marked as
-  keeping audio. A reconnect replays at most 30 seconds held in the browser's
-  memory, never on disk. Transcripts are kept, private to the person who
+- Meeting audio (Copilot Notes, D-076). The recorder's own browser turns it
+  into text, with the free Whisper model running on that computer: the audio
+  never leaves the computer, never reaches Copilot's server, database or any
+  speech service, and the schema refuses a meeting marked as keeping audio.
+  Only finished lines of text are sent to Copilot. If the speech engine has to
+  restart, it replays at most 30 seconds held in the browser's memory, never
+  on disk. The models themselves download once from huggingface.co (nothing is
+  sent there but the request for the file) and stay in the browser's cache. Transcripts are kept, private to the person who
   recorded them unless they share them with the team; recording cannot start
   until they confirm everyone was told, and never on a meeting that matches a
   never-record rule. Voice identifiers are kept only for people who consented,
   encrypted, deleted within a year of last use, and at once on withdrawal.
-  The identifiers are only ever sent to the speech vendor for recordings with
-  that person on the invite (or a teammate), labelled with an id, never a
-  name. Meeting notes are written by the AI model from the transcript; the
+  A voiceprint is a speaker embedding made on the recorder's computer; it is
+  sent only to that recorder's browser, for recordings with that person on
+  the invite (or a teammate), labelled with an id, never a name. Everyone
+  else's voice is told apart on the computer and never leaves it. Meeting notes are written by the AI model from the transcript; the
   transcript goes to the model provider like any other source Copilot
   analyses, with the same no-training terms. The cloud routines can read only
   meetings their recorder shared with the team, never a private one or a

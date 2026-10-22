@@ -128,7 +128,7 @@ export type AuditAction =
   | 'notes.paused'
   | 'notes.resumed'
   | 'notes.stop'
-  | 'notes.stt_token_minted'
+  | 'notes.speech_setup'
   | 'notes.segment_edited'
   | 'notes.speaker_relabelled'
   | 'notes.speaker_split'

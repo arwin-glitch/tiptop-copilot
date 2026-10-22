@@ -11,7 +11,7 @@ import { countMeetingNotes, ingestGranolaNote, listMeetingNotes } from '@/lib/se
 import { fireMeetingFollowUp, followUpFireText } from '@/lib/services/notes-followup';
 import { purgeNotes } from '@/lib/services/notes-purge';
 import { searchEverything } from '@/lib/services/search';
-import { knownSpeakersFor } from '@/lib/services/voice-profiles';
+import { knownVoicesFor } from '@/lib/services/voice-profiles';
 import { clusterKeyFor } from '@/lib/transcribe/cluster';
 import {
   mockTranscriptEvents,
@@ -409,7 +409,7 @@ describe('voice profiles', () => {
     const noConsent = await enrollRoute.POST(
       req('/api/notes/voice-profiles/enroll', 'POST', {
         email: DANA.email,
-        identifiers: ['x'],
+        identifiers: mockVoiceIdentifiers(DANA.email),
         modelVersion: 'test',
       }),
     );
@@ -442,6 +442,15 @@ describe('voice profiles', () => {
       provider: 'mock',
       session: { sessionConfig: { enrollment: true } },
     });
+    // Only a voiceprint is kept: anything else is refused before sealing.
+    const notAVoiceprint = await enrollRoute.POST(
+      req('/api/notes/voice-profiles/enroll', 'POST', {
+        email: DANA.email,
+        identifiers: ['AAAA'],
+        modelVersion: 'test',
+      }),
+    );
+    expect(notAVoiceprint.status).toBe(400);
     const enrolled = await json<{ profile: { enrolled: boolean } }>(
       await enrollRoute.POST(
         req('/api/notes/voice-profiles/enroll', 'POST', {
@@ -457,14 +466,16 @@ describe('voice profiles', () => {
     );
     expect(stored).not.toContain(mockVoiceIdentifiers(DANA.email)[0]);
 
-    const known = await knownSpeakersFor({ store: harness.store, auth: harness.auth }, [
-      DANA.email,
-    ]);
+    const known = await knownVoicesFor({ store: harness.store, auth: harness.auth }, [DANA.email]);
     expect(known).toEqual([
-      { label: expect.any(String), identifiers: mockVoiceIdentifiers(DANA.email) },
+      {
+        label: expect.any(String),
+        voiceprint: mockVoiceIdentifiers(DANA.email)[0],
+        modelVersion: 'test',
+      },
     ]);
 
-    // A later meeting: the vendor labels Dana's words with her profile id.
+    // A later meeting: the speech worker labels Dana's words with her profile id.
     const second = await newMeeting({ title: 'Acme second call' });
     await start(second.meeting.id);
     const profileKey = `sys:${known[0]?.label}`;
@@ -489,7 +500,7 @@ describe('voice profiles', () => {
     );
     expect(await harness.store.list('voice_identifiers', harness.auth.organizationId)).toEqual([]);
     expect(
-      await knownSpeakersFor({ store: harness.store, auth: harness.auth }, [DANA.email]),
+      await knownVoicesFor({ store: harness.store, auth: harness.auth }, [DANA.email]),
     ).toEqual([]);
   });
 });

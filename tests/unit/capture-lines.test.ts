@@ -72,7 +72,7 @@ describe('the line assembler', () => {
     expect(lines).toHaveLength(0);
   });
 
-  it('passes whole turns (AssemblyAI, the mock) through as they are', () => {
+  it('passes whole turns (the demo engine) through as they are', () => {
     const { lines, asm } = collect();
     asm.add(piece('Hi! Glad to finally meet.', 10_000, 13_000, 'S2'));
     expect(lines).toEqual([

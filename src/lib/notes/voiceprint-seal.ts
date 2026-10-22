@@ -50,7 +50,7 @@ export function voiceprintSealingAvailable(): boolean {
   return keyMaterial().ok;
 }
 
-/** Seal one profile's identifiers (the vendor's opaque strings) as one row's ciphertext. */
+/** Seal one profile's identifiers (base64 voiceprints) as one row's ciphertext. */
 export function sealIdentifiers(
   identifiers: readonly string[],
   profileId: string,

@@ -13,10 +13,14 @@
  * are uuids; times are ISO strings; durations and offsets are milliseconds
  * from the start of the recording.
  *
- * Privacy, as code: no shape here carries audio. Voice identifiers never leave
- * the server (VoiceIdentifier is a row type for the service alone; no response
- * includes it). Share-link responses carry the token once, at creation; rows
- * carry only its hash. Public shared views carry no email address.
+ * Privacy, as code: no shape here carries audio. Speech is transcribed in the
+ * recorder's own browser (D-076); only finished lines of text reach the server.
+ * Voiceprints leave the server only inside a recorder's speech setup, for the
+ * consented people on that meeting's invite and the team, and only into that
+ * browser's speech worker (VoiceIdentifier is a row type for the service
+ * alone; no other response includes one). Share-link responses carry the
+ * token once, at creation; rows carry only its hash. Public shared views carry
+ * no email address.
  */
 
 import type { IsoDateTime, MeetingNote, Uuid } from './domain';
@@ -97,7 +101,12 @@ export type ParticipantRole = (typeof PARTICIPANT_ROLES)[number];
 export const PARTICIPANT_SOURCES = ['calendar', 'roster', 'manual'] as const;
 export type ParticipantSource = (typeof PARTICIPANT_SOURCES)[number];
 
-export const TRANSCRIBER_PROVIDERS = ['speechmatics', 'assemblyai', 'mock'] as const;
+/**
+ * Who turns speech into text (D-076). 'browser-whisper': Whisper running in the
+ * recorder's own browser (a Web Worker, WebGPU or WebAssembly), free, with the
+ * audio never leaving the device. 'mock': demo mode's scripted call, no model.
+ */
+export const TRANSCRIBER_PROVIDERS = ['browser-whisper', 'mock'] as const;
 export type TranscriberProvider = (typeof TRANSCRIBER_PROVIDERS)[number];
 
 export const CHAT_SCOPES = ['meeting', 'person', 'company', 'all'] as const;
@@ -143,13 +152,11 @@ export type StopReason = (typeof STOP_REASONS)[number];
 export const NOTES_LIMITS = {
   /** Lines in one POST /segments. */
   maxSegmentsPerRequest: 200,
-  /** Characters in one line (the vendor's finished line, or a person's edit). */
+  /** Characters in one line (the speech engine's finished line, or a person's edit). */
   maxSegmentChars: 4000,
-  /** Speech keys minted per user per hour (POST /stt-token). */
-  sttTokensPerHour: 30,
-  /** Lifetime of a minted speech key, in seconds. */
-  sttTokenTtlSeconds: 60,
-  /** Audio the recorder keeps in memory to replay after a reconnect. Never written to disk. */
+  /** Speech setups per user per hour (POST /speech-setup and /voice-profiles/enroll-session). */
+  speechSetupsPerHour: 60,
+  /** Audio the recorder keeps in memory to replay if its speech engine restarts. Never written to disk. */
   reconnectBufferSeconds: 30,
   /** How often the recorder posts finished lines. */
   uploadIntervalMs: 2500,
@@ -159,9 +166,9 @@ export const NOTES_LIMITS = {
   noMeetingAudioWarningSeconds: 20,
   /** Mic words that repeat meeting-audio words within this window are echo, and dropped. */
   echoDedupeWindowMs: 1500,
-  /** Unknown voices one diarized session may tell apart. */
+  /** Unknown voices the on-device speaker clustering tells apart on one track. */
   maxSpeakersPerSession: 8,
-  /** Enrolled voices one session may match (the vendor's ceiling). */
+  /** Enrolled voices one speech setup may carry (people on the invite plus the team). */
   maxVoiceIdentifiersPerSession: 50,
   shareDefaultDays: 30 as ShareExpiryDays,
   shareMaxDays: 90,
@@ -318,7 +325,7 @@ export interface TranscriptSegment {
   vendor_label: string | null;
   start_ms: number;
   end_ms: number;
-  /** What the vendor heard. Untrusted; rendered as text only. */
+  /** What the speech model heard. Untrusted; rendered as text only. */
   text: string;
   /** A person's correction; `text` keeps the original. */
   edited_text: string | null;
@@ -421,7 +428,8 @@ export interface VoiceProfile {
   display_name: string | null;
   crm_person_id: Uuid | null;
   user_id: Uuid | null;
-  provider: 'speechmatics';
+  /** Voiceprints are made on the recorder's own device (VOICEPRINT_PROVIDER). */
+  provider: 'on_device';
   consent_status: VoiceConsentStatus;
   consent_at: IsoDateTime | null;
   consent_evidence: VoiceConsentEvidence | null;
@@ -445,6 +453,7 @@ export interface VoiceIdentifier {
   voice_profile_id: Uuid;
   /** AES-256-GCM sealed with VOICEPRINT_ENC_KEY, bound to the profile id. */
   identifier_enc: { ciphertext: string; iv: string; authTag: string; keyVersion: number };
+  /** The speaker-embedding model that made it; a voiceprint only matches its own model's. */
   model_version: string;
   created_at: IsoDateTime;
   expires_at: IsoDateTime;
@@ -642,41 +651,56 @@ export function isBuiltinTemplateId(id: string): boolean {
 
 /* ======================================================= speech-to-text == */
 
+/** Where a voiceprint is made: on the recorder's own device, by the speech worker. */
+export const VOICEPRINT_PROVIDER = 'on_device' as const;
+
 /**
- * What POST /stt-token returns per track: everything the recorder needs to
- * open one socket straight to the vendor. The token lives
- * NOTES_LIMITS.sttTokenTtlSeconds; it is only needed to open the socket, so a
- * reconnect asks for a new one. `wsUrl` carries no credential: build the
- * socket address with socketUrlFor (lib/transcribe/socket-url.ts), which adds
- * the token the way the vendor wants it. Provider 'mock' (demo mode) has no
- * socket at all: the recorder plays lib/transcribe/mock-script.ts instead.
+ * A consented, enrolled voice the speech worker should recognise (D-076).
+ * Lines matched to it carry the cluster key 'sys:<label>' (or 'mix:<label>'),
+ * which the naming ladder reads as a voiceprint match. Never a name.
  */
-export interface SttSession {
+export interface KnownVoice {
+  /** The voice profile's id. */
+  label: Uuid;
+  /** Base64 of the Float32 speaker embedding (lib/transcribe/voiceprint.ts). */
+  voiceprint: string;
+  /** The embedding model that made it; the worker skips one from another model. */
+  modelVersion: string;
+}
+
+/**
+ * What POST /speech-setup returns per track: the settings the recorder's
+ * speech engine runs with (D-076). Nothing here is a credential and nothing
+ * is paid for: the browser transcribes with Whisper in a Web Worker and only
+ * finished lines of text come back to Copilot. Provider 'mock' (demo mode)
+ * runs no model at all: the recorder plays lib/transcribe/mock-script.ts.
+ */
+export interface SpeechSession {
   track: TranscriptTrack;
   provider: TranscriberProvider;
-  /** The vendor's socket address without credentials; null for 'mock'. */
-  wsUrl: string | null;
-  token: string;
-  expiresAt: IsoDateTime;
-  /**
-   * What to send (Speechmatics: the StartRecognition message) or add to the
-   * socket address (AssemblyAI: query parameters) when the socket opens.
-   * Vendor-shaped; the recorder passes it through. It never names a person:
-   * enrolled voices travel as opaque profile ids.
-   */
+  /** BCP 47, 'en' by default. English picks the English-only Whisper models. */
+  language: string;
+  /** Names and terms worth spelling right (the invite, the CRM); applied to finished text. */
+  vocabulary: string[];
+  /** Consented, enrolled voices to recognise. Always empty on the mic: every mic word is the recorder's. */
+  knownVoices: KnownVoice[];
+  /** Mock only: which scripted call to play (`{ script, track }`). Empty otherwise. */
   sessionConfig: Record<string, unknown>;
-  /** Audio the vendor expects: always 16 kHz mono PCM16, little-endian. */
+  /** Audio the engine takes: always 16 kHz mono PCM16, little-endian. */
   audio: { sampleRate: 16000; encoding: 'pcm_s16le'; channels: 1 };
 }
 
 /**
- * One line from a vendor, normalised. The recorder turns each finished event
- * into a SegmentUpload; partial events only update the live view.
+ * One line from the speech engine, normalised. The recorder turns each
+ * finished event into a SegmentUpload; partial events only update the live view.
  */
 export interface TranscriptEvent {
   type: 'partial' | 'final';
   track: TranscriptTrack;
-  /** The vendor's speaker label ('S1', 'A', or an enrolled profile's id); null on the mic. */
+  /**
+   * Who spoke: the on-device clustering's label ('A', 'B'…), an enrolled
+   * profile's id when the voice matched a voiceprint, or null on the mic.
+   */
   speakerLabel: string | null;
   startMs: number;
   endMs: number;
@@ -708,7 +732,7 @@ export interface MeetingView {
   folderId: Uuid | null;
   templateId: string | null;
   recordedBy: Uuid | null;
-  /** The signed-in person recorded it (and so may record, upload and mint keys). */
+  /** The signed-in person recorded it (and so may record, upload and read its speech setup). */
   isRecorder: boolean;
   consent: ConsentView;
   lastSeq: number | null;
@@ -742,7 +766,7 @@ export type SpeakerCertainty =
 export interface SpeakerView {
   clusterKey: string;
   track: TranscriptTrack;
-  /** The resolved name, or "Guest N" while unresolved. Never a vendor label. */
+  /** The resolved name, or "Guest N" while unresolved. Never an engine label. */
   displayName: string;
   personEmail: string | null;
   crmPersonId: Uuid | null;
@@ -769,10 +793,10 @@ export interface SegmentView {
   clusterKey: string;
   startMs: number;
   endMs: number;
-  /** The edited text when there is one, else what the vendor heard. */
+  /** The edited text when there is one, else what the speech model heard. */
   text: string;
   edited: boolean;
-  /** The vendor's text, when the line was edited. */
+  /** The speech model's text, when the line was edited. */
   originalText: string | null;
   isFinal: boolean;
   confidence: number | null;
@@ -1042,15 +1066,15 @@ export interface StopRecordingResponse {
   finalize: { queued: boolean };
 }
 
-/** POST /api/notes/meetings/[id]/stt-token: one session per track asked for. */
-export interface SttTokenRequest {
+/** POST /api/notes/meetings/[id]/speech-setup: one session per track asked for. */
+export interface SpeechSetupRequest {
   tracks: TranscriptTrack[];
 }
 
-export interface SttTokenResponse {
+export interface SpeechSetupResponse {
   ok: true;
   provider: TranscriberProvider;
-  sessions: SttSession[];
+  sessions: SpeechSession[];
 }
 
 /** One finished line, as the recorder posts it. */
@@ -1136,12 +1160,12 @@ export interface RelabelSpeakerResponse {
 
 /**
  * "Remember this voice" (D-076). 'requested': the meeting is live and the
- * person's consent is on file, so the recorder asks the vendor for
- * `vendorLabel`'s identifiers (getSpeakersMessage, speakerIdentifiersFor in
- * lib/transcribe/socket-url.ts) and posts them to /voice-profiles/enroll.
+ * person's consent is on file, so the recorder asks its speech worker for the
+ * voiceprint of `vendorLabel` (the voice's cluster label) and posts it to
+ * /voice-profiles/enroll. Everyone else's voice stays in the worker.
  * 'no_consent': nobody may be remembered without consent on file.
- * 'not_live': identifiers exist only while the vendor session is open.
- * 'not_supported': the vendor cannot recognise voices (AssemblyAI, a split voice).
+ * 'not_live': the worker holds a voice only while the recording runs.
+ * 'not_supported': the mic (always the recorder) or a split voice.
  */
 export interface RememberVoiceOutcome {
   status: 'requested' | 'no_consent' | 'not_live' | 'not_supported';
@@ -1326,20 +1350,23 @@ export interface VoiceEnrollSessionRequest {
 export interface VoiceEnrollSessionResponse {
   ok: true;
   provider: TranscriberProvider;
-  /** Open it like a meeting session; send getSpeakersMessage() before closing. */
-  session: SttSession;
+  /** Run the clip through the speech worker like a mic-only track, then ask it for the voiceprint. */
+  session: SpeechSession;
 }
 
 /**
- * POST /api/notes/voice-profiles/enroll: one consented person's identifiers,
+ * POST /api/notes/voice-profiles/enroll: one consented person's voiceprint,
  * from an enrolment clip or "Remember this voice". Refused without consent
  * on file; sealed before storing; replaces what was on file.
  */
 export interface VoiceEnrollRequest {
   email: string;
-  /** The vendor's opaque identifiers for that one voice. Never anyone else's. */
+  /**
+   * Voiceprints of that one voice: base64 Float32 speaker embeddings made in
+   * the recorder's browser (lib/transcribe/voiceprint.ts). Never anyone else's.
+   */
   identifiers: string[];
-  /** The vendor model they belong to; identifiers stop matching when it changes. */
+  /** The embedding model that made them; they stop matching when it changes. */
   modelVersion: string;
 }
 

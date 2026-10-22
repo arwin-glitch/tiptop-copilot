@@ -3,11 +3,14 @@ import type { DataStore } from '@/lib/db/store';
 import { openIdentifiers, sealIdentifiers } from '@/lib/notes/voiceprint-seal';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
-import { getTranscriber, type KnownSpeaker } from '@/lib/transcribe';
+import { getTranscriber } from '@/lib/transcribe';
+import { decodeVoiceprint } from '@/lib/transcribe/voiceprint';
 import {
   NOTES_LIMITS,
   VOICE_CONSENT_TEXT_VERSION,
-  type SttSession,
+  VOICEPRINT_PROVIDER,
+  type KnownVoice,
+  type SpeechSession,
   type TranscriberProvider,
   type VoiceConsentRequest,
   type VoiceEnrollRequest,
@@ -30,8 +33,9 @@ import { guard, type NotesContext } from './notes';
  * its own (a signed form, a recorded yes). Withdrawing deletes the identifier
  * at once. The identifier itself (voice_identifiers, sealed with
  * VOICEPRINT_ENC_KEY) is never returned by anything here, and enrolment (a
- * 30-second solo clip turned into an identifier by the vendor) builds on the
- * consent recorded here.
+ * short solo clip, or "Remember this voice", turned into a voiceprint by the
+ * speech worker in the recorder's own browser) builds on the consent
+ * recorded here.
  */
 
 async function enrolledIds(ctx: NotesContext, profileIds: string[]): Promise<Set<string>> {
@@ -79,7 +83,7 @@ export async function setVoiceConsent(
     const own = email === (ctx.auth.profile.email ?? '').toLowerCase();
     const now = (ctx.now ?? new Date()).toISOString();
     const existing = await ctx.store.findOne('voice_profiles', org, {
-      eq: { person_email: email, provider: 'speechmatics' },
+      eq: { person_email: email, provider: VOICEPRINT_PROVIDER },
     });
 
     if (input.action === 'grant') {
@@ -108,7 +112,7 @@ export async function setVoiceConsent(
             display_name: patch.display_name ?? null,
             crm_person_id: null,
             user_id: patch.user_id ?? null,
-            provider: 'speechmatics',
+            provider: VOICEPRINT_PROVIDER,
             consent_status: 'granted',
             consent_at: now,
             consent_evidence: input.evidence ?? null,
@@ -168,7 +172,7 @@ const expiryFrom = (now: Date) =>
 
 async function consentedProfile(ctx: NotesContext, email: string): Promise<VoiceProfile | null> {
   const row = await ctx.store.findOne('voice_profiles', ctx.auth.organizationId, {
-    eq: { person_email: email.toLowerCase(), provider: 'speechmatics' },
+    eq: { person_email: email.toLowerCase(), provider: VOICEPRINT_PROVIDER },
   });
   return row && row.consent_status === 'granted' && !row.revoked_at ? row : null;
 }
@@ -180,36 +184,36 @@ const NO_CONSENT = () =>
   );
 
 /**
- * A speech session for one consented person's solo clip (5 to 30 seconds of
- * them talking alone). The recorder asks the vendor for that voice's
- * identifiers at the end and posts them to enrollVoice.
+ * The speech settings for one consented person's solo clip (5 to 30 seconds
+ * of them talking alone). Asked before the clip is captured, so a voice is
+ * never recorded for a voiceprint without consent on file. The recorder runs
+ * the clip through its speech worker and posts the voiceprint to enrollVoice.
  */
 export async function enrollmentSession(
   ctx: NotesContext,
   email: string,
-): Promise<Result<{ provider: TranscriberProvider; session: SttSession }>> {
+): Promise<Result<{ provider: TranscriberProvider; session: SpeechSession }>> {
   return guard('start the voice clip', async () => {
     const profile = await consentedProfile(ctx, email);
     if (!profile) return NO_CONSENT();
     const transcriber = getTranscriber();
-    const minted = await transcriber.mintSession({
+    const session = transcriber.session({
       meetingId: profile.id,
-      track: 'mic',
+      // A solo clip is diarized like a mixed track, so the worker holds its voice.
+      track: 'mixed',
       language: 'en',
-      knownSpeakers: [],
+      knownVoices: [],
       vocabulary: [],
       purpose: 'enrollment',
-      now: ctx.now,
     });
-    if (!minted.ok) return minted;
-    return ok({ provider: transcriber.provider, session: minted.value });
+    return ok({ provider: transcriber.provider, session });
   });
 }
 
 /**
- * Store one consented person's voice identifiers, sealed with
- * VOICEPRINT_ENC_KEY, replacing any on file. Refused without consent; the
- * identifiers never appear in a log, an audit row or an answer.
+ * Store one consented person's voiceprint, sealed with VOICEPRINT_ENC_KEY,
+ * replacing any on file. Refused without consent, and refused when what came
+ * is not a voiceprint; it never appears in a log, an audit row or an answer.
  */
 export async function enrollVoice(
   ctx: NotesContext,
@@ -218,6 +222,9 @@ export async function enrollVoice(
   return guard('remember the voice', async () => {
     const profile = await consentedProfile(ctx, input.email);
     if (!profile) return NO_CONSENT();
+    if (!input.identifiers.every((v) => decodeVoiceprint(v) !== null)) {
+      return err('invalid_input', 'That is not a voiceprint Copilot can use.');
+    }
     const sealed = sealIdentifiers(input.identifiers, profile.id);
     if (!sealed.ok) return sealed;
     const org = ctx.auth.organizationId;
@@ -249,15 +256,16 @@ export async function enrollVoice(
 }
 
 /**
- * The enrolled, consented voices a meeting's speech session should
- * recognise: people on the invite plus the team, at most the vendor's 50.
- * Each is labelled with its profile's id, never a name. Using a voice moves
- * its expiry a year past today. Anything that cannot be read is skipped.
+ * The enrolled, consented voices a meeting's speech worker should recognise:
+ * people on the invite plus the team, at most
+ * NOTES_LIMITS.maxVoiceIdentifiersPerSession. Each is labelled with its
+ * profile's id, never a name. Using a voice moves its expiry a year past
+ * today. Anything that cannot be read is skipped.
  */
-export async function knownSpeakersFor(
+export async function knownVoicesFor(
   ctx: NotesContext,
   inviteEmails: readonly (string | null)[],
-): Promise<KnownSpeaker[]> {
+): Promise<KnownVoice[]> {
   const org = ctx.auth.organizationId;
   const now = ctx.now ?? new Date();
   const invited = new Set(
@@ -273,17 +281,18 @@ export async function knownSpeakersFor(
   const rows = (await ctx.store.list('voice_identifiers', org, {
     in: { voice_profile_id: profiles.map((p) => p.id) },
   })) as VoiceIdentifier[];
-  const out: KnownSpeaker[] = [];
+  const out: KnownVoice[] = [];
   for (const profile of profiles) {
     if (out.length >= NOTES_LIMITS.maxVoiceIdentifiersPerSession) break;
     const row = rows.find((r) => r.voice_profile_id === profile.id);
     if (!row || Date.parse(row.expires_at) <= now.getTime()) continue;
     const opened = openIdentifiers(row.identifier_enc, profile.id);
-    if (!opened.ok) {
+    const voiceprint = opened.ok ? opened.value.find((v) => decodeVoiceprint(v) !== null) : null;
+    if (!voiceprint) {
       log.warn('Copilot Notes: a voice identifier could not be opened', { profile: profile.id });
       continue;
     }
-    out.push({ label: profile.id, identifiers: opened.value });
+    out.push({ label: profile.id, voiceprint, modelVersion: row.model_version });
   }
   const used = out.map((k) => k.label);
   if (used.length) {

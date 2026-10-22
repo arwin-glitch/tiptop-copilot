@@ -1,28 +1,26 @@
-import type { TranscriberProvider, TranscriptTrack, SttSession } from '@/lib/types/notes';
-import type { Result } from '@/lib/util/result';
+import type {
+  KnownVoice,
+  SpeechSession,
+  TranscriberProvider,
+  TranscriptTrack,
+} from '@/lib/types/notes';
 
 /**
  * The speech-to-text seam (D-076), server side.
  *
- * Audio never reaches the server: the browser streams it straight to the
- * vendor. What the server does is mint the short-lived credential that lets
- * the browser open that socket, and decide the session's settings (model,
- * diarization, which consented voices to recognise), so the long-lived key
- * stays in Render's environment and the settings stay in one place.
+ * Nothing here costs money and nothing here touches audio. Speech is turned
+ * into text in the recorder's own browser, by Whisper in a Web Worker
+ * (lib/capture/whisper-engine.ts), and only finished lines of text reach the
+ * server. What the server decides is each track's settings: the language, the
+ * names worth spelling right, and which consented, enrolled voices the worker
+ * should recognise, so that list is built where consent is checked.
  *
- * Three implementations: `speechmatics` (the default; the only vendor that
- * names enrolled voices live), `assemblyai` (fallback and cost lever) and
- * `mock` (demo mode: no vendor at all, the recorder plays the scripted call).
- * getTranscriber (./index.ts) picks one; nothing else names a vendor.
+ * Two implementations: `browser-whisper` (everywhere outside demo mode) and
+ * `mock` (demo mode: no model at all, the recorder plays the scripted call).
+ * getTranscriber (./index.ts) picks one.
  */
 
-/** A consented, enrolled voice to recognise. `label` is the voice profile's id, never a name. */
-export interface KnownSpeaker {
-  label: string;
-  identifiers: string[];
-}
-
-export interface MintSessionInput {
+export interface SpeechSessionInput {
   meetingId: string;
   track: TranscriptTrack;
   /** BCP 47 language, 'en' by default. */
@@ -30,30 +28,43 @@ export interface MintSessionInput {
   /**
    * Consented voices on this meeting's invite plus the team, at most
    * NOTES_LIMITS.maxVoiceIdentifiersPerSession. Only the meeting-audio and
-   * mixed tracks use them: every mic word is the recorder's.
+   * mixed tracks get them: every mic word is the recorder's.
    */
-  knownSpeakers: KnownSpeaker[];
+  knownVoices: KnownVoice[];
   /** Names and terms worth spelling right (portfolio companies, founders). */
   vocabulary: string[];
   /**
-   * 'enrollment': a short solo clip of one consented person, diarized so the
-   * recorder can ask the vendor for that voice's identifiers (Speechmatics
-   * GetSpeakers) and post them to /api/notes/voice-profiles/enroll. Nothing
-   * else is enrolled from it. 'meeting' (the default): a recording.
+   * 'enrollment': a short solo clip of one consented person, so the recorder
+   * can ask its speech worker for that voice's voiceprint and post it to
+   * /api/notes/voice-profiles/enroll. 'meeting' (the default): a recording.
    */
   purpose?: 'meeting' | 'enrollment';
-  now?: Date;
 }
 
 export interface Transcriber {
   readonly provider: TranscriberProvider;
-  /** False when the vendor key is missing; mintSession then says so plainly. */
-  available(): boolean;
-  mintSession(input: MintSessionInput): Promise<Result<SttSession>>;
+  session(input: SpeechSessionInput): SpeechSession;
 }
 
-/** The audio every session expects: 16 kHz mono PCM16, little-endian. */
+/** The audio every engine takes: 16 kHz mono PCM16, little-endian. */
 export const SESSION_AUDIO = { sampleRate: 16000, encoding: 'pcm_s16le', channels: 1 } as const;
 
-/** How long a vendor call may take before minting gives up. */
-export const MINT_TIMEOUT_MS = 8000;
+/** Vocabulary terms one session carries. */
+export const MAX_VOCABULARY = 100;
+
+/** The parts of a session every provider shares. */
+export function baseSession(
+  provider: TranscriberProvider,
+  input: SpeechSessionInput,
+  sessionConfig: Record<string, unknown>,
+): SpeechSession {
+  return {
+    track: input.track,
+    provider,
+    language: input.language || 'en',
+    vocabulary: input.vocabulary.slice(0, MAX_VOCABULARY),
+    knownVoices: input.track === 'mic' ? [] : input.knownVoices,
+    sessionConfig,
+    audio: { ...SESSION_AUDIO },
+  };
+}

@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
  * The repository is public (D-076). The web recorder, its worklet, the Meet
  * extension and their tests use invented people only, carry no key, and the
  * recorder never stores audio: no MediaRecorder, IndexedDB, Cache Storage or
- * localStorage anywhere in the capture code.
+ * localStorage anywhere in the capture code, except two files that keep
+ * something that is not audio (the downloaded-model check and the model
+ * choice), which must never touch audio at all.
  */
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -62,11 +64,20 @@ describe('the web recorder has no real data and keeps no audio', () => {
   });
 
   it('never stores audio in the browser', () => {
+    const keepsNoAudio = new Set([
+      // Checks and deletes the cached speech models (huggingface.co files).
+      'src/lib/capture/model-cache.ts',
+      // The chosen Whisper size and device.
+      'src/lib/capture/speech-preferences.ts',
+    ]);
     for (const file of CAPTURE_CODE) {
       const text = readFileSync(path.join(ROOT, file), 'utf8');
-      expect(text, file).not.toMatch(
-        /new MediaRecorder|indexedDB|caches\.open|localStorage\.setItem/,
-      );
+      expect(text, file).not.toMatch(/new MediaRecorder|indexedDB/);
+      if (keepsNoAudio.has(file)) {
+        expect(text, file).not.toMatch(/samples|Int16Array|Float32Array|MediaStream|audio/i);
+      } else {
+        expect(text, file).not.toMatch(/caches\.open|localStorage\.setItem/);
+      }
     }
   });
 });

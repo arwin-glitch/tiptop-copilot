@@ -49,7 +49,7 @@ export interface MeetingRecorderApi {
   retryMicrophone: () => Promise<boolean>;
   dismissWarning: (code: RecorderWarningCode) => void;
   setMode: (mode: RecorderMode) => void;
-  /** "Remember this voice": one voice's identifiers from the live session, or null. */
+  /** "Remember this voice": one voice's voiceprint from this computer's speech worker, or null. */
   voiceIdentifiers: (
     track: TranscriptTrack,
     vendorLabel: string,

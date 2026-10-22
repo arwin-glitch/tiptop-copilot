@@ -484,7 +484,7 @@ export function demoNotes(now: Date): DemoNotes {
         display_name: OWNER.name,
         crm_person_id: null,
         user_id: USER,
-        provider: 'speechmatics',
+        provider: 'on_device',
         consent_status: 'granted',
         consent_at: at(started - 2 * 86_400_000),
         consent_evidence: 'self_checkbox',
