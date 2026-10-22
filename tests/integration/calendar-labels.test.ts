@@ -457,7 +457,7 @@ describe('a label from the card', () => {
     });
     expect(created.ok && created.value.event?.label?.name).toBe('Travel');
     expect(state.writes[1]).toMatchObject({ op: 'insert', eventLabelVersion: 1 });
-    // No label picked: nothing to send, and no switch either.
+    // No label picked: no eventLabelId to send.
     await createCalendarEvent(context(), {
       calendarId: MOCK_OWN_EMAIL,
       draft: {
@@ -470,8 +470,24 @@ describe('a label from the card', () => {
       },
       notify: 'dont_send',
     });
-    expect(state.writes[2]).toMatchObject({ op: 'insert', eventLabelVersion: 0 });
+    // The switch still goes along (so the event comes back with its label), with nothing to set.
+    expect(state.writes[2]).toMatchObject({ op: 'insert', eventLabelVersion: 1 });
     expect(state.writes[2]!.body).not.toHaveProperty('eventLabelId');
+    // A new event with a colour (a calendar without labels) never carries it.
+    await createCalendarEvent(context(), {
+      calendarId: MOCK_TEAM_CALENDAR,
+      draft: {
+        title: 'Coloured',
+        allDay: false,
+        start: '2026-10-26T19:00:00.000Z',
+        end: '2026-10-26T20:00:00.000Z',
+        timeZone: TZ,
+        colorId: '11',
+      },
+      notify: 'dont_send',
+    });
+    expect(state.writes[3]).toMatchObject({ op: 'insert', eventLabelVersion: 0 });
+    expect(state.writes[3]!.body).toMatchObject({ colorId: '11' });
   });
 });
 

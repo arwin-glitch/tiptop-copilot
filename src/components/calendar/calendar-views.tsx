@@ -274,6 +274,22 @@ export function CalendarViews(props: CalendarViewsProps) {
     setReloadToken((n) => n + 1);
   }, []);
 
+  // Back on the tab after a while: read again, so labels renamed or events
+  // changed in Google meanwhile show (Google's own reads are cached a minute).
+  React.useEffect(() => {
+    let hiddenAt: number | null = null;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (hiddenAt !== null && Date.now() - hiddenAt > 30_000) reload();
+      hiddenAt = null;
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [reload]);
+
   /* ------------------------------------------------------------ moving */
 
   const go = React.useCallback(

@@ -39,8 +39,8 @@ import {
  * edit routes, through lib/calendar/write.ts, which refuses unless calendar
  * editing is turned on, the calendar is writable and the event is one this
  * account may change. Every write names its sendUpdates; there is no default.
- * A label write also names eventLabelVersion=1 (Google ignores eventLabelId
- * without it, and colorId with it, so a colour write never sends it).
+ * Every write but a colour one also names eventLabelVersion=1 (Google ignores
+ * eventLabelId without it, and colorId with it, so a colour write never does).
  * The mock answers them in memory and records each one; tests never reach the
  * Google implementation's write endpoints.
  */
@@ -381,7 +381,8 @@ export class GoogleCalendarProvider implements CalendarProvider {
 
 /**
  * sendUpdates always, conferenceDataVersion only when a Meet link is asked
- * for, eventLabelVersion only on a label write (it would turn a colorId off).
+ * for, eventLabelVersion when the write module names it (never with a
+ * colorId, which it would turn off).
  */
 export function writeParams(options: GCalWriteOptions): string {
   const params = new URLSearchParams({ sendUpdates: options.sendUpdates });

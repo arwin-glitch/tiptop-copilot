@@ -123,8 +123,8 @@ describe('calendar writes', () => {
 
   it('a label from the event card can never carry a request to email anyone', () => {
     // The route's label body has no `notify`, the request built for it is
-    // sendUpdates 'none', and only it (and the editor's label) names the
-    // label switch Google needs; a colour never does.
+    // sendUpdates 'none', and only it and the write module name the label
+    // switch Google needs; a write that sets a colour never carries it.
     const route = SOURCES.find((s) => s.rel === 'app/api/calendar/events/route.ts')!.text;
     const label = /const LABEL = z[\s\S]*?\.strict\(\);/.exec(route)?.[0] ?? '';
     expect(label).toMatch(/kind: z\.literal\('label'\)/);
@@ -137,6 +137,13 @@ describe('calendar writes', () => {
       /eventLabelVersion:\s*(1|request\.|labelVersion)/.test(s.text),
     ).map((s) => s.rel);
     expect(setters.sort()).toEqual(['lib/calendar/event-actions.ts', 'lib/calendar/write.ts']);
+    const write = SOURCES.find((s) => s.rel === 'lib/calendar/write.ts')!.text;
+    expect(write).toMatch(/return body\.colorId !== undefined \? 0 : 1;/);
+    // The colour from the card is sent with its own options, never the label switch.
+    const recolor =
+      /export async function recolorCalendarEvent[\s\S]*?\n}\n/.exec(write)?.[0] ?? '';
+    expect(recolor).toMatch(/conferenceDataVersion: request\.conferenceDataVersion/);
+    expect(recolor).not.toMatch(/eventLabelVersion/);
   });
 
   it('every API route that writes checks where the request came from', () => {

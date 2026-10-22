@@ -61,9 +61,9 @@ import type { CalendarInfo, EventLabel, RangeEvent } from './range-types';
  * page shows every time guests are involved: `notify` is required, and only
  * 'send' becomes Google's sendUpdates 'all'. Everything else is 'none'. An
  * answer asks "Send your response to the organizer?" the same way. A colour
- * or label change is always 'none' and is never asked about. A label write
- * names eventLabelVersion=1 (Google applies eventLabelId only then); nothing
- * else does, since with it Google ignores a colorId.
+ * or label change is always 'none' and is never asked about. Every write
+ * names eventLabelVersion=1 (Google applies eventLabelId only then, and sends
+ * the label back) except a colour write: with it Google ignores a colorId.
  */
 
 export interface WriteContext {
@@ -110,9 +110,14 @@ function labelProblem(labelId: string | null | undefined, labels: readonly Event
     : 'That label is not on this calendar any more. Refresh and pick again.';
 }
 
-/** Google applies eventLabelId only with eventLabelVersion=1; nothing else sends it. */
+/**
+ * Google applies eventLabelId only with eventLabelVersion=1, and with it
+ * ignores a colorId. So every write carries it (the event Google sends back
+ * then keeps its label, and the page draws it right away) except one that
+ * sets a colour, which would otherwise be thrown away.
+ */
 function labelVersion(body: GCalEventWrite): 0 | 1 {
-  return body.eventLabelId !== undefined ? 1 : 0;
+  return body.colorId !== undefined ? 0 : 1;
 }
 
 function checkDraft(
@@ -475,6 +480,8 @@ export async function respondToCalendarEvent(
   if (!request) return refuse('You are not on the guest list.');
   const patched = await ctx.source.provider.patchEvent(calendar.id, targetId, request.body, {
     sendUpdates: request.sendUpdates,
+    // No colour in an answer: the event comes back with its label.
+    eventLabelVersion: labelVersion(request.body),
   });
   if (!patched.ok) return patched;
   invalidateCalendarCache(ctx.organizationId, [calendar.id]);

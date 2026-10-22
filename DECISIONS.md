@@ -2123,9 +2123,10 @@ time."
   rules: the editing grant, a writable calendar, an event Nick may change or
   his own copy of an invitation, and a label the calendar has now. It never
   emails and never asks about guests; a repeating event keeps the "This
-  event / All events" question. A colour write never sends the version
-  (Google would ignore its `colorId`). Label definitions are never changed
-  here: "Edit labels in Google Calendar" links out.
+  event / All events" question. A write that sets a colour never sends the
+  version (Google would ignore its `colorId`); every other write does, so the
+  event Google sends back keeps its label. Label definitions are never
+  changed here: "Edit labels in Google Calendar" links out.
 - **A suggested label, never applied by itself.** For an unlabelled event on
   a calendar with labels, the card (once open) may suggest one of the
   calendar's _existing_ labels when Copilot's own data is clear: a guest from
