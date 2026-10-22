@@ -37,6 +37,9 @@ action.
 - Your Google password. The product never sees it.
 - Message bodies for mail that was never opened or flagged.
 - Anything from mailboxes or calendars you have not connected.
+- Google Calendar's colour labels. The Calendar tab reads them from Google as
+  it draws and keeps them in memory for under a minute. Only the names of the
+  labels you filter the views by are kept, as your own setting.
 - Provider tokens in plaintext.
 - Raw client IP addresses. Audit records store a one-way hash.
 - Updates tab content (dealflow reports, update digests). It is read live from

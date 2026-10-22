@@ -16,9 +16,14 @@ import { expect, test, type Page } from '@playwright/test';
  * - A guest-less registration finds its ticket email, with the Copilot and
  *   Gmail links; an event nothing explains says what was checked and offers
  *   the Inbox search.
+ *
+ * It runs after calendar-default.spec.ts (which wants a person who has
+ * chosen nothing) and before calendar-event-card.spec.ts, which answers the
+ * board meeting this spec shows as not answered yet. It leaves no label
+ * filter and no label behind.
  */
 
-const SIGNED_IN = path.resolve('test-results', 'calendar-clarity-state.json');
+const SIGNED_IN = path.resolve('test-results', 'calendar-display-state.json');
 const TZ = 'America/Chicago';
 
 test.beforeAll(async ({ browser }, testInfo) => {
