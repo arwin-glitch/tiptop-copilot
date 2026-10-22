@@ -49,6 +49,7 @@ export const PANEL_KEYS = [
   'title',
   'bio',
   'firmName',
+  'callLink',
   'homeCity',
   'homeAliases',
   'places',

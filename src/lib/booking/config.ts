@@ -300,6 +300,12 @@ export interface BookingConfig {
   /** @deprecated Kept so an older row still reads: `chatbot.faqItems` is the setting now. */
   faq: string;
   photo: PhotoRef | null;
+  /**
+   * The host's own video link (a Zoom room, say), put in every call invite
+   * instead of a Google Meet; '' for Google Meet. Only the invite carries it:
+   * the public page, its routes and its chatbot show what it is, never the link.
+   */
+  callLink: string;
 }
 
 export const DEFAULT_BOOKING_CONFIG: BookingConfig = {
@@ -342,6 +348,7 @@ export const DEFAULT_BOOKING_CONFIG: BookingConfig = {
   chatbotEnabled: true,
   faq: '',
   photo: null,
+  callLink: '',
 };
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
@@ -352,6 +359,22 @@ const kindWindow = (kind: 'coffee' | 'lunch', label: string) =>
     (w) => windowWithin(w, KIND_START_BOUNDS[kind]),
     `${label} has to start between 8:00 AM and 5:00 PM Central, so it ends by 6:00 PM`,
   );
+
+function isHttpsLink(value: string): boolean {
+  if (!/^https:\/\/[^\s"<>]+$/i.test(value)) return false;
+  try {
+    return Boolean(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** A video link for calls: '' (Google Meet), or an https link of at most 500 characters. */
+const CALL_LINK = z
+  .string()
+  .trim()
+  .max(500, 'Use a link of at most 500 characters.')
+  .refine((v) => v === '' || isHttpsLink(v), 'Use a video link that starts with https://');
 
 /** The shape Settings saves: strict, every field required, every value bounded. */
 export const BOOKING_CONFIG_SCHEMA = z
@@ -424,6 +447,7 @@ export const BOOKING_CONFIG_SCHEMA = z
     chatbotEnabled: z.boolean(),
     faq: z.string().max(4000),
     photo: PHOTO_REF.nullable(),
+    callLink: CALL_LINK,
   })
   .strict();
 

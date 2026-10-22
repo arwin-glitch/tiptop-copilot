@@ -106,6 +106,13 @@ describe('a panel’s save', () => {
     expect(after.slug).toBe(before.slug);
   });
 
+  it('saves the video link for calls from the Profile panel (hotfix, moved by D-078)', async () => {
+    const saved = await patch({ callLink: 'https://zoom.us/j/1234567890' });
+    expect(saved.ok && saved.value.config.callLink).toBe('https://zoom.us/j/1234567890');
+    const bad = await patch({ callLink: 'http://zoom.us/j/1234567890' });
+    expect(bad.ok).toBe(false);
+  });
+
   it('never takes the photo or the chatbot from a panel', async () => {
     const before = await readBookingSettings(harness.store, harness.auth.organizationId);
     const saved = await patch({

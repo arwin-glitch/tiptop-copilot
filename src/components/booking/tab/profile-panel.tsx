@@ -8,12 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/feedback';
 import { Label, Textarea } from '@/components/ui/form';
 import type { BookingConfig, PhotoRef } from '@/lib/booking/config';
+import { videoProviderLabel } from '@/lib/booking/public';
 import { cn } from '@/lib/util/cn';
 import { SaveBar } from './availability-panel';
 import { Row, TextField } from './fields';
 import { useSettingsSave } from './hooks';
 
-type ProfileFields = Pick<BookingConfig, 'displayName' | 'title' | 'bio' | 'firmName'>;
+type ProfileFields = Pick<BookingConfig, 'displayName' | 'title' | 'bio' | 'firmName' | 'callLink'>;
 
 export interface ProfilePanelProps {
   profile: ProfileFields;
@@ -23,8 +24,10 @@ export interface ProfilePanelProps {
 
 /**
  * Profile: the card the public page shows (name, title, firm, a short bio
- * and the photo), moved from Settings > Booking link unchanged. The photo
- * saves on upload, checked by its own bytes; the rest has a Save.
+ * and the photo) and the video link for calls, moved from Settings >
+ * Booking link unchanged. The photo saves on upload, checked by its own
+ * bytes; the rest has a Save. The video link goes only into the invite:
+ * the page says which kind of call it is, never the link.
  */
 export function ProfilePanel(props: ProfilePanelProps) {
   const router = useRouter();
@@ -104,6 +107,17 @@ export function ProfilePanel(props: ProfilePanelProps) {
           onChange={(v) => set('firmName', v)}
         />
       </div>
+      <TextField
+        id={`${uid}-call-link`}
+        label="Video link for calls"
+        hint={`Goes in every call invite instead of a Google Meet link. Only people who book see it. Calls show as: ${videoProviderLabel(profile.callLink)}.`}
+        value={profile.callLink}
+        max={500}
+        type="url"
+        placeholder="https://"
+        disabled={disabled}
+        onChange={(v) => set('callLink', v)}
+      />
       <div className="space-y-1.5">
         <Label htmlFor={`${uid}-bio`}>Short bio</Label>
         <Textarea

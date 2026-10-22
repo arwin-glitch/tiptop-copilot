@@ -23,7 +23,7 @@ import {
   googleCalendarTemplateUrl,
   type ApprovableRequest,
 } from '@/lib/booking/event';
-import { distinctZones, zoneName } from '@/lib/booking/public';
+import { callOptionLabel, distinctZones, videoProviderLabel, zoneName } from '@/lib/booking/public';
 import {
   applyFill,
   BOOKING_REQUEST_INPUT,
@@ -100,6 +100,27 @@ describe('Settings > Booking link', () => {
     expect('somethingNew' in parsed).toBe(false);
     expect(parseBookingConfig(null)).toEqual(DEFAULT_BOOKING_CONFIG);
     expect(parseBookingConfig('nonsense')).toEqual(DEFAULT_BOOKING_CONFIG);
+  });
+
+  it('keeps a video link for calls: none by default, https only, read leniently (hotfix)', () => {
+    const zoom = 'https://example.zoom.us/j/1234567890?pwd=fictional';
+    expect(DEFAULT_BOOKING_CONFIG.callLink).toBe('');
+    const save = (callLink: unknown) =>
+      BOOKING_CONFIG_SCHEMA.safeParse({ ...structuredClone(DEFAULT_BOOKING_CONFIG), callLink });
+    expect(save('').success).toBe(true);
+    expect(save(zoom).success).toBe(true);
+    expect(save(`  ${zoom}  `).data?.callLink).toBe(zoom);
+    expect(save('http://example.zoom.us/j/1').success).toBe(false);
+    expect(save('javascript:alert(1)').success).toBe(false);
+    expect(save('https://example.zoom.us/j/1 2').success).toBe(false);
+    expect(save(`https://example.zoom.us/j/${'1'.repeat(480)}`).success).toBe(false);
+    expect(save(undefined).success).toBe(false);
+    // A stored value that is not one reads as Google Meet, and the rest stands.
+    expect(parseBookingConfig({ callLink: zoom }).callLink).toBe(zoom);
+    expect(
+      parseBookingConfig({ callLink: 'ftp://example.test/x', rollingMonths: 3 }),
+    ).toMatchObject({ callLink: '', rollingMonths: 3 });
+    expect(parseBookingConfig({}).callLink).toBe('');
   });
 
   it('refuses on save anything looser than the standing rules', () => {
@@ -472,6 +493,77 @@ describe('what an approved request becomes', () => {
       add: 'pat@acme.example',
       location: 'Juniper & Rye Coffee, Riverside',
     });
+  });
+
+  const zoom = 'https://example.zoom.us/j/1234567890?pwd=fictional';
+
+  it('puts a saved video link in a call instead of Google Meet (hotfix)', () => {
+    expect(
+      bookingEventDraft('Sam Host', call, 'America/Chicago', { callLink: zoom }),
+    ).toMatchObject({
+      location: zoom,
+      description: `Booked through the booking link.
+
+Join the call: ${zoom}
+
+Seed round for a clinic tool.
+
+Deck: https://deck.example/acme`,
+      meet: false,
+    });
+    // No link saved: Google Meet, and no join line.
+    const meet = bookingEventDraft('Sam Host', call, 'America/Chicago', { callLink: '' });
+    expect(meet).toMatchObject({ location: '', meet: true });
+    expect(meet.description).not.toContain('Join the call');
+    // In person never carries it.
+    const met = bookingEventDraft('Sam Host', coffee, 'America/Chicago', { callLink: zoom });
+    expect(met).toMatchObject({ location: 'Juniper & Rye Coffee, Riverside', meet: false });
+    expect(JSON.stringify(met)).not.toContain('zoom.us');
+  });
+
+  it('lists the host as the organizer, the requester as the guest, once each (hotfix)', () => {
+    expect(
+      bookingEventDraft('Sam Host', call, 'America/Chicago', { hostEmail: 'Sam@Example.test' }),
+    ).toMatchObject({ organizerEmail: 'sam@example.test', guests: ['pat@acme.example'] });
+    // Someone booking with the host's own address is not listed twice.
+    expect(
+      bookingEventDraft('Sam Host', { ...call, email: 'SAM@example.test' }, 'America/Chicago', {
+        hostEmail: 'sam@example.test',
+      }),
+    ).toMatchObject({ organizerEmail: 'sam@example.test', guests: [] });
+    expect('organizerEmail' in bookingEventDraft('Sam Host', call, 'America/Chicago')).toBe(false);
+  });
+
+  it('carries the video link and the host in Google Calendar’s own page too (hotfix)', () => {
+    const url = new URL(
+      googleCalendarTemplateUrl('Sam Host', call, 'America/Chicago', {
+        callLink: zoom,
+        hostEmail: 'sam@example.test',
+      }),
+    );
+    expect(url.searchParams.get('location')).toBe(zoom);
+    expect(url.searchParams.get('details')).toContain(`Join the call: ${zoom}`);
+    expect(url.searchParams.get('add')).toBe('sam@example.test,pat@acme.example');
+    const meet = new URL(googleCalendarTemplateUrl('Sam Host', call, 'America/Chicago'));
+    expect(meet.searchParams.get('location')).toBeNull();
+    expect(meet.searchParams.get('add')).toBe('pat@acme.example');
+  });
+
+  it('names the video service without ever showing the link (hotfix)', () => {
+    expect(videoProviderLabel('')).toBe('Google Meet');
+    expect(videoProviderLabel(null)).toBe('Google Meet');
+    expect(videoProviderLabel(zoom)).toBe('Zoom call');
+    expect(videoProviderLabel('https://zoom.us/my/sam.host')).toBe('Zoom call');
+    expect(videoProviderLabel('https://meet.google.com/abc-defg-hij')).toBe('Google Meet');
+    expect(videoProviderLabel('https://teams.microsoft.com/l/meetup-join/x')).toBe(
+      'Microsoft Teams call',
+    );
+    expect(videoProviderLabel('https://teams.live.com/meet/123')).toBe('Microsoft Teams call');
+    expect(videoProviderLabel('https://notzoom.us/j/1')).toBe('Video call');
+    expect(videoProviderLabel('https://zoom.us.example.test/j/1')).toBe('Video call');
+    expect(videoProviderLabel('https://whereby.example/sam')).toBe('Video call');
+    expect(callOptionLabel(videoProviderLabel(zoom))).toBe('30-min Zoom call');
+    expect(callOptionLabel(videoProviderLabel(''))).toBe('30-min Google Meet');
   });
 
   it('drafts a short decline that promises nothing, for a person to send', () => {

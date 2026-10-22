@@ -172,11 +172,13 @@ test('on a 390px phone: no sideways scroll, and a 30-minute call asked for', asy
   await page.getByLabel(/^Deck link/).fill('https://deck.example/brightwell');
   await page.getByRole('button', { name: 'Send request' }).click();
   await expect(
-    page.getByRole('heading', { name: 'Request sent. Arwin will confirm by email.' }),
+    page.getByRole('heading', {
+      name: "Request sent. You'll get a calendar invitation once the time is booked.",
+    }),
   ).toBeVisible();
-  await expect(page.getByText(/30-minute call ·/)).toBeVisible();
+  await expect(page.getByText(/30-min Google Meet ·/)).toBeVisible();
   await expect(
-    page.getByText('Nothing is booked until Arwin confirms.', { exact: false }),
+    page.getByText('Nothing is on the calendar yet. Watch your inbox for the invitation.'),
   ).toBeVisible();
   await expectNoSidewaysScroll(page);
   await context.close();
@@ -197,7 +199,9 @@ test('an hour in person: coffee at one of the listed places', async ({ browser }
   await fillAboutYou(page, 'Morgan Coffee', 'morgan.coffee@example.com', 'Quillfield');
   await page.getByRole('button', { name: 'Send request' }).click();
   await expect(
-    page.getByRole('heading', { name: 'Request sent. Arwin will confirm by email.' }),
+    page.getByRole('heading', {
+      name: "Request sent. You'll get a calendar invitation once the time is booked.",
+    }),
   ).toBeVisible();
   await expect(page.getByText(/Coffee, 1 hour · .* · Juniper & Rye Coffee/)).toBeVisible();
   await context.close();
@@ -226,7 +230,7 @@ test('the chatbot’s guided helper fills the form, and the visitor presses Send
   ).toBeVisible();
 
   await chat.getByRole('button', { name: 'Find a time' }).click();
-  await chat.getByRole('button', { name: '30-minute call' }).click();
+  await chat.getByRole('button', { name: '30-min Google Meet' }).click();
   const times = chat.getByRole('group', { name: 'Open times' }).last();
   await expect(times.getByRole('button').first()).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: shot('chatbot-guided') });
@@ -242,7 +246,9 @@ test('the chatbot’s guided helper fills the form, and the visitor presses Send
   await fillAboutYou(page, 'Jordan Chat', 'jordan.chat@example.com', 'Northbeam');
   await page.getByRole('button', { name: 'Send request' }).click();
   await expect(
-    page.getByRole('heading', { name: 'Request sent. Arwin will confirm by email.' }),
+    page.getByRole('heading', {
+      name: "Request sent. You'll get a calendar invitation once the time is booked.",
+    }),
   ).toBeVisible();
   await context.close();
 });

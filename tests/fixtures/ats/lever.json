@@ -1,0 +1,45 @@
+[
+  {
+    "id": "0d6f8a4e-1c2b-4a5d-9e8f-123456789abc",
+    "text": "Product Designer",
+    "categories": {
+      "team": "Design",
+      "department": "Product",
+      "location": "New York, NY",
+      "commitment": "Full-time",
+      "allLocations": ["New York, NY", "Boston, MA"]
+    },
+    "country": "US",
+    "workplaceType": "hybrid",
+    "opening": "<p>Help us design the future of shipping.</p>",
+    "description": "<div>You will own our design system.</div>",
+    "descriptionPlain": "You will own our design system.",
+    "lists": [
+      {
+        "text": "What you bring",
+        "content": "<li>5 years of product design</li><li>A portfolio</li>"
+      },
+      { "text": "<b>Perks</b>", "content": "<li>Lunch</li>" }
+    ],
+    "additional": "<p>We welcome everyone.</p>",
+    "hostedUrl": "https://jobs.lever.co/northwindfixture/0d6f8a4e-1c2b-4a5d-9e8f-123456789abc",
+    "applyUrl": "https://jobs.lever.co/northwindfixture/0d6f8a4e-1c2b-4a5d-9e8f-123456789abc/apply",
+    "createdAt": 1791000000000,
+    "salaryRange": {
+      "currency": "USD",
+      "interval": "per-year-salary",
+      "min": 120000,
+      "max": 150000
+    }
+  },
+  {
+    "id": "1a2b3c4d-0000-4000-8000-00000000beef",
+    "text": "Customer Support Intern",
+    "categories": { "team": "Support", "location": "Remote", "commitment": "Intern" },
+    "workplaceType": "remote",
+    "descriptionPlain": "• Answer tickets\n• Learn the product",
+    "hostedUrl": "javascript:alert(1)",
+    "applyUrl": "https://jobs.lever.co/northwindfixture/1a2b3c4d-0000-4000-8000-00000000beef/apply",
+    "createdAt": 1791500000000
+  }
+]

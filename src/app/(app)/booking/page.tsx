@@ -240,6 +240,7 @@ async function BookingBody({
             title: config.title,
             bio: config.bio,
             firmName: config.firmName,
+            callLink: config.callLink,
           }}
           photo={config.photo}
           canEdit={canEdit}
