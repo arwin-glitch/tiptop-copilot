@@ -76,6 +76,7 @@ export type StaticFeedId =
   | 'portfolio-adds'
   | 'ask-answers'
   | 'meeting-notes'
+  | 'meeting-capture'
   | 'daily-job'
   | 'affinity-sync'
   | 'push-sender';
@@ -305,6 +306,17 @@ export const FEEDS: readonly FeedDef[] = [
     fills: ['Meetings: Notes', 'Calendar: meeting dossier', 'Ask'],
     schedule: 'Minutes after each recorded meeting, with a catch-up every half hour',
     // Arrives only when a meeting was recorded, so a quiet week is normal.
+    cadence: { kind: 'event' },
+  },
+  {
+    id: 'meeting-capture',
+    name: 'Meeting recorder',
+    source: 'webhook',
+    fills: ['Meetings: live transcripts', 'Copilot Notes'],
+    schedule: 'While a meeting is recorded: a batch of transcript lines every few seconds',
+    // Quiet between meetings is normal. A meeting still marked as recording
+    // with no line for 20 minutes (a closed tab, a lost connection) reads as
+    // stopped (D-076).
     cadence: { kind: 'event' },
   },
   {

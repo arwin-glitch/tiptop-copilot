@@ -142,8 +142,21 @@ export type AuditAction =
   | 'notes.template_created'
   | 'notes.folder_created'
   | 'notes.recipe_created'
+  | 'notes.speakers_named'
+  | 'notes.roster_applied'
+  | 'notes.paired_with_granola'
+  | 'notes.followup_fired'
+  | 'notes.purged'
+  | 'notes.preferences_set'
+  | 'notes.template_updated'
+  | 'notes.template_archived'
+  | 'notes.recording_rule_created'
+  | 'notes.recording_rule_updated'
+  | 'notes.recording_rule_deleted'
   | 'voice.consent'
-  | 'voice.revoke';
+  | 'voice.revoke'
+  | 'voice.enrolled'
+  | 'voice.expired';
 
 export interface AuditInput {
   organizationId: string;

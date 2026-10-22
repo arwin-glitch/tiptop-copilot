@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { done, fail, notesGate, readBody } from '@/lib/notes/route-helpers';
+import { refreshNotesAfterRename } from '@/lib/notes/refresh';
 import { MERGE_SPEAKERS } from '@/lib/notes/schemas';
 import { getStore } from '@/lib/runtime';
 import { mergeSpeakers } from '@/lib/services/notes';
@@ -15,11 +16,12 @@ export async function POST(request: NextRequest, context: Context) {
   const body = await readBody(request, MERGE_SPEAKERS);
   if (!body.ok) return body.response;
   const { id } = await context.params;
-  const result = await mergeSpeakers(
-    { store: getStore(), auth: gate.auth },
-    id,
-    body.value.from,
-    body.value.into,
-  );
-  return result.ok ? done({ ...result.value }) : fail(result.error);
+  const ctx = { store: getStore(), auth: gate.auth };
+  const result = await mergeSpeakers(ctx, id, body.value.from, body.value.into);
+  if (!result.ok) return fail(result.error);
+  // Action items owned by the merged-away voice now belong to the one it joined.
+  if (result.value.notesRefreshing) {
+    await refreshNotesAfterRename(ctx, id, new Map([[body.value.from, body.value.into]]));
+  }
+  return done({ ...result.value });
 }

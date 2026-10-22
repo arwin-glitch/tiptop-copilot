@@ -57,6 +57,14 @@ action.
   until they confirm everyone was told, and never on a meeting that matches a
   never-record rule. Voice identifiers are kept only for people who consented,
   encrypted, deleted within a year of last use, and at once on withdrawal.
+  The identifiers are only ever sent to the speech vendor for recordings with
+  that person on the invite (or a teammate), labelled with an id, never a
+  name. Meeting notes are written by the AI model from the transcript; the
+  transcript goes to the model provider like any other source Copilot
+  analyses, with the same no-training terms. The cloud routines can read only
+  meetings their recorder shared with the team, never a private one or a
+  private folder (Coaching). A meeting deleted to the trash is gone for good,
+  with its transcript and notes, after seven days.
 
 ---
 

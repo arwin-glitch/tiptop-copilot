@@ -42,14 +42,19 @@ export function speechmaticsStartRecognition(
   language: string,
   knownSpeakers: KnownSpeaker[],
   vocabulary: string[],
+  purpose: 'meeting' | 'enrollment' = 'meeting',
 ): Record<string, unknown> {
-  const diarized = track !== 'mic';
-  const speakers = diarized
-    ? knownSpeakers
-        .filter((s) => s.identifiers.length > 0)
-        .slice(0, NOTES_LIMITS.maxVoiceIdentifiersPerSession)
-        .map((s) => ({ label: s.label, speaker_identifiers: s.identifiers }))
-    : [];
+  // An enrolment clip is one person on the mic, diarized so GetSpeakers can
+  // return that voice's identifiers; it never matches anyone already enrolled.
+  const enrollment = purpose === 'enrollment';
+  const diarized = track !== 'mic' || enrollment;
+  const speakers =
+    diarized && !enrollment
+      ? knownSpeakers
+          .filter((s) => s.identifiers.length > 0)
+          .slice(0, NOTES_LIMITS.maxVoiceIdentifiersPerSession)
+          .map((s) => ({ label: s.label, speaker_identifiers: s.identifiers }))
+      : [];
   const vocab = [...new Set(vocabulary.map((v) => v.trim()).filter(Boolean))]
     .slice(0, 1000)
     .map((content) => ({ content }));
@@ -69,7 +74,7 @@ export function speechmaticsStartRecognition(
         ? {
             diarization: 'speaker',
             speaker_diarization_config: {
-              max_speakers: NOTES_LIMITS.maxSpeakersPerSession,
+              max_speakers: enrollment ? 2 : NOTES_LIMITS.maxSpeakersPerSession,
               ...(speakers.length > 0 ? { speakers } : {}),
             },
           }
@@ -155,7 +160,9 @@ export class SpeechmaticsTranscriber implements Transcriber {
           input.language,
           input.knownSpeakers,
           input.vocabulary,
+          input.purpose ?? 'meeting',
         ),
+        ...(input.purpose === 'enrollment' ? { enrollment: true } : {}),
       },
       audio: { ...SESSION_AUDIO },
     });

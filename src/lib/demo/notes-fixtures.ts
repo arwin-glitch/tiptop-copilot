@@ -32,7 +32,8 @@ import { DEMO_IDS } from './ids';
  * - a finished one, nine days ago (older than the Granola demo notes, so the
  *   Granola feed's freshness reads as before): the scripted call from
  *   lib/transcribe/mock-script.ts, with Dana confirmed by a tap, Priya named
- *   by calendar elimination, the late joiner still "Guest 1", draft notes and
+ *   from the invite while she talked (the calendar rung, "Priya, how does…"
+ *   breaking the tie), the late joiner still "Guest 1", draft notes and
  *   action items, and its consent log;
  * - one scheduled two hours from now, not yet recorded, to start a recording
  *   on in demo mode.

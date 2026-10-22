@@ -1,8 +1,38 @@
 import 'server-only';
+import {
+  MEETING_AI_OPERATIONS,
+  MEETING_CHAT_PROMPT,
+  MEETING_CHAT_PROMPT_VERSION,
+  MEETING_NOTES_PROMPT,
+  MEETING_NOTES_PROMPT_VERSION,
+  meetingChatOutputSchema,
+  meetingNotesOutputSchema,
+} from '@/lib/ai/prompts/meeting-notes';
 import { formatOffset } from '@/lib/notes/api';
+import {
+  clip,
+  DRAFT_MODEL,
+  DRAFT_PROMPT_VERSION,
+  draftNotes,
+  notesAsText,
+  parseTypedNotes,
+  type DraftSpeaker,
+} from '@/lib/notes/draft';
+import {
+  assembleNotes,
+  reownActionItems,
+  resolveChatCitations,
+  type AssemblySpeaker,
+  type ChatMeetingRef,
+} from '@/lib/notes/notes-assembly';
+import { transcriptBlock, typedNotesBlock } from '@/lib/notes/prompt-input';
+import { domainOf } from '@/lib/notes/template-pick';
 import { toCopilotNoteView } from '@/lib/notes/views';
+import { isTeamVisibleNote } from '@/lib/notes/visibility';
+import { getAI } from '@/lib/runtime';
 import { recordAudit } from '@/lib/security/audit';
-import { scanForInjection } from '@/lib/security/injection';
+import { fenceUntrusted, scanForInjection, type UntrustedBlock } from '@/lib/security/injection';
+import { checkAiBudget, recordAiUsage } from '@/lib/security/limits';
 import { speakerDisplayName } from '@/lib/speakers/ladder';
 import { dueDateToInstant } from '@/lib/tasks/due';
 import type { MeetingNote } from '@/lib/types/domain';
@@ -18,8 +48,12 @@ import {
   type NotesChatRequest,
   type TranscriptSegment,
 } from '@/lib/types/notes';
-import { addDaysToKey, DEFAULT_TIMEZONE, localDateKey } from '@/lib/util/time';
+import { DEFAULT_TIMEZONE, localDateKey } from '@/lib/util/time';
 import { err, ok, type Result } from '@/lib/util/result';
+import { autoTemplateFor, meetingCrmContext, readTeamInfo, type TeamInfo } from './notes-context';
+import { fireMeetingFollowUp } from './notes-followup';
+import { applyNamingLadder } from './notes-naming';
+import { pairWithGranola } from './notes-pairing';
 import { createTask } from './tasks';
 import {
   allLinesOf,
@@ -28,226 +62,237 @@ import {
   guard,
   loadMeeting,
   noteOf,
+  templateViewFor,
   type NotesContext,
 } from './notes';
 
 /**
  * Notes, action items and chat for a meeting (D-076).
  *
- * The notes here are a draft built by rules, with no model: the typed notes
- * word for word, the lines that carry numbers or decisions, and the promises
- * ("I'll…", "we'll…", "let's…") as action items with their speaker as owner.
- * Every point links to the lines it came from, nothing is invented, and
- * `model` says 'none'. The AI pass (Claude through lib/ai's
- * generateStructured, a versioned meetingNotes prompt, transcripts fenced as
- * untrusted) replaces draftNotes behind the same shapes; the routes, the row
- * and the views stay as they are.
+ * The notes are written by Claude (the deep tier, Opus 5.5 by default)
+ * through lib/ai's generateStructured, with the versioned meeting-notes
+ * prompt: the typed notes, the transcript, the invite, the voices' names and
+ * what the CRM knows about the guests, the transcript and typed notes fenced
+ * as untrusted. lib/notes/notes-assembly.ts checks the answer before it is
+ * stored: typed lines word for word, every point linked to lines that exist,
+ * owners from the voices.
+ *
+ * Without a model (production with no ANTHROPIC_API_KEY, a refusal, an
+ * outage, the daily AI budget spent) the notes are the rules draft
+ * (lib/notes/draft.ts) with model 'none', so a meeting is never left without
+ * notes, and Regenerate tries the model again.
  */
 
-export const DRAFT_PROMPT_VERSION = 'meeting-notes-draft@0.1.0';
-export const DRAFT_MODEL = 'none';
+export {
+  DRAFT_MODEL,
+  DRAFT_PROMPT_VERSION,
+  draftNotes,
+  dueFromText,
+  notesAsText,
+  parseTypedNotes,
+} from '@/lib/notes/draft';
 
-/* ============================================================ typed == */
+/* ========================================================== voices == */
 
-/** The notepad's markdown as blocks, kept word for word. */
-export function parseTypedNotes(markdown: string | null | undefined): EnhancedBlock[] {
-  if (!markdown) return [];
-  const blocks: EnhancedBlock[] = [];
-  markdown.split(/\r?\n/).forEach((raw, index) => {
-    if (!raw.trim()) return;
-    const indent = raw.match(/^\s*/)?.[0].replace(/\t/g, '  ').length ?? 0;
-    const depth = Math.min(2, Math.floor(indent / 2)) as 0 | 1 | 2;
-    const line = raw.trim();
-    const id = `typed-${index}`;
-    const heading = line.match(/^#{1,3}\s+(.*)$/);
-    const box = line.match(/^[-*]\s+\[( |x|X)\]\s+(.*)$/);
-    const bullet = line.match(/^[-*]\s+(.*)$/);
-    if (heading?.[1]) {
-      blocks.push({
-        id,
-        kind: 'heading',
-        text: heading[1],
-        depth: 0,
-        source: 'typed',
-        sources: [],
-      });
-    } else if (box?.[2]) {
-      blocks.push({
-        id,
-        kind: 'checkbox',
-        text: box[2],
-        depth,
-        source: 'typed',
-        sources: [],
-        checked: box[1] !== ' ',
-      });
-    } else if (bullet?.[1]) {
-      blocks.push({ id, kind: 'bullet', text: bullet[1], depth, source: 'typed', sources: [] });
-    } else {
-      blocks.push({ id, kind: 'paragraph', text: line, depth, source: 'typed', sources: [] });
-    }
-  });
-  return blocks;
-}
-
-/* ============================================================ draft == */
-
-export interface DraftSpeaker {
-  name: string;
-  email: string | null;
-  /** The recorder's own mic: their promises are flagged. */
-  isRecorder: boolean;
-}
-
-const KEY_POINT_RE =
-  /(\d|\bmillion\b|\bthousand\b|\bpercent\b|\braising\b|\bround\b|\bcap\b|\bclose\b|\bdecid|\bagreed?\b|\brevenue\b|\bretention\b)/i;
-const PROMISE_RE = /\b(i'll|i will|we'll|we will|let's|let us)\b/i;
-const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-
-/** A due date said in a line, as YYYY-MM-DD, relative to the meeting's day. */
-export function dueFromText(text: string, meetingDay: string): string | null {
-  const t = text.toLowerCase();
-  if (/\btoday\b|\btonight\b|\bend of (the )?day\b/.test(t)) return meetingDay;
-  if (/\btomorrow\b/.test(t)) return addDaysToKey(meetingDay, 1);
-  if (/\bweek after next\b/.test(t)) return addDaysToKey(meetingDay, 14);
-  if (/\bnext week\b/.test(t)) return addDaysToKey(meetingDay, 7);
-  const day = WEEKDAYS.findIndex((d) => new RegExp(`\\b(by|on|this|next)?\\s*${d}\\b`).test(t));
-  if (day >= 0) {
-    const today = new Date(`${meetingDay}T12:00:00Z`).getUTCDay();
-    const ahead = (day - today + 7) % 7 || 7;
-    return addDaysToKey(meetingDay, ahead);
+/** Each voice as the notes name it, the principal's (Nick's) own flagged. */
+export function assemblySpeakers(
+  speakers: readonly MeetingSpeaker[],
+  meeting: Pick<Meeting, 'recorded_by'>,
+  team: Pick<TeamInfo, 'principalId' | 'principalEmail'>,
+): Map<string, AssemblySpeaker> {
+  const byKey = new Map(speakers.map((s) => [s.cluster_key, s]));
+  const isPrincipal = (s: MeetingSpeaker): boolean => {
+    if (team.principalId && s.user_id === team.principalId) return true;
+    if (team.principalEmail && s.person_email?.toLowerCase() === team.principalEmail) return true;
+    // No principal known: the recorder's own mic stands in, as before.
+    return (
+      !team.principalId &&
+      s.cluster_key === 'mic' &&
+      s.source === 'channel' &&
+      s.user_id === meeting.recorded_by
+    );
+  };
+  const out = new Map<string, AssemblySpeaker>();
+  for (const s of speakers) {
+    const target = s.merged_into ? (byKey.get(s.merged_into) ?? s) : s;
+    out.set(s.cluster_key, {
+      name: speakerDisplayName(target),
+      email: target.person_email,
+      isPrincipal: isPrincipal(target),
+    });
   }
-  return null;
+  return out;
 }
 
-function clip(text: string, max = 220): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
+async function speakersAndTeam(ctx: NotesContext, meeting: Meeting) {
+  const [rows, team] = await Promise.all([
+    ctx.store.list('meeting_speakers', ctx.auth.organizationId, {
+      eq: { meeting_id: meeting.id },
+    }) as Promise<MeetingSpeaker[]>,
+    readTeamInfo(ctx.store, ctx.auth.organizationId),
+  ]);
+  return { rows, team, speakers: assemblySpeakers(rows, meeting, team) };
+}
+
+/* ======================================================== generate == */
+
+export interface GenerateOptions {
+  /** false: the rules draft only, no model call (a cheap refresh of a draft). */
+  ai?: boolean;
+}
+
+interface Written {
+  blocks: EnhancedBlock[];
+  actionItems: ActionItem[];
+  model: string;
+  promptVersion: string;
+  injectionObserved: boolean;
+  aiError: string | null;
+}
+
+/** The model's notes, or why there are none. */
+async function aiNotes(
+  ctx: NotesContext,
+  meeting: Meeting,
+  input: {
+    segments: TranscriptSegment[];
+    speakerRows: MeetingSpeaker[];
+    speakers: Map<string, AssemblySpeaker>;
+    participants: MeetingParticipant[];
+    team: TeamInfo;
+    typed: EnhancedBlock[];
+    previous: ActionItem[];
+    meetingDay: string;
+  },
+): Promise<Written | { aiError: string }> {
+  const ai = getAI();
+  if (ai.kind === 'none' || !ai.available()) return { aiError: 'not_configured' };
+  if (input.segments.length === 0) return { aiError: 'no_transcript' };
+  const org = ctx.auth.organizationId;
+  const budget = await checkAiBudget(ctx.store, org, ctx.auth.userId, ctx.now);
+  if (!budget.ok) return { aiError: budget.error.code };
+
+  const [crm, template] = await Promise.all([
+    meetingCrmContext(ctx, meeting, input.participants, input.team),
+    templateViewFor(ctx, meeting.template_id),
+  ]);
+  const names = new Map([...input.speakers].map(([key, s]) => [key, s.name]));
+  const recorder = input.speakerRows.find((s) => s.cluster_key === 'mic' && s.source === 'channel');
+  const context = {
+    meeting: {
+      title: meeting.title,
+      date: input.meetingDay,
+      kind: meeting.kind,
+      platform: meeting.platform,
+      recorded_by: recorder ? speakerDisplayName(recorder) : null,
+      minutes: Math.round(meeting.recorded_ms / 60_000),
+    },
+    template: template
+      ? {
+          name: template.name,
+          purpose: template.purpose,
+          length: template.length,
+          sections: template.sections,
+        }
+      : null,
+    invite: input.participants.map((p) => {
+      const email = p.email?.toLowerCase() ?? null;
+      return {
+        name: p.name,
+        company_domain: email ? domainOf(email) : null,
+        role: p.role,
+        on_team: Boolean(
+          email && (input.team.emails.has(email) || input.team.domains.has(domainOf(email) ?? '')),
+        ),
+      };
+    }),
+    voices: input.speakerRows
+      .filter((s) => !s.merged_into)
+      .map((s) => ({
+        cluster_key: s.cluster_key,
+        name: speakerDisplayName(s),
+        is_recorder: s.source === 'channel',
+        is_principal: Boolean(input.speakers.get(s.cluster_key)?.isPrincipal),
+      })),
+    crm: {
+      deals: crm.deals.map((d) => ({ company: d.company, stage: d.stage })),
+      portfolio: crm.portfolio.map((c) => ({ company: c.name, stage: c.stage })),
+      on_lp_list: crm.lpKeys.size > 0,
+      people: crm.contacts.map((c) => ({
+        name: c.name,
+        title: c.title,
+        company: c.company,
+        relationship: c.relationship,
+      })),
+    },
+    earlier_meetings: crm.earlier.map((e) => ({ title: e.title, date: e.date, source: e.source })),
+    typed_line_count: input.typed.length,
+  };
+  const blocks: UntrustedBlock[] = [];
+  const typedBlock = typedNotesBlock(input.typed);
+  if (typedBlock) blocks.push(typedBlock);
+  blocks.push(transcriptBlock(input.segments, names));
+  crm.earlier.forEach((e, i) => {
+    blocks.push({
+      sourceId: `earlier_${i}`,
+      sourceKind: 'earlier_notes',
+      label: `Earlier meeting: ${e.title}`,
+      occurredAt: e.date,
+      text: e.excerpt,
+    });
+  });
+
+  const response = await ai.generateStructured({
+    tier: 'deep',
+    operation: MEETING_AI_OPERATIONS.notes,
+    promptVersion: MEETING_NOTES_PROMPT_VERSION,
+    system: MEETING_NOTES_PROMPT,
+    messages: [
+      {
+        role: 'user',
+        content: `<context>${JSON.stringify(context)}</context>\n\n${fenceUntrusted(blocks)}\n\nWrite this meeting's notes and action items.`,
+      },
+    ],
+    schema: meetingNotesOutputSchema,
+    maxTokens: 12_000,
+  });
+  await recordAiUsage(ctx.store, {
+    organizationId: org,
+    userId: ctx.auth.userId,
+    operation: MEETING_AI_OPERATIONS.notes,
+    promptVersion: MEETING_NOTES_PROMPT_VERSION,
+    usage: response.ok ? response.value.usage : null,
+    ok: response.ok,
+    errorCode: response.ok ? null : response.error.code,
+  });
+  if (!response.ok) return { aiError: response.error.code };
+  const assembled = assembleNotes({
+    output: response.value.value,
+    typed: input.typed,
+    seqs: input.segments.map((s) => s.seq),
+    speakers: input.speakers,
+    previous: input.previous,
+  });
+  if (!assembled.blocks.some((b) => b.source === 'ai')) return { aiError: 'invalid_model_output' };
+  return {
+    ...assembled,
+    model: response.value.usage.model,
+    promptVersion: MEETING_NOTES_PROMPT_VERSION,
+    injectionObserved: response.value.value.injection_observed,
+    aiError: null,
+  };
 }
 
 /**
- * Draft notes from the typed notes and the transcript. Pure: the caller
- * passes the lines (final ones, in order), the voices' names and the
- * meeting's day.
+ * Generate (or regenerate) a meeting's notes, keeping tasks already made from
+ * its action items. With no template chosen, the first generation picks one
+ * from the meeting type and the CRM.
  */
-export function draftNotes(input: {
-  userNotes: string | null;
-  segments: readonly Pick<TranscriptSegment, 'seq' | 'cluster_key' | 'text' | 'edited_text'>[];
-  speakers: ReadonlyMap<string, DraftSpeaker>;
-  meetingDay: string;
-  previous?: readonly ActionItem[];
-}): { blocks: EnhancedBlock[]; actionItems: ActionItem[] } {
-  const blocks: EnhancedBlock[] = [...parseTypedNotes(input.userNotes)];
-  const who = (key: string): DraftSpeaker =>
-    input.speakers.get(key) ?? { name: 'Guest', email: null, isRecorder: false };
-  const lines = input.segments.map((s) => ({
-    seq: s.seq,
-    key: s.cluster_key,
-    text: (s.edited_text ?? s.text).trim(),
-  }));
-
-  const keyPoints = lines.filter((l) => KEY_POINT_RE.test(l.text) && !PROMISE_RE.test(l.text));
-  if (keyPoints.length) {
-    blocks.push({
-      id: 'ai-key-points',
-      kind: 'heading',
-      text: 'Key points',
-      depth: 0,
-      source: 'ai',
-      sources: [],
-    });
-    for (const l of keyPoints.slice(0, 8)) {
-      blocks.push({
-        id: `ai-point-${l.seq}`,
-        kind: 'bullet',
-        text: `${who(l.key).name}: ${clip(l.text)}`,
-        depth: 0,
-        source: 'ai',
-        sources: [{ fromSeq: l.seq, toSeq: l.seq }],
-      });
-    }
-  }
-
-  const previous = new Map((input.previous ?? []).map((a) => [a.id, a]));
-  const actionItems: ActionItem[] = lines
-    .filter((l) => PROMISE_RE.test(l.text))
-    .slice(0, 20)
-    .map((l) => {
-      const owner = who(l.key);
-      const id = `ai-action-${l.seq}`;
-      return {
-        id,
-        text: clip(l.text, 300),
-        ownerEmail: owner.email,
-        ownerName: owner.name,
-        ownerClusterKey: l.key,
-        due: dueFromText(l.text, input.meetingDay),
-        isPrincipalPromise: owner.isRecorder,
-        taskId: previous.get(id)?.taskId ?? null,
-        sources: [{ fromSeq: l.seq, toSeq: l.seq }],
-      };
-    });
-  if (actionItems.length) {
-    blocks.push({
-      id: 'ai-actions',
-      kind: 'heading',
-      text: 'Action items',
-      depth: 0,
-      source: 'ai',
-      sources: [],
-    });
-    for (const a of actionItems) {
-      blocks.push({
-        id: `ai-box-${a.id}`,
-        kind: 'checkbox',
-        text: `${a.ownerName ?? 'Someone'}: ${a.text}`,
-        depth: 0,
-        source: 'ai',
-        sources: a.sources,
-        checked: false,
-      });
-    }
-  }
-  return { blocks, actionItems };
-}
-
-/** The notes as plain text, for the readers that show `meeting_notes.content`. */
-export function notesAsText(blocks: readonly EnhancedBlock[]): string {
-  return blocks
-    .map((b) => {
-      const pad = '  '.repeat(b.depth);
-      if (b.kind === 'heading') return `\n${b.text}`;
-      if (b.kind === 'bullet') return `${pad}- ${b.text}`;
-      if (b.kind === 'checkbox') return `${pad}[${b.checked ? 'x' : ' '}] ${b.text}`;
-      return `${pad}${b.text}`;
-    })
-    .join('\n')
-    .trim();
-}
-
-/* ========================================================= generate == */
-
-async function draftSpeakers(ctx: NotesContext, meeting: Meeting) {
-  const speakers = (await ctx.store.list('meeting_speakers', ctx.auth.organizationId, {
-    eq: { meeting_id: meeting.id },
-  })) as MeetingSpeaker[];
-  return new Map<string, DraftSpeaker>(
-    speakers.map((s) => [
-      s.cluster_key,
-      {
-        name: speakerDisplayName(s),
-        email: s.person_email,
-        isRecorder:
-          s.cluster_key === 'mic' && s.source === 'channel' && s.user_id === meeting.recorded_by,
-      },
-    ]),
-  );
-}
-
-/** Generate (or regenerate) a meeting's notes, keeping tasks already made from its action items. */
 export async function generateNotes(
   ctx: NotesContext,
   meetingId: string,
   templateId?: string | null,
+  options: GenerateOptions = {},
 ): Promise<Result<CopilotNoteView>> {
   return guard('generate the notes', async () => {
     const found = await loadMeeting(ctx, meetingId);
@@ -267,38 +312,100 @@ export async function generateNotes(
       }
       meeting = await ctx.store.update('meetings', org, meeting.id, { template_id: templateId });
     }
-    const [segments, speakers, existing] = await Promise.all([
+    const [segments, existing, participants, voices] = await Promise.all([
       allLinesOf(ctx, meeting.id, { finalOnly: true }),
-      draftSpeakers(ctx, meeting),
       noteOf(ctx, meeting),
+      ctx.store.list(
+        'meeting_participants',
+        org,
+        { eq: { meeting_id: meeting.id } },
+        { orderBy: [{ field: 'created_at', direction: 'asc' }] },
+      ) as Promise<MeetingParticipant[]>,
+      speakersAndTeam(ctx, meeting),
     ]);
+
+    // Nobody picked a template (and nobody chose "none" on an earlier run):
+    // pick one from the meeting type and what the CRM knows about the guests.
+    let autoPicked: string | null = null;
+    if (templateId === undefined && !meeting.template_id && !existing?.generated_at) {
+      const crm = await meetingCrmContext(ctx, meeting, participants, voices.team);
+      const pick = await autoTemplateFor(ctx, meeting, participants, voices.team, crm);
+      if (pick.templateId) {
+        meeting = await ctx.store.update('meetings', org, meeting.id, {
+          template_id: pick.templateId,
+        });
+        autoPicked = pick.templateId;
+      }
+    }
+
     const timeZone = ctx.auth.profile.timezone || DEFAULT_TIMEZONE;
     const startedAt = new Date(meeting.started_at ?? meeting.scheduled_start ?? meeting.created_at);
-    const draft = draftNotes({
-      userNotes: existing?.user_notes ?? null,
-      segments,
-      speakers,
-      meetingDay: localDateKey(startedAt, timeZone),
-      previous: existing?.action_items ?? [],
-    });
-    const content = notesAsText(draft.blocks);
+    const meetingDay = localDateKey(startedAt, timeZone);
+    const typed = parseTypedNotes(existing?.user_notes ?? null);
+    const previous = existing?.action_items ?? [];
+
+    let written: Written | null = null;
+    let aiError: string | null = options.ai === false ? 'skipped' : null;
+    if (options.ai !== false) {
+      const result = await aiNotes(ctx, meeting, {
+        segments,
+        speakerRows: voices.rows,
+        speakers: voices.speakers,
+        participants,
+        team: voices.team,
+        typed,
+        previous,
+        meetingDay,
+      });
+      if ('blocks' in result) written = result;
+      else aiError = result.aiError;
+    }
+    if (!written) {
+      const draftSpeakers = new Map<string, DraftSpeaker>(
+        [...voices.speakers].map(([key, s]) => [
+          key,
+          { name: s.name, email: s.email, isPrincipal: s.isPrincipal },
+        ]),
+      );
+      const draft = draftNotes({
+        userNotes: existing?.user_notes ?? null,
+        segments,
+        speakers: draftSpeakers,
+        meetingDay,
+        previous,
+      });
+      written = {
+        ...draft,
+        model: DRAFT_MODEL,
+        promptVersion: DRAFT_PROMPT_VERSION,
+        injectionObserved: false,
+        aiError,
+      };
+    }
+
+    const content = notesAsText(written.blocks, written.actionItems);
     const now = (ctx.now ?? new Date()).toISOString();
+    const flagged =
+      meeting.injection_flagged || written.injectionObserved || scanForInjection(content).flagged;
     const note = await ensureNoteRow(ctx, meeting, {
       title: meeting.title,
       occurred_at: startedAt.toISOString(),
       content: content || '(No notes yet.)',
-      enhanced_blocks: draft.blocks,
-      action_items: draft.actionItems,
+      enhanced_blocks: written.blocks,
+      action_items: written.actionItems,
       template_id: meeting.template_id,
-      prompt_version: DRAFT_PROMPT_VERSION,
-      model: DRAFT_MODEL,
+      prompt_version: written.promptVersion,
+      model: written.model,
       generated_at: now,
       visibility: meeting.visibility,
       owner_id: meeting.recorded_by,
-      injection_flagged: meeting.injection_flagged || scanForInjection(content).flagged,
+      injection_flagged: flagged,
     });
     if (meeting.status === 'processing' || meeting.status === 'failed') {
       await ctx.store.update('meetings', org, meeting.id, { status: 'ready' });
+    }
+    if (flagged && !meeting.injection_flagged) {
+      await ctx.store.update('meetings', org, meeting.id, { injection_flagged: true });
     }
     await recordAudit(ctx.store, {
       organizationId: org,
@@ -307,10 +414,13 @@ export async function generateNotes(
       entityType: 'meeting',
       entityId: meeting.id,
       metadata: {
-        model: DRAFT_MODEL,
-        prompt_version: DRAFT_PROMPT_VERSION,
-        blocks: draft.blocks.length,
-        action_items: draft.actionItems.length,
+        model: written.model,
+        prompt_version: written.promptVersion,
+        blocks: written.blocks.length,
+        action_items: written.actionItems.length,
+        template_id: meeting.template_id,
+        template_auto: autoPicked !== null,
+        ai_error: written.aiError,
       },
     });
     return ok(toCopilotNoteView(note, meeting.id, null));
@@ -318,14 +428,27 @@ export async function generateNotes(
 }
 
 /**
- * The job that runs after Stop: the notes, then (once its trigger is set up)
- * the meeting-follow-up routine. Notes failing leave the meeting 'failed',
- * so Regenerate can try again.
+ * The job that runs after Stop: the naming pass (with the AI cue pass), the
+ * Granola twin, the notes, then the meeting-follow-up routine. Notes failing
+ * leave the meeting 'failed', so Regenerate can try again; the other steps
+ * failing never stops the notes.
  */
 export async function finalizeMeeting(
   ctx: NotesContext,
   meetingId: string,
 ): Promise<Result<{ queued: boolean }>> {
+  const found = await guard('read the meeting', () => loadMeeting(ctx, meetingId));
+  if (!found.ok) return found;
+  const steps: [string, () => Promise<unknown>][] = [
+    ['name the voices', () => applyNamingLadder(ctx, found.value, { ai: true })],
+    ['pair with Granola', () => pairWithGranola(ctx, found.value)],
+  ];
+  for (const [what, step] of steps) {
+    await guard(what, async () => {
+      await step();
+      return ok(true);
+    });
+  }
   const generated = await generateNotes(ctx, meetingId);
   if (!generated.ok) {
     if (generated.error.code !== 'not_configured') {
@@ -338,7 +461,71 @@ export async function finalizeMeeting(
     }
     return generated;
   }
+  await guard('start the follow-up routine', async () => {
+    const after = await loadMeeting(ctx, meetingId);
+    if (after.ok) await fireMeetingFollowUp(ctx, after.value);
+    return ok(true);
+  });
   return ok({ queued: true });
+}
+
+/* ================================================= after a rename == */
+
+/**
+ * After a voice is renamed, split or merged: action-item owners are read
+ * again from the voices at once (no model call), and the notes themselves
+ * are regenerated. A rules draft regenerates here; model notes are left to
+ * `regenerateNotes`, which the route runs after answering (it takes a model
+ * call). Returns whether a regeneration is still to run.
+ */
+export async function refreshAfterSpeakerChange(
+  ctx: NotesContext,
+  meetingId: string,
+  moved: ReadonlyMap<string, string> = new Map(),
+): Promise<Result<{ regenerate: boolean }>> {
+  return guard<{ regenerate: boolean }>('refresh the notes', async () => {
+    const found = await loadMeeting(ctx, meetingId);
+    if (!found.ok) return found;
+    const meeting = found.value;
+    const note = await noteOf(ctx, meeting);
+    if (!note?.generated_at) return ok({ regenerate: false });
+    const { speakers } = await speakersAndTeam(ctx, meeting);
+    const items = reownActionItems(note.action_items ?? [], speakers, moved);
+    await ctx.store.update('meeting_notes', ctx.auth.organizationId, note.id, {
+      action_items: items,
+    } as Partial<MeetingNote>);
+    if (note.model === DRAFT_MODEL) {
+      const draft = await generateNotes(ctx, meetingId, undefined, { ai: false });
+      if (!draft.ok) return draft;
+      return ok({ regenerate: false });
+    }
+    return ok({ regenerate: true });
+  });
+}
+
+/**
+ * Regenerate model notes when they are older than the latest change to the
+ * voices (a run of taps regenerates once: the first run brings the notes up
+ * to date and the later ones find nothing stale).
+ */
+export async function regenerateIfStale(
+  ctx: NotesContext,
+  meetingId: string,
+): Promise<Result<{ regenerated: boolean }>> {
+  const found = await guard('read the meeting', () => loadMeeting(ctx, meetingId));
+  if (!found.ok) return found;
+  const stale = await guard<boolean>('check the notes', async () => {
+    const note = await noteOf(ctx, found.value);
+    if (!note?.generated_at) return ok(false);
+    const speakers = (await ctx.store.list('meeting_speakers', ctx.auth.organizationId, {
+      eq: { meeting_id: meetingId },
+    })) as MeetingSpeaker[];
+    return ok(speakers.some((s) => s.updated_at > (note.generated_at as string)));
+  });
+  if (!stale.ok) return stale;
+  if (!stale.value) return ok({ regenerated: false });
+  const generated = await generateNotes(ctx, meetingId);
+  return generated.ok ? ok({ regenerated: true }) : generated;
 }
 
 /* ===================================================== action items == */
@@ -362,7 +549,7 @@ export async function addActionItemTask(
     const owner = item.ownerName ? `${item.ownerName}: ` : '';
     const created = await createTask(ctx.auth, {
       title: `${owner}${item.text}`.slice(0, 300),
-      detail: `From the meeting "${meeting.title}".`,
+      detail: `From the meeting "${meeting.title}".${item.isPrincipalPromise ? " You said you'd do this." : ''}`,
       dueAt: item.due ? (dueDateToInstant(item.due, timeZone) ?? null) : null,
       source: 'human',
     });
@@ -384,6 +571,10 @@ export async function addActionItemTask(
 }
 
 /* ============================================================== chat == */
+
+const CHAT_MAX_MEETINGS = 12;
+const CHAT_NOTE_CHARS = 1_500;
+const CHAT_HITS = 40;
 
 async function meetingsInScope(
   ctx: NotesContext,
@@ -408,19 +599,209 @@ async function meetingsInScope(
     in: { meeting_id: all.map((m) => m.id) },
     notNull: ['email'],
   })) as MeetingParticipant[];
-  const want = (p: MeetingParticipant) =>
-    request.scope === 'person'
-      ? p.email === request.personEmail
-      : Boolean(p.email?.endsWith(`@${request.companyDomain}`));
-  const ids = new Set(participants.filter(want).map((p) => p.meeting_id));
+  const ids = new Set(
+    participants.filter((p) => inScope(request, p.email)).map((p) => p.meeting_id),
+  );
   return all.filter((m) => ids.has(m.id));
 }
 
+function inScope(request: NotesChatRequest, email: string | null): boolean {
+  if (!email) return false;
+  const e = email.toLowerCase();
+  if (request.scope === 'person') return e === request.personEmail?.toLowerCase();
+  if (request.scope === 'company') return e.endsWith(`@${request.companyDomain?.toLowerCase()}`);
+  return true;
+}
+
+/** Granola notes in a person, company or all-meetings scope (they carry summaries, not transcripts). */
+async function granolaInScope(
+  ctx: NotesContext,
+  request: NotesChatRequest,
+): Promise<MeetingNote[]> {
+  if (request.scope === 'meeting') return [];
+  const rows = (await ctx.store.list(
+    'meeting_notes',
+    ctx.auth.organizationId,
+    { eq: { provider: 'granola' } },
+    { orderBy: [{ field: 'occurred_at', direction: 'desc' }], limit: 300 },
+  )) as MeetingNote[];
+  return rows.filter(
+    (n) =>
+      isTeamVisibleNote(n, ctx.auth.userId) &&
+      (request.scope === 'all' || n.attendees.some((a) => inScope(request, a.email))),
+  );
+}
+
+interface ChatMaterial {
+  refs: ChatMeetingRef[];
+  blocks: UntrustedBlock[];
+  meetingsListed: { index: number; title: string; date: string; source: 'copilot' | 'granola' }[];
+}
+
 /**
- * Ask about this meeting, a person, a company or every meeting. Answers quote
- * the lines they rest on, each cited as "[12:31 Dana Reyes]". This version
- * finds the lines that match the question; the AI answer (speaking as Arwin,
- * from the shared persona) arrives behind the same shapes.
+ * What the chat reads: for one meeting its whole transcript and notes; for a
+ * person, company or every meeting, the lines that match the question (with
+ * a line either side) and each meeting's notes, newest meetings first.
+ */
+async function chatMaterial(
+  ctx: NotesContext,
+  meetings: Meeting[],
+  granola: MeetingNote[],
+  request: NotesChatRequest,
+): Promise<ChatMaterial> {
+  const org = ctx.auth.organizationId;
+  const shown = meetings.slice(0, CHAT_MAX_MEETINGS);
+  const ids = shown.map((m) => m.id);
+  const [speakerRows, notes] = await Promise.all([
+    ctx.store.list('meeting_speakers', org, { in: { meeting_id: ids } }) as Promise<
+      MeetingSpeaker[]
+    >,
+    ctx.store.list('meeting_notes', org, {
+      eq: { provider: 'copilot' },
+      in: { external_id: ids },
+    }) as Promise<MeetingNote[]>,
+  ]);
+  let lines: TranscriptSegment[];
+  if (request.scope === 'meeting' && shown[0]) {
+    lines = await allLinesOf(ctx, shown[0].id, { finalOnly: true });
+  } else {
+    const hits = ids.length
+      ? await ctx.store.search(
+          'transcript_segments',
+          org,
+          request.question,
+          ['text', 'edited_text'],
+          { in: { meeting_id: ids } },
+          CHAT_HITS,
+        )
+      : [];
+    const wanted = new Map<string, Set<number>>();
+    for (const { row } of hits) {
+      const set = wanted.get(row.meeting_id) ?? new Set<number>();
+      for (const seq of [row.seq - 1, row.seq, row.seq + 1]) if (seq >= 0) set.add(seq);
+      wanted.set(row.meeting_id, set);
+    }
+    lines = [];
+    for (const [meetingId, seqs] of wanted) {
+      lines.push(
+        ...((await ctx.store.list('transcript_segments', org, {
+          eq: { meeting_id: meetingId },
+          in: { seq: [...seqs] },
+        })) as TranscriptSegment[]),
+      );
+    }
+  }
+
+  const refs: ChatMeetingRef[] = [];
+  const blocks: UntrustedBlock[] = [];
+  const meetingsListed: ChatMaterial['meetingsListed'] = [];
+  shown.forEach((m, index) => {
+    const mine = speakerRows.filter((s) => s.meeting_id === m.id);
+    const names = new Map(
+      [...assemblySpeakers(mine, m, { principalId: null, principalEmail: null })].map(([k, s]) => [
+        k,
+        s.name,
+      ]),
+    );
+    const own = lines.filter((l) => l.meeting_id === m.id).sort((a, b) => a.seq - b.seq);
+    refs.push({
+      meetingId: m.id,
+      title: m.title,
+      lines: new Map(
+        own.map((l) => [
+          l.seq,
+          { startMs: l.start_ms, speaker: names.get(l.cluster_key) ?? 'Guest' },
+        ]),
+      ),
+    });
+    const date = (m.started_at ?? m.scheduled_start ?? m.created_at).slice(0, 10);
+    meetingsListed.push({ index, title: m.title, date, source: 'copilot' });
+    if (own.length) {
+      blocks.push({
+        ...transcriptBlock(own, names, {
+          prefix: `M${index}.`,
+          sourceId: `M${index}`,
+          label: m.title,
+        }),
+      });
+    }
+    const note = notes.find((n) => n.external_id === m.id);
+    if (note?.content) {
+      blocks.push({
+        sourceId: `M${index}.N`,
+        sourceKind: 'meeting_notes',
+        label: `M${index}.N ${m.title}`,
+        occurredAt: date,
+        text: clip(note.content, CHAT_NOTE_CHARS),
+      });
+    }
+  });
+  granola.slice(0, Math.max(0, CHAT_MAX_MEETINGS - shown.length)).forEach((n, i) => {
+    const index = shown.length + i;
+    refs.push({ meetingId: n.id, title: n.title, lines: new Map() });
+    meetingsListed.push({
+      index,
+      title: n.title,
+      date: n.occurred_at.slice(0, 10),
+      source: 'granola',
+    });
+    blocks.push({
+      sourceId: `M${index}.N`,
+      sourceKind: 'meeting_notes',
+      label: `M${index}.N ${n.title}`,
+      occurredAt: n.occurred_at.slice(0, 10),
+      text: clip(n.content, CHAT_NOTE_CHARS),
+    });
+  });
+  return { refs, blocks, meetingsListed };
+}
+
+/** The answer without a model: the lines that match the question, quoted and cited. */
+async function retrievalAnswer(
+  ctx: NotesContext,
+  meetings: Meeting[],
+  request: NotesChatRequest,
+): Promise<{ answer: string; citations: ChatCitation[] }> {
+  const org = ctx.auth.organizationId;
+  const where = request.scope === 'meeting' ? 'this meeting' : `${meetings.length} meetings`;
+  const hits = await ctx.store.search(
+    'transcript_segments',
+    org,
+    request.question,
+    ['text', 'edited_text'],
+    { in: { meeting_id: meetings.map((m) => m.id) } },
+    3,
+  );
+  if (hits.length === 0) {
+    return { answer: `I couldn't find anything about that in ${where}.`, citations: [] };
+  }
+  const speakerRows = (await ctx.store.list('meeting_speakers', org, {
+    in: { meeting_id: [...new Set(hits.map((h) => h.row.meeting_id))] },
+  })) as MeetingSpeaker[];
+  const name = (meetingKey: string, key: string) => {
+    const row = speakerRows.find((s) => s.meeting_id === meetingKey && s.cluster_key === key);
+    return row ? speakerDisplayName(row) : 'Guest';
+  };
+  const citations: ChatCitation[] = hits.map(({ row }) => {
+    const speaker = name(row.meeting_id, row.cluster_key);
+    return {
+      meetingId: row.meeting_id,
+      seq: row.seq,
+      startMs: row.start_ms,
+      speaker,
+      label: `[${formatOffset(row.start_ms)} ${speaker}]`,
+    };
+  });
+  const quotes = hits.map(
+    ({ row }, i) => `${citations[i]?.label ?? ''} "${clip(row.edited_text ?? row.text, 300)}"`,
+  );
+  return { answer: `Here's what I found in ${where}:\n${quotes.join('\n')}`, citations };
+}
+
+/**
+ * Ask about this meeting, a person, a company or every meeting, as Arwin.
+ * Answers cite the lines they rest on, each as "[12:31 Dana Reyes]". Without
+ * a model, the matching lines are quoted instead.
  */
 export async function chatAboutMeetings(
   ctx: NotesContext,
@@ -430,7 +811,10 @@ export async function chatAboutMeetings(
   return guard('answer that', async () => {
     const found = await loadMeeting(ctx, meetingId);
     if (!found.ok) return found;
-    const meetings = await meetingsInScope(ctx, found.value, request);
+    const [meetings, granola] = await Promise.all([
+      meetingsInScope(ctx, found.value, request),
+      granolaInScope(ctx, request),
+    ]);
     const org = ctx.auth.organizationId;
     await recordAudit(ctx.store, {
       organizationId: org,
@@ -438,49 +822,59 @@ export async function chatAboutMeetings(
       action: 'notes.chat_asked',
       entityType: 'meeting',
       entityId: meetingId,
-      metadata: { scope: request.scope, meetings: meetings.length },
+      metadata: { scope: request.scope, meetings: meetings.length, granola: granola.length },
     });
-    const where = request.scope === 'meeting' ? 'this meeting' : `${meetings.length} meetings`;
-    if (meetings.length === 0) {
+    if (meetings.length === 0 && granola.length === 0) {
       return ok({
         answer: `I couldn't find any meetings to look through for that.`,
         citations: [],
       });
     }
-    const hits = await ctx.store.search(
-      'transcript_segments',
-      org,
-      request.question,
-      ['text', 'edited_text'],
-      { in: { meeting_id: meetings.map((m) => m.id) } },
-      3,
-    );
-    if (hits.length === 0) {
-      return ok({ answer: `I couldn't find anything about that in ${where}.`, citations: [] });
-    }
-    const speakerRows = (await ctx.store.list('meeting_speakers', org, {
-      in: { meeting_id: [...new Set(hits.map((h) => h.row.meeting_id))] },
-    })) as MeetingSpeaker[];
-    const name = (meetingKey: string, key: string) => {
-      const row = speakerRows.find((s) => s.meeting_id === meetingKey && s.cluster_key === key);
-      return row ? speakerDisplayName(row) : 'Guest';
+
+    const ai = getAI();
+    const budget =
+      ai.kind !== 'none' && ai.available()
+        ? await checkAiBudget(ctx.store, org, ctx.auth.userId, ctx.now)
+        : null;
+    if (!budget?.ok) return ok(await retrievalAnswer(ctx, meetings, request));
+
+    const material = await chatMaterial(ctx, meetings, granola, request);
+    const context = {
+      scope: request.scope,
+      person: request.scope === 'person' ? request.personEmail : null,
+      company: request.scope === 'company' ? request.companyDomain : null,
+      meetings: material.meetingsListed,
+      asked_by: ctx.auth.profile.full_name ?? null,
+      question: request.question,
     };
-    const citations: ChatCitation[] = hits.map(({ row }) => {
-      const speaker = name(row.meeting_id, row.cluster_key);
-      return {
-        meetingId: row.meeting_id,
-        seq: row.seq,
-        startMs: row.start_ms,
-        speaker,
-        label: `[${formatOffset(row.start_ms)} ${speaker}]`,
-      };
+    const response = await ai.generateStructured({
+      tier: 'deep',
+      operation: MEETING_AI_OPERATIONS.chat,
+      promptVersion: MEETING_CHAT_PROMPT_VERSION,
+      system: MEETING_CHAT_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: `<context>${JSON.stringify(context)}</context>\n\n${fenceUntrusted(material.blocks)}\n\nThe question: ${request.question}`,
+        },
+      ],
+      schema: meetingChatOutputSchema,
+      maxTokens: 4_000,
     });
-    const quotes = hits.map(
-      ({ row }, i) => `${citations[i]?.label ?? ''} "${clip(row.edited_text ?? row.text, 300)}"`,
-    );
+    await recordAiUsage(ctx.store, {
+      organizationId: org,
+      userId: ctx.auth.userId,
+      operation: MEETING_AI_OPERATIONS.chat,
+      promptVersion: MEETING_CHAT_PROMPT_VERSION,
+      usage: response.ok ? response.value.usage : null,
+      ok: response.ok,
+      errorCode: response.ok ? null : response.error.code,
+    });
+    if (!response.ok) return ok(await retrievalAnswer(ctx, meetings, request));
+    const resolved = resolveChatCitations(response.value.value.answer, material.refs);
     return ok({
-      answer: `Here's what I found in ${where}:\n${quotes.join('\n')}`,
-      citations,
+      answer: resolved.answer || "I couldn't find anything about that in these meetings.",
+      citations: resolved.citations,
     });
   });
 }

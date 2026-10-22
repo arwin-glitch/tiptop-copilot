@@ -1128,6 +1128,23 @@ export interface RelabelSpeakerResponse {
   updatedLines: number;
   /** The notes will regenerate with the new name. */
   notesRefreshing: boolean;
+  /** Present when `rememberVoice` was asked: what happens next (RememberVoiceOutcome). */
+  rememberVoice?: RememberVoiceOutcome;
+}
+
+/**
+ * "Remember this voice" (D-076). 'requested': the meeting is live and the
+ * person's consent is on file, so the recorder asks the vendor for
+ * `vendorLabel`'s identifiers (getSpeakersMessage, speakerIdentifiersFor in
+ * lib/transcribe/socket-url.ts) and posts them to /voice-profiles/enroll.
+ * 'no_consent': nobody may be remembered without consent on file.
+ * 'not_live': identifiers exist only while the vendor session is open.
+ * 'not_supported': the vendor cannot recognise voices (AssemblyAI, a split voice).
+ */
+export interface RememberVoiceOutcome {
+  status: 'requested' | 'no_consent' | 'not_live' | 'not_supported';
+  vendorLabel: string | null;
+  email: string | null;
 }
 
 /** POST /api/notes/meetings/[id]/speakers/split */
@@ -1292,4 +1309,122 @@ export interface VoiceConsentRequest {
 export interface VoiceConsentResponse {
   ok: true;
   profile: VoiceProfileView;
+}
+
+/* ============================================ API: part 2 additions == */
+//
+// Added after the day-0 contract (D-076), all additive: new routes, and
+// optional fields on existing answers.
+
+/** POST /api/notes/voice-profiles/enroll-session: a speech session for one consented person's solo clip. */
+export interface VoiceEnrollSessionRequest {
+  email: string;
+}
+
+export interface VoiceEnrollSessionResponse {
+  ok: true;
+  provider: TranscriberProvider;
+  /** Open it like a meeting session; send getSpeakersMessage() before closing. */
+  session: SttSession;
+}
+
+/**
+ * POST /api/notes/voice-profiles/enroll: one consented person's identifiers,
+ * from an enrolment clip or "Remember this voice". Refused without consent
+ * on file; sealed before storing; replaces what was on file.
+ */
+export interface VoiceEnrollRequest {
+  email: string;
+  /** The vendor's opaque identifiers for that one voice. Never anyone else's. */
+  identifiers: string[];
+  /** The vendor model they belong to; identifiers stop matching when it changes. */
+  modelVersion: string;
+}
+
+/** GET / POST /api/notes/preferences: this person's Copilot Notes settings. */
+export interface NotesPreferences {
+  /** Who sees a meeting this person records, unless they change it: 'private' or the whole 'team'. */
+  defaultVisibility: MeetingVisibility;
+}
+
+export interface NotesPreferencesResponse {
+  ok: true;
+  preferences: NotesPreferences;
+}
+
+export type SetNotesPreferencesRequest = Partial<NotesPreferences>;
+
+/** A never-record rule as Settings lists it: the firm's own rows, then the built-in defaults. */
+export interface RecordingRuleView {
+  /** A row id, or 'default:<key>' for a built-in rule. */
+  id: string;
+  kind: RecordingRuleKind;
+  pattern: string;
+  label: string;
+  enabled: boolean;
+  /** Built in (legal and family words): shown, never edited or removed. */
+  isDefault: boolean;
+}
+
+/** GET /api/notes/recording-rules */
+export interface ListRecordingRulesResponse {
+  ok: true;
+  rules: RecordingRuleView[];
+}
+
+/** POST /api/notes/recording-rules */
+export interface CreateRecordingRuleRequest {
+  kind: RecordingRuleKind;
+  pattern: string;
+  label: string;
+  enabled?: boolean;
+}
+
+/** PATCH /api/notes/recording-rules/[id]; DELETE removes the row (admins). */
+export interface UpdateRecordingRuleRequest {
+  pattern?: string;
+  label?: string;
+  enabled?: boolean;
+}
+
+export interface RecordingRuleResponse {
+  ok: true;
+  rule: RecordingRuleView;
+}
+
+/** PATCH /api/notes/templates/[id] (custom templates only); DELETE archives it. */
+export type UpdateTemplateRequest = Partial<CreateTemplateRequest>;
+
+/**
+ * GET /api/notes/by-event?eventId=&recurringEventId=&emails=a,b : what the
+ * calendar's event card shows. `meeting` is this person's meeting for the
+ * event (null before "Take notes"); `series` the earlier meetings of a
+ * recurring event; `pastNotes` earlier notes with these guests, Copilot and
+ * Granola, newest first, only what this person may see.
+ */
+export interface EventNotesResponse {
+  ok: true;
+  meeting: MeetingView | null;
+  series: MeetingListItem[];
+  pastNotes: MeetingListItem[];
+}
+
+/** One speaking turn from the meeting app's own roster (the Meet extension). */
+export interface RosterTurnInput {
+  name: string;
+  email?: string | null;
+  startMs: number;
+  endMs: number;
+}
+
+/** POST /api/notes/meetings/[id]/roster: lines voices up with who the meeting app showed speaking. */
+export interface ApplyRosterRequest {
+  turns: RosterTurnInput[];
+}
+
+export interface ApplyRosterResponse {
+  ok: true;
+  speakers: SpeakerView[];
+  /** Voices that got a name from the roster. */
+  named: number;
 }

@@ -4,6 +4,7 @@ import { isMissingColumnError, isMissingTableError } from '@/lib/db/missing-tabl
 import { chunk, listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
 import { matchNeverRecord } from '@/lib/notes/never-record';
+import { readNotesPreferences } from '@/lib/notes/preferences';
 import {
   builtinTemplateViews,
   toCopilotNoteView,
@@ -18,10 +19,10 @@ import { recordAudit } from '@/lib/security/audit';
 import { scanForInjection } from '@/lib/security/injection';
 import { log } from '@/lib/security/redact';
 import { isEcho, type TimedText } from '@/lib/speakers/echo-dedupe';
-import { newSpeakerRow, type Recorder } from '@/lib/speakers/ladder';
+import { isResolved, newSpeakerRow, type Recorder } from '@/lib/speakers/ladder';
 import { planMerge, planSplit } from '@/lib/speakers/split-merge';
 import { trackOfClusterKey } from '@/lib/transcribe/cluster';
-import { getTranscriber } from '@/lib/transcribe';
+import { getTranscriber, type KnownSpeaker } from '@/lib/transcribe';
 import type { MeetingNote } from '@/lib/types/domain';
 import {
   BUILTIN_TEMPLATES,
@@ -47,6 +48,7 @@ import {
   type RecipeView,
   type RecordingRule,
   type RelabelSpeakerRequest,
+  type RememberVoiceOutcome,
   type SegmentUpload,
   type SegmentView,
   type SpeakerPersonInput,
@@ -64,6 +66,8 @@ import {
 } from '@/lib/types/notes';
 import { newId } from '@/lib/util/hash';
 import { err, ok, type AppError, type Result } from '@/lib/util/result';
+import { meetingCrmContext, readTeamInfo } from './notes-context';
+import { applyNamingLadder, type NamingOptions } from './notes-naming';
 
 /**
  * Copilot Notes, the core (D-076): meetings, the consent step and the
@@ -290,6 +294,27 @@ export async function speakerViews(
   );
 }
 
+/**
+ * Run the naming pass without letting it fail the write it follows: a voice
+ * renamed or a batch of lines stored stays stored. True when a voice changed.
+ */
+export async function namingSafely(
+  ctx: NotesContext,
+  meeting: Meeting,
+  options: NamingOptions = {},
+): Promise<boolean> {
+  try {
+    const result = await applyNamingLadder(ctx, meeting, options);
+    return result.changed > 0;
+  } catch (error) {
+    if (isMissingTableError(error) || isMissingColumnError(error)) throw error;
+    log.warn('Copilot Notes: the naming pass failed', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
 /* ========================================================== meetings == */
 
 /**
@@ -327,6 +352,8 @@ export async function createMeeting(
     }
 
     const id = newId();
+    // Private unless this person chose the team as their default (Settings).
+    const preferences = await readNotesPreferences(ctx.store, org, ctx.auth.userId);
     const neverRecord = matchNeverRecord(
       {
         title: input.title,
@@ -352,7 +379,7 @@ export async function createMeeting(
       started_at: null,
       ended_at: null,
       recorded_ms: 0,
-      visibility: 'private',
+      visibility: preferences.defaultVisibility,
       shared_with: [],
       folder_id: null,
       template_id: input.templateId ?? null,
@@ -749,10 +776,45 @@ export async function logConsentEvent(
  * recording: a paused meeting resumes first. The long-lived vendor key never
  * leaves the server; each session's key lives 60 seconds.
  */
+/**
+ * Words the speech vendor should spell right: the invite's names and the
+ * guests' companies as the CRM knows them. Spellings, never facts: nothing
+ * here reaches the notes.
+ */
+async function sessionVocabulary(
+  ctx: NotesContext,
+  meeting: Meeting,
+  participants: readonly MeetingParticipant[],
+): Promise<string[]> {
+  const words = new Set<string>();
+  for (const p of participants) if (p.name?.trim()) words.add(p.name.trim());
+  try {
+    const team = await readTeamInfo(ctx.store, ctx.auth.organizationId);
+    const crm = await meetingCrmContext(ctx, meeting, participants, team);
+    for (const d of crm.deals) words.add(d.company);
+    for (const c of crm.portfolio) words.add(c.name);
+    for (const c of crm.contacts) if (c.company) words.add(c.company);
+  } catch (error) {
+    log.warn('Copilot Notes: CRM words for the speech session could not be read', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return [...words].slice(0, 100);
+}
+
+export interface MintOptions {
+  /**
+   * The consented, enrolled voices to recognise, given the invite's emails
+   * (services/voice-profiles.ts knownSpeakersFor; the route passes it in).
+   */
+  knownSpeakers?: (inviteEmails: (string | null)[]) => Promise<KnownSpeaker[]>;
+}
+
 export async function mintSttSessions(
   ctx: NotesContext,
   meetingId: string,
   tracks: TranscriptTrack[],
+  options: MintOptions = {},
 ): Promise<Result<{ provider: TranscriberProvider; sessions: SttSession[] }>> {
   return guard('start the transcript', async () => {
     const found = await loadMeeting(ctx, meetingId, { recorderOnly: true });
@@ -762,19 +824,32 @@ export async function mintSttSessions(
       return err('conflict', 'Start (or resume) the recording first.');
     }
     const participants = await participantsOf(ctx, meeting.id);
-    const vocabulary = participants
-      .map((p) => p.name)
-      .filter((n): n is string => Boolean(n && n.trim()));
+    const vocabulary = await sessionVocabulary(ctx, meeting, participants);
     const transcriber = getTranscriber();
+    // Only Speechmatics recognises enrolled voices, and only on a diarized
+    // track (every mic word is the recorder's). Consent is checked by the
+    // resolver: nobody without it is ever in this list.
+    let knownSpeakers: KnownSpeaker[] = [];
+    if (
+      options.knownSpeakers &&
+      transcriber.provider === 'speechmatics' &&
+      tracks.some((t) => t !== 'mic')
+    ) {
+      try {
+        knownSpeakers = await options.knownSpeakers(participants.map((p) => p.email));
+      } catch (error) {
+        log.warn('Copilot Notes: enrolled voices could not be read', {
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     const sessions: SttSession[] = [];
     for (const track of tracks) {
       const minted = await transcriber.mintSession({
         meetingId: meeting.id,
         track,
         language: meeting.language,
-        // Voice profiles are opt-in and arrive with enrolment; until then
-        // names come from the mic, the calendar and taps.
-        knownSpeakers: [],
+        knownSpeakers,
         vocabulary,
         now: nowOf(ctx),
       });
@@ -784,6 +859,7 @@ export async function mintSttSessions(
     await audit(ctx, 'notes.stt_token_minted', meeting.id, {
       provider: transcriber.provider,
       tracks: tracks.join(','),
+      known_voices: knownSpeakers.length,
     });
     return ok({ provider: transcriber.provider, sessions });
   });
@@ -954,12 +1030,30 @@ export async function uploadSegments(
       await audit(ctx, 'security.injection_flagged', meeting.id, { where: 'transcript' });
     }
 
+    // Live naming: a new voice, or more lines from one nobody has named yet,
+    // may now be named by the invite or a consented voice (rules only here;
+    // the AI cue pass runs once, after Stop).
+    let current = [...speakers, ...newSpeakers];
+    const lines = await allLinesOf(ctx, meeting.id);
+    const open = new Set(
+      current
+        .filter((s) => !s.locked && !s.merged_into && !isResolved(s))
+        .map((s) => s.cluster_key),
+    );
+    if (newSpeakers.length > 0 || rows.some((r) => open.has(r.cluster_key))) {
+      const changed = await namingSafely(ctx, meeting, {
+        speakers: current,
+        lines: lines.filter((l) => l.is_final),
+      });
+      if (changed) current = await speakersOf(ctx, meeting.id);
+    }
+
     return ok({
       accepted: rows.length,
       duplicates: uploads.length - fresh.length,
       dropped,
       lastSeq,
-      speakers: await speakerViews(ctx, meeting, [...speakers, ...newSpeakers]),
+      speakers: await speakerViews(ctx, meeting, current, lines),
     });
   });
 }
@@ -1067,6 +1161,7 @@ export async function relabelSpeaker(
     speakers: SpeakerView[];
     updatedLines: number;
     notesRefreshing: boolean;
+    rememberVoice?: RememberVoiceOutcome;
   }>
 > {
   return guard('rename the voice', async () => {
@@ -1113,6 +1208,11 @@ export async function relabelSpeaker(
       cleared: input.person === null,
       remember_voice_asked: Boolean(input.rememberVoice),
     });
+    // A name picked here can leave one guest and one voice: elimination
+    // names the last one (and a person's tap is never undone by it).
+    if (input.person !== undefined) {
+      await namingSafely(ctx, meeting, { lines: lines.filter((l) => l.is_final) });
+    }
     const speakers = await speakerViews(ctx, meeting, undefined, lines);
     const view = speakers.find((s) => s.clusterKey === updated.cluster_key);
     if (!view) return err('internal', 'The voice could not be read back.');
@@ -1121,8 +1221,45 @@ export async function relabelSpeaker(
       speakers,
       updatedLines: lines.filter((l) => l.cluster_key === clusterKey).length,
       notesRefreshing: await hasGeneratedNote(ctx, meeting),
+      ...(input.rememberVoice
+        ? { rememberVoice: await rememberVoiceOutcome(ctx, meeting, updated) }
+        : {}),
     });
   });
+}
+
+/**
+ * What "Remember this voice" can do now. Identifiers exist only while the
+ * vendor session is open, so the recorder fetches them for this voice's
+ * vendor label and posts them to /voice-profiles/enroll, where consent is
+ * checked again. Nothing is stored here.
+ */
+async function rememberVoiceOutcome(
+  ctx: NotesContext,
+  meeting: Meeting,
+  speaker: MeetingSpeaker,
+): Promise<RememberVoiceOutcome> {
+  const email = speaker.person_email;
+  const base = { vendorLabel: null, email };
+  if (!email) return { status: 'no_consent', ...base };
+  const consent = await ctx.store.findOne('voice_profiles', ctx.auth.organizationId, {
+    eq: { person_email: email.toLowerCase(), consent_status: 'granted' },
+  });
+  if (!consent) return { status: 'no_consent', ...base };
+  const provider = getTranscriber().provider;
+  // The mic is not diarized, and a split voice has no vendor label of its own.
+  if (
+    (provider !== 'speechmatics' && provider !== 'mock') ||
+    speaker.track === 'mic' ||
+    speaker.cluster_key.includes('#')
+  ) {
+    return { status: 'not_supported', ...base };
+  }
+  if (meeting.status !== 'recording' && meeting.status !== 'paused') {
+    return { status: 'not_live', ...base };
+  }
+  const label = speaker.cluster_key.slice(speaker.cluster_key.indexOf(':') + 1);
+  return { status: 'requested', vendorLabel: label, email };
 }
 
 /** "From here it's someone else" (or just this line): the lines move to a new voice. */
@@ -1177,6 +1314,7 @@ export async function splitSpeaker(
     }
     // Touch the source voice so notes generated before the split read as stale.
     await ctx.store.update('meeting_speakers', org, source.id, { updated_at: now });
+    await namingSafely(ctx, meeting);
     await audit(ctx, 'notes.speaker_split', meeting.id, {
       from: source.cluster_key,
       to: plan.value.newClusterKey,
@@ -1224,6 +1362,7 @@ export async function mergeSpeakers(
     await ctx.store.update('meeting_speakers', org, target.id, {
       updated_at: nowOf(ctx).toISOString(),
     });
+    await namingSafely(ctx, meeting);
     await audit(ctx, 'notes.speakers_merged', meeting.id, {
       from,
       into,

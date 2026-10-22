@@ -10,6 +10,31 @@ throughout.
 
 ## [Unreleased]
 
+- **Copilot Notes now writes real notes, names people, and talks to the
+  routines (still off by default).** When a recording stops, Claude writes the
+  notes from the transcript, the notes you typed (kept word for word), the
+  invite and what Copilot already knows about the guests' companies, with
+  every point linked to the lines it came from; if no model is available the
+  simple draft is kept so a meeting is never left without notes. A template is
+  picked for you (founder pitch, LP call, portfolio check-in, intro, 1:1) from
+  who is on the call. People are named as they talk: the invite and what is
+  said ("Priya, how does…") name the guests when that is certain, everyone
+  else gets ranked suggestions, and naming one voice by hand can name the
+  last one too; renaming a voice updates the action items and rewrites the
+  notes. Chat answers about a meeting, a person, a company or every meeting,
+  as Arwin, with "[12:31 Dana Reyes]" links. Search (Ctrl+K too) finds words
+  said in a meeting and opens the transcript at that moment. Voices can be
+  remembered for people who agreed to it, kept encrypted and deleted after a
+  year unused or the moment consent is withdrawn. The cloud routines can read
+  team meetings through five new Copilot tools shaped like Granola's, and the
+  meeting-follow-up routine starts as soon as a meeting's notes are ready. A
+  meeting recorded in both Copilot and Granola shows once. You can share every
+  meeting you record with the team by default, manage the never-record list,
+  and edit or remove your own templates. Meetings left in the trash for a week
+  are deleted for good. Diagnostics notices a recorder that went quiet. AI
+  spend is now estimated at the current prices (Claude Opus 5.5 is the default
+  deep model), so the daily budget no longer trips early. (D-076)
+
 - **Copilot Notes, the groundwork (off by default).** Copilot can now keep
   its own meetings, transcripts and notes, ready for the recorder and the
   Notes screens that come next: a meeting made from a calendar event (or "+

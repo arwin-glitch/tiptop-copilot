@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { done, fail, notesGate, param, readBody } from '@/lib/notes/route-helpers';
+import { refreshNotesAfterRename } from '@/lib/notes/refresh';
 import { RELABEL_SPEAKER } from '@/lib/notes/schemas';
 import { getStore } from '@/lib/runtime';
 import { relabelSpeaker } from '@/lib/services/notes';
@@ -22,6 +23,9 @@ export async function PATCH(request: NextRequest, context: Context) {
   const key = param(clusterKey);
   if (!isClusterKey(key))
     return fail({ code: 'invalid_input', message: 'That voice is not valid.' });
-  const result = await relabelSpeaker({ store: getStore(), auth: gate.auth }, id, key, body.value);
-  return result.ok ? done({ ...result.value }) : fail(result.error);
+  const ctx = { store: getStore(), auth: gate.auth };
+  const result = await relabelSpeaker(ctx, id, key, body.value);
+  if (!result.ok) return fail(result.error);
+  if (result.value.notesRefreshing) await refreshNotesAfterRename(ctx, id);
+  return done({ ...result.value });
 }

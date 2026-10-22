@@ -7,6 +7,7 @@ import {
   MEETING_PLATFORMS,
   MEETING_VISIBILITIES,
   NOTES_LIMITS,
+  RECORDING_RULE_KINDS,
   SHARE_EXPIRY_DAYS,
   STOP_REASONS,
   TEMPLATE_LENGTHS,
@@ -14,6 +15,8 @@ import {
   TRANSCRIPT_TRACKS,
   VOICE_CONSENT_EVIDENCE,
   type AddActionItemTaskRequest,
+  type ApplyRosterRequest,
+  type CreateRecordingRuleRequest,
   type CreateFolderRequest,
   type CreateMeetingRequest,
   type CreateRecipeRequest,
@@ -27,13 +30,18 @@ import {
   type PauseRecordingRequest,
   type RelabelSpeakerRequest,
   type SetNotesBetaRequest,
+  type SetNotesPreferencesRequest,
   type SplitSpeakerRequest,
   type StartRecordingRequest,
   type StopRecordingRequest,
   type SttTokenRequest,
   type UpdateMeetingRequest,
+  type UpdateRecordingRuleRequest,
+  type UpdateTemplateRequest,
   type UploadSegmentsRequest,
   type VoiceConsentRequest,
+  type VoiceEnrollRequest,
+  type VoiceEnrollSessionRequest,
 } from '@/lib/types/notes';
 import { CLUSTER_KEY_RE } from '@/lib/transcribe/cluster';
 
@@ -329,3 +337,84 @@ export const LIST_SEGMENTS_QUERY = z.object({
   after: z.coerce.number().int().min(-1).max(10_000_000).optional(),
   limit: z.coerce.number().int().min(1).max(NOTES_LIMITS.maxSegmentsPerPage).optional(),
 });
+
+/* ------------------------------------------------ part 2 additions (D-076) */
+
+export const VOICE_ENROLL_SESSION = z
+  .object({ email })
+  .strict() satisfies z.ZodType<VoiceEnrollSessionRequest>;
+
+export const VOICE_ENROLL = z
+  .object({
+    email,
+    identifiers: z.array(z.string().min(1).max(8192)).min(1).max(10),
+    modelVersion: z.string().trim().min(1).max(80),
+  })
+  .strict() satisfies z.ZodType<VoiceEnrollRequest>;
+
+export const SET_NOTES_PREFERENCES = z
+  .object({ defaultVisibility: enumOf(MEETING_VISIBILITIES).optional() })
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, {
+    message: 'Nothing to change.',
+  }) satisfies z.ZodType<SetNotesPreferencesRequest>;
+
+export const CREATE_RECORDING_RULE = z
+  .object({
+    kind: enumOf(RECORDING_RULE_KINDS),
+    pattern: z.string().trim().min(2).max(320),
+    label: z.string().trim().min(1).max(60),
+    enabled: z.boolean().optional(),
+  })
+  .strict() satisfies z.ZodType<CreateRecordingRuleRequest>;
+
+export const UPDATE_RECORDING_RULE = z
+  .object({
+    pattern: z.string().trim().min(2).max(320).optional(),
+    label: z.string().trim().min(1).max(60).optional(),
+    enabled: z.boolean().optional(),
+  })
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, {
+    message: 'Nothing to change.',
+  }) satisfies z.ZodType<UpdateRecordingRuleRequest>;
+
+export const UPDATE_TEMPLATE = CREATE_TEMPLATE.partial().refine((v) => Object.keys(v).length > 0, {
+  message: 'Nothing to change.',
+}) satisfies z.ZodType<UpdateTemplateRequest>;
+
+/** GET /api/notes/by-event query string; `emails` is comma separated. */
+export const EVENT_NOTES_QUERY = z.object({
+  eventId: z.string().min(1).max(1024),
+  recurringEventId: z.string().min(1).max(1024).optional(),
+  emails: z
+    .string()
+    .max(20_000)
+    .optional()
+    .transform((v) =>
+      (v ?? '')
+        .split(',')
+        .map((e) => e.trim().toLowerCase())
+        .filter((e) => e.includes('@') && e.length <= 320)
+        .slice(0, 200),
+    ),
+});
+
+export const APPLY_ROSTER = z
+  .object({
+    turns: z
+      .array(
+        z
+          .object({
+            name: z.string().trim().min(1).max(200),
+            email: email.nullable().optional(),
+            startMs: ms,
+            endMs: ms,
+          })
+          .strict()
+          .refine((t) => t.endMs >= t.startMs, { message: 'A turn ends after it starts.' }),
+      )
+      .min(1)
+      .max(5000),
+  })
+  .strict() satisfies z.ZodType<ApplyRosterRequest>;

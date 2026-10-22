@@ -242,6 +242,18 @@ new one. `connect-src` adds the two speech vendors' sockets. A shared note's
 page (`/n/<token>`) is also sent `X-Robots-Tag: noindex, nofollow`,
 `Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
 
+Copilot Notes' other surfaces (D-076): spoken words reach the notes model
+fenced as untrusted, and what comes back is checked before it is stored
+(lines that exist, voices that exist, typed notes put back verbatim), so a
+sentence said on a call cannot plant a point, an owner or an instruction.
+Voice identifiers are sealed with AES-256-GCM under `VOICEPRINT_ENC_KEY`, the
+profile id bound in as additional data, and no route, MCP tool or log ever
+returns one; enrolment refuses anyone without consent on file. The MCP
+meeting tools show team meetings only (tokens carry no scopes), mask LP
+amounts, and fence notes and transcripts. The follow-up routine is told a
+meeting id and nothing else. Turning a never-record rule off, changing what it
+matches or deleting it takes an admin; adding one takes any member.
+
 ---
 
 ## 9. Auditing

@@ -46,3 +46,33 @@ export function openingMessageFor(session: SttSession): string | null {
   const start = (session.sessionConfig as Partial<SpeechmaticsSessionConfig>).startRecognition;
   return start ? JSON.stringify(start) : null;
 }
+
+/**
+ * Voice enrolment (D-076): the message that asks Speechmatics for the voice
+ * identifiers of every voice it has heard so far. Send it on an enrolment
+ * session (sessionConfig.enrollment) before EndOfStream, or on a live
+ * meeting session when "Remember this voice" is asked for a consented
+ * person. Only Speechmatics supports it.
+ */
+export function getSpeakersMessage(final = true): string {
+  return JSON.stringify({ message: 'GetSpeakers', final });
+}
+
+/**
+ * The identifiers of one vendor label from a SpeakersResult message, or null
+ * when the message is something else. Keep only the label you asked about:
+ * everyone else's identifiers are dropped here, in memory, and never sent on.
+ */
+export function speakerIdentifiersFor(message: unknown, label: string): string[] | null {
+  if (!message || typeof message !== 'object') return null;
+  const m = message as { message?: unknown; speakers?: unknown };
+  if (m.message !== 'SpeakersResult' || !Array.isArray(m.speakers)) return null;
+  for (const s of m.speakers as { label?: unknown; speaker_identifiers?: unknown }[]) {
+    if (s?.label !== label || !Array.isArray(s.speaker_identifiers)) continue;
+    const ids = s.speaker_identifiers.filter(
+      (x): x is string => typeof x === 'string' && x.length > 0,
+    );
+    return ids.length ? ids : null;
+  }
+  return null;
+}

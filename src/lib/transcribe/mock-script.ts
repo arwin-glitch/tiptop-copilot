@@ -21,6 +21,20 @@ import type { TranscriptEvent, TranscriptTrack } from '@/lib/types/notes';
 
 export const MOCK_CALL_ID = 'acme-intro';
 
+/**
+ * Demo mode's voice-enrolment "clip": no audio and no vendor. The recorder
+ * posts mockVoiceIdentifiers() for the consented person instead of asking a
+ * vendor, so the consent, sealing and matching paths run end to end.
+ */
+export const MOCK_ENROLLMENT_ID = 'voice-enrollment';
+
+/** Fictional identifiers for demo enrolment: opaque strings, like a vendor's. */
+export function mockVoiceIdentifiers(email: string): string[] {
+  let h = 0;
+  for (const ch of email) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return [`mock-voice-${h.toString(16)}-a`, `mock-voice-${h.toString(16)}-b`];
+}
+
 export interface MockCallPerson {
   key: 'owner' | 'dana' | 'priya' | 'late_joiner';
   /** Null for the recorder (the signed-in person) and the late joiner (never named). */

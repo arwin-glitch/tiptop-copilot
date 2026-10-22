@@ -72,6 +72,15 @@ export class AssemblyAITranscriber implements Transcriber {
         },
       );
     }
+    if (input.purpose === 'enrollment') {
+      // AssemblyAI tells voices apart within one session but cannot
+      // recognise an enrolled voice in the next one.
+      return err(
+        'invalid_input',
+        'Remembering a voice needs Speechmatics (TRANSCRIBER_PROVIDER=speechmatics).',
+        { stillUsable: 'Names still come from the mic, the calendar and taps.' },
+      );
+    }
     const now = input.now ?? new Date();
     const url = new URL(ASSEMBLYAI_TOKEN_URL);
     url.searchParams.set('expires_in_seconds', String(NOTES_LIMITS.sttTokenTtlSeconds));

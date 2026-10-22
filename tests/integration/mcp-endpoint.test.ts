@@ -468,6 +468,12 @@ describe('HTTP framing', () => {
       'lp_pipeline',
       'portfolio',
       'tasks',
+      // Copilot Notes' meeting tools (D-076).
+      'list_meetings',
+      'get_meetings',
+      'get_meeting_transcript',
+      'query_meetings',
+      'list_meeting_folders',
     ]);
   });
 });

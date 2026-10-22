@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { done, fail, notesGate, readBody } from '@/lib/notes/route-helpers';
+import { refreshNotesAfterRename } from '@/lib/notes/refresh';
 import { SPLIT_SPEAKER } from '@/lib/notes/schemas';
 import { getStore } from '@/lib/runtime';
 import { splitSpeaker } from '@/lib/services/notes';
@@ -15,6 +16,9 @@ export async function POST(request: NextRequest, context: Context) {
   const body = await readBody(request, SPLIT_SPEAKER);
   if (!body.ok) return body.response;
   const { id } = await context.params;
-  const result = await splitSpeaker({ store: getStore(), auth: gate.auth }, id, body.value);
-  return result.ok ? done({ ...result.value }) : fail(result.error);
+  const ctx = { store: getStore(), auth: gate.auth };
+  const result = await splitSpeaker(ctx, id, body.value);
+  if (!result.ok) return fail(result.error);
+  if (result.value.notesRefreshing) await refreshNotesAfterRename(ctx, id);
+  return done({ ...result.value });
 }

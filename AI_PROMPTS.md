@@ -47,6 +47,8 @@ export const PROMPT_VERSIONS = {
   schedulingReply:       'scheduling-reply@1.1.0',
   injectionDetection:    'injection-detection@1.1.0',
   dealComparison:        'deal-comparison@1.1.0',
+  meetingNotes:          'meeting-notes@1.0.0',
+  meetingSpeakerCues:    'meeting-speaker-cues@1.0.0',
 } as const;
 ```
 
@@ -115,7 +117,7 @@ prompt is guidance and a constraint is a guarantee.
 
 ---
 
-## 4. The eleven prompts
+## 4. The prompts
 
 | Prompt | Tier | Schema | Job |
 | --- | --- | --- | --- |
@@ -130,6 +132,16 @@ prompt is guidance and a constraint is a guarantee.
 | `schedulingReply` | deep | `draftReplySchema` | Meeting logistics drafted in the EA's voice (introduction + signature), checked against a supplied snapshot of the synced calendar: no overlaps, 8am–6pm CT, hour + travel buffers for in-person, reschedules free the moving slot, cancellations get a warm rebook offer, never initiates moving Nick's commitments. |
 | `injectionDetection` | fast | `injectionDetectionSchema` | Second opinion on suspicious spans. Advisory: it can add to the deterministic flag, never clear it. |
 | `dealComparison` | deep | `dealComparisonSchema` | Compares 2â€“4 deals on the dimensions that would change a decision. |
+| `meetingNotes` | deep | `meetingNotesOutputSchema` | Copilot Notes (D-076): a meeting's notes from its transcript, the typed notes, the invite and CRM facts, following the template's sections. Typed lines are placed by index and put back word for word by the app; every point cites transcript line numbers; action items name a voice's cluster key as owner. Checked by `lib/notes/notes-assembly.ts`. Task text in `prompts/meeting-notes-tasks.ts`. |
+| `meetingSpeakerCues` | fast | `meetingCuesOutputSchema` | Copilot Notes: what was said that shows who a voice is ("I'm Dana", "Priya, how does…"), naming only people on the invite. Suggestions and a tie-breaker for calendar elimination, never a name on its own. |
+
+The meeting chat (`meeting-chat@1.0.0`, `meetingChatOutputSchema`) is not in
+`PROMPTS`: like Ask, it speaks as Arwin from `ASK_ARWIN_PERSONA`, and `PROMPTS`
+holds the core-identity prompts. It cites lines as `[[M0.L12]]` markers, which
+the app turns into "[12:31 Dana Reyes]" links and drops when they point at a
+line the model was not shown. All three live in
+`src/lib/ai/prompts/meeting-notes.ts`; the offline model answers them in
+`src/lib/notes/mock-ai.ts`.
 
 Tiers come from `AI_MODEL_FAST` and `AI_MODEL_DEEP`. Model ids are never
 hard-coded at a call site.
@@ -168,7 +180,7 @@ null means unscored, which is not zero.
 | Setting | Default | Note |
 | --- | --- | --- |
 | `AI_MODEL_FAST` | `claude-haiku-4-5` | Classification, extraction, portfolio |
-| `AI_MODEL_DEEP` | `claude-opus-5` | Analysis, outlook, chat, drafts, comparison |
+| `AI_MODEL_DEEP` | `claude-opus-5-5` | Analysis, outlook, chat, drafts, comparison, meeting notes and meeting chat |
 | `AI_EFFORT_DEEP` | `high` | Only sent to models that support it |
 
 `claude-haiku-4-5` does not support adaptive thinking or `effort`.

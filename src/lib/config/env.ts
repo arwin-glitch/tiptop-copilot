@@ -291,7 +291,7 @@ export function env(): AppEnv {
 
     anthropicApiKey: str('ANTHROPIC_API_KEY'),
     modelFast: str('AI_MODEL_FAST') ?? 'claude-haiku-4-5',
-    modelDeep: str('AI_MODEL_DEEP') ?? 'claude-opus-5',
+    modelDeep: str('AI_MODEL_DEEP') ?? 'claude-opus-5-5',
     aiEffortDeep: (['low', 'medium', 'high', 'xhigh', 'max'] as const).includes(
       effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max',
     )

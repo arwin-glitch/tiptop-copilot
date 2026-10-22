@@ -44,6 +44,7 @@ import {
   visibleFields,
   visibleValues,
 } from '@/lib/crm/lp-rule';
+import { MEETING_TOOLS } from './meeting-tools';
 import type { McpToolDescriptor, McpToolOutput } from './protocol';
 
 /**
@@ -1701,7 +1702,7 @@ const tasksTool = tool({
 
 /* ---------------------------------------------------------------- registry */
 
-const TOOLS = [
+const TOOLS: ToolDef<z.ZodType>[] = [
   search,
   getRecordTool,
   listListsTool,
@@ -1711,6 +1712,8 @@ const TOOLS = [
   lpPipelineTool,
   portfolioTool,
   tasksTool,
+  // Copilot Notes' Granola-shaped meeting tools (D-076), in ./meeting-tools.ts.
+  ...MEETING_TOOLS,
 ];
 const BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
 

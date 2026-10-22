@@ -35,6 +35,13 @@ export interface MintSessionInput {
   knownSpeakers: KnownSpeaker[];
   /** Names and terms worth spelling right (portfolio companies, founders). */
   vocabulary: string[];
+  /**
+   * 'enrollment': a short solo clip of one consented person, diarized so the
+   * recorder can ask the vendor for that voice's identifiers (Speechmatics
+   * GetSpeakers) and post them to /api/notes/voice-profiles/enroll. Nothing
+   * else is enrolled from it. 'meeting' (the default): a recording.
+   */
+  purpose?: 'meeting' | 'enrollment';
   now?: Date;
 }
 

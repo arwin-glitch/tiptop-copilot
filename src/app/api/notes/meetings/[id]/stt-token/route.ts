@@ -3,6 +3,7 @@ import { done, fail, notesGate, readBody } from '@/lib/notes/route-helpers';
 import { STT_TOKEN } from '@/lib/notes/schemas';
 import { getStore } from '@/lib/runtime';
 import { mintSttSessions } from '@/lib/services/notes';
+import { knownSpeakersFor } from '@/lib/services/voice-profiles';
 import { NOTES_LIMITS } from '@/lib/types/notes';
 
 export const dynamic = 'force-dynamic';
@@ -25,10 +26,11 @@ export async function POST(request: NextRequest, context: Context) {
   const body = await readBody(request, STT_TOKEN);
   if (!body.ok) return body.response;
   const { id } = await context.params;
-  const minted = await mintSttSessions(
-    { store: getStore(), auth: gate.auth },
-    id,
-    body.value.tracks,
-  );
+  const ctx = { store: getStore(), auth: gate.auth };
+  // Consented, enrolled voices on the invite (and the team) are recognised
+  // by the vendor, labelled by profile id; nobody else is ever in the list.
+  const minted = await mintSttSessions(ctx, id, body.value.tracks, {
+    knownSpeakers: (emails) => knownSpeakersFor(ctx, emails),
+  });
   return minted.ok ? done({ ...minted.value }) : fail(minted.error);
 }

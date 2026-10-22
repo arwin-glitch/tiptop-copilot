@@ -2630,3 +2630,87 @@ Granola pairing in existing readers, and a purge job for the trash and
 expired voice identifiers. A person must add the vendor keys, the pepper and
 the voiceprint key on Render, and apply the migration before turning the flag
 on.
+
+**Addendum: the core, part 2.** What landed on top of the contract, and the
+calls made while building it. Everything is additive to the contract: new
+routes, and optional fields on existing answers.
+
+- **Notes by Claude, checked by code.** The notes are written by the deep tier
+  (now Claude Opus 5.5 by default) through `generateStructured` with the
+  versioned `meeting-notes@1.0.0` prompt (`lib/ai/prompts/meeting-notes.ts`):
+  the typed notes, the transcript, the invite, the voices' names, CRM facts
+  (deal stage, portfolio, LP list membership, network) and earlier meetings
+  with the same guests, the transcript and notes fenced as untrusted.
+  `lib/notes/notes-assembly.ts` checks the answer: typed lines are put back
+  by the app word for word (the model only says where each goes, and a typed
+  line it drops is kept at the top), every point must cite transcript lines
+  that exist (ranges are trimmed; a point with none is dropped), action-item
+  owners must be voices of the meeting and take their spelling from them,
+  the principal's own promises are flagged, a due date is a real date or
+  nothing. The rules draft stays as the fallback (no key, a refusal, an
+  outage, the daily budget spent), saved with `model` `none`, and Regenerate
+  tries the model again. Every call is budget-checked and recorded in
+  `ai_usage`.
+- **Templates pick themselves** on the first generation when nobody chose one:
+  a custom template's rule (a guest's domain, then a title word, then the
+  meeting type), else the type from the CRM (a portfolio company's domain:
+  check-in; someone on an LP list: LP call; a company in the pipeline: founder
+  pitch; only teammates: 1:1), else the title's words, else general notes.
+- **The naming ladder, completed** (`lib/speakers/naming.ts`). Transcript cues
+  ("I'm Dana", "Priya, how does…", "Thanks, Priya") are found by rules and,
+  after Stop, by a fast-tier AI pass; both only match people on the invite.
+  Calendar elimination names a voice in two cases only: one guest and one
+  voice left (0.9), or as many guests as voices with the cues singling out a
+  pair in both directions (0.8), repeated until the last pair falls to the
+  first case. With more voices than guests (someone uninvited is talking)
+  nothing is named and every voice gets ranked chips. Names are sticky: a
+  voice named while two people talked keeps its name when a third joins; it
+  is cleared only when a stronger rung or a person gives that guest to another
+  voice. The pass runs on every batch that brings an unnamed voice (rules
+  only), after every rename, split and merge (so naming one voice can name the
+  last), and after Stop (with the AI cues). A voice the vendor matched to a
+  consented profile (`sys:<profile id>`) is named by the voiceprint rung; the
+  meeting app's roster (`POST /roster`, the Meet extension's speaking timeline)
+  names a voice whose talk time falls mostly in one person's turns.
+- **A rename rewrites the notes.** Action-item owners are re-read from the
+  voices at once, with no model call; a rules draft regenerates at once; model
+  notes regenerate after the route has answered (Next's `after`), once per
+  run of taps (the first run brings them up to date, later ones find nothing
+  stale). Stop waits up to 20 seconds for the notes and finishes the rest after
+  answering; the meeting reads `processing` until then.
+- **Voice enrolment** is a speech session for one consented person's solo clip
+  (diarized, recognising nobody) or "Remember this voice" during a live
+  meeting (the recorder asks the vendor for that one label's identifiers);
+  either way the identifiers reach `/voice-profiles/enroll`, which refuses
+  without consent, seals them (AES-256-GCM, the profile id as additional
+  data) and never returns them. Recording sessions recognise consented,
+  enrolled people on the invite plus the team, by profile id, at most 50;
+  using a voice moves its expiry a year out; the daily job deletes expired
+  ones.
+- **Granola-shaped MCP meeting tools** (`list_meetings`, `get_meetings`,
+  `get_meeting_transcript`, `query_meetings`, `list_meeting_folders`) read
+  Copilot meetings and the Granola notes already held, with source-qualified
+  ids. MCP tokens carry no scopes, so they show team meetings only: never a
+  private meeting, a private folder (Coaching) or the trash. LP amounts are
+  masked; voice data is unreachable.
+- **The follow-up routine is fired** once per team meeting when its notes are
+  ready (`MEETING_FOLLOWUP_FIRE_URL`), with the meeting's id and nothing else.
+- **Granola twins.** A Copilot meeting and a Granola note are the same
+  conversation when they are within three hours and their titles match (case
+  and punctuation aside) or an outside guest is on both, and exactly one
+  candidate matches. Paired at Stop and when a Granola note arrives; the deal,
+  company and network pages, the meetings list, the counts and the MCP tools
+  show the pair once, as the Copilot note.
+- **Settings without a table.** Each person's default visibility (Nick picks
+  "team" so Arwin and the routines can read his meetings) is kept like the
+  beta switch, as `notes.preferences_set` audit rows. Never-record rules get
+  routes: any member may add one; turning one off, changing what it matches or
+  deleting it takes an admin; the built-in words are listed and fixed.
+- **Housekeeping.** The daily job purges meetings a week in the trash (with
+  their lines, voices, notes, links and consent log) and expired voice
+  identifiers. A `meeting-capture` feed on Diagnostics reads "stopped" when a
+  meeting has been marked as recording for 20 minutes with no new line (a
+  closed tab).
+- **Prices.** The AI price table gains Opus 5.5 ($4/$20), Sonnet 5.5 and
+  Haiku 5.5, and Sonnet 5 drops to $2/$10, so the daily budget is no longer
+  overstated about 2.5 times; `AI_MODEL_DEEP` defaults to `claude-opus-5-5`.

@@ -559,8 +559,11 @@ Meetings Copilot records and transcribes itself, without a bot
 (`NOTES_ENABLED`). Shapes and the API contract: `lib/types/notes.ts`; request
 schemas `lib/notes/schemas.ts`; services `lib/services/notes.ts` (meetings,
 consent and recording state, lines, voices, templates, folders, recipes),
-`notes-generate.ts` (notes, action items, chat), `notes-share.ts`,
-`notes-search.ts` and `voice-profiles.ts`; routes under `/api/notes`.
+`notes-generate.ts` (notes, action items, chat), `notes-naming.ts` (the
+naming ladder), `notes-context.ts` (CRM facts and the template auto-pick),
+`notes-share.ts`, `notes-search.ts`, `notes-settings.ts`, `notes-pairing.ts`,
+`notes-followup.ts`, `notes-purge.ts` and `voice-profiles.ts`; routes under
+`/api/notes`; MCP tools in `lib/mcp/meeting-tools.ts`.
 
 | Table | Purpose |
 | --- | --- |
@@ -582,6 +585,14 @@ A meeting and everything under it is read only where its visibility allows
 answers "not found" otherwise). Every read degrades to "not set up yet" until
 the migration is applied, and the feature stays off until `NOTES_ENABLED` is
 set, which must happen after the migration, never before.
+
+No other table: each person's Notes settings (their default visibility) are
+`audit_events` rows with action `notes.preferences_set`, newest wins, like the
+beta switch (`notes.beta_set`). A Copilot meeting and a Granola note of the
+same conversation are paired through `meetings.granola_external_id`, set at
+Stop or when the Granola note arrives (`services/notes-pairing.ts`). The daily
+job deletes meetings a week in the trash, with every row under them, and
+voice identifiers past `expires_at` (`services/notes-purge.ts`).
 
 ---
 

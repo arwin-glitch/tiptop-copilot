@@ -122,7 +122,9 @@ Default `claude-haiku-4-5`. Classification, extraction and portfolio
 classification.
 
 ### `AI_MODEL_DEEP`
-Default `claude-opus-5`. Analysis, daily outlook, chat, drafts and comparison.
+Default `claude-opus-5-5` (Claude Opus 5.5, $4/$20 per million tokens; it was
+`claude-opus-5` at $5/$25 before D-076). Analysis, daily outlook, chat, drafts,
+comparison, and Copilot Notes' meeting notes and chat.
 
 Model ids come from here and nowhere else — never hard-coded at a call site. To
 change a model, change the variable.
@@ -502,7 +504,10 @@ enrolled; names come from the mic, the calendar and taps.
 
 The meeting-follow-up routine's API trigger, so the recap starts as soon as a
 meeting's notes are ready. Unset, the routine's own schedule picks the meeting
-up instead.
+up instead. Copilot POSTs `{"text":"copilot_meeting_id=<uuid>"}` with the token
+as a Bearer header, once per meeting, for meetings the team can see only (the
+routine reads them through the MCP meeting tools, docs/MCP.md). Never called in
+demo mode.
 
 ---
 

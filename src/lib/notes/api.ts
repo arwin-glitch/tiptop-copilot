@@ -53,6 +53,31 @@ export const NOTES_API = {
   recipes: `${base}/recipes`,
   /** GET / POST (VoiceConsentRequest). */
   voiceProfiles: `${base}/voice-profiles`,
+  /** POST: VoiceEnrollSessionRequest, a speech session for a consented person's solo clip. */
+  voiceEnrollSession: `${base}/voice-profiles/enroll-session`,
+  /** POST: VoiceEnrollRequest, one consented person's identifiers (sealed on arrival). */
+  voiceEnroll: `${base}/voice-profiles/enroll`,
+  /** GET / POST (SetNotesPreferencesRequest): this person's default visibility. */
+  preferences: `${base}/preferences`,
+  /** GET (ListRecordingRulesResponse) / POST (CreateRecordingRuleRequest). */
+  recordingRules: `${base}/recording-rules`,
+  /** PATCH (UpdateRecordingRuleRequest) / DELETE (admins). */
+  recordingRule: (id: string) => `${base}/recording-rules/${encodeURIComponent(id)}`,
+  /** PATCH (UpdateTemplateRequest) / DELETE (archive) a custom template. */
+  template: (id: string) => `${base}/templates/${encodeURIComponent(id)}`,
+  /** POST: ApplyRosterRequest, the meeting app's speaking timeline. */
+  roster: (id: string) => `${m(id)}/roster`,
+  /** GET: EventNotesResponse, what the calendar's event card shows. */
+  eventNotes: (q: {
+    eventId: string;
+    recurringEventId?: string | null;
+    emails?: readonly string[];
+  }) => {
+    const params = new URLSearchParams({ eventId: q.eventId });
+    if (q.recurringEventId) params.set('recurringEventId', q.recurringEventId);
+    if (q.emails?.length) params.set('emails', q.emails.join(','));
+    return `${base}/by-event?${params.toString()}`;
+  },
 } as const;
 
 /** The public page a share link opens: /n/<token>. */

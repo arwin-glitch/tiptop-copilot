@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { NOTES_LIMITS, type SttSession } from '@/lib/types/notes';
 import { ok, type Result } from '@/lib/util/result';
-import { MOCK_CALL_ID } from './mock-script';
+import { MOCK_CALL_ID, MOCK_ENROLLMENT_ID } from './mock-script';
 import { SESSION_AUDIO, type MintSessionInput, type Transcriber } from './transcriber';
 
 /**
@@ -24,7 +24,10 @@ export class MockTranscriber implements Transcriber {
       wsUrl: null,
       token: `mock_${randomBytes(12).toString('hex')}`,
       expiresAt: new Date(now.getTime() + NOTES_LIMITS.sttTokenTtlSeconds * 1000).toISOString(),
-      sessionConfig: { script: MOCK_CALL_ID, track: input.track },
+      sessionConfig:
+        input.purpose === 'enrollment'
+          ? { script: MOCK_ENROLLMENT_ID, track: input.track, enrollment: true }
+          : { script: MOCK_CALL_ID, track: input.track },
       audio: { ...SESSION_AUDIO },
     });
   }

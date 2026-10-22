@@ -13,7 +13,15 @@ const FILES = [
   'src/lib/demo/notes-fixtures.ts',
   'src/lib/transcribe/mock-script.ts',
   'src/lib/types/notes.ts',
-  'src/lib/notes/never-record.ts',
+  'src/lib/mcp/meeting-tools.ts',
+  'src/lib/ai/prompts/meeting-notes.ts',
+  'src/lib/ai/prompts/meeting-notes-tasks.ts',
+  // Everything Copilot Notes owns under lib/ (never-record.ts among them).
+  ...['src/lib/notes', 'src/lib/speakers', 'src/lib/transcribe'].flatMap((dir) =>
+    readdirSync(path.join(ROOT, dir))
+      .filter((f) => f.endsWith('.ts'))
+      .map((f) => `${dir}/${f}`),
+  ),
   ...readdirSync(path.join(ROOT, 'tests/unit'))
     .filter((f) => f.startsWith('notes-'))
     .map((f) => `tests/unit/${f}`),

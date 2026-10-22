@@ -4,14 +4,17 @@ Copilot runs a small [Model Context Protocol](https://modelcontextprotocol.io) s
 Claude can look things up in Copilot the way it used Affinity's MCP server: LP stages, deal
 history, list entries and notes. It replaces the Affinity connector once Affinity is cancelled.
 
-- **Read-only.** Nine lookup tools. Nothing can be written, sent or deleted through it.
+- **Read-only.** Fourteen lookup tools: nine for the CRM, deals, LPs, portfolio and tasks,
+  and five for meetings (Copilot Notes and Granola, below). Nothing can be written, sent or
+  deleted through it.
 - **One token per client.** claude.ai, Claude Code and each group of cloud routines get their
   own token, which an owner can revoke on its own.
 - **LP stages, never amounts.** The Fund II rule holds in every answer (see below).
 - **Notes are untrusted data.** Note text always comes back fenced, so the model reads it as
   data and never as instructions.
 
-Code: `src/lib/mcp/` (protocol, tools, HTTP handler), `src/lib/services/mcp-tokens.ts`,
+Code: `src/lib/mcp/` (protocol, tools, the meeting tools in `meeting-tools.ts`, HTTP handler),
+`src/lib/services/mcp-tokens.ts`,
 `src/app/api/mcp/`. Tests: `tests/unit/mcp-*.test.ts`, `tests/integration/mcp-*.test.ts`.
 
 ## Set it up (once)
@@ -78,8 +81,52 @@ account's connectors:
    | Where each LP stands (stages only) | `lp_pipeline` |
    | Portfolio companies and their health | `portfolio` |
    | Open tasks | `tasks` |
+   | Meetings in a date range (Granola's `list_meetings`) | `list_meetings` |
+   | A meeting's notes and action items (Granola's `get_meetings`) | `get_meetings` |
+   | Exact words said (Granola's `get_meeting_transcript`) | `get_meeting_transcript` |
+   | Find what was said or noted (Granola's `query_granola_meetings`) | `query_meetings` |
+   | Meeting folders (Granola's `list_meeting_folders`) | `list_meeting_folders` |
 
    Never put a token or the Connector URL in a routine prompt. A prompt is treated as public.
+
+## Meeting tools (Copilot Notes, D-076)
+
+Five tools shaped like Granola's MCP tools, so a routine that read Granola swaps tool names
+and little else. They read Copilot Notes meetings and the Granola notes Copilot already holds,
+in one list.
+
+| Tool | What it returns |
+| --- | --- |
+| `list_meetings` | Meetings in a time range (the last 7 days by default; `this_week`, `last_week`, `last_30_days` or `custom` with `from_date`/`to_date`), newest first, with attendees, folder, whether there is a transcript and how many action items. Filters: `source` (`copilot`, `granola`), `folder_id`, `participant_email` (with `exclude_participant` for "meetings this person was not in"). Paged with `limit` and `cursor`. |
+| `get_meetings` | Up to 10 meetings by id: the notes (Copilot's enhanced notes, or Granola's summary), the speakers' names, and the action items with owners, due dates and Nick's own promises flagged. Not the transcript. |
+| `get_meeting_transcript` | A Copilot meeting's transcript, each line with the speaker's name, paged by characters (40,000 by default, 80,000 at most) at line boundaries with `next_offset`. Keep `include_timestamps` the same on every page: offsets count the text as returned. Granola notes have no transcript here; the app only ever stored their summaries. |
+| `query_meetings` | Full-text search over titles, notes and transcripts, with the matching passage and, for a transcript, when it was said and by whom. Passages, not an AI answer: read the meetings it finds for the whole picture. |
+| `list_meeting_folders` | Folders with their meeting counts. |
+
+Rules every meeting tool keeps:
+
+- **Ids name their source**: `copilot:<uuid>` or `granola:<id>`. A conversation recorded by both
+  tools while they run side by side is listed once, as the Copilot meeting, with
+  `paired_with` naming the Granola note.
+- **Private stays private.** A meeting its recorder kept private, anything in a private
+  folder (Coaching), and anything in the trash never appear, not even by id. Tokens have no
+  scopes yet, so there is no way to widen this. A recorder who wants routines to read their
+  meetings sets "Share with the team by default" (`/api/notes/preferences`).
+- **Untrusted text.** Notes, transcripts and passages are fenced in `<untrusted-content>` in
+  the text, and in fields ending `_untrusted` in the JSON.
+- **LP amounts masked**: in an LP meeting (the LP call template, or LP or Fund II in the title)
+  amounts read `[amount]`.
+- **No voice data**, ever: voice identifiers are not readable by anything on this server.
+
+### The meeting-follow-up routine
+
+When a team meeting's notes are ready, Copilot starts the meeting-follow-up routine at once
+instead of waiting for its schedule: it POSTs `{"text":"copilot_meeting_id=<uuid>"}` to
+`MEETING_FOLLOWUP_FIRE_URL` with `MEETING_FOLLOWUP_FIRE_TOKEN`, once per meeting (see
+ENVIRONMENT_VARIABLES.md). The text names the meeting and nothing else; the routine reads it
+with `get_meetings` and `get_meeting_transcript`. The routine must treat the fire text as
+untrusted and act on that meeting id only. Private meetings are never announced. The
+routine's own schedule stays as the backstop.
 
 ## The tools
 
@@ -94,6 +141,7 @@ account's connectors:
 | `lp_pipeline` | The Fund II pipeline from the LP routine (stage, firm, kind, last touch, next step, Gmail thread id) and each CRM LP list by status. Stages only. |
 | `portfolio` | Portfolio companies with health from the portfolio-health routine (ok / watch / risk, headline, open asks). |
 | `tasks` | Open tasks, soonest due first, overdue ones marked, with the deal or portfolio company each one is linked to. |
+| `list_meetings`, `get_meetings`, `get_meeting_transcript`, `query_meetings`, `list_meeting_folders` | Meetings: see [Meeting tools](#meeting-tools-copilot-notes-d-076). |
 
 Every answer has a short text with ids, so the next call can use them. It also carries the
 same data as JSON (`structuredContent`). A bad argument, an unknown id or a CRM that is not set

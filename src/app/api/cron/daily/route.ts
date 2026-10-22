@@ -1,4 +1,5 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
+import { purgeNotes } from '@/lib/services/notes-purge';
 import { timingSafeEqual } from 'node:crypto';
 import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
@@ -85,6 +86,7 @@ export async function POST(request: NextRequest) {
     numbers: string;
     asks: string;
     campaigns: string;
+    notes?: string;
   }[] = [];
 
   let organizations: Organization[] = [];
@@ -320,6 +322,17 @@ export async function POST(request: NextRequest) {
       log.error('Cron campaign reply check failed', { organizationId: organization.id });
     }
 
+    // Copilot Notes (D-076): meetings out of the 7-day trash, and voice
+    // identifiers a year past their last use. Counts only.
+    let notesStatus: string;
+    try {
+      const purged = await purgeNotes(store, organization.id);
+      notesStatus = `ok: ${purged.meetings} meetings and ${purged.voices} voice identifiers purged`;
+    } catch {
+      notesStatus = 'failed';
+      log.error('Cron Copilot Notes purge failed', { organizationId: organization.id });
+    }
+
     results.push({
       organization: organization.name,
       sync: syncStatus,
@@ -332,6 +345,7 @@ export async function POST(request: NextRequest) {
       numbers: numbersStatus,
       asks: asksStatus,
       campaigns: campaignsStatus,
+      notes: notesStatus,
     });
   }
 
