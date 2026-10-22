@@ -73,13 +73,48 @@ export const PLACE = z.object({
 });
 export type Place = z.infer<typeof PLACE>;
 
+const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+type PhotoType = (typeof PHOTO_TYPES)[number];
+const PHOTO_EXT: Record<PhotoType, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+
+/**
+ * The one shape a stored photo path may have: Copilot names it on upload
+ * (booking/<organization>/host-photo-<version>.<ext>), so a path with "..",
+ * another folder or another file is never read back.
+ */
+const PHOTO_PATH = /^booking\/[0-9a-f-]{36}\/host-photo-[0-9a-f]{8}\.(?:jpg|png|webp)$/;
+
 export const PHOTO_REF = z.object({
-  path: z.string().min(1).max(300),
-  type: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  path: z.string().regex(PHOTO_PATH),
+  type: z.enum(PHOTO_TYPES),
   /** Changes with every upload, so the page's photo URL changes and caches refresh. */
-  version: z.string().min(1).max(40),
+  version: z.string().regex(/^[0-9a-f]{8}$/),
 });
 export type PhotoRef = z.infer<typeof PHOTO_REF>;
+
+/** Where an uploaded host photo is kept in the private bucket. */
+export function bookingPhotoPath(organizationId: string, version: string, type: PhotoType): string {
+  return `booking/${organizationId}/host-photo-${version}.${PHOTO_EXT[type]}`;
+}
+
+/**
+ * Whether a stored photo names exactly the file Copilot would have written
+ * for this organization: the only one the photo routes serve or remove.
+ */
+export function isOwnPhotoPath(
+  organizationId: string,
+  photo: Pick<PhotoRef, 'path' | 'type' | 'version'>,
+): boolean {
+  return (
+    PHOTO_PATH.test(photo.path) &&
+    (PHOTO_TYPES as readonly string[]).includes(photo.type) &&
+    photo.path === bookingPhotoPath(organizationId, photo.version, photo.type)
+  );
+}
 
 /** Everything Settings > Booking link edits, apart from on/off and the slug. */
 export interface BookingConfig {

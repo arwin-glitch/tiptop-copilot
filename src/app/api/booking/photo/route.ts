@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { requireRole } from '@/lib/auth/session';
+import { isOwnPhotoPath } from '@/lib/booking/config';
 import { calendarAuth, done, fail } from '@/lib/calendar/route-auth';
 import { getStorage, getStore } from '@/lib/runtime';
 import {
@@ -72,7 +73,7 @@ export async function GET(request: NextRequest) {
     () => null,
   );
   const photo = settings?.config.photo;
-  if (!photo || !photo.path.startsWith(`booking/${auth.auth.organizationId}/`)) {
+  if (!photo || !isOwnPhotoPath(auth.auth.organizationId, photo)) {
     return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
   }
   const bytes = await getStorage().get(photo.path);

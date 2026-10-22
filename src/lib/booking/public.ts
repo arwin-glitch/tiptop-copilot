@@ -86,16 +86,43 @@ export function dayKeyIn(iso: string, zone: string): string {
   );
 }
 
-/** "Central Time" style name for a zone, else the IANA name. */
+/** "Chicago" from "America/Chicago", "Port Moresby" from "Pacific/Port_Moresby". */
+function zoneCity(zone: string): string | null {
+  const last = zone.split('/').pop();
+  return zone.includes('/') && last ? last.replace(/_/g, ' ') : null;
+}
+
+/**
+ * "Central Time (Chicago)": the zone's generic name, which is right in summer
+ * and winter alike (never "Daylight" for a November slot), and its city, so
+ * two zones with the same generic name can be told apart. Else the IANA name.
+ */
 export function zoneName(zone: string, at: Date = new Date()): string {
+  if (/^(utc|etc\/utc|etc\/gmt|gmt)$/i.test(zone)) return 'UTC';
   try {
-    const part = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'long' })
+    const part = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'longGeneric' })
       .formatToParts(at)
       .find((p) => p.type === 'timeZoneName')?.value;
-    return part ?? zone;
+    if (!part) return zone;
+    const city = zoneCity(zone);
+    return city && !part.toLowerCase().includes(city.toLowerCase()) ? `${part} (${city})` : part;
   } catch {
     return zone;
   }
+}
+
+/** Zones for a picker, one per label: two names for the same place are offered once. */
+export function distinctZones(zones: readonly (string | null | undefined)[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const zone of zones) {
+    if (!knownZone(zone)) continue;
+    const label = zoneName(zone);
+    if (seen.has(label)) continue;
+    seen.add(label);
+    out.push(zone);
+  }
+  return out;
 }
 
 /** Whether a zone name is one this browser or server knows. */

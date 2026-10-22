@@ -9,11 +9,20 @@ import {
   MEETING_MINUTES,
   parseBookingConfig,
   SLUG,
+  bookingPhotoPath,
+  isOwnPhotoPath,
   type BookingConfig,
   type MeetingKind,
   type MeetingType,
+  type PhotoRef,
 } from '@/lib/booking/config';
-import { openSlots, slotProblem, type EngineInput, type LinkBooking } from '@/lib/booking/engine';
+import {
+  bookingsBefore,
+  openSlots,
+  slotProblem,
+  type EngineInput,
+  type LinkBooking,
+} from '@/lib/booking/engine';
 import { bookingEventDraft, declineDraft, googleCalendarTemplateUrl } from '@/lib/booking/event';
 import {
   CLOSED_MESSAGE,
@@ -42,6 +51,7 @@ import type { StorageProvider } from '@/lib/storage/provider';
 import { readTeam } from '@/lib/tasks/principal';
 import type { BookingRequest, BookingSettingsRow, UserProfile } from '@/lib/types/domain';
 import { newId, sha256 } from '@/lib/util/hash';
+import { processWide } from '@/lib/util/process-state';
 import { err, ok, type Result } from '@/lib/util/result';
 import { principalTimeZone } from './push-alerts';
 
@@ -68,6 +78,45 @@ export const BOOKING_NOT_SET_UP =
 const CLAIM_TIMEOUT_MS = 2 * 60_000;
 /** Requests waiting per email address. */
 export const MAX_OPEN_PER_EMAIL = 3;
+/**
+ * Requests waiting per sender (the keyed hash of their address), whatever
+ * email they type: kept in the table, so it holds across restarts, and it
+ * stops one sender filling the link with made-up addresses.
+ */
+export const MAX_OPEN_PER_ADDRESS = 3;
+/**
+ * New meeting requests the whole link takes in a day while they wait. Each
+ * holds its time, so without this a few senders could close every slot for
+ * three weeks; past it, the page still takes messages.
+ */
+export const MAX_NEW_HOLDS_PER_DAY = 6;
+
+export const BUSY_LINK_MESSAGE =
+  'This booking link has a lot of requests waiting right now. Leave a message instead and Arwin will reply by email.';
+
+/**
+ * One request at a time per organization, from the check of its time to
+ * its insert: two visitors sending the same slot at the same moment cannot
+ * both be kept. The app runs as one process, like its rate limits.
+ */
+const submitLocks = processWide('booking-submit-locks', () => new Map<string, Promise<void>>());
+
+async function oneAtATime<T>(organizationId: string, work: () => Promise<T>): Promise<T> {
+  const before = submitLocks.get(organizationId) ?? Promise.resolve();
+  let release!: () => void;
+  const mine = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = before.then(() => mine);
+  submitLocks.set(organizationId, tail);
+  await before;
+  try {
+    return await work();
+  } finally {
+    release();
+    if (submitLocks.get(organizationId) === tail) submitLocks.delete(organizationId);
+  }
+}
 
 /* ---------------------------------------------------------------- settings */
 
@@ -146,17 +195,25 @@ export interface BookingSettingsInput {
   config: BookingConfig;
 }
 
+/**
+ * Save Settings > Booking link. The photo is never taken from the input:
+ * the stored one is kept, and only setBookingPhoto (an upload checked by its
+ * bytes, under a path Copilot named itself) may change it. So a hand-made
+ * request cannot point the public photo route at another stored file, and a
+ * Settings tab open since before an upload cannot undo it.
+ */
 export async function saveBookingSettings(
   store: DataStore,
   organizationId: string,
   userId: string,
   input: BookingSettingsInput,
   now: Date = new Date(),
+  internal: { photo?: PhotoRef | null } = {},
 ): Promise<Result<BookingSettingsView>> {
   const slug = SLUG.safeParse(input.slug);
   if (!slug.success)
     return err('invalid_input', slug.error.issues[0]?.message ?? 'Check the link.');
-  const config = BOOKING_CONFIG_SCHEMA.safeParse(input.config);
+  const config = BOOKING_CONFIG_SCHEMA.safeParse({ ...input.config, photo: null });
   if (!config.success) {
     const issue = config.error.issues[0];
     return err(
@@ -166,13 +223,20 @@ export async function saveBookingSettings(
   }
   const found = await settingsRow(store, organizationId);
   if (!found.available) return err('not_configured', BOOKING_NOT_SET_UP);
+  const photo =
+    internal.photo !== undefined
+      ? internal.photo
+      : found.row
+        ? parseBookingConfig(found.row.settings).photo
+        : null;
+  const saved: BookingConfig = { ...config.data, photo };
   const iso = now.toISOString();
   const row: BookingSettingsRow = {
     id: found.row?.id ?? newId(),
     organization_id: organizationId,
     enabled: input.enabled,
     slug: slug.data,
-    settings: config.data as unknown as Record<string, unknown>,
+    settings: saved as unknown as Record<string, unknown>,
     updated_by: userId,
     created_at: found.row?.created_at ?? iso,
     updated_at: iso,
@@ -203,7 +267,7 @@ export async function saveBookingSettings(
     available: true,
     enabled: row.enabled,
     slug: row.slug,
-    config: config.data,
+    config: saved,
     saved: true,
   });
 }
@@ -256,6 +320,24 @@ export interface BookingDeps {
   source?: CalendarSource;
   /** Whether the public chatbot can use the model right now (lib/booking/chat.ts decides). */
   chatMode?: 'live' | 'guided';
+  /** The open link, when the caller resolved it already (one read per page view). */
+  link?: OpenLink;
+}
+
+/** The page a closed link shows: nothing about the host at all. */
+export function closedBookingPage(slug: string): PublicBookingPage {
+  return {
+    state: 'closed',
+    slug,
+    host: null,
+    hostTimeZone: 'UTC',
+    offers: { call: false, inPerson: false },
+    places: [],
+    allowCustomPlace: false,
+    kinds: [],
+    chatbot: { enabled: false, mode: 'guided' },
+    faq: '',
+  };
 }
 
 /** Everything the public page shows. Only the card, the offers and the places: no calendar. */
@@ -264,21 +346,10 @@ export async function publicBookingPage(
   slug: string,
   deps: BookingDeps = {},
 ): Promise<PublicBookingPage> {
-  const found = await resolveOpenLink(store, slug);
-  if (!found.open) {
-    return {
-      state: 'closed',
-      slug,
-      host: null,
-      hostTimeZone: 'UTC',
-      offers: { call: false, inPerson: false },
-      places: [],
-      allowCustomPlace: false,
-      kinds: [],
-      chatbot: { enabled: false, mode: 'guided' },
-      faq: '',
-    };
-  }
+  const found = deps.link
+    ? { open: true as const, link: deps.link }
+    : await resolveOpenLink(store, slug);
+  if (!found.open) return closedBookingPage(slug);
   const { config, organizationId, row } = found.link;
   const host = await readHost(store, organizationId).catch(() => null);
   const hostTimeZone = await principalTimeZone(store, organizationId);
@@ -305,7 +376,11 @@ export async function publicBookingPage(
   };
 }
 
-/** The link's own requests that hold time: waiting or approved, from a day ago on. */
+/**
+ * The link's own requests that hold time: waiting or approved, from a day
+ * ago on. An approved one is on the calendar already (Copilot made the
+ * event, or a person added it by hand), so it is never counted twice.
+ */
 async function linkBookings(
   store: DataStore,
   organizationId: string,
@@ -324,7 +399,8 @@ async function linkBookings(
             start: Date.parse(r.starts_at),
             end: Date.parse(r.ends_at),
             type: r.meeting_type,
-            onCalendar: r.status === 'approved' && Boolean(r.event_id),
+            onCalendar: r.status === 'approved',
+            createdAt: Date.parse(r.created_at),
           },
         ]
       : [],
@@ -455,116 +531,145 @@ export async function submitBookingRequest(
   if (!perEmail.ok) {
     return err('rate_limited', 'Too many requests from this email address. Try again later.');
   }
-  let open: number;
-  try {
-    open = await store.count('booking_requests', organizationId, {
-      eq: { email: input.email, status: 'pending' },
-    });
-  } catch (error) {
-    if (isMissingTableError(error)) return err('forbidden', CLOSED_MESSAGE);
-    throw error;
-  }
-  if (open >= MAX_OPEN_PER_EMAIL) {
-    return err(
-      'rate_limited',
-      `You already have ${MAX_OPEN_PER_EMAIL} requests waiting. Arwin will reply to those first.`,
-    );
-  }
-
-  const base = {
-    id: newId(),
-    organization_id: organizationId,
-    status: 'pending' as const,
-    // Kept only when it names a real zone: it is read back to label the time.
-    visitor_time_zone: knownZone(input.timeZone) ? input.timeZone : null,
-    name: input.name,
-    email: input.email,
-    company: input.company || null,
-    note: input.note || null,
-    deck_url: input.deckUrl || null,
-    source: input.source,
-    ip_hash: context.ipHash,
-    claimed_at: null,
-    calendar_id: null,
-    event_id: null,
-    decided_by: null,
-    decided_at: null,
-    created_at: now.toISOString(),
-    updated_at: now.toISOString(),
-  };
-
-  let row: BookingRequest;
-  if (input.type === 'message') {
-    row = {
-      ...base,
-      meeting_type: 'message',
-      kind: null,
-      starts_at: null,
-      ends_at: null,
-      place_id: null,
-      place_name: null,
-      place_area: null,
-      place_map_url: null,
-      place_custom: false,
-    };
-  } else {
-    const query = { type: input.type, kind: input.type === 'in_person' ? input.kind : null };
-    let place = {
-      place_id: null as string | null,
-      place_name: null as string | null,
-      place_area: null as string | null,
-      place_map_url: null as string | null,
-      place_custom: false,
-    };
-    if (input.type === 'in_person') {
-      if (!inPersonOffered(config))
-        return err('invalid_input', 'In-person meetings are not offered.');
-      const listed = input.placeId ? config.places.find((p) => p.id === input.placeId) : null;
-      if (listed) {
-        place = {
-          place_id: listed.id,
-          place_name: listed.name,
-          place_area: listed.area || null,
-          place_map_url: listed.mapUrl,
-          place_custom: false,
-        };
-      } else if (input.customPlace && config.allowCustomPlace) {
-        place = {
-          place_id: null,
-          place_name: input.customPlace,
-          place_area: null,
-          place_map_url: null,
-          place_custom: true,
-        };
-      } else {
-        return err('invalid_input', 'Pick one of the places listed.');
+  // From the checks to the insert, one request at a time (oneAtATime): two
+  // senders racing for the same slot, or one sender racing past the caps,
+  // cannot both be kept.
+  const kept = await oneAtATime(organizationId, async (): Promise<Result<BookingRequest>> => {
+    let open: number;
+    let fromAddress = 0;
+    let holds = 0;
+    try {
+      open = await store.count('booking_requests', organizationId, {
+        eq: { email: input.email, status: 'pending' },
+      });
+      if (context.ipHash) {
+        fromAddress = await store.count('booking_requests', organizationId, {
+          eq: { ip_hash: context.ipHash, status: 'pending' },
+        });
       }
+      if (input.type !== 'message') {
+        holds = await store.count('booking_requests', organizationId, {
+          eq: { status: 'pending' },
+          neq: { meeting_type: 'message' },
+          gte: { created_at: new Date(now.getTime() - 86_400_000).toISOString() },
+        });
+      }
+    } catch (error) {
+      if (isMissingTableError(error)) return err('forbidden', CLOSED_MESSAGE);
+      throw error;
     }
-    const startMs = Date.parse(input.start ?? '');
-    if (!Number.isFinite(startMs)) return err('invalid_input', 'Pick a time.');
-    const start = new Date(startMs).toISOString();
-    const prepared = await engineInputFor(store, found.link, { now, source: context.source });
-    if (!prepared.ok) return err('provider_unavailable', UNAVAILABLE_MESSAGE);
-    const problem = slotProblem(prepared.value.input, query, start);
-    if (problem) {
-      return err('conflict', 'That time is no longer open. Pick another time.');
+    if (open >= MAX_OPEN_PER_EMAIL) {
+      return err(
+        'rate_limited',
+        `You already have ${MAX_OPEN_PER_EMAIL} requests waiting. Arwin will reply to those first.`,
+      );
     }
-    row = {
-      ...base,
-      meeting_type: input.type,
-      kind: query.kind,
-      starts_at: start,
-      ends_at: new Date(startMs + MEETING_MINUTES[input.type] * 60_000).toISOString(),
-      ...place,
-    };
-  }
+    if (fromAddress >= MAX_OPEN_PER_ADDRESS) {
+      return err(
+        'rate_limited',
+        'You already have requests waiting. Arwin will reply to those first.',
+      );
+    }
+    if (holds >= MAX_NEW_HOLDS_PER_DAY) return err('rate_limited', BUSY_LINK_MESSAGE);
 
-  try {
-    await store.insert('booking_requests', row);
-  } catch (error) {
-    if (isMissingTableError(error)) return err('forbidden', CLOSED_MESSAGE);
-    throw error;
-  }
+    const base = {
+      id: newId(),
+      organization_id: organizationId,
+      status: 'pending' as const,
+      // Kept only when it names a real zone: it is read back to label the time.
+      visitor_time_zone: knownZone(input.timeZone) ? input.timeZone : null,
+      name: input.name,
+      email: input.email,
+      company: input.company || null,
+      note: input.note || null,
+      deck_url: input.deckUrl || null,
+      source: input.source,
+      ip_hash: context.ipHash,
+      claimed_at: null,
+      calendar_id: null,
+      event_id: null,
+      decided_by: null,
+      decided_at: null,
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    };
+
+    let row: BookingRequest;
+    if (input.type === 'message') {
+      row = {
+        ...base,
+        meeting_type: 'message',
+        kind: null,
+        starts_at: null,
+        ends_at: null,
+        place_id: null,
+        place_name: null,
+        place_area: null,
+        place_map_url: null,
+        place_custom: false,
+      };
+    } else {
+      const query = { type: input.type, kind: input.type === 'in_person' ? input.kind : null };
+      let place = {
+        place_id: null as string | null,
+        place_name: null as string | null,
+        place_area: null as string | null,
+        place_map_url: null as string | null,
+        place_custom: false,
+      };
+      if (input.type === 'in_person') {
+        if (!inPersonOffered(config))
+          return err('invalid_input', 'In-person meetings are not offered.');
+        const listed = input.placeId ? config.places.find((p) => p.id === input.placeId) : null;
+        if (listed) {
+          place = {
+            place_id: listed.id,
+            place_name: listed.name,
+            place_area: listed.area || null,
+            place_map_url: listed.mapUrl,
+            place_custom: false,
+          };
+        } else if (input.customPlace && config.allowCustomPlace) {
+          place = {
+            place_id: null,
+            place_name: input.customPlace,
+            place_area: null,
+            place_map_url: null,
+            place_custom: true,
+          };
+        } else {
+          return err('invalid_input', 'Pick one of the places listed.');
+        }
+      }
+      const startMs = Date.parse(input.start ?? '');
+      if (!Number.isFinite(startMs)) return err('invalid_input', 'Pick a time.');
+      const start = new Date(startMs).toISOString();
+      const prepared = await engineInputFor(store, found.link, { now, source: context.source });
+      if (!prepared.ok) return err('provider_unavailable', UNAVAILABLE_MESSAGE);
+      const problem = slotProblem(prepared.value.input, query, start);
+      if (problem) {
+        return err('conflict', 'That time is no longer open. Pick another time.');
+      }
+      row = {
+        ...base,
+        meeting_type: input.type,
+        kind: query.kind,
+        starts_at: start,
+        ends_at: new Date(startMs + MEETING_MINUTES[input.type] * 60_000).toISOString(),
+        ...place,
+      };
+    }
+
+    try {
+      await store.insert('booking_requests', row);
+    } catch (error) {
+      if (isMissingTableError(error)) return err('forbidden', CLOSED_MESSAGE);
+      throw error;
+    }
+    return ok(row);
+  });
+  if (!kept.ok) return kept;
+  const row = kept.value;
   await recordAudit(store, {
     organizationId,
     userId: null,
@@ -607,13 +712,28 @@ export async function listPendingBookingRequests(
   }
 }
 
-/** How many requests wait, for Today's line. Never throws: a fault is null and no line. */
+/**
+ * How many requests wait, for Today's line: messages, and meeting requests
+ * whose time is still ahead (one whose time has passed only needs a
+ * Decline, in the drawer). Never throws: a fault is null and no line.
+ */
 export async function countPendingBookingRequests(
   store: DataStore,
   organizationId: string,
+  now: Date = new Date(),
 ): Promise<number | null> {
   try {
-    return await store.count('booking_requests', organizationId, { eq: { status: 'pending' } });
+    const [messages, meetings] = await Promise.all([
+      store.count('booking_requests', organizationId, {
+        eq: { status: 'pending', meeting_type: 'message' },
+      }),
+      store.count('booking_requests', organizationId, {
+        eq: { status: 'pending' },
+        neq: { meeting_type: 'message' },
+        gte: { starts_at: now.toISOString() },
+      }),
+    ]);
+    return messages + meetings;
   } catch {
     return null;
   }
@@ -703,8 +823,18 @@ export async function approveBookingRequest(
   if (!prepared.ok) return prepared;
   const { hostZone, input } = prepared.value;
 
+  // First come, first served: checked against approved bookings and the
+  // waiting requests asked for before this one, so the oldest of two that
+  // overlap can always be approved and they never block each other.
   const problem = slotProblem(
-    { ...input, askedAt: new Date(request.created_at) },
+    {
+      ...input,
+      askedAt: new Date(request.created_at),
+      linkBookings: bookingsBefore(input.linkBookings, {
+        id: request.id,
+        createdAt: Date.parse(request.created_at),
+      }),
+    },
     { type: request.meeting_type, kind: request.kind },
     request.starts_at,
     request.id,
@@ -752,7 +882,10 @@ export async function approveBookingRequest(
     );
   }
   if (claimed.length === 0) {
-    return err('conflict', 'Someone is approving this request right now.');
+    return err(
+      'conflict',
+      'Someone is approving this request right now, or the last try is still being checked. Try again in two minutes.',
+    );
   }
 
   const created = await createCalendarEvent(
@@ -765,20 +898,44 @@ export async function approveBookingRequest(
     },
   );
   if (!created.ok) {
+    // Google may have made the event before the answer was lost: keep the
+    // claim for its two minutes, so a quick second click cannot make a second
+    // one, and say to look first. A clear refusal frees it at once.
+    if (created.error.code === 'timeout' || created.error.code === 'provider_unavailable') {
+      return err(
+        created.error.code,
+        `Google did not answer. Check ${firstName(hostName) ? `${firstName(hostName)}'s` : 'the'} calendar before approving again: the event may be there already. You can try again in two minutes.`,
+        { retryable: true },
+      );
+    }
     await ctx.store
-      .update('booking_requests', ctx.organizationId, id, { claimed_at: null })
+      .updateWhere(
+        'booking_requests',
+        ctx.organizationId,
+        { eq: { id, status: 'pending', claimed_at: stamp } },
+        { claimed_at: null },
+      )
       .catch(() => null);
     return created;
   }
   const eventId = created.value.event?.id ?? '';
-  await ctx.store.update('booking_requests', ctx.organizationId, id, {
-    status: 'approved',
-    claimed_at: null,
-    calendar_id: primary.id,
-    event_id: eventId || null,
-    decided_by: ctx.userId,
-    decided_at: now.toISOString(),
-  });
+  // Only while this approval still holds the claim (Decline waits for it).
+  const finished = await ctx.store.updateWhere(
+    'booking_requests',
+    ctx.organizationId,
+    { eq: { id, status: 'pending', claimed_at: stamp } },
+    {
+      status: 'approved',
+      claimed_at: null,
+      calendar_id: primary.id,
+      event_id: eventId || null,
+      decided_by: ctx.userId,
+      decided_at: now.toISOString(),
+    },
+  );
+  if (finished.length === 0) {
+    log.warn('A booking approval finished after its claim was taken over', { request: id });
+  }
   await recordAudit(ctx.store, {
     organizationId: ctx.organizationId,
     userId: ctx.userId,
@@ -857,18 +1014,40 @@ export async function markBookingRequest(
     return err('invalid_input', 'A message has no meeting to add.');
   }
   const mark = MARK[action];
-  const changed = await ctx.store.updateWhere(
+  const patch = {
+    status: mark.status,
+    claimed_at: null,
+    decided_by: ctx.userId,
+    decided_at: now.toISOString(),
+  };
+  // Never while an approval holds the claim (it may be sending the invite
+  // right now); a claim older than its two minutes no longer counts.
+  let changed = await ctx.store.updateWhere(
     'booking_requests',
     ctx.organizationId,
-    { eq: { id, status: 'pending' } },
-    {
-      status: mark.status,
-      claimed_at: null,
-      decided_by: ctx.userId,
-      decided_at: now.toISOString(),
-    },
+    { eq: { id, status: 'pending' }, isNull: ['claimed_at'] },
+    patch,
   );
-  if (changed.length === 0) return err('conflict', 'That request was already decided.');
+  if (changed.length === 0) {
+    changed = await ctx.store.updateWhere(
+      'booking_requests',
+      ctx.organizationId,
+      {
+        eq: { id, status: 'pending' },
+        lt: { claimed_at: new Date(now.getTime() - CLAIM_TIMEOUT_MS).toISOString() },
+      },
+      patch,
+    );
+  }
+  if (changed.length === 0) {
+    const latest = await ctx.store.get('booking_requests', ctx.organizationId, id);
+    return err(
+      'conflict',
+      latest?.status === 'pending'
+        ? 'Someone is approving this request right now. Try again in two minutes.'
+        : 'That request was already decided.',
+    );
+  }
   await recordAudit(ctx.store, {
     organizationId: ctx.organizationId,
     userId: ctx.userId,
@@ -951,25 +1130,29 @@ export async function setBookingPhoto(
       return err('unsupported_media_type', 'Use a JPG, PNG or WebP photo.');
     }
     const version = newId().slice(0, 8);
-    const ext = kind === 'jpeg' ? 'jpg' : kind;
-    const path = `booking/${organizationId}/host-photo-${version}.${ext}`;
-    const put = await storage.put(path, bytes, PHOTO_TYPES[kind]);
+    const type = PHOTO_TYPES[kind];
+    const path = bookingPhotoPath(organizationId, version, type);
+    const put = await storage.put(path, bytes, type);
     if (!put.ok) return put;
-    photo = { path, type: PHOTO_TYPES[kind], version };
+    photo = { path, type, version };
   }
   const saved = await saveBookingSettings(
     store,
     organizationId,
     userId,
-    { enabled: current.enabled, slug: current.slug, config: { ...current.config, photo } },
+    { enabled: current.enabled, slug: current.slug, config: current.config },
     now,
+    { photo },
   );
   if (!saved.ok) {
     if (photo) await storage.remove(photo.path).catch(() => null);
     return saved;
   }
+  // Only a path Copilot itself named is ever removed.
   const old = current.config.photo;
-  if (old && old.path !== photo?.path) await storage.remove(old.path).catch(() => null);
+  if (old && old.path !== photo?.path && isOwnPhotoPath(organizationId, old)) {
+    await storage.remove(old.path).catch(() => null);
+  }
   await recordAudit(store, {
     organizationId,
     userId,

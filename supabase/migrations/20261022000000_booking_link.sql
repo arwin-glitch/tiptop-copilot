@@ -97,16 +97,36 @@ create trigger booking_requests_updated_at before update on booking_requests
 
 -- ------------------------------------------------------------------- RLS --
 --
--- Read for any member, write for member and above, as the other tables. The
--- public page never queries these from a browser: its server routes use the
--- service role, and browser roles query nothing directly. Dropped first so
--- the file can be re-run.
+-- The public page never queries these from a browser: its server routes use
+-- the service role, and browser roles query nothing directly. Even so the
+-- policies match what the app allows, in case a table is ever exposed:
+--   - booking_settings: read for any member; written only by an admin or the
+--     owner (turning the public link on, its slug and its photo are theirs,
+--     as Settings > Booking link and its routes require).
+--   - booking_requests: read for any member, written by member and above
+--     (any member may approve or decline a request).
+-- Dropped first so the file can be re-run.
+
+alter table booking_settings enable row level security;
+drop policy if exists booking_settings_select on booking_settings;
+drop policy if exists booking_settings_insert on booking_settings;
+drop policy if exists booking_settings_update on booking_settings;
+drop policy if exists booking_settings_delete on booking_settings;
+create policy booking_settings_select on booking_settings
+  for select using (is_org_member(organization_id));
+create policy booking_settings_insert on booking_settings
+  for insert with check (has_org_role(organization_id, 'admin'));
+create policy booking_settings_update on booking_settings
+  for update using (has_org_role(organization_id, 'admin'))
+  with check (has_org_role(organization_id, 'admin'));
+create policy booking_settings_delete on booking_settings
+  for delete using (has_org_role(organization_id, 'admin'));
 
 do $$
 declare
   t text;
 begin
-  foreach t in array array['booking_settings', 'booking_requests'] loop
+  foreach t in array array['booking_requests'] loop
     execute format('alter table %I enable row level security;', t);
     execute format('drop policy if exists %I on %I;', t || '_select', t);
     execute format('drop policy if exists %I on %I;', t || '_insert', t);

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_BOOKING_CONFIG } from '@/lib/booking/config';
+import { DEFAULT_BOOKING_CONFIG, parseBookingConfig } from '@/lib/booking/config';
+import { WAITING_CLASH } from '@/lib/booking/engine';
 import { CLOSED_MESSAGE, type PublicSlot } from '@/lib/booking/public';
 import { BOOKING_REQUEST_INPUT, type BookingRequestInput } from '@/lib/booking/request';
 import {
@@ -14,9 +15,13 @@ import type { DataStore } from '@/lib/db/store';
 import { DEMO_BOOKING_SETTINGS_ID } from '@/lib/demo/booking-fixtures';
 import { CALENDAR_EDIT_SCOPES } from '@/lib/google/send-scopes';
 import { resetLimiters } from '@/lib/security/limits';
+import { saveCalendarPrefs } from '@/lib/services/calendar-prefs';
 import {
   approveBookingRequest,
   BOOKING_NOT_SET_UP,
+  BUSY_LINK_MESSAGE,
+  MAX_OPEN_PER_ADDRESS,
+  readHost,
   countPendingBookingRequests,
   listPendingBookingRequests,
   markBookingRequest,
@@ -28,6 +33,7 @@ import {
   type ActorContext,
 } from '@/lib/services/booking';
 import type { AuditEvent, BookingRequest, Integration } from '@/lib/types/domain';
+import { err } from '@/lib/util/result';
 import { wallTimeToUtc } from '@/lib/util/time';
 import { createHarness, type Harness } from '../helpers/harness';
 
@@ -676,5 +682,246 @@ describe('before the migration is run', () => {
     expect(approve.ok).toBe(false);
     if (!approve.ok) expect(approve.error.code).toBe('not_configured');
     expect(state.writes).toEqual([]);
+  });
+});
+
+describe('review fixes', () => {
+  /** A request row as an older build (or a race) could have left it: straight into the table. */
+  async function rowAt(start: string, over: Partial<BookingRequest> = {}): Promise<BookingRequest> {
+    const row: BookingRequest = {
+      id: crypto.randomUUID(),
+      organization_id: harness.auth.organizationId,
+      status: 'pending',
+      meeting_type: 'call',
+      kind: null,
+      starts_at: start,
+      ends_at: new Date(Date.parse(start) + 30 * 60_000).toISOString(),
+      visitor_time_zone: 'America/New_York',
+      name: 'Pat Lee',
+      email: `${crypto.randomUUID().slice(0, 8)}@acme.example`,
+      company: 'Acme',
+      place_id: null,
+      place_name: null,
+      place_area: null,
+      place_map_url: null,
+      place_custom: false,
+      note: null,
+      deck_url: null,
+      source: 'form',
+      ip_hash: null,
+      claimed_at: null,
+      calendar_id: null,
+      event_id: null,
+      decided_by: null,
+      decided_at: null,
+      created_at: NOW.toISOString(),
+      updated_at: NOW.toISOString(),
+      ...over,
+    };
+    await harness.store.insert('booking_requests', row);
+    return row;
+  }
+
+  it('holds at most three waiting requests per sender, whatever email they type', async () => {
+    const message = (email: string) => ({ type: 'message', start: null, note: 'Hi', email });
+    for (const email of ['a@one.example', 'b@two.example', 'c@three.example']) {
+      expect((await submit(message(email))).ok).toBe(true);
+    }
+    const fourth = await submit(message('d@four.example'));
+    expect(fourth.ok).toBe(false);
+    if (!fourth.ok) {
+      expect(fourth.error.code).toBe('rate_limited');
+      expect(fourth.error.message).toBe(
+        'You already have requests waiting. Arwin will reply to those first.',
+      );
+    }
+    // Kept in the table, so a restart (fresh limiters) changes nothing.
+    resetLimiters();
+    expect((await submit(message('e@five.example'))).ok).toBe(false);
+    // Another sender is not held back by the first.
+    const other = await submitBookingRequest(
+      harness.store,
+      SLUG,
+      request(message('f@six.example')),
+      { ipHash: 'another-sender', now: NOW, source: source() },
+    );
+    expect(other.ok).toBe(true);
+    expect(MAX_OPEN_PER_ADDRESS).toBe(3);
+  });
+
+  it('takes at most six new meeting requests a day while they wait, then messages only', async () => {
+    // The demo already has two waiting from three hours ago.
+    const open = (await slots('call')).filter((s, i, all) => {
+      const day = s.start.slice(0, 10);
+      return all.findIndex((x) => x.start.slice(0, 10) === day) === i;
+    });
+    for (let i = 0; i < 4; i += 1) {
+      const sent = await submitBookingRequest(
+        harness.store,
+        SLUG,
+        request({ start: open[i]!.start, email: `p${i}@a.example` }),
+        { ipHash: `sender-${i}`, now: NOW, source: source() },
+      );
+      expect(sent.ok, `request ${i + 1}`).toBe(true);
+    }
+    const seventh = await submitBookingRequest(
+      harness.store,
+      SLUG,
+      request({ start: open[4]!.start, email: 'p9@a.example' }),
+      { ipHash: 'sender-9', now: NOW, source: source() },
+    );
+    expect(seventh.ok).toBe(false);
+    if (!seventh.ok) expect(seventh.error.message).toBe(BUSY_LINK_MESSAGE);
+    const note = await submitBookingRequest(
+      harness.store,
+      SLUG,
+      request({ type: 'message', start: null, email: 'p9@a.example' }),
+      { ipHash: 'sender-9', now: NOW, source: source() },
+    );
+    expect(note.ok).toBe(true);
+  });
+
+  it('keeps one of two requests sent for the same time at the same moment', async () => {
+    const [slot] = await slots('call');
+    const both = await Promise.all(
+      ['one@a.example', 'two@b.example'].map((email, i) =>
+        submitBookingRequest(harness.store, SLUG, request({ start: slot!.start, email }), {
+          ipHash: `racer-${i}`,
+          now: NOW,
+          source: source(),
+        }),
+      ),
+    );
+    expect(both.filter((r) => r.ok)).toHaveLength(1);
+    expect(both.filter((r) => !r.ok && r.error.code === 'conflict')).toHaveLength(1);
+    expect(
+      await harness.store.count('booking_requests', harness.auth.organizationId, {
+        eq: { starts_at: slot!.start },
+      }),
+    ).toBe(1);
+  });
+
+  it('approves the older of two overlapping waiting requests, and says why the newer waits', async () => {
+    const [slot] = await slots('call');
+    const older = await rowAt(slot!.start, { created_at: '2026-10-26T14:00:00.000Z' });
+    const newer = await rowAt(slot!.start, { created_at: '2026-10-26T14:30:00.000Z' });
+    const second = await approveBookingRequest(actor(), newer.id, deps());
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.error.message).toContain(WAITING_CLASH);
+    expect(state.writes).toEqual([]);
+    const first = await approveBookingRequest(actor(), older.id, deps());
+    expect(first.ok).toBe(true);
+    expect(state.writes).toHaveLength(1);
+  });
+
+  it('never declines while an approval holds the claim; a stale claim no longer counts', async () => {
+    const [slot] = await slots('call');
+    const row = await rowAt(slot!.start, { claimed_at: NOW.toISOString() });
+    const blocked = await markBookingRequest(actor(), row.id, 'decline', NOW);
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.error.message).toMatch(/^Someone is approving this request/);
+    expect(
+      (await harness.store.get('booking_requests', harness.auth.organizationId, row.id))?.status,
+    ).toBe('pending');
+    const later = new Date(NOW.getTime() + 3 * 60_000);
+    const declined = await markBookingRequest(actor(), row.id, 'decline', later);
+    expect(declined.ok && declined.value.status).toBe('declined');
+  });
+
+  it('keeps the claim when Google may have made the event but its answer was lost', async () => {
+    class LostAnswer extends MockCalendarProvider {
+      override async insertEvent(...args: Parameters<MockCalendarProvider['insertEvent']>) {
+        await super.insertEvent(...args);
+        return err('timeout', 'Google took too long.');
+      }
+    }
+    const [slot] = await slots('call');
+    const row = await saved({ start: slot!.start });
+    const lossy = { ...source(), provider: new LostAnswer(NOW, state) };
+    const first = await approveBookingRequest(actor(), row.id, { now: NOW, source: lossy });
+    expect(first.ok).toBe(false);
+    if (!first.ok) expect(first.error.message).toMatch(/^Google did not answer\. Check Nick's/);
+    expect(state.writes).toHaveLength(1);
+    // A quick second click makes no second event.
+    const again = await approveBookingRequest(actor(), row.id, deps());
+    expect(again.ok).toBe(false);
+    expect(state.writes).toHaveLength(1);
+  });
+
+  it('still blocks a calendar hidden on the Calendar tab', async () => {
+    const before = (await slots('call')).map((s) => s.start);
+    const day = '2026-11-10';
+    expect(before).toContain(at(day, 15));
+    state.events.get(MOCK_PERSONAL_CALENDAR)!.push({
+      id: 'testkidpickup',
+      status: 'confirmed',
+      eventType: 'default',
+      summary: 'Kid pickup',
+      start: { dateTime: at(day, 15), timeZone: TZ },
+      end: { dateTime: at(day, 15, 30), timeZone: TZ },
+      organizer: { email: MOCK_PERSONAL_CALENDAR, self: true },
+    });
+    resetCalendarRangeCache();
+    expect((await slots('call')).map((s) => s.start)).not.toContain(at(day, 15));
+    const host = await readHost(harness.store, harness.auth.organizationId);
+    const hidden = await saveCalendarPrefs(
+      harness.store,
+      harness.auth.organizationId,
+      host.userId!,
+      { shown: { [MOCK_PERSONAL_CALENDAR]: false } },
+    );
+    expect(hidden.ok).toBe(true);
+    resetCalendarRangeCache();
+    expect((await slots('call')).map((s) => s.start)).not.toContain(at(day, 15));
+  });
+
+  it('counts for Today only messages and meeting requests whose time is ahead', async () => {
+    const org = harness.auth.organizationId;
+    expect(await countPendingBookingRequests(harness.store, org, NOW)).toBe(3);
+    await rowAt('2026-10-20T15:00:00.000Z', { created_at: '2026-10-19T15:00:00.000Z' });
+    expect(await countPendingBookingRequests(harness.store, org, NOW)).toBe(3);
+    // Still in the drawer, to be declined.
+    expect((await listPendingBookingRequests(harness.store, org)).requests).toHaveLength(4);
+  });
+
+  it('keeps visitor tags out of the stored note and out of the event Google gets', async () => {
+    const [slot, second] = await slots('call');
+    const row = await saved({
+      start: slot!.start,
+      name: 'Pat <b>Lee</b>',
+      note: 'See <a href="https://evil.example/x">the Meet link</a>',
+    });
+    expect(row.name).toBe('Pat bLee/b');
+    expect(row.note).not.toMatch(/[<>]/);
+    // A row kept before the fix still goes out without a tag.
+    const old = await rowAt(second!.start, {
+      note: 'See <a href="https://evil.example/x">the Meet link</a>',
+      created_at: '2026-10-26T14:00:00.000Z',
+    });
+    const approved = await approveBookingRequest(actor(), old.id, deps());
+    expect(approved.ok).toBe(true);
+    const description = String(state.writes[0]!.body?.description ?? '');
+    expect(description).toContain('‹a href="https://evil.example/x"›the Meet link‹/a›');
+    expect(description).not.toMatch(/[<>]/);
+  });
+
+  it('never takes the photo from saved settings: only an upload can set it', async () => {
+    const org = harness.auth.organizationId;
+    const current = await readBookingSettings(harness.store, org);
+    const sneaky = {
+      path: `booking/${org}/../../secret-docs/canary.pdf`,
+      type: 'image/png' as const,
+      version: 'abcd1234',
+    };
+    const result = await saveBookingSettings(harness.store, org, harness.auth.userId, {
+      enabled: true,
+      slug: 'nick',
+      config: { ...current.config, photo: sneaky },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.value.config.photo).toBeNull();
+    expect((await readBookingSettings(harness.store, org)).config.photo).toBeNull();
+    // A stored path of another shape is not a photo at all.
+    expect(parseBookingConfig({ photo: sneaky }).photo).toBeNull();
   });
 });

@@ -20,15 +20,38 @@ export const LIMITS = {
   customPlace: 160,
 } as const;
 
-const EMAIL = /^[^\s@<>(),;:"[\]\\]+@[^\s@<>(),;:"[\]\\]+\.[^\s@<>(),;:"[\]\\]{2,}$/;
+/**
+ * A plain address: letters, digits and . _ % + ' - before the @, dotted
+ * labels after it, a top-level part of two or more letters. No "?cc=" or
+ * "&body=" (a mailto link built from it would carry them), no doubled dots,
+ * no invisible or right-to-left characters.
+ */
+const EMAIL =
+  /^[a-z0-9_%+'-]+(?:\.[a-z0-9_%+'-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i;
 
-/** No control characters, no angle brackets: the text is shown as text everywhere anyway. */
-const clean = (max: number) =>
+export const EMAIL_INPUT = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(LIMITS.email)
+  .refine((v) => EMAIL.test(v), 'Check your email address.');
+
+/**
+ * Text a visitor typed, made plain: no control characters, no invisible or
+ * direction-changing characters (they can make a name read as something
+ * else), and no angle brackets (the note reaches a Google Calendar
+ * description, which reads HTML). One-line fields also lose line breaks.
+ */
+const clean = (max: number, oneLine = false) =>
   z
     .string()
     .trim()
     .max(max)
-    .transform((v) => v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ''));
+    .transform((v) => {
+      let out = v.replace(/\p{Cf}/gu, '').replace(/[<>]/g, '');
+      if (oneLine) out = out.replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ');
+      return out.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+    });
 
 export const DECK_URL = z
   .string()
@@ -43,20 +66,15 @@ export type RequestType = MeetingType | 'message';
 
 export const BOOKING_REQUEST_INPUT = z
   .object({
-    name: clean(LIMITS.name).pipe(z.string().min(1, 'Add your name.')),
-    email: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .max(LIMITS.email)
-      .refine((v) => EMAIL.test(v), 'Check your email address.'),
-    company: clean(LIMITS.company).default(''),
+    name: clean(LIMITS.name, true).pipe(z.string().min(1, 'Add your name.')),
+    email: EMAIL_INPUT,
+    company: clean(LIMITS.company, true).default(''),
     type: z.enum(REQUEST_TYPES),
     kind: z.enum(MEETING_KINDS).nullable().default(null),
     /** The slot's start, as the page was given it. Null for a message. */
     start: z.string().max(40).nullable().default(null),
     placeId: z.string().max(40).nullable().default(null),
-    customPlace: clean(LIMITS.customPlace).default(''),
+    customPlace: clean(LIMITS.customPlace, true).default(''),
     note: clean(LIMITS.note).default(''),
     deckUrl: DECK_URL.default(''),
     /** The visitor's own zone, to say the time back to them in the drawer. */
@@ -101,14 +119,14 @@ export function firstProblem(error: z.ZodError): string {
  */
 export const CHAT_FORM_FILL = z
   .object({
-    name: clean(LIMITS.name).optional(),
+    name: clean(LIMITS.name, true).optional(),
     email: z.string().trim().toLowerCase().max(LIMITS.email).optional(),
-    company: clean(LIMITS.company).optional(),
+    company: clean(LIMITS.company, true).optional(),
     type: z.enum(REQUEST_TYPES).optional(),
     kind: z.enum(MEETING_KINDS).optional(),
     start: z.string().max(40).optional(),
     placeId: z.string().max(40).optional(),
-    customPlace: clean(LIMITS.customPlace).optional(),
+    customPlace: clean(LIMITS.customPlace, true).optional(),
     note: clean(LIMITS.note).optional(),
     deckUrl: DECK_URL.optional(),
   })

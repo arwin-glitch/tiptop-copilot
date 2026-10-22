@@ -1,6 +1,6 @@
 import type { EventDraft } from '@/lib/calendar/edit-rules';
 import { firstName, KIND_LABEL, type MeetingKind, type MeetingType } from './config';
-import { slotLabel } from './public';
+import { slotLabel, zoneName } from './public';
 
 /**
  * What an approved booking request becomes on the host's calendar, and the
@@ -9,6 +9,16 @@ import { slotLabel } from './public';
  * change and send themselves. Pure: the same request always gives the same
  * event, which the tests pin field by field.
  */
+
+/**
+ * Visitor text as it goes into the event: angle brackets turned into their
+ * look-alikes, so no tag a visitor typed is ever HTML in Google Calendar
+ * (which reads a description as HTML). Request text is stripped of them when
+ * it is sent; this also covers a row kept before that.
+ */
+export function inert(text: string): string {
+  return text.replace(/</g, '‹').replace(/>/g, '›');
+}
 
 export interface ApprovableRequest {
   type: MeetingType;
@@ -31,8 +41,8 @@ export interface ApprovableRequest {
  * in-person meeting.
  */
 export function bookingTitle(hostName: string, request: ApprovableRequest): string {
-  const company = request.company?.trim();
-  const name = request.name.trim();
+  const company = inert(request.company?.trim() ?? '');
+  const name = inert(request.name.trim());
   const who = company ? `${name} (${company})` : name;
   const base = `${firstName(hostName) || 'Meeting'} <> ${who}`;
   return request.type === 'in_person' && request.kind
@@ -43,10 +53,12 @@ export function bookingTitle(hostName: string, request: ApprovableRequest): stri
 /** Where to meet, as one line: the place's name and area, or what the visitor suggested. */
 export function bookingLocation(request: ApprovableRequest): string {
   if (request.type !== 'in_person') return '';
-  return [request.place_name, request.place_area]
-    .map((p) => p?.trim())
-    .filter(Boolean)
-    .join(', ');
+  return inert(
+    [request.place_name, request.place_area]
+      .map((p) => p?.trim())
+      .filter(Boolean)
+      .join(', '),
+  );
 }
 
 export function bookingDescription(request: ApprovableRequest): string {
@@ -56,7 +68,7 @@ export function bookingDescription(request: ApprovableRequest): string {
   if (request.type === 'in_person' && request.place_map_url) {
     lines.push('', `Map: ${request.place_map_url}`);
   }
-  return lines.join('\n');
+  return inert(lines.join('\n'));
 }
 
 /** The event to create on the host's main calendar, the requester invited. */
@@ -109,7 +121,9 @@ export function googleCalendarTemplateUrl(
 
 /**
  * A short, polite decline for the person to read and send from the compose
- * window. It promises nothing and names no other time.
+ * window, written as Arwin (the compose window opens on Arwin's signature).
+ * It promises nothing and names no other time. The time is said in the
+ * visitor's own zone, with the zone named.
  */
 export function declineDraft(
   hostName: string,
@@ -117,21 +131,25 @@ export function declineDraft(
   zone: string,
 ): { to: string; subject: string; body: string } {
   const first = firstName(request.name) || 'there';
-  const host = firstName(hostName) || 'Nick';
+  const host = firstName(hostName);
+  const withHost = host ? ` with ${host}` : '';
+  const toHost = host ? ` to ${host}` : '';
   const when =
-    request.type === 'message' || !request.starts_at ? null : slotLabel(request.starts_at, zone);
+    request.type === 'message' || !request.starts_at
+      ? null
+      : `${slotLabel(request.starts_at, zone)} (${zoneName(zone)})`;
   const body = [
     `Hi ${first},`,
     '',
     when
-      ? `Thank you for asking to meet with ${host}. He isn't able to take the ${when} time, so I won't be booking it.`
-      : `Thank you for your note to ${host}. He has it.`,
+      ? `Thank you for asking to meet${withHost}. The ${when} time doesn't work, so I won't be booking it.`
+      : `Thank you for your note${toHost}. I've passed it on.`,
     '',
     'Thanks for understanding,',
   ].join('\n');
   return {
     to: request.email,
-    subject: when ? `Your meeting request with ${host}` : `Your note to ${host}`,
+    subject: when ? `Your meeting request${withHost}` : `Your note${toHost}`,
     body,
   };
 }

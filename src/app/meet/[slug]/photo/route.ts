@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { isOwnPhotoPath } from '@/lib/booking/config';
 import { getStorage, getStore } from '@/lib/runtime';
 import { rateLimit } from '@/lib/security/limits';
 import { addressKey } from '@/lib/security/client-address';
@@ -19,7 +20,8 @@ export async function GET(request: NextRequest, context: Context) {
   const { slug } = await context.params;
   const found = await resolveOpenLink(getStore(), slug);
   const photo = found.open ? found.link.config.photo : null;
-  if (!found.open || !photo || !photo.path.startsWith(`booking/${found.link.organizationId}/`)) {
+  // Exactly the file Copilot wrote on upload, never any other path in the bucket.
+  if (!found.open || !photo || !isOwnPhotoPath(found.link.organizationId, photo)) {
     return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
   }
   const bytes = await getStorage().get(photo.path);

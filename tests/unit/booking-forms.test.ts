@@ -15,6 +15,7 @@ import {
   googleCalendarTemplateUrl,
   type ApprovableRequest,
 } from '@/lib/booking/event';
+import { distinctZones, zoneName } from '@/lib/booking/public';
 import {
   applyFill,
   BOOKING_REQUEST_INPUT,
@@ -195,6 +196,38 @@ describe('what a visitor may send', () => {
     expect(parsed.note).toBe('Hi there');
   });
 
+  it('takes only a plain email address (review fix)', () => {
+    const fails = (email: string) => !BOOKING_REQUEST_INPUT.safeParse({ ...call, email }).success;
+    for (const email of [
+      'victim@example.com?cc=attacker%40evil.example&body=Please%20wire',
+      'a@b..co',
+      'a@b.c\u202eom',
+      'a\u200b@example.com',
+      'a..b@example.com',
+      '.a@example.com',
+      'a@-example.com',
+      'a@example',
+      'a b@example.com',
+    ]) {
+      expect(fails(email), JSON.stringify(email)).toBe(true);
+    }
+    for (const email of ['pat@acme.example', "o'neil+deals@sub.acme.co.uk", 'a_b-c@x-y.io']) {
+      expect(fails(email), email).toBe(false);
+    }
+  });
+
+  it('strips invisible, direction-changing and tag characters, and line breaks from one-line fields (review fix)', () => {
+    const parsed = BOOKING_REQUEST_INPUT.parse({
+      ...call,
+      name: 'Pat\u202e eeL\n\tLee\u200b',
+      company: '<b>Acme</b>\r\nLabs',
+      note: 'Line one\nLine <i>two</i>',
+    });
+    expect(parsed.name).toBe('Pat eeL Lee');
+    expect(parsed.company).toBe('bAcme/b Labs');
+    expect(parsed.note).toBe('Line one\nLine itwo/i');
+  });
+
   it('accepts the honeypot field, so the server can answer it as if all went well', () => {
     expect(BOOKING_REQUEST_INPUT.parse({ ...call, website: 'spam.example' }).website).toBe(
       'spam.example',
@@ -309,7 +342,7 @@ describe('what an approved request becomes', () => {
     expect(declineDraft('Sam Host', { ...call, type: 'call' }, 'America/New_York')).toEqual({
       to: 'Pat@Acme.example',
       subject: 'Your meeting request with Sam',
-      body: "Hi Pat,\n\nThank you for asking to meet with Sam. He isn't able to take the Wed, Oct 28, 11:00 AM time, so I won't be booking it.\n\nThanks for understanding,",
+      body: "Hi Pat,\n\nThank you for asking to meet with Sam. The Wed, Oct 28, 11:00 AM (Eastern Time (New York)) time doesn't work, so I won't be booking it.\n\nThanks for understanding,",
     });
     expect(
       declineDraft(
@@ -318,5 +351,52 @@ describe('what an approved request becomes', () => {
         'UTC',
       ).subject,
     ).toBe('Your note to Sam');
+  });
+
+  it('names the zone, assumes no one’s gender, and needs no host name (review fix)', () => {
+    const draft = declineDraft('', { ...call, type: 'call' }, 'Asia/Manila');
+    expect(draft.subject).toBe('Your meeting request');
+    expect(draft.body).toContain('Thank you for asking to meet. The Wed, Oct 28, 11:00 PM');
+    expect(draft.body).toContain('(Philippine Standard Time (Manila))');
+    expect(draft.body).not.toMatch(/\b(He|She|Nick)\b/);
+  });
+
+  it('turns any tag a visitor typed into look-alikes in the event (review fix)', () => {
+    const tagged: ApprovableRequest = {
+      ...call,
+      name: 'Pat <b>Lee</b>',
+      company: 'Acme <i>Labs</i>',
+      note: 'See <a href="https://evil.example/x">the Meet link</a>',
+    };
+    expect(bookingTitle('Sam Host', tagged)).toBe('Sam <> Pat ‹b›Lee‹/b› (Acme ‹i›Labs‹/i›)');
+    expect(bookingDescription(tagged)).not.toMatch(/[<>]/);
+    expect(bookingDescription(tagged)).toContain('‹a href="https://evil.example/x"›');
+  });
+});
+
+describe('time zone names (review fix)', () => {
+  it('names a zone the same in summer and winter, with its city to tell zones apart', () => {
+    const november = new Date('2026-11-05T15:00:00Z');
+    const july = new Date('2026-07-05T15:00:00Z');
+    expect(zoneName('America/Chicago', november)).toBe('Central Time (Chicago)');
+    expect(zoneName('America/Chicago', july)).toBe('Central Time (Chicago)');
+    expect(zoneName('Europe/London', new Date('2026-10-22T12:00:00Z'))).not.toMatch(
+      /Summer|Daylight/,
+    );
+    expect(zoneName('Europe/Paris')).not.toBe(zoneName('Europe/Berlin'));
+    expect(zoneName('UTC')).toBe('UTC');
+  });
+
+  it('offers each zone once in a picker, and only zones that exist', () => {
+    expect(
+      distinctZones([
+        'America/Chicago',
+        'America/Chicago',
+        'America/New_York',
+        'Not/AZone',
+        null,
+        'Europe/Paris',
+      ]),
+    ).toEqual(['America/Chicago', 'America/New_York', 'Europe/Paris']);
   });
 });
