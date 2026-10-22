@@ -63,6 +63,9 @@ export default async function SettingsPage({
     getPrimaryIntegration(store, auth.organizationId),
   ]);
   const limits = envLimits();
+  // No paid AI key means nothing here can spend: AI answers come from the
+  // Claude-plan routines (Ask Arwin), so the page says $0 instead of a budget.
+  const paidAi = Boolean(env().anthropicApiKey);
   const criteria = configuredCriteria(thesis);
   const demo = isDemoMode();
   const canManageMcp = hasRole(auth, 'owner');
@@ -127,7 +130,7 @@ export default async function SettingsPage({
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
           <TabsTrigger value="booking">Booking link</TabsTrigger>
-          <TabsTrigger value="limits">Limits &amp; cost</TabsTrigger>
+          <TabsTrigger value="limits">Limits</TabsTrigger>
           <TabsTrigger value="data">Data &amp; privacy</TabsTrigger>
         </TabsList>
 
@@ -406,7 +409,7 @@ export default async function SettingsPage({
           <Card>
             <CardHeader>
               <div>
-                <CardTitle as="h2">Cost and usage ceilings</CardTitle>
+                <CardTitle as="h2">Usage limits</CardTitle>
                 <p className="mt-1 text-sm text-[var(--fg-muted)]">
                   Set by environment variable so they cannot be raised from the interface. See{' '}
                   <code className="font-mono text-[11px]">ENVIRONMENT_VARIABLES.md</code>.
@@ -430,7 +433,11 @@ export default async function SettingsPage({
                 <DataRow label="AI requests per user per hour">
                   {limits.maxAiRequestsPerUserPerHour}
                 </DataRow>
-                <DataRow label="Daily AI budget">${limits.dailyAiBudgetUsd.toFixed(2)}</DataRow>
+                <DataRow label="AI cost">
+                  {paidAi
+                    ? `Paid AI key on: capped at $${limits.dailyAiBudgetUsd.toFixed(2)} a day`
+                    : '$0: AI answers run on the Claude plan (Ask Arwin), no paid key'}
+                </DataRow>
                 <DataRow label="Automatic analysis">
                   {limits.autoAnalyzeEnabled ? 'On' : 'Off'}
                 </DataRow>

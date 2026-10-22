@@ -27,7 +27,7 @@ export function ChatbotSlot({ initial, canEdit }: { initial: ChatbotConfig; canE
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold">Arwin on the booking page</p>
           <p className="text-sm text-[var(--fg-muted)]">
-            Finds open times, answers from the list below, and takes a note. Costs nothing.
+            Finds open times, answers from the list below, and takes a note. Free: no paid AI.
           </p>
         </div>
         <Badge tone={initial.enabled ? 'ok' : 'neutral'}>{initial.enabled ? 'On' : 'Off'}</Badge>
