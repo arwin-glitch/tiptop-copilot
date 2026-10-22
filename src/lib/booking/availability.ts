@@ -4,7 +4,7 @@ import {
   readCalendarRange,
   type CalendarSource,
 } from '@/lib/calendar/range-reader';
-import { visibleCalendarIds } from '@/lib/calendar/range-types';
+import { visibleCalendarIds, type CalendarInfo } from '@/lib/calendar/range-types';
 import type { DataStore } from '@/lib/db/store';
 import { readCalendarPrefs } from '@/lib/services/calendar-prefs';
 import { err, ok, type Result } from '@/lib/util/result';
@@ -14,17 +14,37 @@ import type { BookingConfig } from './config';
 import type { BusyBlock } from './engine';
 
 /**
- * The booking link's one read of the host's calendar: every calendar
- * Copilot shows for him (his own toggles on the Calendar tab, else Google's
- * ticks, and always his main calendar, so personal and family calendars
- * count), over today and the link's horizon, through the Calendar tab's own
- * reader (lib/calendar/range-reader.ts; cached a minute, so a burst of page
- * views asks Google once).
+ * The booking link's one read of the host's calendar, over today and the
+ * link's horizon, through the Calendar tab's own reader
+ * (lib/calendar/range-reader.ts; cached a minute, so a burst of page views
+ * asks Google once).
+ *
+ * Which calendars (bookingCalendarIds): his main calendar, every calendar he
+ * owns, every calendar ticked in Google Calendar, and any calendar he turned
+ * on in Copilot's Calendar tab. A toggle there only ever adds one: hiding a
+ * personal or family calendar from the view never opens its time to the
+ * public page.
  *
  * What comes back is busy intervals and travel days only (lib/booking/busy.ts).
  * A calendar that could not be read makes the whole read fail: a slot is
  * never offered from part of the calendar.
  */
+
+/**
+ * The calendars whose busy time the link reads: the main one, every one he
+ * owns, every one ticked in Google, and every one turned on in Copilot. A
+ * Copilot toggle set to off never takes one away.
+ */
+export function bookingCalendarIds(
+  calendars: readonly Pick<CalendarInfo, 'id' | 'primary' | 'accessRole' | 'selectedInGoogle'>[],
+  shown: Readonly<Record<string, boolean>>,
+): string[] {
+  const ids = new Set(visibleCalendarIds(calendars, {}));
+  for (const c of calendars) {
+    if (c.primary || c.accessRole === 'owner' || shown[c.id] === true) ids.add(c.id);
+  }
+  return calendars.filter((c) => ids.has(c.id)).map((c) => c.id);
+}
 
 export interface BusyRead {
   busy: BusyBlock[];
@@ -49,8 +69,7 @@ export async function busyPictureFor(
   const prefs = options.principalId
     ? await readCalendarPrefs(store, organizationId, options.principalId)
     : { shown: {} };
-  const shown = new Set(visibleCalendarIds(list.value.calendars, prefs.shown));
-  for (const c of list.value.calendars) if (c.primary) shown.add(c.id);
+  const shown = bookingCalendarIds(list.value.calendars, prefs.shown);
 
   const from = localDateKey(now, hostZone);
   const range = await readCalendarRange(store, organizationId, {
@@ -58,7 +77,7 @@ export async function busyPictureFor(
     to: addDaysToKey(from, config.horizonDays + 2),
     timeZone: hostZone,
     ownEmail: source.ownEmails[0] ?? '',
-    calendarIds: [...shown],
+    calendarIds: shown,
     source,
     now: now.getTime(),
   });

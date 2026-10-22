@@ -34,7 +34,9 @@ import {
  *     back (gaps under `stackGapMinutes`), nothing touches the run, nothing
  *     starts within `stackCooldownMinutes` after it ends, and nothing ends
  *     within `stackLeadMinutes` before it starts (30 by default, for a call
- *     too: the half hour before a stack stays free).
+ *     too: the half hour before a stack stays free). Nor may the time itself
+ *     complete such a run (possible only when Settings sets the back-to-back
+ *     gap wider than the buffer).
  */
 
 const MINUTE = 60_000;
@@ -52,6 +54,8 @@ export interface BusyBlock {
   inPerson: boolean;
   /** An opaque all-day entry, start and end at the host's midnights. Never part of a run. */
   allDay: boolean;
+  /** Set on a waiting link request's own time (not a calendar entry), for the plain-words reason. */
+  link?: true;
 }
 
 /** A request made through the link, waiting or approved. */
@@ -60,8 +64,32 @@ export interface LinkBooking {
   start: number;
   end: number;
   type: MeetingType;
-  /** Approved and on the calendar already, so its event is among the busy blocks. */
+  /**
+   * Approved, so the host's calendar has it (Copilot made the event, or a
+   * person added it by hand) and it is among the busy blocks already.
+   */
   onCalendar: boolean;
+  /** When it was asked for (ms), for first come, first served on Approve. */
+  createdAt?: number;
+}
+
+/**
+ * The link's bookings an approval is checked against: every approved one,
+ * and the waiting ones asked for before this one (first come, first served:
+ * the oldest waiting request can always be approved, and a later one is
+ * checked against it). Ties go by id, so two requests never block each other.
+ */
+export function bookingsBefore(
+  bookings: readonly LinkBooking[],
+  request: { id: string; createdAt: number },
+): LinkBooking[] {
+  return bookings.filter(
+    (b) =>
+      b.id !== request.id &&
+      (b.onCalendar ||
+        (b.createdAt ?? 0) < request.createdAt ||
+        ((b.createdAt ?? 0) === request.createdAt && b.id < request.id)),
+  );
 }
 
 export interface EngineInput {
@@ -197,6 +225,7 @@ function prepare(input: EngineInput, query: SlotQuery, excludeId?: string): Prep
       meeting: true,
       inPerson: b.type === 'in_person',
       allDay: false,
+      link: true as const,
     }));
   const blocks = [...input.busy, ...pending];
   const linkPerDay = new Map<string, number>();
@@ -245,11 +274,11 @@ function problemFor(
   const day = known?.day ?? localDateKey(new Date(start), hostZone);
 
   const weekday = weekdayOf(day);
-  if (
-    !(ALLOWED_WEEKDAYS as readonly number[]).includes(weekday) ||
-    !config.weekdays.includes(weekday)
-  ) {
+  if (!(ALLOWED_WEEKDAYS as readonly number[]).includes(weekday)) {
     return 'Meetings are only on Tuesday, Wednesday and Thursday.';
+  }
+  if (!config.weekdays.includes(weekday)) {
+    return 'That day is not offered on the booking link any more.';
   }
   if (query.type === 'in_person' && !query.kind) return 'Pick coffee, lunch or dinner.';
   if (!known?.inWindow && !inWindow(start, query, config, hostZone)) {
@@ -287,9 +316,8 @@ function problemFor(
   for (const block of p.blocks) {
     const gap = block.allDay ? 0 : Math.max(pad, block.inPerson ? travel : 0);
     if (start - gap < block.end && end + gap > block.start) {
-      return block.allDay
-        ? 'That day is busy all day.'
-        : 'That time is too close to another meeting.';
+      if (block.allDay) return 'That day is busy all day.';
+      return block.link ? WAITING_CLASH : 'That time is too close to another meeting.';
     }
   }
 
@@ -300,8 +328,21 @@ function problemFor(
       return `That time is right after ${plural(run.count, 'meeting')} back to back.`;
     }
   }
+
+  // With a back-to-back gap wider than the buffer (Settings allows it), the
+  // time itself could close a run: two meetings, a 30-minute gap, then this.
+  if (config.stackGapMinutes * MINUTE > pad) {
+    const candidate = { start, end, allDay: false };
+    const runs = backToBackRuns([...p.blocks, candidate], config.stackGapMinutes, config.stackSize);
+    const joined = runs.find((r) => r.start <= start && end <= r.end);
+    if (joined) return `That time would make ${plural(joined.count, 'meeting')} back to back.`;
+  }
   return null;
 }
+
+/** The reason when the time clashes with another waiting link request, not a calendar entry. */
+export const WAITING_CLASH =
+  'An earlier booking request is waiting for an overlapping time. Approve or decline that one first.';
 
 /** The host-zone day keys the engine walks: today through the horizon. */
 export function horizonDays(now: Date, hostZone: string, horizon: number): string[] {

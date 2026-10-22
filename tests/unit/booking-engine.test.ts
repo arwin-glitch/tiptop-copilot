@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_BOOKING_CONFIG, type BookingConfig } from '@/lib/booking/config';
 import {
   backToBackRuns,
+  bookingsBefore,
   candidateStarts,
   openSlots,
   slotProblem,
@@ -10,6 +11,7 @@ import {
   type EngineInput,
   type LinkBooking,
   type OpenSlot,
+  WAITING_CLASH,
 } from '@/lib/booking/engine';
 import { dayKeyIn, slotLabel, timeLabel } from '@/lib/booking/public';
 import { localClock, wallTimeToUtc } from '@/lib/util/time';
@@ -460,5 +462,75 @@ describe('the visitor’s time zone', () => {
 
   it('falls back to UTC for a zone it does not know, rather than failing', () => {
     expect(timeLabel('2026-10-27T15:00:00.000Z', 'Not/AZone')).toBe('3:00 PM');
+  });
+});
+
+describe('review fixes', () => {
+  it('says a day was taken off the link, rather than Tuesday-to-Thursday, for a dropped Tuesday', () => {
+    expect(slotProblem(input({}, { weekdays: [3, 4] }), CALL, iso(TUE, 10))).toBe(
+      'That day is not offered on the booking link any more.',
+    );
+  });
+
+  it('never lets a time complete a back-to-back run when the gap is wider than the buffer', () => {
+    // Two meetings 10:00-11:00 back to back; a call at 11:30 would be the third (gap 30 < 45).
+    const busy = [block(WED, [10, 0], [10, 30]), block(WED, [10, 30], [11, 0])];
+    const wide = input({ busy }, { stackGapMinutes: 45 });
+    expect(slotProblem(wide, CALL, iso(WED, 11, 30))).toBe(
+      'That time would make 3 meetings back to back.',
+    );
+    expect(startsOn(openSlots(wide, CALL), WED)).not.toContain('11:30');
+    // Far enough away, it is no run at all.
+    expect(slotProblem(wide, CALL, iso(WED, 12, 30))).toBeNull();
+    // The defaults (gap 15, buffer 15) never needed this, and still offer 11:30.
+    expect(startsOn(openSlots(input({ busy }), CALL), WED)).toContain('11:30');
+  });
+
+  it('names a waiting request, not a meeting, when that is what is in the way', () => {
+    const linkBookings: LinkBooking[] = [
+      { id: 'r1', start: at(WED, 10), end: at(WED, 10, 30), type: 'call', onCalendar: false },
+    ];
+    expect(slotProblem(input({ linkBookings }), CALL, iso(WED, 10))).toBe(WAITING_CLASH);
+  });
+
+  it('checks an approval against approved bookings and older waiting ones only', () => {
+    const older: LinkBooking = {
+      id: 'b-older',
+      start: at(WED, 10),
+      end: at(WED, 10, 30),
+      type: 'call',
+      onCalendar: false,
+      createdAt: 1000,
+    };
+    const newer: LinkBooking = { ...older, id: 'a-newer', createdAt: 2000 };
+    const approved: LinkBooking = {
+      ...older,
+      id: 'c-approved',
+      start: at(THU, 10),
+      end: at(THU, 10, 30),
+      onCalendar: true,
+      createdAt: 3000,
+    };
+    const all = [older, newer, approved];
+    expect(bookingsBefore(all, { id: older.id, createdAt: 1000 }).map((b) => b.id)).toEqual([
+      'c-approved',
+    ]);
+    expect(bookingsBefore(all, { id: newer.id, createdAt: 2000 }).map((b) => b.id)).toEqual([
+      'b-older',
+      'c-approved',
+    ]);
+    // The same instant: the id decides, so exactly one of the two goes first.
+    const twin: LinkBooking = { ...older, id: 'a-twin', createdAt: 1000 };
+    expect(bookingsBefore([older, twin], { id: 'a-twin', createdAt: 1000 })).toEqual([]);
+    expect(bookingsBefore([older, twin], { id: 'b-older', createdAt: 1000 })).toEqual([twin]);
+    // So the older one approves, and the newer one is checked against it.
+    const forOlder = input({
+      linkBookings: bookingsBefore(all, { id: older.id, createdAt: 1000 }),
+    });
+    expect(slotProblem(forOlder, CALL, iso(WED, 10))).toBeNull();
+    const forNewer = input({
+      linkBookings: bookingsBefore(all, { id: newer.id, createdAt: 2000 }),
+    });
+    expect(slotProblem(forNewer, CALL, iso(WED, 10))).toBe(WAITING_CLASH);
   });
 });
