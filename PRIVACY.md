@@ -59,9 +59,11 @@ action.
   encrypted, deleted within a year of last use, and at once on withdrawal.
   The identifiers are only ever sent to the speech vendor for recordings with
   that person on the invite (or a teammate), labelled with an id, never a
-  name. Meeting notes are written by the AI model from the transcript; the
-  transcript goes to the model provider like any other source Copilot
-  analyses, with the same no-training terms. The cloud routines can read only
+  name. Meeting notes and answers about meetings are written by Arwin's own
+  Claude routine (the one behind Ask Arwin), never by a paid API: the
+  transcript text (names and roles, never an address) goes to that routine in
+  its start request, and the notes come back through the Slack relay channel
+  (a private one when `NOTES_RELAY_CHANNEL_ID` is set). The cloud routines can read only
   meetings their recorder shared with the team, never a private one or a
   private folder (Coaching). A meeting deleted to the trash is gone for good,
   with its transcript and notes, after seven days.

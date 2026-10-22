@@ -120,7 +120,8 @@ Rules every meeting tool keeps:
 
 ### The meeting-follow-up routine
 
-When a team meeting's notes are ready, Copilot starts the meeting-follow-up routine at once
+When Arwin's notes for a team meeting are stored (written by his Claude routine through the
+Ask bridge, docs/NOTES_ROUTINE.md), Copilot starts the meeting-follow-up routine at once
 instead of waiting for its schedule: it POSTs `{"text":"copilot_meeting_id=<uuid>"}` to
 `MEETING_FOLLOWUP_FIRE_URL` with `MEETING_FOLLOWUP_FIRE_TOKEN`, once per meeting (see
 ENVIRONMENT_VARIABLES.md). The text names the meeting and nothing else; the routine reads it

@@ -10,6 +10,23 @@ throughout.
 
 ## [Unreleased]
 
+- **Copilot Notes costs nothing to run: Arwin writes the notes (still off by
+  default).** When a recording stops you get Quick notes straight away (what
+  you typed, word for word, plus the key lines and the promises, each linked
+  to where it was said), and a banner says "Arwin is writing your notes -
+  usually 1-3 minutes". Arwin's notes are written by his own Claude, the same
+  one that answers Ask Arwin, not by a paid service: Copilot sends it the
+  meeting and reads the notes back, then swaps them in, with every point
+  linked to the transcript and the action items added to Tasks once (yours
+  marked as your promises). The transcript and your notepad work while you
+  wait. Regenerate and switching the template ask Arwin again; renaming a
+  voice just updates the names. If the notes do not come back, the Quick notes
+  stay and "Ask Arwin again" tries once more. Questions on a meeting's Chat
+  tab go to Arwin the same way, with the lines they are about, and the answer
+  points at those lines (it also shows in Ask Arwin). No meeting ever uses
+  the paid AI key. (D-076; the routine's instructions are in
+  docs/NOTES_ROUTINE.md)
+
 - **Copilot Notes, put together (still off by default).** The meeting page now
   records for real in Chrome and Edge: your microphone and the meeting tab you
   share, or one microphone for everyone "in the room" (the way an iPhone
@@ -26,11 +43,10 @@ throughout.
   its chat. (D-076)
 
 - **Copilot Notes now writes real notes, names people, and talks to the
-  routines (still off by default).** When a recording stops, Claude writes the
-  notes from the transcript, the notes you typed (kept word for word), the
-  invite and what Copilot already knows about the guests' companies, with
-  every point linked to the lines it came from; if no model is available the
-  simple draft is kept so a meeting is never left without notes. A template is
+  routines (still off by default).** When a recording stops, notes are written
+  from the transcript and the notes you typed (kept word for word), with every
+  point linked to the lines it came from (now by Arwin's own Claude, at no
+  cost: see the entry above). A template is
   picked for you (founder pitch, LP call, portfolio check-in, intro, 1:1) from
   who is on the call. People are named as they talk: the invite and what is
   said ("Priya, how does…") name the guests when that is certain, everyone
@@ -46,9 +62,9 @@ throughout.
   meeting recorded in both Copilot and Granola shows once. You can share every
   meeting you record with the team by default, manage the never-record list,
   and edit or remove your own templates. Meetings left in the trash for a week
-  are deleted for good. Diagnostics notices a recorder that went quiet. AI
-  spend is now estimated at the current prices (Claude Opus 5.5 is the default
-  deep model), so the daily budget no longer trips early. (D-076)
+  are deleted for good. Diagnostics notices a recorder that went quiet. The
+  AI spend estimate for the rest of Copilot uses the current prices, so the
+  daily budget no longer trips early. (D-076)
 
 - **Copilot Notes, the screens (off by default).** With Copilot Notes on,
   a calendar event's card has a gold **Take notes**: it opens the meeting

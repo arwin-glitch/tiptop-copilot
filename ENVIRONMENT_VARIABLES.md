@@ -123,8 +123,9 @@ classification.
 
 ### `AI_MODEL_DEEP`
 Default `claude-opus-5-5` (Claude Opus 5.5, $4/$20 per million tokens; it was
-`claude-opus-5` at $5/$25 before D-076). Analysis, daily outlook, chat, drafts,
-comparison, and Copilot Notes' meeting notes and chat.
+`claude-opus-5` at $5/$25 before D-076). Analysis, daily outlook, chat, drafts
+and comparison. Copilot Notes never uses it: its notes and meeting chat are
+written by Arwin's Claude routine through the Ask bridge, at no cost (D-076).
 
 Model ids come from here and nowhere else — never hard-coded at a call site. To
 change a model, change the variable.
@@ -508,6 +509,31 @@ up instead. Copilot POSTs `{"text":"copilot_meeting_id=<uuid>"}` with the token
 as a Bearer header, once per meeting, for meetings the team can see only (the
 routine reads them through the MCP meeting tools, docs/MCP.md). Never called in
 demo mode.
+
+### Arwin's notes and the meeting chat
+
+No key of their own, and nothing paid: they use the Ask bridge's settings
+above. `ASK_ROUTINE_FIRE_URL` and `ASK_ROUTINE_TOKEN` start the
+`ask-bridge-answerer` routine with a meeting's notes request; `ASK_RELAY_SLACK_TOKEN`
+reads its answer back; `ASK_BRIDGE_TOKEN` sends the meeting chat to it as an
+Ask question. Without the trigger the request waits and the meeting keeps its
+Quick notes; without the bridge the chat quotes the matching lines instead.
+The routine's prompt sections are in [docs/NOTES_ROUTINE.md](docs/NOTES_ROUTINE.md).
+
+### `NOTES_FIRE_MAX_CHARS`
+
+Optional, default `60000` (kept between 8,000 and 400,000). The most characters
+of a notes request sent to the routine. A longer meeting is condensed to fit:
+a speaker's consecutive lines merged, fillers dropped, then the middle trimmed
+with a marker saying how many lines were left out.
+
+### `NOTES_RELAY_CHANNEL_ID`
+
+Optional. The Slack channel the routine posts Arwin's notes to and the app
+reads them from; it is sent to the routine with each request. Defaults to
+`ASK_RELAY_CHANNEL_ID` (the Ask relay channel). Set it to a private channel so
+meeting notes stay out of a channel every member can read; the Slack app then
+needs `groups:history` and to be a member there.
 
 ---
 
