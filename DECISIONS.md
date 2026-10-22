@@ -2714,3 +2714,39 @@ routes, and optional fields on existing answers.
 - **Prices.** The AI price table gains Opus 5.5 ($4/$20), Sonnet 5.5 and
   Haiku 5.5, and Sonnet 5 drops to $2/$10, so the daily budget is no longer
   overstated about 2.5 times; `AI_MODEL_DEEP` defaults to `claude-opus-5-5`.
+
+**The screens (notes-ui), on top of the contract.**
+
+- **Subtabs, not a long page.** `/meetings/[id]` is Notes | Transcript |
+  Chat | People | Share (`?tab=`, with `&t=<ms>` landing on a line), the
+  consent step a modal before any capture (opened at once from "Take notes"
+  and "Start notes", `?start=1`). `/meetings/new` makes a note for a call off
+  the calendar, or prefilled from an event (`?event=`, where `/go/meeting?…
+  &notes=1` and the meeting alert's "Start notes" button land).
+  `/meetings/settings` holds templates, never-record rules, voice consent,
+  folders and recipes; the beta switch is also on Settings.
+- **The recorder seam** is `components/notes/use-recorder.ts`: the contract's
+  order (start with consent → stt-token → segments with a rising seq → pause
+  → stop after the last lines and the notepad are saved). In demo mode it
+  plays the mock call; `LIVE_CAPTURE_AVAILABLE` stays false until the web
+  recorder (`lib/capture`) is mounted behind it, and until then Start is
+  offered only where the provider is the mock.
+- **Names come from the voices, always.** Lines carry a cluster key; the
+  chip, bubble side and colour come from `SpeakerView`, so a relabel's answer
+  (`speakers`) renames every line without refetching the transcript. A
+  rename, split or merge with notes already written regenerates them.
+- **Granola stays the default list** during the parallel run; Copilot and
+  All are extra source chips beside it while Notes is on.
+- **The calendar card gets one slot** (`MeetingNotesSlot`), which renders
+  nothing while Notes is off; "Notes ready" reads the list filtered by the
+  event's id (`eventId`, added to `ListMeetingsQuery`).
+- **Never-record rules get their screen.** Both branches wrote the routes
+  (`/api/notes/recording-rules`); the integration kept the core's
+  (`notes-settings.ts`), which also lets a rule be renamed and asks for an
+  admin to switch a rule off, change what it matches or delete it. The
+  team's rows can be added, switched off and deleted from Notes settings;
+  the built-in defaults are listed read only. Patterns stay out of the audit
+  trail (they can name a person).
+- **The public page** `/n/[token]` is server-rendered from
+  `resolveSharedNote`, with no app chrome; anything that is not a live link
+  is `notFound()`.

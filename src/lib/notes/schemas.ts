@@ -329,6 +329,10 @@ export const LIST_MEETINGS_QUERY = z.object({
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
     .optional(),
+  eventId: z
+    .string()
+    .regex(/^[\w-]{3,1024}$/)
+    .optional(),
   cursor: z.string().max(200).optional(),
 });
 

@@ -59,13 +59,19 @@ interface Loaded {
 }
 
 /** Meetings this person may see, with their participants and Copilot notes. */
-async function loadMeetings(ctx: NotesContext, filter: { folder?: string } = {}): Promise<Loaded> {
+async function loadMeetings(
+  ctx: NotesContext,
+  filter: { folder?: string; eventId?: string } = {},
+): Promise<Loaded> {
   const org = ctx.auth.organizationId;
+  const eq: Record<string, string> = {};
+  if (filter.folder) eq.folder_id = filter.folder;
+  if (filter.eventId) eq.provider_event_id = filter.eventId;
   const meetings = (
     (await ctx.store.list(
       'meetings',
       org,
-      { isNull: ['deleted_at'], ...(filter.folder ? { eq: { folder_id: filter.folder } } : {}) },
+      { isNull: ['deleted_at'], ...(Object.keys(eq).length ? { eq } : {}) },
       { orderBy: [{ field: 'created_at', direction: 'desc' }], limit: SCAN },
     )) as Meeting[]
   ).filter((m) => canSeeMeeting(m, ctx.auth.userId));
@@ -151,11 +157,12 @@ export async function listMeetings(
     const loaded: Loaded =
       source === 'granola'
         ? { meetings: [], peopleOf: new Map(), noteOf: new Map() }
-        : await loadMeetings(ctx, { folder: query.folder });
+        : await loadMeetings(ctx, { folder: query.folder, eventId: query.eventId });
     const meetings = loaded.meetings;
     const ids = meetings.map((m) => m.id);
     const visible = new Set(ids);
-    const withGranola = source !== 'copilot' && !query.folder;
+    // A folder or a calendar event narrows to Copilot meetings: Granola rows have neither.
+    const withGranola = source !== 'copilot' && !query.folder && !query.eventId;
     let granola = withGranola
       ? ((await ctx.store.list(
           'meeting_notes',

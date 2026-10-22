@@ -1,4 +1,6 @@
 import * as React from 'react';
+import Link from 'next/link';
+import { meetingPagePath } from '@/lib/notes/api';
 import { Badge } from '@/components/ui/badge';
 import { FieldLabel } from '@/components/ui/card';
 import { Notice, PlainText } from '@/components/ui/feedback';
@@ -13,6 +15,10 @@ import { formatDate, relativeTime } from '@/lib/util/time';
  * gets the same treatment as a flagged email — the warning and the full text,
  * because a note that quietly disappeared would be worse than one that is
  * visibly suspect.
+ *
+ * Copilot's own notes (D-076) arrive in the same table with provider
+ * 'copilot', so these pages list them too (the readers already leave out a
+ * private one): their provenance says Copilot, and they open the meeting.
  */
 export function MeetingNoteList({ notes, timezone }: { notes: MeetingNote[]; timezone?: string }) {
   if (notes.length === 0) {
@@ -42,7 +48,7 @@ export function MeetingNoteList({ notes, timezone }: { notes: MeetingNote[]; tim
             {note.attendees.length > 0
               ? note.attendees.map((a) => a.name ?? a.email).join(', ')
               : 'No attendees recorded'}
-            {' · '}from Granola
+            {' · '}from {note.provider === 'copilot' ? 'Copilot' : 'Granola'}
           </p>
 
           {note.injection_flagged ? (
@@ -61,7 +67,16 @@ export function MeetingNoteList({ notes, timezone }: { notes: MeetingNote[]; tim
             <PlainText text={note.content} className="mt-2 text-[var(--fg-muted)]" />
           </details>
 
-          {note.source_url ? (
+          {note.provider === 'copilot' ? (
+            <p className="mt-2">
+              <Link
+                href={meetingPagePath(note.meeting_id ?? note.external_id)}
+                className="text-mini text-[var(--accent)] underline-offset-2 hover:underline"
+              >
+                Open the meeting: notes, transcript and chat
+              </Link>
+            </p>
+          ) : note.source_url ? (
             <p className="mt-2">
               <a
                 href={note.source_url}

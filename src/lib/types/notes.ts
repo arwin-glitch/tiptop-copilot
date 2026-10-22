@@ -958,7 +958,7 @@ export interface CreateMeetingResponse {
   created: boolean;
 }
 
-/** GET /api/notes/meetings?q=&person=&company=&folder=&source=&cursor= */
+/** GET /api/notes/meetings?q=&person=&company=&folder=&source=&eventId=&cursor= */
 export interface ListMeetingsQuery {
   q?: string;
   /** An email address. */
@@ -968,6 +968,8 @@ export interface ListMeetingsQuery {
   folder?: Uuid;
   source?: 'copilot' | 'granola' | 'all';
   hasActionItems?: boolean;
+  /** A Google event id: the Copilot meeting made for that event ("Notes ready" on its card). */
+  eventId?: string;
   cursor?: string;
 }
 

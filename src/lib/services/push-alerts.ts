@@ -179,6 +179,8 @@ export interface PushAlert {
   /** In-app path opened when the notification is tapped. */
   url: string;
   tag: string;
+  /** A meeting alert's "Start notes" button (D-076), while Copilot Notes is not off. */
+  notesUrl?: string;
 }
 
 const WAITING_KINDS = new Set(['lp', 'prospective_lp', 'portfolio', 'founder']);
@@ -493,6 +495,9 @@ export async function meetingAlerts(
           ? `/go/meeting?id=${encodeURIComponent(m.eventId)}`
           : '/calendar',
       tag: `meeting-${m.eventId.slice(0, 40)}`,
+      ...(env().notesEnabled !== 'off'
+        ? { notesUrl: `/go/meeting?id=${encodeURIComponent(m.eventId)}&notes=1` }
+        : {}),
     };
   });
 }

@@ -30,6 +30,8 @@ import { desktopVersionHint } from '@/lib/desktop/server';
 import { updatesItself } from '@/lib/desktop/shared';
 import { McpConnectCard } from '@/components/settings/mcp-connect';
 import { formatDateTime } from '@/lib/util/time';
+import { notesAccess } from '@/lib/notes/flag';
+import { NotesBetaSwitch } from '@/components/notes/notes-settings';
 
 export const metadata: Metadata = { title: 'Settings' };
 export const dynamic = 'force-dynamic';
@@ -62,6 +64,8 @@ export default async function SettingsPage() {
     userId: auth.userId,
     admin: hasRole(auth, 'admin'),
   }).catch(() => null);
+  // Copilot Notes (D-076): its tab shows only once the server switch is not off.
+  const notes = await notesAccess(store, auth).catch(() => null);
 
   return (
     <PageShell>
@@ -98,6 +102,9 @@ export default async function SettingsPage() {
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
           <TabsTrigger value="limits">Limits &amp; cost</TabsTrigger>
           <TabsTrigger value="data">Data &amp; privacy</TabsTrigger>
+          {notes && notes.mode !== 'off' ? (
+            <TabsTrigger value="notes">Copilot Notes</TabsTrigger>
+          ) : null}
         </TabsList>
 
         <TabsContent value="thesis">
@@ -420,6 +427,22 @@ export default async function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        {notes && notes.mode !== 'off' ? (
+          <TabsContent value="notes">
+            <Card>
+              <CardContent className="space-y-4 pt-4">
+                <NotesBetaSwitch initial={notes} />
+                <p className="text-sm text-[var(--fg-muted)]">
+                  Templates, never-record rules and voice consent are in{' '}
+                  <Link href="/meetings/settings" className="link-inline font-medium">
+                    Notes settings
+                  </Link>
+                  .
+                </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ) : null}
       </Tabs>
     </PageShell>
   );

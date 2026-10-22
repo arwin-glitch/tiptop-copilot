@@ -17,7 +17,8 @@ const DEFAULT_TAB = MEETINGS_TABS.defaultKey;
 export const AFFINITY_NOTES_PER_PAGE = 25;
 const AFFINITY_VIEW = { tab: 'notes', source: 'affinity' } as const;
 
-export type NotesSource = 'granola' | 'affinity';
+/** Granola stays the default list during the parallel run; Copilot and All appear once Notes is on. */
+export type NotesSource = 'granola' | 'affinity' | 'copilot' | 'all';
 
 /** How many notes came across from Affinity; null when the CRM cannot say. */
 export async function affinityNoteCount(auth: AuthContext): Promise<number | null> {
@@ -25,35 +26,60 @@ export async function affinityNoteCount(auth: AuthContext): Promise<number | nul
   return page.ok ? page.value.total : null;
 }
 
-/** The notes' two sources, one click apart: Granola (as before) and Affinity. */
+/**
+ * The notes' sources, one click apart: Granola (as before) and Affinity, and
+ * while Copilot Notes is on (D-076) Copilot's own notes and All (both tools
+ * in one list, each row with its source) beside them.
+ */
 export function NotesSourceSwitch({
   source,
   q,
   granolaCount,
   affinityCount,
+  copilot,
 }: {
   source: NotesSource;
   q: string;
   granolaCount: number | null;
   affinityCount: number | null;
+  /** Set while Copilot Notes is on for this person: its count, when known. */
+  copilot?: { count: number | null } | null;
 }) {
+  const query = q || null;
   return (
     <LinkChips
       label="Notes source"
-      className="mb-4"
+      className={copilot ? undefined : 'mb-4'}
       chips={[
         {
           key: 'granola',
           label: 'Granola',
           count: granolaCount ?? undefined,
-          href: pageHref(PATH, { tab: 'notes', q: q || null }, DEFAULT_TAB),
+          href: pageHref(PATH, { tab: 'notes', q: query }, DEFAULT_TAB),
           active: source === 'granola',
         },
+        ...(copilot
+          ? [
+              {
+                key: 'copilot',
+                label: 'Copilot',
+                count: copilot.count ?? undefined,
+                href: pageHref(PATH, { tab: 'notes', source: 'copilot', q: query }, DEFAULT_TAB),
+                active: source === 'copilot',
+              },
+              {
+                key: 'all',
+                label: 'All notes',
+                href: pageHref(PATH, { tab: 'notes', source: 'all', q: query }, DEFAULT_TAB),
+                active: source === 'all',
+              },
+            ]
+          : []),
         {
           key: 'affinity',
           label: 'Affinity',
           count: affinityCount ?? undefined,
-          href: pageHref(PATH, { ...AFFINITY_VIEW, q: q || null }, DEFAULT_TAB),
+          href: pageHref(PATH, { ...AFFINITY_VIEW, q: query }, DEFAULT_TAB),
           active: source === 'affinity',
         },
       ]}
