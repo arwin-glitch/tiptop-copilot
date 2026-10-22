@@ -55,9 +55,8 @@ import { createHarness, type Harness } from '../helpers/harness';
  * event's label; a label write is eventLabelId alone, with
  * eventLabelVersion=1 and sendUpdates none, under the colour's rules; no
  * other write (a colour, an edit, an answer) carries the version, so none
- * can remove a label. Then Ask's calendar tool, the
- * suggested label, "How you got here" and the Diagnostics readout. Nothing
- * here reaches Google.
+ * can remove a label. Then Ask's calendar tool, the suggested label, "How
+ * you got here" and the Diagnostics readout. Nothing here reaches Google.
  */
 
 const NOW = new Date('2026-10-21T15:00:00Z');
@@ -756,6 +755,27 @@ describe('Diagnostics › Event labels', () => {
     expect(main.unlabelled).toBeGreaterThan(0);
     expect(report.calendars.find((c) => c.id === MOCK_TEAM_CALENDAR)!.labels).toEqual([]);
     expect(state.writes).toEqual([]);
+  });
+
+  it('counts events whose label the calendar read did not return, so a failed read shows', async () => {
+    const failing: CalendarSource = {
+      ...source(),
+      provider: Object.assign(Object.create(MockCalendarProvider.prototype), source().provider, {
+        getCalendar: async () => ({
+          ok: false,
+          error: { code: 'provider_unavailable', message: 'down' },
+        }),
+      }),
+    };
+    const report = await labelReport(harness.store, harness.auth.organizationId, {
+      timeZone: TZ,
+      ownEmail: MOCK_OWN_EMAIL,
+      now: NOW,
+      source: failing,
+    });
+    const main = report.calendars.find((c) => c.id === MOCK_OWN_EMAIL)!;
+    expect(main.labels).toEqual([]);
+    expect(main.unknown).toBe(2);
   });
 });
 

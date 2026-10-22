@@ -114,10 +114,18 @@ export function LabelReportView({ report }: { report: LabelReport }) {
                 </tbody>
               </table>
             ) : (
-              <p className="text-sm text-[var(--fg-muted)]">
-                No colour labels: its events take Google&apos;s event colours.
-                {c.read ? ` ${c.unlabelled} events in the next 7 days.` : ''}
-              </p>
+              <div className="space-y-1 text-sm">
+                <p className="text-[var(--fg-muted)]">
+                  No colour labels: its events take Google&apos;s event colours.
+                  {c.read ? ` ${c.unlabelled} events without one in the next 7 days.` : ''}
+                </p>
+                {c.unknown ? (
+                  <p data-label-unread="" className="text-[var(--warn)]">
+                    {c.unknown} {c.unknown === 1 ? 'event points' : 'events point'} at a label
+                    Google did not list for this calendar: its labels could not be read.
+                  </p>
+                ) : null}
+              </div>
             )}
           </CardContent>
         </Card>
