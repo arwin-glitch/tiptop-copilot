@@ -26,7 +26,7 @@ export async function POST(request: NextRequest, context: Context) {
   const gate = publicGate(request, { limits: [{ bucket: 'ev-view', max: 60, windowMs: 60_000 }] });
   if (!gate.ok) return gate.response;
   const store = getStore();
-  const resolved = await resolvePublicEvent(store, slug);
+  const resolved = await resolvePublicEvent(store, slug, { personal: true });
   if (resolved.kind !== 'event') return publicFail({ code: 'not_found', message: 'Not found.' });
   const read = await readJsonBody(request, 2048);
   const body =
@@ -38,6 +38,10 @@ export async function POST(request: NextRequest, context: Context) {
   const source =
     typeof body.source === 'string' ? body.source.replace(/[^\w.\-: ]/g, '').slice(0, 120) : null;
   const guest = token ? await resolveInvite(store, resolved.event, token) : null;
+  // A private event opens only through a guest's own link.
+  if (resolved.event.visibility === 'private' && !guest) {
+    return publicFail({ code: 'not_found', message: 'Not found.' });
+  }
   await recordPageView(store, resolved.event, {
     ip: gate.visitor.ip,
     userAgent: request.headers.get('user-agent') ?? '',

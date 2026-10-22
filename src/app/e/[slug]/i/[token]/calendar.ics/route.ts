@@ -26,7 +26,7 @@ const notFound = () =>
 export async function GET(_request: Request, context: Context) {
   const { slug, token } = await context.params;
   const store = getStore();
-  const resolved = await resolvePublicEvent(store, slug);
+  const resolved = await resolvePublicEvent(store, slug, { personal: true });
   if (resolved.kind !== 'event') return notFound();
   const guest = await resolveInvite(store, resolved.event, token);
   if (!guest) return notFound();

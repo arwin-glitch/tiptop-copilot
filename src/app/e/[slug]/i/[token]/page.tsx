@@ -24,7 +24,7 @@ type Props = { params: Promise<{ slug: string; token: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const resolved = await resolvePublicEvent(getStore(), slug);
+  const resolved = await resolvePublicEvent(getStore(), slug, { personal: true });
   const title = resolved.kind === 'event' ? resolved.event.title : 'Event';
   return {
     title: { absolute: `Your invitation – ${title}` },
@@ -37,7 +37,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function InvitePage({ params }: Props) {
   const { slug, token } = await params;
   const store = getStore();
-  const resolved = await resolvePublicEvent(store, slug);
+  const resolved = await resolvePublicEvent(store, slug, { personal: true });
   if (resolved.kind === 'redirect') permanentRedirect(eventPaths.invite(resolved.slug, token));
   if (resolved.kind === 'not_found') notFound();
   const guest = await resolveInvite(store, resolved.event, token);

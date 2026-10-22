@@ -137,7 +137,7 @@ describe('named versions and the list', () => {
     expect(list.ok).toBe(true);
     if (!list.ok) return;
     expect(list.value.map((v) => v.kind)).toEqual(['autosave', 'named', 'autosave']);
-    expect(list.value[0]!.summary).toEqual(['Hero – headline']);
+    expect(list.value[0]!.summary).toEqual(['Cover – title']);
     expect(list.value[2]!.summary).toEqual(['The first saved version']);
 
     const one = await getVersion(h.store, owner, PUTTING, list.value[1]!.id);

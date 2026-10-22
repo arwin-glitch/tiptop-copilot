@@ -100,7 +100,7 @@ describe('the publish preview', () => {
     expect(preview.value.neverPublished).toBe(false);
     expect(preview.value.lines).toEqual([
       expect.objectContaining({
-        text: 'Hero – headline',
+        text: 'Cover – title',
         authors: ['Demo Owner', 'Morgan Example (outside)'],
       }),
     ]);
@@ -142,7 +142,7 @@ describe('publishEvent', () => {
     const audit = await h.store.list('audit_events', owner.organizationId, {
       eq: { action: 'event.published', entity_id: ANNUAL },
     });
-    expect(audit[0]?.metadata).toMatchObject({ version: 2, changes: ['Hero – headline'] });
+    expect(audit[0]?.metadata).toMatchObject({ version: 2, changes: ['Cover – title'] });
   });
 
   it('draws the share card from the PUBLIC view only: no gated sections, no unrevealed address', async () => {
@@ -216,7 +216,7 @@ describe('publishEvent', () => {
           opId: 'img',
           id: hero.id,
           baseRev: hero.rev,
-          set: { 'props.image': { mediaId } },
+          set: { 'props.media': { mediaId } },
         },
       ],
     });
@@ -407,7 +407,7 @@ describe('duplicateEvent', () => {
           opId: 'img',
           id: hero.id,
           baseRev: hero.rev,
-          set: { 'props.image': { mediaId } },
+          set: { 'props.media': { mediaId } },
         },
       ],
     });
@@ -421,7 +421,7 @@ describe('duplicateEvent', () => {
     expect(media[0]!.variants[0]!.path).toBe(`${owner.organizationId}/${PUTTING}/abc.640.webp`);
     const doc = parseEventDoc(copy.value.draft_doc);
     const copiedHero = doc.ok ? doc.value.sections.find((s) => s.type === 'hero')! : null;
-    expect(copiedHero?.props.image).toEqual({ mediaId: media[0]!.id });
+    expect(copiedHero?.props.media).toEqual({ mediaId: media[0]!.id });
   });
 
   it('refuses silly shifts', async () => {

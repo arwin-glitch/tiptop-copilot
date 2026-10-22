@@ -12,7 +12,7 @@ import { cn } from '@/lib/util/cn';
 
 /**
  * The Manage tab's forms (D-075): the link, who can find the page, search and
- * share text, the password, and cancel / unpublish / archive / delete. Each
+ * share text, and cancel / unpublish / archive / delete. Each
  * saves through the events API on its own; anything that changes what guests
  * see or cannot be undone asks first.
  */
@@ -274,70 +274,6 @@ export function SeoForm({
       <Button type="submit" size="sm" variant="secondary" loading={busy} disabled={!changed}>
         Save to draft
       </Button>
-    </form>
-  );
-}
-
-export function PasswordForm({ eventId, hasPassword }: { eventId: string; hasPassword: boolean }) {
-  const [password, setPassword] = React.useState('');
-  const { busy, save } = useSave();
-  return (
-    <form
-      className="space-y-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (password.length < 6) return;
-        void save(async () => {
-          const result = await eventsApi.patch(eventId, { password });
-          if (result.ok) setPassword('');
-          return result;
-        }, 'Password set. Guests type it before the page opens.');
-      }}
-    >
-      <Field
-        label={hasPassword ? 'Change the password' : 'Password'}
-        htmlFor="event-password"
-        hint={
-          hasPassword
-            ? 'The page asks for a password. Only its scrambled form is stored.'
-            : 'Optional. At least 6 characters. Only its scrambled form is stored.'
-        }
-      >
-        <Input
-          id="event-password"
-          type="password"
-          autoComplete="new-password"
-          value={password}
-          minLength={6}
-          maxLength={128}
-          aria-describedby="event-password-hint"
-          onChange={(e) => setPassword(e.target.value)}
-        />
-      </Field>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="submit"
-          size="sm"
-          variant="secondary"
-          loading={busy}
-          disabled={password.length < 6}
-        >
-          {hasPassword ? 'Change password' : 'Set password'}
-        </Button>
-        {hasPassword ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={busy}
-            onClick={() =>
-              void save(() => eventsApi.patch(eventId, { password: null }), 'Password removed.')
-            }
-          >
-            Remove password
-          </Button>
-        ) : null}
-      </div>
     </form>
   );
 }

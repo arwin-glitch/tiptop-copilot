@@ -6,13 +6,12 @@
  * Endpoints, by owner:
  *   WS1  POST   /api/events                       create            (in the contract commit)
  *   WS1  POST   /api/events/[id]/draft/ops         SEO text           (in the contract commit)
- *   WS1  PATCH  /api/events/[id]                   slug, visibility, password
+ *   WS1  PATCH  /api/events/[id]                   slug, visibility
  *   WS1  DELETE /api/events/[id]                   delete a draft
  *   WS1  POST   /api/events/[id]/duplicate         { shiftDays, asTemplate? } → { id }
  *   WS1  POST   /api/events/[id]/unpublish
  *   WS1  POST   /api/events/[id]/cancel            { message }
- *   WS1  POST   /api/events/[id]/archive           (not in the spec's route list: see
- *                                                   the integration notes)
+ *   WS1  POST   /api/events/[id]/archive
  *   WS5  POST   /api/events/[id]/campaign          draft a message → { campaignId }
  *   WS5  PUT    /api/events/[id]/campaign/settings reminder schedule, sender
  *

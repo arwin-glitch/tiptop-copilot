@@ -154,7 +154,7 @@ test.describe('signed in', () => {
               opId: 'photo',
               id: hero1.id,
               baseRev: hero1.rev,
-              set: { 'props.image': { mediaId: ticket.mediaId } },
+              set: { 'props.media': { mediaId: ticket.mediaId } },
             },
           ],
         },

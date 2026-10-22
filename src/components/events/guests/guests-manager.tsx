@@ -18,6 +18,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { FilterChip, FilterChipRow } from '@/components/ui/toolbar';
+import { campaignHref } from '@/components/events/events-client';
 import type { GuestCounts } from '@/lib/events/contracts';
 import {
   EMPTY_FILTER,
@@ -269,15 +270,16 @@ export function GuestsManager({
     });
     setBusy(false);
     if (!res.ok) {
-      toast.error(
-        res.error?.code === 'not_found'
-          ? 'Drafting messages arrives with the Messages tab.'
-          : (res.error?.message ?? 'The draft could not be made.'),
-      );
+      toast.error(res.error?.message ?? 'The draft could not be made.');
       return;
     }
-    toast.success('Draft ready to review in Messages. Nothing has been sent.');
-    router.push(`/events/${eventId}?tab=messages`);
+    toast.success('Draft ready to review. Nothing has been sent.');
+    // The same review every event message opens in (the campaign page).
+    router.push(
+      res.data?.campaignId
+        ? campaignHref(res.data.campaignId)
+        : `/events/${encodeURIComponent(eventId)}?tab=messages`,
+    );
   }
 
   function exportUrl(kind: 'guests' | 'headcount', filtered: boolean): string {

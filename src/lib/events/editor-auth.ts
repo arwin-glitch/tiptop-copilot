@@ -10,6 +10,7 @@ import {
   type EventCapabilities,
 } from '@/lib/events/capabilities';
 import {
+  EVENT_SLUG_RE,
   GRANT_COOKIE,
   GRANT_SESSION_HOURS,
   eventPaths,
@@ -130,13 +131,21 @@ export function readGrantCookie(
 /**
  * The paths a claimed link's cookie is set on: that one event's pages and
  * API, nothing else in Copilot. Edit and viewer links: /e/edit/<id> and
- * /api/e/edit/<id>. Staff links: /e/checkin/<id> and /api/e/checkin/<id>
- * (WS4 adds the check-in QR landing paths it needs).
+ * /api/e/edit/<id>. Staff links: /e/checkin/<id> and /api/e/checkin/<id>,
+ * plus the event's QR landing paths /e/<slug>/c and /api/e/<slug>/c when the
+ * slug is given.
  */
-export function grantCookiePaths(role: EventEditorRole, eventId: string): string[] {
-  return role === 'checkin'
-    ? [eventPaths.doorList(eventId), `/api/e/checkin/${eventId}`]
-    : [eventPaths.editStudio(eventId), `/api/e/edit/${eventId}`];
+export function grantCookiePaths(
+  role: EventEditorRole,
+  eventId: string,
+  slug?: string | null,
+): string[] {
+  if (role !== 'checkin') return [eventPaths.editStudio(eventId), `/api/e/edit/${eventId}`];
+  const paths = [eventPaths.doorList(eventId), `/api/e/checkin/${eventId}`];
+  // A ticket's QR lands on /e/<slug>/c/<token>; staff check people in there
+  // too, so the staff cookie also rides on that event's QR landing paths.
+  if (slug && EVENT_SLUG_RE.test(slug)) paths.push(`/e/${slug}/c`, `/api/e/${slug}/c`);
+  return paths;
 }
 
 export interface GrantCookieSpec {
@@ -157,9 +166,10 @@ export function grantCookies(
   eventId: string,
   value: string,
   maxAgeSeconds: number,
+  slug?: string | null,
 ): GrantCookieSpec[] {
   const secure = process.env.NODE_ENV === 'production';
-  return grantCookiePaths(role, eventId).map((path) => ({
+  return grantCookiePaths(role, eventId, slug).map((path) => ({
     name: GRANT_COOKIE,
     value,
     options: { httpOnly: true, secure, sameSite: 'strict', path, maxAge: maxAgeSeconds },
@@ -190,8 +200,12 @@ export function appendGrantCookies(headers: Headers, specs: readonly GrantCookie
 }
 
 /** Expiring cookies that clear a session on every path it was set on. */
-export function clearedGrantCookies(role: EventEditorRole, eventId: string): GrantCookieSpec[] {
-  return grantCookies(role, eventId, '', 0);
+export function clearedGrantCookies(
+  role: EventEditorRole,
+  eventId: string,
+  slug?: string | null,
+): GrantCookieSpec[] {
+  return grantCookies(role, eventId, '', 0, slug);
 }
 
 /* ------------------------------------------------------------- lookups */

@@ -1,3 +1,4 @@
+import { announceRsvp } from '@/components/events/effects/rsvp-moment-bus';
 import type { EventQuestionPublic, EventRsvpContext } from '@/lib/events/contracts';
 import { isQuestionAsked, type RegistrationQuestion } from '@/lib/events/questions';
 import type { EventGuestStatus } from '@/lib/types/domain';
@@ -168,7 +169,7 @@ export const STATUS_TEXT: Record<SessionOutcome, string> = {
 /** Tell the page's effects layer (WS2) to play the RSVP moment. */
 export function playRsvpMoment(): void {
   try {
-    window.dispatchEvent(new CustomEvent('tiptop:rsvp-moment', { detail: { status: 'going' } }));
+    announceRsvp({ status: 'going' });
   } catch {
     // no effects layer: nothing to play
   }

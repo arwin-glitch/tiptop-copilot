@@ -129,9 +129,9 @@ describe('the publish dialog', () => {
     draft.theme.palette.accent = '#123456';
     const items = publishDiff(published, draft, (s) => sectionLabel(s, blockRegistry));
     expect(items.map(diffLine)).toEqual([
-      'Hero – headline',
+      'Cover – headline',
       'Text – added',
-      'Faq – removed',
+      'FAQ – removed',
       'Theme – palette',
     ]);
   });

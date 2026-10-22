@@ -2,7 +2,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DangerZone,
   LinkForm,
-  PasswordForm,
   SeoForm,
   VisibilityForm,
   type SeoValues,
@@ -21,8 +20,9 @@ function host(url: string): string {
 
 /**
  * Manage (the `settings` tab): the event's link, who can find it, search and
- * share text, the password, and duplicate, cancel, unpublish, archive and
- * delete. The page's own content is edited in Studio; registration in its tab.
+ * share text, and duplicate, cancel, unpublish, archive and delete. (A page
+ * password is a later item: the public page has no password gate yet, so the
+ * setting is not offered.) The page's own content is edited in Studio; registration in its tab.
  */
 export function SettingsPanel({ event }: EventPanelProps) {
   const doc = parseEventDoc(event.draft_doc);
@@ -81,16 +81,6 @@ export function SettingsPanel({ event }: EventPanelProps) {
               The draft could not be read. Open Studio and restore an earlier version first.
             </p>
           )}
-        </CardContent>
-      </Card>
-      <Card aria-labelledby="settings-password-title">
-        <CardHeader>
-          <CardTitle as="h2" id="settings-password-title">
-            Password
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <PasswordForm eventId={event.id} hasPassword={Boolean(event.password_hash)} />
         </CardContent>
       </Card>
       <Card aria-labelledby="settings-danger-title" className="lg:col-span-2">

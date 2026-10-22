@@ -8,6 +8,7 @@ import {
   EVENT_SLUG_RE,
   PUBLIC_VIEWER,
   eventPaths,
+  isPageLive,
   type EventPublicFacts,
   type EventQuestionPublic,
   type EventRegistrationPublic,
@@ -66,19 +67,26 @@ import { newId, sha256 } from '@/lib/util/hash';
  *     the host did not choose to show, no address the reveal rule hides.
  */
 
-export const PUBLIC_EVENT_STATUSES = ['published', 'cancelled'] as const;
-
 export type PublicEventResolution =
   | { kind: 'event'; organizationId: string; event: EventRecord; sessions: EventSession[] }
   | { kind: 'redirect'; slug: string }
   | { kind: 'not_found' };
 
-function shownPublicly(event: EventRecord): boolean {
+export interface ResolvePublicOptions {
+  /**
+   * The request carries a guest's personal token (an invite, a ticket, a
+   * QR). A PRIVATE event opens only this way: "only guests with their
+   * personal link". Its bare /e/<slug> page, public calendar file and
+   * public RSVP form stay 404.
+   */
+  personal?: boolean;
+}
+
+function shownPublicly(event: EventRecord, options: ResolvePublicOptions): boolean {
   return (
     !event.is_template &&
-    event.visibility !== 'private' &&
-    event.published_doc !== null &&
-    (PUBLIC_EVENT_STATUSES as readonly string[]).includes(event.status)
+    (event.visibility !== 'private' || options.personal === true) &&
+    isPageLive(event)
   );
 }
 
@@ -86,6 +94,7 @@ function shownPublicly(event: EventRecord): boolean {
 export async function resolvePublicEvent(
   store: DataStore,
   slug: string,
+  options: ResolvePublicOptions = {},
 ): Promise<PublicEventResolution> {
   if (!EVENT_SLUG_RE.test(slug)) return { kind: 'not_found' };
   try {
@@ -96,11 +105,11 @@ export async function resolvePublicEvent(
       const alias = await store.findOne('event_slug_aliases', organizationId, { eq: { slug } });
       if (!alias) return { kind: 'not_found' };
       const current = await store.get('events', organizationId, alias.event_id);
-      return current && shownPublicly(current) && current.slug !== slug
+      return current && shownPublicly(current, options) && current.slug !== slug
         ? { kind: 'redirect', slug: current.slug }
         : { kind: 'not_found' };
     }
-    if (!shownPublicly(event)) return { kind: 'not_found' };
+    if (!shownPublicly(event, options)) return { kind: 'not_found' };
     const sessions = await store.list(
       'event_sessions',
       organizationId,

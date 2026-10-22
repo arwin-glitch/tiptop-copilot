@@ -38,7 +38,7 @@ export const metadata: Metadata = {
 export default async function CheckinQrPage({ params }: Props) {
   const { slug, token } = await params;
   const store = getStore();
-  const resolved = await resolvePublicEvent(store, slug);
+  const resolved = await resolvePublicEvent(store, slug, { personal: true });
   if (resolved.kind !== 'event') notFound();
   const guest = await resolveCheckinToken(store, resolved.event, token);
   if (!guest) notFound();

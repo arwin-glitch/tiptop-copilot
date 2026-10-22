@@ -40,7 +40,7 @@ export async function POST(request: NextRequest, context: Context) {
   });
   if (!gate.ok) return gate.response;
   const store = getStore();
-  const resolved = await resolvePublicEvent(store, slug);
+  const resolved = await resolvePublicEvent(store, slug, { personal: true });
   if (resolved.kind !== 'event') return publicFail(NOT_FOUND);
   const guest = await resolveInvite(store, resolved.event, token);
   if (!guest) return publicFail(NOT_FOUND);

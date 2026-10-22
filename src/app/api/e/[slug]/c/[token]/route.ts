@@ -43,7 +43,7 @@ export async function POST(request: NextRequest, context: Context) {
   const gate = publicGate(request, { limits: [{ bucket: 'ev-qr', max: 240, windowMs: 60_000 }] });
   if (!gate.ok) return gate.response;
   const store = getStore();
-  const resolved = await resolvePublicEvent(store, slug);
+  const resolved = await resolvePublicEvent(store, slug, { personal: true });
   if (resolved.kind !== 'event') return publicFail(NOT_FOUND);
   const actor = await resolveCheckinActor(
     store,

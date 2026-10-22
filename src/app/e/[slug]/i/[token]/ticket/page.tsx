@@ -26,7 +26,7 @@ type Props = { params: Promise<{ slug: string; token: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const resolved = await resolvePublicEvent(getStore(), slug);
+  const resolved = await resolvePublicEvent(getStore(), slug, { personal: true });
   return {
     title: {
       absolute: `Your ticket – ${resolved.kind === 'event' ? resolved.event.title : 'Event'}`,
@@ -40,7 +40,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function TicketPage({ params }: Props) {
   const { slug, token } = await params;
   const store = getStore();
-  const resolved = await resolvePublicEvent(store, slug);
+  const resolved = await resolvePublicEvent(store, slug, { personal: true });
   if (resolved.kind === 'redirect') {
     permanentRedirect(`${eventPaths.invite(resolved.slug, token)}/ticket`);
   }
