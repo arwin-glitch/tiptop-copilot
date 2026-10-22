@@ -56,7 +56,7 @@ export function BookingConfirmation({
         ? ['Your time is held', HELD_MESSAGE.replace(/^Your time is held\.\s*/, '')]
         : status === 'message'
           ? [MESSAGE_SENT, `Your message is with ${hostName}.`]
-          : [SENT_MESSAGE.split('. ')[0] + '.', SENT_MESSAGE.split('. ').slice(1).join('. ')];
+          : [SENT_MESSAGE, null];
 
   return (
     <section

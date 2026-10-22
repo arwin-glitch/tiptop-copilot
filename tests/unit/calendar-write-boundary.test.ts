@@ -168,11 +168,17 @@ describe('calendar writes', () => {
     ]);
     const start = SOURCES.find((s) => s.rel === 'app/api/integrations/google/start/route.ts')!;
     expect(start.text).toMatch(/searchParams\.get\('calendar'\) === '1'/);
-    // The "Turn on calendar editing" links: Settings and the Calendar tab's view-only note.
+    // The "Turn on calendar editing" links: Settings, the Calendar tab's view-only
+    // note, and Today's line about held booking times (D-078; the Booking tab's
+    // banner reuses its link).
     const linkers = SOURCES.filter((s) => /google\/start\?calendar=1/.test(s.text)).map(
       (s) => s.rel,
     );
-    expect(linkers.sort()).toEqual(['app/(app)/calendar/page.tsx', 'app/(app)/settings/page.tsx']);
+    expect(linkers.sort()).toEqual([
+      'app/(app)/calendar/page.tsx',
+      'app/(app)/settings/page.tsx',
+      'components/today/booking-requests-line.tsx',
+    ]);
   });
 
   it('a colour from the event card can never carry a request to email anyone', () => {

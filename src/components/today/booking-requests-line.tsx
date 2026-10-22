@@ -33,7 +33,7 @@ export function BookingRequestsLine({ summary }: { summary: BookingTodaySummary 
     summary.cancelled ? `${plural(summary.cancelled, 'cancellation')}` : null,
   ].filter(Boolean);
   return (
-    <div data-tour="today-booking" className="mb-5 space-y-1.5 text-sm text-[var(--fg-muted)]">
+    <div className="mb-5 space-y-1.5 text-sm text-[var(--fg-muted)]">
       {summary.held ? (
         <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-md border border-[var(--warn)]/30 bg-[var(--warn-soft)] px-3 py-2 text-[var(--fg)]">
           <AlertTriangle className="size-3.5 shrink-0 text-[var(--warn)]" aria-hidden="true" />

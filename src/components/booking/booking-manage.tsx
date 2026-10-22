@@ -115,7 +115,7 @@ function Manage({
     booking.status === 'cancelled'
       ? 'This meeting was cancelled'
       : booking.status === 'declined'
-        ? 'This time is no longer held'
+        ? 'This time is not booked'
         : booking.status === 'held'
           ? `Your time with ${first} is held`
           : booking.status === 'pending'
@@ -159,7 +159,7 @@ function Manage({
               </p>
             ) : booking.status === 'declined' ? (
               <p className="mt-1 text-sm text-[var(--fg-muted)]">
-                The time was taken before it could be booked. Pick another one on the booking page.
+                It could not go on the calendar. Pick another time on the booking page.
               </p>
             ) : null}
           </div>

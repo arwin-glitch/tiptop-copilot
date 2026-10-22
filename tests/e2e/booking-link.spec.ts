@@ -16,6 +16,24 @@ const shot = (name: string) => path.resolve('test-results', `booking-${name}.png
 
 test.describe.configure({ mode: 'serial' });
 
+/**
+ * This spec walks the approve-first flow (D-074), an option since D-078:
+ * Settings > Booking link > Rules turns it on for the spec and off after it,
+ * so the rest of the suite sees the default (booked at once).
+ */
+async function setApproveFirst(page: Page, on: boolean) {
+  await page.goto('/settings?tab=booking');
+  await page.getByRole('tab', { name: 'Rules' }).click();
+  const toggle = page.getByRole('switch', { name: 'Approve each booking first' });
+  await expect(toggle).toBeVisible();
+  if ((await toggle.getAttribute('aria-checked')) !== String(on)) {
+    await toggle.click();
+    await page.getByRole('button', { name: 'Save booking link' }).click();
+    await expect(page.getByText('Unsaved changes')).toHaveCount(0);
+  }
+  await expect(toggle).toHaveAttribute('aria-checked', String(on));
+}
+
 test.beforeAll(async ({ browser }, testInfo) => {
   const context = await browser.newContext({
     baseURL: testInfo.project.use.baseURL,
@@ -26,6 +44,16 @@ test.beforeAll(async ({ browser }, testInfo) => {
   await page.getByRole('button', { name: 'Enter demo workspace' }).click();
   await page.waitForURL(/\/today/);
   await context.storageState({ path: SIGNED_IN });
+  await setApproveFirst(page, true);
+  await context.close();
+});
+
+test.afterAll(async ({ browser }, testInfo) => {
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    storageState: SIGNED_IN,
+  });
+  await setApproveFirst(await context.newPage(), false);
   await context.close();
 });
 
@@ -173,10 +201,8 @@ test('on a 390px phone: no sideways scroll, and a 30-minute call asked for', asy
       name: "Request sent. You'll get a calendar invitation once the time is booked.",
     }),
   ).toBeVisible();
-  await expect(page.getByText(/30-min Google Meet ·/)).toBeVisible();
-  await expect(
-    page.getByText('Nothing is on the calendar yet. Watch your inbox for the invitation.'),
-  ).toBeVisible();
+  await expect(page.getByText('30-min Google Meet')).toBeVisible();
+  await expect(page.locator('body')).not.toContainText(/confirm|review|approv/i);
   await expectNoSidewaysScroll(page);
   await context.close();
 });
@@ -200,7 +226,7 @@ test('an hour in person: coffee at one of the listed places', async ({ browser }
       name: "Request sent. You'll get a calendar invitation once the time is booked.",
     }),
   ).toBeVisible();
-  await expect(page.getByText(/Coffee, 1 hour · .* · Juniper & Rye Coffee/)).toBeVisible();
+  await expect(page.getByText('Coffee, 1 hour at Juniper & Rye Coffee')).toBeVisible();
   await context.close();
 });
 
