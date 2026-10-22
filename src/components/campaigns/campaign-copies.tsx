@@ -65,6 +65,8 @@ export function CampaignCopies({
   const wantedMode = React.useRef<CampaignBccMode>(copies.bccMode);
   /** Per list, the text handed to a save not finished yet: the same text again is no new save. */
   const sending = React.useRef<{ cc?: string; bcc?: string }>({});
+  /** Per list, the number of its newest save: only that one's answer is shown. */
+  const newest = React.useRef({ cc: 0, bcc: 0 });
   /** Choices of where the BCC goes, queued or on their way. */
   const modesWaiting = React.useRef(0);
   const busy = React.useRef(onBusy);
@@ -78,15 +80,21 @@ export function CampaignCopies({
     void queue.current.add(run);
   };
 
-  /** One PATCH; reports its own failure. */
-  const send = async (key: CopyKey, patch: Record<string, string>) => {
+  /**
+   * One PATCH; reports its own failure. A list's save carries its number
+   * (`newest`): a refused one that a newer save of the same list is queued
+   * behind says nothing, since the field already holds the newer text and
+   * its own answer is the one that counts.
+   */
+  const send = async (key: CopyKey, patch: Record<string, string>, number = 0) => {
     setSaving(key);
     const r = await campaignCall<{ copies: Copies }>(
       `/api/campaigns/${campaignId}/copies`,
       jsonBody('PATCH', patch),
     );
     setSaving(null);
-    if (key !== 'mode' && sending.current[key] === patch[key]) sending.current[key] = undefined;
+    const latest = key === 'mode' || number === newest.current[key];
+    if (key !== 'mode' && latest) sending.current[key] = undefined;
     if (!r.ok) {
       if (key === 'mode') {
         toast.error(r.message);
@@ -95,7 +103,7 @@ export function CampaignCopies({
           wantedMode.current = saved.current.bccMode;
           setMode(saved.current.bccMode);
         }
-      } else {
+      } else if (latest) {
         setErrors((e) => ({ ...e, [key]: r.message }));
       }
       return;
@@ -124,7 +132,8 @@ export function CampaignCopies({
     }
     setErrors((e) => ({ ...e, [key]: undefined }));
     sending.current[key] = value;
-    enqueue(() => send(key, { [key]: value }));
+    const number = ++newest.current[key];
+    enqueue(() => send(key, { [key]: value }, number));
   };
 
   const choose = (next: CampaignBccMode) => {
