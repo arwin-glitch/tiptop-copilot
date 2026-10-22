@@ -90,10 +90,12 @@ export function isAllowedHref(href: string): boolean {
  * Whether an address is a personal RSVP link as the server writes it: an
  * http(s) origin, then exactly /e/<slug>/i/<token> (the personal invite path,
  * eventPaths.invite in lib/events/contracts.ts), nothing before or after.
+ * The token is base64url, optionally two parts joined by one dot (WS4's
+ * event-rsvp/v1 token is `<43>.<22>`, lib/events/tokens.ts).
  */
 export function isRsvpLinkUrl(href: string | null | undefined): href is string {
   if (typeof href !== 'string' || href.length > 2000) return false;
-  return /^https?:\/\/[^/\s?#@]+\/e\/[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?\/i\/[A-Za-z0-9_-]{8,512}$/.test(
+  return /^https?:\/\/[^/\s?#@]+\/e\/[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?\/i\/[A-Za-z0-9_-]{8,512}(?:\.[A-Za-z0-9_-]{8,512})?$/.test(
     href,
   );
 }

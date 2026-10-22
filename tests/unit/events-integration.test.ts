@@ -14,6 +14,7 @@ import { inviteToken } from '@/lib/events/tokens';
 import { filterDocForViewer } from '@/lib/events/visibility';
 import { PUBLIC_VIEWER } from '@/lib/events/contracts';
 import { parseEventDoc } from '@/lib/events/schema';
+import { draftEventMessage } from '@/lib/services/event-comms';
 import { createEditorLink } from '@/lib/services/event-editors';
 import { presenceColor, syncStudio } from '@/lib/services/event-presence';
 import { ownerActor, presenceColor as syncColor, type EventOwner } from '@/lib/services/events';
@@ -211,6 +212,40 @@ describe('field gating (WS4) in the block registry (WS2)', () => {
     const publicHero = shown.sections.find((s) => s.id === hero.id)!;
     expect(publicHero.props.subheadline).toBeUndefined();
     expect(publicHero.props.fieldVisibility).toBeUndefined();
+  });
+});
+
+describe('event messages (WS5) over the real guest list (WS4)', () => {
+  it('an invite draft carries each invited guest’s own personal link, and sends nothing', async () => {
+    const drafted = await draftEventMessage(
+      h.store,
+      owner,
+      EVENT,
+      { kind: 'invite', audience: { kind: 'status', statuses: ['invited'] } },
+      { appUrl: 'https://copilot.example' },
+    );
+    expect(drafted.ok).toBe(true);
+    if (!drafted.ok) return;
+    expect(drafted.value.added).toBeGreaterThan(0);
+    expect(drafted.value.left.invalid).toBe(0);
+    const campaign = await h.store.get(
+      'campaigns',
+      h.auth.organizationId,
+      drafted.value.campaignId,
+    );
+    expect(campaign?.status).toBe('draft');
+    expect(campaign?.event_id).toBe(EVENT);
+    const recipients = await h.store.list('campaign_recipients', h.auth.organizationId, {
+      eq: { campaign_id: drafted.value.campaignId },
+    });
+    expect(recipients.length).toBe(drafted.value.added);
+    for (const r of recipients) {
+      expect(r.merge?.rsvp_link).toMatch(
+        new RegExp(
+          String.raw`^https://copilot\.example/e/${SLUG}/i/[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{22}$`,
+        ),
+      );
+    }
   });
 });
 

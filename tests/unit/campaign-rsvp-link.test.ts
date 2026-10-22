@@ -27,6 +27,9 @@ describe('isRsvpLinkUrl', () => {
   it('accepts exactly an origin plus /e/<slug>/i/<token>', () => {
     expect(isRsvpLinkUrl(LINK)).toBe(true);
     expect(isRsvpLinkUrl('http://localhost:3000/e/a1/i/abcdefgh')).toBe(true);
+    // WS4's event-rsvp/v1 token: 43 base64url characters, a dot, 22 more.
+    const token = `${'A'.repeat(43)}.${'b'.repeat(22)}`;
+    expect(isRsvpLinkUrl(`https://copilot.example/e/harborview/i/${token}`)).toBe(true);
   });
 
   it('refuses anything else', () => {
@@ -39,6 +42,8 @@ describe('isRsvpLinkUrl', () => {
       'https://user@copilot.example/e/harborview/i/tok_AbCdEf0123456789',
       'javascript:alert(1)//e/x/i/abcdefgh',
       'https://copilot.example/e/x/i/abc/def/ghij',
+      'https://copilot.example/e/x/i/abcdefgh.ijklmnop.qrstuvwx',
+      'https://copilot.example/e/x/i/abcdefgh.',
       '',
       null,
       undefined,
