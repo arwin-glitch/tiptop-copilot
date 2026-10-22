@@ -86,20 +86,25 @@ self.addEventListener('push', (event) => {
   }
   const title = typeof data.title === 'string' && data.title ? data.title : 'TipTop Copilot';
   const url = typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/today';
+  // A meeting alert's "Start notes" button (Copilot Notes): an in-app path too.
+  const notesUrl =
+    typeof data.notesUrl === 'string' && data.notesUrl.startsWith('/') ? data.notesUrl : null;
   event.waitUntil(
     self.registration.showNotification(title, {
       body: typeof data.body === 'string' ? data.body : '',
       icon: '/icon-192.png',
       badge: '/icon-192.png',
       tag: typeof data.tag === 'string' ? data.tag : undefined,
-      data: { url },
+      actions: notesUrl ? [{ action: 'notes', title: 'Start notes' }] : [],
+      data: { url, notesUrl },
     }),
   );
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const path = (event.notification.data && event.notification.data.url) || '/today';
+  const data = event.notification.data || {};
+  const path = (event.action === 'notes' && data.notesUrl) || data.url || '/today';
   const target = new URL(path, self.location.origin);
   if (target.origin !== self.location.origin) return;
   event.waitUntil(

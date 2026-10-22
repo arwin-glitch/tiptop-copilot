@@ -142,6 +142,9 @@ export type AuditAction =
   | 'notes.template_created'
   | 'notes.folder_created'
   | 'notes.recipe_created'
+  | 'notes.rule_created'
+  | 'notes.rule_updated'
+  | 'notes.rule_deleted'
   | 'voice.consent'
   | 'voice.revoke';
 

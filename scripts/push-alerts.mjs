@@ -82,6 +82,8 @@ async function runOnce(scope) {
         body: alert.body,
         url: alert.url,
         tag: alert.tag,
+        // A meeting alert's "Start notes" button (D-076); absent on every other alert.
+        notesUrl: alert.notesUrl,
       });
       let delivered = false;
       for (const subscription of entry.subscriptions) {

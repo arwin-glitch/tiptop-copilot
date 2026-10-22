@@ -20,6 +20,11 @@ export async function GET(request: NextRequest) {
   if (!auth) return NextResponse.redirect(new URL('/login', request.url));
   const id = request.nextUrl.searchParams.get('id') ?? '';
   if (!/^[\w-]{3,200}$/.test(id)) return NextResponse.redirect(fallback);
+  // "Start notes" (D-076): the notes page for this event, guests attached, consent first.
+  if (request.nextUrl.searchParams.get('notes') === '1')
+    return NextResponse.redirect(
+      new URL(`/meetings/new?event=${encodeURIComponent(id)}`, request.url),
+    );
   const store = getStore();
   const integration = await getPrimaryIntegration(store, auth.organizationId).catch(() => null);
   if (!integration) return NextResponse.redirect(fallback);

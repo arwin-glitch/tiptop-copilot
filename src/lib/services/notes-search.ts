@@ -65,7 +65,14 @@ export async function listMeetings(
               org,
               {
                 isNull: ['deleted_at'],
-                ...(query.folder ? { eq: { folder_id: query.folder } } : {}),
+                ...(query.folder || query.eventId
+                  ? {
+                      eq: {
+                        ...(query.folder ? { folder_id: query.folder } : {}),
+                        ...(query.eventId ? { provider_event_id: query.eventId } : {}),
+                      },
+                    }
+                  : {}),
               },
               { orderBy: [{ field: 'created_at', direction: 'desc' }], limit: SCAN },
             )) as Meeting[]
@@ -88,7 +95,7 @@ export async function listMeetings(
       );
     }
     const granola =
-      source === 'copilot' || query.folder
+      source === 'copilot' || query.folder || query.eventId
         ? []
         : ((await ctx.store.list(
             'meeting_notes',

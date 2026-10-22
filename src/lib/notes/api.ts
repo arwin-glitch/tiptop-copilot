@@ -53,6 +53,10 @@ export const NOTES_API = {
   recipes: `${base}/recipes`,
   /** GET / POST (VoiceConsentRequest). */
   voiceProfiles: `${base}/voice-profiles`,
+  /** GET / POST (CreateRecordingRuleRequest): the never-record rules. */
+  recordingRules: `${base}/recording-rules`,
+  /** PATCH (UpdateRecordingRuleRequest) / DELETE. */
+  recordingRule: (id: string) => `${base}/recording-rules/${encodeURIComponent(id)}`,
 } as const;
 
 /** The public page a share link opens: /n/<token>. */

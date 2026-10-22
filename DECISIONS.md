@@ -2630,3 +2630,36 @@ Granola pairing in existing readers, and a purge job for the trash and
 expired voice identifiers. A person must add the vendor keys, the pepper and
 the voiceprint key on Render, and apply the migration before turning the flag
 on.
+
+**The screens (notes-ui), on top of the contract.**
+
+- **Subtabs, not a long page.** `/meetings/[id]` is Notes | Transcript |
+  Chat | People | Share (`?tab=`, with `&t=<ms>` landing on a line), the
+  consent step a modal before any capture (opened at once from "Take notes"
+  and "Start notes", `?start=1`). `/meetings/new` makes a note for a call off
+  the calendar, or prefilled from an event (`?event=`, where `/go/meeting?…
+  &notes=1` and the meeting alert's "Start notes" button land).
+  `/meetings/settings` holds templates, never-record rules, voice consent,
+  folders and recipes; the beta switch is also on Settings.
+- **The recorder seam** is `components/notes/use-recorder.ts`: the contract's
+  order (start with consent → stt-token → segments with a rising seq → pause
+  → stop after the last lines and the notepad are saved). In demo mode it
+  plays the mock call; `LIVE_CAPTURE_AVAILABLE` stays false until the web
+  recorder (`lib/capture`) is mounted behind it, and until then Start is
+  offered only where the provider is the mock.
+- **Names come from the voices, always.** Lines carry a cluster key; the
+  chip, bubble side and colour come from `SpeakerView`, so a relabel's answer
+  (`speakers`) renames every line without refetching the transcript. A
+  rename, split or merge with notes already written regenerates them.
+- **Granola stays the default list** during the parallel run; Copilot and
+  All are extra source chips beside it while Notes is on.
+- **The calendar card gets one slot** (`MeetingNotesSlot`), which renders
+  nothing while Notes is off; "Notes ready" reads the list filtered by the
+  event's id (`eventId`, added to `ListMeetingsQuery`).
+- **Never-record rules get their routes** (`/api/notes/recording-rules`,
+  `notes-rules.ts`): the team's rows can be added, switched off and deleted;
+  the built-in defaults are listed read only. Patterns stay out of the audit
+  trail (they can name a person).
+- **The public page** `/n/[token]` is server-rendered from
+  `resolveSharedNote`, with no app chrome; anything that is not a live link
+  is `notFound()`.

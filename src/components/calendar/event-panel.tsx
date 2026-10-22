@@ -48,6 +48,7 @@ import { AnchoredCard } from './anchored-card';
 import { fetchContext, fetchSeries, type CardContext } from './calendar-api';
 import { swatchStyle, tickStyle } from './event-style';
 import { LabelPicker } from './label-picker';
+import { MeetingNotesSlot } from '@/components/notes/meeting-notes-slot';
 
 /**
  * One event, opened by a click on it in Day, Week or Month: Google Calendar's
@@ -596,6 +597,7 @@ function EventCardBody({
         ) : null}
 
         <ContextBox loaded={loaded} timeZone={timeZone} mailbox={mailbox} />
+        <MeetingNotesSlot event={event} timeZone={timeZone} ownEmails={ownEmails} />
 
         {options.color && labels.length > 0 ? (
           <LabelPicker

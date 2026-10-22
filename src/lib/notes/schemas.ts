@@ -7,6 +7,7 @@ import {
   MEETING_PLATFORMS,
   MEETING_VISIBILITIES,
   NOTES_LIMITS,
+  RECORDING_RULE_KINDS,
   SHARE_EXPIRY_DAYS,
   STOP_REASONS,
   TEMPLATE_LENGTHS,
@@ -16,6 +17,7 @@ import {
   type AddActionItemTaskRequest,
   type CreateFolderRequest,
   type CreateMeetingRequest,
+  type CreateRecordingRuleRequest,
   type CreateRecipeRequest,
   type CreateShareLinkRequest,
   type CreateTemplateRequest,
@@ -32,6 +34,7 @@ import {
   type StopRecordingRequest,
   type SttTokenRequest,
   type UpdateMeetingRequest,
+  type UpdateRecordingRuleRequest,
   type UploadSegmentsRequest,
   type VoiceConsentRequest,
 } from '@/lib/types/notes';
@@ -321,6 +324,10 @@ export const LIST_MEETINGS_QUERY = z.object({
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
     .optional(),
+  eventId: z
+    .string()
+    .regex(/^[\w-]{3,200}$/)
+    .optional(),
   cursor: z.string().max(200).optional(),
 });
 
@@ -329,3 +336,17 @@ export const LIST_SEGMENTS_QUERY = z.object({
   after: z.coerce.number().int().min(-1).max(10_000_000).optional(),
   limit: z.coerce.number().int().min(1).max(NOTES_LIMITS.maxSegmentsPerPage).optional(),
 });
+
+/** POST /api/notes/recording-rules: a never-record rule of the team's own. */
+export const CREATE_RECORDING_RULE = z
+  .object({
+    kind: enumOf(RECORDING_RULE_KINDS),
+    pattern: z.string().trim().min(2).max(200),
+    label: z.string().trim().min(1).max(60),
+  })
+  .strict() satisfies z.ZodType<CreateRecordingRuleRequest>;
+
+/** PATCH /api/notes/recording-rules/[id] */
+export const UPDATE_RECORDING_RULE = z
+  .object({ enabled: z.boolean() })
+  .strict() satisfies z.ZodType<UpdateRecordingRuleRequest>;

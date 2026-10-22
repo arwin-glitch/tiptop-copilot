@@ -10,6 +10,35 @@ throughout.
 
 ## [Unreleased]
 
+- **Copilot Notes, the screens (off by default).** With Copilot Notes on,
+  a calendar event's card has a gold **Take notes**: it opens the meeting
+  with its guests already attached and asks you first to tell everyone it
+  is being transcribed (Start stays greyed out until you tick "I've told
+  everyone / posted the notice", and a meeting on the never-record list
+  says so instead of offering Start). While it records, a red pill shows the
+  time with Pause and Stop; your own notes sit beside the live transcript
+  (one or the other on a phone), your lines in gold on the right and
+  everyone else's under a name. Tap "Guest 2 · Who is this?" and pick the
+  person (the invite's guests first, then a search of your network, or any
+  name typed) and every line from that voice changes at once; a voice can be
+  split or two merged, and a line can be fixed in place. After Stop, the
+  notes keep your typed lines in full ink and mark what Copilot wrote, each
+  point with a little quote mark that shows the lines it came from; the
+  template can be switched (Founder pitch, LP call, and more), action items
+  go to Tasks with one tap, and Nick's own promises are flagged. Chat asks
+  about this meeting, a person, a company or every meeting, with answers
+  that jump to the line they quote. Share makes a read-only link (the
+  summary unless you add the transcript) that expires in 7, 30 or 90 days,
+  shows how often it was opened, and can be revoked at once. Meetings >
+  Notes gains Copilot and All (both tools in one list), filters by person,
+  company, folder and "Has action items", a search that reaches into
+  transcripts and opens the meeting at the moment it was said, and "+ New
+  note" for calls that are not on the calendar. Notes settings hold the
+  templates, the never-record rules, voice consent and folders; the
+  "Copilot Notes (beta)" switch is on the Settings page. A meeting alert can
+  carry a **Start notes** button. A three-picture tour explains consent,
+  fixing a name and sharing. (D-076)
+
 - **Copilot Notes, the groundwork (off by default).** Copilot can now keep
   its own meetings, transcripts and notes, ready for the recorder and the
   Notes screens that come next: a meeting made from a calendar event (or "+

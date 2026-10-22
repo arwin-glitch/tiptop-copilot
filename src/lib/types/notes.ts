@@ -958,7 +958,7 @@ export interface CreateMeetingResponse {
   created: boolean;
 }
 
-/** GET /api/notes/meetings?q=&person=&company=&folder=&source=&cursor= */
+/** GET /api/notes/meetings?q=&person=&company=&folder=&source=&eventId=&cursor= */
 export interface ListMeetingsQuery {
   q?: string;
   /** An email address. */
@@ -968,6 +968,8 @@ export interface ListMeetingsQuery {
   folder?: Uuid;
   source?: 'copilot' | 'granola' | 'all';
   hasActionItems?: boolean;
+  /** A Google event id: the Copilot meeting made for that event ("Notes ready" on its card). */
+  eventId?: string;
   cursor?: string;
 }
 
@@ -1267,6 +1269,40 @@ export interface CreateRecipeRequest {
   name: string;
   prompt: string;
   scope?: 'meeting' | 'many';
+}
+
+/** A never-record rule as Settings shows it: the team's own rows, then the built-in defaults. */
+export interface RecordingRuleView {
+  /** A recording_rules id, or 'default:<key>' for a built-in rule (read only). */
+  id: string;
+  kind: RecordingRuleKind;
+  pattern: string;
+  label: string;
+  enabled: boolean;
+  isDefault: boolean;
+}
+
+/** GET /api/notes/recording-rules */
+export interface ListRecordingRulesResponse {
+  ok: true;
+  rules: RecordingRuleView[];
+}
+
+/** POST /api/notes/recording-rules */
+export interface CreateRecordingRuleRequest {
+  kind: RecordingRuleKind;
+  pattern: string;
+  label: string;
+}
+
+/** PATCH /api/notes/recording-rules/[id] */
+export interface UpdateRecordingRuleRequest {
+  enabled: boolean;
+}
+
+export interface RecordingRuleResponse {
+  ok: true;
+  rule: RecordingRuleView;
 }
 
 /** GET /api/notes/voice-profiles */
