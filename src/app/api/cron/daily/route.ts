@@ -15,6 +15,15 @@ import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
 import { refreshPortfolioAsks } from '@/lib/services/portfolio-asks';
 import { refreshPortfolioNumbers, refreshSettled } from '@/lib/services/portfolio-numbers';
 import { formatTaskCronStatus, pullTaskRelays } from '@/lib/services/task-relay';
+import {
+  formatJobsCronStatus,
+  importEmailedRoles,
+  syncJobBoards,
+} from '@/lib/services/jobs-board-sync';
+import { revalidatePublicBoard } from '@/lib/services/jobs-board';
+import { readPortfolioJobs } from '@/lib/services/portfolio-jobs';
+import { jobLinkVerdicts } from '@/lib/services/job-liveness';
+import { applyJobLiveness } from '@/lib/portfolio/jobs';
 import { sweepKeepInTouch } from '@/lib/services/keep-in-touch';
 import { settlesWithin } from '@/lib/util/settle';
 import type { AuthContext } from '@/lib/auth/session';
@@ -29,6 +38,8 @@ export const maxDuration = 300;
 const NUMBERS_BUDGET_MS = 60_000;
 /** The same for reading the asks in portfolio updates. */
 const ASKS_BUDGET_MS = 60_000;
+/** The same for reading portfolio companies' public job boards (D-077). */
+const JOBS_BUDGET_MS = 45_000;
 
 /**
  * Scheduled job: sync mailboxes and pre-generate the daily outlook.
@@ -85,6 +96,7 @@ export async function POST(request: NextRequest) {
     numbers: string;
     asks: string;
     campaigns: string;
+    jobs: string;
   }[] = [];
 
   let organizations: Organization[] = [];
@@ -121,6 +133,7 @@ export async function POST(request: NextRequest) {
         numbers: 'skipped',
         asks: 'skipped',
         campaigns: 'skipped',
+        jobs: 'skipped',
       });
       continue;
     }
@@ -139,6 +152,7 @@ export async function POST(request: NextRequest) {
         numbers: 'skipped',
         asks: 'skipped',
         campaigns: 'skipped',
+        jobs: 'skipped',
       });
       continue;
     }
@@ -320,6 +334,51 @@ export async function POST(request: NextRequest) {
       log.error('Cron campaign reply check failed', { organizationId: organization.id });
     }
 
+    // The public job board: each company's own public job board read again
+    // (new roles added, vanished ones closed; nothing is published unless a
+    // person allowed it), and the jobs scan's emailed roles brought in as
+    // drafts for approval. A long read finishes after the response. Counts
+    // only: public log.
+    // Not on the frequent mail-only runs (tasks=sync): twice a day is plenty.
+    let jobsStatus: string;
+    if (!briefsEnabled) {
+      jobsStatus = 'skipped: tasks=sync';
+    } else {
+      try {
+        const run = (async () => {
+          const summary = await syncJobBoards(store, organization.id, { trigger: 'daily' });
+          const scan = await readPortfolioJobs(store, organization.id).catch(() => null);
+          // A role whose posting its job board has dropped reads as closed,
+          // as on the Jobs tab, so it never goes (or stays) public.
+          const roles =
+            summary.state === 'ok' && scan?.state === 'ok' && scan.snapshot
+              ? scan.snapshot.roles
+              : null;
+          const imported = roles
+            ? await importEmailedRoles(
+                store,
+                organization.id,
+                applyJobLiveness(roles, await jobLinkVerdicts(roles)),
+              ).catch(() => null)
+            : null;
+          // A founder's "filled" can close a public role: rebuild the board.
+          if (imported?.closed) revalidatePublicBoard();
+          return formatJobsCronStatus(summary, imported);
+        })();
+        if (await settlesWithin(run, JOBS_BUDGET_MS)) {
+          jobsStatus = await run;
+        } else {
+          after(async () => {
+            await run.catch(() => undefined);
+          });
+          jobsStatus = 'running';
+        }
+      } catch {
+        jobsStatus = 'failed';
+        log.error('Cron job board sync failed', { organizationId: organization.id });
+      }
+    }
+
     results.push({
       organization: organization.name,
       sync: syncStatus,
@@ -332,6 +391,7 @@ export async function POST(request: NextRequest) {
       numbers: numbersStatus,
       asks: asksStatus,
       campaigns: campaignsStatus,
+      jobs: jobsStatus,
     });
   }
 

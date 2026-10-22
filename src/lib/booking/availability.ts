@@ -10,7 +10,7 @@ import { readCalendarPrefs } from '@/lib/services/calendar-prefs';
 import { readTeamMembers } from '@/lib/tasks/principal';
 import { err, ok, type Result } from '@/lib/util/result';
 import { addDaysToKey, localDateKey } from '@/lib/util/time';
-import { calendarZoneDiffers, toBusyPicture } from './busy';
+import { inPersonPausedThrough, toBusyPicture } from './busy';
 import type { BookingConfig } from './config';
 import type { BusyBlock } from './engine';
 
@@ -65,7 +65,12 @@ export function teammateCalendarIds(
 export interface BusyRead {
   busy: BusyBlock[];
   travelDays: Set<string>;
-  inPersonPaused: boolean;
+  /**
+   * The main calendar is set to another zone (lib/booking/busy.ts
+   * inPersonPausedThrough): in person paused through this host-zone day
+   * (his next flight home lands), or every day ('all'); null when not.
+   */
+  inPersonPausedThrough: string | 'all' | null;
 }
 
 export async function busyPictureFor(
@@ -113,7 +118,12 @@ export async function busyPictureFor(
     home: { city: config.homeCity, aliases: config.homeAliases, places: config.places },
   });
   return ok({
-    ...picture,
-    inPersonPaused: calendarZoneDiffers(range.calendars, hostZone, now),
+    busy: picture.busy,
+    travelDays: picture.travelDays,
+    inPersonPausedThrough: inPersonPausedThrough(range.calendars, picture.homeLandings, {
+      hostZone,
+      now,
+      horizonDays: config.horizonDays,
+    }),
   });
 }

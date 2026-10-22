@@ -8,7 +8,23 @@ import { slotLabel, zoneName } from './public';
  * not write to the calendar, and a decline email for the person to read,
  * change and send themselves. Pure: the same request always gives the same
  * event, which the tests pin field by field.
+ *
+ * A call goes on the host's saved video link (Settings > Booking link) when
+ * there is one, in the location and the description, and on Google Meet
+ * otherwise. The link appears only here, in the invite.
  */
+
+export interface BookingEventOptions {
+  /** The host's saved video link for calls; '' (or none) for Google Meet. */
+  callLink?: string | null;
+  /** The host's main calendar address: on the guest list as the organizer. */
+  hostEmail?: string | null;
+}
+
+/** The video link a request's event uses: a call's saved link, else none. */
+function videoLinkFor(request: Pick<ApprovableRequest, 'type'>, callLink?: string | null): string {
+  return request.type === 'call' ? (callLink ?? '').trim() : '';
+}
 
 /**
  * Visitor text as it goes into the event: angle brackets turned into their
@@ -50,9 +66,12 @@ export function bookingTitle(hostName: string, request: ApprovableRequest): stri
     : base;
 }
 
-/** Where to meet, as one line: the place's name and area, or what the visitor suggested. */
-export function bookingLocation(request: ApprovableRequest): string {
-  if (request.type !== 'in_person') return '';
+/**
+ * Where to meet, as one line: the place's name and area, or what the visitor
+ * suggested; for a call, the saved video link (none for Google Meet).
+ */
+export function bookingLocation(request: ApprovableRequest, callLink?: string | null): string {
+  if (request.type !== 'in_person') return inert(videoLinkFor(request, callLink));
   return inert(
     [request.place_name, request.place_area]
       .map((p) => p?.trim())
@@ -61,8 +80,10 @@ export function bookingLocation(request: ApprovableRequest): string {
   );
 }
 
-export function bookingDescription(request: ApprovableRequest): string {
+export function bookingDescription(request: ApprovableRequest, callLink?: string | null): string {
   const lines = ['Booked through the booking link.'];
+  const video = videoLinkFor(request, callLink);
+  if (video) lines.push('', `Join the call: ${video}`);
   if (request.note?.trim()) lines.push('', request.note.trim());
   if (request.deck_url?.trim()) lines.push('', `Deck: ${request.deck_url.trim()}`);
   if (request.type === 'in_person' && request.place_map_url) {
@@ -71,22 +92,30 @@ export function bookingDescription(request: ApprovableRequest): string {
   return inert(lines.join('\n'));
 }
 
-/** The event to create on the host's main calendar, the requester invited. */
+/**
+ * The event to create on the host's main calendar: the host on the guest
+ * list as its organizer (accepted), the requester invited. A call gets a
+ * Google Meet only when no video link is saved.
+ */
 export function bookingEventDraft(
   hostName: string,
   request: ApprovableRequest,
   hostZone: string,
+  options: BookingEventOptions = {},
 ): EventDraft {
+  const video = videoLinkFor(request, options.callLink);
+  const host = options.hostEmail?.trim().toLowerCase();
   return {
     title: bookingTitle(hostName, request),
     allDay: false,
     start: new Date(request.starts_at).toISOString(),
     end: new Date(request.ends_at).toISOString(),
     timeZone: hostZone,
-    description: bookingDescription(request),
-    location: bookingLocation(request),
-    guests: [request.email.trim().toLowerCase()],
-    meet: request.type === 'call',
+    description: bookingDescription(request, video),
+    location: bookingLocation(request, video),
+    guests: [request.email.trim().toLowerCase()].filter((email) => email !== host),
+    ...(host ? { organizerEmail: host } : {}),
+    meet: request.type === 'call' && !video,
   };
 }
 
@@ -105,16 +134,22 @@ export function googleCalendarTemplateUrl(
   hostName: string,
   request: ApprovableRequest,
   hostZone: string,
+  options: BookingEventOptions = {},
 ): string {
+  const video = videoLinkFor(request, options.callLink);
+  // The host too, so the event names them whoever's calendar it is saved in.
+  const guests = [options.hostEmail, request.email]
+    .map((e) => e?.trim().toLowerCase() ?? '')
+    .filter((e, i, all) => e && all.indexOf(e) === i);
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     text: bookingTitle(hostName, request),
     dates: `${compact(request.starts_at)}/${compact(request.ends_at)}`,
-    details: bookingDescription(request),
+    details: bookingDescription(request, video),
     ctz: hostZone,
-    add: request.email.trim().toLowerCase(),
+    add: guests.join(','),
   });
-  const location = bookingLocation(request);
+  const location = bookingLocation(request, video);
   if (location) params.set('location', location);
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }

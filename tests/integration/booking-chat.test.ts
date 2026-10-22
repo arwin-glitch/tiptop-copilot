@@ -368,7 +368,7 @@ describe('AI answers on the booking assistant routine', () => {
     expect(payload.facts.firm).toBe('TipTop VC (Demo)');
     expect((payload.facts.faq as unknown[]).length).toBe(4);
     expect((payload.facts.next_open_times as string[]).length).toBeGreaterThan(0);
-    expect(payload.facts.offers).toContain('30-min call (video)');
+    expect(payload.facts.offers).toContain('30-min Google Meet (video)');
     expectNothingPrivate(payload, 'the routine payload');
     // No private settings either: home city aliases as such, the photo, calendars.
     expect(JSON.stringify(payload)).not.toMatch(

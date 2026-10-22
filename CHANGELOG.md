@@ -35,10 +35,71 @@ throughout.
   answer it gets, and switch AI answers on with their daily cap and a status
   line ("Not set up yet" or "Working - last answer ...").
 
+- **Booking link fixes after the first live test.** In-person times no longer
+  vanish for every date while Nick's Google Calendar is still set to another
+  time zone from a trip: in person now pauses only until the day his flight
+  home lands, and opens again from the next day (if no flight home is on the
+  calendar, it stays paused, as before). A home city typed as "Austin, Texas"
+  now matches "Flight to Austin". Times are held to Central (Nick's own clock):
+  nothing starts before 8:00 AM, calls, coffee and lunch end by 6:00 PM (the
+  last call is 5:30 to 6:00), and dinner is 6:00 to 7:00 PM. Calls can use a
+  saved video link (Settings > Booking link > "Video link for calls", for
+  example a Zoom room) instead of Google Meet; the link goes only into the
+  invite, and the public page just says "30-min Zoom call". Nick is now on the
+  invite himself, first on the guest list, with the visitor after him. The
+  public page and the chatbot no longer say a person ("Arwin", "the team")
+  confirms anything: the sent message reads "Request sent. You'll get a
+  calendar invitation once the time is booked." No database update needed.
+
+- **A public job board for the portfolio's open roles, with a button on
+  Portfolio › Jobs to open it.** Jobs now has a "Public job board" bar with
+  View public board (opens it in a new tab), Copy link, an on/off switch, a
+  Preview while it is off, and the board's text. Under it: From email (the
+  roles founders email Nick, as before), Approvals (those emailed roles,
+  waiting: none goes public until someone approves it, and only the title,
+  company, place, level and job link ever do), Public board (publish, hide,
+  feature, mark filled, edit, add a role, Refresh now) and Companies (each
+  company's careers page; Copilot reads Greenhouse, Lever, Ashby, Workable
+  and Recruitee boards every day, adds new roles and closes ones that are
+  gone; a company's board roles go public on their own only when someone
+  switches that on). The board itself is at /jobs, and at jobs.tiptop.vc once
+  its DNS points here: search and filters by company, team, place, remote,
+  level and type, featured roles, a page for each role (apply at the company,
+  share, Google for Jobs data) and each company, in the Perks directory's
+  look and fast on a phone. It is off, showing "coming soon", until switched
+  on, and needs the database update
+  `20261022100000_public_jobs.sql`.
+
+- **The job board, checked over before launch.** While the board is off, the
+  big button on Jobs is now "Preview board" (the public page only says
+  "coming soon" until then), and the line about emailed roles waiting links
+  straight to Approvals. A company's public "about" is only what someone
+  types for the board: Copilot's own notes about a company are offered as a
+  "Use this text" button, never published by themselves. An emailed role
+  whose link is a Google Doc, Drive, Notion or Dropbox file asks the approver
+  to check that anyone can open it first. Emailed and hand-added roles come
+  off the board after 60 days unless the founder mentions them again or
+  someone re-confirms them, an emailed role whose job posting has gone closes
+  on the board too, and it is dated from its approval rather than from the
+  founder's first mention. A hidden role stays hidden when the company's own
+  board lists the same role. A filled role's old link now says "This role
+  has closed" with the company's other roles, and every board link, closed
+  or not, previews as the TipTop job board, never as Copilot. Links to
+  jobs.tiptop.vc/jobs/... redirect properly, link-preview images work on
+  jobs.tiptop.vc, Google for Jobs gets the place, country, pay and expiry it
+  asks for (and no data at all for a role it would reject), and on a phone
+  the Apply button rides along the bottom of a role's page. Behind the
+  scenes: the signed-in preview gives nothing away to a made-up sign-in,
+  made-up board addresses can no longer fill the server's disk, one visitor
+  hammering the board is slowed down, and a company's hostile careers page,
+  job description or robots.txt can no longer stall Copilot.
+
+
 - **A booking link people can use to ask Nick for time.** A public page at
   `/meet/<name>` (Nick's is `/meet/nick`), with its own TipTop look, his name,
   title, short bio and photo, works on a phone and in dark mode, and needs no
-  sign-in. Visitors pick a 30-minute call (Google Meet) or an hour in person
+  sign-in. Visitors pick a 30-minute call (on Nick's saved video link, such as
+  his Zoom room, else Google Meet) or an hour in person
   (coffee, lunch or dinner, at one of his listed places or one they suggest),
   then a time shown in their own time zone, and send a request. Only open
   times are shown: they come from all of Nick's calendars as Copilot reads

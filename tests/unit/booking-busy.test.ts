@@ -3,12 +3,19 @@ import {
   calendarZoneDiffers,
   daysCovered,
   eveningEnd,
+  inPersonPausedThrough,
   isBusyEntry,
   toBusyPicture,
 } from '@/lib/booking/busy';
 import { DEFAULT_BOOKING_CONFIG } from '@/lib/booking/config';
 import { openSlots } from '@/lib/booking/engine';
-import { locationOutsideHome, namesHome, travelSign, type HomePlace } from '@/lib/booking/travel';
+import {
+  arrivesHome,
+  locationOutsideHome,
+  namesHome,
+  travelSign,
+  type HomePlace,
+} from '@/lib/booking/travel';
 import type { RangeEvent } from '@/lib/calendar/range-types';
 import { wallTimeToUtc } from '@/lib/util/time';
 
@@ -320,6 +327,126 @@ describe('the calendar’s own time zone', () => {
       calendarZoneDiffers([{ primary: true, timeZone: 'America/Mexico_City' }], TZ, july),
     ).toBe(true);
     expect(calendarZoneDiffers([{ primary: false, timeZone: 'Asia/Tokyo' }], TZ, now)).toBe(false);
+  });
+});
+
+describe('the in-person pause, per trip (hotfix)', () => {
+  // Monday 26 October 2026, 10:00 Central. His main calendar still shows the
+  // zone of the city he visited; home is Harbor City (alias Riverside).
+  const NOW = new Date('2026-10-26T15:00:00Z');
+  const AWAY = [{ primary: true, timeZone: 'America/Los_Angeles' }];
+  const HOME_ZONE = [{ primary: true, timeZone: TZ }];
+  const pause = (events: RangeEvent[], calendars = AWAY) =>
+    inPersonPausedThrough(calendars, picture(events).homeLandings, {
+      hostZone: TZ,
+      now: NOW,
+      horizonDays: 21,
+    });
+  /** The red-eye home: leaves Thursday night, lands Friday morning (host time). */
+  const flightHome = (over: Partial<RangeEvent> = {}) =>
+    ev({
+      title: 'Flight to Harbor City (HC 400)',
+      description: 'Lakeport LKP 9:59pm (local time) - Harbor City HCX 5:46am (local time)',
+      startsAt: at('2026-10-29', 23, 59),
+      endsAt: at('2026-10-30', 5, 46),
+      eventType: 'fromGmail',
+      transparent: true,
+      attendees: [],
+      verdict: { meeting: false, reason: 'A booking', with: [] },
+      ...over,
+    });
+  const coffeeOn = (events: RangeEvent[], day: string, calendars = AWAY) => {
+    const p = picture(events);
+    return openSlots(
+      {
+        now: NOW,
+        hostZone: TZ,
+        config: { ...structuredClone(DEFAULT_BOOKING_CONFIG), homeCity: HOME.city },
+        busy: p.busy,
+        travelDays: p.travelDays,
+        inPersonPausedThrough: pause(events, calendars),
+        linkBookings: [],
+      },
+      { type: 'in_person', kind: 'coffee' },
+    ).filter((s) => s.date === day);
+  };
+
+  it('pauses through the day his flight home lands, then opens the next Tuesday', () => {
+    expect(pause([flightHome()])).toBe('2026-10-30');
+    expect(coffeeOn([flightHome()], '2026-10-27')).toEqual([]);
+    expect(coffeeOn([flightHome()], '2026-10-29')).toEqual([]);
+    expect(coffeeOn([flightHome()], '2026-10-30')).toEqual([]);
+    expect(coffeeOn([flightHome()], '2026-11-03').length).toBeGreaterThan(0);
+  });
+
+  it('counts a red-eye for the day it lands, after midnight', () => {
+    const redEye = flightHome({
+      title: 'Red-eye home',
+      description: null,
+      startsAt: at('2026-10-28', 22, 30),
+      endsAt: at('2026-10-29', 0, 40),
+    });
+    expect(pause([redEye])).toBe('2026-10-29');
+    // Only the route line names home: the title says nothing of where it goes.
+    expect(pause([flightHome({ title: 'Flight HC 400' })])).toBe('2026-10-30');
+  });
+
+  it('keeps every day paused with no flight home on the calendar', () => {
+    expect(pause([])).toBe('all');
+    const elsewhere = flightHome({
+      title: 'Flight to Lakeport (HC 401)',
+      description: 'Harbor City HCX 9:00am (local time) - Lakeport LKP 11:00am (local time)',
+    });
+    expect(pause([elsewhere])).toBe('all');
+    expect(coffeeOn([elsewhere], '2026-11-03')).toEqual([]);
+    expect(coffeeOn([elsewhere], '2026-11-11')).toEqual([]);
+  });
+
+  it('pauses nothing when his calendar shows his own zone', () => {
+    expect(pause([flightHome()], HOME_ZONE)).toBeNull();
+    expect(pause([], HOME_ZONE)).toBeNull();
+    expect(coffeeOn([], '2026-10-27', HOME_ZONE).length).toBeGreaterThan(0);
+  });
+
+  it('ignores a flight home that landed before today, at the end of an earlier trip', () => {
+    const earlier = flightHome({
+      startsAt: at('2026-10-24', 23, 59),
+      endsAt: at('2026-10-25', 5, 46),
+    });
+    expect(pause([earlier])).toBe('all');
+    expect(pause([earlier, flightHome()])).toBe('2026-10-30');
+  });
+
+  it('ignores a flight home past the horizon, and a declined one', () => {
+    const late = flightHome({
+      startsAt: at('2026-11-20', 9),
+      endsAt: at('2026-11-20', 11),
+    });
+    expect(pause([late])).toBe('all');
+    expect(pause([flightHome({ myResponse: 'declined' })])).toBe('all');
+  });
+
+  it('reads where a journey ends from its title, else its route line', () => {
+    const home = { city: HOME.city, aliases: ['Riverside', 'HCX'] };
+    expect(arrivesHome({ title: 'Flight to Harbor City (HC 400)' }, home)).toBe(true);
+    expect(arrivesHome({ title: 'Flight from Lakeport to Harbor City' }, home)).toBe(true);
+    expect(arrivesHome({ title: 'Flight to Lakeport from Harbor City' }, home)).toBe(false);
+    expect(arrivesHome({ title: 'LKP → HCX' }, home)).toBe(true);
+    expect(arrivesHome({ title: 'HCX-LKP' }, home)).toBe(false);
+    expect(arrivesHome({ title: 'Red-eye home' }, home)).toBe(true);
+    expect(arrivesHome({ title: 'Flight home to Lakeport' }, home)).toBe(false);
+    expect(arrivesHome({ title: 'Flight to Riverside' }, home)).toBe(true);
+    expect(
+      arrivesHome(
+        {
+          title: 'Flight HC 400',
+          description: 'Lakeport LKP 9:59pm (local time) - Harbor City HCX 5:46am (local time)',
+        },
+        home,
+      ),
+    ).toBe(true);
+    expect(arrivesHome({ title: 'Flight HC 400', description: 'Seat 12A' }, home)).toBe(false);
+    expect(arrivesHome({ title: 'Flight home' }, { city: '', aliases: [] })).toBe(false);
   });
 });
 

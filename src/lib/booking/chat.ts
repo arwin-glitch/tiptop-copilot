@@ -54,7 +54,14 @@ import {
   type FaqEntry,
   type PublicFacts,
 } from './faq';
-import { dayKeyIn, knownZone, slotLabel, zoneName } from './public';
+import {
+  callOptionLabel,
+  dayKeyIn,
+  knownZone,
+  slotLabel,
+  videoProviderLabel,
+  zoneName,
+} from './public';
 
 /**
  * The public booking page's assistant, "Arwin" (D-078): no paid AI at all.
@@ -127,6 +134,8 @@ export interface ChatStart {
   firmName: string;
   greeting: string;
   offers: { call: boolean; inPerson: boolean };
+  /** "30-min Zoom call": what a call is on, by name only (never its link). */
+  callLabel: string;
   kinds: MeetingKind[];
   places: ChatPlace[];
   allowCustomPlace: boolean;
@@ -298,6 +307,7 @@ function startReply(data: ChatContextData): ChatStart {
     firmName: config.firmName,
     greeting: `Hi, I'm Arwin, ${who}'s AI scheduling assistant. I can book a time with ${who}, answer a question, or pass on a message.`,
     offers: { call: true, inPerson: data.inPerson },
+    callLabel: callOptionLabel(videoProviderLabel(config.callLink)),
     kinds: data.kinds,
     places: data.inPerson
       ? config.places.map((p) => ({ id: p.id, name: p.name, area: p.area }))
@@ -358,7 +368,7 @@ async function timesReply(
 /** The offers, as the routine is told them. */
 function offersFor(data: ChatContextData): string[] {
   const facts = publicFactsFor(data);
-  const out = ['30-min call (video)'];
+  const out = [`${callOptionLabel(videoProviderLabel(data.link.config.callLink))} (video)`];
   for (const kind of facts.inPersonKinds) out.push(`1-hour ${kind.toLowerCase()} in person`);
   if (facts.places.length) out.push(`In-person places: ${facts.places.join('; ')}`);
   if (facts.allowCustomPlace) out.push('Visitors may suggest a place of their own');

@@ -32,6 +32,9 @@ import type {
   EncryptedProviderToken,
   GeneratedDraft,
   Integration,
+  JobBoardSettings,
+  JobCompany,
+  JobPosting,
   KnowledgeChunk,
   KnowledgeDocument,
   McpToken,
@@ -112,6 +115,9 @@ export interface TableMap {
   sync_runs: SyncRun;
   booking_settings: BookingSettingsRow;
   booking_requests: BookingRequest;
+  job_board_settings: JobBoardSettings;
+  job_companies: JobCompany;
+  job_postings: JobPosting;
   booking_chat_questions: BookingChatQuestion;
 }
 

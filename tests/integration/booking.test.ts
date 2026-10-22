@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_BOOKING_CONFIG, parseBookingConfig } from '@/lib/booking/config';
 import { WAITING_CLASH } from '@/lib/booking/engine';
-import { CLOSED_MESSAGE, type PublicSlot } from '@/lib/booking/public';
+import { CLOSED_MESSAGE, dayKeyIn, type PublicSlot } from '@/lib/booking/public';
 import { BOOKING_REQUEST_INPUT, type BookingRequestInput } from '@/lib/booking/request';
 import {
   createMockCalendarState,
@@ -35,7 +35,7 @@ import {
 } from '@/lib/services/booking';
 import type { AuditEvent, BookingRequest, Integration } from '@/lib/types/domain';
 import { err } from '@/lib/util/result';
-import { wallTimeToUtc } from '@/lib/util/time';
+import { localClock, wallTimeToUtc } from '@/lib/util/time';
 import { createHarness, type Harness } from '../helpers/harness';
 
 /**
@@ -189,7 +189,7 @@ describe('a visitor’s request', () => {
     }
     const friday = await submit({ start: at('2026-10-30', 10) });
     expect(friday.ok).toBe(false);
-    const late = await submit({ start: at('2026-10-28', 17) });
+    const late = await submit({ start: at('2026-10-28', 18) });
     expect(late.ok).toBe(false);
     expect(
       await harness.store.count('booking_requests', harness.auth.organizationId, {
@@ -308,13 +308,13 @@ describe('a visitor’s request', () => {
     expect(again.ok).toBe(false);
     if (!again.ok)
       expect(again.error.message).toBe(
-        'You already have 3 requests waiting. Arwin will reply to those first.',
+        'You already have 3 requests waiting. Send another once those are answered.',
       );
   });
 
   it('fills a day with at most two link bookings', async () => {
     const wednesday = (await slots('call')).filter((s) => s.start.startsWith('2026-10-28'));
-    expect(wednesday).toHaveLength(16);
+    expect(wednesday).toHaveLength(18);
     await saved({ start: wednesday[0]!.start, email: 'one@a.example' });
     expect(
       (await slots('call')).filter((s) => s.start.startsWith('2026-10-28')).length,
@@ -347,7 +347,11 @@ describe('Approve', () => {
       location: '',
       start: { dateTime: slot!.start, timeZone: TZ },
       end: { dateTime: slot!.end, timeZone: TZ },
-      attendees: [{ email: 'pat@acme.example' }],
+      // The host first, as the organizer who has accepted; then the requester.
+      attendees: [
+        { email: MOCK_OWN_EMAIL, organizer: true, responseStatus: 'accepted' },
+        { email: 'pat@acme.example' },
+      ],
       conferenceData: {
         createRequest: {
           requestId: expect.any(String),
@@ -403,8 +407,71 @@ describe('Approve', () => {
       location: 'Juniper & Rye Coffee, Riverside',
       start: { dateTime: slot!.start, timeZone: TZ },
       end: { dateTime: slot!.end, timeZone: TZ },
-      attendees: [{ email: 'morgan@quarryline.example' }],
+      attendees: [
+        { email: MOCK_OWN_EMAIL, organizer: true, responseStatus: 'accepted' },
+        { email: 'morgan@quarryline.example' },
+      ],
     });
+  });
+
+  const ZOOM = 'https://example.zoom.us/j/1234567890?pwd=fictional';
+
+  async function saveCallLink(callLink: string) {
+    const current = await readBookingSettings(harness.store, harness.auth.organizationId);
+    const savedLink = await saveBookingSettings(
+      harness.store,
+      harness.auth.organizationId,
+      harness.auth.userId,
+      { enabled: true, slug: SLUG, config: { ...current.config, callLink } },
+    );
+    expect(savedLink.ok).toBe(true);
+  }
+
+  it('puts a call on the saved video link instead of Google Meet, the host as organizer (hotfix)', async () => {
+    await saveCallLink(ZOOM);
+    const [slot] = await slots('call');
+    const row = await saved({ start: slot!.start });
+    const approved = await approveBookingRequest(actor(), row.id, deps());
+    expect(approved.ok).toBe(true);
+    if (!approved.ok || approved.value.state !== 'approved') throw new Error('not approved');
+    expect(state.writes).toHaveLength(1);
+    const write = state.writes[0]!;
+    expect(write).toMatchObject({ op: 'insert', sendUpdates: 'all', conferenceDataVersion: 0 });
+    expect(write.body).toEqual({
+      summary: 'Nick <> Pat Lee (Acme)',
+      description: `Booked through the booking link.
+
+Join the call: ${ZOOM}
+
+Seed round for a clinic scheduling tool.
+
+Deck: https://deck.example/acme`,
+      location: ZOOM,
+      start: { dateTime: slot!.start, timeZone: TZ },
+      end: { dateTime: slot!.end, timeZone: TZ },
+      attendees: [
+        { email: MOCK_OWN_EMAIL, organizer: true, responseStatus: 'accepted' },
+        { email: 'pat@acme.example' },
+      ],
+    });
+    expect(approved.value.meetUrl).toBeNull();
+    expect((await audits('calendar.event_created'))[0]?.metadata).toMatchObject({
+      meet: false,
+      guests: 1,
+    });
+  });
+
+  it('carries the saved video link in the Google Calendar page without calendar editing (hotfix)', async () => {
+    await saveCallLink(ZOOM);
+    const [slot] = await slots('call');
+    const row = await saved({ start: slot!.start });
+    const result = await approveBookingRequest(actor(), row.id, deps(READ_SCOPES));
+    if (!result.ok || result.value.state !== 'needs_grant')
+      throw new Error('expected the fallback');
+    const url = new URL(result.value.templateUrl);
+    expect(url.searchParams.get('location')).toBe(ZOOM);
+    expect(url.searchParams.get('details')).toContain(`Join the call: ${ZOOM}`);
+    expect(state.writes).toEqual([]);
   });
 
   it('refuses, and writes nothing, when the time is no longer free', async () => {
@@ -448,7 +515,7 @@ describe('Approve', () => {
     const url = new URL(result.value.templateUrl);
     expect(url.origin + url.pathname).toBe('https://calendar.google.com/calendar/render');
     expect(url.searchParams.get('text')).toBe('Nick <> Pat Lee (Acme)');
-    expect(url.searchParams.get('add')).toBe('pat@acme.example');
+    expect(url.searchParams.get('add')).toBe(`${MOCK_OWN_EMAIL},pat@acme.example`);
     expect(url.searchParams.get('ctz')).toBe(TZ);
     expect(state.writes).toEqual([]);
     expect(
@@ -733,7 +800,7 @@ describe('review fixes', () => {
     if (!fourth.ok) {
       expect(fourth.error.code).toBe('rate_limited');
       expect(fourth.error.message).toBe(
-        'You already have requests waiting. Arwin will reply to those first.',
+        'You already have requests waiting. Send another once those are answered.',
       );
     }
     // Kept in the table, so a restart (fresh limiters) changes nothing.
@@ -954,5 +1021,163 @@ describe('review fixes', () => {
     expect((await readBookingSettings(harness.store, org)).config.photo).toBeNull();
     // A stored path of another shape is not a photo at all.
     expect(parseBookingConfig({ photo: sneaky }).photo).toBeNull();
+  });
+});
+
+describe('booking hotfix: in person paused per trip', () => {
+  /** His main calendar still shows the zone of the city he visited. */
+  function awayZone() {
+    state.calendars.find((c) => c.primary)!.timeZone = 'America/Los_Angeles';
+    // The demo's own red-eye home (Sunday 8 November) is taken away: the
+    // journey home here is the one each test adds, or none.
+    state.events.set(
+      MOCK_PERSONAL_CALENDAR,
+      state.events.get(MOCK_PERSONAL_CALENDAR)!.filter((e) => e.id !== 'demobusyredeye'),
+    );
+    resetCalendarRangeCache();
+  }
+
+  /** The red-eye home Google added from a booking email: Tuesday night, landing Wednesday. */
+  function flightHome() {
+    state.events.get(MOCK_OWN_EMAIL)!.push({
+      id: 'testflighthome',
+      status: 'confirmed',
+      eventType: 'fromGmail',
+      summary: 'Flight to Harbor City (HC 400)',
+      description: 'Lakeport LKP 9:59pm (local time) - Harbor City HCX 5:46am (local time)',
+      transparency: 'transparent',
+      start: { dateTime: at('2026-11-10', 23, 59), timeZone: 'America/Los_Angeles' },
+      end: { dateTime: at('2026-11-11', 5, 46), timeZone: TZ },
+      organizer: { email: MOCK_OWN_EMAIL, self: true },
+    });
+    resetCalendarRangeCache();
+  }
+
+  const hostDays = async (type: string, kind: string | null = null) =>
+    new Set((await slots(type, kind)).map((s) => dayKeyIn(s.start, TZ)));
+
+  it('opens in person again from the day after the flight home lands', async () => {
+    const before = await hostDays('in_person', 'coffee');
+    for (const day of ['2026-11-10', '2026-11-11', '2026-11-12'])
+      expect(before.has(day)).toBe(true);
+    const wednesdayCoffee = (await slots('in_person', 'coffee')).find(
+      (s) => dayKeyIn(s.start, TZ) === '2026-11-11',
+    )!;
+    const waiting = await saved({
+      type: 'in_person',
+      kind: 'coffee',
+      start: wednesdayCoffee.start,
+      placeId: 'juniper-rye',
+    });
+
+    awayZone();
+    flightHome();
+    const coffee = await hostDays('in_person', 'coffee');
+    expect(coffee.has('2026-11-10')).toBe(false);
+    expect(coffee.has('2026-11-11')).toBe(false);
+    expect(coffee.has('2026-11-12')).toBe(true);
+    // Calls never pause.
+    expect((await hostDays('call')).has('2026-11-10')).toBe(true);
+
+    // The approval re-check says why, and when he is back.
+    const refused = await approveBookingRequest(actor(), waiting.id, deps());
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.error.message).toContain(
+        'In person is paused until Nick is back (from Thu 12 Nov).',
+      );
+    }
+    expect(state.writes).toEqual([]);
+  });
+
+  it('keeps every day paused when no flight home is on the calendar', async () => {
+    awayZone();
+    expect(await slots('in_person', 'coffee')).toEqual([]);
+    expect((await slots('call')).length).toBeGreaterThan(0);
+  });
+});
+
+describe('booking hotfix: the hard hours, Central', () => {
+  const org = () => harness.auth.organizationId;
+  const hostClock = (iso: string) => {
+    const c = localClock(new Date(iso), TZ);
+    return c.hour * 60 + c.minute;
+  };
+
+  it('refuses to save hours outside 8:00 to 18:00, or a dinner off 18:00', async () => {
+    const current = await readBookingSettings(harness.store, org());
+    const early = await saveBookingSettings(harness.store, org(), harness.auth.userId, {
+      enabled: true,
+      slug: 'nick',
+      config: { ...current.config, callWindow: { from: '07:00', to: '17:00' } },
+    });
+    expect(early.ok).toBe(false);
+    if (!early.ok) {
+      expect(early.error.message).toBe(
+        'Check callWindow: Calls have to be between 8:00 AM and 6:00 PM Central.',
+      );
+    }
+    const lateDinner = await saveBookingSettings(harness.store, org(), harness.auth.userId, {
+      enabled: true,
+      slug: 'nick',
+      config: {
+        ...current.config,
+        kindWindows: { ...current.config.kindWindows, dinner: [{ from: '18:00', to: '19:30' }] },
+      },
+    });
+    expect(lateDinner.ok).toBe(false);
+  });
+
+  it('offers and takes nothing outside the hours, whatever the stored settings say', async () => {
+    const current = await readBookingSettings(harness.store, org());
+    await harness.store.update('booking_settings', org(), DEMO_BOOKING_SETTINGS_ID, {
+      settings: {
+        ...current.config,
+        callWindow: { from: '06:00', to: '21:00' },
+        kindWindows: {
+          coffee: [{ from: '06:00', to: '20:00' }],
+          lunch: [{ from: '11:30', to: '13:00' }],
+          dinner: [{ from: '17:00', to: '21:00' }],
+        },
+      },
+    });
+    const stored = await readBookingSettings(harness.store, org());
+    expect(stored.config.callWindow).toEqual({ from: '08:00', to: '18:00' });
+    expect(stored.config.kindWindows.dinner).toEqual([{ from: '18:00', to: '18:00' }]);
+
+    const calls = await slots('call');
+    expect(calls.length).toBeGreaterThan(0);
+    for (const s of calls) {
+      expect(hostClock(s.start)).toBeGreaterThanOrEqual(8 * 60);
+      expect(hostClock(s.end)).toBeLessThanOrEqual(18 * 60);
+    }
+    for (const s of await slots('in_person', 'coffee')) {
+      expect(hostClock(s.start)).toBeGreaterThanOrEqual(8 * 60);
+      expect(hostClock(s.end)).toBeLessThanOrEqual(18 * 60);
+    }
+    const dinners = await slots('in_person', 'dinner');
+    expect(dinners.length).toBeGreaterThan(0);
+    for (const s of dinners) {
+      expect(hostClock(s.start)).toBe(18 * 60);
+      expect(hostClock(s.end)).toBe(19 * 60);
+    }
+
+    // The booking-time re-check refuses the same times: the last call of a
+    // day (17:30 to 18:00) is taken, 18:00 and 7:30 that day are not.
+    const last = calls.find((s) => hostClock(s.start) === 17 * 60 + 30)!;
+    const day = dayKeyIn(last.start, TZ);
+    expect((await submit({ start: last.start })).ok).toBe(true);
+    const sixPm = await submit({ email: 'six@pm.example', start: at(day, 18) });
+    expect(sixPm.ok).toBe(false);
+    const early = await submit({ email: 'seven@am.example', start: at(day, 7, 30) });
+    expect(early.ok).toBe(false);
+    const lateDinner = await submit({
+      email: 'late@dinner.example',
+      type: 'in_person',
+      kind: 'dinner',
+      start: at(dayKeyIn(dinners[0]!.start, TZ), 18, 30),
+      placeId: 'saltgrass-table',
+    });
+    expect(lateDinner.ok).toBe(false);
   });
 });

@@ -47,6 +47,8 @@ export interface BookingChatProps {
   kinds: MeetingKind[];
   /** The visitor's time zone, as the page shows times. */
   zone: string;
+  /** "30-min Zoom call": what a call is on, never its link (the server's own label wins). */
+  callLabel?: string;
   /** Unused since D-078 (kept so the page's props still fit). */
   mode?: 'live' | 'guided';
   /** Unused since D-078 (kept so the page's props still fit). */
@@ -125,16 +127,23 @@ function safeManageUrl(raw: unknown): string | null {
   }
 }
 
-function meetingLabel(query: Query): string {
+function meetingLabel(query: Query, callLabel: string): string {
   return query.type === 'call'
-    ? '30-minute call'
+    ? callLabel
     : `${KIND_LABEL[query.kind ?? 'coffee']}, 1 hour in person`;
 }
 
-export function BookingChat({ slug, hostName, firmName, zone }: BookingChatProps) {
+export function BookingChat({
+  slug,
+  hostName,
+  firmName,
+  zone,
+  callLabel: pageCallLabel = '30-min Google Meet',
+}: BookingChatProps) {
   const first = firstName(hostName) || 'the host';
   const [open, setOpen] = React.useState(false);
   const [start, setStart] = React.useState<ChatStart | null>(null);
+  const callLabel = start?.callLabel || pageCallLabel;
   const [startProblem, setStartProblem] = React.useState<string | null>(null);
   const [turns, setTurns] = React.useState<Turn[]>([]);
   const [step, setStep] = React.useState<Step>({ kind: 'menu' });
@@ -268,13 +277,17 @@ export function BookingChat({ slug, hostName, firmName, zone }: BookingChatProps
       setStep({ kind: 'place', query, slot });
       return;
     }
-    say({ text: `${meetingLabel(query)} on ${slot.label}. Who should get the invitation?` });
+    say({
+      text: `${meetingLabel(query, callLabel)} on ${slot.label}. Who should get the invitation?`,
+    });
     setStep({ kind: 'details', query, slot, placeId: null, customPlace: '' });
   };
 
   const pickPlace = (query: Query, slot: ChatSlot, place: ChatPlace | null, custom = '') => {
     echo(place ? place.name : custom);
-    say({ text: `${meetingLabel(query)} on ${slot.label}. Who should get the invitation?` });
+    say({
+      text: `${meetingLabel(query, callLabel)} on ${slot.label}. Who should get the invitation?`,
+    });
     setStep({ kind: 'details', query, slot, placeId: place?.id ?? null, customPlace: custom });
   };
 
@@ -1144,7 +1157,7 @@ function doneFor(
   const place = step.placeId
     ? start.places.find((p) => p.id === step.placeId)?.name
     : step.customPlace || null;
-  const summary = `${meetingLabel(step.query)} · ${step.slot.label}${place ? ` · ${place}` : ''}`;
+  const summary = `${meetingLabel(step.query, start.callLabel)} · ${step.slot.label}${place ? ` · ${place}` : ''}`;
   const invited = guests.length
     ? `${email} and ${guests.length} guest${guests.length === 1 ? '' : 's'}`
     : email;

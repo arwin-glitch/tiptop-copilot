@@ -1,0 +1,23 @@
+{
+  "offers": [
+    {
+      "id": 4400001,
+      "slug": "growth-marketer",
+      "title": "Growth Marketer",
+      "status": "published",
+      "description": "<p>Grow the funnel.</p>",
+      "requirements": "<ul><li>SQL</li><li>Copywriting</li></ul>",
+      "department": "Marketing",
+      "careers_url": "https://fixturetools.recruitee.com/o/growth-marketer",
+      "careers_apply_url": "https://fixturetools.recruitee.com/o/growth-marketer/c/new",
+      "published_at": "2026-10-08 10:00:00 UTC",
+      "remote": false,
+      "hybrid": true,
+      "on_site": false,
+      "employment_type_code": "fulltime_permanent",
+      "locations": [{ "city": "Amsterdam", "country": "Netherlands", "state": null }],
+      "salary": { "min": "60000", "max": "75000", "period": "year", "currency": "EUR" }
+    },
+    { "id": 4400002, "title": "Draft role", "status": "draft" }
+  ]
+}
