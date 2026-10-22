@@ -30,6 +30,26 @@ throughout.
   editors can upload within their link's limits and never private files.
   Nothing here sends an email.
 
+- **Events, the look of the page (D-075).** Event pages now have their
+  design system: 33 ready-made themes (24 now, 9 more marked "wave 2"),
+  from TipTop Signature in emerald and gold to a boarding pass, a golf
+  scorecard and a neon night, each readable in light and dark mode. A theme
+  sets the colours, fonts, background (soft moving gradients, stars, snow,
+  patterns, a photo or a video loop), an optional layer of confetti or
+  petals, a paper or film-grain finish, how headlines appear, and an
+  optional arrival moment, such as an envelope addressed "Dear Sarah," that
+  opens with a wax seal. Pages are built from 21 kinds of section (cover,
+  key details, RSVP, agenda, hosts, sponsors, venue with directions,
+  countdown, FAQ, gallery, pre-reads and more), each with a few layouts.
+  Five starter pages with made-up copy come ready: an annual meeting with an
+  evening reception, a founder golf day, a dinner, a demo day and a holiday
+  party. Motion stays gentle by default, stops for people who ask their
+  device for less motion, and every moving page has a visible "Pause
+  animations" button. Share cards for Slack and iMessage are drawn from the
+  theme. Owners can open any theme full-screen with sample content at
+  `/e/theme_preview/<theme>`. The fonts live in the app itself, so guests'
+  browsers never call a font service.
+
 - **Events, groundwork (D-075).** The foundation for Luma-style event pages
   inside Copilot is in place, ahead of the screens: the database tables for
   events, sessions, guests and their RSVPs, outside-editor and staff links,

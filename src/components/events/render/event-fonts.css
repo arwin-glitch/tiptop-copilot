@@ -1,0 +1,487 @@
+/*
+ * Self-hosted event fonts (D-075). GENERATED from src/lib/events/fonts.ts:
+ * edit the table there, then regenerate (see tests/unit/events-fonts.test.ts,
+ * which fails while this file and the table disagree). Browsers download a
+ * face only when an element on the page uses it.
+ */
+@font-face {
+  font-family: 'ev-anton';
+  src: url('/event-fonts/anton/anton-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-archivo';
+  src: url('/event-fonts/archivo/archivo-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-audiowide';
+  src: url('/event-fonts/audiowide/audiowide-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-bagel-fat-one';
+  src: url('/event-fonts/bagel-fat-one/bagel-fat-one-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-big-shoulders-display';
+  src: url('/event-fonts/big-shoulders-display/big-shoulders-display-wght-normal.woff2')
+    format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-bodoni-moda';
+  src: url('/event-fonts/bodoni-moda/bodoni-moda-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-bodoni-moda';
+  src: url('/event-fonts/bodoni-moda/bodoni-moda-wght-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-bricolage-grotesque';
+  src: url('/event-fonts/bricolage-grotesque/bricolage-grotesque-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-caveat';
+  src: url('/event-fonts/caveat/caveat-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-cormorant-garamond';
+  src: url('/event-fonts/cormorant-garamond/cormorant-garamond-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-cormorant-garamond';
+  src: url('/event-fonts/cormorant-garamond/cormorant-garamond-wght-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-dm-sans';
+  src: url('/event-fonts/dm-sans/dm-sans-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-dm-serif-display';
+  src: url('/event-fonts/dm-serif-display/dm-serif-display-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-dm-serif-display';
+  src: url('/event-fonts/dm-serif-display/dm-serif-display-400-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-eb-garamond';
+  src: url('/event-fonts/eb-garamond/eb-garamond-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-eb-garamond';
+  src: url('/event-fonts/eb-garamond/eb-garamond-wght-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-figtree';
+  src: url('/event-fonts/figtree/figtree-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-fraunces';
+  src: url('/event-fonts/fraunces/fraunces-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-fraunces';
+  src: url('/event-fonts/fraunces/fraunces-wght-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-fredoka';
+  src: url('/event-fonts/fredoka/fredoka-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-geist';
+  src: url('/event-fonts/geist/geist-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-geist-mono';
+  src: url('/event-fonts/geist-mono/geist-mono-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-gloock';
+  src: url('/event-fonts/gloock/gloock-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-hanken-grotesk';
+  src: url('/event-fonts/hanken-grotesk/hanken-grotesk-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-ibm-plex-mono';
+  src: url('/event-fonts/ibm-plex-mono/ibm-plex-mono-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-ibm-plex-mono';
+  src: url('/event-fonts/ibm-plex-mono/ibm-plex-mono-600-normal.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-ibm-plex-sans-condensed';
+  src: url('/event-fonts/ibm-plex-sans-condensed/ibm-plex-sans-condensed-400-normal.woff2')
+    format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-ibm-plex-sans-condensed';
+  src: url('/event-fonts/ibm-plex-sans-condensed/ibm-plex-sans-condensed-600-normal.woff2')
+    format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-ibm-plex-sans-condensed';
+  src: url('/event-fonts/ibm-plex-sans-condensed/ibm-plex-sans-condensed-700-normal.woff2')
+    format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-instrument-sans';
+  src: url('/event-fonts/instrument-sans/instrument-sans-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-instrument-serif';
+  src: url('/event-fonts/instrument-serif/instrument-serif-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-instrument-serif';
+  src: url('/event-fonts/instrument-serif/instrument-serif-400-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-inter';
+  src: url('/event-fonts/inter/inter-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-inter';
+  src: url('/event-fonts/inter/inter-wght-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-inter-tight';
+  src: url('/event-fonts/inter-tight/inter-tight-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-italiana';
+  src: url('/event-fonts/italiana/italiana-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-jetbrains-mono';
+  src: url('/event-fonts/jetbrains-mono/jetbrains-mono-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-josefin-sans';
+  src: url('/event-fonts/josefin-sans/josefin-sans-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-jost';
+  src: url('/event-fonts/jost/jost-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-karla';
+  src: url('/event-fonts/karla/karla-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-libre-caslon-display';
+  src: url('/event-fonts/libre-caslon-display/libre-caslon-display-400-normal.woff2')
+    format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-libre-franklin';
+  src: url('/event-fonts/libre-franklin/libre-franklin-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-manrope';
+  src: url('/event-fonts/manrope/manrope-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-monoton';
+  src: url('/event-fonts/monoton/monoton-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-mulish';
+  src: url('/event-fonts/mulish/mulish-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-outfit';
+  src: url('/event-fonts/outfit/outfit-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-pinyon-script';
+  src: url('/event-fonts/pinyon-script/pinyon-script-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-playfair-display';
+  src: url('/event-fonts/playfair-display/playfair-display-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-playfair-display';
+  src: url('/event-fonts/playfair-display/playfair-display-wght-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-plus-jakarta-sans';
+  src: url('/event-fonts/plus-jakarta-sans/plus-jakarta-sans-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-poiret-one';
+  src: url('/event-fonts/poiret-one/poiret-one-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-roboto-flex';
+  src: url('/event-fonts/roboto-flex/roboto-flex-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-rye';
+  src: url('/event-fonts/rye/rye-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-shrikhand';
+  src: url('/event-fonts/shrikhand/shrikhand-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-silkscreen';
+  src: url('/event-fonts/silkscreen/silkscreen-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-silkscreen';
+  src: url('/event-fonts/silkscreen/silkscreen-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-space-grotesk';
+  src: url('/event-fonts/space-grotesk/space-grotesk-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-space-mono';
+  src: url('/event-fonts/space-mono/space-mono-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-space-mono';
+  src: url('/event-fonts/space-mono/space-mono-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-syne';
+  src: url('/event-fonts/syne/syne-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-tilt-neon';
+  src: url('/event-fonts/tilt-neon/tilt-neon-full-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-unbounded';
+  src: url('/event-fonts/unbounded/unbounded-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-vt323';
+  src: url('/event-fonts/vt323/vt323-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-work-sans';
+  src: url('/event-fonts/work-sans/work-sans-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-young-serif';
+  src: url('/event-fonts/young-serif/young-serif-400-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-zilla-slab';
+  src: url('/event-fonts/zilla-slab/zilla-slab-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-zilla-slab';
+  src: url('/event-fonts/zilla-slab/zilla-slab-600-normal.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'ev-zilla-slab';
+  src: url('/event-fonts/zilla-slab/zilla-slab-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
