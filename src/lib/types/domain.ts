@@ -1345,6 +1345,55 @@ export interface AiUsageRecord {
 }
 
 /**
+ * The booking link's settings: one row per organization
+ * (supabase/migrations/20261022000000_booking_link.sql). `settings` is the
+ * Settings > Booking link document, read through lib/booking/config.ts.
+ */
+export interface BookingSettingsRow {
+  id: Uuid;
+  organization_id: Uuid;
+  enabled: boolean;
+  slug: string;
+  settings: Record<string, unknown>;
+  updated_by: Uuid | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export type BookingRequestStatus = 'pending' | 'approved' | 'declined' | 'handled';
+
+/** A meeting request (or a message) sent from the public booking page. */
+export interface BookingRequest {
+  id: Uuid;
+  organization_id: Uuid;
+  status: BookingRequestStatus;
+  meeting_type: 'call' | 'in_person' | 'message';
+  kind: 'coffee' | 'lunch' | 'dinner' | null;
+  starts_at: IsoDateTime | null;
+  ends_at: IsoDateTime | null;
+  visitor_time_zone: string | null;
+  name: string;
+  email: string;
+  company: string | null;
+  place_id: string | null;
+  place_name: string | null;
+  place_area: string | null;
+  place_map_url: string | null;
+  place_custom: boolean;
+  note: string | null;
+  deck_url: string | null;
+  source: 'form' | 'chatbot';
+  ip_hash: string | null;
+  claimed_at: IsoDateTime | null;
+  calendar_id: string | null;
+  event_id: string | null;
+  decided_by: Uuid | null;
+  decided_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+/**
  * A token a Claude client (a claude.ai custom connector, a Claude Code session,
  * a cloud routine) uses to read the CRM through the MCP endpoint. Only the
  * SHA-256 of the token is stored; the token itself is shown once, at creation.

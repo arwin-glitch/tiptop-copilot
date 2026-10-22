@@ -1,6 +1,8 @@
 import type {
   AiUsageRecord,
   AuditEvent,
+  BookingRequest,
+  BookingSettingsRow,
   CalendarEvent,
   Campaign,
   CampaignEvent,
@@ -110,6 +112,8 @@ export interface TableMap {
   desktop_handoffs: DesktopHandoff;
   user_feedback: UserFeedback;
   sync_runs: SyncRun;
+  booking_settings: BookingSettingsRow;
+  booking_requests: BookingRequest;
   job_board_settings: JobBoardSettings;
   job_companies: JobCompany;
   job_postings: JobPosting;

@@ -53,6 +53,63 @@ throughout.
   hammering the board is slowed down, and a company's hostile careers page,
   job description or robots.txt can no longer stall Copilot.
 
+- **A booking link people can use to ask Nick for time.** A public page at
+  `/meet/<name>` (Nick's is `/meet/nick`), with its own TipTop look, his name,
+  title, short bio and photo, works on a phone and in dark mode, and needs no
+  sign-in. Visitors pick a 30-minute call (Google Meet) or an hour in person
+  (coffee, lunch or dinner, at one of his listed places or one they suggest),
+  then a time shown in their own time zone, and send a request. Only open
+  times are shown: they come from all of Nick's calendars as Copilot reads
+  them, and nothing about his events (titles, guests, places) ever reaches the
+  page. His rules hold every time: Tuesday to Thursday only, a buffer round
+  every meeting (30 minutes for in person), nothing next to a run of three or
+  more back-to-back meetings, in person only on days he is home, at least a
+  day's notice, three weeks ahead at most, and at most two link bookings a
+  day. Nothing is booked from the page: each request waits behind the
+  "Booking requests" button on the Calendar tab (Today says how many and
+  links there), where Approve checks
+  the time again and only then puts it on his calendar and sends the invite,
+  and Decline can open a decline email to read and send. A chatbot on the
+  page, tagged AI, introduces itself as Arwin, Nick's AI scheduling assistant:
+  it can find open times, answer from a short public FAQ, take a message, and
+  fill in the form, but the visitor always presses Send. Set it all up in
+  Settings > Booking link. It is off until switched on, and needs its
+  database tables first (`supabase/migrations/20261022000000_booking_link.sql`;
+  until then the page says it is not taking bookings).
+
+  Checked again before it ships, and tightened:
+  - Hiding a calendar on the Calendar tab no longer opens its time on the
+    link: Nick's own calendars and the ones ticked in Google always count.
+  - A flight marked "free" still blocks calls while he is in the air, with
+    half an hour either side.
+  - In person stays off between an outbound and a return flight, reads "New
+    York, NY" and an airport as away, and no longer mistakes "Blue Bottle,
+    Downtown", an entry written in UTC or a pitch from a travel startup
+    ("Hotel Tonight founder call") for a trip.
+  - The same invite on two calendars counts once.
+  - One person can no longer fill the link with junk requests: at most three
+    waiting per sender, whatever email they type, and at most six new meeting
+    requests a day for the whole link (it still takes messages after that).
+    Two requests for the same time at the same moment can't both be kept, and
+    when two overlap, the older one can always be approved.
+  - Approve asks once more before it emails an invitation, every request says
+    "Email not checked", and a request whose time has passed can only be
+    declined (Today no longer counts it). Decline waits while someone is
+    approving, and if Google doesn't answer, the drawer says to check the
+    calendar before trying again.
+  - The decline email opens signed as Arwin and names the visitor's time zone.
+  - Times are labelled "Central Time (Chicago)" rather than "Daylight" in
+    November, the zone list has no repeats, and in-person times show in the
+    host's own clock (the visitor will be there).
+  - The chatbot's $20 monthly cap now holds however busy the month gets, a
+    failed answer counts what it really cost, it sends the model less text,
+    and the whole link is limited to 400 answers a day.
+  - The page itself is braked per visitor, and the host photo can only ever be
+    the photo that was uploaded.
+  - Visitor text can't carry hidden or right-to-left characters or HTML tags
+    into the drawer or the calendar invite, and the email must be a plain
+    address.
+
 - **A routine's post that runs a little long no longer leaves its card on
   yesterday's copy.** When a routine wrote a note, a prep or a title longer
   than the app allows, or listed one item the app could not read (a meeting

@@ -30,6 +30,15 @@ Deals, notes, decisions, tasks, drafts and uploaded documents that you create.
 Estimated AI usage per request, and an audit record of every consequential
 action.
 
+When the booking link is on: what a visitor types into its form (name, email,
+optional company, the time and place they asked for, their note and an
+optional deck link), a keyed hash of their network address for abuse limits,
+and what happened to the request. The public page and its chatbot are shown
+open times only, never what is on the calendar; the chatbot's messages are not
+stored, only their estimated cost. The address a visitor types is not
+checked: an approved request emails the invitation to it, so the Copilot side
+marks every request "Email not checked" and asks once more before approving.
+
 ---
 
 ## What is not stored

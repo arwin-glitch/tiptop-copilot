@@ -11,6 +11,8 @@ import {
 } from '@/lib/types/domain';
 import type {
   AuditEvent,
+  BookingRequest,
+  BookingSettingsRow,
   CalendarEvent,
   Campaign,
   CampaignEvent,
@@ -45,6 +47,7 @@ import type {
   ThesisVersion,
   UserProfile,
 } from '@/lib/types/domain';
+import { demoBooking } from './booking-fixtures';
 import { demoGlance } from './glance-fixtures';
 import { demoCampaignId, demoCrmId, DEMO_IDS as ID } from './ids';
 
@@ -91,6 +94,8 @@ export interface DemoDb {
   campaigns: Campaign[];
   campaign_recipients: CampaignRecipient[];
   campaign_events: CampaignEvent[];
+  booking_settings: BookingSettingsRow[];
+  booking_requests: BookingRequest[];
   [key: string]: unknown[];
 }
 
@@ -2191,6 +2196,7 @@ experiment, not the fundraise timing.`,
     routine_briefings: demoRoutineBriefings(now),
     ...demoCrm(now),
     ...demoCampaigns(now),
+    ...demoBooking(now),
     // The public job board, switched on, over the two demo companies.
     ...demoJobsBoard(now),
   };
