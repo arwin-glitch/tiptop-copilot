@@ -116,6 +116,39 @@ export function isOwnPhotoPath(
   );
 }
 
+/**
+ * How far ahead the link may ever be opened: this month and the next eight
+ * (the Booking tab's month strip shows all nine).
+ */
+export const MAX_MONTHS_AHEAD = 8;
+
+/** A month, `YYYY-MM`. */
+export const MONTH_KEY = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use a month like 2026-11.');
+/** A day, `YYYY-MM-DD`. */
+export const DATE_KEY = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, 'Use a date like 2026-11-24.');
+
+export const CLOSED_RANGE = z
+  .object({
+    from: DATE_KEY,
+    to: DATE_KEY,
+    label: z.string().trim().max(60).default(''),
+  })
+  .refine((r) => r.from <= r.to, 'A closed run of days has to end on or after its first day.');
+export type ClosedRange = z.infer<typeof CLOSED_RANGE>;
+
+export const DATE_HOURS = z
+  .object({ date: DATE_KEY, from: CLOCK, to: CLOCK })
+  .refine((d) => d.from < d.to, 'A day’s hours have to end after they start.');
+export type DateHours = z.infer<typeof DATE_HOURS>;
+
+export const CALENDAR_CHOICE = z.object({
+  id: z.string().min(1).max(320),
+  counts: z.boolean(),
+});
+export type CalendarChoice = z.infer<typeof CALENDAR_CHOICE>;
+
 /** Everything Settings > Booking link edits, apart from on/off and the slug. */
 export interface BookingConfig {
   displayName: string;
@@ -151,17 +184,39 @@ export interface BookingConfig {
    */
   stackLeadMinutes: number;
   noticeHours: number;
-  horizonDays: number;
-  /** Link bookings (waiting and approved) a day can hold. */
+  /**
+   * The last month the link is open through, `YYYY-MM`, or null for a
+   * rolling window of `rollingMonths` after this one (D-078: the horizon is
+   * a month, not a count of days).
+   */
+  openThrough: string | null;
+  /** With no `openThrough`: this month and this many after it (1: this month and next). */
+  rollingMonths: number;
+  /** Months closed on the link, `YYYY-MM`, inside the open window. */
+  closedMonths: string[];
+  /** Single days closed on the link, `YYYY-MM-DD`. Rules always win: nothing here opens a day. */
+  closedDates: string[];
+  /** Runs of days closed (a holiday, a trip), inclusive, with an optional label. */
+  closedRanges: ClosedRange[];
+  /** Shorter hours on one day: a time is offered only wholly inside them. */
+  dateHours: DateHours[];
+  /**
+   * Which calendars count as busy, where the person chose: absent means the
+   * default (his main calendar, every one he owns, every one ticked in
+   * Google or turned on in Copilot). His main calendar always counts and a
+   * teammate's own calendar never does, whatever is stored here.
+   */
+  calendarChoices: CalendarChoice[];
+  /** Link bookings (waiting, held and booked) a day can hold. */
   maxLinkBookingsPerDay: number;
   /** A day with this many meetings already offers nothing. */
   maxMeetingsPerDay: number;
   /**
-   * Stored for later. In this version Copilot writes to the calendar only on
-   * a person's Approve (never from the public page), so with it on a request
-   * is only tagged "Instant" in the drawer (D-074).
+   * Off by default (D-078): a visitor who picks a free time that passes
+   * every rule is booked at once, the invitation sent from the host's
+   * calendar. On, each booking waits as a request for someone to approve.
    */
-  instant: boolean;
+  approveFirst: boolean;
   chatbotEnabled: boolean;
   /** The only TipTop facts the public chatbot may give. */
   faq: string;
@@ -196,10 +251,16 @@ export const DEFAULT_BOOKING_CONFIG: BookingConfig = {
   stackCooldownMinutes: 60,
   stackLeadMinutes: 30,
   noticeHours: 24,
-  horizonDays: 21,
+  openThrough: null,
+  rollingMonths: 1,
+  closedMonths: [],
+  closedDates: [],
+  closedRanges: [],
+  dateHours: [],
+  calendarChoices: [],
   maxLinkBookingsPerDay: 2,
   maxMeetingsPerDay: 5,
-  instant: false,
+  approveFirst: false,
   chatbotEnabled: true,
   faq: '',
   monthlyAiCapUsd: 20,
@@ -242,10 +303,28 @@ export const BOOKING_CONFIG_SCHEMA = z
     stackCooldownMinutes: int(0, 240),
     stackLeadMinutes: int(15, 120),
     noticeHours: int(24, 24 * 14),
-    horizonDays: int(1, 45),
+    openThrough: MONTH_KEY.nullable(),
+    rollingMonths: int(0, MAX_MONTHS_AHEAD),
+    closedMonths: z.array(MONTH_KEY).max(36),
+    closedDates: z.array(DATE_KEY).max(400),
+    closedRanges: z.array(CLOSED_RANGE).max(40),
+    dateHours: z
+      .array(DATE_HOURS)
+      .max(200)
+      .refine(
+        (list) => new Set(list.map((d) => d.date)).size === list.length,
+        'One set of hours a day.',
+      ),
+    calendarChoices: z
+      .array(CALENDAR_CHOICE)
+      .max(60)
+      .refine(
+        (list) => new Set(list.map((c) => c.id)).size === list.length,
+        'A calendar is listed twice.',
+      ),
     maxLinkBookingsPerDay: int(0, 10),
     maxMeetingsPerDay: int(1, 15),
-    instant: z.boolean(),
+    approveFirst: z.boolean(),
     chatbotEnabled: z.boolean(),
     faq: z.string().max(4000),
     monthlyAiCapUsd: z.number().min(0).max(500),

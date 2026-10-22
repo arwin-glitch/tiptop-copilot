@@ -1,11 +1,21 @@
 import { addDaysToKey, localDateKey, wallTimeToUtc } from '@/lib/util/time';
 import {
   ALLOWED_WEEKDAYS,
+  KIND_LABEL,
+  MEETING_KINDS,
   MEETING_MINUTES,
   type BookingConfig,
   type MeetingKind,
   type MeetingType,
 } from './config';
+import {
+  hoursFor,
+  lastOpenDay,
+  lastOpenMonth,
+  monthLabel,
+  openThroughPassed,
+  plannerClosure,
+} from './months';
 
 /**
  * The booking link's slot engine: which times the public page may offer, and
@@ -18,19 +28,23 @@ import {
  * the first rule it breaks is the reason it is not offered:
  *
  *  1. Tuesday, Wednesday or Thursday only (and only the ones Settings keeps).
- *  2. Inside its window: a call wholly inside the call window; an in-person
- *     meeting starting inside one of its kind's windows. Host time, so a day
- *     the clocks change is right too (wallTimeToUtc).
- *  3. Notice and horizon: at least `noticeHours` ahead, at most `horizonDays`.
- *  4. In person only on a day the host is home: no travel signs that day.
- *  5. The day's caps: at most `maxLinkBookingsPerDay` link bookings (waiting
- *     and approved), and nothing on a day that already has
+ *  2. The month planner (D-078, lib/booking/months.ts): not in a closed
+ *     month, on a closed day or in a closed run of days, and no later than
+ *     the end of the month the link is open through.
+ *  3. Inside its window: a call wholly inside the call window; an in-person
+ *     meeting starting inside one of its kind's windows; and, on a day with
+ *     shorter hours, wholly inside those too. Host time, so a day the clocks
+ *     change is right too (wallTimeToUtc).
+ *  4. Notice: at least `noticeHours` ahead.
+ *  5. In person only on a day the host is home: no travel signs that day.
+ *  6. The day's caps: at most `maxLinkBookingsPerDay` link bookings (waiting,
+ *     held or booked), and nothing on a day that already has
  *     `maxMeetingsPerDay` meetings.
- *  6. Clear of busy time with a buffer: 15 minutes each side for a call, 30
+ *  7. Clear of busy time with a buffer: 15 minutes each side for a call, 30
  *     for an in-person meeting, and 30 around any existing in-person meeting
  *     (travel), whichever is more. An opaque all-day entry makes the whole
  *     day busy.
- *  7. Back-to-back runs: when `stackSize` or more busy entries sit back to
+ *  8. Back-to-back runs: when `stackSize` or more busy entries sit back to
  *     back (gaps under `stackGapMinutes`), nothing touches the run, nothing
  *     starts within `stackCooldownMinutes` after it ends, and nothing ends
  *     within `stackLeadMinutes` before it starts (30 by default, for a call
@@ -41,7 +55,6 @@ import {
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
 /** Candidate starts step by half an hour from each window's opening. */
 export const SLOT_STEP_MINUTES = 30;
 
@@ -58,15 +71,18 @@ export interface BusyBlock {
   link?: true;
 }
 
-/** A request made through the link, waiting or approved. */
+/** A booking made through the link: waiting, held, approved or booked. */
 export interface LinkBooking {
   id: string;
   start: number;
   end: number;
   type: MeetingType;
   /**
-   * Approved, so the host's calendar has it (Copilot made the event, or a
-   * person added it by hand) and it is among the busy blocks already.
+   * On the host's calendar (Copilot made the event, or a person added it by
+   * hand), so it is among the busy blocks already. A booking made in the
+   * last few minutes is not: Google may not list a new event at once, so it
+   * holds its own time until then (an entry at exactly its time stands in
+   * for it, so it is never counted twice).
    */
   onCalendar: boolean;
   /** When it was asked for (ms), for first come, first served on Approve. */
@@ -217,8 +233,9 @@ interface Prepared {
 function prepare(input: EngineInput, query: SlotQuery, excludeId?: string): Prepared {
   const { config, hostZone } = input;
   const bookings = input.linkBookings.filter((b) => b.id !== excludeId);
+  const same = new Set(input.busy.map((b) => `${b.start}:${b.end}`));
   const pending: BusyBlock[] = bookings
-    .filter((b) => !b.onCalendar)
+    .filter((b) => !b.onCalendar && !same.has(`${b.start}:${b.end}`))
     .map((b) => ({
       start: b.start,
       end: b.end,
@@ -280,21 +297,35 @@ function problemFor(
   if (!config.weekdays.includes(weekday)) {
     return 'That day is not offered on the booking link any more.';
   }
+  const closed = plannerClosure(config, day);
+  if (closed) return closed;
+  const today = localDateKey(input.askedAt ?? now, hostZone);
+  if (openThroughPassed(config, today)) {
+    return 'The booking link is not open for any month right now.';
+  }
+  if (day > lastOpenDay(config, today)) {
+    return `That time is past the months the link is open for (through ${monthLabel(lastOpenMonth(config, today))}).`;
+  }
   if (query.type === 'in_person' && !query.kind) return 'Pick coffee, lunch or dinner.';
   if (!known?.inWindow && !inWindow(start, query, config, hostZone)) {
     return query.type === 'call'
       ? 'That time is outside the hours for calls.'
       : 'That time is outside the hours for this kind of meeting.';
   }
+  const hours = hoursFor(config, day);
+  if (hours) {
+    const opens = toInstant(day, minutesOf(hours.from), hostZone);
+    const closes = toInstant(day, minutesOf(hours.to), hostZone);
+    if (opens === null || closes === null || start < opens || end > closes) {
+      return 'That time is outside the shorter hours set for that day.';
+    }
+  }
 
-  const from = (input.askedAt ?? now).getTime();
-  if (start < from + config.noticeHours * HOUR) {
+  const asked = (input.askedAt ?? now).getTime();
+  if (start < asked + config.noticeHours * HOUR) {
     return `That time is less than ${config.noticeHours} hours ahead.`;
   }
   if (input.askedAt && start < now.getTime() + HOUR) return 'That time is too close now.';
-  if (start > from + config.horizonDays * DAY) {
-    return `That time is more than ${config.horizonDays} days ahead.`;
-  }
 
   if (query.type === 'in_person') {
     if (input.inPersonPaused) {
@@ -344,17 +375,24 @@ function problemFor(
 export const WAITING_CLASH =
   'An earlier booking request is waiting for an overlapping time. Approve or decline that one first.';
 
-/** The host-zone day keys the engine walks: today through the horizon. */
-export function horizonDays(now: Date, hostZone: string, horizon: number): string[] {
+/**
+ * The host-zone day keys the engine walks: today through the end of the
+ * last month the link is open for (none once a fixed month has passed).
+ */
+export function openDays(now: Date, hostZone: string, config: BookingConfig): string[] {
   const today = localDateKey(now, hostZone);
-  return Array.from({ length: horizon + 1 }, (_, i) => addDaysToKey(today, i));
+  if (openThroughPassed(config, today)) return [];
+  const last = lastOpenDay(config, today);
+  const out: string[] = [];
+  for (let day = today; day <= last; day = addDaysToKey(day, 1)) out.push(day);
+  return out;
 }
 
 /** Every start the link may offer for this query, soonest first. */
 export function openSlots(input: EngineInput, query: SlotQuery): OpenSlot[] {
   const prepared = prepare(input, query);
   const out: OpenSlot[] = [];
-  for (const day of horizonDays(input.now, input.hostZone, input.config.horizonDays)) {
+  for (const day of openDays(input.now, input.hostZone, input.config)) {
     const known = { day, inWindow: true as const };
     for (const start of candidateStarts(day, query, input.config, input.hostZone)) {
       if (problemFor(prepared, start, known) !== null) continue;
@@ -382,4 +420,82 @@ export function slotProblem(
   const at = Date.parse(start);
   if (!Number.isFinite(at)) return 'That time could not be read.';
   return problemFor(prepare(input, query, excludeBookingId), at);
+}
+
+/* ------------------------------------------------------- the planner's view */
+
+/** One day for one kind of meeting: the times it offers, or why it offers none. */
+export interface DayPlan {
+  date: string;
+  slots: OpenSlot[];
+  /** Why nothing is offered, in plain words; null when something is. */
+  reason: string | null;
+}
+
+/** The kinds of meeting a preview shows, in order: a call, then each in-person kind. */
+export const PREVIEW_QUERIES: { key: string; label: string; query: SlotQuery }[] = [
+  { key: 'call', label: 'Call', query: { type: 'call' } },
+  ...MEETING_KINDS.map((kind) => ({
+    key: kind,
+    label: KIND_LABEL[kind],
+    query: { type: 'in_person' as const, kind },
+  })),
+];
+
+/**
+ * Why a day offers nothing for a query: the reason most of its times break,
+ * which for a day-wide rule (a Monday, a closed month, a day away) is every
+ * one of them. A tie goes to the earliest time's reason.
+ */
+function dayReason(reasons: readonly string[]): string {
+  const counts = new Map<string, number>();
+  for (const r of reasons) counts.set(r, (counts.get(r) ?? 0) + 1);
+  let best = reasons[0] ?? 'No hours are set for this.';
+  for (const [r, n] of counts) if (n > (counts.get(best) ?? 0)) best = r;
+  return best;
+}
+
+/**
+ * Every day from `from` to `to` (host-zone keys, inclusive) for one query,
+ * through the same rules as the public page: the planner's preview and its
+ * "why no times" list show exactly what a visitor would see.
+ */
+export function dayPlans(
+  input: EngineInput,
+  query: SlotQuery,
+  from: string,
+  to: string,
+): DayPlan[] {
+  const prepared = prepare(input, query);
+  const out: DayPlan[] = [];
+  for (let day = from; day <= to; day = addDaysToKey(day, 1)) {
+    const starts = candidateStarts(day, query, input.config, input.hostZone);
+    const slots: OpenSlot[] = [];
+    const reasons: string[] = [];
+    const known = { day, inWindow: true as const };
+    for (const start of starts) {
+      const problem = problemFor(prepared, start, known);
+      if (problem === null) {
+        slots.push({
+          start: new Date(start).toISOString(),
+          end: new Date(start + prepared.minutes * MINUTE).toISOString(),
+          date: day,
+        });
+      } else {
+        reasons.push(problem);
+      }
+    }
+    if (starts.length === 0) {
+      const weekday = weekdayOf(day);
+      reasons.push(
+        !(ALLOWED_WEEKDAYS as readonly number[]).includes(weekday)
+          ? 'Meetings are only on Tuesday, Wednesday and Thursday.'
+          : query.type === 'call'
+            ? 'No hours are set for calls.'
+            : `No hours are set for ${query.kind ? KIND_LABEL[query.kind].toLowerCase() : 'this'}.`,
+      );
+    }
+    out.push({ date: day, slots, reason: slots.length ? null : dayReason(reasons) });
+  }
+  return out;
 }
