@@ -564,7 +564,11 @@ service `lib/services/booking.ts`, the pure rules in `lib/booking/`, D-074).
 
 Only the server writes these, with the service role: the public routes insert
 pending requests and nothing else, and every change after that is a signed-in
-person's Approve, Decline or "handled". RLS as for the other tables. Until the
+person's Approve, Decline or "handled". RLS as for the other tables, except
+that `booking_settings` is written only by an admin or the owner (reading it
+stays open to members), as its Settings routes require. The stored photo path
+must be `booking/<organization>/host-photo-<version>.<ext>`; anything else
+reads as no photo. Until the
 migration is applied the page is closed, the Calendar button and the Today line
 are hidden, and Settings says which file to run.
 

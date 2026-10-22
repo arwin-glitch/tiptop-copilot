@@ -35,7 +35,9 @@ optional company, the time and place they asked for, their note and an
 optional deck link), a keyed hash of their network address for abuse limits,
 and what happened to the request. The public page and its chatbot are shown
 open times only, never what is on the calendar; the chatbot's messages are not
-stored, only their estimated cost.
+stored, only their estimated cost. The address a visitor types is not
+checked: an approved request emails the invitation to it, so the Copilot side
+marks every request "Email not checked" and asks once more before approving.
 
 ---
 

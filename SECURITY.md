@@ -174,15 +174,34 @@ The booking link (D-074) is the one public page a stranger is meant to use:
 turns it on, closed for any other slug or when its tables are missing, and its
 routes read busy times only (no title, guest, place or calendar name leaves
 the server) and write one thing, a pending request. Writes must carry this
-site's Origin; every route brakes per address (a keyed hash), a request also
-per email, with at most three waiting per address; a honeypot is answered as
-success and stored nowhere; bodies are capped and zod-strict. Nothing reaches
-the calendar until a signed-in member presses Approve, which re-checks the
-time and writes through `lib/calendar/write.ts`; Copilot sends no email from
-it. The public chatbot has three tools (open times, the public FAQ text, a
-form fill the visitor must send), gets the conversation as one fenced visitor
-turn, and runs on the model only under a monthly cap and per-address limits
-(else a guided helper with no model).
+site's Origin; every route brakes per address (a keyed hash), the page
+included (past 120 views in 10 minutes it shows the closed page and reads
+nothing) and the chat route before it reads anything; a request is also braked
+per email. Waiting requests are capped in the table: at most three per email
+address, three per sender address whatever email is typed, and six new
+meeting requests a day for the whole link, so a stranger cannot hold every
+slot. Requests are checked and stored one at a time per organization. A
+honeypot is answered as success and stored nowhere; bodies are capped and
+zod-strict; the email must be a plain address (no `?cc=`/`&body=`, no
+invisible characters); visitor text loses control, invisible and
+direction-changing characters and angle brackets, and the drawer builds its
+mailto link with the address encoded. Nothing reaches the calendar until a
+signed-in member presses Approve (and confirms it), which re-checks the time
+first come, first served and writes through `lib/calendar/write.ts`; Decline
+waits while an approval holds its claim; any `<` or `>` reaching the event is
+turned into a look-alike (Google reads descriptions as HTML); the drawer marks
+every address "Email not checked". Copilot sends no email from it. The host
+photo is only ever the file an upload wrote: Settings saves never take a
+photo path, the stored path must have the one shape Copilot names, and both
+photo routes serve only that exact path. The public chatbot has three tools
+(open times, the public FAQ text, a form fill the visitor must send), gets at
+most the last six turns and 3,000 characters as one fenced visitor turn, and
+runs on the model only under the Settings monthly cap (summed over every page
+of `ai_usage`, a failed turn counted at what it spent or its worst case), the
+daily AI budget, 400 model turns a day for the link (persisted) and
+per-address limits (else a guided helper with no model). Every per-address
+limit trusts `CF-Connecting-IP` from the edge: confirm production overwrites a
+forged one before turning the link on.
 
 ---
 
@@ -230,8 +249,9 @@ lookups, tool calls and a full chat turn.
 | Daily AI spend | Persisted `ai_usage` rows | Per organization |
 | Sync triggers, uploads, demo entry | In-process fixed window | Per key |
 | Desktop alerts (`/api/desktop/alerts`) | In-process: bad tokens per address, then 20 a minute per computer once the token checks out; 300 ledger rows a day | Per address, per organization and computer |
-| Booking link requests (`/api/meet/*/request`) | In-process: 5 per 10 minutes and 20 a day per address, 3 an hour per email; at most 3 waiting per email (persisted rows) | Per address and per email |
-| Booking link chatbot (`/api/meet/*/chat`) | In-process: 60 requests per 10 minutes per address; the model 10 per 10 minutes and 40 a day per address, 300 an hour per link; persisted `ai_usage` against the Settings monthly cap ($20) and the daily budget | Per address, per link, per organization |
+| Booking link page (`/meet/*`) | In-process: 120 views per 10 minutes per address, then the closed page | Per address |
+| Booking link requests (`/api/meet/*/request`) | In-process: 5 per 10 minutes and 20 a day per address, 3 an hour per email. Persisted rows: at most 3 waiting per email, 3 waiting per sender address, 6 new meeting requests a day per link | Per address, per email, per link |
+| Booking link chatbot (`/api/meet/*/chat`) | In-process: 60 requests per 10 minutes per address (before any read); the model 10 per 10 minutes and 40 a day per address, 60 an hour per link. Persisted `ai_usage`: the Settings monthly cap ($20), the daily budget, 400 model turns a day per link | Per address, per link, per organization |
 
 The AI ceilings are persisted so they hold across serverless instances. The
 in-process limiter is an abuse brake on a single-user internal tool, not a
