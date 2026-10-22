@@ -92,6 +92,15 @@ test('books a 30-minute call in the chat', async ({ browser }, testInfo) => {
   await expect(card).toContainText(label);
   await expectNoPersonConfirms(chat);
   await page.screenshot({ animations: 'disabled', path: shot('chat-booked-1440') });
+  // Cancelled from its own page when it was booked, so the shared demo
+  // calendar is left as it was for the calendar specs.
+  const manage = card.getByRole('link', { name: 'Reschedule or cancel' });
+  if ((await card.getAttribute('data-booking-status')) !== 'pending' && (await manage.count())) {
+    await manage.click();
+    await page.getByRole('button', { name: 'Cancel meeting' }).click();
+    await page.getByRole('button', { name: 'Cancel meeting' }).click();
+    await expect(page.getByRole('heading', { name: 'This meeting was cancelled' })).toBeVisible();
+  }
   await context.close();
 });
 
