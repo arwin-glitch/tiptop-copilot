@@ -10,7 +10,7 @@ import { readCalendarPrefs } from '@/lib/services/calendar-prefs';
 import { readTeamMembers } from '@/lib/tasks/principal';
 import { err, ok, type Result } from '@/lib/util/result';
 import { addDaysToKey, localDateKey } from '@/lib/util/time';
-import { calendarZoneDiffers, toBusyPicture } from './busy';
+import { inPersonPausedThrough, toBusyPicture } from './busy';
 import { countingCalendarIds } from './calendar-choices';
 import type { BookingConfig } from './config';
 import type { BusyBlock } from './engine';
@@ -80,7 +80,12 @@ export function teammateCalendarIds(
 export interface BusyRead {
   busy: BusyBlock[];
   travelDays: Set<string>;
-  inPersonPaused: boolean;
+  /**
+   * The main calendar is set to another zone (lib/booking/busy.ts
+   * inPersonPausedThrough): in person paused through this host-zone day
+   * (his next flight home lands), or every day ('all'); null when not.
+   */
+  inPersonPausedThrough: string | 'all' | null;
 }
 
 export async function busyPictureFor(
@@ -116,7 +121,8 @@ export async function busyPictureFor(
   // the evening before the next day still says he travels), in parts the
   // reader takes; an entry in two parts is one entry (toBusyPicture).
   const from = localDateKey(now, hostZone);
-  const to = addDaysToKey(lastOpenDay(config, from), 2);
+  const last = lastOpenDay(config, from);
+  const to = addDaysToKey(last, 2);
   const events: RangeEvent[] = [];
   let calendars: CalendarInfo[] = [];
   for (const part of readChunks(from, to)) {
@@ -142,7 +148,15 @@ export async function busyPictureFor(
     home: { city: config.homeCity, aliases: config.homeAliases, places: config.places },
   });
   return ok({
-    ...picture,
-    inPersonPaused: calendarZoneDiffers(range.calendars, hostZone, now),
+    busy: picture.busy,
+    travelDays: picture.travelDays,
+    inPersonPausedThrough: inPersonPausedThrough(range.calendars, picture.homeLandings, {
+      hostZone,
+      now,
+      // The pause looks for his flight home as far as the link is open.
+      horizonDays: Math.round(
+        (Date.parse(`${last}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000,
+      ),
+    }),
   });
 }

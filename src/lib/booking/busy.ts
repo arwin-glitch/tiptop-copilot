@@ -3,6 +3,7 @@ import type { CalendarInfo, RangeEvent } from '@/lib/calendar/range-types';
 import { addDaysToKey, localClock, localDateKey, startOfDayUtc } from '@/lib/util/time';
 import type { BusyBlock } from './engine';
 import {
+  arrivesHome,
   homewardSign,
   inTransitSign,
   namesHome,
@@ -13,7 +14,8 @@ import {
 
 /**
  * The host's calendar reduced to what the booking link may know: busy
- * intervals and the days he is away. Nothing else leaves this function — no
+ * intervals, the days he is away and the days a journey lands him home.
+ * Nothing else leaves this function — no
  * title, guest, description, place or calendar name — so the slot engine,
  * the public page and the public chatbot can only ever be handed times.
  *
@@ -39,6 +41,11 @@ export interface BusyPicture {
   busy: BusyBlock[];
   /** Host-zone day keys with a travel sign. */
   travelDays: Set<string>;
+  /**
+   * Host-zone days a journey lands him back in his home city (the day it
+   * ends: a red-eye counts for the morning it lands), soonest first.
+   */
+  homeLandings: string[];
 }
 
 /** Whether an entry takes the host's time. */
@@ -132,6 +139,8 @@ export function toBusyPicture(
   const homewardDays = new Set<string>();
   /** Days with an entry at a home place: never filled as away. */
   const homeDays = new Set<string>();
+  /** Days a journey lands him in the home city (for the in-person pause). */
+  const homeLandings = new Set<string>();
   /** The same invite on two calendars is one entry. */
   const seen = new Set<string>();
   const own = new Set(options.ownEmails.map((e) => e.toLowerCase()));
@@ -164,6 +173,10 @@ export function toBusyPicture(
       if (homewardSign(entry, options.home)) {
         const days = daysCovered(event, options.hostZone);
         if (days.length) homewardDays.add(days[days.length - 1]!);
+      }
+      if (arrivesHome({ title: event.title, description: event.description }, options.home)) {
+        const days = daysCovered(event, options.hostZone);
+        if (days.length) homeLandings.add(days[days.length - 1]!);
       }
     } else if (!declined && place && namesHome(place, options.home)) {
       for (const day of daysCovered(event, options.hostZone)) homeDays.add(day);
@@ -222,13 +235,13 @@ export function toBusyPicture(
       if (!homeDays.has(d)) travelDays.add(d);
     }
   }
-  return { busy, travelDays };
+  return { busy, travelDays, homeLandings: [...homeLandings].sort() };
 }
 
 /**
  * The host's main calendar set to another time zone than his own: Google
  * Calendar offers that switch when he lands somewhere, so in-person meetings
- * pause until it is set back.
+ * pause while it differs (inPersonPausedThrough says for how long).
  */
 export function calendarZoneDiffers(
   calendars: readonly Pick<CalendarInfo, 'primary' | 'timeZone'>[],
@@ -237,4 +250,27 @@ export function calendarZoneDiffers(
 ): boolean {
   const zone = calendars.find((c) => c.primary)?.timeZone;
   return Boolean(zone && !sameClock(now, zone, hostZone));
+}
+
+/**
+ * How long in-person meetings stay paused, per trip rather than for every
+ * date: null when his main calendar shows his own zone (nothing paused);
+ * while it shows another, through the day his next journey home lands (a
+ * host-zone day key, today or later, inside the horizon), and every day
+ * after that opens as usual (travel days still apply). With no journey home
+ * on the calendar inside the horizon, 'all': every day stays paused, the
+ * safe default. A journey home that landed before today (the end of an
+ * earlier trip) says nothing about this one.
+ */
+export function inPersonPausedThrough(
+  calendars: readonly Pick<CalendarInfo, 'primary' | 'timeZone'>[],
+  homeLandings: readonly string[],
+  options: { hostZone: string; now: Date; horizonDays: number },
+): string | 'all' | null {
+  const { hostZone, now, horizonDays } = options;
+  if (!calendarZoneDiffers(calendars, hostZone, now)) return null;
+  const today = localDateKey(now, hostZone);
+  const last = addDaysToKey(today, horizonDays);
+  const next = [...homeLandings].sort().find((d) => d >= today && d <= last);
+  return next ?? 'all';
 }

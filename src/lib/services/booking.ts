@@ -448,7 +448,7 @@ export async function engineInputFor(
       config,
       busy: picture.value.busy,
       travelDays: picture.value.travelDays,
-      inPersonPaused: picture.value.inPersonPaused,
+      inPersonPausedThrough: picture.value.inPersonPausedThrough,
       linkBookings: bookings,
     },
   });

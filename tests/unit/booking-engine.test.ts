@@ -4,9 +4,11 @@ import {
   backToBackRuns,
   bookingsBefore,
   candidateStarts,
+  inPersonPauseReason,
   openSlots,
   slotProblem,
   weekdayOf,
+  withinBookingHours,
   type BusyBlock,
   type EngineInput,
   type LinkBooking,
@@ -109,21 +111,22 @@ describe('days', () => {
 });
 
 describe('windows', () => {
-  it('fits a whole call inside 9:00 to 17:00', () => {
+  it('fits a whole call inside 8:00 to 18:00', () => {
     const wed = startsOn(openSlots(input(), CALL), WED);
-    expect(wed[0]).toBe('09:00');
-    expect(wed.at(-1)).toBe('16:30');
-    expect(wed).toHaveLength(16);
-    expect(slotProblem(input(), CALL, iso(WED, 17, 0))).toBe(
+    expect(wed[0]).toBe('08:00');
+    expect(wed.at(-1)).toBe('17:30');
+    expect(wed).toHaveLength(20);
+    expect(slotProblem(input(), CALL, iso(WED, 18, 0))).toBe(
       'That time is outside the hours for calls.',
     );
-    expect(slotProblem(input(), CALL, iso(WED, 8, 30))).toMatch(/outside the hours/);
+    expect(slotProblem(input(), CALL, iso(WED, 7, 30))).toMatch(/outside the hours/);
     // A start off the half-hour grid is not one the page offered.
     expect(slotProblem(input(), CALL, iso(WED, 10, 15))).toMatch(/outside the hours/);
   });
 
   it('starts coffee, lunch and dinner inside their own windows', () => {
     expect(startsOn(openSlots(input(), COFFEE), WED)).toEqual([
+      '08:00',
       '08:30',
       '09:00',
       '09:30',
@@ -135,9 +138,11 @@ describe('windows', () => {
       '15:00',
       '15:30',
       '16:00',
+      '16:30',
+      '17:00',
     ]);
     expect(startsOn(openSlots(input(), LUNCH), WED)).toEqual(['11:30', '12:00', '12:30', '13:00']);
-    expect(startsOn(openSlots(input(), DINNER), WED)).toEqual(['18:00', '18:30', '19:00', '19:30']);
+    expect(startsOn(openSlots(input(), DINNER), WED)).toEqual(['18:00']);
     expect(slotProblem(input(), COFFEE, iso(WED, 12, 0))).toBe(
       'That time is outside the hours for this kind of meeting.',
     );
@@ -156,7 +161,7 @@ describe('windows', () => {
   it('reads the windows from Settings', () => {
     const slots = openSlots(input({}, { callWindow: { from: '13:00', to: '15:00' } }), CALL);
     expect(startsOn(slots, WED)).toEqual(['13:00', '13:30', '14:00', '14:30']);
-    expect(candidateStarts(WED, CALL, input().config, TZ)).toHaveLength(16);
+    expect(candidateStarts(WED, CALL, input().config, TZ)).toHaveLength(20);
   });
 });
 
@@ -188,7 +193,7 @@ describe('the clock change weeks', () => {
     // 10:00 CDT is 15:00 UTC; a week later 10:00 CST is 16:00 UTC.
     expect(before?.start).toBe('2026-10-27T15:00:00.000Z');
     expect(after?.start).toBe('2026-11-03T16:00:00.000Z');
-    expect(startsOn(slots, '2026-11-04')).toHaveLength(16);
+    expect(startsOn(slots, '2026-11-04')).toHaveLength(20);
   });
 
   it('and on both sides of the March change', () => {
@@ -200,7 +205,7 @@ describe('the clock change weeks', () => {
     expect(slots.find((s) => s.date === '2027-03-16' && clock(s.start) === '10:00')?.start).toBe(
       '2027-03-16T15:00:00.000Z',
     );
-    expect(startsOn(slots, '2027-03-17')).toHaveLength(16);
+    expect(startsOn(slots, '2027-03-17')).toHaveLength(20);
   });
 
   it('keeps in-person windows on the wall clock too', () => {
@@ -259,7 +264,7 @@ describe('buffers', () => {
     const busy = [allDay(WED, THU)];
     expect(startsOn(openSlots(input({ busy }), CALL), WED)).toEqual([]);
     expect(startsOn(openSlots(input({ busy }), COFFEE), WED)).toEqual([]);
-    expect(startsOn(openSlots(input({ busy }), CALL), THU)).toHaveLength(16);
+    expect(startsOn(openSlots(input({ busy }), CALL), THU)).toHaveLength(20);
     expect(slotProblem(input({ busy }), CALL, iso(WED, 10))).toBe('That day is busy all day.');
   });
 });
@@ -334,15 +339,145 @@ describe('travel days', () => {
     const travelDays = new Set([WED]);
     expect(startsOn(openSlots(input({ travelDays }), COFFEE), WED)).toEqual([]);
     expect(startsOn(openSlots(input({ travelDays }), COFFEE), THU).length).toBeGreaterThan(0);
-    expect(startsOn(openSlots(input({ travelDays }), CALL), WED)).toHaveLength(16);
+    expect(startsOn(openSlots(input({ travelDays }), CALL), WED)).toHaveLength(20);
     expect(slotProblem(input({ travelDays }), LUNCH, iso(WED, 12))).toBe(
       'The host is away that day.',
     );
   });
 
   it('pauses in person everywhere while the calendar is set to another time zone', () => {
-    expect(openSlots(input({ inPersonPaused: true }), COFFEE)).toEqual([]);
-    expect(openSlots(input({ inPersonPaused: true }), CALL).length).toBeGreaterThan(0);
+    expect(openSlots(input({ inPersonPausedThrough: 'all' }), COFFEE)).toEqual([]);
+    expect(openSlots(input({ inPersonPausedThrough: 'all' }), CALL).length).toBeGreaterThan(0);
+    expect(
+      slotProblem(
+        input({ inPersonPausedThrough: 'all' }, { displayName: 'Sam Host' }),
+        LUNCH,
+        iso(WED, 12),
+      ),
+    ).toBe("In person is paused while Sam's calendar is set to another time zone.");
+  });
+});
+
+describe('the in-person pause, per trip (hotfix)', () => {
+  // His calendar shows another zone and his flight home lands on Friday 30 October.
+  const paused = (over: Partial<EngineInput> = {}) =>
+    input({ inPersonPausedThrough: FRI, ...over }, { displayName: 'Sam Host' });
+
+  it('pauses in person only through the day his flight home lands', () => {
+    const coffee = openSlots(paused(), COFFEE);
+    for (const day of [TUE, WED, THU]) expect(startsOn(coffee, day)).toEqual([]);
+    // The next Tuesday, after he is back, opens as usual.
+    expect(startsOn(coffee, '2026-11-03')).toHaveLength(14);
+    expect(startsOn(openSlots(paused(), DINNER), '2026-11-04')).toEqual(['18:00']);
+    // Calls never pause.
+    expect(startsOn(openSlots(paused(), CALL), WED)).toHaveLength(20);
+  });
+
+  it('names when he is back in the reason', () => {
+    expect(slotProblem(paused(), COFFEE, iso(THU, 9))).toBe(
+      'In person is paused until Sam is back (from Sat 31 Oct).',
+    );
+    expect(slotProblem(paused(), COFFEE, iso('2026-11-03', 9))).toBeNull();
+    expect(inPersonPauseReason('2026-10-23', 'Sam Host')).toBe(
+      'In person is paused until Sam is back (from Sat 24 Oct).',
+    );
+    expect(inPersonPauseReason('2026-10-23', '')).toBe(
+      'In person is paused until the host is back (from Sat 24 Oct).',
+    );
+  });
+
+  it('still keeps travel days after the pause ends', () => {
+    const travelDays = new Set(['2026-11-03']);
+    const coffee = openSlots(paused({ travelDays }), COFFEE);
+    expect(startsOn(coffee, '2026-11-03')).toEqual([]);
+    expect(startsOn(coffee, '2026-11-04').length).toBeGreaterThan(0);
+  });
+
+  it('leaves everything open when nothing is paused', () => {
+    expect(startsOn(openSlots(input({ inPersonPausedThrough: null }), COFFEE), WED)).toHaveLength(
+      14,
+    );
+  });
+});
+
+describe('the hard hours, Central, whatever Settings holds (hotfix)', () => {
+  // A stored document past every bound, as if it skipped the save checks.
+  const wide = (over: Partial<EngineInput> = {}) =>
+    input(over, {
+      callWindow: { from: '06:00', to: '21:00' },
+      kindWindows: {
+        coffee: [{ from: '06:00', to: '20:00' }],
+        lunch: [{ from: '10:00', to: '19:00' }],
+        dinner: [{ from: '16:00', to: '21:00' }],
+      },
+    });
+
+  it('starts nothing before 8:00 and ends calls, coffee and lunch by 18:00', () => {
+    const calls = startsOn(openSlots(wide(), CALL), WED);
+    expect(calls[0]).toBe('08:00');
+    expect(calls.at(-1)).toBe('17:30');
+    const coffee = startsOn(openSlots(wide(), COFFEE), WED);
+    expect(coffee[0]).toBe('08:00');
+    expect(coffee.at(-1)).toBe('17:00');
+    expect(startsOn(openSlots(wide(), LUNCH), WED).at(-1)).toBe('17:00');
+  });
+
+  it('offers dinner only at 18:00, ending 19:00', () => {
+    const dinner = openSlots(wide(), DINNER).filter((s) => s.date === WED);
+    expect(dinner.map((s) => clock(s.start))).toEqual(['18:00']);
+    expect(clock(dinner[0]!.end)).toBe('19:00');
+  });
+
+  it('refuses the same times on the re-check of a stored time', () => {
+    expect(slotProblem(wide(), CALL, iso(WED, 7, 30))).toBe(
+      'That time is outside the hours for calls.',
+    );
+    expect(slotProblem(wide(), CALL, iso(WED, 18, 0))).toBe(
+      'That time is outside the hours for calls.',
+    );
+    expect(slotProblem(wide(), CALL, iso(WED, 17, 30))).toBeNull();
+    expect(slotProblem(wide(), COFFEE, iso(WED, 17, 30))).toBe(
+      'That time is outside the hours for this kind of meeting.',
+    );
+    expect(slotProblem(wide(), COFFEE, iso(WED, 17, 0))).toBeNull();
+    expect(slotProblem(wide(), DINNER, iso(WED, 18, 30))).toMatch(/outside the hours/);
+    expect(slotProblem(wide(), DINNER, iso(WED, 17, 0))).toMatch(/outside the hours/);
+    expect(slotProblem(wide(), DINNER, iso(WED, 18, 0))).toBeNull();
+    // Read off the instant itself, on the host's clock.
+    expect(withinBookingHours(at(WED, 8), CALL, TZ)).toBe(true);
+    expect(withinBookingHours(at(WED, 7, 59), CALL, TZ)).toBe(false);
+    expect(withinBookingHours(at(WED, 18), { type: 'in_person' }, TZ)).toBe(false);
+  });
+
+  it('keeps 8:00 to 18:00 Central on both sides of the 1 November change', () => {
+    const slots = openSlots(wide(), CALL);
+    const day = (key: string) => slots.filter((s) => s.date === key);
+    // Wednesday 28 October, CDT (UTC-5): 8:00 is 13:00 UTC, the last call 22:30 UTC.
+    expect(day(WED)[0]!.start).toBe('2026-10-28T13:00:00.000Z');
+    expect(day(WED).at(-1)!.start).toBe('2026-10-28T22:30:00.000Z');
+    expect(day(WED).at(-1)!.end).toBe('2026-10-28T23:00:00.000Z');
+    // Wednesday 4 November, CST (UTC-6): 8:00 is 14:00 UTC, the last call 23:30 UTC.
+    expect(day('2026-11-04')[0]!.start).toBe('2026-11-04T14:00:00.000Z');
+    expect(day('2026-11-04').at(-1)!.start).toBe('2026-11-04T23:30:00.000Z');
+    const dinner = openSlots(wide(), DINNER);
+    expect(dinner.find((s) => s.date === '2026-11-04')?.start).toBe('2026-11-05T00:00:00.000Z');
+    // 7:30 CST is refused though it is 8:30 on the October clock.
+    expect(slotProblem(wide(), CALL, '2026-11-04T13:30:00.000Z')).toMatch(/outside the hours/);
+    expect(slotProblem(wide(), CALL, '2026-11-04T14:00:00.000Z')).toBeNull();
+  });
+
+  it('shows a visitor in Manila the same Central hours on their own clock', () => {
+    const slots = openSlots(wide(), CALL).filter((s) => s.date === WED);
+    const zone = 'Asia/Manila';
+    // 8:00 Wednesday Central is 9:00 PM Wednesday in Manila; 17:30 is 6:30 AM Thursday.
+    expect(slotLabel(slots[0]!.start, zone)).toBe('Wed, Oct 28, 9:00 PM');
+    expect(slotLabel(slots.at(-1)!.start, zone)).toBe('Thu, Oct 29, 6:30 AM');
+    const dinner = openSlots(wide(), DINNER).find((s) => s.date === WED)!;
+    expect(slotLabel(dinner.start, zone)).toBe('Thu, Oct 29, 7:00 AM');
+    // Every offer, wherever it is read, is inside the hours on the host's clock.
+    for (const s of openSlots(wide(), CALL)) {
+      expect(withinBookingHours(Date.parse(s.start), CALL, TZ)).toBe(true);
+    }
   });
 });
 
@@ -367,7 +502,7 @@ describe('daily caps', () => {
       CALL,
     );
     expect(startsOn(two, WED)).toEqual([]);
-    expect(startsOn(two, THU)).toHaveLength(16);
+    expect(startsOn(two, THU)).toHaveLength(20);
     expect(
       slotProblem(input({ linkBookings: [pending('a', WED, 9), approved] }), CALL, iso(WED, 13)),
     ).toBe('That day already has 2 bookings from the link.');
