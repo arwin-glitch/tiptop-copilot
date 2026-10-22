@@ -2847,3 +2847,36 @@ promoted waitlisters (v1 nice) is not built; `claim_expires_at` stays empty.
 - **"Draft an email to Morgan"** opens a `mailto:` draft in the owner's own
   mail app. Copilot has no Gmail draft-creation path that never sends, and
   this one cannot send anything.
+
+*The Events tab and messages (WS5, part of D-075).*
+
+- **Events is a Working page in the menu, after Calendar** (`/events`): the
+  library under Upcoming, Drafts, Past and Templates, each event at
+  `/events/[id]` with Overview, Page, Guests, Registration, Messages,
+  Check-in, Sharing and Manage as URL subtabs (no long scroll). The event's
+  settings tab is labelled "Manage", and Network's Affinity tab became
+  "Event lists": the end-to-end suite finds menu links by substring, so no
+  tab may contain a menu name.
+- **Every guest email is a campaign draft** made through the campaigns
+  service (`lib/services/event-comms.ts`) and sent, if at all, by a person in
+  the existing campaign review, under the same daily cap, recipient limit,
+  send lease and confirmed-version check. Reminders are a schedule, not a
+  job: when one falls due, Today, the phone and the desktop app say "reminder
+  ready", and someone drafts and sends it. A notice's status changes are
+  marked told (WS4's `markNotified`) only after its campaign has sent.
+- **`{{rsvp_link}}` is the one link-valued merge field.** Its address is
+  written by the server into `campaign_recipients.merge.rsvp_link` when a
+  guest is added from the event (WS4's `resolveAudience` path, prefixed with
+  `APP_URL`), and must be exactly `<origin>/e/<slug>/i/<token>`. It is not in
+  `MERGE_FIELDS`, so nobody can type one in from the review; it cannot sit in
+  a link address or inside another link; a recipient without one, a campaign
+  not made from an event, or a local `APP_URL` blocks the review; test emails
+  never carry a guest's link. The click endpoint redirects to it only for
+  that same recipient, on an event campaign, exactly as stored: the static
+  allowlist (the body's links at confirmation) is unchanged.
+- **Where a draft came from is three nullable columns on `campaigns`**
+  (`event_id`, `event_kind`, `event_meta`;
+  `20261023000300_event_campaigns.sql`, hand-applied after the events
+  migration). Nothing that reviews, confirms or sends a campaign reads them.
+  Until the file runs, the rest of Campaigns is unchanged and the Messages
+  tab says event messages are not set up.

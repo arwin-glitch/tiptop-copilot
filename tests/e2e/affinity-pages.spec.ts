@@ -191,7 +191,7 @@ test('Network gains investors, providers, operators, events and Affinity people'
     ['investors', /^Investors/, 'Investors', 'Hana Kuroda'],
     ['providers', /^Service providers/, 'Service providers', 'Ashgrove Legal LLP'],
     ['operators', /^Operators/, 'Operators', 'Rafael Quintero'],
-    ['events', /^Events/, 'Events', 'Brightwater Bank'],
+    ['events', /^Event lists/, 'Events', 'Brightwater Bank'],
   ];
   for (const [key, label, table, row] of cases) {
     await page.goto(`/network?tab=${key}`);

@@ -291,7 +291,8 @@ export const NETWORK_TABS = define({
     },
     {
       key: 'events',
-      label: 'Events',
+      // Not "Events": that is the Events page in the menu (D-075).
+      label: 'Event lists',
       blurb: 'Event invite lists and sponsors from Affinity, with who said yes.',
     },
   ],

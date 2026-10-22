@@ -187,7 +187,7 @@ describe('subtabs', () => {
     // words even without the hint, so the tabs are listed with commas.
     const network = helpPage('network')?.steps.find((s) => s.target === 'subtabs');
     expect(network?.body).toBe(
-      'Intros, Going cold, Keep in touch, Students & interns, People, Investors, Service providers, Operators, Events.',
+      'Intros, Going cold, Keep in touch, Students & interns, People, Investors, Service providers, Operators, Event lists.',
     );
   });
 

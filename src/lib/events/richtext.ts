@@ -101,6 +101,10 @@ function resolveMerge(
   return mergeValue(field, values) || (fallback ?? DEFAULT_FALLBACKS[field]);
 }
 
+function rsvpTag(label: string | null): string {
+  return label ? `{{rsvp_link|${label}}}` : '{{rsvp_link}}';
+}
+
 function renderInline(nodes: Inline[], options: RichTextOptions, keyBase: string): ReactNode[] {
   return nodes.map((node, i) => {
     const key = `${keyBase}.${i}`;
@@ -115,6 +119,10 @@ function renderInline(nodes: Inline[], options: RichTextOptions, keyBase: string
         return createElement('em', { key }, ...renderInline(node.c, options, key));
       case 'br':
         return createElement('br', { key });
+      case 'rsvp':
+        // {{rsvp_link}} is an email-only merge (each guest's own link); on a
+        // page it stays as typed, like any other tag the page does not know.
+        return rsvpTag(node.label);
       case 'a':
         return createElement(
           'a',
@@ -181,7 +189,9 @@ export function richTextToPlain(source: string, options: RichTextOptions = {}): 
             ? resolveMerge(n.field, n.fallback, options.merge)
             : n.t === 'br'
               ? ' '
-              : text(n.c),
+              : n.t === 'rsvp'
+                ? rsvpTag(n.label)
+                : text(n.c),
       )
       .join('');
   return parseRichText(source)

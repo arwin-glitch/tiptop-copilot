@@ -1,5 +1,12 @@
 import * as React from 'react';
-import { DEFAULT_FALLBACKS, mergeValue, type Block, type Inline } from '@/lib/campaigns/template';
+import {
+  DEFAULT_FALLBACKS,
+  RSVP_LINK_PLACEHOLDER,
+  isRsvpLinkUrl,
+  mergeValue,
+  type Block,
+  type Inline,
+} from '@/lib/campaigns/template';
 import type { CampaignMerge } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
 
@@ -76,6 +83,31 @@ function InlineNodes({ nodes, merge }: { nodes: Inline[]; merge: CampaignMerge |
                 <InlineNodes nodes={node.c} merge={merge} />
               </a>
             );
+          case 'rsvp': {
+            // The recipient's personal RSVP link (event messages, D-075).
+            const url = isRsvpLinkUrl(merge?.rsvp_link) ? merge.rsvp_link : null;
+            const text = node.label ?? url ?? RSVP_LINK_PLACEHOLDER;
+            return url ? (
+              <a
+                key={i}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="{{rsvp_link}}: this person's own RSVP link"
+                className="rounded-sm bg-[var(--accent-soft)] px-0.5 text-[var(--accent)] underline underline-offset-2"
+              >
+                {text}
+              </a>
+            ) : (
+              <mark
+                key={i}
+                title="{{rsvp_link}}: each guest gets their own link when the email goes out"
+                className="rounded-sm bg-[var(--warn-soft)] px-0.5 text-inherit"
+              >
+                {text}
+              </mark>
+            );
+          }
           case 'merge': {
             const value = mergeValue(node.field, merge);
             const shown = value || (node.fallback ?? DEFAULT_FALLBACKS[node.field]);

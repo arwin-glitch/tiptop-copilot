@@ -914,7 +914,20 @@ export interface Campaign {
    * went), so the sample is never sent twice.
    */
   bcc_sample_at?: IsoDateTime | null;
+  // Event messages (20261023000300_event_campaigns.sql, D-075). Set only on a
+  // draft made from an event's Messages tab; absent on every other campaign,
+  // and on any row read before that file was applied. Nothing about how a
+  // campaign is reviewed, confirmed or sent reads them.
+  /** The event this campaign was drafted from. */
+  event_id?: Uuid | null;
+  event_kind?: EventCampaignKind | null;
+  /** What the draft was built from (audience, session, reminder, notice items); see event-comms.ts. */
+  event_meta?: Record<string, unknown> | null;
 }
+
+/** What an event message is for (Events → Messages, D-075). */
+export type EventCampaignKind =
+  'invite' | 'reminder' | 'notice' | 'update' | 'cancellation' | 'blast' | 'nudge';
 
 /**
  * A photo a campaign can attach to one recipient's email (or to several,
@@ -948,6 +961,11 @@ export interface CampaignMerge {
   first_name?: string;
   name?: string;
   company?: string;
+  /**
+   * The recipient's personal RSVP link, for {{rsvp_link}} (D-075). Written
+   * only by the server, when it adds a guest from an event; never typed.
+   */
+  rsvp_link?: string;
 }
 
 export interface CampaignRecipient {

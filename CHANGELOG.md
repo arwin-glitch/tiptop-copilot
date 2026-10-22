@@ -99,6 +99,37 @@ throughout.
   first used, used from a new device, or marked ready for review. Nothing is
   emailed: "Draft an email" opens a draft in your own mail app.
 
+- **Events tab (D-075).** Events is a new page in the menu, after Calendar.
+  The library shows every event as a card (its share picture or colours, the
+  date in the venue's time zone, a status, who is going, pending or on the
+  waitlist, and a dot for new guest activity) under Upcoming, Drafts, Past and
+  Templates, with a title search; with no events yet it shows the starters.
+  "New event" picks a starter, then a theme, then the name, date and time
+  zone, and makes a private draft. Each event has Overview (a Ready
+  checklist, what to do next and the headcount per session), Page (what is
+  live, what is waiting, the sections in order, and Open Studio), Guests,
+  Registration, Check-in and Sharing (their panels arrive with the other
+  parts), Messages and Manage (the link, who can find it, search and share
+  text, a password, duplicate, cancel, unpublish, archive, delete).
+- **Event messages are campaign drafts.** Messages drafts the invite, a
+  message to any group of guests (by status, tag, session or check-in, at any
+  time), reminders, "You're confirmed" and the other status notices from the
+  "Needs notifying" queue, an update when the time or place changes, a
+  cancellation notice, and nudges for invited guests who opened but did not
+  answer or never opened. Each one opens in the usual campaign review, where
+  nothing goes until someone taps Send, with the same daily limits. Every
+  guest gets their own RSVP link through a new `{{rsvp_link}}` field that only
+  Copilot fills in. Reminders follow a schedule per event (1 week, 1 day and
+  3 hours before by default); when one is due, Today and the phone and
+  desktop alerts say so, and it is never sent for you. An invite funnel shows
+  invited, delivered, opened, viewed the page, answered and going. One more
+  migration to run by hand, after the events ones:
+  `supabase/migrations/20261023000300_event_campaigns.sql`.
+- **Today** has a quiet line per event that wants something, such as
+  "Harborview Annual Meeting: 3 pending · reminder ready", and **Help** has an
+  Events card with a short tour. Network's Affinity "Events" tab is now
+  called "Event lists".
+
 - **Events, groundwork (D-075).** The foundation for Luma-style event pages
   inside Copilot is in place, ahead of the screens: the database tables for
   events, sessions, guests and their RSVPs, outside-editor and staff links,

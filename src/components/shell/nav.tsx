@@ -19,6 +19,7 @@ import {
   Settings,
   Sun,
   Target,
+  Ticket,
 } from 'lucide-react';
 import { cn } from '@/lib/util/cn';
 import { FieldLabel } from '@/components/ui/card';
@@ -56,6 +57,8 @@ export const NAV_ITEMS = [
   { href: '/deals', label: 'Deals', icon: Target },
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/calendar', label: 'Calendar', icon: CalendarClock },
+  // Event pages, guests and their invites (D-075).
+  { href: '/events', label: 'Events', icon: Ticket },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { href: '/fund-ii', label: 'Fund II', icon: Landmark },
   { href: '/meetings', label: 'Meetings', icon: CalendarDays },
@@ -75,7 +78,7 @@ export const NAV_ITEMS = [
 const GROUPS: { label: string; hrefs: string[] }[] = [
   {
     label: 'Working',
-    hrefs: ['/today', '/follow-ups', '/tasks', '/deals', '/inbox', '/calendar'],
+    hrefs: ['/today', '/follow-ups', '/tasks', '/deals', '/inbox', '/calendar', '/events'],
   },
   {
     label: 'Records',
