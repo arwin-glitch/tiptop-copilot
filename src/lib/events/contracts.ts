@@ -571,6 +571,8 @@ export interface StarterDoc {
   themePresetId: string;
   access: EventAccess;
   visibility: EventVisibility;
+  /** Integration (additive): the local start the new-event dialog suggests, "HH:MM". */
+  startTime?: string;
   sessions: StarterSession[];
   /** In order; ids and positions are assigned when the event is created. */
   sections: Omit<EventSection, 'id' | 'position' | 'rev' | 'keyRevs'>[];

@@ -14,6 +14,7 @@ export const agmStarter: StarterDoc = {
   themePresetId: 'tiptop-signature',
   access: 'invite_only',
   visibility: 'unlisted',
+  startTime: '13:00',
   sessions: [
     { name: 'Annual Meeting', offsetMinutes: 0, durationMinutes: 240, capacity: 80 },
     { name: 'Evening Reception', offsetMinutes: 300, durationMinutes: 180, capacity: 125 },

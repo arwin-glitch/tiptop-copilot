@@ -100,9 +100,10 @@ export function NewEventDialog({
   const [vibe, setVibe] = React.useState<string | null>(null);
   const [title, setTitle] = React.useState('');
   const [date, setDate] = React.useState('');
-  const [start, setStart] = React.useState('18:00');
-  // A starter with sessions (the AGM's meeting and reception) sets the end.
-  const [end, setEnd] = React.useState(endAfter('18:00', firstStarter?.spanMinutes) ?? '21:00');
+  // A starter suggests its start (the AGM's meeting at 1 PM) and its sessions set the end.
+  const firstStart = firstStarter?.startTime ?? '18:00';
+  const [start, setStart] = React.useState(firstStart);
+  const [end, setEnd] = React.useState(endAfter(firstStart, firstStarter?.spanMinutes) ?? '21:00');
   const [zone, setZone] = React.useState(timeZone);
   const [busy, setBusy] = React.useState(false);
   const [problem, setProblem] = React.useState<string | null>(null);
@@ -115,7 +116,9 @@ export function NewEventDialog({
     if (chosen) {
       setStarterId(chosen.id);
       setThemeId(chosen.themePresetId);
-      setEnd(endAfter(start, chosen.spanMinutes) ?? end);
+      const from = chosen.startTime ?? start;
+      setStart(from);
+      setEnd(endAfter(from, chosen.spanMinutes) ?? end);
       setStep('theme');
     }
   }
@@ -132,7 +135,9 @@ export function NewEventDialog({
     setStarterId(s.id);
     // A starter brings its own look; the theme step can still change it.
     setThemeId(s.themePresetId);
-    const reached = endAfter(start, s.spanMinutes);
+    const from = s.startTime ?? start;
+    if (s.startTime) setStart(s.startTime);
+    const reached = endAfter(from, s.spanMinutes);
     if (reached) setEnd(reached);
   };
 

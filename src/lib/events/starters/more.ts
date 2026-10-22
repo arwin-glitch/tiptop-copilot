@@ -14,6 +14,7 @@ export const founderGolfStarter: StarterDoc = {
   themePresetId: 'pitch-putt-clubhouse',
   access: 'approval',
   visibility: 'unlisted',
+  startTime: '12:00',
   sessions: [
     { name: 'Golf (shotgun start)', offsetMinutes: 0, durationMinutes: 240, capacity: 72 },
     { name: 'Clubhouse reception', offsetMinutes: 270, durationMinutes: 120, capacity: 150 },
@@ -173,6 +174,7 @@ export const dinnerSalonStarter: StarterDoc = {
   themePresetId: 'supper-club',
   access: 'invite_only',
   visibility: 'unlisted',
+  startTime: '19:00',
   sessions: [{ name: 'Dinner', offsetMinutes: 0, durationMinutes: 180, capacity: 16 }],
   sections: [
     sectionTemplate(
@@ -281,6 +283,7 @@ export const demoDayStarter: StarterDoc = {
   themePresetId: 'blueprint',
   access: 'approval',
   visibility: 'public',
+  startTime: '16:00',
   sessions: [
     { name: 'Demos', offsetMinutes: 0, durationMinutes: 180, capacity: 200 },
     { name: 'Reception', offsetMinutes: 180, durationMinutes: 120, capacity: 200 },
@@ -424,6 +427,7 @@ export const holidayPartyStarter: StarterDoc = {
   themePresetId: 'winter-lodge',
   access: 'open',
   visibility: 'unlisted',
+  startTime: '18:00',
   sessions: [{ name: 'Party', offsetMinutes: 0, durationMinutes: 270, capacity: 120 }],
   sections: [
     sectionTemplate(

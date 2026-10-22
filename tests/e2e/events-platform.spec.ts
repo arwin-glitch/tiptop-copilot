@@ -171,7 +171,7 @@ test.describe('signed in', () => {
     preview = await json(await api.get(`/api/events/${id}/publish`));
     expect(preview.canPublish).toBe(true);
     expect(preview.neverPublished).toBe(true);
-    expect(preview.lines.map((l: { text: string }) => l.text)).toContain('Hero – added');
+    expect(preview.lines.map((l: { text: string }) => l.text)).toContain('Cover – added');
 
     // A stale review is refused; the reviewed one publishes.
     const stale = await api.post(`/api/events/${id}/publish`, {

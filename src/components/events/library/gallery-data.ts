@@ -18,6 +18,8 @@ export interface StarterCard {
   sessions: string[];
   /** Minutes from the first session's start to the last one's end; null with no sessions. */
   spanMinutes: number | null;
+  /** The local start the starter suggests ("13:00" for the AGM); null for none. */
+  startTime: string | null;
   /** Block labels, in page order: "Cover", "Agenda", "RSVP". */
   sections: string[];
 }
@@ -81,6 +83,7 @@ export function starterCards(): StarterCard[] {
     spanMinutes: s.sessions.length
       ? Math.max(...s.sessions.map((x) => x.offsetMinutes + x.durationMinutes))
       : null,
+    startTime: s.startTime ?? null,
     sections: s.sections.map((section) => blockRegistry.get(section.type)?.label ?? section.type),
   }));
 }
