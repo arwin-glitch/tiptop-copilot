@@ -13,6 +13,7 @@ import { MockCalendarProvider } from '@/lib/calendar/provider';
 import { resetCalendarRangeCache, type CalendarSource } from '@/lib/calendar/range-reader';
 import type { DataStore } from '@/lib/db/store';
 import { DEMO_BOOKING_SETTINGS_ID } from '@/lib/demo/booking-fixtures';
+import { DEMO_TEAMMATE } from '@/lib/demo/fixtures';
 import { CALENDAR_EDIT_SCOPES } from '@/lib/google/send-scopes';
 import { resetLimiters } from '@/lib/security/limits';
 import { saveCalendarPrefs } from '@/lib/services/calendar-prefs';
@@ -873,6 +874,36 @@ describe('review fixes', () => {
     expect(hidden.ok).toBe(true);
     resetCalendarRangeCache();
     expect((await slots('call')).map((s) => s.start)).not.toContain(at(day, 15));
+  });
+
+  it("never lets a teammate's own calendar block the host's time", async () => {
+    const day = '2026-11-10';
+    expect((await slots('call')).map((s) => s.start)).toContain(at(day, 15));
+    // The assistant's main calendar, shared with the host as owner and ticked in
+    // Google, full of the assistant's own day (and an out-of-office).
+    state.calendars.push({
+      id: DEMO_TEAMMATE.email,
+      summary: DEMO_TEAMMATE.email,
+      timeZone: TZ,
+      colorId: '3',
+      backgroundColor: '#7986cb',
+      foregroundColor: '#1d1d1d',
+      selected: true,
+      accessRole: 'owner',
+    });
+    state.events.set(DEMO_TEAMMATE.email, [
+      {
+        id: 'teammateemails',
+        status: 'confirmed',
+        eventType: 'default',
+        summary: 'Emails',
+        start: { dateTime: at(day, 15), timeZone: TZ },
+        end: { dateTime: at(day, 15, 30), timeZone: TZ },
+        organizer: { email: DEMO_TEAMMATE.email, self: true },
+      },
+    ]);
+    resetCalendarRangeCache();
+    expect((await slots('call')).map((s) => s.start)).toContain(at(day, 15));
   });
 
   it('counts for Today only messages and meeting requests whose time is ahead', async () => {

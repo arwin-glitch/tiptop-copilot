@@ -7,6 +7,7 @@ import {
 import { visibleCalendarIds, type CalendarInfo } from '@/lib/calendar/range-types';
 import type { DataStore } from '@/lib/db/store';
 import { readCalendarPrefs } from '@/lib/services/calendar-prefs';
+import { readTeamMembers } from '@/lib/tasks/principal';
 import { err, ok, type Result } from '@/lib/util/result';
 import { addDaysToKey, localDateKey } from '@/lib/util/time';
 import { calendarZoneDiffers, toBusyPicture } from './busy';
@@ -46,6 +47,21 @@ export function bookingCalendarIds(
   return calendars.filter((c) => ids.has(c.id)).map((c) => c.id);
 }
 
+/**
+ * The main calendars of the organization's other members, by their sign-in
+ * address (a Google main calendar's id is its owner's address).
+ */
+export function teammateCalendarIds(
+  team: readonly { userId: string; email: string | null }[],
+  principalId: string | null,
+): Set<string> {
+  return new Set(
+    team
+      .filter((m) => m.userId !== principalId && m.email)
+      .map((m) => (m.email as string).trim().toLowerCase()),
+  );
+}
+
 export interface BusyRead {
   busy: BusyBlock[];
   travelDays: Set<string>;
@@ -69,7 +85,14 @@ export async function busyPictureFor(
   const prefs = options.principalId
     ? await readCalendarPrefs(store, organizationId, options.principalId)
     : { shown: {} };
-  const shown = bookingCalendarIds(list.value.calendars, prefs.shown);
+  // A teammate's own calendar (the assistant's, shared with the host) is
+  // their day, not the host's: it never counts toward the host's busy time,
+  // even when he owns it, ticked it in Google or turned it on in Copilot.
+  const team = await readTeamMembers(store, organizationId);
+  const teammateCalendars = teammateCalendarIds(team, options.principalId);
+  const shown = bookingCalendarIds(list.value.calendars, prefs.shown).filter(
+    (id) => !teammateCalendars.has(id.toLowerCase()),
+  );
 
   const from = localDateKey(now, hostZone);
   const range = await readCalendarRange(store, organizationId, {
