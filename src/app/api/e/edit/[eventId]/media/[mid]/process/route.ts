@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { ID_RE } from '@/lib/events/schema';
-import { processMedia } from '@/lib/services/event-media';
+import { processMedia, resolveMediaRows } from '@/lib/services/event-media';
 import { grantFail, grantGate, grantRespond } from '../../../../_grant';
 
 export const dynamic = 'force-dynamic';
@@ -17,18 +17,9 @@ export async function POST(request: NextRequest, context: Context) {
   }
   if (!ID_RE.test(mid)) return grantFail({ code: 'not_found', message: 'That file is not here.' });
   const media = await processMedia(gate.store, gate.actor, eventId, mid);
-  return grantRespond(gate, media, (m) => ({
-    media: {
-      id: m.id,
-      kind: m.kind,
-      status: m.status,
-      width: m.width,
-      height: m.height,
-      alt: m.alt,
-      decorative: m.decorative,
-      colors: m.colors,
-      thumbhash: m.thumbhash,
-      error: m.error,
-    },
-  }));
+  if (!media.ok) return grantRespond(gate, media, () => ({}));
+  // The same shape the owners' route returns (URLs included). Outsiders never
+  // upload gated files, and gated ones are withheld from their links anyway.
+  const resolved = await resolveMediaRows([media.value], { withholdGated: true });
+  return grantRespond(gate, resolved, (map) => ({ media: map[media.value.id] ?? null }));
 }

@@ -323,7 +323,7 @@ export function Canvas({
             <EventPage
               doc={shownDoc}
               facts={facts}
-              media={boot.media}
+              media={studio.media}
               viewer={viewer}
               mode={previewOnly ? 'preview' : 'studio'}
               motion={studio.motion}

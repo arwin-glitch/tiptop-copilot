@@ -9,7 +9,7 @@ import {
   canStructure,
   type DenyReason,
 } from '@/lib/events/capabilities';
-import type { MotionPreview } from '@/lib/events/contracts';
+import type { MediaMap, MotionPreview, ResolvedMedia } from '@/lib/events/contracts';
 import type { SectionTemplate } from '@/lib/events/doc';
 import {
   pageUpdate,
@@ -77,6 +77,9 @@ export interface StudioContextValue {
   closeGallery: () => void;
   mediaItems: StudioMediaItem[];
   setMediaItems: React.Dispatch<React.SetStateAction<StudioMediaItem[]>>;
+  /** What the canvas renders media with; a just-processed upload is added here. */
+  media: MediaMap;
+  addMedia: (item: ResolvedMedia) => void;
   /** A version being previewed read-only in the canvas (History). */
   versionPreview: { label: string; doc: EventDoc; versionId: string } | null;
   setVersionPreview: (v: { label: string; doc: EventDoc; versionId: string } | null) => void;
@@ -160,6 +163,7 @@ export function StudioProvider({
   const [railTab, setRailTab] = React.useState<RailTab>('sections');
   const [galleryAfter, setGalleryAfter] = React.useState<string | null | undefined>(undefined);
   const [mediaItems, setMediaItems] = React.useState<StudioMediaItem[]>(boot.mediaItems);
+  const [media, setMedia] = React.useState<MediaMap>(boot.media);
   const [versionPreview, setVersionPreview] =
     React.useState<StudioContextValue['versionPreview']>(null);
   const [overridden, setOverridden] = React.useState<Set<string>>(() => new Set());
@@ -327,6 +331,8 @@ export function StudioProvider({
     closeGallery: () => setGalleryAfter(undefined),
     mediaItems,
     setMediaItems,
+    media,
+    addMedia: (item) => setMedia((current) => ({ ...current, [item.id]: item })),
     versionPreview,
     setVersionPreview,
     publishedDoc: published.doc,

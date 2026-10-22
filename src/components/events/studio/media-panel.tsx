@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import type { ResolvedMedia } from '@/lib/events/contracts';
 import { studioFetch, withMediaId } from '@/lib/events/editor/api';
 import { mediaIdsInDoc, type StudioMediaItem } from '@/lib/events/editor/publish';
 import { cn } from '@/lib/util/cn';
@@ -19,8 +20,6 @@ interface UploadTicket {
   token?: string;
 }
 
-type ProcessedMedia = Partial<StudioMediaItem> & { id: string; status: StudioMediaItem['status'] };
-
 /**
  * The event's media: upload straight to storage (WS1's signed upload URL,
  * then processing: re-encoded, EXIF and GPS stripped), alt text, the
@@ -29,7 +28,7 @@ type ProcessedMedia = Partial<StudioMediaItem> & { id: string; status: StudioMed
  */
 export function MediaPanel() {
   const studio = useStudio();
-  const { boot, mediaItems, setMediaItems } = studio;
+  const { boot, mediaItems, setMediaItems, addMedia } = studio;
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
   const used = new Set(mediaIdsInDoc(studio.doc));
@@ -94,15 +93,28 @@ export function MediaPanel() {
         previewUrl: null,
       },
     ]);
-    const processed = await studioFetch<{ media: ProcessedMedia }>(
+    const processed = await studioFetch<{ media: ResolvedMedia | null }>(
       withMediaId(boot.endpoints.mediaProcess, t.mediaId),
       { method: 'POST', json: {} },
     );
     setBusy(null);
     if (processed.ok) {
+      const done = processed.value.media;
       setMediaItems((items) =>
-        items.map((m) => (m.id === t.mediaId ? { ...m, ...processed.value.media } : m)),
+        items.map((m) =>
+          m.id === t.mediaId
+            ? {
+                ...m,
+                status: done?.status ?? 'ready',
+                alt: done?.alt ?? m.alt,
+                decorative: done?.decorative ?? m.decorative,
+                colors: done?.colors ?? m.colors,
+                previewUrl: done?.src ?? done?.posterUrl ?? null,
+              }
+            : m,
+        ),
       );
+      if (done) addMedia(done);
       toast.success('Ready to use. Add alt text so everyone can follow the page.');
     } else {
       setMediaItems((items) =>
