@@ -552,6 +552,52 @@ read. An email without copies is read as before. Until the
 migration is applied, rows come back without these columns and the features
 stay hidden; nothing writes them.
 
+## 6c. Public job board
+
+Open roles at portfolio companies, for anyone to see, at `/jobs` on Copilot
+and at the root of `jobs.tiptop.vc` once its DNS points here
+(`20261022100000_public_jobs.sql`; services `lib/services/jobs-board.ts` and
+`jobs-board-sync.ts`, the pure rules in `lib/jobs-board/`, the pages in
+`components/jobs-board/`; see [docs/JOBS_BOARD.md](docs/JOBS_BOARD.md) and
+D-077). Off until a person switches it on: without a settings row, or before
+the migration is applied, every public page says "coming soon" and shows no
+data.
+
+| Table | Purpose |
+| --- | --- |
+| `job_board_settings` | One row per organization (`unique (organization_id)`): `enabled` (default false), `title`, `intro`, `accent` (a `#rrggbb` colour, checked), `updated_by`. |
+| `job_companies` | One row per portfolio company on the board (`unique (organization_id, portfolio_company_id)`), made the first time a company needs one: its board address `slug` (unique, never one of the board's own page names), `careers_url`, the job board read from it (`ats`: `greenhouse`, `lever`, `ashby`, `workable`, `recruitee`; `ats_token`, checked against a strict pattern before it is ever put into an address), `sync_enabled` (read daily), `auto_publish` (its board roles go public on their own), `listed` (on the companies page with no open roles), the public `logo_url` (https only) and `about` (else the portfolio company's own one-line `description`), and the last sync's `last_sync_at`, `last_sync_status` (`ok`, `failed`, `skipped`), `last_sync_message` and `last_sync_count`. |
+| `job_postings` | One row per role (`unique (organization_id, source, source_key)`): `source` (`ats`, `email`, `manual`) and `source_key` (`<ats>:<token>:<posting id>`, the jobs scan's role id, or a fresh id), `slug` (stable: an edit never changes it), the public fields (`title`, `team`, `job_function`, `locations[]`, `remote`, `employment_type`, `seniority`, `comp`, `description` as plain structured text, never HTML, `apply_url`, `posted_at`), `status` (`active`, `closed`), and who decided: `published`, `featured`, `approved_by`/`approved_at`, `hidden_by`/`hidden_at`. `first_seen_at`, `last_seen_at`, `closed_at`. |
+
+The gate is one function, `postingPublicState` (`lib/jobs-board/public.ts`),
+used by the public pages, Copilot's preview and the tests: a role is public
+only when its company is in the portfolio (not archived), it is active, no
+person hid it, it is published, an emailed or hand-added role was approved by
+a person, a board role a person never approved one by one only while its
+company's auto-publish is on, and it has somewhere to apply (its own link, or
+its company's careers page). The database repeats the essential part:
+`job_postings_approval_check` refuses a published `email` or `manual` row
+without `approved_at`, and `job_postings_hidden_check` a published hidden one.
+Public pages read only active, published rows and hand on only the fields in
+`PublicJob` and `PublicCompany`: never a contact, a founder's note, a source
+email, who approved a role, or anything else in Copilot.
+
+Emailed roles come from the jobs scan's `JOBS_V1` snapshot (Nick's mailbox),
+at portfolio companies only, as drafts: title, team, place, remote, a level
+read from the title, and the role's own job link. Never the people to send
+candidates to, the founder's notes, pay mentioned in an email, or the source
+emails. A role already imported is never re-created or edited by a later
+scan (a person may have edited it); one the founder now calls filled or
+closed is closed. A role the company lists on its own job board is not
+imported, and when a board sync finds a role an emailed draft already has,
+the draft is closed and, if a person had approved it, the board's copy
+carries the approval.
+
+A board sync replaces a company's set of open board roles with what its board
+lists now: new ones added (published only under auto-publish), listed ones
+refreshed and reopened, the rest closed. An answer that is not the board's
+documented shape, a 404, a timeout or a refusal changes nothing.
+
 ---
 
 ## 7. Row-level security

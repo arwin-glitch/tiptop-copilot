@@ -2556,3 +2556,87 @@ notes; the rest did not.
   follow-up snapshots read their first `max` items and count the rest.
 - The cards themselves do not show the skipped count; Diagnostics does, and
   the server log names the marker and the count (never the content).
+
+### D-077 — A public job board: published by a person, read from companies' own boards, off until switched on
+
+**Context.** Nick saw Portfolio › Jobs (the roles founders email him, from the
+weekly jobs scan) and asked for "a public version similar to the Perks
+directory", to announce a job board with all the portfolio companies' open
+roles, like the boards other funds run (GTMfund's is on Consider). Arwin
+asked for a button on the Jobs tab that opens the public page. The roles on
+Jobs come from Nick's mailbox, with the people to send candidates to and the
+founders' own words, so none of that can go public as it stands.
+
+**Decision.**
+
+- **Three tables, empty and off by default** (`20261022100000_public_jobs.sql`):
+  `job_board_settings` (the switch, title, intro, accent), `job_companies`
+  (per portfolio company: careers page, its job board and token, daily read,
+  auto-publish, listed, public logo and about, last read) and `job_postings`
+  (per role: source `ats` / `email` / `manual`, the public fields, status, and
+  `published`, `featured`, `approved_*`, `hidden_*`). No settings row, or no
+  tables yet, reads as off; every public page then says "coming soon" with no
+  data and noindex. Writes say the migration is needed.
+- **One gate, in code and in the database.** `postingPublicState`
+  (`lib/jobs-board/public.ts`) decides for the public pages, the signed-in
+  preview and the tests alike: company in the portfolio, role active, not
+  hidden, published, an emailed or hand-added role approved by a person, a
+  board role nobody approved individually only while its company's
+  auto-publish is on, and an apply link (its own or the company's careers
+  page). A check constraint refuses a published, unapproved `email` or
+  `manual` row. Public pages get only `PublicJob` / `PublicCompany` fields.
+- **Emailed roles are drafts, always.** The jobs scan's active roles at
+  portfolio companies are imported (on viewing Jobs, at most every five
+  minutes; Refresh now; the daily job) with the title, team, place, remote,
+  a level from the title and the job link. Never the contacts, the founder's
+  notes, pay from an email or the sources. Import never edits a role again;
+  a founder's "filled" closes it. A role the company already lists on its
+  own board is not imported; when a board sync finds one a draft has, the
+  draft closes and a person's approval moves to the board's copy.
+- **Companies' own job boards, read politely.** Greenhouse, Lever, Ashby,
+  Workable and Recruitee, through their documented public job-list APIs only,
+  addresses rebuilt from a strictly checked token. The board is read from the
+  careers address, or from the careers page's markup (fetched once, robots.txt
+  obeyed, public hosts only). Reads: daily on the full cron runs and on
+  Refresh now; robots.txt and its crawl delay per host; half a second at least
+  between calls to a host; 8 s timeouts; size caps; a 429 pauses the host;
+  Refresh now once a minute per company; per-company isolation; an answer in
+  an unknown shape, a 404 or a timeout changes nothing. The set of a company's
+  open board roles becomes exactly what its board lists. Ashby's unlisted
+  roles are skipped. Descriptions become plain structured text (`## `, `- `,
+  paragraphs) and render as text: no board HTML ever reaches a page. Demo
+  mode reads fictional fixtures. The daily job's line is counts only.
+- **Copilot.** A bar on every Jobs view: View public board (new tab), Copy
+  link, the switch, Preview (`/jobs-preview`, signed in, while off), Board
+  text. Views: From email (the original list, still the default), Approvals,
+  Public board (publish, hide, feature, mark filled, edit, add, refresh) and
+  Companies. Every action is a member-role server action with an audit row
+  (`jobs.*`) and rebuilds the cached public pages.
+- **Public pages.** `/jobs` (home: counts, featured, search and six filters in
+  the browser, kept in the address bar), `/jobs/companies`,
+  `/jobs/<company>`, `/jobs/<company>/<role>` (description, facts, Apply at
+  the company, share, JobPosting JSON-LD, canonical, Open Graph image), plus
+  `/jobs/sitemap.xml`. The Perks directory's look (dark, TipTop green, Mona
+  Sans and Fragment Mono via next/font), mobile first. Cached (ISR, 10
+  minutes, rebuilt on every change); a build that cannot read the database
+  renders them per request instead.
+- **Its own host.** The proxy serves the same pages at the root of
+  `jobs.tiptop.vc` (and `JOBS_BOARD_URL`'s host, `JOBS_BOARD_HOSTS`) by
+  rewriting to `/jobs-host`; every address there is the board's, Copilot is
+  unreachable, `/jobs/...` redirects to the short form, and `/jobs-host` is
+  404 elsewhere. A DNS CNAME and a Render custom domain are all it needs
+  (docs/JOBS_BOARD.md). Copilot's own `robots.txt` now disallows everything
+  but `/jobs`.
+
+**Known limits.**
+
+- No job alerts or talent network (they would collect visitors' emails).
+- Locations are free text from each board, so the location filter groups by
+  exact place name; no stage, size or industry filters.
+- An emailed role's posted date is when the founder first mentioned it.
+- Greenhouse EU, Lever EU, BambooHR and SmartRecruiters are not read.
+- The free Render plan's wake-up after idling is not hidden by caching.
+- The careers-page check refuses address literals, internal names and hosts
+  whose addresses are private, and follows redirects by hand, checking each;
+  it does not pin the address it checked, so a name that changes between the
+  check and the fetch is not caught.

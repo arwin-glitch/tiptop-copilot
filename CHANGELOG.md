@@ -10,6 +10,25 @@ throughout.
 
 ## [Unreleased]
 
+- **A public job board for the portfolio's open roles, with a button on
+  Portfolio › Jobs to open it.** Jobs now has a "Public job board" bar with
+  View public board (opens it in a new tab), Copy link, an on/off switch, a
+  Preview while it is off, and the board's text. Under it: From email (the
+  roles founders email Nick, as before), Approvals (those emailed roles,
+  waiting: none goes public until someone approves it, and only the title,
+  company, place, level and job link ever do), Public board (publish, hide,
+  feature, mark filled, edit, add a role, Refresh now) and Companies (each
+  company's careers page; Copilot reads Greenhouse, Lever, Ashby, Workable
+  and Recruitee boards every day, adds new roles and closes ones that are
+  gone; a company's board roles go public on their own only when someone
+  switches that on). The board itself is at /jobs, and at jobs.tiptop.vc once
+  its DNS points here: search and filters by company, team, place, remote,
+  level and type, featured roles, a page for each role (apply at the company,
+  share, Google for Jobs data) and each company, in the Perks directory's
+  look and fast on a phone. It is off, showing "coming soon", until switched
+  on, and needs the database update
+  `20261022100000_public_jobs.sql`.
+
 - **A routine's post that runs a little long no longer leaves its card on
   yesterday's copy.** When a routine wrote a note, a prep or a title longer
   than the app allows, or listed one item the app could not read (a meeting

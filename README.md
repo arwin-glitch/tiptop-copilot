@@ -128,6 +128,7 @@ npm run test:e2e:install  # one-time browser download
 | [SUPABASE_SETUP.md](SUPABASE_SETUP.md) | Database, auth and storage from zero |
 | [GOOGLE_OAUTH_SETUP.md](GOOGLE_OAUTH_SETUP.md) | Read-only Gmail and Calendar |
 | [docs/MCP.md](docs/MCP.md) | The MCP server: connecting claude.ai, Claude Code and routines to the CRM |
+| [docs/JOBS_BOARD.md](docs/JOBS_BOARD.md) | The public job board: how roles get on it, reading companies' job boards, setting jobs.tiptop.vc live |
 | [PUBLISH_CHECKLIST.md](PUBLISH_CHECKLIST.md) | Everything between here and live |
 | [PRIVACY.md](PRIVACY.md) | What is stored, where it goes, how to remove it |
 | [DECISIONS.md](DECISIONS.md) | Numbered record of every material choice |

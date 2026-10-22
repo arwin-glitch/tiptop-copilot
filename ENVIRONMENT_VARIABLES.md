@@ -461,6 +461,28 @@ in-app updates can stop until a new one is set.
 
 ---
 
+## Public job board
+
+The board at `/jobs` needs no variable: it is off until switched on in
+Portfolio › Jobs, and `jobs.tiptop.vc` is already served at its root once
+DNS points at the app. See [docs/JOBS_BOARD.md](docs/JOBS_BOARD.md) and
+[DECISIONS.md](DECISIONS.md) D-077.
+
+### `JOBS_BOARD_URL`
+
+Optional. The board's public address once its own host is live, e.g.
+`https://jobs.tiptop.vc`. Canonical links, the sitemap, link previews and
+Copilot's "View public board" button use it, and its host is served the
+board at its root. Unset: the board's address is `APP_URL` + `/jobs`.
+
+### `JOBS_BOARD_HOSTS`
+
+Optional. More hosts that serve the board at their root, comma separated
+(`jobs.tiptop.vc` always does). Every address on such a host is the board's;
+Copilot itself is never reachable there.
+
+---
+
 ## Ceilings
 
 All optional, all defaulted. These are **environment ceilings**: per-organization
