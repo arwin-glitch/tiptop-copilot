@@ -1416,6 +1416,8 @@ export interface BookingRequest {
   /** The visitor's note to the host when they cancelled. */
   cancel_note?: string | null;
   cancelled_at?: IsoDateTime | null;
+  /** Who cancelled: the visitor (its page), the team (Copilot) or the calendar (deleted in Google). */
+  cancelled_by?: 'visitor' | 'team' | 'calendar' | null;
   rescheduled_count?: number;
   previous_starts_at?: IsoDateTime | null;
 }

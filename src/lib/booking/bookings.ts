@@ -110,3 +110,6 @@ export function sortBookings(list: LinkBooking[], scope: BookingScope): LinkBook
     scope === 'upcoming' ? key(a).localeCompare(key(b)) : key(b).localeCompare(key(a)),
   );
 }
+
+/** The Booking tab, where the link's bookings, alerts and the Today line lead. */
+export const BOOKING_TAB_PATH = '/booking';

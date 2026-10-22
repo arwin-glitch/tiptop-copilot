@@ -33,7 +33,18 @@ export interface ApprovableRequest {
   place_map_url: string | null;
   note: string | null;
   deck_url: string | null;
+  /** Guests the visitor added (D-078), invited with them. */
+  guests?: readonly string[];
+  /**
+   * The booking's own page (D-078), where the visitor can reschedule or
+   * cancel: its URL carries the token, so it goes in the description alone
+   * (the people invited are the people the page is for) and nowhere else.
+   */
+  manageUrl?: string | null;
 }
+
+/** The line every booked event's description ends with, before the link. */
+export const MANAGE_LINE = 'Need to make a change? Reschedule or cancel:';
 
 /**
  * "Sam <> Pat Lee (Acme)": the host's first name, the requester and their
@@ -68,7 +79,21 @@ export function bookingDescription(request: ApprovableRequest): string {
   if (request.type === 'in_person' && request.place_map_url) {
     lines.push('', `Map: ${request.place_map_url}`);
   }
+  if (request.manageUrl) lines.push('', `${MANAGE_LINE} ${request.manageUrl}`);
   return inert(lines.join('\n'));
+}
+
+/**
+ * Everyone the event invites besides the host: the visitor first, then their
+ * guests, lower-cased and once each.
+ */
+export function bookingGuests(request: Pick<ApprovableRequest, 'email' | 'guests'>): string[] {
+  const out: string[] = [];
+  for (const raw of [request.email, ...(request.guests ?? [])]) {
+    const email = raw.trim().toLowerCase();
+    if (email && !out.includes(email)) out.push(email);
+  }
+  return out;
 }
 
 /** The event to create on the host's main calendar, the requester invited. */
@@ -85,7 +110,7 @@ export function bookingEventDraft(
     timeZone: hostZone,
     description: bookingDescription(request),
     location: bookingLocation(request),
-    guests: [request.email.trim().toLowerCase()],
+    guests: bookingGuests(request),
     meet: request.type === 'call',
   };
 }
@@ -112,7 +137,7 @@ export function googleCalendarTemplateUrl(
     dates: `${compact(request.starts_at)}/${compact(request.ends_at)}`,
     details: bookingDescription(request),
     ctz: hostZone,
-    add: request.email.trim().toLowerCase(),
+    add: bookingGuests(request).join(','),
   });
   const location = bookingLocation(request);
   if (location) params.set('location', location);
@@ -152,4 +177,61 @@ export function declineDraft(
     subject: when ? `Your meeting request${withHost}` : `Your note${toHost}`,
     body,
   };
+}
+
+/* ------------------------------------------------------------- .ics file */
+
+export interface IcsEvent {
+  /** Stable for one booking, so a second download updates the first. */
+  uid: string;
+  title: string;
+  start: string;
+  end: string;
+  description?: string;
+  location?: string;
+  url?: string | null;
+}
+
+/** RFC 5545 text: backslash, semicolon, comma and line breaks escaped. */
+function icsText(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r?\n/g, '\\n');
+}
+
+/** Lines folded at 75 octets (here characters, a safe reading), as the format asks. */
+function fold(line: string): string {
+  if (line.length <= 75) return line;
+  const parts: string[] = [];
+  for (let i = 0; i < line.length; i += 74) parts.push((i ? ' ' : '') + line.slice(i, i + 74));
+  return parts.join('\r\n');
+}
+
+/**
+ * An "Add to calendar" file for the visitor: one event, in UTC, with the
+ * booking page's link. Pure, so the page builds it in the browser and
+ * nothing is fetched for it.
+ */
+export function icsFile(event: IcsEvent, stamp: Date = new Date()): string {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//TipTop Copilot//Booking link//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:${icsText(event.uid)}`,
+    `DTSTAMP:${compact(stamp.toISOString())}`,
+    `DTSTART:${compact(event.start)}`,
+    `DTEND:${compact(event.end)}`,
+    `SUMMARY:${icsText(event.title)}`,
+    ...(event.description ? [`DESCRIPTION:${icsText(event.description)}`] : []),
+    ...(event.location ? [`LOCATION:${icsText(event.location)}`] : []),
+    ...(event.url ? [`URL:${event.url.replace(/[\r\n]/g, '')}`] : []),
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ];
+  return `${lines.map(fold).join('\r\n')}\r\n`;
 }

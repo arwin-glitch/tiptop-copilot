@@ -16,8 +16,10 @@
 --   - manage_token_hash: the SHA-256 (hex) of the booking page's token. The
 --     token itself is in the visitor's link and the event description only;
 --     it is never stored.
---   - cancel_note / cancelled_at: the visitor's optional note to the host
---     when they cancel (at most 500 characters), and when.
+--   - cancel_note / cancelled_at / cancelled_by: the visitor's optional note
+--     to the host when they cancel (at most 500 characters), when, and who:
+--     the visitor on the booking's page, the team in Copilot, or the
+--     calendar (the event was deleted in Google Calendar).
 --   - rescheduled_count / previous_starts_at: how often the visitor moved it
 --     (at most 5), and the time before the last move.
 --
@@ -34,6 +36,7 @@ alter table booking_requests add column if not exists guest_emails text[] not nu
 alter table booking_requests add column if not exists manage_token_hash text;
 alter table booking_requests add column if not exists cancel_note text;
 alter table booking_requests add column if not exists cancelled_at timestamptz;
+alter table booking_requests add column if not exists cancelled_by text;
 alter table booking_requests add column if not exists rescheduled_count integer not null default 0;
 alter table booking_requests add column if not exists previous_starts_at timestamptz;
 
@@ -56,6 +59,11 @@ alter table booking_requests add constraint booking_requests_token_shape check (
 alter table booking_requests drop constraint if exists booking_requests_cancel_note_length;
 alter table booking_requests add constraint booking_requests_cancel_note_length check (
   cancel_note is null or char_length(cancel_note) <= 500
+);
+
+alter table booking_requests drop constraint if exists booking_requests_cancelled_by_allowed;
+alter table booking_requests add constraint booking_requests_cancelled_by_allowed check (
+  cancelled_by is null or cancelled_by in ('visitor', 'team', 'calendar')
 );
 
 alter table booking_requests drop constraint if exists booking_requests_reschedules_allowed;

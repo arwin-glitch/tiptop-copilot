@@ -1,4 +1,5 @@
 import 'server-only';
+import { randomBytes } from 'node:crypto';
 import { busyPictureFor } from '@/lib/booking/availability';
 import {
   BOOKING_CONFIG_SCHEMA,
@@ -28,10 +29,15 @@ import {
   CLOSED_MESSAGE,
   knownZone,
   UNAVAILABLE_MESSAGE,
+  type BookingOutcomeStatus,
   type PublicBookingPage,
+  type PublicBookingResult,
+  type PublicBookingView,
+  type PublicSlot,
   type PublicSlots,
 } from '@/lib/booking/public';
-import type { BookingRequestInput } from '@/lib/booking/request';
+import { cleanGuests, type BookingRequestInput } from '@/lib/booking/request';
+import type { EventDraft } from '@/lib/calendar/edit-rules';
 import { calendarEditAccess } from '@/lib/calendar/edit-access';
 import { sniffPhoto } from '@/lib/campaigns/photos';
 import {
@@ -40,8 +46,8 @@ import {
   readCalendarList,
   type CalendarSource,
 } from '@/lib/calendar/range-reader';
-import { createCalendarEvent } from '@/lib/calendar/write';
-import { isMissingTableError } from '@/lib/db/missing-table';
+import { env } from '@/lib/config/env';
+import { isMissingColumnError, isMissingTableError } from '@/lib/db/missing-table';
 import type { DataStore } from '@/lib/db/store';
 import { soleOrganizationId } from '@/lib/db/tenancy';
 import { recordAudit } from '@/lib/security/audit';
@@ -53,6 +59,7 @@ import type { BookingRequest, BookingSettingsRow, UserProfile } from '@/lib/type
 import { newId, sha256 } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
 import { err, ok, type Result } from '@/lib/util/result';
+import { createLinkEvent } from './booking-calendar';
 import { principalTimeZone } from './push-alerts';
 
 /**
@@ -92,7 +99,7 @@ export const MAX_OPEN_PER_ADDRESS = 3;
 export const MAX_NEW_HOLDS_PER_DAY = 6;
 
 export const BUSY_LINK_MESSAGE =
-  'This booking link has a lot of requests waiting right now. Leave a message instead and Arwin will reply by email.';
+  'This booking link has taken a lot of bookings today. Try again tomorrow, or leave a message.';
 
 /**
  * One request at a time per organization, from the check of its time to
@@ -101,7 +108,10 @@ export const BUSY_LINK_MESSAGE =
  */
 const submitLocks = processWide('booking-submit-locks', () => new Map<string, Promise<void>>());
 
-async function oneAtATime<T>(organizationId: string, work: () => Promise<T>): Promise<T> {
+export async function oneAtATime<T>(
+  organizationId: string,
+  work: () => Promise<T>,
+): Promise<T> {
   const before = submitLocks.get(organizationId) ?? Promise.resolve();
   let release!: () => void;
   const mine = new Promise<void>((resolve) => {
@@ -337,6 +347,8 @@ export function closedBookingPage(slug: string): PublicBookingPage {
     kinds: [],
     chatbot: { enabled: false, mode: 'guided' },
     faq: '',
+    instant: false,
+    guests: { allowed: false, max: 0 },
   };
 }
 
@@ -373,13 +385,23 @@ export async function publicBookingPage(
     kinds: inPerson ? kinds : [],
     chatbot: { enabled: config.chatbotEnabled, mode: deps.chatMode ?? 'guided' },
     faq: config.faq,
+    instant: !config.approveFirst,
+    guests: { allowed: config.allowGuests && config.maxGuests > 0, max: config.maxGuests },
   };
 }
 
+/** How long a fresh booking holds its own time before the calendar is trusted to list it. */
+export const ON_CALENDAR_AFTER_MS = 10 * 60_000;
+
+/** Statuses whose time is taken: waiting, held, approved and booked. */
+export const TIME_HOLDING_STATUSES = ['pending', 'held', 'approved', 'booked'] as const;
+
 /**
- * The link's own requests that hold time: waiting or approved, from a day
- * ago on. An approved one is on the calendar already (Copilot made the
- * event, or a person added it by hand), so it is never counted twice.
+ * The link's own bookings that hold time: waiting, held, approved or booked,
+ * from a day ago on. One on the calendar (approved, or booked more than ten
+ * minutes ago) is among the busy blocks already, so it is never counted
+ * twice; a fresh one holds its own time until Google lists it (an entry at
+ * exactly its time stands in for it, lib/booking/engine.ts).
  */
 async function linkBookings(
   store: DataStore,
@@ -387,7 +409,7 @@ async function linkBookings(
   now: Date,
 ): Promise<LinkBooking[]> {
   const rows = await store.list('booking_requests', organizationId, {
-    in: { status: ['pending', 'approved'] },
+    in: { status: [...TIME_HOLDING_STATUSES] },
     neq: { meeting_type: 'message' },
     gte: { starts_at: new Date(now.getTime() - 86_400_000).toISOString() },
   });
@@ -399,7 +421,11 @@ async function linkBookings(
             start: Date.parse(r.starts_at),
             end: Date.parse(r.ends_at),
             type: r.meeting_type,
-            onCalendar: r.status === 'approved',
+            onCalendar:
+              r.status === 'approved' ||
+              (r.status === 'booked' &&
+                Boolean(r.event_id) &&
+                now.getTime() - Date.parse(r.updated_at) > ON_CALENDAR_AFTER_MS),
             createdAt: Date.parse(r.created_at),
           },
         ]
@@ -411,11 +437,19 @@ async function linkBookings(
  * The engine's input for a link: the host's busy time and travel days over
  * the horizon, his zone, and the link's own bookings. An error when the
  * calendar cannot be read in full: no slot is ever offered from part of it.
+ *
+ * `fresh` reads the calendar past its one-minute cache (every check that
+ * books, moves or places a time). `ignore` leaves one booking out entirely,
+ * its own row and the one calendar entry at exactly its time, so the
+ * booking's page can offer the times next to it when it moves.
  */
 export async function engineInputFor(
   store: DataStore,
   link: Pick<OpenLink, 'organizationId' | 'config'>,
-  deps: BookingDeps & { fresh?: boolean } = {},
+  deps: BookingDeps & {
+    fresh?: boolean;
+    ignore?: { id: string; start: number; end: number } | null;
+  } = {},
 ): Promise<Result<{ input: EngineInput; source: CalendarSource; hostZone: string }>> {
   const now = deps.now ?? new Date();
   const { organizationId, config } = link;
@@ -438,7 +472,14 @@ export async function engineInputFor(
     now,
   });
   if (!picture.ok) return picture;
-  const bookings = await linkBookings(store, organizationId, now);
+  let bookings = await linkBookings(store, organizationId, now);
+  let busy = picture.value.busy;
+  const ignore = deps.ignore;
+  if (ignore) {
+    bookings = bookings.filter((b) => b.id !== ignore.id);
+    const own = busy.findIndex((b) => !b.allDay && b.start === ignore.start && b.end === ignore.end);
+    if (own >= 0) busy = [...busy.slice(0, own), ...busy.slice(own + 1)];
+  }
   return ok({
     hostZone,
     source,
@@ -446,7 +487,7 @@ export async function engineInputFor(
       now,
       hostZone,
       config,
-      busy: picture.value.busy,
+      busy,
       travelDays: picture.value.travelDays,
       inPersonPausedThrough: picture.value.inPersonPausedThrough,
       linkBookings: bookings,
@@ -454,7 +495,7 @@ export async function engineInputFor(
   });
 }
 
-function parseQuery(
+export function parseQuery(
   type: string | null,
   kind: string | null,
 ): { type: MeetingType; kind: MeetingKind | null } {
@@ -508,12 +549,176 @@ export interface SubmitContext {
   source?: CalendarSource;
 }
 
-export type SubmitOutcome = { kind: 'saved'; id: string } | { kind: 'ignored' };
+export type SubmitOutcome =
+  | { kind: 'saved'; id: string; result: PublicBookingResult }
+  | { kind: 'ignored'; result: PublicBookingResult };
+
+/** The answer when the time was taken a moment ago: the route adds the next open times. */
+export const TAKEN_MESSAGE = 'That time was just taken. Pick another time.';
+
+/* ------------------------------------------------------ the booking's page */
+
+/** The booking page's token: 32 random bytes, base64url (43 characters). */
+const MANAGE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
+
+/** A new token for a booking's own page, and the only thing kept of it: its SHA-256. */
+export function mintManageToken(): { token: string; hash: string } {
+  const token = randomBytes(32).toString('base64url');
+  return { token, hash: sha256(token) };
+}
+
+/** The hash a token is looked up by, or null for anything that is not a token's shape. */
+export function manageTokenHash(token: string): string | null {
+  return MANAGE_TOKEN.test(token) ? sha256(token) : null;
+}
+
+/** The booking's own page, as a path on this site. */
+export function managePath(slug: string, token: string): string {
+  return `/meet/${slug}/b/${token}`;
+}
+
+/** The same, absolute, for the event description (the people invited open it from there). */
+export function manageUrl(slug: string, token: string): string {
+  return `${env().appUrl.replace(/\/+$/, '')}${managePath(slug, token)}`;
+}
 
 /**
- * A visitor's request, checked and kept as pending. The honeypot is answered
- * as if all went well and nothing is kept. Nothing is written anywhere else:
- * no calendar, no email.
+ * Whether a write failed because the v2 columns or statuses are not there
+ * yet (20261022200000_booking_v2.sql not run): the link then keeps working
+ * the old way, as a request that waits.
+ */
+export function bookingV2Missing(error: unknown): boolean {
+  if (isMissingColumnError(error)) return true;
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+  const message = (error as { message?: unknown }).message;
+  return code === '23514' || (typeof message === 'string' && /check constraint/i.test(message));
+}
+
+/** How a call is held, for the visitor: Google Meet unless Settings names another link. */
+export function callVideo(
+  config: BookingConfig,
+  meetUrl: string | null,
+): { label: string; url: string | null } {
+  return { label: 'Google Meet', url: meetUrl };
+}
+
+/** At most this many reschedules a booking. */
+export const MAX_RESCHEDULES = 5;
+
+/**
+ * One booking as the visitor sees it (the confirmation and its own page).
+ * Only what they typed or picked, the place, and their own video link.
+ */
+export function publicBookingView(
+  row: BookingRequest,
+  context: {
+    config: BookingConfig;
+    hostZone: string;
+    now: Date;
+    meetUrl?: string | null;
+    notice?: string | null;
+    /** The link is on: a move needs its open times. */
+    linkOpen?: boolean;
+  },
+): PublicBookingView | null {
+  if (row.meeting_type === 'message' || !row.starts_at || !row.ends_at) return null;
+  const status: PublicBookingView['status'] =
+    row.status === 'approved' || row.status === 'booked'
+      ? 'booked'
+      : row.status === 'held' || row.status === 'pending' || row.status === 'cancelled'
+        ? row.status
+        : 'declined';
+  const live = status === 'booked' || status === 'held' || status === 'pending';
+  const started = Date.parse(row.starts_at) <= context.now.getTime();
+  const moved = row.rescheduled_count ?? 0;
+  return {
+    status,
+    type: row.meeting_type,
+    kind: row.kind,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    hostTimeZone: context.hostZone,
+    visitorTimeZone: knownZone(row.visitor_time_zone) ? row.visitor_time_zone : null,
+    name: row.name,
+    email: row.email,
+    guests: [...(row.guest_emails ?? [])],
+    place:
+      row.meeting_type === 'in_person' && row.place_name
+        ? { name: row.place_name, area: row.place_area, mapUrl: row.place_map_url }
+        : null,
+    video: row.meeting_type === 'call' ? callVideo(context.config, context.meetUrl ?? null) : null,
+    canReschedule: live && !started && moved < MAX_RESCHEDULES && context.linkOpen !== false,
+    canCancel: live && !started,
+    reschedulesLeft: Math.max(0, MAX_RESCHEDULES - moved),
+    notice: context.notice ?? null,
+  };
+}
+
+/**
+ * Addresses that are never a guest: the host's own (every address on his
+ * calendar account) and every teammate's.
+ */
+export async function blockedGuestAddresses(
+  store: DataStore,
+  organizationId: string,
+  ownEmails: readonly string[] = [],
+): Promise<string[]> {
+  const team = await readTeam(store, organizationId).catch(() => null);
+  return [...ownEmails, ...(team?.members.map((m) => m.email ?? '').filter(Boolean) ?? [])].map(
+    (e) => e.toLowerCase(),
+  );
+}
+
+/**
+ * How many meetings an address has coming up through the link, as the
+ * booker or as a guest, and how many messages it has waiting: the abuse
+ * brakes count both, so guests cannot be used to get round them.
+ */
+async function openFor(
+  store: DataStore,
+  organizationId: string,
+  email: string,
+  now: Date,
+): Promise<number> {
+  const upcoming = { gte: { starts_at: now.toISOString() } };
+  const [messages, booked] = await Promise.all([
+    store.count('booking_requests', organizationId, {
+      eq: { email, status: 'pending', meeting_type: 'message' },
+    }),
+    store.count('booking_requests', organizationId, {
+      eq: { email },
+      in: { status: ['pending', 'held', 'booked'] },
+      neq: { meeting_type: 'message' },
+      ...upcoming,
+    }),
+  ]);
+  const asGuest = await store
+    .count('booking_requests', organizationId, {
+      arrayContains: { guest_emails: email },
+      in: { status: ['pending', 'held', 'booked'] },
+      ...upcoming,
+    })
+    .catch((error: unknown) => {
+      if (isMissingColumnError(error)) return 0;
+      throw error;
+    });
+  return messages + booked + asGuest;
+}
+
+/**
+ * A visitor's booking, checked again against the live calendar and every
+ * rule at the moment it is kept, one at a time per organization (D-078):
+ *
+ * - by default it is booked at once: the event on the host's main calendar
+ *   through lib/calendar/write.ts, the visitor and their guests invited by
+ *   Google (sendUpdates 'all');
+ * - without calendar editing the time is held, and placed as soon as
+ *   editing is on (lib/services/booking-manage.ts placeHeldBookings);
+ * - with "Approve each booking first" on (Settings) it waits as a request.
+ *
+ * A message waits as before. The honeypot is answered as if all went well and
+ * nothing is kept. Copilot sends no email of its own.
  */
 export async function submitBookingRequest(
   store: DataStore,
@@ -521,95 +726,149 @@ export async function submitBookingRequest(
   input: BookingRequestInput,
   context: SubmitContext,
 ): Promise<Result<SubmitOutcome>> {
-  if (input.website.trim()) return ok({ kind: 'ignored' });
   const now = context.now ?? new Date();
   const found = await resolveOpenLink(store, slug);
+  if (input.website.trim()) {
+    const status: BookingOutcomeStatus =
+      input.type === 'message'
+        ? 'message'
+        : found.open && found.link.config.approveFirst
+          ? 'pending'
+          : 'booked';
+    return ok({ kind: 'ignored', result: { status, manageUrl: null, booking: null } });
+  }
   if (!found.open) return err('forbidden', CLOSED_MESSAGE);
   const { organizationId, config } = found.link;
+  const meeting = input.type !== 'message';
 
-  const perEmail = rateLimit(`booking-email:${sha256(input.email).slice(0, 16)}`, 3, 3_600_000);
-  if (!perEmail.ok) {
-    return err('rate_limited', 'Too many requests from this email address. Try again later.');
+  // The people invited: the visitor, and the guests they added (checked
+  // against the host's and the team's addresses, deduped, Settings' limit).
+  let guests: string[] = [];
+  if (meeting && input.guests.length > 0) {
+    const cleaned = cleanGuests(input.guests, {
+      booker: input.email,
+      blocked: await blockedGuestAddresses(store, organizationId, context.source?.ownEmails),
+      max: config.allowGuests ? config.maxGuests : 0,
+    });
+    if (!cleaned.ok) return err('invalid_input', cleaned.problem);
+    guests = cleaned.guests;
   }
-  // From the checks to the insert, one request at a time (oneAtATime): two
-  // senders racing for the same slot, or one sender racing past the caps,
+
+  for (const email of [input.email, ...guests]) {
+    const perEmail = rateLimit(`booking-email:${sha256(email).slice(0, 16)}`, 3, 3_600_000);
+    if (!perEmail.ok) {
+      return err(
+        'rate_limited',
+        email === input.email
+          ? 'Too many requests from this email address. Try again later.'
+          : `Too many bookings for ${email} just now. Try again later.`,
+      );
+    }
+  }
+
+  // From the checks to the insert (and the event), one booking at a time:
+  // two visitors racing for the same slot, or one racing past the caps,
   // cannot both be kept.
-  const kept = await oneAtATime(organizationId, async (): Promise<Result<BookingRequest>> => {
-    let open: number;
-    let fromAddress = 0;
-    let holds = 0;
-    try {
-      open = await store.count('booking_requests', organizationId, {
-        eq: { email: input.email, status: 'pending' },
-      });
-      if (context.ipHash) {
-        fromAddress = await store.count('booking_requests', organizationId, {
-          eq: { ip_hash: context.ipHash, status: 'pending' },
-        });
+  const kept = await oneAtATime(
+    organizationId,
+    async (): Promise<Result<{ row: BookingRequest; result: PublicBookingResult }>> => {
+      let fromAddress = 0;
+      let holds = 0;
+      const counts: number[] = [];
+      try {
+        for (const email of [input.email, ...guests]) {
+          counts.push(await openFor(store, organizationId, email, now));
+        }
+        if (context.ipHash) {
+          fromAddress =
+            (await store.count('booking_requests', organizationId, {
+              eq: { ip_hash: context.ipHash, status: 'pending', meeting_type: 'message' },
+            })) +
+            (await store.count('booking_requests', organizationId, {
+              eq: { ip_hash: context.ipHash },
+              in: { status: ['pending', 'held', 'booked'] },
+              neq: { meeting_type: 'message' },
+              gte: { starts_at: now.toISOString() },
+            }));
+        }
+        if (meeting) {
+          holds = await store.count('booking_requests', organizationId, {
+            in: { status: ['pending', 'held', 'booked'] },
+            neq: { meeting_type: 'message' },
+            gte: { created_at: new Date(now.getTime() - 86_400_000).toISOString() },
+          });
+        }
+      } catch (error) {
+        if (isMissingTableError(error)) return err('forbidden', CLOSED_MESSAGE);
+        throw error;
       }
-      if (input.type !== 'message') {
-        holds = await store.count('booking_requests', organizationId, {
-          eq: { status: 'pending' },
-          neq: { meeting_type: 'message' },
-          gte: { created_at: new Date(now.getTime() - 86_400_000).toISOString() },
-        });
+      if ((counts[0] ?? 0) >= MAX_OPEN_PER_EMAIL) {
+        return err(
+          'rate_limited',
+          `You already have ${MAX_OPEN_PER_EMAIL} meetings or messages on this link. Change or cancel one from its own page first.`,
+        );
       }
-    } catch (error) {
-      if (isMissingTableError(error)) return err('forbidden', CLOSED_MESSAGE);
-      throw error;
-    }
-    if (open >= MAX_OPEN_PER_EMAIL) {
-      return err(
-        'rate_limited',
-        `You already have ${MAX_OPEN_PER_EMAIL} requests waiting. Arwin will reply to those first.`,
-      );
-    }
-    if (fromAddress >= MAX_OPEN_PER_ADDRESS) {
-      return err(
-        'rate_limited',
-        'You already have requests waiting. Arwin will reply to those first.',
-      );
-    }
-    if (holds >= MAX_NEW_HOLDS_PER_DAY) return err('rate_limited', BUSY_LINK_MESSAGE);
+      const busyGuest = guests.find((_, i) => (counts[i + 1] ?? 0) >= MAX_OPEN_PER_EMAIL);
+      if (busyGuest) {
+        return err(
+          'rate_limited',
+          `${busyGuest} already has ${MAX_OPEN_PER_EMAIL} meetings on this link. Leave them out this time.`,
+        );
+      }
+      if (fromAddress >= MAX_OPEN_PER_ADDRESS) {
+        return err(
+          'rate_limited',
+          'You already have several meetings or messages on this link. Change or cancel one from its own page first.',
+        );
+      }
+      if (holds >= MAX_NEW_HOLDS_PER_DAY) return err('rate_limited', BUSY_LINK_MESSAGE);
 
-    const base = {
-      id: newId(),
-      organization_id: organizationId,
-      status: 'pending' as const,
-      // Kept only when it names a real zone: it is read back to label the time.
-      visitor_time_zone: knownZone(input.timeZone) ? input.timeZone : null,
-      name: input.name,
-      email: input.email,
-      company: input.company || null,
-      note: input.note || null,
-      deck_url: input.deckUrl || null,
-      source: input.source,
-      ip_hash: context.ipHash,
-      claimed_at: null,
-      calendar_id: null,
-      event_id: null,
-      decided_by: null,
-      decided_at: null,
-      created_at: now.toISOString(),
-      updated_at: now.toISOString(),
-    };
-
-    let row: BookingRequest;
-    if (input.type === 'message') {
-      row = {
-        ...base,
-        meeting_type: 'message',
-        kind: null,
-        starts_at: null,
-        ends_at: null,
-        place_id: null,
-        place_name: null,
-        place_area: null,
-        place_map_url: null,
-        place_custom: false,
+      const base = {
+        id: newId(),
+        organization_id: organizationId,
+        // Kept only when it names a real zone: it is read back to label the time.
+        visitor_time_zone: knownZone(input.timeZone) ? input.timeZone : null,
+        name: input.name,
+        email: input.email,
+        company: input.company || null,
+        note: input.note || null,
+        deck_url: input.deckUrl || null,
+        source: input.source,
+        ip_hash: context.ipHash,
+        claimed_at: null,
+        calendar_id: null,
+        event_id: null,
+        decided_by: null,
+        decided_at: null,
+        created_at: now.toISOString(),
+        updated_at: now.toISOString(),
       };
-    } else {
-      const query = { type: input.type, kind: input.type === 'in_person' ? input.kind : null };
+
+      if (!meeting) {
+        const row: BookingRequest = {
+          ...base,
+          status: 'pending',
+          meeting_type: 'message',
+          kind: null,
+          starts_at: null,
+          ends_at: null,
+          place_id: null,
+          place_name: null,
+          place_area: null,
+          place_map_url: null,
+          place_custom: false,
+        };
+        try {
+          await store.insert('booking_requests', row);
+        } catch (error) {
+          if (isMissingTableError(error)) return err('forbidden', CLOSED_MESSAGE);
+          throw error;
+        }
+        return ok({ row, result: { status: 'message', manageUrl: null, booking: null } });
+      }
+
+      const type: MeetingType = input.type === 'in_person' ? 'in_person' : 'call';
+      const query = { type, kind: type === 'in_person' ? input.kind : null };
       let place = {
         place_id: null as string | null,
         place_name: null as string | null,
@@ -617,9 +876,10 @@ export async function submitBookingRequest(
         place_map_url: null as string | null,
         place_custom: false,
       };
-      if (input.type === 'in_person') {
-        if (!inPersonOffered(config))
+      if (type === 'in_person') {
+        if (!inPersonOffered(config)) {
           return err('invalid_input', 'In-person meetings are not offered.');
+        }
         const listed = input.placeId ? config.places.find((p) => p.id === input.placeId) : null;
         if (listed) {
           place = {
@@ -644,42 +904,186 @@ export async function submitBookingRequest(
       const startMs = Date.parse(input.start ?? '');
       if (!Number.isFinite(startMs)) return err('invalid_input', 'Pick a time.');
       const start = new Date(startMs).toISOString();
-      const prepared = await engineInputFor(store, found.link, { now, source: context.source });
+      // The calendar read fresh, past its cache: the page's list of times is
+      // never trusted, and every rule is checked again here.
+      const prepared = await engineInputFor(store, found.link, {
+        now,
+        source: context.source,
+        fresh: true,
+      });
       if (!prepared.ok) return err('provider_unavailable', UNAVAILABLE_MESSAGE);
-      const problem = slotProblem(prepared.value.input, query, start);
-      if (problem) {
-        return err('conflict', 'That time is no longer open. Pick another time.');
+      const { input: engine, source, hostZone } = prepared.value;
+      if (slotProblem(engine, query, start)) return err('conflict', TAKEN_MESSAGE);
+
+      // Booked at once, held until editing is on, or a request (approve first).
+      let primary: { id: string } | null = null;
+      let status: 'booked' | 'held' | 'pending' = 'pending';
+      if (!config.approveFirst) {
+        status = 'held';
+        if (calendarEditAccess(source).allowed) {
+          const list = await readCalendarList(source, organizationId);
+          const main = list.ok ? list.value.calendars.find((c) => c.primary) : null;
+          if (main?.writable) {
+            primary = main;
+            status = 'booked';
+          }
+        }
       }
-      row = {
+
+      const { token, hash } = mintManageToken();
+      const row: BookingRequest = {
         ...base,
-        meeting_type: input.type,
+        status,
+        meeting_type: type,
         kind: query.kind,
         starts_at: start,
-        ends_at: new Date(startMs + MEETING_MINUTES[input.type] * 60_000).toISOString(),
+        ends_at: new Date(startMs + MEETING_MINUTES[type] * 60_000).toISOString(),
         ...place,
+        guest_emails: guests,
+        manage_token_hash: hash,
+        cancel_note: null,
+        cancelled_at: null,
+        cancelled_by: null,
+        rescheduled_count: 0,
+        previous_starts_at: null,
       };
-    }
+      try {
+        await store.insert('booking_requests', row);
+      } catch (error) {
+        if (isMissingTableError(error)) return err('forbidden', CLOSED_MESSAGE);
+        if (!bookingV2Missing(error)) throw error;
+        // The v2 migration is not run: kept the old way, as a request that waits.
+        const legacy: BookingRequest = { ...row, status: 'pending' };
+        for (const key of V2_COLUMNS) delete (legacy as unknown as Record<string, unknown>)[key];
+        await store.insert('booking_requests', legacy);
+        return ok({ row: legacy, result: { status: 'pending', manageUrl: null, booking: null } });
+      }
 
-    try {
-      await store.insert('booking_requests', row);
-    } catch (error) {
-      if (isMissingTableError(error)) return err('forbidden', CLOSED_MESSAGE);
-      throw error;
-    }
-    return ok(row);
-  });
+      let meetUrl: string | null = null;
+      if (status === 'booked' && primary) {
+        const host = await readHost(store, organizationId);
+        const created = await createLinkEvent(
+          { store, organizationId, source, actorId: null },
+          primary.id,
+          linkEventDraft(hostNameFor(config, host), row, hostZone, {
+            manageUrl: manageUrl(found.link.row.slug, token),
+          }),
+        );
+        if (created.ok) {
+          meetUrl = created.value.meetUrl;
+          await store.updateWhere(
+            'booking_requests',
+            organizationId,
+            { eq: { id: row.id } },
+            { calendar_id: primary.id, event_id: created.value.eventId },
+          );
+          row.calendar_id = primary.id;
+          row.event_id = created.value.eventId;
+        } else {
+          // Google may have made it before an answer was lost (a timeout):
+          // held "in doubt" (claimed_at), so placing it later looks for the
+          // event first and never makes a second one.
+          const doubt =
+            created.error.code === 'timeout' || created.error.code === 'provider_unavailable';
+          log.warn('A link booking could not be put on the calendar; it is held', {
+            code: created.error.code,
+          });
+          const claimedAt = doubt ? now.toISOString() : null;
+          await store.updateWhere(
+            'booking_requests',
+            organizationId,
+            { eq: { id: row.id } },
+            { status: 'held', claimed_at: claimedAt },
+          );
+          row.status = 'held';
+          row.claimed_at = claimedAt;
+        }
+      }
+      const result: PublicBookingResult = {
+        status: row.status === 'booked' ? 'booked' : row.status === 'held' ? 'held' : 'pending',
+        manageUrl: managePath(found.link.row.slug, token),
+        booking: publicBookingView(row, { config, hostZone, now, meetUrl, linkOpen: true }),
+      };
+      return ok({ row, result });
+    },
+  );
   if (!kept.ok) return kept;
-  const row = kept.value;
+  const { row, result } = kept.value;
   await recordAudit(store, {
     organizationId,
     userId: null,
-    action: 'booking.requested',
+    action:
+      row.status === 'booked'
+        ? 'booking.booked'
+        : row.status === 'held'
+          ? 'booking.held'
+          : 'booking.requested',
     entityType: 'booking_request',
     entityId: row.id,
     // Ids and kinds only: never the visitor's name, address or note.
-    metadata: { type: row.meeting_type, kind: row.kind, source: row.source },
+    metadata: {
+      type: row.meeting_type,
+      kind: row.kind,
+      source: row.source,
+      ...(row.guest_emails?.length ? { guests: row.guest_emails.length } : {}),
+    },
   });
-  return ok({ kind: 'saved', id: row.id });
+  return ok({ kind: 'saved', id: row.id, result });
+}
+
+/** The columns 20261022200000_booking_v2.sql adds: left out of a row when it is not run yet. */
+const V2_COLUMNS = [
+  'guest_emails',
+  'manage_token_hash',
+  'cancel_note',
+  'cancelled_at',
+  'cancelled_by',
+  'rescheduled_count',
+  'previous_starts_at',
+] as const;
+
+/** The event a booking becomes: the visitor and their guests invited. */
+export function linkEventDraft(
+  hostName: string,
+  row: BookingRequest,
+  hostZone: string,
+  options: { manageUrl: string | null },
+): EventDraft {
+  return bookingEventDraft(
+    hostName,
+    {
+      type: row.meeting_type === 'in_person' ? 'in_person' : 'call',
+      kind: row.kind,
+      starts_at: row.starts_at ?? '',
+      ends_at: row.ends_at ?? '',
+      name: row.name,
+      email: row.email,
+      company: row.company,
+      place_name: row.place_name,
+      place_area: row.place_area,
+      place_map_url: row.place_map_url,
+      note: row.note,
+      deck_url: row.deck_url,
+      guests: row.guest_emails ?? [],
+      manageUrl: options.manageUrl,
+    },
+    hostZone,
+  );
+}
+
+/**
+ * The next few open times for a query, after one was taken: the page offers
+ * them at once so the visitor does not start again.
+ */
+export async function nextOpenTimes(
+  store: DataStore,
+  slug: string,
+  query: { type: string | null; kind: string | null },
+  deps: BookingDeps = {},
+  limit = 3,
+): Promise<PublicSlot[]> {
+  const slots = await publicSlots(store, slug, query, deps).catch(() => null);
+  return slots?.state === 'ok' ? slots.slots.slice(0, limit) : [];
 }
 
 /* -------------------------------------------------------------- Copilot side */
@@ -767,7 +1171,7 @@ async function pendingRequest(
   return ok({ request });
 }
 
-function hostNameFor(config: BookingConfig, host: HostIdentity): string {
+export function hostNameFor(config: BookingConfig, host: HostIdentity): string {
   return config.displayName.trim() || host.fullName?.trim() || '';
 }
 
@@ -805,6 +1209,7 @@ export async function approveBookingRequest(
     place_map_url: request.place_map_url,
     note: request.note,
     deck_url: request.deck_url,
+    guests: request.guest_emails ?? [],
   };
 
   let source = deps.source;
@@ -888,14 +1293,12 @@ export async function approveBookingRequest(
     );
   }
 
-  const created = await createCalendarEvent(
-    { store: ctx.store, organizationId: ctx.organizationId, userId: ctx.userId, source },
-    {
-      calendarId: primary.id,
-      draft: bookingEventDraft(hostName, approvable, hostZone),
-      // Approving a booking is the person's Send: the requester gets the invitation.
-      notify: 'send',
-    },
+  // Approving a booking is the person's Send: the requester and their
+  // guests get the invitation from Google.
+  const created = await createLinkEvent(
+    { store: ctx.store, organizationId: ctx.organizationId, source, actorId: ctx.userId },
+    primary.id,
+    bookingEventDraft(hostName, approvable, hostZone),
   );
   if (!created.ok) {
     // Google may have made the event before the answer was lost: keep the
@@ -918,7 +1321,7 @@ export async function approveBookingRequest(
       .catch(() => null);
     return created;
   }
-  const eventId = created.value.event?.id ?? '';
+  const eventId = created.value.eventId;
   // Only while this approval still holds the claim (Decline waits for it).
   const finished = await ctx.store.updateWhere(
     'booking_requests',
@@ -953,7 +1356,7 @@ export async function approveBookingRequest(
     state: 'approved',
     eventId,
     calendarId: primary.id,
-    meetUrl: created.value.event?.meetUrl ?? null,
+    meetUrl: created.value.meetUrl,
   });
 }
 

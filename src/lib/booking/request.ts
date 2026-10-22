@@ -158,6 +158,25 @@ export function cleanGuests(
   return { ok: true, guests: out };
 }
 
+/** The longest note a visitor may leave the host when they cancel. */
+export const CANCEL_NOTE_MAX = 500;
+
+/** Cancelling from the booking's own page: an optional note to the host. */
+export const CANCEL_INPUT = z
+  .object({
+    note: clean(CANCEL_NOTE_MAX).default(''),
+    website: z.string().max(200).default(''),
+  })
+  .strict();
+
+/** Moving a booking from its own page: the new start, as the page was given it. */
+export const RESCHEDULE_INPUT = z
+  .object({
+    start: z.string().max(40),
+    website: z.string().max(200).default(''),
+  })
+  .strict();
+
 /** The first problem with a request, in plain words, for the page to show. */
 export function firstProblem(error: z.ZodError): string {
   const issue = error.issues[0];

@@ -29,6 +29,10 @@ export interface PublicBookingPage {
   chatbot: { enabled: boolean; mode: 'live' | 'guided' };
   /** The public FAQ text, for the guided helper's "About TipTop". */
   faq: string;
+  /** A free time is booked at once (D-078); false when each waits for approval. */
+  instant: boolean;
+  /** "Add guests": whether a visitor may, and how many. */
+  guests: { allowed: boolean; max: number };
 }
 
 export interface PublicSlot {
@@ -48,10 +52,92 @@ export interface PublicSlots {
 export const CLOSED_MESSAGE = 'This booking link is not taking bookings right now.';
 
 export const UNAVAILABLE_MESSAGE =
-  'Open times cannot be shown right now. Leave a message instead and Arwin will reply by email.';
+  'Open times cannot be shown right now. Try again in a minute, or leave a message.';
 
-/** The confirmation the visitor sees. Copilot sends no email itself. */
-export const SENT_MESSAGE = 'Request sent. Arwin will confirm by email.';
+/**
+ * The confirmation for a request that waits (approve first, an option in
+ * Settings, D-078). It names no person: the link works without anyone
+ * watching it. Copilot sends no email itself; the calendar invitation is
+ * Google's.
+ */
+export const SENT_MESSAGE = 'Request sent. The calendar invitation follows by email.';
+
+/** A message left on the link. */
+export const MESSAGE_SENT = 'Message sent.';
+
+/** A booking made at once while calendar editing is off (D-078): the time is kept. */
+export const HELD_MESSAGE = 'Your time is held. The calendar invitation is on its way.';
+
+/** "You're booked with Nick". */
+export function bookedTitle(hostName: string): string {
+  const first = hostName.trim().split(/\s+/)[0];
+  return first ? `You're booked with ${first}` : "You're booked";
+}
+
+/** What a visitor's booking came to (POST /api/meet/<slug>/request). */
+export type BookingOutcomeStatus = 'booked' | 'held' | 'pending' | 'message';
+
+/**
+ * One booking as the visitor sees it, on the confirmation and on the
+ * booking's own page (/meet/<slug>/b/<token>): what, when, where and who.
+ * Only what the visitor typed or picked, the place, and the video link they
+ * are invited to; never the host's calendar.
+ */
+export interface PublicBookingView {
+  status: 'booked' | 'held' | 'pending' | 'cancelled' | 'declined';
+  type: MeetingType;
+  kind: MeetingKind | null;
+  startsAt: string;
+  endsAt: string;
+  hostTimeZone: string;
+  /** The zone the visitor booked in, when it named a real one. */
+  visitorTimeZone: string | null;
+  name: string;
+  email: string;
+  guests: string[];
+  place: { name: string; area: string | null; mapUrl: string | null } | null;
+  /** A call: how it is held ("Google Meet", "Zoom") and its link once there is one. */
+  video: { label: string; url: string | null } | null;
+  canReschedule: boolean;
+  canCancel: boolean;
+  reschedulesLeft: number;
+  /** Something the calendar changed meanwhile, in plain words, or null. */
+  notice: string | null;
+}
+
+/** The booking's own page: the host's card and the booking, or nothing at all. */
+export interface PublicManagePage {
+  state: 'ok' | 'not_found';
+  slug: string;
+  host: PublicHost | null;
+  booking: PublicBookingView | null;
+}
+
+/** The answer to a booking: its status, and the booking's own page for a meeting. */
+export interface PublicBookingResult {
+  status: BookingOutcomeStatus;
+  /** The booking's own page, a path on this site (`/meet/<slug>/b/<token>`). */
+  manageUrl: string | null;
+  booking: PublicBookingView | null;
+}
+
+/**
+ * The cookie a visitor's device keeps its latest booking on a link in
+ * (D-078): the booking page's token, httpOnly, sent only to that link's own
+ * pages, so revisiting /meet/<slug> can say "You have a meeting with Nick".
+ * Page scripts never read it.
+ */
+export function rememberCookieName(slug: string): string {
+  return `tiptop_booking_${slug.replace(/[^a-z0-9]/g, '_')}`;
+}
+
+/** What the booking page shows for a remembered booking: when, and its own page. */
+export interface RememberedBooking {
+  manageUrl: string;
+  startsAt: string;
+  type: MeetingType;
+  kind: MeetingKind | null;
+}
 
 /* ------------------------------------------------------------- formatting */
 
