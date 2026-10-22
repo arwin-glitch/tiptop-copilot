@@ -752,6 +752,11 @@
   text-align: left;
   max-width: 460px;
 }
+/* The RSVP form (WS4) lists the sessions itself with their checkboxes or
+   answers: while it shows, the block's own summary list steps aside. */
+[data-event-root] .ev-rsvp__card:has([data-rsvp-form] [data-session]) .ev-rsvp__sessions {
+  display: none;
+}
 [data-event-root] .ev-rsvp__sessions li {
   display: flex;
   gap: 0.65rem;

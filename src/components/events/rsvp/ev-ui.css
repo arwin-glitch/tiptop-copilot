@@ -21,6 +21,11 @@
   --evu-ok: #1e7a4c;
   --evu-warn: #a86a00;
   --evu-bad: #b3261e;
+  /* Status words drawn toward the theme's text colour, so they stay readable
+     on dark themes as well as light ones. */
+  --evu-ok-text: color-mix(in oklab, var(--evu-ok) 55%, var(--evu-text));
+  --evu-warn-text: color-mix(in oklab, var(--evu-warn) 55%, var(--evu-text));
+  --evu-bad-text: color-mix(in oklab, var(--evu-bad) 55%, var(--evu-text));
   color: var(--evu-text);
   font-size: 16px;
   line-height: 1.5;
@@ -88,7 +93,7 @@
 }
 
 [data-ev-ui] .evu-required {
-  color: var(--evu-bad);
+  color: var(--evu-bad-text);
   margin-left: 2px;
 }
 
@@ -130,7 +135,7 @@
 [data-ev-ui] .evu-error {
   margin-top: 4px;
   font-size: 0.825rem;
-  color: var(--evu-bad);
+  color: var(--evu-bad-text);
 }
 
 [data-ev-ui] .evu-btn {
@@ -189,16 +194,29 @@
   }
 }
 
+/* Forms read left to right even inside a centred theme card. */
+[data-ev-ui] [data-rsvp-form] {
+  text-align: start;
+}
+
 /* Session choices and checkboxes. */
 [data-ev-ui] .evu-choice {
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  text-align: start;
   padding: 12px 14px;
   border: 1px solid var(--evu-border);
   border-radius: calc(var(--evu-radius) * 0.7);
   background: var(--evu-surface);
   cursor: pointer;
+}
+
+/* The name, its time and any note stack under each other. */
+[data-ev-ui] .evu-choice > span {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
 }
 
 [data-ev-ui] .evu-choice input {
@@ -229,19 +247,19 @@
 }
 
 [data-ev-ui] .evu-chip[data-tone='ok'] {
-  color: var(--evu-ok);
+  color: var(--evu-ok-text);
   border-color: currentColor;
   background: transparent;
 }
 
 [data-ev-ui] .evu-chip[data-tone='warn'] {
-  color: var(--evu-warn);
+  color: var(--evu-warn-text);
   border-color: currentColor;
   background: transparent;
 }
 
 [data-ev-ui] .evu-chip[data-tone='bad'] {
-  color: var(--evu-bad);
+  color: var(--evu-bad-text);
   border-color: currentColor;
   background: transparent;
 }

@@ -406,11 +406,14 @@ export async function createEvent(
       .flatMap((s) => [s.startsAt, s.endsAt])
       .filter((t): t is string => !!t)
       .map((t) => new Date(Date.parse(t)).toISOString());
-    const startsAt =
-      toIso(input.startsAt ?? null) ?? (sessionTimes.length ? [...sessionTimes].sort()[0]! : null);
-    const endsAt =
-      toIso(input.endsAt ?? null) ??
-      (sessionTimes.length ? [...sessionTimes].sort().at(-1)! : null);
+    // The event spans its sessions: the starter's evening reception never
+    // runs past the event's own end time.
+    const span = (given: string | null, pick: 'first' | 'last'): string | null => {
+      const all = [...sessionTimes, ...(given ? [given] : [])].sort();
+      return all.length ? (pick === 'first' ? all[0]! : all.at(-1)!) : null;
+    };
+    const startsAt = span(toIso(input.startsAt ?? null), 'first');
+    const endsAt = span(toIso(input.endsAt ?? null), 'last');
     const now = new Date().toISOString();
     const id = newId();
     const event: EventRecord = {

@@ -16,6 +16,8 @@ export interface StarterCard {
   description: string;
   themePresetId: string;
   sessions: string[];
+  /** Minutes from the first session's start to the last one's end; null with no sessions. */
+  spanMinutes: number | null;
   /** Block labels, in page order: "Cover", "Agenda", "RSVP". */
   sections: string[];
 }
@@ -76,6 +78,9 @@ export function starterCards(): StarterCard[] {
     description: s.description,
     themePresetId: s.themePresetId,
     sessions: s.sessions.map((x) => x.name),
+    spanMinutes: s.sessions.length
+      ? Math.max(...s.sessions.map((x) => x.offsetMinutes + x.durationMinutes))
+      : null,
     sections: s.sections.map((section) => blockRegistry.get(section.type)?.label ?? section.type),
   }));
 }

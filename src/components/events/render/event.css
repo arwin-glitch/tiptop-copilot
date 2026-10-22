@@ -770,11 +770,14 @@
     animation-timing-function: linear;
     animation-fill-mode: both;
     animation-timeline: view();
-    animation-range: entry 0% entry 70%;
+    /* A fixed distance, not a share of the section: a tall section (the RSVP
+       form) would otherwise stay faded or blurred until it nearly filled the
+       screen. */
+    animation-range: entry 0% entry 240px;
   }
   [data-event-root][data-motion='full'] .ev-stagger {
     animation-name: ev-enter-fade-up;
-    animation-range: entry 0% entry 60%;
+    animation-range: entry 0% entry 160px;
   }
   [data-event-root][data-motion='full']
     .ev-section[data-entrance='fade_up']:not([data-block='hero'])

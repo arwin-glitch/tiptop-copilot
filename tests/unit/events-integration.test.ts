@@ -17,7 +17,12 @@ import { parseEventDoc } from '@/lib/events/schema';
 import { draftEventMessage } from '@/lib/services/event-comms';
 import { createEditorLink } from '@/lib/services/event-editors';
 import { presenceColor, syncStudio } from '@/lib/services/event-presence';
-import { ownerActor, presenceColor as syncColor, type EventOwner } from '@/lib/services/events';
+import {
+  createEvent,
+  ownerActor,
+  presenceColor as syncColor,
+  type EventOwner,
+} from '@/lib/services/events';
 import { ok, type Result } from '@/lib/util/result';
 import { createHarness, type Harness } from '../helpers/harness';
 
@@ -246,6 +251,27 @@ describe('event messages (WS5) over the real guest list (WS4)', () => {
         ),
       );
     }
+  });
+});
+
+describe('a new event from a starter with sessions (WS5 dialog → WS1 create)', () => {
+  it('spans its sessions, even when the end given is earlier than the last session', async () => {
+    const created = await createEvent(h.store, owner, {
+      title: 'Lakeview Annual Meeting',
+      timeZone: 'America/Chicago',
+      starterId: 'agm-day-evening',
+      startsAt: '2031-05-15T18:00:00.000Z',
+      endsAt: '2031-05-15T21:00:00.000Z',
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const sessions = await h.store.list('event_sessions', h.auth.organizationId, {
+      eq: { event_id: created.value.id },
+    });
+    const reception = sessions.find((s) => s.name === 'Evening Reception')!;
+    expect(reception.starts_at).toBe('2031-05-15T23:00:00.000Z');
+    expect(created.value.starts_at).toBe('2031-05-15T18:00:00.000Z');
+    expect(created.value.ends_at).toBe(reception.ends_at);
   });
 });
 

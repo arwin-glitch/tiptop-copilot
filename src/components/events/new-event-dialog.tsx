@@ -57,6 +57,14 @@ function parseTime(value: string): { h: number; m: number } | null {
   return { h: Number(match[1]), m: Number(match[2]) };
 }
 
+/** The wall-clock end a starter's sessions reach from a start time ("13:00" + 480 → "21:00"). */
+function endAfter(start: string, minutes: number | null | undefined): string | null {
+  const t = parseTime(start);
+  if (!t || !minutes) return null;
+  const total = (((t.h * 60 + t.m + minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
 export function NewEventDialog({
   starters,
   themes,
@@ -93,7 +101,8 @@ export function NewEventDialog({
   const [title, setTitle] = React.useState('');
   const [date, setDate] = React.useState('');
   const [start, setStart] = React.useState('18:00');
-  const [end, setEnd] = React.useState('21:00');
+  // A starter with sessions (the AGM's meeting and reception) sets the end.
+  const [end, setEnd] = React.useState(endAfter('18:00', firstStarter?.spanMinutes) ?? '21:00');
   const [zone, setZone] = React.useState(timeZone);
   const [busy, setBusy] = React.useState(false);
   const [problem, setProblem] = React.useState<string | null>(null);
@@ -106,6 +115,7 @@ export function NewEventDialog({
     if (chosen) {
       setStarterId(chosen.id);
       setThemeId(chosen.themePresetId);
+      setEnd(endAfter(start, chosen.spanMinutes) ?? end);
       setStep('theme');
     }
   }
@@ -116,10 +126,20 @@ export function NewEventDialog({
   const vibes = [...new Set(themes.flatMap((t) => t.vibes))];
   const shownThemes = vibe ? themes.filter((t) => t.vibes.includes(vibe as never)) : themes;
 
+  const spanOf = (id: string | null) => starters.find((s) => s.id === id)?.spanMinutes ?? null;
+
   const pickStarter = (s: StarterCard) => {
     setStarterId(s.id);
     // A starter brings its own look; the theme step can still change it.
     setThemeId(s.themePresetId);
+    const reached = endAfter(start, s.spanMinutes);
+    if (reached) setEnd(reached);
+  };
+
+  const changeStart = (value: string) => {
+    setStart(value);
+    const reached = endAfter(value, spanOf(starterId));
+    if (reached) setEnd(reached);
   };
 
   const create = async () => {
@@ -378,7 +398,7 @@ export function NewEventDialog({
                   id="new-event-start"
                   type="time"
                   value={start}
-                  onChange={(e) => setStart(e.target.value)}
+                  onChange={(e) => changeStart(e.target.value)}
                 />
               </Field>
               <Field label="Ends" htmlFor="new-event-end">
