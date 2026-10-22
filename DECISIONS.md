@@ -3279,6 +3279,16 @@ What changed in joining them:
   team), matched by the person's addresses, or for a company by its domain
   and its people's addresses (`notesForRecord`). A person's own domain is
   never used, so a colleague's meeting is not theirs.
+- **The trash means gone from shared pages.** A meeting moved to the trash
+  kept showing on the deal and company pages (from its notes row) until the
+  seven-day purge, with a link that no longer opened; search and the MCP
+  tools already hid it. `visibleNotes` now drops it and lets its Granola twin
+  show again.
+- **Specs leave the demo as they found it.** In a full run the notes specs'
+  tasks leaked into Today's counts (an "Intro …" action item joined Intros
+  owed; a "today" promise is due at 5 PM Central and went overdue in a late
+  run), so each notes spec deletes the tasks its meeting filed, and the
+  zero-spend spec trashes its meeting so the event offers "Take notes" again.
 - **Small joins.** The share page drops Arwin's own "Summary" heading under
   its "Summary"; Settings opens on the Copilot Notes tab from
   `?tab=notes` when the feature is on; the meeting follow-up routine's fire

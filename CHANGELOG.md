@@ -18,7 +18,9 @@ throughout.
   on the deal, company and person pages, in search and in the tools the
   routines use. A person's or company's page in Lists now has a Meetings
   section with every meeting note with them (Granola's, and Copilot's once
-  shared with the team). A shared link no longer says "Summary" twice, the
+  shared with the team). A meeting moved to the trash now leaves the deal,
+  company and person pages at once instead of after a week. A shared link
+  no longer says "Summary" twice, the
   Notes tour has five pictures, and Settings can open straight on the
   Copilot Notes tab. (D-076)
 
