@@ -675,17 +675,25 @@ export function publicBookingView(
 
 /**
  * Addresses that are never a guest: the host's own (every address on his
- * calendar account) and every teammate's.
+ * calendar account and every connected Google account) and every teammate's.
  */
 export async function blockedGuestAddresses(
   store: DataStore,
   organizationId: string,
   ownEmails: readonly string[] = [],
 ): Promise<string[]> {
-  const team = await readTeam(store, organizationId).catch(() => null);
-  return [...ownEmails, ...(team?.members.map((m) => m.email ?? '').filter(Boolean) ?? [])].map(
-    (e) => e.toLowerCase(),
-  );
+  const [team, accounts] = await Promise.all([
+    readTeam(store, organizationId).catch(() => null),
+    // The connected Google accounts too: the calendar's own address may not be a login.
+    store.list('integrations', organizationId, { eq: { provider: 'google' } }).catch(() => []),
+  ]);
+  return [
+    ...ownEmails,
+    ...(team?.members.map((m) => m.email ?? '') ?? []),
+    ...accounts.map((a) => a.account_email ?? ''),
+  ]
+    .filter(Boolean)
+    .map((e) => e.toLowerCase());
 }
 
 /**

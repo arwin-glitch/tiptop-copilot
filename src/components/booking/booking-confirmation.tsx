@@ -94,7 +94,8 @@ export function BookingConfirmation({
       </div>
       {manageUrl ? (
         <p className="mt-3 text-xs text-[var(--fg-subtle)]">
-          Keep this page’s link, or use the one in your invitation, to change or cancel later.
+          To change or cancel later, come back to this booking link on this device
+          {status === 'booked' ? ', or use the link in your invitation' : ''}.
         </p>
       ) : null}
     </section>
