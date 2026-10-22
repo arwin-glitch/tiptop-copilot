@@ -77,6 +77,13 @@ const PUBLIC_PATHS = [
   // a Bearer header or the last path segment — never a session cookie; the
   // route checks the token itself (lib/mcp/http.ts).
   '/api/mcp',
+  // The booking link (D-074): the public page where people ask for time with
+  // Nick (/meet/<slug>, and its photo), and its three API routes (open times,
+  // a request, the chatbot). Only these two prefixes: '/meetings' and the
+  // rest of /api stay signed in. The routes read busy times only, write only
+  // a pending request, brake per address and check where a write came from.
+  '/meet',
+  '/api/meet',
   // Campaign tracking: the open pixel, tracked links and unsubscribe, loaded
   // by recipients' mail clients with no session. Each route authenticates by
   // its signed per-recipient token, and the click route redirects only to a

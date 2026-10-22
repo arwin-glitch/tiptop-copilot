@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
  * Where calendar writes can come from, read from the source. Changing an
  * event is a person's tap on the Calendar tab and nothing else: no routine,
  * cron job, AI tool, relay reader, the pings or the parity check can reach a
- * write, and nothing anywhere defaults to emailing guests.
+ * write, and nothing anywhere defaults to emailing guests. The one other
+ * caller is the booking link's Approve (D-074), a person's tap in the
+ * Calendar tab's panel; the public booking page and its chatbot never reach it.
  */
 
 const SRC = join(process.cwd(), 'src');
@@ -25,11 +27,47 @@ const SOURCES = files(SRC).map((file) => ({
 }));
 
 describe('calendar writes', () => {
-  it('only the Calendar tab’s edit route imports the write module', () => {
+  it('only the Calendar tab’s edit route and the booking approval import the write module', () => {
     const importers = SOURCES.filter((s) => /from ['"][^'"]*calendar\/write['"]/.test(s.text)).map(
       (s) => s.rel,
     );
-    expect(importers).toEqual(['app/api/calendar/events/route.ts']);
+    expect(importers.sort()).toEqual([
+      'app/api/calendar/events/route.ts',
+      'lib/services/booking.ts',
+    ]);
+    // In the booking service, only Approve calls it, and with the person's Send.
+    const booking = SOURCES.find((s) => s.rel === 'lib/services/booking.ts')!.text;
+    expect(booking.match(/createCalendarEvent\(/g)).toHaveLength(1);
+    expect(booking).not.toMatch(/updateCalendarEvent|deleteCalendarEvent|recolorCalendarEvent/);
+    const approve =
+      /export async function approveBookingRequest[\s\S]*?\n}\n/.exec(booking)?.[0] ?? '';
+    expect(approve).toMatch(/createCalendarEvent\(/);
+    expect(approve).toMatch(/notify: 'send'/);
+    // And the service is reached for Approve from the signed-in panel route alone.
+    const approvers = SOURCES.filter((s) => /\bapproveBookingRequest\(/.test(s.text)).map(
+      (s) => s.rel,
+    );
+    expect(approvers.sort()).toEqual([
+      'app/api/booking/requests/[id]/route.ts',
+      'lib/services/booking.ts',
+    ]);
+  });
+
+  it('the public booking page, its routes and its chatbot name no write at all', () => {
+    const publicSide = SOURCES.filter(
+      (s) =>
+        s.rel.startsWith('app/meet/') ||
+        s.rel.startsWith('app/api/meet/') ||
+        s.rel.startsWith('lib/booking/') ||
+        s.rel.startsWith('components/booking/booking-page') ||
+        s.rel.startsWith('components/booking/booking-chat'),
+    );
+    expect(publicSide.length).toBeGreaterThan(8);
+    for (const { rel, text } of publicSide) {
+      expect(text, rel).not.toMatch(
+        /calendar\/write|createCalendarEvent|\b(insertEvent|patchEvent|moveEvent|deleteEvent)\b|sendUpdates|approveBookingRequest|gmail-send|sendMessage\(/,
+      );
+    }
   });
 
   it('only the write module calls the provider’s insert, patch, move and delete', () => {
