@@ -13,6 +13,7 @@ import {
   packItemOf,
   packWeek,
   segmentOnDay,
+  type ChipPlacement,
   shortTime,
   snap,
   SNAP_MINUTES,
@@ -60,11 +61,15 @@ const ONE_LINE_CHIP_PX = 52;
 const COLOUR_ONLY_CHIP_PX = 16;
 /**
  * Chips stack by start (1 up); a chip being dragged goes above them all, under
- * only the new event's placeholder (900), the time line (910) and a focused
- * chip (930). The grid is its own stacking context, so none of this reaches
- * past it.
+ * only the new event's placeholder (900) and the time line (910). A focused
+ * chip keeps its place in the stack: raised, a long block would cover every
+ * meeting drawn over it, as it would whenever its card closed with Esc and
+ * gave it focus back. The grid is its own stacking context, so none of this
+ * reaches past it.
  */
 const Z_DRAGGING = 920;
+/** Where a dragged event is drawn: across the column, on top. */
+const FULL_WIDTH: ChipPlacement = { left: 0, width: 1, z: Z_DRAGGING, depth: 0, cascaded: false };
 
 /** A title as words, each kept whole: one too long for the chip ends in an ellipsis. */
 function TitleWords({ title }: { title: string }) {
@@ -264,7 +269,10 @@ export function TimeGrid({
   const timed = events.filter((e) => !inAllDayRow(e) && e.startsAt);
   const allDay = events.filter((e) => inAllDayRow(e));
 
-  // While dragging, the event is drawn where it would land, and the rest reflow round it.
+  // While dragging, the event is drawn where it would land, over the rest,
+  // which keep the places they had (the layout below reads `timed`), so none
+  // of them moves, and the dragged one never folds into a "+N", mid-drag.
+  const draggedKey = drag && drag.mode !== 'create' ? drag.event.key : null;
   const shown = timed.map((e) => {
     if (!drag || drag.mode === 'create' || drag.event.key !== e.key) return e;
     if (drag.mode === 'resize') return { ...e, endsAt: drag.end.toISOString() };
@@ -512,7 +520,10 @@ export function TimeGrid({
                 Boolean(s.seg),
               );
             const layout = layoutOverlaps(
-              segments.map((s) => ({ key: s.event.key, start: s.seg.start, end: s.seg.end })),
+              timed.flatMap((event) => {
+                const seg = segmentOnDay(event, d, timeZone);
+                return seg ? [{ key: event.key, start: seg.start, end: seg.end }] : [];
+              }),
               { columnPx, minChipPx },
             );
             const byKey = new Map(segments.map((s) => [s.event.key, s.event]));
@@ -535,7 +546,12 @@ export function TimeGrid({
                 }}
               >
                 {segments.map(({ event, seg }) => {
-                  const place = layout.chips.get(event.key);
+                  // Moved, it is drawn a column wide, as in Google; resized, where it was.
+                  const place =
+                    event.key === draggedKey && drag?.mode === 'move'
+                      ? FULL_WIDTH
+                      : (layout.chips.get(event.key) ??
+                        (event.key === draggedKey ? FULL_WIDTH : undefined));
                   if (!place) return null; // folded into a "+N"
                   const top = (seg.start / 60) * HOUR_PX;
                   const height = Math.max(
@@ -573,7 +589,7 @@ export function TimeGrid({
                         calendars.get(event.calendarId)?.name ?? null,
                       )}
                       className={cn(
-                        'absolute z-[var(--chip-z)] flex flex-col overflow-hidden rounded-[5px] border text-left text-[12px] leading-tight [overflow-wrap:normal] [word-break:normal] transition-shadow focus-visible:z-[930] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]',
+                        'absolute z-[var(--chip-z)] flex flex-col overflow-hidden rounded-[5px] border text-left text-[12px] leading-tight [overflow-wrap:normal] [word-break:normal] transition-shadow focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]',
                         narrow ? 'px-0.5' : 'px-1.5',
                         compact ? 'py-0' : 'py-0.5',
                         editable(event) && 'cursor-grab active:cursor-grabbing',
@@ -784,16 +800,18 @@ function FoldChip({
   onOpen: (event: RangeEvent, element: HTMLElement) => void;
   onOpenChange: (open: boolean) => void;
 }) {
+  const trigger = React.useRef<HTMLButtonElement>(null);
   const first = events[0];
   if (!first?.startsAt) return null;
   return (
     <Popover onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
+          ref={trigger}
           type="button"
           data-event-fold=""
           aria-label={`${events.length} more events from ${shortTime(first.startsAt, timeZone)}`}
-          className="absolute z-[var(--chip-z)] flex flex-col items-center overflow-hidden rounded-[5px] border border-[var(--border-strong)] bg-[var(--bg-hover)] px-0.5 py-0.5 text-center text-[12px] leading-tight font-semibold whitespace-nowrap text-[var(--fg)] hover:bg-[var(--bg-raised)] focus-visible:z-[930] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]"
+          className="absolute z-[var(--chip-z)] flex flex-col items-center overflow-hidden rounded-[5px] border border-[var(--border-strong)] bg-[var(--bg-hover)] px-0.5 py-0.5 text-center text-[12px] leading-tight font-semibold whitespace-nowrap text-[var(--fg)] hover:bg-[var(--bg-raised)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]"
           style={{
             top,
             height,
@@ -812,7 +830,8 @@ function FoldChip({
             <li key={e.key}>
               <button
                 type="button"
-                onClick={(ev) => onOpen(e, ev.currentTarget)}
+                // The card opens beside the "+N" (the list closes) and gives it focus back.
+                onClick={(ev) => onOpen(e, trigger.current ?? ev.currentTarget)}
                 className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-sm hover:bg-[var(--bg-hover)]"
               >
                 <span

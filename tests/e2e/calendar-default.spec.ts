@@ -206,6 +206,67 @@ test('a "+N" holds what does not fit beside the others and lists it', async ({ p
   await expect(page.getByRole('dialog', { name: 'Quick sync: Jordan' })).toBeVisible();
   // Pressing in the list made nothing new.
   await expect(page.locator('[data-new-event]')).toHaveCount(0);
+  // The card opened from the "+2" and, closed, gives it focus back (the list is gone).
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(more).toBeFocused();
+});
+
+test('closing a long block’s card with Esc leaves the meetings drawn over it on top', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const busy = dayFromToday(BUSY_DAY);
+  await page.goto(`/calendar?view=week&date=${busy}`);
+  const column = page.locator(`[data-date="${busy}"]`);
+  const summit = column.locator('[data-event-chip]').filter({ hasText: 'Demo Summit' });
+  const coffee = column
+    .locator('[data-event-chip]')
+    .filter({ hasText: 'Coffee with Avery Brooks' });
+  await summit.scrollIntoViewIfNeeded();
+  const box = (await summit.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + 8);
+  await expect(page.getByRole('dialog', { name: 'Demo Summit: conference day' })).toBeVisible();
+  // Esc hands focus back to the block; it must not rise over the coffee drawn on it.
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(summit).toBeFocused();
+  const onTop = await coffee.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return (
+      document
+        .elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+        ?.closest('[data-event-chip]') === el
+    );
+  });
+  expect(onTop).toBe(true);
+  await coffee.click();
+  await expect(page.getByRole('dialog', { name: 'Coffee with Avery Brooks' })).toBeVisible();
+});
+
+test('a dragged event stays drawn, on top, even over a crowded "+N"', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const busy = dayFromToday(BUSY_DAY);
+  await page.goto(`/calendar?view=week&date=${busy}`);
+  const column = page.locator(`[data-date="${busy}"]`);
+  const pitch = column.locator('[data-event-chip]').filter({ hasText: 'Founder pitch' });
+  await pitch.scrollIntoViewIfNeeded();
+  const box = (await pitch.boundingBox())!;
+  const columnWidth = (await column.boundingBox())!.width;
+  // Down an hour, to noon, where three meetings already start.
+  await page.mouse.move(box.x + box.width / 2, box.y + 6);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) await page.mouse.move(box.x + box.width / 2, box.y + 6 + i * 6);
+  await expect(pitch).toHaveCount(1);
+  const dragged = (await pitch.boundingBox())!;
+  expect(dragged.y).toBeGreaterThan(box.y + 40);
+  expect(dragged.width).toBeGreaterThan(columnWidth - 8);
+  // Nothing else moved while it was dragged: the noon "+2" is still there.
+  await expect(column.getByRole('button', { name: /^2 more events from 12pm$/ })).toHaveCount(1);
+  // Esc drops it where it started; nothing is saved.
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await expect(pitch).toHaveAttribute('aria-label', /11am/);
 });
 
 test('a phone: the busy week fits without scrolling sideways, titles cut whole', async ({
