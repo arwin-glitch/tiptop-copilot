@@ -2209,10 +2209,16 @@ time."
   rules: the editing grant, a writable calendar, an event Nick may change or
   his own copy of an invitation, and a label the calendar has now. It never
   emails and never asks about guests; a repeating event keeps the "This
-  event / All events" question. A write that sets a colour never sends the
-  version (Google would ignore its `colorId`); every other write does, so the
-  event Google sends back keeps its label. Label definitions are never
-  changed here: "Edit labels in Google Calendar" links out.
+  event / All events" question. Only a write that carries `eventLabelId` (a
+  label set or cleared) sends the version. Google's Events reference says
+  that with it a write leaving `eventLabelId` out removes the label, and
+  that it makes Google ignore `colorId`; so an edit, an answer to an
+  invitation, a colour or a new event without a label never sends it and
+  Google leaves the label alone. When the event Google sends back from such
+  a write leaves the label out, the page keeps the label it read before. The
+  mock calendar applies that strict reading, so a write that sent the version
+  without a label would wipe the label in the tests. Label definitions are
+  never changed here: "Edit labels in Google Calendar" links out.
 - **A suggested label, never applied by itself.** For an unlabelled event on
   a calendar with labels, the card (once open) may suggest one of the
   calendar's _existing_ labels when Copilot's own data is clear: a guest from
@@ -2282,6 +2288,10 @@ time."
   are handled: a label wins when present, else `colorId` as before.
 - Whether Google keeps or drops an event's `colorId` once a label is set is
   not documented; the label wins either way, as Google draws it.
+- Whether a PATCH with the version and no `eventLabelId` really drops the
+  label (the reference's words cover insert, import, update and patch alike)
+  is not tested against Google. Nothing here sends that combination, so
+  either way no edit or answer can remove a label.
 - The suggestion's LP match by firm needs the firm's name and the guest's
   domain to be the same words ("Alder Endowment" and `alder-endowment.…`);
   anything looser stays quiet on purpose.

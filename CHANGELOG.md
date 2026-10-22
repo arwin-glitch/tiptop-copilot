@@ -19,7 +19,8 @@ throughout.
   (several add up, "Unlabelled" too), and the choice is remembered. On a
   calendar with labels, the card's colours become Google's label picker, with
   "No label" and a link to edit the labels in Google Calendar; a label change
-  never emails anyone. When Copilot's own data is clear (a portfolio founder,
+  never emails anyone, and editing or answering an event never touches its
+  label. When Copilot's own data is clear (a portfolio founder,
   an LP, a deal founder, another VC, only the team, a flight, a registration)
   the card suggests one of the calendar's labels, and nothing changes until
   someone taps "Use it". Ask Arwin can say which label each event has and

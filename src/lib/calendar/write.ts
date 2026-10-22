@@ -61,9 +61,11 @@ import type { CalendarInfo, EventLabel, RangeEvent } from './range-types';
  * page shows every time guests are involved: `notify` is required, and only
  * 'send' becomes Google's sendUpdates 'all'. Everything else is 'none'. An
  * answer asks "Send your response to the organizer?" the same way. A colour
- * or label change is always 'none' and is never asked about. Every write
- * names eventLabelVersion=1 (Google applies eventLabelId only then, and sends
- * the label back) except a colour write: with it Google ignores a colorId.
+ * or label change is always 'none' and is never asked about. Only a write
+ * that sets or clears a label names eventLabelVersion=1 (Google applies
+ * eventLabelId only then): Google documents that, with it, a write without
+ * eventLabelId removes the event's label and a colorId is ignored, so an
+ * edit, an answer or a colour never sends it and never touches the label.
  */
 
 export interface WriteContext {
@@ -111,13 +113,24 @@ function labelProblem(labelId: string | null | undefined, labels: readonly Event
 }
 
 /**
- * Google applies eventLabelId only with eventLabelVersion=1, and with it
- * ignores a colorId. So every write carries it (the event Google sends back
- * then keeps its label, and the page draws it right away) except one that
- * sets a colour, which would otherwise be thrown away.
+ * eventLabelVersion=1 only on a write that carries an eventLabelId (a label
+ * set, or cleared with ''). Google applies eventLabelId only with it, and
+ * with it ignores a colorId and documents that a write leaving eventLabelId
+ * out removes the event's label. So an edit, an answer, a colour or a new
+ * event without a label never sends it, and Google leaves the label alone.
  */
 function labelVersion(body: GCalEventWrite): 0 | 1 {
-  return body.colorId !== undefined ? 0 : 1;
+  return body.eventLabelId !== undefined ? 1 : 0;
+}
+
+/**
+ * The event Google sent back from a write that did not touch the label, with
+ * the label it had before when the answer leaves it out (a write without
+ * eventLabelVersion=1 may not echo it): so the page keeps drawing it.
+ */
+function keepLabel(written: GCalEvent, before: GCalEvent | null, version: 0 | 1): GCalEvent {
+  if (version === 1 || written.eventLabelId !== undefined || !before?.eventLabelId) return written;
+  return { ...written, eventLabelId: before.eventLabelId };
 }
 
 function checkDraft(
@@ -357,21 +370,22 @@ export async function updateCalendarEvent(
     });
     if (!moved.ok) return moved;
     finalCalendar = destination.value.calendar;
-    latest = moved.value;
+    latest = keepLabel(moved.value, existing, 0);
     changed = true;
   }
 
   if (Object.keys(body).length > 0) {
+    const version = labelVersion(body);
     const patched = await ctx.source.provider.patchEvent(finalCalendar.id, targetId, body, {
       sendUpdates,
       conferenceDataVersion,
-      eventLabelVersion: labelVersion(body),
+      eventLabelVersion: version,
     });
     if (!patched.ok) {
       if (changed) invalidateCalendarCache(ctx.organizationId, [calendar.id, finalCalendar.id]);
       return patched;
     }
-    latest = patched.value;
+    latest = keepLabel(patched.value, latest, version);
     changed = true;
   }
 
@@ -478,10 +492,9 @@ export async function respondToCalendarEvent(
   const { existing, targetId, series } = found.value;
   const request = rsvpRequest(existing, input.response, input.notify, own);
   if (!request) return refuse('You are not on the guest list.');
+  // An answer never names the label switch, so Google leaves the label alone.
   const patched = await ctx.source.provider.patchEvent(calendar.id, targetId, request.body, {
     sendUpdates: request.sendUpdates,
-    // No colour in an answer: the event comes back with its label.
-    eventLabelVersion: labelVersion(request.body),
   });
   if (!patched.ok) return patched;
   invalidateCalendarCache(ctx.organizationId, [calendar.id]);
@@ -493,7 +506,9 @@ export async function respondToCalendarEvent(
     notified: request.sendUpdates === 'all',
   });
   return ok({
-    event: series ? null : toRangeEvent(patched.value, calendar, colors, own),
+    event: series
+      ? null
+      : toRangeEvent(keepLabel(patched.value, existing, 0), calendar, colors, own),
     reload: series,
   });
 }
@@ -522,7 +537,7 @@ export async function recolorCalendarEvent(
     return { ok: rule.canColor, reason: rule.reason };
   });
   if (!found.ok) return found;
-  const { targetId, series } = found.value;
+  const { existing, targetId, series } = found.value;
   const request = colorRequest(input.colorId);
   const patched = await ctx.source.provider.patchEvent(calendar.id, targetId, request.body, {
     sendUpdates: request.sendUpdates,
@@ -537,7 +552,9 @@ export async function recolorCalendarEvent(
     notified: false,
   });
   return ok({
-    event: series ? null : toRangeEvent(patched.value, calendar, colors, own),
+    event: series
+      ? null
+      : toRangeEvent(keepLabel(patched.value, existing, 0), calendar, colors, own),
     reload: series,
   });
 }

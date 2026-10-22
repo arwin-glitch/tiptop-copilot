@@ -39,8 +39,9 @@ import {
  * edit routes, through lib/calendar/write.ts, which refuses unless calendar
  * editing is turned on, the calendar is writable and the event is one this
  * account may change. Every write names its sendUpdates; there is no default.
- * Every write but a colour one also names eventLabelVersion=1 (Google ignores
- * eventLabelId without it, and colorId with it, so a colour write never does).
+ * A write that sets or clears a label also names eventLabelVersion=1 (Google
+ * ignores eventLabelId without it; with it, colorId is ignored and a missing
+ * eventLabelId removes the label, so no other write ever sends it).
  * The mock answers them in memory and records each one; tests never reach the
  * Google implementation's write endpoints.
  */
@@ -381,8 +382,8 @@ export class GoogleCalendarProvider implements CalendarProvider {
 
 /**
  * sendUpdates always, conferenceDataVersion only when a Meet link is asked
- * for, eventLabelVersion when the write module names it (never with a
- * colorId, which it would turn off).
+ * for, eventLabelVersion when the write module names it (only on a write
+ * that carries an eventLabelId).
  */
 export function writeParams(options: GCalWriteOptions): string {
   const params = new URLSearchParams({ sendUpdates: options.sendUpdates });
@@ -545,7 +546,7 @@ export class MockCalendarProvider implements CalendarProvider {
     const list = this.state.events.get(id) ?? [];
     list.push(event);
     this.state.events.set(id, list);
-    return ok(structuredClone(event));
+    return ok(asWriteAnswer(event, options));
   }
 
   async patchEvent(
@@ -569,7 +570,7 @@ export class MockCalendarProvider implements CalendarProvider {
     } else {
       found.series.exceptions.set(eventId, next);
     }
-    return ok(structuredClone(next));
+    return ok(asWriteAnswer(next, options));
   }
 
   async moveEvent(
@@ -600,7 +601,7 @@ export class MockCalendarProvider implements CalendarProvider {
       target.push({ master: moved, exceptions: found.series.exceptions });
       this.state.series.set(destination, target);
     }
-    return ok(structuredClone(moved));
+    return ok(asWriteAnswer(moved, {}));
   }
 
   async deleteEvent(
@@ -623,13 +624,32 @@ export class MockCalendarProvider implements CalendarProvider {
 /**
  * What Google applies of a write: conference data only with
  * conferenceDataVersion=1; eventLabelId only with eventLabelVersion=1, which
- * makes it ignore colorId instead.
+ * makes it ignore colorId instead. Read strictly, as Google's Events
+ * reference puts it: with eventLabelVersion=1, leaving eventLabelId out
+ * removes the event's label, so a write that sends the switch without a
+ * label wipes it here too (lib/calendar/write.ts never does).
  */
 function asGoogleTakesIt(body: GCalEventWrite, options: GCalWriteOptions): GCalEventWrite {
   const out: GCalEventWrite = { ...body };
   if (options.conferenceDataVersion !== 1) out.conferenceData = undefined;
-  if (options.eventLabelVersion === 1) out.colorId = undefined;
-  else out.eventLabelId = undefined;
+  if (options.eventLabelVersion === 1) {
+    out.colorId = undefined;
+    if (out.eventLabelId === undefined) out.eventLabelId = '';
+  } else out.eventLabelId = undefined;
+  return out;
+}
+
+/**
+ * The event as a write's answer carries it: without eventLabelVersion=1 the
+ * label may not be echoed (Google does not say), so the mock leaves it out
+ * and the write module has to keep the label it read.
+ */
+function asWriteAnswer(
+  event: GCalEvent,
+  options: Pick<GCalWriteOptions, 'eventLabelVersion'>,
+): GCalEvent {
+  const out = structuredClone(event);
+  if (options.eventLabelVersion !== 1) delete out.eventLabelId;
   return out;
 }
 

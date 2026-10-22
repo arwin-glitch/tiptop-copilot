@@ -174,9 +174,9 @@ export interface GCalWriteOptions {
   /** 1 when the body creates (or carries) a Google Meet conference. */
   conferenceDataVersion?: 0 | 1;
   /**
-   * 1 to have Google apply (and send back) eventLabelId: it ignores the
-   * label without it, and ignores colorId with it, so a write that sets a
-   * colour (colorId) never sends it.
+   * 1 to have Google apply eventLabelId: it ignores the label without it.
+   * With it Google ignores colorId and removes a label the body leaves out,
+   * so only a write that carries eventLabelId sends it (write.ts).
    */
   eventLabelVersion?: 0 | 1;
 }

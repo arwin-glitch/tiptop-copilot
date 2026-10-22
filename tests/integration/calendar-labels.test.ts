@@ -24,6 +24,7 @@ import {
   createCalendarEvent,
   recolorCalendarEvent,
   relabelCalendarEvent,
+  respondToCalendarEvent,
   updateCalendarEvent,
   type WriteContext,
 } from '@/lib/calendar/write';
@@ -52,8 +53,9 @@ import { createHarness, type Harness } from '../helpers/harness';
  * every request as Google would receive it) and Google's own endpoints
  * (fetch stubbed): reads ask for eventLabelVersion=1 and come back with each
  * event's label; a label write is eventLabelId alone, with
- * eventLabelVersion=1 and sendUpdates none, under the colour's rules; a
- * colour write never carries the version. Then Ask's calendar tool, the
+ * eventLabelVersion=1 and sendUpdates none, under the colour's rules; no
+ * other write (a colour, an edit, an answer) carries the version, so none
+ * can remove a label. Then Ask's calendar tool, the
  * suggested label, "How you got here" and the Diagnostics readout. Nothing
  * here reaches Google.
  */
@@ -470,8 +472,8 @@ describe('a label from the card', () => {
       },
       notify: 'dont_send',
     });
-    // The switch still goes along (so the event comes back with its label), with nothing to set.
-    expect(state.writes[2]).toMatchObject({ op: 'insert', eventLabelVersion: 1 });
+    // No label, no switch: Google has nothing to apply.
+    expect(state.writes[2]).toMatchObject({ op: 'insert', eventLabelVersion: 0 });
     expect(state.writes[2]!.body).not.toHaveProperty('eventLabelId');
     // A new event with a colour (a calendar without labels) never carries it.
     await createCalendarEvent(context(), {
@@ -488,6 +490,82 @@ describe('a label from the card', () => {
     });
     expect(state.writes[3]).toMatchObject({ op: 'insert', eventLabelVersion: 0 });
     expect(state.writes[3]!.body).toMatchObject({ colorId: '11' });
+  });
+});
+
+describe('writes that are not about the label', () => {
+  // Google's Events reference: with eventLabelVersion=1, a write that leaves
+  // eventLabelId out removes the label. The mock reads it that strictly, so
+  // an edit, an answer or a colour that sent the switch would wipe Nick's
+  // label here; none does, and the page keeps drawing it.
+
+  it('an edit sends no label switch, and the label stays on the event and on the page', async () => {
+    const coffee = await eventTitled('Coffee — Elena Ward (Marchmont)', [MOCK_OWN_EMAIL]);
+    await relabelCalendarEvent(context(), {
+      calendarId: MOCK_OWN_EMAIL,
+      eventId: coffee.id,
+      scope: 'this',
+      labelId: MOCK_LABELS.lps.id,
+    });
+    resetCalendarRangeCache();
+    const res = await updateCalendarEvent(context(), {
+      calendarId: MOCK_OWN_EMAIL,
+      eventId: coffee.id,
+      scope: 'this',
+      notify: 'dont_send',
+      changes: { title: 'Coffee — Elena Ward (moved)' },
+    });
+    expect(res.ok).toBe(true);
+    expect(state.writes[1]).toMatchObject({ op: 'patch', eventLabelVersion: 0 });
+    expect(state.writes[1]!.body).not.toHaveProperty('eventLabelId');
+    expect(res.ok && res.value.event?.label?.name).toBe('LPs');
+    resetCalendarRangeCache();
+    expect((await eventTitled('Coffee — Elena Ward (moved)', [MOCK_OWN_EMAIL])).label?.name).toBe(
+      'LPs',
+    );
+  });
+
+  it('an answer and a colour send no label switch, and the label stays', async () => {
+    const label = { id: 'label-team-board', name: 'Board', backgroundColor: '#7986cb' };
+    state.labels.set(MOCK_TEAM_CALENDAR, [label]);
+    const board = state.events.get(MOCK_TEAM_CALENDAR)!.find((e) => e.id === 'demoteamboard')!;
+    board.eventLabelId = label.id;
+
+    const answer = await respondToCalendarEvent(context(), {
+      calendarId: MOCK_TEAM_CALENDAR,
+      eventId: 'demoteamboard',
+      scope: 'this',
+      response: 'accepted',
+      notify: 'dont_send',
+    });
+    expect(answer.ok).toBe(true);
+    expect(state.writes[0]).toMatchObject({ op: 'patch', eventLabelVersion: 0 });
+    expect(answer.ok && answer.value.event?.label?.name).toBe('Board');
+
+    const colour = await recolorCalendarEvent(context(), {
+      calendarId: MOCK_TEAM_CALENDAR,
+      eventId: 'demoteamboard',
+      scope: 'this',
+      colorId: '11',
+    });
+    expect(colour.ok).toBe(true);
+    expect(state.writes[1]).toMatchObject({ body: { colorId: '11' }, eventLabelVersion: 0 });
+    expect(colour.ok && colour.value.event?.label?.name).toBe('Board');
+
+    const stored = state.events.get(MOCK_TEAM_CALENDAR)!.find((e) => e.id === 'demoteamboard')!;
+    expect(stored.eventLabelId).toBe(label.id);
+  });
+
+  it('the mock wipes a label when the switch goes without one, as Google documents', async () => {
+    const board = await eventTitled('Ledgerly board prep', [MOCK_OWN_EMAIL]);
+    await source().provider.patchEvent(
+      MOCK_OWN_EMAIL,
+      board.id,
+      { description: 'x' },
+      { sendUpdates: 'none', eventLabelVersion: 1 },
+    );
+    resetCalendarRangeCache();
+    expect((await eventTitled('Ledgerly board prep', [MOCK_OWN_EMAIL])).labelId).toBeNull();
   });
 });
 

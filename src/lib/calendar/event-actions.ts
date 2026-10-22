@@ -158,9 +158,9 @@ export function colorRequest(colorId: string | null): {
 
 /**
  * A label from the card: Google's eventLabelId alone (empty for none), with
- * eventLabelVersion=1 so Google applies it, and never an email. A colour
- * write (colorRequest) never carries the version: with it Google would
- * ignore the colorId.
+ * eventLabelVersion=1 so Google applies it, and never an email. No other
+ * write carries the version: with it Google would ignore a colorId, and
+ * remove a label the body leaves out.
  */
 export function labelRequest(labelId: string | null): {
   body: GCalEventWrite;
