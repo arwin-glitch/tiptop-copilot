@@ -574,6 +574,38 @@ describe('items a readable post left out (D-073)', () => {
     });
   });
 
+  it('call a one-post snapshot mostly unreadable "could not be read", its card on the older copy', () => {
+    const item = (title: string, kind = 'other') => ({ title, why: 'Ranked', kind });
+    const seen = collectSightings(
+      [
+        // Two of three in a kind the app does not know: the card keeps the older copy.
+        post(
+          '2026-10-21T20:00:00Z',
+          relay('PRIORITIES_V1', {
+            run_at: '2026-10-21T20:00:00Z',
+            source: 'afternoon',
+            items: [item('D'), item('E', 'legal'), item('F', 'legal')],
+          }),
+        ),
+        // The copy kept, itself less one item.
+        post(
+          '2026-10-21T11:00:00Z',
+          relay('PRIORITIES_V1', {
+            run_at: '2026-10-21T11:00:00Z',
+            source: 'morning',
+            items: [item('A'), item('B'), item('C', 'legal')],
+          }),
+        ),
+      ],
+      DEAL_RULES,
+    );
+    expect(seen.priorities).toEqual({
+      at: '2026-10-21T11:00:00.000Z',
+      unreadableAt: '2026-10-21T20:00:00.000Z',
+      skipped: 1,
+    });
+  });
+
   it("come from Jobs' and Students' own dropped counts too", () => {
     const role = {
       company: 'Example Robotics',

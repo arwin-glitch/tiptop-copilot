@@ -656,4 +656,142 @@ describe('lenient reading (D-073)', () => {
     expect(week?.events[3]?.prep).toBe('Short prep');
     expect(week?.events.some((e) => e.prep === 'Old copy')).toBe(false);
   });
+
+  it('keeps names matched against records, or written into an intro email, strict', () => {
+    const long =
+      'Dana Example & Omar Placeholder & Priya Sample & Sam Fictional (Harbor Example Robotics Laboratories)'.padEnd(
+        130,
+        'x',
+      );
+    const intros = parseFollowUpMessage(
+      post('INTROS_V1', {
+        run_at: RUN,
+        intros: [
+          // A side too long is that intro left out, never cut into the draft.
+          { for_who: long, to_who: 'Ivy Chen', status: 'owed' },
+          { for_who: 'Zeta', to_who: long, status: 'owed' },
+          // A firm, or a person's name, too long falls back as before.
+          {
+            for_who: 'Quill',
+            to_who: 'Bo Kim',
+            status: 'owed',
+            for_org: long,
+            to_people: [{ name: long }],
+          },
+          { for_who: 'Lumen', to_who: 'Ada Roe', status: 'made' },
+        ],
+      }),
+    );
+    if (intros?.marker !== 'INTROS_V1') throw new Error('expected intros');
+    expect(intros.skipped).toBe(2);
+    expect(intros.value.intros.map((i) => i.for_who)).toEqual(['Quill', 'Lumen']);
+    expect(intros.value.intros[0]!.for_org).toBeNull();
+    expect(intros.value.intros[0]!.to_people).toBeUndefined();
+
+    const lps = parseFollowUpMessage(
+      post('LP_PIPELINE_V1', {
+        run_at: RUN,
+        fund: 'Fund II',
+        lps: [
+          { who: long, kind: 'family_office', stage: 'materials' },
+          { who: 'Grace Okafor', firm: long, kind: 'family_office', stage: 'materials' },
+          { who: 'Sam Patel', firm: 'Lakeside', kind: 'fund_of_funds', stage: 'committed' },
+          { who: 'Ivy Chen', kind: 'existing_lp', stage: 'committed' },
+        ],
+      }),
+    );
+    if (lps?.marker !== 'LP_PIPELINE_V1') throw new Error('expected the pipeline');
+    // DocSend readers and Calendar labels match by who and firm: never cut.
+    expect(lps.skipped).toBe(2);
+    expect(lps.value.lps.map((l) => l.who)).toEqual(['Sam Patel', 'Ivy Chen']);
+  });
+
+  it('keeps the older copy of a one-post snapshot when most of the newer one cannot be read', () => {
+    const item = (title: string, kind = 'other') => ({ title, why: 'Ranked', kind });
+    const older = {
+      run_at: '2026-10-21T11:00:00Z',
+      source: 'morning',
+      items: [item('A'), item('B'), item('C')],
+    };
+    // Two of three items in a kind the app does not know: refused, not shown as one.
+    const newer = {
+      run_at: '2026-10-21T20:00:00Z',
+      source: 'afternoon',
+      items: [item('D'), item('E', 'legal'), item('F', 'legal')],
+    };
+    expect(parseFollowUpMessage(post('PRIORITIES_V1', newer))).toBeNull();
+    const snapshot = collectFollowUps([
+      { ts: '1792620000.000100', text: post('PRIORITIES_V1', newer), user: 'U1' },
+      { ts: '1792580000.000100', text: post('PRIORITIES_V1', older), user: 'U1' },
+    ]);
+    expect(snapshot.priorities?.items.map((i) => i.title)).toEqual(['A', 'B', 'C']);
+    // Half, or fewer, unreadable: the newer copy shows, less those items.
+    const half = { ...newer, items: [item('D'), item('E', 'legal')] };
+    expect(parseFollowUpMessage(post('PRIORITIES_V1', half))?.skipped).toBe(1);
+    // Rows past the limit are not failures: nine good ones read as seven.
+    const nine = { ...newer, items: Array.from({ length: 9 }, (_, i) => item(`I${i}`)) };
+    expect(parseFollowUpMessage(post('PRIORITIES_V1', nine))?.skipped).toBe(2);
+    // ...nor are they once the first seven include two bad ones (2 failed, 5 read).
+    const nineWithBad = {
+      ...newer,
+      items: [
+        item('D', 'legal'),
+        item('E', 'legal'),
+        ...Array.from({ length: 7 }, (_, i) => item(`J${i}`)),
+      ],
+    };
+    expect(parseFollowUpMessage(post('PRIORITIES_V1', nineWithBad))?.skipped).toBe(4);
+
+    // The radar counts both its lists, and so does follow-ups' one list.
+    const radar = (bad: number, good: number) => ({
+      run_at: RUN,
+      waiting: Array.from({ length: bad }, () => ({ who: 'Ivy', kind: 'lp', since: 'x', days: 1 })),
+      cold: Array.from({ length: good }, () => ({ who: 'Bo', kind: 'lp', since: RUN, days: 90 })),
+    });
+    expect(parseFollowUpMessage(post('RELATIONSHIPS_V1', radar(3, 2)))).toBeNull();
+    expect(parseFollowUpMessage(post('RELATIONSHIPS_V1', radar(2, 2)))?.skipped).toBe(2);
+    expect(
+      parseFollowUpMessage(
+        post('FOLLOWUPS_V1', {
+          run_at: RUN,
+          items: [WAITING.items[0], { ...WAITING.items[1], days_waiting: -1 }, { thread_id: 'zz' }],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it('keeps every readable row of a numbered-part snapshot, and of queues that pile up', () => {
+    const event = (kind: string) => ({
+      title: 'Example meeting',
+      starts_at: '2026-10-22T15:00:00Z',
+      kind,
+    });
+    // A part is not refused for most of it failing: its good rows still join the run.
+    const part = parseFollowUpMessage(
+      post('WEEK_AHEAD_V1', {
+        run_at: RUN,
+        part: 2,
+        events: [event('lp'), event('offsite'), event('retreat')],
+      }),
+    );
+    expect(part?.skipped).toBe(2);
+    const queue = parseFollowUpMessage(
+      post('EMAIL_QUEUE_V1', {
+        run_at: RUN,
+        items: [
+          {
+            id: '1a0000000000abcd',
+            who: 'Jane Roe',
+            about: 'Wire',
+            group: 'money',
+            call: 'reply',
+            draft: 'none',
+          },
+          { id: 'nope', who: 'Sam Poe', about: 'x', group: 'money', call: 'reply', draft: 'none' },
+          { id: 'nope2', who: 'Bo Kim', about: 'y', group: 'money', call: 'reply', draft: 'none' },
+        ],
+      }),
+    );
+    expect(queue?.skipped).toBe(2);
+  });
 });

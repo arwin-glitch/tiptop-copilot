@@ -20,8 +20,10 @@ throughout.
   numbered parts of one run still join. Diagnostics > Feeds says "1 item in
   the newest post was skipped" instead of "could not be read"; a post that
   really cannot be read (not JSON, no run time, or not one readable item)
-  still says so and keeps the older copy. Ids, names used to match records,
-  kinds, dates and links are still checked strictly. This covers the
+  still says so and keeps the older copy, and so does a follow-ups, Top
+  priorities or radar post where most items cannot be read. Ids, names used
+  to match records (an LP's name and firm, both sides of an intro), kinds,
+  dates and links are still checked strictly. This covers the
   follow-ups, priorities, radar, LP pipeline, portfolio health, intros, week
   ahead, email queue, scheduling, meeting recaps and LP update posts, plus
   Jobs, the task closer's reasons, suggested tasks' details, briefing titles

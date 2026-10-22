@@ -62,8 +62,10 @@ import { isRelayOrganization } from './deal-relay';
  * Lenient where it is safe (D-073): display text past its limit is cut at a
  * word with an ellipsis, and each item of a snapshot is checked on its own,
  * so one bad item is left out (and counted) rather than costing the post.
- * Ids, keys, enums and dates stay strict. A post whose envelope fails, or
- * whose every item fails, is unreadable and its card keeps the older copy.
+ * Ids, keys, enums, dates, and names matched against records stay strict. A
+ * post whose envelope fails, or whose every item fails, is unreadable and its
+ * card keeps the older copy; so is a one-post snapshot (follow-ups, priorities,
+ * the radar) when more of its items fail than are read (see `REPLACES`).
  */
 
 export const FOLLOWUPS_MARKER = 'FOLLOWUPS_V1';
@@ -93,9 +95,52 @@ const MARKERS = [
 ] as const;
 type Marker = (typeof MARKERS)[number];
 
+/**
+ * Each snapshot's item lists, and how many rows of each are read: rows past
+ * that are left out and counted as skipped, never a reason to refuse a post.
+ */
+const ROWS = {
+  [FOLLOWUPS_MARKER]: { items: 60 },
+  [SCHEDULING_MARKER]: { items: 30 },
+  [PRIORITIES_MARKER]: { items: 7 },
+  [RELATIONSHIPS_MARKER]: { waiting: 40, cold: 40 },
+  [LP_PIPELINE_MARKER]: { lps: 300 },
+  [PORTFOLIO_HEALTH_MARKER]: { companies: 80 },
+  [INTROS_MARKER]: { intros: 100 },
+  [WEEK_AHEAD_MARKER]: { events: 80 },
+  [EMAIL_QUEUE_MARKER]: { items: 150 },
+} as const satisfies Partial<Record<Marker, Record<string, number>>>;
+
+/**
+ * Snapshots sent as one post whose newest post stands in whole for the one
+ * before it. A post of these where more items fail than are read is
+ * unreadable, so its card keeps the older copy: a list missing most of its
+ * rows (a routine that started writing a new kind, say) would read as the
+ * whole list ("two priorities today") under a fresh "checked" time, which
+ * misleads more than an older, complete copy does, and Diagnostics then says
+ * "could not be read, so its card kept the older copy", which is so.
+ *
+ * Left out: scheduling and the email queue, whose items pile up by thread
+ * across posts (a row this post could not read falls back to that thread's
+ * older row, so nothing is replaced whole); and the snapshots that come in
+ * numbered parts (LP pipeline, portfolio health, intros, week ahead), where
+ * refusing one part would drop that part's good rows too while the card
+ * still showed the run's other parts. Those keep every row they can read.
+ */
+const REPLACES: ReadonlySet<Marker> = new Set([
+  FOLLOWUPS_MARKER,
+  PRIORITIES_MARKER,
+  RELATIONSHIPS_MARKER,
+]);
+
 const THREAD_ID = z.string().regex(/^[0-9a-f]{10,24}$/i);
 /** Strict text, for a key: never cut. Display text is `softText` / `softOptionalText`. */
 const text = (max: number) => z.string().trim().min(1).max(max);
+/**
+ * Strict optional text, for a value that is matched against records or
+ * written into an email: never cut, so too long is the item left out.
+ */
+const strictOptionalText = (max: number) => z.string().trim().max(max).nullish();
 /**
  * A long list may be split across several posts from one run (Slack caps a
  * message's length): each part repeats the run's run_at and numbers itself.
@@ -115,7 +160,7 @@ export const FOLLOWUPS_SCHEMA = z.object({
       draft: z.boolean(),
       note: softOptionalText(400),
     }),
-    60,
+    ROWS[FOLLOWUPS_MARKER].items,
   ),
 });
 
@@ -142,7 +187,7 @@ export const SCHEDULING_SCHEMA = z.object({
       draft: z.boolean(),
       note: softOptionalText(400),
     }),
-    30,
+    ROWS[SCHEDULING_MARKER].items,
   ),
 });
 
@@ -153,12 +198,14 @@ export const PRIORITIES_SCHEMA = z.object({
   source: z.enum(['morning', 'afternoon']),
   items: softRows(
     z.object({
+      // Display, and the money alert's fallback key (slug(title), itself cut
+      // to 60 characters): a cut is the same every run, so the key holds.
       title: softText(160),
       why: softText(300),
       kind: z.enum(PRIORITY_KINDS),
       thread_id: THREAD_ID.nullish(),
     }),
-    7,
+    ROWS[PRIORITIES_MARKER].items,
   ),
 });
 
@@ -172,6 +219,8 @@ export const RELATIONSHIP_KINDS = [
 ] as const;
 
 const RELATIONSHIP_ITEM = z.object({
+  // Display, and the waiting alert's fallback key (slug(who), cut to 60
+  // characters): a cut is the same every run, so the key holds.
   who: softText(120),
   company: softOptionalText(120),
   kind: z.enum(RELATIONSHIP_KINDS),
@@ -183,8 +232,8 @@ const RELATIONSHIP_ITEM = z.object({
 
 export const RELATIONSHIPS_SCHEMA = z.object({
   run_at: z.string().datetime(),
-  waiting: softRows(RELATIONSHIP_ITEM, 40),
-  cold: softRows(RELATIONSHIP_ITEM, 40),
+  waiting: softRows(RELATIONSHIP_ITEM, ROWS[RELATIONSHIPS_MARKER].waiting),
+  cold: softRows(RELATIONSHIP_ITEM, ROWS[RELATIONSHIPS_MARKER].cold),
 });
 
 export type Relationships = z.infer<typeof RELATIONSHIPS_SCHEMA>;
@@ -210,8 +259,10 @@ export const LP_KINDS = [
 ] as const;
 
 const LP_ITEM = z.object({
-  who: softText(120),
-  firm: softOptionalText(120),
+  // Strict: DocSend readers, Calendar labels and the email session match an
+  // LP to an address or a name by these, so a cut one would match wrongly.
+  who: text(120),
+  firm: strictOptionalText(120),
   kind: z.enum(LP_KINDS),
   stage: z.enum(LP_STAGES),
   last_touch_at: z.string().datetime().nullish(),
@@ -224,7 +275,7 @@ export const LP_PIPELINE_SCHEMA = z.object({
   run_at: z.string().datetime(),
   part: PART,
   fund: softText(40),
-  lps: softRows(LP_ITEM, 300),
+  lps: softRows(LP_ITEM, ROWS[LP_PIPELINE_MARKER].lps),
 });
 
 export type LpPipeline = z.infer<typeof LP_PIPELINE_SCHEMA>;
@@ -244,7 +295,7 @@ export const PORTFOLIO_HEALTH_SCHEMA = z.object({
       headline: softOptionalText(200),
       asks: softTextList(5, 200),
     }),
-    80,
+    ROWS[PORTFOLIO_HEALTH_MARKER].companies,
   ),
 });
 export type PortfolioHealth = z.infer<typeof PORTFOLIO_HEALTH_SCHEMA>;
@@ -258,7 +309,8 @@ export const INTRO_STATUSES = ['owed', 'made', 'connected', 'stalled', 'declined
  * a reason to drop the post; the intro still shows, just without it.
  */
 const INTRO_PERSON = z.object({
-  name: softText(120),
+  // Strict: looked up by name and written into the intro email.
+  name: text(120),
   email: z.string().trim().toLowerCase().email().max(254).nullish().catch(null),
   linkedin: z.string().trim().max(500).nullish().catch(null),
 });
@@ -268,8 +320,10 @@ export const INTROS_SCHEMA = z.object({
   part: PART,
   intros: softRows(
     z.object({
-      for_who: softText(120),
-      to_who: softText(120),
+      // Strict: each side is parsed into names and a firm, looked up, keyed
+      // (introKey) and written into the intro email, so it is never cut.
+      for_who: text(120),
+      to_who: text(120),
       status: z.enum(INTRO_STATUSES),
       asked_at: z.string().datetime().nullish(),
       made_at: z.string().datetime().nullish(),
@@ -277,12 +331,12 @@ export const INTROS_SCHEMA = z.object({
       note: softOptionalText(200),
       // Optional detail the intro draft prefers over a name lookup: the
       // company or firm on each side, and its people.
-      for_org: softOptionalText(120).catch(null),
+      for_org: strictOptionalText(120).catch(null),
       for_people: z.array(INTRO_PERSON).max(8).optional().catch(undefined),
-      to_org: softOptionalText(120).catch(null),
+      to_org: strictOptionalText(120).catch(null),
       to_people: z.array(INTRO_PERSON).max(8).optional().catch(undefined),
     }),
-    100,
+    ROWS[INTROS_MARKER].intros,
   ),
 });
 export type Intros = z.infer<typeof INTROS_SCHEMA>;
@@ -302,7 +356,7 @@ export const WEEK_AHEAD_SCHEMA = z.object({
       prep: softOptionalText(240),
       thread_id: THREAD_ID.nullish(),
     }),
-    80,
+    ROWS[WEEK_AHEAD_MARKER].events,
   ),
 });
 export type WeekAhead = z.infer<typeof WEEK_AHEAD_SCHEMA>;
@@ -346,7 +400,7 @@ export const EMAIL_QUEUE_SCHEMA = z.object({
       why: softOptionalText(500),
       waiting_since: z.string().datetime().nullish(),
     }),
-    150,
+    ROWS[EMAIL_QUEUE_MARKER].items,
   ),
 });
 export type EmailQueue = z.infer<typeof EMAIL_QUEUE_SCHEMA>;
@@ -391,19 +445,6 @@ const SCHEMAS: Record<Marker, z.ZodTypeAny> = {
   [EMAIL_QUEUE_MARKER]: EMAIL_QUEUE_SCHEMA,
 };
 
-/** Each snapshot's item lists, read row by row: what a post sent against what was kept. */
-const ITEM_LISTS: Partial<Record<Marker, readonly string[]>> = {
-  [FOLLOWUPS_MARKER]: ['items'],
-  [SCHEDULING_MARKER]: ['items'],
-  [PRIORITIES_MARKER]: ['items'],
-  [RELATIONSHIPS_MARKER]: ['waiting', 'cold'],
-  [LP_PIPELINE_MARKER]: ['lps'],
-  [PORTFOLIO_HEALTH_MARKER]: ['companies'],
-  [INTROS_MARKER]: ['intros'],
-  [WEEK_AHEAD_MARKER]: ['events'],
-  [EMAIL_QUEUE_MARKER]: ['items'],
-};
-
 const MAX_MESSAGE_CHARS = 40_000;
 
 /**
@@ -412,10 +453,12 @@ const MAX_MESSAGE_CHARS = 40_000;
  * at the end of a value would otherwise swallow the closing `"}`.
  *
  * Each item is checked on its own: an item that fails is left out and counted
- * in `skipped`, the rest of the post kept. The post is unreadable (null) only
- * when it is not JSON, its envelope fails (run_at, part, source...), or it
- * sent items and not one of them could be read: an empty list must never
- * stand in for yesterday's good copy.
+ * in `skipped`, the rest of the post kept, and so are rows past the list's
+ * limit. The post is unreadable (null) only when it is not JSON, its envelope
+ * fails (run_at, part, source...), it sent items and not one of them could be
+ * read (an empty list must never stand in for yesterday's good copy), or it
+ * is a one-post snapshot that replaces the older copy whole (`REPLACES`) and
+ * more of its items failed than were read.
  */
 export function parseFollowUpMessage(raw: unknown): ParsedFollowUpMessage | null {
   if (typeof raw !== 'string' || raw.length > MAX_MESSAGE_CHARS) return null;
@@ -439,12 +482,24 @@ export function parseFollowUpMessage(raw: unknown): ParsedFollowUpMessage | null
     });
     return null;
   }
-  const lists = ITEM_LISTS[marker] ?? [];
+  const limits: Record<string, number> =
+    (ROWS as Partial<Record<Marker, Record<string, number>>>)[marker] ?? {};
+  const lists = Object.keys(limits);
   const sent = rowCount(data, lists);
+  // Rows within each list's limit: the ones actually checked.
+  const checked = lists.reduce(
+    (sum, key) => sum + Math.min(rowCount(data, [key]), limits[key]!),
+    0,
+  );
   const kept = rowCount(parsed.data, lists);
   const skipped = Math.max(0, sent - kept);
+  const failed = Math.max(0, checked - kept);
   if (sent > 0 && kept === 0) {
     log.warn('Follow-up relay post had no item that validated', { marker, skipped });
+    return null;
+  }
+  if (REPLACES.has(marker) && failed > kept) {
+    log.warn('Follow-up relay post had more items fail than validate', { marker, failed, kept });
     return null;
   }
   if (skipped > 0)

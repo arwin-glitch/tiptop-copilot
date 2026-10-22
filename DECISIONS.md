@@ -2381,9 +2381,8 @@ notes; the rest did not.
   `company`, `subject`, `note`. Meeting recaps: `title`, `attendees`,
   `promises`, `note`. Scheduling: `who`, `subject`, `note`. Top priorities:
   `title`, `why`. Relationship radar: `who`, `company`, `note`. LP pipeline:
-  `fund`, `who`, `firm`, `next_step`, `note`. Portfolio health: `headline`,
-  `asks`. Intros: `for_who`, `to_who`, `note`, `for_org`, `to_org`, a
-  person's `name`. Week ahead: `title`, `with_who`, `prep`. LP update draft:
+  `fund`, `next_step`, `note`. Portfolio health: `headline`, `asks`. Intros:
+  `note`. Week ahead: `title`, `with_who`, `prep`. LP update draft:
   `period`, `sections`, `note`. Email queue: `who`, `about`, `flags`, `why`.
   Jobs: a source's `subject`. The task-closer's `TASK_CLOSE_V1` and
   `TASK_PROOF_V1`: `reason`. `TASK_ADD_V1` (and the task webhook): `detail`.
@@ -2393,7 +2392,13 @@ notes; the rest did not.
   `title`.
 - **Strict (unchanged):** every id and thread id; `meeting_id` (the key the
   newest recap per meeting is kept by); portfolio health's company `name`
-  (matched to the portfolio by name, and the at-risk alert's key); Jobs'
+  (matched to the portfolio by name, and the at-risk alert's key); the LP
+  pipeline's `who` and `firm` (DocSend readers, Calendar labels and the email
+  session match an LP to an address or a name by them); an intro's `for_who`,
+  `to_who`, `for_org`, `to_org` and each person's `name` (each side is parsed
+  into names and a firm, looked up, keyed by `introKey` and written into the
+  intro email; a too-long firm or person list falls back to null as before,
+  a too-long side leaves that intro out); Jobs'
   `company` and `title` (the role's id hashes them); the task-closer's
   `title` and a suggested task's `title` (each is matched to a task by it);
   `PORTFOLIO_ADD_V1`'s company `name` and `founder` names (the company and
@@ -2409,11 +2414,23 @@ notes; the rest did not.
   `follow-ups.ts` (`FOLLOWUPS`, `SCHEDULING`, `PRIORITIES`, `RELATIONSHIPS`,
   `LP_PIPELINE`, `PORTFOLIO_HEALTH`, `INTROS`, `WEEK_AHEAD`, `EMAIL_QUEUE`)
   reads its items with `softRows`. `parseFollowUpMessage` returns `skipped`,
-  the items sent less the items kept. A post is unreadable (null, and its card
-  keeps the older copy) only when it is not JSON, its envelope fails, or it
-  sent items and none could be read: an empty list never stands in for a good
-  copy. Numbered parts join by the moment their `run_at` names, so `…:01Z` and
-  `…:01.000Z` are one run.
+  the items sent less the items kept (rows past a list's limit included). A
+  post is unreadable (null, and its card keeps the older copy) when it is not
+  JSON, its envelope fails, or it sent items and none could be read: an empty
+  list never stands in for a good copy. Numbered parts join by the moment
+  their `run_at` names, so `…:01Z` and `…:01.000Z` are one run.
+- **A mostly unreadable one-post snapshot keeps the older copy.** Follow-ups,
+  Top priorities and the radar come as one post that replaces the one before
+  it whole. When more of a post's items fail than are read (rows past the
+  limit are not failures), it is unreadable: a list missing most of its rows,
+  say from a routine that started writing a new kind, would read as the whole
+  list under a fresh "checked" time ("two priorities today", and Do now
+  hidden), which misleads more than an older complete copy. Scheduling and
+  the email queue pile up by thread, so an unread row falls back to that
+  thread's older one and nothing is replaced whole; the numbered-part
+  snapshots (LP pipeline, portfolio health, intros, week ahead) keep every
+  row they can read, since refusing one part would drop its good rows too
+  while the card still showed the run's other parts.
 - **Diagnostics says what was skipped.** A relay rule now returns the
   skipped count and the post's run and part; `collectSightings` sums the
   skipped items over every part of the newest readable run, each part once.
@@ -2429,7 +2446,12 @@ notes; the rest did not.
   last clause. The routine prompts still say the limits; this is the backstop.
 - A part of a run whose every item fails is unreadable, so the card shows the
   other parts of that run, and Diagnostics names it as a newer post that
-  could not be read rather than as skipped items.
+  could not be read rather than as skipped items (or, when that part was
+  posted before the part shown, does not mention it).
+- A numbered-part snapshot whose newest run is mostly unreadable still shows
+  what it could read under a fresh time; only Diagnostics counts what was
+  left out. Guarding it would take a run-level rule shared by the card's
+  reader and Diagnostics.
 - Jobs' and Students' envelopes still refuse more than 80 rows, and a Jobs
   role with a bad source is still dropped whole, as their tests pin; the
   follow-up snapshots read their first `max` items and count the rest.
