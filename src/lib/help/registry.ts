@@ -720,7 +720,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
         blurb: 'The public page people book time on, its rules and its chatbot.',
         href: '/settings?tab=booking',
       },
-      { key: 'limits', label: 'Limits & cost', blurb: 'Usage ceilings and spend.' },
+      { key: 'limits', label: 'Limits', blurb: 'Usage ceilings. AI runs on the Claude plan: $0.' },
       { key: 'data', label: 'Data & privacy', blurb: 'What is stored, and deleting it.' },
     ],
     steps: [
