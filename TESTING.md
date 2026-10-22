@@ -78,6 +78,7 @@ Pure logic, no store, no harness.
 | `events-versions.test.ts` | Version history: autosave every 5 minutes of activity, forced on session end, named versions, the list's per-version summary, retention (newest 100 autosaves, 30 days), non-destructive restore with pre_restore and tombstones for sync, outside links refused, the per-section activity log |
 | `events-sync.test.ts` | Studio's sync poll: presence (others only, the soft-lock window, stale rows ignored), changed sections and tombstones after a sync point, the whole doc when the log cannot reach back, one event per link |
 | `event-media.test.ts` | The media pipeline on the local stand-in buckets: bytes decide the type (SVG, HEIC refused), sharp applies orientation and drops EXIF/GPS at every size, never enlarges, keeps logos transparent; signed upload → process → public derivatives; gated media private behind signed URLs and left off the share card; gated toggles move buckets; files and videos; deletes keep shared objects; outside editors' limits |
+| `events-integration.test.ts` | The seams between the five Events workstreams once merged (D-075): a staff link claimed through the staff entry with the check-in role and its cookie set only on the door list, its API and the QR paths; a private event open only through personal links; field gating accepted by the block registry and owner-only; the RSVP moment reaching the effects layer; `{{rsvp_link}}` literal on a page; Studio's sync running on syncDraft; an invite draft over the real guest list carrying each guest's own link; a starter's sessions setting the event's span |
 
 `env-boundary.test.ts` is worth singling out: it walks every file in `src/`,
 finds the ones marked `'use client'`, and asserts none imports a server-only
@@ -157,6 +158,16 @@ see Publish blocked until the photo has alt text, a stale review refused with
 reserved), duplicate as next year and delete the copy, then unpublish, cancel
 and archive. Without a session the events API answers 401 and the demo upload
 and read URLs refuse forged tokens.
+
+**`events-workflow.spec.ts`** walks Events end to end on a brand new event
+(D-075): the AGM starter and a theme from the new-event dialog, Studio (theme,
+effects, the cover headline), a design-only outside editor who changes the
+theme, is refused the words and marks the page ready for review, Publish, the
+public page with its nonce CSP and noindex, an approval RSVP for both sessions
+approved in Guests, a personal invite answering per session, check-in by the
+host's QR scan and by a staff link's door list (its cookie paths checked), and
+an invite drafted as a campaign that sends nothing. The guest page, the ticket,
+the door list and the host's event pages then run again at 390 px.
 
 **`calendar-default.spec.ts`** runs first of the calendar specs: a plain
 `/calendar` opens Week for a person who has chosen nothing, with no "New

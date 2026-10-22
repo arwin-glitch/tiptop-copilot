@@ -10,6 +10,22 @@ throughout.
 
 ## [Unreleased]
 
+- **Events, all the parts working together (D-075).** The five parts of
+  Events now run as one: make an event from a starter, design it in Studio,
+  share a design-only link with an outside designer, publish, take RSVPs
+  (with approval and separate sessions), approve guests, check people in at
+  the door, and draft the invite as a campaign that nothing sends on its
+  own. Fixed while joining them: staff check-in links now open the door list
+  (they were refused), an invite drafted from an event now carries each
+  guest's own link (every guest was being left out), a "Private" event now
+  opens through guests' personal links and nowhere else, the RSVP moment
+  (confetti, gold dust) now plays after an RSVP, and a new annual meeting
+  starting at 1 PM now ends at 9 PM with its reception instead of at the
+  dialog's default. On the guest page the RSVP form reads left to right,
+  sessions are not listed twice, and a long section no longer stays blurred
+  while it fills the screen. The page password setting is hidden until the
+  page can actually ask for a password.
+
 - **Events, the engine behind the pages (D-075).** The parts of Events that
   sit behind the screens now work end to end. Publishing copies the draft to
   the live page only after the owner has seen exactly what changed and who

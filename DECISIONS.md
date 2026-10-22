@@ -2880,3 +2880,36 @@ promoted waitlisters (v1 nice) is not built; `claim_expires_at` stays empty.
   migration). Nothing that reviews, confirms or sends a campaign reads them.
   Until the file runs, the rest of Campaigns is unchanged and the Messages
   tab says event messages are not set up.
+
+*Integration (the five workstreams merged on `events-v1`, part of D-075).*
+
+- **Merge order WS1 → WS2 → WS4 → WS3 → WS5**, every stub replaced by the
+  real piece at the contract's own path: the renderer (WS2's `EventPage`),
+  the RSVP slot and guest panels (WS4), the grant service and Sharing panel
+  (WS3). The merges conflicted only in the shared docs and in
+  `push-alerts.ts` (editor notices and event reminders, both kept).
+- **One sync.** Studio's two sync routes call `syncStudio`, which now
+  delegates to WS1's `syncDraft` (presence lists everyone but the caller,
+  `selfColor`, tombstones, the whole doc when the edit log cannot reach
+  back). The presence colour comes from one function, so an avatar matches
+  its outline.
+- **Staff links** are claimed with the `checkin` role only, and their cookie
+  rides on that event's door list and API plus its QR landing paths
+  (`/e/<slug>/c`, `/api/e/<slug>/c`), one Set-Cookie header per path. A slug
+  change after a claim means the staff member opens their link again for
+  the QR paths; the door list keeps working.
+- **Private means "only guests with their personal link"**, as the Manage
+  tab says: invite, ticket, QR and personal calendar routes resolve a
+  private event; its bare page, public calendar file, public form and an
+  anonymous view beacon stay 404. Unlisted is open to anyone with the link
+  and noindex; public is indexable.
+- **`{{rsvp_link}}` accepts WS4's dotted token** (`<43>.<22>` base64url);
+  the check is otherwise as strict as before.
+- **Field gating** (`props.fieldVisibility`, WS4) is accepted by WS2's
+  registry, keys checked against the block's own fields, owner-only. No
+  Studio control sets it yet.
+- **The page password setting is not offered** until the public page has a
+  password gate (v1 nice); the column stays.
+- **A starter's sessions set the event's span**: the dialog's end follows
+  the start, and the server never stores an end before the last session.
+
