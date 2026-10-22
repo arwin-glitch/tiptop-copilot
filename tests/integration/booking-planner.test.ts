@@ -207,7 +207,7 @@ describe('the live preview', () => {
     expect(JSON.stringify(preview)).not.toMatch(/board|Ledgerly|Vetrix|summary/i);
   });
 
-  it('marks a month past the window as not opened', async () => {
+  it('says a month that is off is not open on the link', async () => {
     const found = await bookingPreview(
       harness.store,
       harness.auth.organizationId,
@@ -215,9 +215,9 @@ describe('the live preview', () => {
       deps(),
     );
     expect(found.ok && found.value.days.every((d) => d.plans.call.times.length === 0)).toBe(true);
-    expect(found.ok && found.value.days.find((d) => d.date === '2026-12-01')?.plans.call.code).toBe(
-      'not_open',
-    );
+    expect(
+      found.ok && found.value.days.find((d) => d.date === '2026-12-01')?.plans.call,
+    ).toMatchObject({ code: 'month_closed', reason: 'December isn’t open on the link.' });
   });
 
   it('shows the rules alone, marked, when the calendar cannot be read', async () => {
