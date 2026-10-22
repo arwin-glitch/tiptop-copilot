@@ -36,6 +36,12 @@ export interface SpeechSocket {
   /** Close at once; the last lines may be lost. */
   close(): void;
   readonly isOpen: boolean;
+  /**
+   * "Remember this voice" (D-076): the vendor's SpeakersResult for every voice
+   * heard so far on this socket, or null when no answer came in time. Only
+   * Speechmatics (and the demo's mock) can; the others leave it out.
+   */
+  requestSpeakers?(timeoutMs: number): Promise<Record<string, unknown> | null>;
 }
 
 /** The part of the browser's WebSocket the sockets use, so tests can stand in for it. */

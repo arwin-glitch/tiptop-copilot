@@ -312,6 +312,40 @@ test('a never-record meeting cannot start', async ({ page }) => {
   await expect(consent.getByRole('button', { name: 'Start' })).toHaveCount(0);
 });
 
+test('Notes settings: share new meetings with the team; edit and remove a template', async ({
+  page,
+}) => {
+  await page.goto('/meetings/settings');
+  const who = page.getByLabel('Who sees the meetings you record');
+  await expect(who).toHaveValue('private');
+  await who.selectOption('team');
+  await expect(page.getByText('New meetings: your team can see them.')).toBeVisible();
+  // A meeting made now starts shared with the team (the routines can read it).
+  await page.goto('/meetings/new');
+  await page.getByLabel('What is the meeting?').fill('Weekly check-in with the Ledgerly team');
+  await page.getByRole('button', { name: 'Open notes' }).click();
+  await page.waitForURL(/\/meetings\/[0-9a-f-]{36}/);
+  await expect(page.getByText('Team can see')).toBeVisible();
+  await page.goto('/meetings/settings');
+  await page.getByLabel('Who sees the meetings you record').selectOption('private');
+  await expect(page.getByText('New meetings: only you can see them.')).toBeVisible();
+
+  // A template of the team's own: made, edited, removed.
+  const form = page.getByRole('region', { name: 'New template' });
+  await form.getByLabel('Name', { exact: true }).fill('Board prep');
+  await form.getByLabel('Section 1 heading').fill('Decisions needed');
+  await form.getByRole('button', { name: 'Save template' }).click();
+  await expect(page.getByText('Template "Board prep" saved.')).toBeVisible();
+  await page.getByRole('button', { name: 'Edit Board prep' }).click();
+  const editing = page.getByRole('region', { name: 'Edit template' });
+  await editing.getByLabel('Name', { exact: true }).fill('Board prep, quarterly');
+  await editing.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText('Template "Board prep, quarterly" saved.')).toBeVisible();
+  await page.getByRole('button', { name: 'Remove Board prep, quarterly' }).click();
+  await expect(page.getByText(/Template "Board prep, quarterly" removed/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit Board prep, quarterly' })).toHaveCount(0);
+});
+
 test.describe('on a 390px phone', () => {
   test.use({ viewport: PHONE, hasTouch: true });
 

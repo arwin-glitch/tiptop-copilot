@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import type { StopReason } from '@/lib/types/notes';
+import type { StopReason, TranscriptTrack } from '@/lib/types/notes';
 import { meetingRecorder, type RecorderOptions } from './recorder';
 import type {
   RecorderMode,
@@ -49,6 +49,11 @@ export interface MeetingRecorderApi {
   retryMicrophone: () => Promise<boolean>;
   dismissWarning: (code: RecorderWarningCode) => void;
   setMode: (mode: RecorderMode) => void;
+  /** "Remember this voice": one voice's identifiers from the live session, or null. */
+  voiceIdentifiers: (
+    track: TranscriptTrack,
+    vendorLabel: string,
+  ) => Promise<{ identifiers: string[]; modelVersion: string } | null>;
 }
 
 export function useMeetingRecorder(options: UseMeetingRecorderOptions): MeetingRecorderApi {
@@ -78,6 +83,8 @@ export function useMeetingRecorder(options: UseMeetingRecorderOptions): MeetingR
       retryMicrophone: () => recorder.retryMicrophone(),
       dismissWarning: (code: RecorderWarningCode) => recorder.dismissWarning(code),
       setMode: (m: RecorderMode) => recorder.setMode(m),
+      voiceIdentifiers: (track: TranscriptTrack, label: string) =>
+        recorder.voiceIdentifiers(track, label),
     }),
     [recorder, state],
   );

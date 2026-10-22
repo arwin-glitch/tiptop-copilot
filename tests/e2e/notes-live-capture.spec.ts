@@ -96,6 +96,16 @@ const transcript = (page: Page) => page.getByRole('log', { name: 'Live transcrip
 test('the calendar to notes on a company page, with the browser recorder', async ({ page }) => {
   test.setTimeout(180_000);
 
+  // The guest agreed in writing to have her voice remembered (Notes settings, Voices).
+  await page.goto('/meetings/settings?tab=voices');
+  const others = page.getByRole('region', { name: 'Someone else’s voice' });
+  await others.getByLabel('Name').fill('Maya Chen');
+  await others.getByLabel('Email').fill('maya@ledgerly.demo');
+  await others.getByRole('button', { name: 'Record their consent' }).click();
+  await expect(others.getByRole('listitem').filter({ hasText: 'Maya Chen' })).toContainText(
+    'Consent on file',
+  );
+
   // The calendar's "Take notes" on a portfolio board prep (one guest on the invite).
   await page.goto(`/calendar?view=week&date=${today()}`);
   const title = 'Ledgerly board prep';
@@ -158,6 +168,19 @@ test('the calendar to notes on a company page, with the browser recorder', async
   await expect(live.getByRole('button', { name: guestLabel })).toHaveCount(0);
   await expect(live.getByRole('button', { name: /^Maya Chen/ }).first()).toBeVisible();
 
+  // Her consent is on file: open her name again and remember her voice from
+  // the live session (the vendor's identifiers for that one voice, sealed).
+  await live.getByRole('button', { name: 'Maya Chen: change who this is' }).first().click();
+  const again = page.getByRole('dialog', { name: 'This is…' });
+  await again.getByRole('checkbox', { name: /Remember this voice/ }).check();
+  await again
+    .getByRole('region', { name: 'On the invite' })
+    .getByRole('button', { name: /Maya Chen/ })
+    .click();
+  await expect(
+    page.getByText('Voice remembered: Copilot will know Maya Chen next time.'),
+  ).toBeVisible();
+
   // Typed notes, saved as they are typed.
   const notepad = page.getByRole('combobox', { name: 'Your notes' });
   await notepad.click();
@@ -198,6 +221,15 @@ test('the calendar to notes on a company page, with the browser recorder', async
     .click();
   await page.waitForURL(new RegExp(`/meetings/${meetingId}`));
   await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
+
+  // Her voice is on file, encrypted, for the next meeting.
+  await page.goto('/meetings/settings?tab=voices');
+  await expect(
+    page
+      .getByRole('region', { name: 'Someone else’s voice' })
+      .getByRole('listitem')
+      .filter({ hasText: 'Maya Chen' }),
+  ).toContainText('enrolled');
 });
 
 test.describe('on a 390px phone', () => {

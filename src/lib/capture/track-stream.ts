@@ -292,6 +292,13 @@ export class TrackStream {
   }
 
   /** The network is back: try now instead of waiting out the backoff. */
+  /** The vendor's SpeakersResult on this track's open socket (voice enrolment), or null. */
+  requestSpeakers(timeoutMs: number): Promise<Record<string, unknown> | null> {
+    const socket = this.socket;
+    if (!socket?.isOpen || !socket.requestSpeakers) return Promise.resolve(null);
+    return socket.requestSpeakers(timeoutMs);
+  }
+
   onlineAgain(): void {
     if (!this.wanted || this.socket) return;
     if (this.state_ === 'reconnecting' || this.state_ === 'connecting') {

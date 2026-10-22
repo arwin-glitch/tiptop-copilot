@@ -6,7 +6,7 @@ import { requireAuth } from '@/lib/auth/session';
 import { notesAccess } from '@/lib/notes/flag';
 import { getStore } from '@/lib/runtime';
 import { listFolders, listRecipes, listTemplates } from '@/lib/services/notes';
-import { listRecordingRules } from '@/lib/services/notes-settings';
+import { getPreferences, listRecordingRules } from '@/lib/services/notes-settings';
 import { listVoiceProfiles } from '@/lib/services/voice-profiles';
 import { MEETINGS_TABS } from '@/lib/records-tabs';
 import { VOICE_CONSENT_TEXT } from '@/lib/types/notes';
@@ -18,6 +18,7 @@ import { PageTabs } from '@/components/ui/page-tabs';
 import {
   FoldersRecipesSettings,
   NotesBetaSwitch,
+  NotesPreferencesSettings,
   RulesSettings,
   TemplatesSettings,
   VoicesSettings,
@@ -83,6 +84,11 @@ export default async function NotesSettingsPage({
         <p className="text-sm text-[var(--fg-muted)]">Turn Copilot Notes on above to set it up.</p>
       ) : (
         <>
+          <Card className="mb-6">
+            <CardContent className="pt-4">
+              <NotesPreferencesSettings initial={await getPreferences(ctx)} />
+            </CardContent>
+          </Card>
           <PageTabs
             label="Notes settings sections"
             path={PATH}

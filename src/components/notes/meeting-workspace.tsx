@@ -63,6 +63,15 @@ const CONSENT_WORDS: Record<ConsentMethod, string> = {
 
 const LIVE = new Set(['recording', 'paused', 'processing']);
 
+const REMEMBER_WORDS: Record<'requested' | 'no_consent' | 'not_live' | 'not_supported', string> = {
+  requested: 'Remembering this voice…',
+  no_consent:
+    'Voice not remembered: there is no consent on file for them (Notes settings, Voices).',
+  not_live: 'Voices are remembered while the meeting is recording.',
+  not_supported:
+    'Not remembered: only a guest’s own voice on a Speechmatics recording can be (not the microphone, not a split line).',
+};
+
 /**
  * The meeting page (D-076): subtabs instead of one long page. Notes holds the
  * consent step and Start, then the notepad beside the live transcript while
@@ -360,6 +369,7 @@ export function MeetingWorkspace({
 
   const relabel = async (person: SpeakerPersonInput | null, rememberVoice: boolean) => {
     if (!sheet) return;
+    const clusterKey = sheet.clusterKey;
     setBusy(true);
     const res = await notesCall<Omit<RelabelSpeakerResponse, 'ok'>>(
       'PATCH',
@@ -379,6 +389,18 @@ export function MeetingWorkspace({
       }`,
     );
     if (res.notesRefreshing) followNotes();
+    const remember = res.rememberVoice;
+    if (!remember) return;
+    if (remember.status !== 'requested' || !remember.vendorLabel || !remember.email) {
+      toast.message(REMEMBER_WORDS[remember.status]);
+      return;
+    }
+    const outcome = await recorder.rememberVoice(clusterKey, remember.vendorLabel, remember.email);
+    const who = res.speaker.displayName;
+    if (outcome === 'saved') toast.success(`Voice remembered: Copilot will know ${who} next time.`);
+    else if (outcome === 'unavailable')
+      toast.message(`Not remembered yet: try again while ${who} is talking on this recording.`);
+    else toast.error(`${who}'s voice could not be saved. Nothing was kept.`);
   };
 
   const split = async (mode: 'line' | 'from_here') => {

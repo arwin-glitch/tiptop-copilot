@@ -5,7 +5,7 @@ import { NOTES_API } from '@/lib/notes/api';
 import { meetingRecorder } from '@/lib/capture/recorder';
 import { useMeetingRecorder, type MeetingRecorderApi } from '@/lib/capture/use-meeting-recorder';
 import type { RecorderSnapshot } from '@/lib/capture/types';
-import { clusterKeyFor } from '@/lib/transcribe/cluster';
+import { clusterKeyFor, trackOfClusterKey } from '@/lib/transcribe/cluster';
 import { streamMockCall } from '@/lib/transcribe/mock-script';
 import {
   NOTES_LIMITS,
@@ -19,6 +19,7 @@ import {
   type SttTokenResponse,
   type TranscriptTrack,
   type UploadSegmentsResponse,
+  type VoiceEnrollRequest,
 } from '@/lib/types/notes';
 import { notesCall } from './api-client';
 
@@ -80,6 +81,17 @@ export interface RecorderHandle {
   pause(): Promise<void>;
   resume(): Promise<void>;
   stop(): Promise<StopRecordingResponse | null>;
+  /**
+   * "Remember this voice" for a consented person, once the server said
+   * 'requested': the voice's identifiers from the live session, sealed by
+   * the server. 'unavailable' when nothing records here or the vendor gave
+   * none yet.
+   */
+  rememberVoice(
+    clusterKey: string,
+    vendorLabel: string,
+    email: string,
+  ): Promise<'saved' | 'unavailable' | 'failed'>;
 }
 
 export interface RecorderOptions {
@@ -416,6 +428,8 @@ function useScriptedRecorder(options: RecorderOptions, enabled: boolean): Record
     pause,
     resume,
     stop,
+    // The scripted call has no speech session to ask.
+    rememberVoice: async () => 'unavailable',
   };
 }
 
@@ -575,6 +589,18 @@ function useLiveRecorder(options: RecorderOptions, enabled: boolean): RecorderHa
     }
   };
 
+  const rememberVoice = async (
+    clusterKey: string,
+    vendorLabel: string,
+    email: string,
+  ): Promise<'saved' | 'unavailable' | 'failed'> => {
+    const voice = await rec.voiceIdentifiers(trackOfClusterKey(clusterKey), vendorLabel);
+    if (!voice) return 'unavailable';
+    const body: VoiceEnrollRequest = { email, ...voice };
+    const res = await notesCall('POST', NOTES_API.voiceEnroll, body);
+    return res.ok ? 'saved' : 'failed';
+  };
+
   const err = state.error;
   return {
     phase,
@@ -592,5 +618,6 @@ function useLiveRecorder(options: RecorderOptions, enabled: boolean): RecorderHa
     pause,
     resume,
     stop,
+    rememberVoice,
   };
 }

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Lock, Plus, Trash2 } from 'lucide-react';
+import { Lock, Pencil, Plus, Trash2 } from 'lucide-react';
 import { NOTES_API } from '@/lib/notes/api';
 import {
   RECORDING_RULE_KINDS,
@@ -11,7 +11,9 @@ import {
   TEMPLATE_MEETING_TYPES,
   type CreateTemplateRequest,
   type FolderView,
+  type MeetingVisibility,
   type NotesAccessResponse,
+  type NotesPreferences,
   type RecipeView,
   type RecordingRuleKind,
   type RecordingRuleView,
@@ -77,6 +79,62 @@ export function NotesBetaSwitch({ initial }: { initial: Access }) {
   );
 }
 
+/* ======================================================== preferences == */
+
+/**
+ * Who sees a meeting this person records, unless they change it on the
+ * meeting: only them (the default), or the whole team. 'Your team' is also
+ * what lets the cloud routines read their meetings through Copilot's tools.
+ */
+export function NotesPreferencesSettings({ initial }: { initial: NotesPreferences }) {
+  const [visibility, setVisibility] = React.useState<MeetingVisibility>(initial.defaultVisibility);
+  const [saving, setSaving] = React.useState(false);
+  const id = React.useId();
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3" data-notes-preferences="">
+      <label htmlFor={id} className="max-w-xl text-sm">
+        <span className="font-medium">Who sees the meetings you record</span>
+        <span className="block text-[var(--fg-muted)]">
+          You can change it on any meeting. Your team also lets the cloud routines read them (never
+          a private folder).
+        </span>
+      </label>
+      <Select
+        id={id}
+        value={visibility}
+        disabled={saving}
+        onChange={async (e) => {
+          const next = e.target.value as MeetingVisibility;
+          const before = visibility;
+          setVisibility(next);
+          setSaving(true);
+          const res = await notesCall<{ preferences: NotesPreferences }>(
+            'POST',
+            NOTES_API.preferences,
+            { defaultVisibility: next },
+          );
+          setSaving(false);
+          if (!res.ok) {
+            setVisibility(before);
+            toast.error(res.message);
+            return;
+          }
+          setVisibility(res.preferences.defaultVisibility);
+          toast.success(
+            res.preferences.defaultVisibility === 'team'
+              ? 'New meetings: your team can see them.'
+              : 'New meetings: only you can see them.',
+          );
+        }}
+        className="w-full sm:w-48"
+      >
+        <option value="private">Only you</option>
+        <option value="team">Your team</option>
+      </Select>
+    </div>
+  );
+}
+
 /* ========================================================== templates == */
 
 const TYPE_WORDS: Record<TemplateMeetingType, string> = {
@@ -96,6 +154,8 @@ export function TemplatesSettings({ initial }: { initial: TemplateView[] }) {
   const [purpose, setPurpose] = React.useState('');
   const [sections, setSections] = React.useState<TemplateSection[]>([{ heading: '', prompt: '' }]);
   const [saving, setSaving] = React.useState(false);
+  /** The custom template being edited; null while the form makes a new one. */
+  const [editing, setEditing] = React.useState<string | null>(null);
   const ids = {
     name: React.useId(),
     type: React.useId(),
@@ -117,17 +177,50 @@ export function TemplatesSettings({ initial }: { initial: TemplateView[] }) {
       purpose: purpose.trim() || undefined,
       sections: clean.map((s) => ({ heading: s.heading.trim(), prompt: s.prompt.trim() })),
     };
-    const res = await notesCall<{ template: TemplateView }>('POST', NOTES_API.templates, body);
+    const res = editing
+      ? await notesCall<{ template: TemplateView }>('PATCH', NOTES_API.template(editing), body)
+      : await notesCall<{ template: TemplateView }>('POST', NOTES_API.templates, body);
     setSaving(false);
     if (!res.ok) {
       toast.error(res.message);
       return;
     }
-    setTemplates((t) => [...t, res.template]);
+    setTemplates((t) =>
+      editing ? t.map((x) => (x.id === editing ? res.template : x)) : [...t, res.template],
+    );
+    clearForm();
+    toast.success(`Template "${res.template.name}" saved.`);
+  };
+
+  const clearForm = () => {
+    setEditing(null);
     setName('');
+    setMeetingType('other');
+    setLength('standard');
     setPurpose('');
     setSections([{ heading: '', prompt: '' }]);
-    toast.success(`Template "${res.template.name}" saved.`);
+  };
+
+  const edit = (t: TemplateView) => {
+    setEditing(t.id);
+    setName(t.name);
+    setMeetingType(t.meetingType);
+    setLength(t.length);
+    setPurpose(t.purpose);
+    setSections(
+      t.sections.length ? t.sections.map((x) => ({ ...x })) : [{ heading: '', prompt: '' }],
+    );
+  };
+
+  const archive = async (t: TemplateView) => {
+    const res = await notesCall('DELETE', NOTES_API.template(t.id));
+    if (!res.ok) {
+      toast.error(res.message);
+      return;
+    }
+    setTemplates((all) => all.filter((x) => x.id !== t.id));
+    if (editing === t.id) clearForm();
+    toast.success(`Template "${t.name}" removed. Notes already written with it are kept.`);
   };
 
   return (
@@ -152,13 +245,33 @@ export function TemplatesSettings({ initial }: { initial: TemplateView[] }) {
               <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
                 {t.sections.map((s) => s.heading).join(' · ')}
               </p>
+              {t.isBuiltin ? null : (
+                <div className="mt-1.5 flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => edit(t)}
+                    aria-label={`Edit ${t.name}`}
+                  >
+                    <Pencil aria-hidden /> Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void archive(t)}
+                    aria-label={`Remove ${t.name}`}
+                  >
+                    <Trash2 aria-hidden /> Remove
+                  </Button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
       </section>
       <section aria-labelledby="templates-new" className="space-y-3">
         <h2 id="templates-new" className="font-serif text-base font-semibold">
-          New template
+          {editing ? 'Edit template' : 'New template'}
         </h2>
         <div>
           <label htmlFor={ids.name} className="text-sm font-medium">
@@ -257,9 +370,16 @@ export function TemplatesSettings({ initial }: { initial: TemplateView[] }) {
             <Plus aria-hidden /> Add a section
           </Button>
         </fieldset>
-        <Button variant="primary" loading={saving} onClick={() => void save()}>
-          Save template
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" loading={saving} onClick={() => void save()}>
+            {editing ? 'Save changes' : 'Save template'}
+          </Button>
+          {editing ? (
+            <Button variant="ghost" onClick={clearForm}>
+              Cancel
+            </Button>
+          ) : null}
+        </div>
       </section>
     </div>
   );
@@ -578,9 +698,10 @@ export function VoicesSettings({
           </>
         )}
         <p className="text-xs text-[var(--fg-muted)]">
-          Enrolment from a 30-second solo clip comes with the recorder update; your consent is kept
-          for it. Identifiers are encrypted, never shared or exported, and deleted within a year of
-          last use.
+          A guest&rsquo;s voice is remembered during a live recording: open their name on their
+          lines and tick &ldquo;Remember this voice&rdquo;. Enrolling your own voice from a solo
+          clip is not in this version yet; your consent is kept for it. Identifiers are encrypted,
+          never shared or exported, and deleted within a year of last use.
         </p>
       </section>
 

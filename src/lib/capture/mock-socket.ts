@@ -39,6 +39,7 @@ export class MockSpeechSocket implements SpeechSocket {
   private readonly baseMs: number;
   private readonly track: TranscriptTrack;
   private offlineListener: (() => void) | null = null;
+  private readonly heardLabels = new Set<string>();
 
   constructor(
     session: SttSession,
@@ -108,6 +109,7 @@ export class MockSpeechSocket implements SpeechSocket {
       }
       if (next.finalAtMs > heard) break;
       this.queue.shift();
+      if (next.event.speakerLabel) this.heardLabels.add(next.event.speakerLabel);
       this.handlers.onEvent(this.relative(next.event));
     }
   }
@@ -120,6 +122,18 @@ export class MockSpeechSocket implements SpeechSocket {
       track: this.track,
       startMs: toSocket(event.startMs),
       endMs: toSocket(event.endMs),
+    };
+  }
+
+  /** Demo: a made-up identifier per voice heard so far (never a real voiceprint). */
+  async requestSpeakers(_timeoutMs: number): Promise<Record<string, unknown> | null> {
+    if (!this.isOpen) return null;
+    return {
+      message: 'SpeakersResult',
+      speakers: [...this.heardLabels].map((label) => ({
+        label,
+        speaker_identifiers: [`demo-voice-${label}`],
+      })),
     };
   }
 

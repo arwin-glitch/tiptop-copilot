@@ -9,6 +9,7 @@ import {
   type TranscriptTrack,
 } from '@/lib/types/notes';
 import { clusterKeyFor } from '@/lib/transcribe/cluster';
+import { speakerIdentifiersFor } from '@/lib/transcribe/socket-url';
 import { NotesClient, type ApiFailure } from './api-client';
 import { AudioGraph, type PcmChunk } from './audio-graph';
 import { LevelMeter, SilenceTracker, noMeetingAudio } from './levels';
@@ -970,6 +971,28 @@ export class MeetingRecorder {
     this.released = false;
     void deps.wakeLock.hold();
     return true;
+  }
+
+  /* ------------------------------------------------------ voice memory */
+
+  /**
+   * "Remember this voice" during a live call (D-076), for a person whose
+   * consent is on file (the server checked): the vendor's identifiers for
+   * that one voice, on the track it was heard on. Everyone else's are dropped
+   * here (speakerIdentifiersFor). Null when not recording or the vendor
+   * cannot (only Speechmatics, and the demo's mock).
+   */
+  async voiceIdentifiers(
+    track: TranscriptTrack,
+    vendorLabel: string,
+  ): Promise<{ identifiers: string[]; modelVersion: string } | null> {
+    if (this.status !== 'recording') return null;
+    const rt = this.runtimes.get(track);
+    if (!rt) return null;
+    const message = await rt.stream.requestSpeakers(5000);
+    const identifiers = message ? speakerIdentifiersFor(message, vendorLabel) : null;
+    if (!identifiers) return null;
+    return { identifiers, modelVersion: `${this.provider ?? 'unknown'}:realtime` };
   }
 
   /* --------------------------------------------------------------- stop */

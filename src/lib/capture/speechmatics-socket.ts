@@ -1,4 +1,4 @@
-import { openingMessageFor, socketUrlFor } from '@/lib/transcribe/socket-url';
+import { getSpeakersMessage, openingMessageFor, socketUrlFor } from '@/lib/transcribe/socket-url';
 import type { SttSession, TranscriptEvent, TranscriptTrack } from '@/lib/types/notes';
 import {
   OPEN_TIMEOUT_MS,
@@ -125,6 +125,7 @@ export class SpeechmaticsSocket implements SpeechSocket {
   private closedByUs = false;
   private sentFrames = 0;
   private endOfTranscript: (() => void) | null = null;
+  private speakersResult: ((message: Record<string, unknown>) => void) | null = null;
   private fatal: { type: string; reason: string } | null = null;
 
   constructor(
@@ -173,6 +174,9 @@ export class SpeechmaticsSocket implements SpeechSocket {
           case 'EndOfTranscript':
             this.endOfTranscript?.();
             break;
+          case 'SpeakersResult':
+            this.speakersResult?.(msg);
+            break;
           case 'Error': {
             const type = typeof msg.type === 'string' ? msg.type : 'error';
             const reason =
@@ -217,6 +221,24 @@ export class SpeechmaticsSocket implements SpeechSocket {
     if (!this.isOpen || !this.ws) return;
     this.ws.send(chunkBytes(samples));
     this.sentFrames += 1;
+  }
+
+  /** GetSpeakers on the live session: the identifiers of the voices heard so far. */
+  requestSpeakers(timeoutMs: number): Promise<Record<string, unknown> | null> {
+    const ws = this.ws;
+    if (!this.isOpen || !ws) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.speakersResult = null;
+        resolve(null);
+      }, timeoutMs);
+      this.speakersResult = (message) => {
+        clearTimeout(timer);
+        this.speakersResult = null;
+        resolve(message);
+      };
+      ws.send(getSpeakersMessage(false));
+    });
   }
 
   async finish(timeoutMs: number): Promise<void> {
