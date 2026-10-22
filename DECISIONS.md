@@ -2668,3 +2668,65 @@ worker, dependencies) change once, in one place.
   harmless without the service worker but is a follow-up.
 - Render's free plan sleeps and resets the in-process rate limiter; the
   service should move to a paid instance before any invite goes out.
+
+#### D-075, part 4 — Guests, registration, check-in and the public routes
+
+**Decision.**
+
+- **Seats are planned in TypeScript and claimed atomically in SQL.** Every
+  change that can take a seat (a public RSVP, a personal link's answer, an
+  approval, a promotion, a bulk move, adding guests, a walk-in) is planned
+  purely in `lib/events/capacity.ts` from the event's current rows, then
+  applied by `event_register(organization, event, plan)`
+  (`20261023000200_event_register_fn.sql`). The function locks the event and
+  its sessions `FOR UPDATE`, applies the planned guest and status rows (always
+  under its own organization and event ids) and refuses the whole plan if any
+  session, or the event's own capacity, would end over capacity with more
+  people Going than before; the server then re-plans from the fresh rows, up
+  to three times. One planner keeps the rules in one place (and testable on
+  the demo store, which applies the same check under a per-event lock); the
+  SQL keeps the guarantee. Owners can force a seat ("Add directly as Going",
+  walk-ins). A plan never overwrites a check-in, a host note or a token
+  version it read earlier.
+- **Approval** comes from a session's own `requires_approval`, else from an
+  `approval` event, and is asked only of people who registered themselves
+  (the public form, "Request an invite"), never of guests the host added. A
+  host's decline is final for the guest's own link.
+- **Waitlist** is per session, first in first out by request time; promotion
+  seats the first party (guest plus their plus-ones) that fits. Auto-promote
+  on cancellation is off unless the event turns it on.
+- **Tag-gated content** shows to a viewer carrying the tag who is in good
+  standing (invited, Maybe or Going somewhere); waitlisted, pending, declined
+  and "can't go" guests never see it. Sections, fields
+  (`props.fieldVisibility`), list items (`visibility` / `sessionId` keys) and
+  the venue address are all removed on the server for viewers who do not
+  qualify (`lib/events/visibility.ts`).
+- **The remembered browser** is an httpOnly cookie scoped to `/e/<slug>`
+  naming the guest and their token version, set by an RSVP POST or the view
+  beacon on a personal link, never by a GET. It shows "You're going ✓ View
+  ticket" and the gated parts that guest qualifies for.
+- **The personal link travels only where we control it**: the ticket, the
+  personal ICS (DESCRIPTION and URL) and campaign drafts. Google and Outlook
+  "add to calendar" links carry the public page instead, so a token never
+  sits in a third party's query string.
+- **"Needs notifying"** is derived, not stored: a host guest with an email
+  whose session status differs from `notified_status` (what a sent campaign
+  last told them) and is Going (confirmed, or promoted from the waitlist),
+  Waitlist, Pending or Declined. `markNotified` is for WS5 to call after a
+  campaign has actually sent, and skips a pair whose status changed since.
+- **Check-in** needs an owner session in the event's organization or a staff
+  grant (role `checkin`), and stops 12 hours after the event ends whatever
+  the grant says. The QR landing never checks anyone in on a GET; because a
+  SameSite=Strict staff cookie may not ride on a tab the camera app opened,
+  the page also asks once with a same-origin POST before showing the button.
+  Check-in itself is a compare-and-set on `checked_in_at is null`, so a second
+  scan answers "already checked in 6:42 PM by …".
+- **JSON-LD** for public, published events is the one script body these
+  pages render, built only from owner-set settings and serialised with every
+  `<`, `>`, `&` and line separator escaped.
+
+**Known limits.** In-process rate limits reset when the free Render instance
+sleeps (T16's other brakes hold). `X-Robots-Tag` is sent on personal and staff
+paths by the proxy; an unlisted event's own page says noindex in its meta tag
+(the proxy cannot know an event's visibility). The timed claim window for
+promoted waitlisters (v1 nice) is not built; `claim_expires_at` stays empty.

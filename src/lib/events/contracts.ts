@@ -256,6 +256,14 @@ export interface EventQuestionPublic {
   options: string[];
   sessionId: string | null;
   askPlusOnes: boolean;
+  /**
+   * WS4 (additive): ask only when a session is chosen or another answer
+   * equals a value (v1 nice). Absent/null: always asked.
+   */
+  showIf?:
+    | { kind: 'session'; session_id: string }
+    | { kind: 'answer'; question_id: string; equals: string }
+    | null;
 }
 
 /**
@@ -375,6 +383,39 @@ export interface EventRsvpContext {
   viewer: EventViewer;
   /** The viewer's ticket page, when they have one. */
   ticketPath: string | null;
+  /** WS4 (additive): the venue's IANA zone, for session times in the form. Default America/Chicago. */
+  timeZone?: string;
+  /**
+   * WS4 (additive): a personal link's current RSVP, to prefill and edit it.
+   * Null/absent for the public form and in Studio. Built server-side for the
+   * link's own guest only.
+   */
+  invite?: EventInvitePrefill | null;
+}
+
+/** A personal link's current answers (WS4). Never another guest's data. */
+export interface EventInvitePrefill {
+  firstName: string | null;
+  lastName: string | null;
+  company: string | null;
+  title: string | null;
+  phone: string | null;
+  answers: Record<string, unknown>;
+  showOnWall: boolean;
+  /** session id → current status. */
+  responses: Record<string, EventGuestStatus>;
+  /** Sessions this guest may answer for. */
+  respondable: string[];
+  plusOnes: {
+    id: string;
+    firstName: string;
+    lastName: string | null;
+    email: string | null;
+    sessionIds: string[];
+    answers: Record<string, unknown>;
+  }[];
+  /** "Not Sarah? Request your own invite" target, when requests are on. */
+  requestPath: string | null;
 }
 
 /**

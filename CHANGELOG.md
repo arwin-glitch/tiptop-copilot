@@ -10,6 +10,34 @@ throughout.
 
 ## [Unreleased]
 
+- **Events: guests, RSVPs and check-in (D-075).** A published event page at
+  `/e/<slug>` now takes RSVPs. Open events register people straight away,
+  approval events hold requests until you approve them, and invite-only
+  pages say "By invitation" (with an optional "Request an invite"). One event
+  can take separate RSVPs per session (an afternoon meeting and an evening
+  reception), each with its own capacity, approval, waitlist and who can see
+  it. Guests can bring named plus-ones who answer their own questions and get
+  their own QR code. Each guest has a personal link that shows the parts of
+  the page meant for them, lets them answer Going, Maybe or Can't go per
+  session and change it later, and leads to a ticket with their times (in the
+  venue's time zone, plus their own), directions, a calendar file and QR
+  codes. Two people can never both take the last seat: the database decides
+  (a second migration to run by hand:
+  `supabase/migrations/20261023000200_event_register_fn.sql`). The event's
+  Guests tab lists everyone with status tabs, filters, search, every answer,
+  bulk approve / decline / move / promote / tag / rotate links / remove, a
+  drawer with notes, tags and a timeline, adding people from a Copilot list,
+  the CRM or pasted emails, CSV import with a preview, and CSV export plus a
+  caterer's headcount (each export is recorded). The Registration tab sets
+  who can RSVP, capacity, the waitlist, plus-ones, response labels, sessions
+  and the questions (with "show only if"). The Check-in tab is a door list
+  with live counts, one-tap check-in, walk-ins and a large-type door mode;
+  scanning a guest's QR with any phone camera checks them in when you are
+  signed in, and shows just their ticket to anyone else. Nothing emails a
+  guest: every change waits in a "Needs notifying" list for a message you
+  review and send. The page renders with a plain look until the designed
+  renderer lands.
+
 - **Events, groundwork (D-075).** The foundation for Luma-style event pages
   inside Copilot is in place, ahead of the screens: the database tables for
   events, sessions, guests and their RSVPs, outside-editor and staff links,

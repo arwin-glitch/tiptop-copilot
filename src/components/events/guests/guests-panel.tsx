@@ -1,24 +1,45 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { EventPanelProps } from '@/lib/events/contracts';
+import { getStore } from '@/lib/runtime';
+import { listGuests } from '@/lib/services/event-guests';
+import { GuestsManager } from './guests-manager';
 
 /**
- * CONTRACT PLACEHOLDER — owned by WS4 (Guests). Replace the body, keep the
- * export: `GuestsPanel` (props: EventPanelProps).
- *
- * WS5's /events/[id]?tab=guests mounts it. The real panel: status tabs with
- * counts, filters, search, the guest table, bulk bar, guest drawer, adding
- * from Copilot, CSV import/export. A server component; client islands inside.
+ * GuestsPanel (D-075, WS4) — the event's Guests tab, mounted by WS5's
+ * /events/[id]?tab=guests. A server component: it loads the roster with the
+ * store (owners only, signed in) and hands the client table plain rows,
+ * never the event row itself (its documents stay on the server).
  */
-export function GuestsPanel({ event }: EventPanelProps) {
+export async function GuestsPanel({ event, sessions }: EventPanelProps) {
+  const roster = await listGuests(getStore(), event.organization_id, event.id);
   return (
     <Card data-panel="guests">
       <CardHeader>
         <div>
           <CardTitle>Guests</CardTitle>
-          <CardDescription>The guest list for {event.title} arrives in this build.</CardDescription>
+          <CardDescription>
+            Everyone on the list for {event.title}. Nothing here emails anyone: status changes wait
+            in “Needs notifying” on the Messages tab.
+          </CardDescription>
         </div>
       </CardHeader>
-      <CardContent />
+      <CardContent>
+        {roster.ok ? (
+          <GuestsManager
+            eventId={event.id}
+            slug={event.slug}
+            timeZone={event.time_zone}
+            guests={roster.value.guests}
+            sessions={sessions.map((s) => ({ id: s.id, name: s.name, capacity: s.capacity }))}
+            questions={roster.value.questions}
+            counts={roster.value.counts}
+          />
+        ) : (
+          <p className="text-sm text-[var(--fg-muted)]" role="alert">
+            {roster.error.message}
+          </p>
+        )}
+      </CardContent>
     </Card>
   );
 }
