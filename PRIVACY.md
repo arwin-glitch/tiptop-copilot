@@ -57,6 +57,11 @@ action.
   until they confirm everyone was told, and never on a meeting that matches a
   never-record rule. Voice identifiers are kept only for people who consented,
   encrypted, deleted within a year of last use, and at once on withdrawal.
+  The Sound check page tests the microphone and the shared meeting audio on
+  your computer alone and sends nothing. The optional Google Meet extension
+  passes participant names from the Meet tab to the Copilot tab on the same
+  computer, only while a recording with confirmed consent runs and only if
+  its switch is on; it sends nothing to any server.
 
 ---
 
