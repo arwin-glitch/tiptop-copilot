@@ -160,6 +160,9 @@ describe('the legend and its filter', () => {
     expect(labelNameMatches('Portcos', 'Portcos meetings')).toBe(true);
     expect(labelNameMatches('Board Work', 'board work')).toBe(true);
     expect(labelNameMatches('LPs', 'LP')).toBe(true);
+    // Part of a longer name, either way round.
+    expect(labelNameMatches('Board Work', 'board')).toBe(true);
+    expect(labelNameMatches('Board Work', 'board travel')).toBe(false);
     expect(labelNameMatches('Travel', 'Portcos')).toBe(false);
     expect(labelNameMatches(null, 'Travel')).toBe(false);
   });
@@ -377,6 +380,27 @@ describe('the suggested label', () => {
         }),
       )?.name,
     ).toBe('Event');
+  });
+
+  it('with people of several kinds, the first kind decides: portfolio, deal, LP, then VC', () => {
+    // A board meeting: the founder and another VC on the board.
+    expect(
+      suggest(
+        event({ attendees: [me, guest('dan@ridgeway.example'), guest('maya@ledger.example')] }),
+      )?.name,
+    ).toBe('Portcos');
+    expect(
+      suggest(
+        event({ attendees: [me, guest('elena@marchfield.example'), guest('ana@vetro.example')] }),
+      )?.name,
+    ).toBe('Founders');
+    expect(
+      suggest(
+        event({
+          attendees: [me, guest('dan@ridgeway.example'), guest('elena@marchfield.example')],
+        }),
+      )?.name,
+    ).toBe('LPs');
   });
 
   it('stays quiet when unsure: already labelled, no labels, no clear sign, or two labels fit', () => {

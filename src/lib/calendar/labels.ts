@@ -113,6 +113,7 @@ export function labelNameMatches(name: string | null | undefined, asked: string)
   const aw = a.split(' ').map(single);
   const bw = b.split(' ').map(single);
   if (aw.join(' ') === bw.join(' ')) return true;
-  // Every word of the label's name appears in what was asked ("portcos meetings" finds "Portcos").
-  return aw.every((w) => bw.includes(w));
+  // Every word of the label's name appears in what was asked ("portcos meetings" finds "Portcos"),
+  // or every word asked appears in the name ("board" finds "Board Work").
+  return aw.every((w) => bw.includes(w)) || bw.every((w) => aw.includes(w));
 }
