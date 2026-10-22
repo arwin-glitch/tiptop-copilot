@@ -1,4 +1,4 @@
-import { labelColor, NO_GOOGLE_COLOR } from './colors';
+import { compareColors, labelColor, NO_GOOGLE_COLOR } from './colors';
 import type { GCalCalendar } from './google-types';
 import type { CalendarInfo, EventLabel, RangeEvent } from './range-types';
 
@@ -9,16 +9,50 @@ import type { CalendarInfo, EventLabel, RangeEvent } from './range-types';
  * here: only the calendar's owner changes them, in Google Calendar. An event
  * points at one with eventLabelId; its colour is then the label's.
  *
+ * Google lists a slot for every colour it offers, named or not (a real main
+ * calendar: ten named, fourteen without a name). As Google's own picker does,
+ * only a label with a name is a label here (D-072): an unnamed one is just a
+ * colour. Its events are drawn in it, but no name is ever shown for it, it is
+ * no filter chip of its own (it counts as "Unlabelled"), and the picker shows
+ * it as a plain dot.
+ *
  * Pure and client-safe: the reader, the page and the Ask tool share it, so a
  * label means the same thing everywhere.
  */
 
-/** The filter key for events without a label (or with one their calendar no longer has). */
+/** The filter key for events without a named label (or with one their calendar no longer has). */
 export const UNLABELLED = '__none__';
 
-/** What a label is called on screen: its name, or what Google shows for an unnamed one. */
-export function labelText(label: Pick<EventLabel, 'name'> | null | undefined): string {
-  return label?.name?.trim() || 'Unnamed label';
+/** A label's name, trimmed; null for one without a name (a colour, not a label). */
+export function labelName(label: Pick<EventLabel, 'name'> | null | undefined): string | null {
+  return label?.name?.trim() || null;
+}
+
+/** Labels in Google's picker order: round the colour wheel, greys last, then by name. */
+export function byPickerOrder<T extends { name: string | null; color: { background: string } }>(
+  labels: readonly T[],
+): T[] {
+  return [...labels].sort((a, b) =>
+    compareColors(
+      { background: a.color.background, name: a.name },
+      { background: b.color.background, name: b.name },
+    ),
+  );
+}
+
+export interface PickerLabels {
+  /** Labels with a name, as chips: dot and name. */
+  named: EventLabel[];
+  /** Colours without a name, as plain dots. */
+  colours: EventLabel[];
+}
+
+/** A calendar's labels as Google's picker shows them: the named ones, then the bare colours. */
+export function pickerLabels(labels: readonly EventLabel[]): PickerLabels {
+  return {
+    named: byPickerOrder(labels.filter((l) => labelName(l) !== null)),
+    colours: byPickerOrder(labels.filter((l) => labelName(l) === null)),
+  };
 }
 
 /** A calendar's labels in Google's order: ids kept once, colours checked, names trimmed. */
@@ -49,14 +83,15 @@ export function findLabel(
 
 /**
  * The key the legend filters by: the label's name, so "Travel" on two
- * calendars is one chip; an unnamed label keeps its own colour's chip.
+ * calendars is one chip. A label without a name is a colour, not a label:
+ * it filters with the unlabelled events.
  */
-export function labelKey(label: Pick<EventLabel, 'id' | 'name' | 'color'>): string {
-  const name = label.name?.trim().toLowerCase();
-  return name ? `name:${name}` : `color:${label.color.background}`;
+export function labelKey(label: Pick<EventLabel, 'name'>): string {
+  const name = labelName(label)?.toLowerCase();
+  return name ? `name:${name}` : UNLABELLED;
 }
 
-/** An event's legend key: its label's, else UNLABELLED. */
+/** An event's legend key: its named label's, else UNLABELLED. */
 export function eventLabelKey(event: Pick<RangeEvent, 'label'>): string {
   return event.label ? labelKey(event.label) : UNLABELLED;
 }
@@ -67,7 +102,11 @@ export interface LegendLabel {
   color: EventLabel['color'];
 }
 
-/** The labels of the calendars shown, once each by key, in calendar then Google order. */
+/**
+ * The named labels of the calendars shown, once each by name (the colour of
+ * the first calendar that has it), in Google's picker order. Labels without
+ * a name are left out: they are colours, and "Unlabelled" covers them.
+ */
 export function legendLabels(
   calendars: readonly Pick<CalendarInfo, 'id' | 'labels'>[],
   shownIds: readonly string[],
@@ -77,11 +116,13 @@ export function legendLabels(
   for (const c of calendars) {
     if (!shown.has(c.id)) continue;
     for (const label of c.labels) {
+      const name = labelName(label);
+      if (!name) continue;
       const key = labelKey(label);
-      if (!out.has(key)) out.set(key, { key, name: labelText(label), color: label.color });
+      if (!out.has(key)) out.set(key, { key, name, color: label.color });
     }
   }
-  return [...out.values()];
+  return byPickerOrder([...out.values()]);
 }
 
 /** Whether an event shows under the legend's filter: none picked shows everything. */

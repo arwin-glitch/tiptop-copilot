@@ -1,6 +1,6 @@
 import 'server-only';
 import type { DataStore } from '@/lib/db/store';
-import { labelNameMatches, labelText, legendLabels } from '@/lib/calendar/labels';
+import { labelName, labelNameMatches, legendLabels } from '@/lib/calendar/labels';
 import { NICK_ALIASES } from '@/lib/calendar/meetings';
 import {
   suggestLabel,
@@ -233,13 +233,13 @@ export async function suggestedLabelFor(
 
 export interface AskCalendarEvent {
   event: CalendarEvent;
-  /** The event's colour label on Google Calendar, by name (null when it has none). */
+  /** The event's colour label on Google Calendar, by name (null when it has none, or one without a name). */
   label: string | null;
 }
 
 export interface AskCalendarEvents {
   events: AskCalendarEvent[];
-  /** The main calendar's labels by name, so the answer can name the right one. */
+  /** The main calendar's named labels, in Google's picker order, so the answer can name the right one. */
   labels: string[];
   /** False when the labels could not be read live (the events still list). */
   labelsRead: boolean;
@@ -317,7 +317,8 @@ export async function listEventsWithLabels(
 
   const withLabels = events.map((event) => {
     const live = byId.get(event.provider_event_id);
-    return { event, label: live?.label ? labelText(live.label) : null };
+    // A label without a name is a colour, not a label: no name to give (D-072).
+    return { event, label: labelName(live?.label) };
   });
   const asked = options.label?.trim();
   const filtered = !asked

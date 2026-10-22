@@ -1,16 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { eventColor, labelColor, NO_GOOGLE_COLOR } from '@/lib/calendar/colors';
+import {
+  colorWords,
+  compareColors,
+  eventColor,
+  googleColorName,
+  labelColor,
+  lchOf,
+  NO_GOOGLE_COLOR,
+} from '@/lib/calendar/colors';
 import { colorRequest, isColorOnly, labelRequest } from '@/lib/calendar/event-actions';
 import { eventLook, lookWords } from '@/lib/calendar/event-look';
 import { labelsFor, suggestLabel, type LabelKnowledge } from '@/lib/calendar/label-suggest';
 import {
+  byPickerOrder,
   eventLabelKey,
   findLabel,
   labelKey,
+  labelName,
   labelNameMatches,
-  labelText,
   legendLabels,
   passesLabelFilter,
+  pickerLabels,
   toEventLabels,
   UNLABELLED,
 } from '@/lib/calendar/labels';
@@ -59,7 +69,9 @@ describe('reading a calendar’s labels', () => {
       ['b', null, '#f6bf26'],
       ['c', 'Odd', NO_GOOGLE_COLOR.background],
     ]);
-    expect(labelText(labels[1])).toBe('Unnamed label');
+    // No name: a colour, not a label, and nothing to call it by.
+    expect(labelName(labels[1])).toBeNull();
+    expect(labelName(labels[0])).toBe('Travel');
     expect(toEventLabels(null)).toEqual([]);
     expect(toEventLabels({ id: 'cal' })).toEqual([]);
   });
@@ -124,7 +136,7 @@ describe('a label write and a colour write', () => {
 
 describe('the legend and its filter', () => {
   const calendars = [
-    { id: 'main', labels: [LABELS[0]!, LABELS[6]!] },
+    { id: 'main', labels: [LABELS[0]!, LABELS[6]!, label('m-x', null, '#3f51b5')] },
     {
       id: 'personal',
       labels: [label('p-trav', 'Travel', '#0b8043'), label('p-x', null, '#d50000')],
@@ -132,10 +144,11 @@ describe('the legend and its filter', () => {
     { id: 'hidden', labels: [label('h', 'Hidden', '#000000')] },
   ];
 
-  it('lists the shown calendars’ labels once each by name', () => {
+  it('lists the shown calendars’ named labels once each by name, and no colour without one', () => {
     const legend = legendLabels(calendars, ['main', 'personal']);
-    expect(legend.map((l) => l.name)).toEqual(['Portcos', 'Travel', 'Unnamed label']);
-    expect(legend.map((l) => l.key)).toEqual(['name:portcos', 'name:travel', 'color:#d50000']);
+    // Basil before Sage, round the colour wheel; the unnamed Blueberry and Tomato are left out.
+    expect(legend.map((l) => l.name)).toEqual(['Travel', 'Portcos']);
+    expect(legend.map((l) => l.key)).toEqual(['name:travel', 'name:portcos']);
   });
 
   it('a label on two calendars filters as one; none picked shows everything', () => {
@@ -152,6 +165,16 @@ describe('the legend and its filter', () => {
     ]);
     expect(passesLabelFilter(none, [UNLABELLED])).toBe(true);
     expect(passesLabelFilter(none, [])).toBe(true);
+  });
+
+  it('an event whose label has no name is a colour: it shows under "Unlabelled"', () => {
+    const tinted = { label: label('p-x', null, '#d50000') };
+    const blank = { label: label('p-y', '   ', '#7986cb') };
+    expect(eventLabelKey(tinted)).toBe(UNLABELLED);
+    expect(eventLabelKey(blank)).toBe(UNLABELLED);
+    expect(labelKey({ name: null })).toBe(UNLABELLED);
+    expect(passesLabelFilter(tinted, [UNLABELLED])).toBe(true);
+    expect(passesLabelFilter(tinted, ['name:travel'])).toBe(false);
   });
 
   it('matches a label by the name someone asked for', () => {
@@ -430,5 +453,80 @@ describe('the suggested label', () => {
     expect(names('portfolio', list)).toEqual(['Portfolio cos']);
     expect(names('event', list)).toEqual(['Events']);
     expect(names('internal', list)).toEqual([]);
+  });
+});
+
+describe('Google’s order and names for label colours (D-072)', () => {
+  /** Google's own picker, as Arwin's screenshot shows it, and its colours. */
+  const PICKER = [
+    ['Flamingo', '#e67c73'],
+    ['Tomato', '#d50000'],
+    ['Tangerine', '#f4511e'],
+    ['Banana', '#f6bf26'],
+    ['Basil', '#0b8043'],
+    ['Sage', '#33b679'],
+    ['Lavender', '#7986cb'],
+    ['Blueberry', '#3f51b5'],
+    ['Grape', '#8e24aa'],
+    ['Graphite', '#616161'],
+  ] as const;
+
+  it('orders colours round the wheel, red to purple, as Google’s picker does', () => {
+    const shuffled = [...PICKER].reverse().map(([name, hex]) => label(name, name, hex));
+    expect(byPickerOrder(shuffled).map((l) => l.name)).toEqual(PICKER.map(([name]) => name));
+  });
+
+  it('puts greys and neutrals last, and the same colour by name', () => {
+    const labels = [
+      label('a', 'Zeta', '#616161'),
+      label('b', 'Neutral', '#9e9e9e'),
+      label('c', 'Birch', '#a79b8e'),
+      label('d', 'Peacock', '#039be5'),
+      label('e', 'beta', '#d50000'),
+      label('f', 'Alpha', '#d50000'),
+    ];
+    expect(byPickerOrder(labels).map((l) => l.name)).toEqual([
+      'Alpha',
+      'beta',
+      'Peacock',
+      'Birch',
+      'Neutral',
+      'Zeta',
+    ]);
+    // Cocoa, the dullest real colour, is still a colour (an orange-brown), not a grey.
+    expect(lchOf('#795548')!.chroma).toBeGreaterThan(10);
+    expect(lchOf('#a79b8e')!.chroma).toBeLessThan(10);
+    expect(compareColors({ background: '#795548' }, { background: '#616161' })).toBeLessThan(0);
+    expect(lchOf('teal')).toBeNull();
+  });
+
+  it('names a colour as Google does, else by its hex', () => {
+    expect(googleColorName('#D50000')).toBe('Tomato');
+    expect(googleColorName('#dc2127')).toBe('Tomato'); // the classic shade
+    expect(googleColorName('#7986cb')).toBe('Lavender');
+    expect(googleColorName('#4285f4')).toBe('Cobalt');
+    expect(googleColorName('#a79b8e')).toBe('Birch');
+    expect(googleColorName('#123456')).toBeNull();
+    expect(googleColorName(null)).toBeNull();
+    expect(colorWords('#795548')).toBe('Cocoa');
+    expect(colorWords('#ABCDEF')).toBe('Colour #abcdef');
+  });
+
+  it('splits a calendar’s labels as the picker shows them: named chips, then bare colours', () => {
+    const picker = pickerLabels([
+      label('t', 'Travel', '#0b8043'),
+      label('x1', null, '#795548'),
+      label('f', 'Founders', '#f4511e'),
+      label('x2', null, '#7986cb'),
+      label('x3', '', '#d50000'),
+    ]);
+    expect(picker.named.map((l) => l.name)).toEqual(['Founders', 'Travel']);
+    expect(picker.colours.map((l) => l.id)).toEqual(['x3', 'x1', 'x2']);
+    // No "Unnamed label" anywhere: a bare colour is called by its colour.
+    expect(picker.colours.map((l) => colorWords(l.color.background))).toEqual([
+      'Tomato',
+      'Cocoa',
+      'Lavender',
+    ]);
   });
 });

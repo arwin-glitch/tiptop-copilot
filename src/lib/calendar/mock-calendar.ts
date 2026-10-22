@@ -19,16 +19,19 @@ import type {
  * sendUpdates and conference data it carried, so a test can check exactly
  * what would have gone to Google. Nothing here touches the network.
  *
- * The main calendar holds the demo's own synced events (the ones the current
- * day list reads in demo mode), so the parity check agrees in the demo until
- * something is changed here. The other calendars carry what the new views
+ * The main calendar holds the demo's own synced events (the ones the day
+ * reader, Today's and the pings', reads in demo mode), so the parity check
+ * agrees in the demo until something is changed here. The other calendars
+ * carry what the views
  * need to show off: overlaps, a recurring series, holds, a busy day, a
  * conference day of long overlapping blocks under short meetings, an event
  * only its organizer can change, and calendars this account can only read.
  *
  * Google's colour labels too (D-070): the main calendar and Personal define
- * fictional ones (generic VC words), some events carry one, and the team
- * calendar has none, so it keeps Google's eleven event colours. Invitations
+ * fictional ones (generic VC words) beside colours nobody named, as Google
+ * lists them (D-072), some events carry one (the family trip an unnamed
+ * colour), and the team calendar has none, so it keeps Google's eleven event
+ * colours. Invitations
  * Nick has not answered, said maybe to, and declined, an event that already
  * happened, and a guest-less registration whose ticket email is in the demo
  * mailbox, for the event looks and "How you got here".
@@ -73,9 +76,48 @@ export const MOCK_LABELS = {
   },
 } as const;
 
+/**
+ * Google lists a slot for every colour it offers, named or not (a real main
+ * calendar: ten named, fourteen without a name; other calendars more). The
+ * demo mirrors that: the main calendar's other fifteen colours and three on
+ * Personal have no name (D-072). Ids shaped like Google's; Google's colours.
+ */
+const unnamedSlots = (prefix: string, first: number, colors: readonly string[]) =>
+  colors.map((color, i) => ({
+    id: `${prefix}${String(first + i).padStart(4, '0')}`,
+    name: '',
+    color,
+  }));
+
+const MAIN_UNNAMED = unnamedSlots('5d0c1a7e-3b6f-4a21-9c84-0d2e6f1b', 1, [
+  '#3f51b5',
+  '#7986cb',
+  '#ad1457',
+  '#d81b60',
+  '#ef6c00',
+  '#f09300',
+  '#e4c441',
+  '#c0ca33',
+  '#7cb342',
+  '#009688',
+  '#4285f4',
+  '#b39ddb',
+  '#9e69af',
+  '#795548',
+  '#a79b8e',
+]);
+
+/** Personal's colours without a name: Lavender, Cobalt and Cocoa. */
+export const MOCK_PERSONAL_UNNAMED = unnamedSlots('7a3e9b2c-1d4f-4e60-8b17-5c9d0e2f', 201, [
+  '#7986cb',
+  '#4285f4',
+  '#795548',
+]);
+
 const asGoogleLabel = (l: { id: string; name: string; color: string }): GCalEventLabel => ({
   id: l.id,
-  name: l.name,
+  // Google leaves the name out of a slot nobody has named.
+  ...(l.name ? { name: l.name } : {}),
   backgroundColor: l.color,
 });
 
@@ -267,7 +309,7 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
     },
   ];
 
-  // The main calendar: the demo's synced events, exactly as the day list reads them.
+  // The main calendar: the demo's synced events, exactly as the day reader reads them.
   const primary: GCalEvent[] = buildDemoDb(now).calendar_events.map((e) => ({
     id: e.provider_event_id,
     status: 'confirmed',
@@ -407,11 +449,13 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
       description: 'Your ticket: https://tickets.harborlight-mixer.demo/order/demo-1234',
     },
     {
+      // A colour slot nobody named (Lavender): drawn in it, but no label.
       id: 'demopersonaltrip',
       summary: 'Family trip',
       start: { date: day(8) },
       end: { date: day(11) },
       ...ownedBy(MOCK_PERSONAL_CALENDAR),
+      eventLabelId: MOCK_PERSONAL_UNNAMED[0]!.id,
     },
   ];
 
@@ -560,13 +604,17 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
           MOCK_LABELS.travel,
           MOCK_LABELS.event,
           MOCK_LABELS.personal,
+          ...MAIN_UNNAMED,
         ].map(asGoogleLabel),
       ],
       [
         MOCK_PERSONAL_CALENDAR,
-        [MOCK_LABELS.personalTravel, MOCK_LABELS.personalEvent, MOCK_LABELS.personalFamily].map(
-          asGoogleLabel,
-        ),
+        [
+          MOCK_LABELS.personalTravel,
+          MOCK_LABELS.personalEvent,
+          MOCK_LABELS.personalFamily,
+          ...MOCK_PERSONAL_UNNAMED,
+        ].map(asGoogleLabel),
       ],
     ]),
     events: new Map([

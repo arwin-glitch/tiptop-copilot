@@ -21,7 +21,7 @@ import {
   weekdayShort,
 } from '@/lib/calendar/grid';
 import { eventLook, type EventLook } from '@/lib/calendar/event-look';
-import { labelText } from '@/lib/calendar/labels';
+import { labelName } from '@/lib/calendar/labels';
 import type { CalendarInfo, RangeEvent } from '@/lib/calendar/range-types';
 import { cn } from '@/lib/util/cn';
 import { addDaysToKey, localClock, localDateKey } from '@/lib/util/time';
@@ -734,8 +734,8 @@ export function TimeGrid({
                       {!compact && !narrow ? (
                         <span className="block truncate opacity-80">
                           {when}
-                          {event.label ? (
-                            <span data-chip-label="">{` · ${labelText(event.label)}`}</span>
+                          {labelName(event.label) ? (
+                            <span data-chip-label="">{` · ${labelName(event.label)}`}</span>
                           ) : null}
                         </span>
                       ) : null}
@@ -1159,9 +1159,9 @@ function AllDayRow({
             ) : null}
             <span className="min-w-0 flex-1 truncate">
               <span style={titleStyle(look)}>{event.title}</span>
-              {event.label ? (
+              {labelName(event.label) ? (
                 <span data-chip-label="" className="font-normal opacity-80">
-                  {` · ${labelText(event.label)}`}
+                  {` · ${labelName(event.label)}`}
                 </span>
               ) : null}
             </span>

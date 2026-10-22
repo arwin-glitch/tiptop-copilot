@@ -27,7 +27,8 @@ import {
 } from 'lucide-react';
 import { RSVP_CHOICES, type EventOptions, type RsvpResponse } from '@/lib/calendar/event-actions';
 import { eventLook, lookWords } from '@/lib/calendar/event-look';
-import { labelText } from '@/lib/calendar/labels';
+import { colorWords } from '@/lib/calendar/colors';
+import { labelName } from '@/lib/calendar/labels';
 import {
   descriptionParts,
   mapsUrl,
@@ -46,6 +47,7 @@ import { ThreadLinks } from '@/components/email/thread-links';
 import { AnchoredCard } from './anchored-card';
 import { fetchContext, fetchSeries, type CardContext } from './calendar-api';
 import { swatchStyle, tickStyle } from './event-style';
+import { LabelPicker } from './label-picker';
 
 /**
  * One event, opened by a click on it in Day, Week or Month: Google Calendar's
@@ -61,11 +63,15 @@ import { swatchStyle, tickStyle } from './event-style';
  *   links, attachments), plus Copilot's Meeting or Block verdict and why, the
  *   ping, its look in words (Ended, Not answered yet, Maybe, Declined), its
  *   colour label, and the context box: for a meeting on the main calendar the
- *   day list's, and for any event "How you got here" (the email that put it
- *   on the calendar when its guests say nothing).
+ *   meeting context (the dossier, the prep note, the latest emails), and for
+ *   any event "How you got here" (the email that put it on the calendar when
+ *   its guests say nothing). Since the day list was retired (D-072), this
+ *   card is the one place for all of it.
  * - On a calendar with colour labels, Google's label picker instead of the
- *   eleven colours, a suggested label when Copilot's own data is clear (used
- *   only on a tap), and a link to edit the labels in Google Calendar.
+ *   eleven colours (label-picker.tsx: the named labels, then the unnamed
+ *   colours as plain dots), a suggested label when Copilot's own data is
+ *   clear (used only on a tap), and a link to edit the labels in Google
+ *   Calendar.
  *
  * Without calendar editing, or on an event this account cannot change, only
  * what writes nothing is offered, with the reason (and how to turn editing on).
@@ -155,7 +161,7 @@ export function EventPanel({
   /** The clock, for "Ended" (null until the page is in the browser). */
   nowMs: number | null;
   today: string;
-  /** Nick's own addresses: he is never listed among the guests, as in the day list. */
+  /** Nick's own addresses: he is never listed among the guests. */
   ownEmails: readonly string[];
   /** The mailbox the "latest emails" links open in. */
   mailbox: string | null;
@@ -418,7 +424,7 @@ function EventCardBody({
           </div>
         </div>
 
-        {/* Copilot's verdict, as the day list words it. */}
+        {/* Copilot's verdict, in the words Today and the pings use. */}
         {event.verdict.meeting ? (
           <Row icon={Bell}>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -566,7 +572,12 @@ function EventCardBody({
                     className="size-2.5 shrink-0 rounded-full border"
                     style={swatchStyle(event.label.color.background)}
                   />
-                  <span>Label: {labelText(event.label)}</span>
+                  {/* A label without a name is only a colour: its colour's name, never a label's. */}
+                  <span>
+                    {labelName(event.label)
+                      ? `Label: ${labelName(event.label)}`
+                      : `Colour: ${colorWords(event.label.color.background)}`}
+                  </span>
                 </>
               ) : (
                 <span className="text-[var(--fg-muted)]">No label</span>
@@ -587,7 +598,13 @@ function EventCardBody({
         <ContextBox loaded={loaded} timeZone={timeZone} mailbox={mailbox} />
 
         {options.color && labels.length > 0 ? (
-          <LabelRow event={event} calendar={calendar!} onLabel={onLabel} />
+          <LabelPicker
+            labels={labels}
+            current={event.label ? event.labelId : null}
+            onPick={(labelId) => onLabel(event, labelId)}
+            editHref={event.htmlLink ?? undefined}
+            className="border-t border-[var(--border)] pt-3"
+          />
         ) : options.color && palette.length > 0 ? (
           <ColorRow event={event} calendar={calendar} palette={palette} onColor={onColor} />
         ) : null}
@@ -798,72 +815,6 @@ function ColorRow({
   );
 }
 
-/** Google's label picker on the card: one tap relabels it, and nobody is emailed. */
-function LabelRow({
-  event,
-  calendar,
-  onLabel,
-}: {
-  event: RangeEvent;
-  calendar: CalendarInfo;
-  onLabel: (event: RangeEvent, labelId: string | null) => void;
-}) {
-  const choices = [
-    ...calendar.labels.map((l) => ({
-      id: l.id as string | null,
-      name: labelText(l),
-      background: l.color.background as string | null,
-    })),
-    { id: null as string | null, name: 'No label', background: null as string | null },
-  ];
-  const current = event.label ? event.labelId : null;
-  return (
-    <div className="space-y-1.5 border-t border-[var(--border)] pt-3">
-      <div role="radiogroup" aria-label="Event label" className="flex flex-wrap gap-1.5">
-        {choices.map((c) => {
-          const on = current === c.id;
-          return (
-            <button
-              key={c.id ?? 'none'}
-              type="button"
-              role="radio"
-              aria-checked={on}
-              onClick={() => (on ? undefined : onLabel(event, c.id))}
-              className={cn(
-                'inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-[var(--focus)]',
-                on
-                  ? 'border-[var(--fg)] bg-[var(--bg-hover)] text-[var(--fg)]'
-                  : 'border-[var(--border-strong)] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]',
-              )}
-            >
-              {c.background ? (
-                <span
-                  aria-hidden
-                  className="flex size-3.5 shrink-0 items-center justify-center rounded-full border"
-                  style={swatchStyle(c.background)}
-                >
-                  {on ? <Check className="size-2.5" style={tickStyle(c.background)} /> : null}
-                </span>
-              ) : on ? (
-                <Check className="size-3.5 shrink-0" aria-hidden />
-              ) : null}
-              <span className="min-w-0 truncate">{c.name}</span>
-            </button>
-          );
-        })}
-      </div>
-      <a
-        href={event.htmlLink ?? 'https://calendar.google.com/calendar/r'}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="link-inline inline-flex items-center gap-1 text-xs"
-      >
-        Edit labels in Google Calendar <ExternalLink className="size-3" aria-hidden />
-      </a>
-    </div>
-  );
-}
-
 /**
  * The label Copilot would give it, from its own data: a suggestion until
  * "Use it" is tapped (that tap is the same label write as the picker's).
@@ -962,7 +913,7 @@ function useCardContext(event: RangeEvent, timeZone: string): Loaded {
 }
 
 /**
- * The context box: for a meeting on the main calendar the day list's (the
+ * The context box: for a meeting on the main calendar the meeting context (the
  * dossier's note, the prep note, the latest emails with the guests), and for
  * any event "How you got here", which falls back to the email that put it on
  * the calendar, or what was checked and the Inbox search.
@@ -1070,7 +1021,7 @@ function ContextBox({
                     <span className="text-[var(--fg-subtle)]"> · {formatDate(t.at, timeZone)}</span>
                   ) : null}
                 </span>
-                {/* The thread in Copilot's Inbox, or in Gmail, as on the day list. */}
+                {/* The thread in Copilot's Inbox, or in Gmail. */}
                 <ThreadLinks id={t.id} mailbox={mailbox} label={t.subject} variant="text" />
               </li>
             ))}

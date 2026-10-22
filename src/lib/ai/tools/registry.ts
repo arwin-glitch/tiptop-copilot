@@ -648,7 +648,7 @@ const listCalendarEvents: ToolSpec<
 > = {
   name: 'list_calendar_events',
   description:
-    'Calendar events (main calendar) for today or the next N days, with attendees and each event\'s colour label as Nick names it in Google Calendar (e.g. a portfolio, LP or travel label; null when it has none). Pass `label` to list only events with that label ("none" for events without one); the result lists the labels the calendar has.',
+    'Calendar events (main calendar) for today or the next N days, with attendees and each event\'s colour label as Nick names it in Google Calendar (e.g. a portfolio, LP or travel label; null when it has none, or only a colour Nick never named). Pass `label` to list only events with that label ("none" for events without a named one); the result lists the named labels the calendar has.',
   schema: z.object({
     days: z.number().int().min(1).max(14).optional(),
     label: z.string().trim().min(1).max(80).optional(),

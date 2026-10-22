@@ -1,4 +1,4 @@
-import { labelText } from './labels';
+import { labelName } from './labels';
 import type { EventLabel, RangeEvent } from './range-types';
 
 /**
@@ -175,7 +175,7 @@ export function suggestLabel(
 ): LabelSuggestion | null {
   if (event.labelId || labels.length === 0) return null;
   const suggest = (label: EventLabel | null, reason: string): LabelSuggestion | null =>
-    label ? { labelId: label.id, name: labelText(label), reason } : null;
+    label && labelName(label) ? { labelId: label.id, name: labelName(label)!, reason } : null;
 
   const people = otherPeople(event, ownEmails);
   const booking =

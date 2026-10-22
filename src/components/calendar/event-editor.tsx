@@ -11,7 +11,6 @@ import {
 } from '@/lib/calendar/edit-rules';
 import { inclusiveLastDay, instantFromFields, wallFields } from '@/lib/calendar/draft';
 import { shortTime } from '@/lib/calendar/grid';
-import { labelText } from '@/lib/calendar/labels';
 import type { CalendarInfo, EventPaletteEntry, RangeEvent } from '@/lib/calendar/range-types';
 import { addDaysToKey } from '@/lib/util/time';
 import { cn } from '@/lib/util/cn';
@@ -21,6 +20,7 @@ import { Field, Input, Label, Select, Textarea } from '@/components/ui/form';
 import { AnchoredCard } from './anchored-card';
 import { fetchGuests } from './calendar-api';
 import { swatchStyle, tickStyle } from './event-style';
+import { LabelPicker } from './label-picker';
 
 /**
  * Making and changing an event, as in Google Calendar: a quick editor after
@@ -536,46 +536,11 @@ function EditorBody({
         {labels.length > 0 ? (
           <fieldset>
             <legend className="mb-1.5 text-sm font-medium">Label</legend>
-            <div role="radiogroup" aria-label="Event label" className="flex flex-wrap gap-1.5">
-              {[
-                ...labels.map((l) => ({
-                  id: l.id as string | null,
-                  name: labelText(l),
-                  background: l.color.background as string | null,
-                })),
-                { id: null as string | null, name: 'No label', background: null as string | null },
-              ].map((c) => {
-                const on = fields.labelId === c.id;
-                return (
-                  <button
-                    key={c.id ?? 'none'}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    onClick={() => set({ labelId: c.id })}
-                    className={cn(
-                      'inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium',
-                      on
-                        ? 'border-[var(--fg)] bg-[var(--bg-hover)] text-[var(--fg)]'
-                        : 'border-[var(--border-strong)] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
-                    )}
-                  >
-                    {c.background ? (
-                      <span
-                        aria-hidden
-                        className="flex size-3.5 items-center justify-center rounded-full border"
-                        style={swatchStyle(c.background)}
-                      >
-                        {on ? <Check className="size-2.5" style={tickStyle(c.background)} /> : null}
-                      </span>
-                    ) : on ? (
-                      <Check className="size-3.5" aria-hidden />
-                    ) : null}
-                    {c.name}
-                  </button>
-                );
-              })}
-            </div>
+            <LabelPicker
+              labels={labels}
+              current={fields.labelId}
+              onPick={(labelId) => set({ labelId })}
+            />
           </fieldset>
         ) : palette.length > 0 ? (
           <fieldset>

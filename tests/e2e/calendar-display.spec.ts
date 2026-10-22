@@ -1,14 +1,18 @@
 import path from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 /**
  * One clear look for every event, Google's colour labels, and a "How you
  * got here" that finds the reason (D-070), over the demo's in-memory mock
  * calendar: nothing here can reach Google, and nothing emails anyone.
  *
- * - The labels of the calendars shown are filter chips above the grid,
- *   remembered; each event shows its label name, on the chip and the card.
- * - The card's label picker sends one PATCH: the label and nothing else.
+ * - The named labels of the calendars shown are filter chips above the grid,
+ *   in Google's order, one line with "More" on a computer, remembered; each
+ *   event shows its label name, on the chip and the card. A colour slot
+ *   nobody named is no chip and no name (D-072): its events show under
+ *   "Unlabelled", drawn in its colour.
+ * - The card's label picker: named chips, then the unnamed colours as plain
+ *   dots; a chip or a dot sends one PATCH, the label and nothing else.
  * - A suggested label shows on the card and is applied only on a tap.
  * - A Key explains the looks: faded once over, outlined with a "?" while
  *   not answered, striped for maybe, struck through when declined, and a
@@ -54,6 +58,67 @@ const chip = (page: Page, title: string | RegExp) =>
 
 const legend = (page: Page) => page.getByRole('group', { name: 'Labels' });
 
+/** The label chips the legend's row shows (the rest are behind "More"). */
+const chipsInRow = (page: Page) =>
+  legend(page).locator('button[aria-pressed]').filter({ visible: true });
+
+/** Every label chip's name, in order: the row's, then those behind "More". */
+async function legendNames(page: Page): Promise<string[]> {
+  const row = await chipsInRow(page).allTextContents();
+  const more = legend(page).locator('[data-label-more]');
+  if (!(await more.isVisible())) return row.map((t) => t.trim());
+  await more.click();
+  const rest = await page
+    .getByRole('group', { name: 'More labels' })
+    .getByRole('button')
+    .allTextContents();
+  await page.keyboard.press('Escape');
+  return [...row, ...rest].map((t) => t.trim());
+}
+
+/** A label chip, in the row or behind "More" (opened, so press Escape after). */
+async function labelChip(page: Page, name: string): Promise<Locator> {
+  const inRow = legend(page).getByRole('button', { name, exact: true });
+  if (await inRow.isVisible()) return inRow;
+  await legend(page).locator('[data-label-more]').click();
+  return page
+    .getByRole('group', { name: 'More labels' })
+    .getByRole('button', { name, exact: true });
+}
+
+/** The named labels, in Google's order (Flamingo, Tomato, ... Graphite), then "Unlabelled". */
+const LEGEND = [
+  'Diligence',
+  'Personal',
+  'Founders',
+  'Event',
+  'Travel',
+  'Portfolio',
+  'VCs',
+  'LPs',
+  'Internal',
+  'Unlabelled',
+];
+
+/** The main calendar's colours nobody named, as Google calls them, in the picker's order. */
+const MAIN_COLOURS = [
+  'Radicchio',
+  'Cherry blossom',
+  'Cocoa',
+  'Pumpkin',
+  'Mango',
+  'Citron',
+  'Avocado',
+  'Pistachio',
+  'Eucalyptus',
+  'Cobalt',
+  'Lavender',
+  'Blueberry',
+  'Wisteria',
+  'Amethyst',
+  'Birch',
+];
+
 /** Every write the page sends to the calendar routes, as sent. */
 function recordWrites(page: Page) {
   const writes: { method: string; url: string; body: Record<string, unknown> | null }[] = [];
@@ -81,51 +146,44 @@ async function clearFilter(page: Page) {
   }
 }
 
-test('the labels are a legend above the grid; a tap filters to one, remembered', async ({
+test('the named labels are a legend above the grid, in Google’s order; a tap filters, remembered', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/calendar?view=week&date=${dayFromToday(0)}`);
   const labels = legend(page);
   await expect(labels).toBeVisible();
-  for (const name of [
-    'Portfolio',
-    'LPs',
-    'Founders',
-    'Diligence',
-    'Travel',
-    'Event',
-    'Unlabelled',
-  ]) {
-    await expect(labels.getByRole('button', { name, exact: true })).toBeVisible();
-  }
-  // Travel is on two calendars (main and Personal): one chip.
-  await expect(labels.getByRole('button', { name: 'Travel', exact: true })).toHaveCount(1);
+  // Every named label once (Travel is on two calendars, main and Personal: one chip),
+  // in Google's order, then Unlabelled; no colour slot is a chip.
+  expect(await legendNames(page)).toEqual(LEGEND);
+  await expect(page.getByText(/Unnamed label/)).toHaveCount(0);
   // The label's name on the chip, after the time.
   await expect(chip(page, 'Ledgerly board prep').locator('[data-chip-label]')).toHaveText(
     ' · Portfolio',
   );
 
   try {
-    const portfolio = labels.getByRole('button', { name: 'Portfolio', exact: true });
+    const portfolio = await labelChip(page, 'Portfolio');
     const saved = page.waitForResponse((r) => r.url().includes('/api/calendar/prefs'));
     await portfolio.click();
     await saved;
     await expect(portfolio).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('Escape');
     await expect(chip(page, 'Ledgerly board prep')).toBeVisible();
     await expect(chip(page, 'Founder office hours')).toHaveCount(0);
     await expect(chip(page, 'Girder AI — reference call debrief')).toHaveCount(0);
 
     // Remembered, like the other calendar choices; Month filters too.
     await page.goto(`/calendar?view=month&date=${dayFromToday(0)}`);
-    await expect(
-      legend(page).getByRole('button', { name: 'Portfolio', exact: true }),
-    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(await labelChip(page, 'Portfolio')).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('Escape');
     await expect(chip(page, 'Ledgerly board prep')).toBeVisible();
     await expect(chip(page, 'Founder office hours')).toHaveCount(0);
 
     // Unlabelled as well: the two together (in Week, where today has room for them all).
     await page.goto(`/calendar?view=week&date=${dayFromToday(0)}`);
-    await legend(page).getByRole('button', { name: 'Unlabelled', exact: true }).click();
+    await (await labelChip(page, 'Unlabelled')).click();
+    await page.keyboard.press('Escape');
     await expect(chip(page, 'Founder office hours').first()).toBeVisible();
     await expect(chip(page, 'Ledgerly board prep')).toBeVisible();
     await expect(chip(page, 'TipTop internal — pipeline review')).toHaveCount(0);
@@ -135,13 +193,108 @@ test('the labels are a legend above the grid; a tap filters to one, remembered',
   await expect(chip(page, 'TipTop internal — pipeline review')).toBeVisible();
 });
 
-test('the card names the label, and its picker shows Google’s labels by name', async ({ page }) => {
+test('a colour nobody named is no label: drawn in it, filtered as Unlabelled, no name shown', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // The family trip carries Personal's unnamed Lavender.
+  await page.goto(`/calendar?view=week&date=${dayFromToday(9)}`);
+  const trip = chip(page, 'Family trip').first();
+  await expect(trip).toBeVisible();
+  await expect(trip).toHaveCSS('background-color', 'rgb(121, 134, 203)');
+  await expect(chip(page, 'Family trip').locator('[data-chip-label]')).toHaveCount(0);
+  await expect(trip).not.toHaveAttribute('aria-label', /label/);
+
+  try {
+    await (await labelChip(page, 'Unlabelled')).click();
+    await page.keyboard.press('Escape');
+    await expect(trip).toBeVisible();
+    await (await labelChip(page, 'Unlabelled')).click();
+    await page.keyboard.press('Escape');
+    await (await labelChip(page, 'Travel')).click();
+    await page.keyboard.press('Escape');
+    await expect(chip(page, 'Family trip')).toHaveCount(0);
+  } finally {
+    await clearFilter(page);
+  }
+
+  // Its card calls it by its colour, and the picker ticks that colour's dot.
+  await trip.click();
+  const card = page.getByRole('dialog', { name: 'Family trip' });
+  await expect(card.locator('[data-event-label]')).toHaveText('Colour: Lavender');
+  const picker = card.getByRole('radiogroup', { name: 'Event label' });
+  await expect(picker.getByRole('radio', { name: 'Lavender' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(picker.getByRole('radio', { name: 'No label' })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  );
+  await expect(card.getByText(/Unnamed/)).toHaveCount(0);
+});
+
+test('on a computer the legend is one line, and "More" holds the rest', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto(`/calendar?view=week&date=${dayFromToday(0)}`);
+  const labels = legend(page);
+  const more = labels.locator('[data-label-more]');
+  await expect(more).toBeVisible();
+  // One line: the row is a chip tall.
+  expect((await labels.boundingBox())!.height).toBeLessThanOrEqual(34);
+  const inRow = (await chipsInRow(page).allTextContents()).map((t) => t.trim());
+  expect(inRow.length).toBeGreaterThan(2);
+  expect(inRow).toEqual(LEGEND.slice(0, inRow.length));
+  const hidden = LEGEND.length - inRow.length;
+  await expect(more).toHaveAccessibleName(`${hidden} more labels`);
+  await more.click();
+  const rest = page.getByRole('group', { name: 'More labels' });
+  // The row and "More" together: every chip once, in order.
+  await expect(rest.getByRole('button')).toHaveText(LEGEND.slice(inRow.length));
+  await page.screenshot({ path: 'test-results/calendar-legend-more.png' });
+
+  // A chip picked behind "More" lights it up, and nothing moves; Show all clears it.
+  try {
+    const saved = page.waitForResponse((r) => r.url().includes('/api/calendar/prefs'));
+    await rest.getByRole('button', { name: 'Unlabelled', exact: true }).click();
+    await saved;
+    await page.keyboard.press('Escape');
+    await expect(more).toHaveAccessibleName(`${hidden} more labels, 1 picked`);
+    expect((await chipsInRow(page).allTextContents()).map((t) => t.trim())).toEqual(inRow);
+  } finally {
+    await clearFilter(page);
+  }
+  await expect(more).toHaveAccessibleName(`${hidden} more labels`);
+});
+
+test('the card names the label; its picker shows the named labels, then plain colour dots', async ({
+  page,
+}) => {
   await page.goto(`/calendar?view=day&date=${dayFromToday(0)}`);
   await chip(page, 'Ledgerly board prep').click();
   const card = page.getByRole('dialog', { name: 'Ledgerly board prep' });
   await expect(card.locator('[data-event-label]')).toHaveText('Label: Portfolio');
   const picker = card.getByRole('radiogroup', { name: 'Event label' });
-  await expect(picker.getByRole('radio')).toHaveCount(10);
+  // Nine named chips in Google's order, fifteen dots, and No label.
+  await expect(picker.getByRole('radio')).toHaveCount(25);
+  const dots = picker.locator('[data-label-colour]');
+  await expect(dots).toHaveCount(15);
+  const named = await picker
+    .getByRole('radio')
+    .evaluateAll((els) =>
+      els
+        .filter((el) => !el.hasAttribute('data-label-colour'))
+        .map((el) => el.textContent?.trim() ?? ''),
+    );
+  expect(named).toEqual([...LEGEND.slice(0, -1), 'No label']);
+  // A dot has no text, only Google's name for its colour.
+  expect(await dots.evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')))).toEqual(
+    MAIN_COLOURS,
+  );
+  expect(await dots.evaluateAll((els) => els.map((el) => el.textContent?.trim()))).toEqual(
+    MAIN_COLOURS.map(() => ''),
+  );
+  await expect(card.getByText(/Unnamed/)).toHaveCount(0);
   await expect(picker.getByRole('radio', { name: 'Portfolio' })).toHaveAttribute(
     'aria-checked',
     'true',
@@ -222,6 +375,83 @@ test('picking a label sends one PATCH with the label alone, asks nothing, and st
   await expect(chip(page, title)).toHaveCount(0);
 });
 
+test('picking a colour dot sends one PATCH with that slot alone, asks nothing, and stays', async ({
+  page,
+}) => {
+  const day = dayFromToday(6);
+  const title = `Dot check ${Date.now()}`;
+  await page.goto(`/calendar?view=day&date=${day}`);
+  const column = page.locator(`[data-calendar-view="day"] [data-date="${day}"]`);
+  await column.scrollIntoViewIfNeeded();
+  const box = (await column.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 10 * 48 + 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + 10.5 * 48, { steps: 4 });
+  await page.mouse.move(box.x + box.width / 2, box.y + 11 * 48 - 2, { steps: 4 });
+  await page.mouse.up();
+  const quick = page.getByRole('dialog', { name: 'New event' });
+  await quick.getByLabel('Title').fill(title);
+  await quick.getByRole('button', { name: 'Save' }).click();
+  await expect(chip(page, title)).not.toHaveAttribute('data-event-key', /pending-/);
+
+  const writes = recordWrites(page);
+  await chip(page, title).click();
+  const card = page.getByRole('dialog', { name: title });
+  const answer = page.waitForResponse(
+    (r) => r.url().includes('/api/calendar/events') && r.request().method() === 'PATCH',
+  );
+  await card
+    .getByRole('radiogroup', { name: 'Event label' })
+    .getByRole('radio', { name: 'Cobalt' })
+    .click();
+  const response = await answer;
+  // No question: a colour emails nobody.
+  await expect(
+    page.getByRole('dialog', { name: /emails to guests|Send your response|repeating/ }),
+  ).toHaveCount(0);
+  await expect(card.locator('[data-event-label]')).toHaveText('Colour: Cobalt');
+  await expect(chip(page, title)).toHaveCSS('background-color', 'rgb(66, 133, 244)');
+  await expect(chip(page, title).locator('[data-chip-label]')).toHaveCount(0);
+  expect(writes).toHaveLength(1);
+  expect(writes[0]!.method).toBe('PATCH');
+  expect(Object.keys(writes[0]!.body ?? {}).sort()).toEqual([
+    'calendarId',
+    'eventId',
+    'kind',
+    'labelId',
+    'scope',
+  ]);
+  expect(writes[0]!.body).toMatchObject({ kind: 'label', scope: 'this' });
+  expect(writes[0]!.body).not.toHaveProperty('notify');
+  // Google's answer: the slot's id, a label with no name.
+  const saved = (await response.json()) as {
+    event: { labelId: string; label: { name: string | null } };
+  };
+  expect(saved.event.labelId).toBe(writes[0]!.body!.labelId);
+  expect(saved.event.label.name).toBeNull();
+
+  // The mock, like Google, applies eventLabelId only on a write with
+  // eventLabelVersion=1: the colour still there after a reload says it was sent.
+  await page.reload();
+  await expect(chip(page, title)).toHaveCSS('background-color', 'rgb(66, 133, 244)');
+  await chip(page, title).click();
+  await expect(
+    page
+      .getByRole('dialog', { name: title })
+      .getByRole('radiogroup', { name: 'Event label' })
+      .getByRole('radio', { name: 'Cobalt' }),
+  ).toHaveAttribute('aria-checked', 'true');
+  await page
+    .getByRole('dialog', { name: title })
+    .getByRole('button', { name: 'Delete event' })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Delete this event?' })
+    .getByRole('button', { name: 'Delete' })
+    .click();
+  await expect(chip(page, title)).toHaveCount(0);
+});
+
 test('a suggested label shows on the card and is applied only on a tap', async ({ page }) => {
   await page.goto(`/calendar?view=day&date=${dayFromToday(0)}`);
   const writes = recordWrites(page);
@@ -268,6 +498,9 @@ test('the Key explains how events look, and the labels', async ({ page }) => {
     await expect(key.getByText(text)).toBeVisible();
   }
   await expect(key.getByText('Portfolio', { exact: true })).toBeVisible();
+  // Named labels only: no colour without a name.
+  await expect(key.locator('li', { hasText: /^(Cobalt|Lavender|Cherry blossom)$/ })).toHaveCount(0);
+  await expect(key.getByText(/Unnamed/)).toHaveCount(0);
   await page.screenshot({ path: 'test-results/calendar-key.png' });
   await page.keyboard.press('Escape');
   await expect(key).toHaveCount(0);
@@ -363,4 +596,27 @@ test('when nothing explains an event, it says what was checked and offers the In
   await page.waitForURL(/\/inbox/);
   await expect(page.getByRole('searchbox')).toHaveValue('Hotel window');
   await expect(page.getByText('No mail matches that search.')).toBeVisible();
+});
+
+test('Diagnostics lists the named labels, and folds the colours without a name into one line', async ({
+  page,
+}) => {
+  await page.goto('/diagnostics?tab=labels');
+  const main = page.locator('[data-label-calendar="nick@tiptop.demo"]');
+  await expect(main).toBeVisible();
+  const rows = main.locator('tbody > tr:not([data-unnamed-labels])');
+  await expect(rows.first()).toContainText('Diligence');
+  await expect(main.getByText('Portfolio', { exact: true })).toBeVisible();
+  const unnamed = main.locator('[data-unnamed-labels]');
+  await expect(unnamed.locator('summary')).toContainText('+15 colours without a name');
+  await expect(unnamed.getByText('Cobalt', { exact: true })).toBeHidden();
+  await unnamed.locator('summary').click();
+  await expect(unnamed.getByText('Cobalt', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Unnamed/)).toHaveCount(0);
+  // Personal: three named, three colours without a name, the trip on Lavender.
+  const personal = page.locator('[data-label-calendar="Personal"]');
+  await expect(personal.locator('[data-unnamed-labels] summary')).toContainText(
+    '+3 colours without a name',
+  );
+  await page.screenshot({ path: 'test-results/calendar-diagnostics-labels.png', fullPage: true });
 });

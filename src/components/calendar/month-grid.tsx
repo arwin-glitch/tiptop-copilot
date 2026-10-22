@@ -10,7 +10,7 @@ import {
   weekdayShort,
 } from '@/lib/calendar/grid';
 import { eventLook } from '@/lib/calendar/event-look';
-import { labelText } from '@/lib/calendar/labels';
+import { labelName } from '@/lib/calendar/labels';
 import type { CalendarInfo, RangeEvent } from '@/lib/calendar/range-types';
 import { cn } from '@/lib/util/cn';
 import { addDaysToKey } from '@/lib/util/time';
@@ -350,9 +350,9 @@ export function MonthGrid({
                     )}
                   >
                     <span style={titleStyle(look)}>{event.title}</span>
-                    {event.label && !compact ? (
+                    {labelName(event.label) && !compact ? (
                       <span data-chip-label="" className="font-normal opacity-75">
-                        {` · ${labelText(event.label)}`}
+                        {` · ${labelName(event.label)}`}
                       </span>
                     ) : null}
                   </span>

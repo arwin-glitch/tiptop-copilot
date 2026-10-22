@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CitationRegistry } from '@/lib/ai/citations';
 import { executeTool, type ToolContext } from '@/lib/ai/tools/registry';
 import { colorRequest } from '@/lib/calendar/event-actions';
+import { colorWords } from '@/lib/calendar/colors';
+import { legendLabels, pickerLabels, UNLABELLED, eventLabelKey } from '@/lib/calendar/labels';
 import {
   createMockCalendarState,
   MOCK_HOLIDAY_CALENDAR,
   MOCK_LABELS,
   MOCK_OWN_EMAIL,
   MOCK_PERSONAL_CALENDAR,
+  MOCK_PERSONAL_UNNAMED,
   MOCK_TEAM_CALENDAR,
   type MockCalendarState,
 } from '@/lib/calendar/mock-calendar';
@@ -144,7 +147,8 @@ describe('reading labels with a range', () => {
   it('gives each shown calendar its labels, and each event its label and colour', async () => {
     const data = await read([MOCK_OWN_EMAIL, MOCK_PERSONAL_CALENDAR, MOCK_TEAM_CALENDAR]);
     const main = data.calendars.find((c) => c.id === MOCK_OWN_EMAIL)!;
-    expect(main.labels.map((l) => l.name)).toEqual([
+    // As Google lists them: a slot for every colour, the named ones first here.
+    expect(main.labels.filter((l) => l.name).map((l) => l.name)).toEqual([
       'Portfolio',
       'LPs',
       'Founders',
@@ -155,6 +159,8 @@ describe('reading labels with a range', () => {
       'Event',
       'Personal',
     ]);
+    expect(main.labels).toHaveLength(24);
+    expect(main.labels.filter((l) => l.name === null)).toHaveLength(15);
     expect(data.calendars.find((c) => c.id === MOCK_TEAM_CALENDAR)!.labels).toEqual([]);
     // Not read this time: no labels yet.
     expect(data.calendars.find((c) => c.id === MOCK_HOLIDAY_CALENDAR)!.labels).toEqual([]);
@@ -174,6 +180,45 @@ describe('reading labels with a range', () => {
       label: null,
       color: { background: '#f691b2' },
     });
+  });
+
+  it('gives the picker and the legend the named labels only, in Google’s order (D-072)', async () => {
+    const data = await read([MOCK_OWN_EMAIL, MOCK_PERSONAL_CALENDAR, MOCK_TEAM_CALENDAR]);
+    const main = data.calendars.find((c) => c.id === MOCK_OWN_EMAIL)!;
+    const picker = pickerLabels(main.labels);
+    // Round the colour wheel (Flamingo, Tomato, Tangerine, Banana, Basil, Sage,
+    // Peacock, Grape), Graphite last.
+    expect(picker.named.map((l) => l.name)).toEqual([
+      'Diligence',
+      'Personal',
+      'Founders',
+      'Event',
+      'Travel',
+      'Portfolio',
+      'VCs',
+      'LPs',
+      'Internal',
+    ]);
+    // The other fifteen colours, as plain dots, each called by Google's name.
+    expect(picker.colours).toHaveLength(15);
+    const words = picker.colours.map((l) => colorWords(l.color.background));
+    expect(words).toContain('Cherry blossom');
+    expect(words.at(-1)).toBe('Birch');
+    expect(words.join(' ')).not.toMatch(/Unnamed|Colour #/);
+
+    // The legend: named labels once each across the calendars shown, no colour slots.
+    const legend = legendLabels(
+      data.calendars,
+      data.calendars.map((c) => c.id),
+    );
+    expect(legend.map((l) => l.name)).toEqual(picker.named.map((l) => l.name));
+
+    // The family trip carries Personal's unnamed Lavender: drawn in it, filtered as unlabelled.
+    const trip = data.events.find((e) => e.title === 'Family trip')!;
+    expect(trip.labelId).toBe(MOCK_PERSONAL_UNNAMED[0]!.id);
+    expect(trip.label).toMatchObject({ name: null, color: { background: '#7986cb' } });
+    expect(trip.color.background).toBe('#7986cb');
+    expect(eventLabelKey(trip)).toBe(UNLABELLED);
   });
 
   it('asks the mock for each calendar’s labels once per range read', async () => {
@@ -386,6 +431,32 @@ describe('a label from the card', () => {
     expect(
       (await eventTitled('Coffee — Elena Ward (Marchmont)', [MOCK_OWN_EMAIL])).label?.name,
     ).toBe('LPs');
+  });
+
+  it('a colour without a name is the same write: its slot’s eventLabelId alone', async () => {
+    const trip = await eventTitled('Family trip', [MOCK_PERSONAL_CALENDAR]);
+    const cobalt = MOCK_PERSONAL_UNNAMED[1]!;
+    const res = await relabelCalendarEvent(context(), {
+      calendarId: MOCK_PERSONAL_CALENDAR,
+      eventId: trip.id,
+      scope: 'this',
+      labelId: cobalt.id,
+    });
+    expect(res.ok).toBe(true);
+    expect(state.writes).toHaveLength(1);
+    expect(state.writes[0]).toMatchObject({
+      op: 'patch',
+      sendUpdates: 'none',
+      eventLabelVersion: 1,
+    });
+    expect(state.writes[0]!.body).toEqual({ eventLabelId: cobalt.id });
+    if (res.ok) {
+      expect(res.value.event).toMatchObject({
+        labelId: cobalt.id,
+        label: { name: null },
+        color: { background: '#4285f4' },
+      });
+    }
   });
 
   it('No label clears it with an empty eventLabelId', async () => {
@@ -618,10 +689,53 @@ describe('Ask’s calendar tool', () => {
       events: { title: string; label: string | null }[];
     };
     expect(parsed.labels_on_calendar).toContain('Portfolio');
+    // Named labels only, in Google's order: the fifteen unnamed colours are not labels.
+    expect(parsed.labels_on_calendar).toEqual([
+      'Diligence',
+      'Personal',
+      'Founders',
+      'Event',
+      'Travel',
+      'Portfolio',
+      'VCs',
+      'LPs',
+      'Internal',
+    ]);
     const byTitle = Object.fromEntries(parsed.events.map((e) => [e.title, e.label]));
     expect(byTitle['Ledgerly board prep']).toBe('Portfolio');
     expect(byTitle['TipTop internal — pipeline review']).toBe('Internal');
     expect(byTitle['Coffee — Elena Ward (Marchmont)']).toBeNull();
+  });
+
+  it('gives no name for an event whose label is a colour nobody named', async () => {
+    // A mock calendar built for real time, like the store: both agree on today.
+    const now = new Date();
+    const live = createMockCalendarState(now);
+    const liveSource = (): CalendarSource => ({
+      ...source(),
+      provider: new MockCalendarProvider(now, live),
+    });
+    const title = 'Coffee — Elena Ward (Marchmont)';
+    // An unnamed slot on Google's side: a colour, not a label.
+    const raw = live.events.get(MOCK_OWN_EMAIL)!.find((e) => e.summary === title)!;
+    raw.eventLabelId = live.labels.get(MOCK_OWN_EMAIL)!.find((l) => !l.name)!.id;
+    const list = (label?: string) =>
+      listEventsWithLabels(harness.store, harness.auth.organizationId, {
+        window: todayWindow(TZ),
+        timeZone: TZ,
+        ownEmail: MOCK_OWN_EMAIL,
+        source: liveSource(),
+        ...(label ? { label } : {}),
+      });
+    const res = await list();
+    expect(res.labelsRead).toBe(true);
+    const tinted = res.events.find((e) => e.event.title === title)!;
+    expect(tinted).toBeDefined();
+    expect(tinted.label).toBeNull();
+    expect(res.labels).toHaveLength(9);
+    expect(res.labels.every((name) => name.trim().length > 0)).toBe(true);
+    // "none" lists it with the events that have no label.
+    expect((await list('none')).events.map((e) => e.event.title)).toContain(title);
   });
 
   it('lists only the events with the label asked for, by any spelling, or none', async () => {

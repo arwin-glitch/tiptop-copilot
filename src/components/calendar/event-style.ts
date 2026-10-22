@@ -1,7 +1,7 @@
 import type * as React from 'react';
 import { tickOn } from '@/lib/calendar/colors';
 import type { EventLook } from '@/lib/calendar/event-look';
-import { labelText } from '@/lib/calendar/labels';
+import { labelName } from '@/lib/calendar/labels';
 import type { RangeEvent } from '@/lib/calendar/range-types';
 
 /**
@@ -137,7 +137,7 @@ export function chipLabel(
           ? 'declined'
           : null,
     look?.past ? 'ended' : null,
-    event.label ? `label ${labelText(event.label)}` : null,
+    labelName(event.label) ? `label ${labelName(event.label)}` : null,
     calendarName,
   ]
     .filter(Boolean)
