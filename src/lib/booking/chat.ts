@@ -92,6 +92,12 @@ const ANY_PER_10_MIN = 60;
 const LIVE_ORG_PER_HOUR = 60;
 /** The whole link's model turns in a day, counted from ai_usage (holds across deploys). */
 export const LIVE_LINK_PER_DAY = 400;
+/**
+ * The month's model spend past which the chatbot is guided. Was a setting
+ * (monthlyAiCapUsd), which the Booking tab no longer offers (D-078: the
+ * chatbot is meant to spend nothing; its zero-spend version replaces this).
+ */
+const MONTHLY_CAP_USD = 20;
 
 export const GUIDED_ACTIONS = ['find_time', 'about', 'message'] as const;
 export type GuidedAction = (typeof GUIDED_ACTIONS)[number];
@@ -415,13 +421,13 @@ export async function chatModeFor(
   // The demo's offline stub writes about fictional deals; it is not a chatbot.
   if (ai.kind !== 'anthropic' || !ai.available()) return { mode: 'guided', reason: 'no_key' };
   const now = options.now ?? new Date();
-  const key = `${link.organizationId}:${link.config.monthlyAiCapUsd}`;
+  const key = `${link.organizationId}:${MONTHLY_CAP_USD}`;
   const cached = options.cacheMs ? modeCache.get(key) : undefined;
   if (cached && now.getTime() - cached.at < (options.cacheMs ?? 0)) return cached.value;
   let value: ChatMode = { mode: 'live', reason: null };
   try {
     const used = await spend(store, link.organizationId, now);
-    if (used.month >= link.config.monthlyAiCapUsd) {
+    if (used.month >= MONTHLY_CAP_USD) {
       value = { mode: 'guided', reason: 'monthly_cap' };
     } else if (used.day >= envLimits().dailyAiBudgetUsd || used.turnsToday >= LIVE_LINK_PER_DAY) {
       value = { mode: 'guided', reason: 'daily_budget' };

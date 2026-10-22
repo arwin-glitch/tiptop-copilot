@@ -4,19 +4,22 @@ import {
   readCalendarRange,
   type CalendarSource,
 } from '@/lib/calendar/range-reader';
-import { visibleCalendarIds, type CalendarInfo } from '@/lib/calendar/range-types';
+import type { CalendarInfo, RangeEvent } from '@/lib/calendar/range-types';
 import type { DataStore } from '@/lib/db/store';
 import { readCalendarPrefs } from '@/lib/services/calendar-prefs';
 import { readTeamMembers } from '@/lib/tasks/principal';
 import { err, ok, type Result } from '@/lib/util/result';
 import { addDaysToKey, localDateKey } from '@/lib/util/time';
 import { calendarZoneDiffers, toBusyPicture } from './busy';
+import { countingCalendarIds } from './calendar-choices';
 import type { BookingConfig } from './config';
 import type { BusyBlock } from './engine';
+import { lastOpenDay } from './months';
 
 /**
- * The booking link's one read of the host's calendar, over today and the
- * link's horizon, through the Calendar tab's own reader
+ * The booking link's one read of the host's calendar, over today through
+ * the end of the last month the link is open for (D-078), through the
+ * Calendar tab's own reader
  * (lib/calendar/range-reader.ts; cached a minute, so a burst of page views
  * asks Google once).
  *
@@ -32,19 +35,31 @@ import type { BusyBlock } from './engine';
  */
 
 /**
- * The calendars whose busy time the link reads: the main one, every one he
- * owns, every one ticked in Google, and every one turned on in Copilot. A
- * Copilot toggle set to off never takes one away.
+ * The calendars whose busy time the link reads, before any choice on the
+ * Booking tab's Calendars list: the main one, every one he owns, every one
+ * ticked in Google, and every one turned on in Copilot. A Copilot toggle set
+ * to off never takes one away (lib/booking/calendar-choices.ts).
  */
 export function bookingCalendarIds(
   calendars: readonly Pick<CalendarInfo, 'id' | 'primary' | 'accessRole' | 'selectedInGoogle'>[],
   shown: Readonly<Record<string, boolean>>,
 ): string[] {
-  const ids = new Set(visibleCalendarIds(calendars, {}));
-  for (const c of calendars) {
-    if (c.primary || c.accessRole === 'owner' || shown[c.id] === true) ids.add(c.id);
+  return countingCalendarIds(calendars, { shown, choices: [], teammates: new Set() });
+}
+
+/** The calendar reader takes at most this many days at once: longer windows go in parts. */
+export const READ_CHUNK_DAYS = 60;
+
+/** `from` to `to` (exclusive day keys) as parts of at most READ_CHUNK_DAYS days. */
+export function readChunks(from: string, to: string): { from: string; to: string }[] {
+  const out: { from: string; to: string }[] = [];
+  for (let start = from; start < to; ) {
+    const next = addDaysToKey(start, READ_CHUNK_DAYS);
+    const end = next < to ? next : to;
+    out.push({ from: start, to: end });
+    start = end;
   }
-  return calendars.filter((c) => ids.has(c.id)).map((c) => c.id);
+  return out;
 }
 
 /**
@@ -88,25 +103,39 @@ export async function busyPictureFor(
   // A teammate's own calendar (the assistant's, shared with the host) is
   // their day, not the host's: it never counts toward the host's busy time,
   // even when he owns it, ticked it in Google or turned it on in Copilot.
+  // The Booking tab's Calendars list may add or drop any other.
   const team = await readTeamMembers(store, organizationId);
   const teammateCalendars = teammateCalendarIds(team, options.principalId);
-  const shown = bookingCalendarIds(list.value.calendars, prefs.shown).filter(
-    (id) => !teammateCalendars.has(id.toLowerCase()),
-  );
-
-  const from = localDateKey(now, hostZone);
-  const range = await readCalendarRange(store, organizationId, {
-    from,
-    to: addDaysToKey(from, config.horizonDays + 2),
-    timeZone: hostZone,
-    ownEmail: source.ownEmails[0] ?? '',
-    calendarIds: shown,
-    source,
-    now: now.getTime(),
+  const shown = countingCalendarIds(list.value.calendars, {
+    shown: prefs.shown,
+    choices: config.calendarChoices,
+    teammates: teammateCalendars,
   });
-  if (range.state !== 'ok' || range.failed.length > 0) {
-    return err('provider_unavailable', 'The host’s calendars could not be read in full.');
+
+  // Today through the end of the last open month, and a day more (an entry
+  // the evening before the next day still says he travels), in parts the
+  // reader takes; an entry in two parts is one entry (toBusyPicture).
+  const from = localDateKey(now, hostZone);
+  const to = addDaysToKey(lastOpenDay(config, from), 2);
+  const events: RangeEvent[] = [];
+  let calendars: CalendarInfo[] = [];
+  for (const part of readChunks(from, to)) {
+    const range = await readCalendarRange(store, organizationId, {
+      from: part.from,
+      to: part.to,
+      timeZone: hostZone,
+      ownEmail: source.ownEmails[0] ?? '',
+      calendarIds: shown,
+      source,
+      now: now.getTime(),
+    });
+    if (range.state !== 'ok' || range.failed.length > 0) {
+      return err('provider_unavailable', 'The host’s calendars could not be read in full.');
+    }
+    events.push(...range.events);
+    if (!calendars.length) calendars = range.calendars;
   }
+  const range = { events, calendars };
   const picture = toBusyPicture(range.events, {
     hostZone,
     ownEmails: source.ownEmails,
