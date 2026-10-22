@@ -68,6 +68,7 @@
  */
 
 import type { EventCapabilities } from './capabilities';
+import type { ChecklistItem } from './checklist';
 import type { DraftChanges } from './ops';
 import type {
   BlockType,
@@ -134,6 +135,17 @@ export type EventDetailTab = (typeof EVENT_DETAIL_TABS)[number];
 /** Slugs: ^[a-z0-9]([a-z0-9-]{0,48}[a-z0-9])?$, minus the words the routes use. */
 export const EVENT_SLUG_RE = /^[a-z0-9]([a-z0-9-]{0,48}[a-z0-9])?$/;
 export const RESERVED_EVENT_SLUGS = ['edit', 'checkin', 'api', 'new', 'i', 'c'] as const;
+
+/**
+ * Whether /e/<slug> serves a page: published (or cancelled, which shows the
+ * themed "Cancelled" notice) AND a snapshot exists. Unpublish sets the
+ * status back to 'draft' and keeps published_doc (guests are kept, and the
+ * next Publish diffs against it); archived events are not live either.
+ * WS4's public route answers 404 whenever this is false.
+ */
+export function isPageLive(event: Pick<EventRecord, 'status' | 'published_doc'>): boolean {
+  return (event.status === 'published' || event.status === 'cancelled') && !!event.published_doc;
+}
 
 /* ================================================================ ACTORS */
 
@@ -667,13 +679,19 @@ export interface PresenceEntry {
   active: boolean;
 }
 
-/** GET …/draft/sync?since=n (WS3 polls; WS1 implements the read). */
+/**
+ * GET …/draft/sync?since=n (WS3 polls; WS1 implements the read).
+ * `presence` lists the OTHER people in Studio (rows seen in the last 60 s),
+ * never the caller; `selfColor` is the caller's own colour.
+ */
 export interface DraftSyncResult {
   version: number;
   /** The whole doc when `since` is older than the edit log reaches; else null. */
   full: EventDoc | null;
   changes: DraftChanges;
   presence: PresenceEntry[];
+  /** The caller's avatar colour (stable per person). */
+  selfColor: string;
   editingPaused: boolean;
   publishedVersion: number;
 }
@@ -683,6 +701,30 @@ export interface PublishResult {
   publishedVersion: number;
   path: string;
   ogImageUrl: string | null;
+}
+
+/** One line of the Publish dialog's diff: "Hero – headline, background", with who changed it. */
+export interface PublishPreviewLine {
+  /** Null for theme and page-settings lines. */
+  sectionId: string | null;
+  text: string;
+  /** Names since the last publish; outside editors carry " (outside)". */
+  authors: string[];
+}
+
+/**
+ * GET …/publish: what Publish would change and the Ready checklist. Pass
+ * `draftVersion` back as POST's expectedDraftVersion; a draft that moved in
+ * between answers 409 and the dialog reloads this.
+ */
+export interface PublishPreview {
+  draftVersion: number;
+  publishedVersion: number;
+  neverPublished: boolean;
+  lines: PublishPreviewLine[];
+  checklist: ChecklistItem[];
+  /** False while a blocking item (alt text) fails. */
+  canPublish: boolean;
 }
 
 /**
@@ -695,14 +737,28 @@ export interface PublishResult {
  *   getEvent(store, orgId, eventId)                          → EventRecord
  *   getEventSessions(store, orgId, eventId)                  → EventSession[]
  *   createEvent(store, owner, CreateEventInput)              → EventRecord
- *   updateEventSettings(store, owner, eventId, patch)        → EventRecord      (part 2)
+ *   updateEventSettings(store, owner, eventId, patch)        → EventRecord
+ *     (a slug rename keeps the old slug as a permanent alias once the event
+ *      has ever been published; time, zone or venue changes bump
+ *      schedule_version, the ICS SEQUENCE)
+ *   bumpScheduleVersion(store, orgId, eventId)               → number (WS4: session time edits)
+ *   resolveSlug(store, orgId, slug)                          → { event, redirectTo } (WS4: 301s)
  *   getDraft(store, actor, eventId)                          → DraftSnapshot
  *   applyDraftOps(store, actor, eventId, DraftOpsRequest, { ip }) → DraftOpsResult
- *   syncDraft(store, actor, eventId, since, presence)        → DraftSyncResult  (part 2)
- *   publishEvent(store, owner, eventId, expectedDraftVersion) → PublishResult   (part 2)
- *   unpublishEvent / cancelEvent / archiveEvent / deleteEvent / duplicateEvent (part 2)
- * WS1 lib/services/event-versions.ts   listVersions, createNamedVersion, restoreVersion (part 2)
- * WS1 lib/services/event-media.ts      createUploadUrl, processMedia, updateMedia, resolveMedia (part 2)
+ *     (per-key conflicts come back in `conflicts` with HTTP 200; only a batch
+ *      that lost the compare-and-set 3 times answers 409 `conflict`)
+ *   syncDraft(store, actor, eventId, since, presence)        → DraftSyncResult
+ *   getPublishPreview(store, owner, eventId)                 → PublishPreview
+ *   publishEvent(store, owner, eventId, expectedDraftVersion) → PublishResult
+ *     (409 when the draft moved since the preview; invalid_input while alt
+ *      text is missing)
+ *   unpublishEvent / cancelEvent / archiveEvent / deleteEvent / duplicateEvent
+ * WS1 lib/services/event-versions.ts   listVersions, getVersion, createNamedVersion,
+ *                                      restoreVersion, maybeCheckpoint ({ force } when
+ *                                      an editor's session ends), listActivity
+ * WS1 lib/services/event-media.ts      createUploadUrl, processMedia, updateMedia,
+ *                                      listMedia, listResolvedMedia, deleteMedia,
+ *                                      resolveMedia(…, viewer, { absolute?, excludeGated? })
  * WS3 lib/events/editor-auth.ts        resolveGrant, claimGrant, enforceOpScope, grantCookie helpers
  * WS3 lib/services/event-editors.ts    create/list/update/regenerate/revoke/revokeAll links
  * WS4 lib/services/event-guests.ts     guestCounts, listGuests, resolveAudience, needsNotifying, markNotified
@@ -710,13 +766,32 @@ export interface PublishResult {
  * WS4 lib/events/tokens.ts             personal invite / check-in HMAC tokens (event-rsvp/v1, event-checkin/v1)
  * WS5 lib/services/event-comms.ts      campaign drafts (invite/reminder/notice/update/blast)
  *
- * HTTP routes live in this commit (signed in, src/lib/events/route-helpers.ts):
- *   GET  /api/events?tab=&q=          → { events: EventSummary[] }
- *   POST /api/events                  CreateEventInput → { id, slug }
- *   GET  /api/events/[id]             → { event (no docs, no password hash), sessions }
- *   GET  /api/events/[id]/draft       → DraftSnapshot
- *   POST /api/events/[id]/draft/ops   DraftOpsRequest → DraftOpsResult (256 KB body cap)
- * Every other route in the spec's list comes with its owner's workstream.
+ * WS1 HTTP routes (signed in, src/lib/events/route-helpers.ts):
+ *   GET    /api/events?tab=&q=          → { events: EventSummary[] }
+ *   POST   /api/events                  CreateEventInput → { id, slug }
+ *   GET    /api/events/[id]             → { event (no docs, no password hash), sessions }
+ *   PATCH  /api/events/[id]             EventSettingsPatch → { event }
+ *   DELETE /api/events/[id]             never-published drafts and templates only
+ *   POST   /api/events/[id]/duplicate   { shiftDays, title?, asTemplate? } → { id, slug }
+ *   GET    /api/events/[id]/draft       → DraftSnapshot
+ *   POST   /api/events/[id]/draft/ops   DraftOpsRequest → DraftOpsResult (256 KB body cap)
+ *   GET    /api/events/[id]/publish     → PublishPreview
+ *   POST   /api/events/[id]/publish     { expectedDraftVersion } → PublishResult
+ *   POST   /api/events/[id]/unpublish   → { event }
+ *   POST   /api/events/[id]/cancel      { message } → { event }
+ *   POST   /api/events/[id]/archive     → { event }
+ *   GET    /api/events/[id]/versions    → { versions: EventVersionSummary[] }
+ *   POST   /api/events/[id]/versions    { name } → { version }
+ *   GET    /api/events/[id]/versions/[vid]          → { version, doc }
+ *   POST   /api/events/[id]/versions/[vid]/restore  → { draftVersion }
+ *   GET    /api/events/[id]/activity?section=       → { activity: EventActivityItem[] }
+ *   GET    /api/events/[id]/media                   → { media: ResolvedMedia[] }
+ *   POST   /api/events/[id]/media/upload-url        → UploadTicket
+ *   POST   /api/events/[id]/media/[mid]/process     → { media: ResolvedMedia }
+ *   PATCH  /api/events/[id]/media/[mid]             { alt?, decorative?, gated?, posterMediaId? }
+ *   DELETE /api/events/[id]/media/[mid]
+ * Demo mode only: /api/event-media/** stands in for the two storage buckets.
+ * WS3 owns …/draft/sync (it calls syncDraft) and the /api/e/edit proxies.
  */
 
 /* ===================================================== INTEGRATION NOTES */

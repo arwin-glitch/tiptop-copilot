@@ -72,6 +72,12 @@ Pure logic, no store, no harness.
 | `calendar-edit-rules.test.ts` | Who may change an event, the guests prompt every time guests are involved, only Send becomes sendUpdates "all", recurring scopes, what a change sends |
 | `calendar-write-boundary.test.ts` | Only the Calendar tab's edit route reaches a calendar write; the readers, pings and parity check name none; nothing defaults to emailing guests; a colour or a label from the event card has no `notify` and is always sendUpdates "none", and only the label request and the write module name the label switch; the label, look and origin modules name no write; the calendar-editing scope is asked for only by the opt-in flow |
 | `calendar-event-actions.test.ts` | The event card's requests: Going? sends only Nick's own entry (Google's answer-only form, `attendeesOmitted`) and maps Send / Don't send to sendUpdates "all" / "none"; a colour is colorId alone, never an email; Duplicate's draft; which options a card offers (read-only events get only Join, Copy link, Email guests, Open in Google); the repeat rule, the guests' answers and a description as safe words and links |
+| `events-diff.test.ts` | Events (D-075), the pure parts: the section-level diff and its words ("Hero – headline"), restore laid over current revisions (revs never go back, a pending edit to a restored key conflicts), the Ready checklist (alt text the only blocker, backdrops decorative, WCAG contrast), wall-clock date shifting across DST |
+| `events-slug.test.ts` | Event settings: a renamed slug of a published event 301s forever and no other event can take it, a never-published draft's old slug is released, an event takes back its own; objects merge and are checked whole; time/zone/venue changes bump the calendar SEQUENCE; invalid values change nothing |
+| `events-publish.test.ts` | Publish and the lifecycle: the preview's diff with authors, 409 on a stale review, the share card drawn from the public view only and stored per version, a renderer failure publishes without one, missing alt text blocks; unpublish keeps the snapshot and guests, cancel keeps a live notice, archive, delete only for never-published drafts; duplicate shifts dates on the wall clock and copies media rows |
+| `events-versions.test.ts` | Version history: autosave every 5 minutes of activity, forced on session end, named versions, the list's per-version summary, retention (newest 100 autosaves, 30 days), non-destructive restore with pre_restore and tombstones for sync, outside links refused, the per-section activity log |
+| `events-sync.test.ts` | Studio's sync poll: presence (others only, the soft-lock window, stale rows ignored), changed sections and tombstones after a sync point, the whole doc when the log cannot reach back, one event per link |
+| `event-media.test.ts` | The media pipeline on the local stand-in buckets: bytes decide the type (SVG, HEIC refused), sharp applies orientation and drops EXIF/GPS at every size, never enlarges, keeps logos transparent; signed upload → process → public derivatives; gated media private behind signed URLs and left off the share card; gated toggles move buckets; files and videos; deletes keep shared objects; outside editors' limits |
 
 `env-boundary.test.ts` is worth singling out: it walks every file in `src/`,
 finds the ones marked `'use client'`, and asserts none imports a server-only
@@ -142,6 +148,15 @@ fixed and every target is at least 44px, one `h1` and one `main` per page, the
 skip link is first in tab order, `aria-current` marks the current page, every
 control has an accessible name, every form control is labelled, and the theme
 toggle is an operable radio group.
+
+**`events-platform.spec.ts`** drives the Events platform services through the
+real API on the demo server (D-075): create a draft, edit it by ops, upload a
+photo through the signed URL and process it (the demo bucket serves the WebP),
+see Publish blocked until the photo has alt text, a stale review refused with
+409, publish, name a version and restore it, rename the slug (the old one stays
+reserved), duplicate as next year and delete the copy, then unpublish, cancel
+and archive. Without a session the events API answers 401 and the demo upload
+and read URLs refuse forged tokens.
 
 **`calendar-default.spec.ts`** runs first of the calendar specs: a plain
 `/calendar` opens Week for a person who has chosen nothing, with no "New

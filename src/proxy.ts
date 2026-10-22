@@ -107,6 +107,11 @@ const PUBLIC_PATHS = [
   // services that take (eventId, actor) and return whitelisted fields only;
   // nothing here reaches any other Copilot data. /api/events stays signed in.
   '/api/e',
+  // DEMO MODE ONLY: the stand-in for the two event storage buckets — the
+  // public bucket's public URLs, and signed upload/download URLs that carry
+  // their own expiring HMAC token, as Supabase's do. Each route answers 404
+  // unless the local demo storage is the one in use (lib/storage/event-storage.ts).
+  '/api/event-media',
 ];
 
 /**

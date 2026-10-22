@@ -10,6 +10,26 @@ throughout.
 
 ## [Unreleased]
 
+- **Events, the engine behind the pages (D-075).** The parts of Events that
+  sit behind the screens now work end to end. Publishing copies the draft to
+  the live page only after the owner has seen exactly what changed and who
+  changed it, refuses to go live while a photo has no description for screen
+  readers, and saves a share picture for link previews that never shows
+  anything a public visitor could not see. Unpublishing hides the page and
+  keeps every guest; cancelling keeps the page up with a "Cancelled" notice;
+  archiving moves it to Past; only a draft that was never shared can be
+  deleted. Changing an event's link keeps the old link working forever once
+  the page has been out. "Duplicate as next year" moves every date while
+  keeping the local start times. History keeps a copy every few minutes of
+  editing, every publish and any version an owner names, and restoring one
+  never throws work away: the current page is saved first and the restored
+  one still needs Publish. Uploaded photos are re-made at three sizes with
+  the camera's hidden location and details removed; videos, logos and
+  downloadable files are checked by their contents, and anything marked
+  private stays private behind links that expire in 15 minutes. Outside
+  editors can upload within their link's limits and never private files.
+  Nothing here sends an email.
+
 - **Events, groundwork (D-075).** The foundation for Luma-style event pages
   inside Copilot is in place, ahead of the screens: the database tables for
   events, sessions, guests and their RSVPs, outside-editor and staff links,

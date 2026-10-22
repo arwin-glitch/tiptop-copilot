@@ -210,6 +210,17 @@ lookups, tool calls and a full chat turn.
   private `event-originals` bucket behind 15-minute signed URLs.
   `eventMediaPublicUrl()` can only name `event-media`. Anything in the public
   bucket is world-readable and may linger in CDN caches after deletion.
+  Uploads go from the browser straight to a server-minted signed upload URL
+  for the private bucket; processing (`lib/events/media-process.ts`) reads the
+  bytes back and sniffs what the file is (SVG, HTML and HEIC refused, a
+  declared type never trusted), re-encodes images with sharp (orientation
+  applied, all metadata dropped, decompression capped at 80 megapixels), and
+  checks videos and files by their magic bytes. Outside editors cannot upload
+  gated media or files and are capped at 20 uploads an hour per link and
+  200 MB a day per event. Deleting media keeps any stored object another row
+  still shares. In demo mode `/api/event-media/*` stands in for both buckets
+  (public paths for derivatives only, HMAC-signed expiring upload and read
+  tokens) and answers 404 whenever Supabase storage is in use.
 - **Failure is recorded, not thrown.** An unparseable file is stored with
   `needs_review: true` and low confidence. A partially-read deck that says so is
   more useful than a deal that will not open.

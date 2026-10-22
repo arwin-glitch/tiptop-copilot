@@ -2668,3 +2668,71 @@ worker, dependencies) change once, in one place.
   harmless without the service worker but is a follow-up.
 - Render's free plan sleeps and resets the in-process rate limiter; the
   service should move to a paid instance before any invite goes out.
+
+**Part 2, the platform services (WS1).** What the contract left as
+signatures now works, with these choices:
+
+- **When a page is live.** `/e/<slug>` serves a page only while the event is
+  `published` or `cancelled` and has a published snapshot
+  (`isPageLive` in `lib/events/contracts.ts`). Unpublish puts the status back
+  to `draft` and keeps the snapshot (guests stay, the next Publish diffs
+  against it); archive takes the page off the web; cancel keeps it live as a
+  "Cancelled" notice with the host's message and moves the calendar
+  SEQUENCE. Publishing a cancelled event refreshes its page and keeps the
+  notice. Templates are never published.
+- **Publish publishes what the owner reviewed.** `GET …/publish` returns the
+  section-level diff since the last publish, with who changed each section,
+  and the Ready checklist; `POST …/publish` takes that `draftVersion` back and
+  answers 409 if the draft moved in between. Missing alt text on a content
+  image is the only blocking check (theme backgrounds and section backdrops
+  count as decorative); every other item warns. The share card is drawn from
+  the PUBLIC view of the page only (gated sections removed, gated media left
+  out, the address only when revealed to everyone) and stored per version at
+  `event-media/og/<event>/v<n>.png`, so link previews refresh. A renderer
+  failure publishes without a card rather than blocking.
+- **Ops conflicts are data, not errors.** A batch whose keys clashed still
+  answers 200 with the clashes in `conflicts` (the other ops apply); only a
+  batch that lost the compare-and-set three times answers 409.
+- **Old slugs.** Renaming the slug of an event that has ever been published
+  keeps the old slug as a permanent 301 alias no other event can take; a
+  never-published draft's old slug is simply released. An event may take
+  back its own old slug.
+- **Delete is for never-published drafts and templates with no guests.**
+  Everything else is archived. Deleting removes the media files too, except
+  ones a duplicated event still shares.
+- **Duplicate** shifts every date by whole days on the wall clock of the
+  event's time zone (6 PM stays 6 PM across daylight saving), gives sections
+  new ids and fresh revisions, and copies the media rows the page uses under
+  new ids that share the stored files. Guests, versions, links and the share
+  card are never copied. "Save as template" is a duplicate into Templates.
+- **History.** Autosaves come from the ops service itself (5 minutes after
+  the last checkpoint, if the draft changed); `maybeCheckpoint({ force })`
+  covers an editor's session ending. Retention takes the stricter reading of
+  "30 days or the last 100": autosaves older than 30 days, or beyond the
+  newest 100, are removed; named, published, pre-restore and restore
+  versions stay. Restore lays the old content over the CURRENT revisions:
+  changed keys get the new version number and unchanged keys keep theirs,
+  so revisions never go backwards, a collaborator's pending edit to a key
+  the restore changed conflicts, and the sync poll sends exactly what
+  changed (removed sections as tombstones). The edit log is trimmed to 90
+  days at each Publish.
+- **Sync.** `presence` lists the other people in Studio seen in the last
+  60 s, never the caller (the caller gets `selfColor`); the whole document
+  is sent only when the edit log cannot reach back to the client's version.
+- **Media.** Uploads go from the browser straight to a signed upload URL for
+  the private bucket; processing reads the bytes back and decides what the
+  file is from its bytes, never the declared type. Images are re-encoded by
+  sharp (orientation applied, every bit of metadata dropped, AVIF and WebP
+  at 640/1080/1920 never enlarged, one JPEG or, for logos, PNG fallback, a
+  thumbhash and five colours). SVG and HEIC are refused. There is no video
+  transcoder on the server, so MP4/WebM videos are stored as uploaded after
+  a byte check, with size measured by the browser and a poster linked from a
+  separately uploaded image (QuickTime is refused with "export as MP4").
+  Files (PDF, PPTX, DOCX) never leave the private bucket. Outside editors
+  may upload within their link (20 an hour, 200 MB a day per event), never
+  gated media or files. Turning `gated` on or off re-processes the original
+  into the other bucket.
+- **Demo mode stands in for both buckets** with local folders and
+  `/api/event-media/*` (the public URLs, plus signed upload and download URLs
+  that carry their own expiring HMAC token, as Supabase's do). These routes
+  are public in `proxy.ts` and answer 404 whenever the real storage is in use.
