@@ -82,7 +82,10 @@ export const BOOKING_REQUEST_INPUT = z
      * addresses, at most MAX_GUESTS here and Settings' own limit on the
      * server. Checked again with the host's and the team's addresses there.
      */
-    guests: z.array(z.string().max(LIMITS.email + 10)).max(MAX_GUESTS).default([]),
+    guests: z
+      .array(z.string().max(LIMITS.email + 10))
+      .max(MAX_GUESTS)
+      .default([]),
     /** The visitor's own zone, to say the time back to them in the drawer. */
     timeZone: z.string().max(64).nullable().default(null),
     /** Who filled the form: the visitor, or the chatbot for them (they still pressed Send). */

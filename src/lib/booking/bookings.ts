@@ -9,7 +9,8 @@ import type { BookingRequest } from '@/lib/types/domain';
  * address hash.
  */
 
-export type LinkBookingStatus = 'booked' | 'held' | 'pending' | 'cancelled' | 'declined' | 'message';
+export type LinkBookingStatus =
+  'booked' | 'held' | 'pending' | 'cancelled' | 'declined' | 'message';
 
 export interface LinkBooking {
   id: string;
@@ -38,7 +39,9 @@ export const BOOKING_SCOPES = ['upcoming', 'past', 'messages'] as const;
 export type BookingScope = (typeof BOOKING_SCOPES)[number];
 
 /** The status the tab shows for a stored row. */
-export function linkStatus(row: Pick<BookingRequest, 'status' | 'meeting_type'>): LinkBookingStatus {
+export function linkStatus(
+  row: Pick<BookingRequest, 'status' | 'meeting_type'>,
+): LinkBookingStatus {
   if (row.meeting_type === 'message') return 'message';
   switch (row.status) {
     case 'booked':

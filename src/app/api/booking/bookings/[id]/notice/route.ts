@@ -21,7 +21,8 @@ export async function GET(request: NextRequest, context: Context) {
   const member = requireRole(gate.auth, 'member');
   if (!member.ok) return fail(member.error);
   const { id } = await context.params;
-  if (!UUID.test(id)) return fail({ code: 'not_found', message: 'There is no notice for this booking.' });
+  if (!UUID.test(id))
+    return fail({ code: 'not_found', message: 'There is no notice for this booking.' });
   const draft = await releaseNoticeFor(getStore(), gate.auth.organizationId, id);
   if (!draft.ok) return fail(draft.error);
   return done({ draft: draft.value });

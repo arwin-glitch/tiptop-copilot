@@ -352,7 +352,12 @@ function OpenPage({
       const manageUrl = json.manageUrl ?? null;
       const booking = json.booking ?? null;
       if (manageUrl && booking) {
-        setLatest({ manageUrl, startsAt: booking.startsAt, type: booking.type, kind: booking.kind });
+        setLatest({
+          manageUrl,
+          startsAt: booking.startsAt,
+          type: booking.type,
+          kind: booking.kind,
+        });
       }
       setSent({ status, booking, manageUrl });
       window.scrollTo({ top: 0 });

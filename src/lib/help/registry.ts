@@ -182,6 +182,12 @@ export const HELP_PAGES: readonly HelpPage[] = [
         placement: 'bottom',
       },
       {
+        target: 'today-booking',
+        title: 'Booking link news',
+        body: 'New bookings, moves and cancellations with their notes. Held times say what to turn on.',
+        placement: 'bottom',
+      },
+      {
         target: 'today-sections',
         title: 'Everything else, folded',
         body: 'Tasks, meetings, email and deals. Tap a heading to open it.',

@@ -110,10 +110,7 @@ export const BUSY_LINK_MESSAGE =
  */
 const submitLocks = processWide('booking-submit-locks', () => new Map<string, Promise<void>>());
 
-export async function oneAtATime<T>(
-  organizationId: string,
-  work: () => Promise<T>,
-): Promise<T> {
+export async function oneAtATime<T>(organizationId: string, work: () => Promise<T>): Promise<T> {
   const before = submitLocks.get(organizationId) ?? Promise.resolve();
   let release!: () => void;
   const mine = new Promise<void>((resolve) => {
@@ -482,7 +479,9 @@ export async function engineInputFor(
   const ignore = deps.ignore;
   if (ignore) {
     bookings = bookings.filter((b) => b.id !== ignore.id);
-    const own = busy.findIndex((b) => !b.allDay && b.start === ignore.start && b.end === ignore.end);
+    const own = busy.findIndex(
+      (b) => !b.allDay && b.start === ignore.start && b.end === ignore.end,
+    );
     if (own >= 0) busy = [...busy.slice(0, own), ...busy.slice(own + 1)];
   }
   return ok({

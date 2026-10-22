@@ -9,9 +9,7 @@ export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ id: string }> };
 
-const BODY = z
-  .object({ note: z.string().trim().max(CANCEL_NOTE_MAX).optional() })
-  .strict();
+const BODY = z.object({ note: z.string().trim().max(CANCEL_NOTE_MAX).optional() }).strict();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -26,10 +24,14 @@ export async function POST(request: NextRequest, context: Context) {
   if (!gate.ok) return gate.response;
   const parsed = BODY.safeParse((await request.json().catch(() => null)) ?? {});
   if (!parsed.success) {
-    return fail({ code: 'invalid_input', message: `Keep the note under ${CANCEL_NOTE_MAX} characters.` });
+    return fail({
+      code: 'invalid_input',
+      message: `Keep the note under ${CANCEL_NOTE_MAX} characters.`,
+    });
   }
   const { id } = await context.params;
-  if (!UUID.test(id)) return fail({ code: 'not_found', message: 'This booking is not here any more.' });
+  if (!UUID.test(id))
+    return fail({ code: 'not_found', message: 'This booking is not here any more.' });
   const cancelled = await cancelBookingFromCopilot(
     { store: getStore(), organizationId: gate.auth.organizationId, userId: gate.auth.userId },
     id,

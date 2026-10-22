@@ -10,6 +10,21 @@ throughout.
 
 ## [Unreleased]
 
+- **The booking link books by itself now.** When someone picks a free time on
+  copilot.tiptop.vc/meet/nick, it goes straight onto Nick's calendar and
+  Google sends the invitation; nobody has to approve it (the rules are still
+  checked again at that moment, and two people can never take the same
+  time). Visitors can add guests, like Calendly. After booking they see
+  "You're booked with Nick" with the time, the place or call, Add to calendar,
+  and a link to their booking's own page, where they can reschedule (the same
+  calendar event moves for everyone) or cancel with a note to Nick. Nick gets
+  that note, and every new booking or move, as a Copilot alert on his phone
+  and desktop and as a line on Today. If calendar editing is not turned on,
+  bookings are held and go onto the calendar by themselves once it is.
+  "Approve each booking first" is still in Settings, off. Nothing here costs
+  money. Run `supabase/migrations/20261022200000_booking_v2.sql`; until then
+  bookings wait as requests, as before.
+
 - **Booking link fixes after the first live test.** In-person times no longer
   vanish for every date while Nick's Google Calendar is still set to another
   time zone from a trip: in person now pauses only until the day his flight

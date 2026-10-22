@@ -19,6 +19,7 @@ export async function GET(request: NextRequest, context: Context) {
   if (!gate.ok) return gate.response;
   const { slug, token } = await context.params;
   const slots = await manageSlots(getStore(), slug, token);
-  if (!slots) return publicFail({ code: 'not_found', message: 'This booking is not here any more.' });
+  if (!slots)
+    return publicFail({ code: 'not_found', message: 'This booking is not here any more.' });
   return publicDone({ ...slots });
 }

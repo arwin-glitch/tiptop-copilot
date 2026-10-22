@@ -2941,3 +2941,95 @@ connection; the board shares Copilot's root layout (manifest, service
 worker, desktop title bar and globals.css ship with its pages) until it gets
 a route group of its own; link-preview images use the default font; logos
 are typed by hand.
+
+### D-078 — The booking link, v2: booked at once, guests, and each booking's own page
+
+**Context.** Nick had the D-074 link in hand and Arwin asked for it to work
+without anyone watching it (Oct 22): "why does it wait for my approval.
+didnt i mention the rules already?", no "Arwin confirms" anywhere, "Add
+guests" like Calendly, and a page for each booking that says when and where
+and lets the visitor reschedule ("the reschedule will automatically move it")
+or cancel with a note that reaches Nick. And no spending: nothing here may
+use a paid service or the Anthropic API.
+
+**Decision (the flows: lib/services/booking.ts, booking-manage.ts,
+booking-calendar.ts, booking-alerts.ts).**
+
+- **Booked at once, by default.** A visitor who picks a free time that
+  passes every rule gets the event on Nick's main calendar immediately,
+  through `lib/calendar/write.ts` and its gates (editing grant, writable
+  calendar), with the host on it as the organizer (accepted), the visitor and
+  their guests invited, and `sendUpdates: 'all'`, so Google sends the
+  invitation. The server never trusts the page: from the caps to the insert
+  and the event, bookings run one at a time per organization, and the time is
+  checked again against a fresh read of the calendar (past its one-minute
+  cache) and every rule. Two visitors racing for one slot: one is booked, the
+  other gets "That time is no longer open" and the next three open times. A
+  fresh booking holds its own time until Google lists it (ten minutes). Every
+  abuse brake stays: the per-day link cap, three upcoming meetings or
+  messages per email (as booker or guest), three per sender address, six new
+  bookings a day for the whole link, the honeypot and the per-address limits.
+  "Approve each booking first" remains in Settings as an option, off by
+  default (a renamed field, so the `instant: false` saved under D-074 does not
+  keep approval on); with it on, every booking waits as a request, as before.
+- **Held when calendar editing is off.** The time is kept ("Your time is
+  held. The calendar invitation is on its way."), a Today line and the Booking
+  tab's banner say "Turn on calendar editing so invites go out automatically",
+  and once the grant exists the held times are placed by themselves (the push
+  job's half-hourly pass, a visit to the Booking tab or the booking's page),
+  each checked again, first come first served. One whose time was taken is
+  released (status declined, no person named) with a notice draft for the
+  compose window. A booking whose Google answer was lost is held "in doubt"
+  and placing it first looks for an event at its time whose description
+  carries its own page's link, so it is never made twice.
+- **Guests.** "Add guests" on the form, up to `maxGuests` (5 by default,
+  10 at most; `allowGuests` turns it off): plain addresses, deduped, never
+  the booker's own, never the host's or a teammate's. Stored in
+  `guest_emails`, invited as attendees, counted by the brakes.
+- **Each booking's own page** (`/meet/<slug>/b/<token>`, the same link): the
+  token is 32 random bytes (base64url) and only its SHA-256 is stored
+  (`manage_token_hash`, unique); it is in the event description ("Need to make
+  a change? Reschedule or cancel: <url>"), on the confirmation, and in an
+  httpOnly cookie for that link's own pages, so revisiting `/meet/<slug>` says
+  "You have a meeting with Nick on <when>". The page (never indexed, no
+  referrer, braked per address) shows when (the visitor's zone and Central),
+  where (the provider and the video link, which the token holder is invited
+  to, or the place, area and map), who is coming, Add to calendar (an .ics
+  built in the browser), Reschedule and Cancel. Reschedule uses the booking
+  page's own time picker, offers the times next to the booking (its own row
+  and calendar entry left out), checks again, and moves the SAME Google event
+  (a patch with sendUpdates 'all'; never a new event), at most five times.
+  Cancel takes an optional note (500 characters) and deletes the event with
+  sendUpdates 'all', until the start time. A held time or a waiting request
+  moves or is released with no calendar write. If the event was deleted or
+  moved in Google Calendar meanwhile, the page shows that and the row follows
+  (no alert: the host did it).
+- **Nick hears about it in Copilot, never by email.** New bookings, moves,
+  visitor cancellations (`Pat Lee cancelled Tue 27 Oct 4:30 PM: "<note>"`) and
+  released holds are `booking:` keys in the phone and desktop alert feed
+  (push-alerts.ts, one notification for the kind, 8am to 8pm, a tap opens
+  the Booking tab), a Today line, and the Bookings API the Booking tab reads
+  (`GET /api/booking/bookings?scope=upcoming|past|messages`,
+  `POST /api/booking/bookings/[id]/cancel`, `GET .../[id]/notice`).
+- **No person confirms.** No visitor-facing text says Arwin, the team or
+  anyone confirms, reviews or approves.
+- **Zero spend.** No new service, key or plan; nothing in these flows calls
+  a model.
+- **Migration** `20261022200000_booking_v2.sql`: `guest_emails`,
+  `manage_token_hash`, `cancel_note`, `cancelled_at`, `cancelled_by`
+  (visitor, team, calendar), `rescheduled_count`, `previous_starts_at`, and
+  the status check widened to booked, held and cancelled. The old inline check
+  is dropped by its auto-name (`booking_requests_status_check`) and the new one
+  has a name of its own; no constraint takes a `<table>_<column>_check` name.
+  Without it the link keeps the D-074 behaviour: every booking waits as a
+  request, with no page to manage.
+
+**Known limits.**
+
+- The raw token is never kept, so an event made later (a held time placed,
+  a request approved) cannot carry the page's link in its description; the
+  visitor has it from the confirmation and the cookie.
+- Bookings are serialized in-process, like the rate limits: several app
+  instances would each have their own queue.
+- Alerts reach a computer within the desktop alerts' five-minute input cache
+  and a phone within the push job's half hour.

@@ -1,7 +1,11 @@
 import 'server-only';
 import type { EventDraft } from '@/lib/calendar/edit-rules';
 import type { CalendarSource } from '@/lib/calendar/range-reader';
-import { createCalendarEvent, deleteCalendarEvent, updateCalendarEvent } from '@/lib/calendar/write';
+import {
+  createCalendarEvent,
+  deleteCalendarEvent,
+  updateCalendarEvent,
+} from '@/lib/calendar/write';
 import type { DataStore } from '@/lib/db/store';
 import { err, ok, type Result } from '@/lib/util/result';
 

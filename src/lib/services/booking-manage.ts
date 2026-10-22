@@ -54,7 +54,12 @@ import {
   type ActorContext,
   type BookingDeps,
 } from './booking';
-import { createLinkEvent, deleteLinkEvent, moveLinkEvent, type LinkWriteContext } from './booking-calendar';
+import {
+  createLinkEvent,
+  deleteLinkEvent,
+  moveLinkEvent,
+  type LinkWriteContext,
+} from './booking-calendar';
 import { principalTimeZone } from './push-alerts';
 
 /**
@@ -145,9 +150,7 @@ type LiveEvent =
 /** The booking's event as Google has it now: still there, moved, or gone. */
 async function liveEvent(source: CalendarSource | null, row: BookingRequest): Promise<LiveEvent> {
   if (!source || !row.event_id || !row.calendar_id) return { state: 'unknown' };
-  const found = await source.provider
-    .getEvent(row.calendar_id, row.event_id)
-    .catch(() => null);
+  const found = await source.provider.getEvent(row.calendar_id, row.event_id).catch(() => null);
   if (!found) return { state: 'unknown' };
   if (!found.ok) return found.error.code === 'not_found' ? { state: 'gone' } : { state: 'unknown' };
   const event: GCalEvent = found.value;
@@ -186,7 +189,12 @@ async function syncWithCalendar(
       claimed_at: null,
     };
     const changed = await store
-      .updateWhere('booking_requests', organizationId, { eq: { id: row.id, status: row.status } }, patch)
+      .updateWhere(
+        'booking_requests',
+        organizationId,
+        { eq: { id: row.id, status: row.status } },
+        patch,
+      )
       .catch(() => []);
     if (changed.length) {
       await recordAudit(store, {
@@ -209,7 +217,12 @@ async function syncWithCalendar(
   ) {
     const patch = { starts_at: live.startsAt, ends_at: live.endsAt };
     const changed = await store
-      .updateWhere('booking_requests', organizationId, { eq: { id: row.id, status: row.status } }, patch)
+      .updateWhere(
+        'booking_requests',
+        organizationId,
+        { eq: { id: row.id, status: row.status } },
+        patch,
+      )
       .catch(() => []);
     if (changed.length) {
       await recordAudit(store, {
@@ -221,7 +234,10 @@ async function syncWithCalendar(
         metadata: { change: 'moved' },
       });
     }
-    return { row: { ...row, ...patch }, notice: 'The time of this meeting changed in the calendar.' };
+    return {
+      row: { ...row, ...patch },
+      notice: 'The time of this meeting changed in the calendar.',
+    };
   }
   return { row, notice: null };
 }
@@ -363,7 +379,10 @@ export async function rescheduleByToken(
   if (!found) return err('not_found', NOT_YOURS);
   const link = await resolveOpenLink(store, slug);
   if (!link.open) {
-    return err('forbidden', 'This booking link is not taking changes right now. You can still cancel.');
+    return err(
+      'forbidden',
+      'This booking link is not taking changes right now. You can still cancel.',
+    );
   }
   const startMs = Date.parse(start);
   if (!Number.isFinite(startMs)) return err('invalid_input', 'Pick a time.');
@@ -376,7 +395,10 @@ export async function rescheduleByToken(
     if (Date.parse(row.starts_at) <= now.getTime()) return err('conflict', TOO_LATE);
     const moves = row.rescheduled_count ?? 0;
     if (moves >= MAX_RESCHEDULES) {
-      return err('conflict', `This meeting was moved ${MAX_RESCHEDULES} times already. Cancel it and book a new time instead.`);
+      return err(
+        'conflict',
+        `This meeting was moved ${MAX_RESCHEDULES} times already. Cancel it and book a new time instead.`,
+      );
     }
     const iso = new Date(startMs).toISOString();
     if (iso === new Date(row.starts_at).toISOString()) {
@@ -392,12 +414,17 @@ export async function rescheduleByToken(
     if (!prepared.ok) return err('provider_unavailable', UNAVAILABLE_MESSAGE);
     const problem = slotProblem(prepared.value.input, { type, kind: row.kind }, iso);
     if (problem) return err('conflict', 'That time is not open any more. Pick another time.');
-    const end = new Date(startMs + (Date.parse(row.ends_at) - Date.parse(row.starts_at))).toISOString();
+    const end = new Date(
+      startMs + (Date.parse(row.ends_at) - Date.parse(row.starts_at)),
+    ).toISOString();
 
     if ((row.status === 'booked' || row.status === 'approved') && row.event_id && row.calendar_id) {
       const source = prepared.value.source;
       if (!calendarEditAccess(source).allowed) {
-        return err('forbidden', 'This meeting cannot be moved here right now. Cancel it and book a new time instead.');
+        return err(
+          'forbidden',
+          'This meeting cannot be moved here right now. Cancel it and book a new time instead.',
+        );
       }
       const moved = await moveLinkEvent(writeContext(store, organizationId, source), {
         calendarId: row.calendar_id,
@@ -422,6 +449,8 @@ export async function rescheduleByToken(
       ends_at: end,
       previous_starts_at: row.starts_at,
       rescheduled_count: moves + 1,
+      // When it moved, for the alert (the database's trigger keeps it too).
+      updated_at: now.toISOString(),
     };
     const changed = await store.updateWhere(
       'booking_requests',
@@ -429,8 +458,9 @@ export async function rescheduleByToken(
       { eq: { id: row.id, status: row.status, starts_at: row.starts_at } },
       patch,
     );
-    if (changed.length === 0) log.warn('A rescheduled booking changed meanwhile', { booking: row.id });
-    return ok({ ...row, ...patch, updated_at: now.toISOString() });
+    if (changed.length === 0)
+      log.warn('A rescheduled booking changed meanwhile', { booking: row.id });
+    return ok({ ...row, ...patch });
   });
   if (!done.ok) return done;
   const row = done.value;
@@ -537,13 +567,20 @@ async function cancelRow(
       }
       if (Date.parse(row.starts_at) <= now.getTime()) return err('conflict', TOO_LATE);
       let calendarLeft = false;
-      if ((row.status === 'booked' || row.status === 'approved') && row.event_id && row.calendar_id) {
+      if (
+        (row.status === 'booked' || row.status === 'approved') &&
+        row.event_id &&
+        row.calendar_id
+      ) {
         const source = await hostSource(store, organizationId, deps).catch(() => null);
         if (source && calendarEditAccess(source).allowed) {
-          const deleted = await deleteLinkEvent(writeContext(store, organizationId, source, options.actorId), {
-            calendarId: row.calendar_id,
-            eventId: row.event_id,
-          });
+          const deleted = await deleteLinkEvent(
+            writeContext(store, organizationId, source, options.actorId),
+            {
+              calendarId: row.calendar_id,
+              eventId: row.event_id,
+            },
+          );
           if (!deleted.ok && deleted.error.code !== 'not_found') {
             return err(
               'provider_unavailable',
@@ -572,7 +609,8 @@ async function cancelRow(
         { eq: { id: row.id, status: row.status } },
         patch,
       );
-      if (changed.length === 0) return err('conflict', 'This meeting changed just now. Reload the page.');
+      if (changed.length === 0)
+        return err('conflict', 'This meeting changed just now. Reload the page.');
       return ok({ row: { ...row, ...patch }, calendarLeft });
     },
   );
@@ -747,7 +785,8 @@ export async function placeHeldBookings(
         }),
       );
       if (!created.ok) {
-        const doubt = created.error.code === 'timeout' || created.error.code === 'provider_unavailable';
+        const doubt =
+          created.error.code === 'timeout' || created.error.code === 'provider_unavailable';
         if (doubt) {
           await store
             .updateWhere(
@@ -855,7 +894,9 @@ export function releaseNoticeDraft(
   const zone = knownZone(row.visitor_time_zone) ? row.visitor_time_zone : hostZone;
   const first = row.name.trim().split(/\s+/)[0] || 'there';
   const host = hostName.trim().split(/\s+/)[0] ?? '';
-  const when = row.starts_at ? `${slotLabel(row.starts_at, zone)} (${zoneName(zone)})` : 'the time you picked';
+  const when = row.starts_at
+    ? `${slotLabel(row.starts_at, zone)} (${zoneName(zone)})`
+    : 'the time you picked';
   return {
     to: row.email,
     subject: host ? `Your time with ${host}` : 'Your booking',
@@ -916,7 +957,8 @@ export async function listLinkBookings(
       },
     );
   } catch (error) {
-    if (isMissingTableError(error)) return { available: false, bookings: [], calendarEditing: true };
+    if (isMissingTableError(error))
+      return { available: false, bookings: [], calendarEditing: true };
     throw error;
   }
   const source = await hostSource(store, organizationId, deps).catch(() => null);

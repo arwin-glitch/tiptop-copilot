@@ -114,9 +114,9 @@ describe('Settings > Booking link', () => {
     expect(save(undefined).success).toBe(false);
     // A stored value that is not one reads as Google Meet, and the rest stands.
     expect(parseBookingConfig({ callLink: zoom }).callLink).toBe(zoom);
-    expect(parseBookingConfig({ callLink: 'ftp://example.test/x', rollingMonths: 3 })).toMatchObject(
-      { callLink: '', rollingMonths: 3 },
-    );
+    expect(
+      parseBookingConfig({ callLink: 'ftp://example.test/x', rollingMonths: 3 }),
+    ).toMatchObject({ callLink: '', rollingMonths: 3 });
     expect(parseBookingConfig({}).callLink).toBe('');
   });
 

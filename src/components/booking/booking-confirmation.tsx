@@ -48,7 +48,10 @@ export function BookingConfirmation({
     );
   const [title, sub] =
     status === 'booked'
-      ? [bookedTitle(hostName), booking ? `The calendar invitation is on its way to ${booking.email}.` : null]
+      ? [
+          bookedTitle(hostName),
+          booking ? `The calendar invitation is on its way to ${booking.email}.` : null,
+        ]
       : status === 'held'
         ? ['Your time is held', HELD_MESSAGE.replace(/^Your time is held\.\s*/, '')]
         : status === 'message'

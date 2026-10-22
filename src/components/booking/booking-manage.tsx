@@ -88,7 +88,8 @@ function Manage({
   const manageUrl = `/meet/${slug}/b/${token}`;
   const api = `/api/meet/${encodeURIComponent(slug)}/booking/${encodeURIComponent(token)}`;
   const zone = bookingZone(booking, visitorZone);
-  const live = booking.status === 'booked' || booking.status === 'held' || booking.status === 'pending';
+  const live =
+    booking.status === 'booked' || booking.status === 'held' || booking.status === 'pending';
   const first = host.displayName.trim().split(/\s+/)[0] || host.displayName;
 
   const post = async (path: string, body: Record<string, unknown>) => {
@@ -258,7 +259,11 @@ function Manage({
               </Button>
             ) : null}
             {live ? (
-              <AddToCalendarButton booking={booking} hostName={host.displayName} manageUrl={manageUrl} />
+              <AddToCalendarButton
+                booking={booking}
+                hostName={host.displayName}
+                manageUrl={manageUrl}
+              />
             ) : (
               <Link
                 href={`/meet/${slug}`}
@@ -314,7 +319,9 @@ function Reschedule({
           return;
         }
         setSlots(json.slots);
-        setMessage(json.state === 'ok' ? null : (json.message ?? 'Open times could not be loaded.'));
+        setMessage(
+          json.state === 'ok' ? null : (json.message ?? 'Open times could not be loaded.'),
+        );
       })
       .catch(() => {
         if (live) {
@@ -332,7 +339,8 @@ function Reschedule({
       <legend className="sr-only">Pick a new time</legend>
       <p className="text-sm font-medium">Pick a new time</p>
       <p className="text-xs text-[var(--fg-muted)]">
-        Times shown in {zoneName(zone)}. {booking.reschedulesLeft === 1 ? 'This is the last move it can take.' : ''}
+        Times shown in {zoneName(zone)}.{' '}
+        {booking.reschedulesLeft === 1 ? 'This is the last move it can take.' : ''}
       </p>
       {slots === null ? (
         <p className="text-sm text-[var(--fg-muted)]" aria-live="polite">
@@ -343,7 +351,14 @@ function Reschedule({
       ) : slots.length === 0 ? (
         <Notice>No other open times right now. You can keep this one, or cancel it.</Notice>
       ) : (
-        <SlotPicker slots={slots} zone={zone} value={start} onChange={setStart} day={day} onDay={setDay} />
+        <SlotPicker
+          slots={slots}
+          zone={zone}
+          value={start}
+          onChange={setStart}
+          day={day}
+          onDay={setDay}
+        />
       )}
       <div className="flex flex-wrap items-center gap-2 pt-2">
         <Button
@@ -380,7 +395,8 @@ function CancelForm({
     <div className="mt-6 space-y-3 border-t border-[var(--border)] pt-5">
       <div className="space-y-1.5">
         <Label htmlFor={`${uid}-note`}>
-          Note to {hostFirst} <span className="font-normal text-[var(--fg-subtle)]">(optional)</span>
+          Note to {hostFirst}{' '}
+          <span className="font-normal text-[var(--fg-subtle)]">(optional)</span>
         </Label>
         <Textarea
           id={`${uid}-note`}

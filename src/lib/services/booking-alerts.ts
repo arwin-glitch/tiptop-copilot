@@ -52,7 +52,11 @@ function what(row: BookingRequest): string {
 const recent = (iso: string | null | undefined, now: Date) => {
   const at = Date.parse(iso ?? '');
   // A minute of clock skew either way still counts as just now.
-  return Number.isFinite(at) && at <= now.getTime() + 60_000 && now.getTime() - at <= BOOKING_ALERT_WINDOW_MS;
+  return (
+    Number.isFinite(at) &&
+    at <= now.getTime() + 60_000 &&
+    now.getTime() - at <= BOOKING_ALERT_WINDOW_MS
+  );
 };
 
 /** Clip a visitor's note for a notification line. */
@@ -79,7 +83,10 @@ export function bookingAlertItems(
     const when = alertTime(row.starts_at, timeZone);
     const guests = row.guest_emails?.length ?? 0;
     const plus = guests ? ` (+${guests} guest${guests === 1 ? '' : 's'})` : '';
-    if (recent(row.created_at, now) && ['booked', 'held', 'pending', 'approved', 'cancelled'].includes(row.status)) {
+    if (
+      recent(row.created_at, now) &&
+      ['booked', 'held', 'pending', 'approved', 'cancelled'].includes(row.status)
+    ) {
       const verb =
         row.status === 'pending'
           ? 'asked for'
@@ -93,14 +100,23 @@ export function bookingAlertItems(
       });
     }
     const moves = row.rescheduled_count ?? 0;
-    if (moves > 0 && row.previous_starts_at && recent(row.updated_at, now) && row.status !== 'cancelled') {
+    if (
+      moves > 0 &&
+      row.previous_starts_at &&
+      recent(row.updated_at, now) &&
+      row.status !== 'cancelled'
+    ) {
       out.push({
         key: `booking:${row.id}:moved:${moves}`,
         kind: 'moved',
         line: `${who} moved ${what(row)} to ${when} (was ${alertTime(row.previous_starts_at, timeZone)})`,
       });
     }
-    if (row.status === 'cancelled' && row.cancelled_by === 'visitor' && recent(row.cancelled_at, now)) {
+    if (
+      row.status === 'cancelled' &&
+      row.cancelled_by === 'visitor' &&
+      recent(row.cancelled_at, now)
+    ) {
       const note = row.cancel_note?.trim();
       out.push({
         key: `booking:${row.id}:cancelled`,

@@ -1368,13 +1368,7 @@ export interface BookingSettingsRow {
  * cancelled: cancelled, the event deleted with Google's cancellation.
  */
 export type BookingRequestStatus =
-  | 'pending'
-  | 'approved'
-  | 'declined'
-  | 'handled'
-  | 'booked'
-  | 'held'
-  | 'cancelled';
+  'pending' | 'approved' | 'declined' | 'handled' | 'booked' | 'held' | 'cancelled';
 
 /** A meeting request (or a message) sent from the public booking page. */
 export interface BookingRequest {
