@@ -145,6 +145,18 @@ create index if not exists job_postings_public_idx
 create index if not exists job_postings_company_idx
   on job_postings (organization_id, portfolio_company_id, status);
 
+-- -------------------------------------------------------------- triggers --
+
+drop trigger if exists job_board_settings_updated_at on job_board_settings;
+create trigger job_board_settings_updated_at before update on job_board_settings
+  for each row execute function set_updated_at();
+drop trigger if exists job_companies_updated_at on job_companies;
+create trigger job_companies_updated_at before update on job_companies
+  for each row execute function set_updated_at();
+drop trigger if exists job_postings_updated_at on job_postings;
+create trigger job_postings_updated_at before update on job_postings
+  for each row execute function set_updated_at();
+
 -- ------------------------------------------------------------------- RLS --
 --
 -- Read for any member, write for member and above, like the campaigns.
