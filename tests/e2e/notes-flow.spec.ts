@@ -29,6 +29,8 @@ const TZ = 'America/Chicago';
 /** The scheduled demo meeting (lib/demo/notes-fixtures.ts): Dana and Priya are on its invite. */
 const FOLLOW_UP = '00000000-0000-4000-8000-0000000d000b';
 const PHONE = { width: 390, height: 844 };
+/** Girder AI, the deal the event's guest works at (lib/demo/ids.ts dealGirder). */
+const GIRDER_DEAL = '00000000-0000-4000-8000-000000000065';
 
 test.beforeAll(async ({ browser }, testInfo) => {
   const context = await browser.newContext({
@@ -95,6 +97,7 @@ test('Copilot Notes, from the calendar to a revoked share link', async ({
   await expect(slot.getByRole('button', { name: 'Take notes' })).toBeVisible();
   await slot.getByRole('button', { name: 'Take notes' }).click();
   await page.waitForURL(/\/meetings\/[0-9a-f-]{36}\?start=1/);
+  const meetingId = new URL(page.url()).pathname.split('/').pop() as string;
 
   // 2. The consent step: Start stays off until the box is ticked.
   const consent = consentDialog(page);
@@ -236,6 +239,65 @@ test('Copilot Notes, from the calendar to a revoked share link', async ({
   const moment = page.locator('[data-seq]').filter({ hasText: 'eleven days' }).first();
   await expect(moment).toBeVisible();
   await expect(moment.locator('p').first()).toHaveClass(/ring-2/);
+
+  // 10. Shared with the team, the meeting reaches the pages the team reads.
+  // (The search above may open the earlier Acme meeting: the same words were said there.)
+  await page.goto(`/meetings/${meetingId}?tab=share`);
+  await page.getByLabel('Who can see it').selectOption('team');
+  await expect(page.getByText('Saved.')).toBeVisible();
+
+  // The deal page (the guest's domain) lists it from Copilot, and it opens the meeting.
+  await page.goto(`/deals/${GIRDER_DEAL}`);
+  await page.getByRole('tab', { name: 'Sources' }).click();
+  const onDeal = page
+    .locator('li')
+    .filter({ hasText: 'from Copilot' })
+    .filter({ hasText: title })
+    .first();
+  await expect(onDeal).toBeVisible();
+  await expect(onDeal.getByRole('link', { name: /Open the meeting/ })).toHaveAttribute(
+    'href',
+    `/meetings/${meetingId}`,
+  );
+
+  // Ctrl+K finds words said in it and opens the transcript at that moment.
+  await page.keyboard.press('Control+k');
+  await page.getByRole('searchbox', { name: 'Search everything' }).fill('eleven days');
+  const said = page
+    .getByRole('listbox', { name: 'Results' })
+    .getByRole('option', { name: /eleven days/ })
+    .filter({ hasText: title })
+    .first();
+  await expect(said).toBeVisible();
+  await said.getByRole('button').first().click();
+  await page.waitForURL(new RegExp(`/meetings/${meetingId}\\?.*t=\\d+`));
+  await expect(page.locator('[data-seq]').filter({ hasText: 'eleven days' }).first()).toBeVisible();
+
+  // 11. The routines read it through Copilot's MCP meeting tools (shaped like Granola's).
+  await page.goto('/settings');
+  await page.getByRole('tab', { name: 'Integrations' }).click();
+  await page.getByLabel('Connection name').fill(`notes e2e ${Date.now()}`);
+  await page.getByRole('button', { name: 'Create token' }).click();
+  const fresh = page.getByRole('region', { name: 'New token' });
+  const token = await fresh.getByLabel('Token', { exact: true }).inputValue();
+  const mcp = async (name: string, args: Record<string, unknown>) => {
+    const res = await page.request.post('/api/mcp', {
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      data: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } },
+    });
+    expect(res.status()).toBe(200);
+    const body = (await res.json()) as { result: { content: { text: string }[] } };
+    return body.result.content.map((c) => c.text).join('\n');
+  };
+  const listed = await mcp('list_meetings', {});
+  expect(listed).toContain(`copilot:${meetingId}`);
+  expect(listed).toContain(title);
+  const lines = await mcp('get_meeting_transcript', { meeting_id: `copilot:${meetingId}` });
+  expect(lines).toContain('Average deployment is down to eleven days');
+  expect(lines).toContain('Priya Shah');
+  const found = await mcp('query_meetings', { query: 'net revenue retention' });
+  expect(found).toContain(title);
+  await fresh.getByRole('button', { name: 'Done, I have copied it' }).click();
 });
 
 test('a never-record meeting cannot start', async ({ page }) => {
@@ -267,19 +329,30 @@ test.describe('on a 390px phone', () => {
     const live = transcript(page);
     await expect(live).toBeVisible();
     await expect(page.getByRole('combobox', { name: 'Your notes' })).toBeHidden();
-    await expect(live.getByRole('button', { name: 'Guest 2: who is this?' }).first()).toBeVisible();
-    await live.getByRole('button', { name: 'Guest 2: who is this?' }).first().click();
+    // Dana and Priya are on the invite, and as many voices as guests are
+    // talking with the cues agreeing ("Priya leads engineering"): the naming
+    // ladder names them both with no tap.
+    await expect(
+      live.getByRole('button', { name: /^Priya Shah: change who this is$/ }).first(),
+    ).toBeVisible();
+    await expect(
+      live.getByRole('button', { name: /^Dana Reyes: change who this is$/ }).first(),
+    ).toBeVisible();
+    // The late joiner is on nobody's invite: "Who is this?", the invite's guests marked as taken.
+    const guest = live.getByRole('button', { name: /^Guest \d: who is this\?$/ }).first();
+    await expect(guest).toBeVisible({ timeout: 45_000 });
+    const guestLabel = (await guest.getAttribute('aria-label')) ?? '';
+    await guest.click();
     const sheet = page.getByRole('dialog', { name: 'This is…' });
     // A bottom sheet on a phone, the invite's guests first.
     const box = (await sheet.boundingBox())!;
     expect(Math.round(box.y + box.height)).toBeGreaterThanOrEqual(PHONE.height - 2);
-    await sheet
-      .getByRole('region', { name: 'On the invite' })
-      .getByRole('button', { name: /Priya Shah/ })
-      .click();
+    await expect(sheet.getByRole('region', { name: 'On the invite' })).toContainText('Priya Shah');
+    await sheet.getByLabel('Search your network, or type a name').fill('Sam Okafor');
+    await sheet.getByRole('button', { name: 'Use “Sam Okafor”' }).click();
     await expect(sheet).toHaveCount(0);
-    await expect(live.getByRole('button', { name: 'Guest 2: who is this?' })).toHaveCount(0);
-    await expect(live.getByRole('button', { name: /^Priya Shah/ }).first()).toBeVisible();
+    await expect(live.getByRole('button', { name: guestLabel })).toHaveCount(0);
+    await expect(live.getByRole('button', { name: /^Sam Okafor/ }).first()).toBeVisible();
     await noSidewaysScroll(page);
 
     await page.getByRole('button', { name: 'Notepad', exact: true }).click();

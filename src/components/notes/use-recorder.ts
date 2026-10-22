@@ -2,14 +2,19 @@
 
 import * as React from 'react';
 import { NOTES_API } from '@/lib/notes/api';
+import { meetingRecorder } from '@/lib/capture/recorder';
+import { useMeetingRecorder, type MeetingRecorderApi } from '@/lib/capture/use-meeting-recorder';
+import type { RecorderSnapshot } from '@/lib/capture/types';
 import { clusterKeyFor } from '@/lib/transcribe/cluster';
 import { streamMockCall } from '@/lib/transcribe/mock-script';
 import {
   NOTES_LIMITS,
+  type ApplyRosterRequest,
   type ConsentMethod,
   type MeetingResponse,
   type MeetingView,
   type SegmentUpload,
+  type StopReason,
   type StopRecordingResponse,
   type SttTokenResponse,
   type TranscriptTrack,
@@ -19,21 +24,26 @@ import { notesCall } from './api-client';
 
 /**
  * The meeting page's recorder (D-076), in the order the contract sets:
- * POST /start with the consent step → POST /stt-token → lines posted to
- * /segments with a rising seq (a retried batch is safe) → /pause → /stop,
- * with the last lines posted first.
+ * POST /start with the consent step, POST /stt-token, lines posted to
+ * /segments with a rising seq (a retried batch is safe), /pause, then /stop
+ * with the last lines and the notepad saved first.
  *
- * In demo mode the speech provider is 'mock' and this plays the scripted,
- * fictional call from lib/transcribe/mock-script.ts. Live audio (microphone
- * plus the meeting tab, straight to the speech vendor) is the web recorder's
- * job (lib/capture, the capture workstream); until it is wired in here,
- * `liveCapture` is false and the page says so instead of offering Start on a
- * real provider. No audio is ever stored or sent to Copilot's server: only
- * finished lines of text.
+ * Two engines sit behind one handle:
+ * - 'live': the browser recorder (lib/capture). The microphone is the person
+ *   at this computer, the shared meeting tab or screen is everyone else, each
+ *   streamed straight to the speech vendor with a 60-second key. In demo mode
+ *   it talks to the mock vendor, so the whole pipeline runs with no vendor.
+ * - 'scripted': demo mode only. Plays the fictional call from
+ *   lib/transcribe/mock-script.ts with no microphone at all, so the demo works
+ *   on any machine and the screen tests need no fake devices.
+ * No audio is ever stored or sent to Copilot's server: only finished lines of text.
  */
 
-/** Flips to true when lib/capture's recorder is mounted behind this hook. */
-export const LIVE_CAPTURE_AVAILABLE = false;
+/** The browser recorder (lib/capture) is mounted behind this hook. */
+export const LIVE_CAPTURE_AVAILABLE = true;
+
+/** Which engine records: the browser recorder, or the demo's scripted call. */
+export type CaptureEngine = 'live' | 'scripted';
 
 export type RecorderPhase =
   'idle' | 'starting' | 'recording' | 'paused' | 'interrupted' | 'stopping' | 'stopped' | 'error';
@@ -58,8 +68,14 @@ export interface RecorderHandle {
   error: string | null;
   /** The scripted call finished (demo); the recording stays on until Stop. */
   callEnded: boolean;
-  /** Recording can run here: the mock in demo mode, or the live recorder once wired. */
+  /** Recording can run here: the browser can record (live), or demo mode (scripted). */
   canRecord: boolean;
+  /** Why not, in plain words, when it cannot. */
+  cannotRecordReason: string | null;
+  /** The browser can hear a meeting tab or screen (Chrome or Edge on a computer). */
+  callAudioAvailable: boolean;
+  /** The browser recorder while it captures (meters, warnings); null for the scripted call. */
+  capture: MeetingRecorderApi | null;
   start(input: StartInput): Promise<boolean>;
   pause(): Promise<void>;
   resume(): Promise<void>;
@@ -80,6 +96,10 @@ export interface RecorderOptions {
   onUploaded(): void;
   /** Runs before /stop: the notepad saves, so the notes job reads every typed word. */
   beforeStop?: () => Promise<void>;
+  /** Which engine records (the page decides: 'scripted' only in demo mode). */
+  engine: CaptureEngine;
+  /** The recorder stopped by itself (silence, the call ended): read the notes as after Stop. */
+  onAutoStopped?: (reason: StopReason) => void;
 }
 
 function initialPhase(meeting: MeetingView): RecorderPhase {
@@ -90,7 +110,37 @@ function initialPhase(meeting: MeetingView): RecorderPhase {
   return 'idle';
 }
 
+/**
+ * The recorder the meeting page uses. Both engines are mounted (each is inert
+ * until started) and the page's engine answers; the engine never changes for
+ * the life of the page.
+ */
 export function useRecorder(options: RecorderOptions): RecorderHandle {
+  const scripted = useScriptedRecorder(options, options.engine === 'scripted');
+  const live = useLiveRecorder(options, options.engine === 'live');
+  return options.engine === 'live' ? live : scripted;
+}
+
+type StopResult =
+  { ok: true; value: Omit<StopRecordingResponse, 'ok'> } | { ok: false; message: string };
+
+/** Tell the server to stop (the last lines and the notepad are saved by then). */
+async function stopOnServer(
+  meetingId: string,
+  reason: StopReason,
+  recordedMs: number,
+): Promise<StopResult> {
+  const res = await notesCall<Omit<StopRecordingResponse, 'ok'>>(
+    'POST',
+    NOTES_API.stop(meetingId),
+    { reason, recordedMs: Math.max(0, Math.round(recordedMs)) },
+  );
+  return res.ok ? { ok: true, value: res } : { ok: false, message: res.message };
+}
+
+/* ============================================================ scripted == */
+
+function useScriptedRecorder(options: RecorderOptions, enabled: boolean): RecorderHandle {
   const { meetingId, demo, mockSpeed } = options;
   const [phase, setPhase] = React.useState<RecorderPhase>(() => initialPhase(options.meeting));
   const [elapsedMs, setElapsedMs] = React.useState(options.meeting.recordedMs);
@@ -115,7 +165,8 @@ export function useRecorder(options: RecorderOptions): RecorderHandle {
   const accumulated = React.useRef(options.meeting.recordedMs);
   const runningSince = React.useRef<number | null>(null);
 
-  const canRecord = demo || LIVE_CAPTURE_AVAILABLE;
+  // The scripted call is demo mode's alone.
+  const canRecord = enabled && demo;
 
   // The visible timer: recorded time, pauses excluded.
   React.useEffect(() => {
@@ -197,10 +248,8 @@ export function useRecorder(options: RecorderOptions): RecorderHandle {
       setError(minted.message);
       return false;
     }
-    if (minted.provider !== 'mock' && !LIVE_CAPTURE_AVAILABLE) {
-      setError(
-        'Live capture needs the browser recorder, which is not in this version yet. Stop, and use Granola for this call.',
-      );
+    if (minted.provider !== 'mock') {
+      setError('The scripted demo call runs only in demo mode. Reload the page to record live.');
       return false;
     }
     return true;
@@ -342,20 +391,206 @@ export function useRecorder(options: RecorderOptions): RecorderHandle {
       await flush();
     }
     await latest.current.beforeStop?.();
-    const res = await notesCall<Omit<StopRecordingResponse, 'ok'>>(
-      'POST',
-      NOTES_API.stop(meetingId),
-      { reason: 'user', recordedMs: Math.round(accumulated.current) },
-    );
+    const res = await stopOnServer(meetingId, 'user', accumulated.current);
     if (!res.ok) {
       setError(res.message);
       setPhase('interrupted');
       return null;
     }
-    latest.current.onMeeting(res.meeting);
+    latest.current.onMeeting(res.value.meeting);
     setPhase('stopped');
-    return { ...res, ok: true };
+    return { ...res.value, ok: true };
   }, [flush, meetingId]);
 
-  return { phase, elapsedMs, partial, error, callEnded, canRecord, start, pause, resume, stop };
+  return {
+    phase,
+    elapsedMs,
+    partial,
+    error,
+    callEnded,
+    canRecord,
+    cannotRecordReason: canRecord ? null : 'The scripted call runs only in demo mode.',
+    callAudioAvailable: true,
+    capture: null,
+    start,
+    pause,
+    resume,
+    stop,
+  };
+}
+
+/* ================================================================ live == */
+
+const ROSTER_EVERY_MS = 20_000;
+
+function livePhase(status: RecorderSnapshot['status'], meeting: MeetingView): RecorderPhase {
+  const serverLive = meeting.status === 'recording' || meeting.status === 'paused';
+  const done = meeting.status === 'processing' || meeting.status === 'ready';
+  switch (status) {
+    case 'starting':
+    case 'recording':
+    case 'paused':
+    case 'stopping':
+    case 'stopped':
+      return status;
+    case 'idle':
+    case 'error':
+      // Nothing captures in this tab: a recording on the server was interrupted
+      // (a reload, a closed tab) for its recorder, and is live for a viewer.
+      if (serverLive) return meeting.isRecorder ? 'interrupted' : 'recording';
+      return done ? 'stopped' : 'idle';
+  }
+}
+
+/** The words being said right now: the newest partial across the tracks. */
+function newestPartial(state: RecorderSnapshot): LivePartial | null {
+  let best: LivePartial | null = null;
+  let bestEnd = -1;
+  for (const line of Object.values(state.partials)) {
+    if (!line || !line.text.trim() || line.endMs < bestEnd) continue;
+    bestEnd = line.endMs;
+    best = { clusterKey: line.clusterKey, track: line.track, text: line.text };
+  }
+  return best;
+}
+
+function useLiveRecorder(options: RecorderOptions, enabled: boolean): RecorderHandle {
+  const { meetingId, demo, mockSpeed } = options;
+  const rec = useMeetingRecorder({
+    meetingId,
+    mode: options.meeting.kind === 'in_person' ? 'mic_only' : 'call',
+    // Demo mode plays the mock vendor faster than real time.
+    tuning: demo ? { mockSpeed } : undefined,
+  });
+  const state = rec.state;
+  const latest = React.useRef(options);
+  React.useEffect(() => {
+    latest.current = options;
+  });
+  const userStopping = React.useRef(false);
+
+  // The server's meeting after each start, pause and stop, and every stored line.
+  React.useEffect(() => {
+    if (enabled && state.meeting) latest.current.onMeeting(state.meeting);
+  }, [enabled, state.meeting]);
+  React.useEffect(() => {
+    if (enabled && state.upload.lastSeq !== null) latest.current.onUploaded();
+  }, [enabled, state.upload.lastSeq]);
+
+  // A stop the recorder made by itself (15 minutes of silence, the call ended).
+  const previous = React.useRef(state.status);
+  React.useEffect(() => {
+    const was = previous.current;
+    previous.current = state.status;
+    if (!enabled || userStopping.current) return;
+    if (state.status === 'stopped' && was !== 'stopped' && state.stopReason) {
+      latest.current.onAutoStopped?.(state.stopReason);
+    }
+  }, [enabled, state.status, state.stopReason]);
+
+  // The Meet extension's names (opt-in, consented recordings only) go to the
+  // naming ladder as the meeting app's roster: names and times, never stored.
+  const postedRoster = React.useRef('');
+  const postRoster = React.useCallback(async () => {
+    const intervals = meetingRecorder(meetingId).getSnapshot().roster.intervals;
+    const last = intervals.at(-1);
+    if (!last) return;
+    const key = `${intervals.length}:${last.endMs}`;
+    if (key === postedRoster.current) return;
+    postedRoster.current = key;
+    const body: ApplyRosterRequest = {
+      turns: intervals.slice(-5000).map((iv) => {
+        const startMs = Math.max(0, Math.round(iv.startMs));
+        return {
+          name: iv.name.trim().slice(0, 200) || 'Guest',
+          startMs,
+          endMs: Math.max(startMs, Math.round(iv.endMs)),
+        };
+      }),
+    };
+    await notesCall('POST', NOTES_API.roster(meetingId), body);
+  }, [meetingId]);
+  React.useEffect(() => {
+    if (!enabled || state.status !== 'recording' || !state.roster.connected) return;
+    const timer = setInterval(() => void postRoster(), ROSTER_EVERY_MS);
+    return () => clearInterval(timer);
+  }, [enabled, state.status, state.roster.connected, postRoster]);
+
+  const caps = state.capabilities;
+  const canRecord = enabled && caps.microphone && caps.audioWorklet;
+  const meeting = options.meeting;
+  const phase = livePhase(state.status, meeting);
+  const capturing = ['recording', 'paused', 'stopping', 'stopped'].includes(state.status);
+
+  /** Start the browser recorder. Called straight from the click: the share picker needs it. */
+  const startCapture = (method: ConsentMethod, noticeText: string | null, inPerson: boolean) => {
+    rec.setMode(inPerson ? 'mic_only' : 'call');
+    return rec.start({
+      consent: { confirmed: true, method, noticeText },
+      ...(inPerson ? { kind: 'in_person' as const } : {}),
+    });
+  };
+
+  const start = async (input: StartInput): Promise<boolean> =>
+    canRecord ? startCapture(input.method, input.noticeText, input.mode === 'in_person') : false;
+
+  const pause = async () => {
+    await rec.pause();
+  };
+
+  const resume = async () => {
+    if (state.status === 'paused') {
+      await rec.resume();
+      return;
+    }
+    // After a reload: the recorder starts again on the same meeting, which
+    // keeps its consent, its lines and its clock.
+    const m = latest.current.meeting;
+    await startCapture(m.consent.method ?? 'other', null, m.kind === 'in_person');
+  };
+
+  const stop = async (): Promise<StopRecordingResponse | null> => {
+    userStopping.current = true;
+    try {
+      await latest.current.beforeStop?.();
+      await postRoster().catch(() => undefined);
+      const running = state.status === 'recording' || state.status === 'paused';
+      if (!running) {
+        // Nothing captures in this tab (interrupted by a reload): stop on the server.
+        const res = await stopOnServer(meetingId, 'user', latest.current.meeting.recordedMs);
+        if (!res.ok) return null;
+        latest.current.onMeeting(res.value.meeting);
+        return { ...res.value, ok: true };
+      }
+      await rec.stop('user');
+      const after = meetingRecorder(meetingId).getSnapshot();
+      const m = after.meeting;
+      if (after.status !== 'stopped' || !m || (m.status !== 'processing' && m.status !== 'ready')) {
+        return null;
+      }
+      latest.current.onMeeting(m);
+      return { ok: true, meeting: m, finalize: { queued: true } };
+    } finally {
+      userStopping.current = false;
+    }
+  };
+
+  const err = state.error;
+  return {
+    phase,
+    elapsedMs: capturing ? state.elapsedMs : meeting.recordedMs,
+    partial: newestPartial(state),
+    error: err ? [err.message, err.stillUsable].filter(Boolean).join(' ') : null,
+    callEnded: false,
+    canRecord,
+    cannotRecordReason: canRecord
+      ? null
+      : 'This browser cannot record. Use Chrome on a computer, or Safari on an iPhone.',
+    callAudioAvailable: caps.meetingAudio,
+    capture: enabled ? rec : null,
+    start,
+    pause,
+    resume,
+    stop,
+  };
 }

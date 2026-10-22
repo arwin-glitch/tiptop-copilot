@@ -636,6 +636,16 @@ export async function startRecording(
     if (meeting.recorded_by && meeting.recorded_by !== ctx.auth.userId) return RECORDER_ONLY();
     if (meeting.deleted_at) return NOT_FOUND();
     if (meeting.status === 'recording') return ok(meeting);
+    // The same person picking a paused recording back up after a reload (the
+    // browser recorder starts again): consent was given for this meeting already.
+    if (meeting.status === 'paused') {
+      const resumed = await ctx.store.update('meetings', ctx.auth.organizationId, meeting.id, {
+        status: 'recording',
+      });
+      await logConsent(ctx, meeting, 'resumed');
+      await audit(ctx, 'notes.resumed', meeting.id);
+      return ok(resumed);
+    }
     if (meeting.status !== 'scheduled') {
       return err(
         'conflict',

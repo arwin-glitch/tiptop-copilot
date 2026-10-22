@@ -101,6 +101,10 @@ export default async function MeetingPage({
     : 'notes';
   const at = Number.parseInt(single(query.t) ?? '', 10);
   const speed = Number.parseFloat(single(query.mockSpeed) ?? '');
+  const demo = isDemoMode();
+  // The browser recorder everywhere; demo mode plays the scripted call (no
+  // microphone needed) unless ?capture=live asks for the recorder against the mock vendor.
+  const engine = demo && single(query.capture) !== 'live' ? 'scripted' : 'live';
   const when = meeting.startedAt ?? meeting.scheduledStart ?? meeting.createdAt;
   // The live state (recording, notes ready) is in the bar below, which keeps up.
   const subtitle = [formatDateTime(when, tz), lengthWords(meeting.recordedMs)]
@@ -117,8 +121,9 @@ export default async function MeetingPage({
         recipes={recipes.ok ? recipes.value : []}
         folders={folders.ok ? folders.value : []}
         timeZone={tz}
-        demo={isDemoMode()}
+        demo={demo}
         mockSpeed={Number.isFinite(speed) && speed > 0 && speed <= 200 ? speed : 6}
+        engine={engine}
         initialTab={tab}
         initialAtMs={Number.isFinite(at) && at >= 0 ? at : null}
         openConsent={single(query.start) === '1'}

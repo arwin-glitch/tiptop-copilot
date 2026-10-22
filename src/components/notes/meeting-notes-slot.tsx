@@ -10,8 +10,9 @@ import type { RangeEvent } from '@/lib/calendar/range-types';
 import type {
   CreateMeetingRequest,
   CreateMeetingResponse,
-  ListMeetingsResponse,
+  EventNotesResponse,
   MeetingListItem,
+  MeetingView,
 } from '@/lib/types/notes';
 import { formatMonthDay } from '@/lib/util/time';
 import { Button } from '@/components/ui/button';
@@ -21,11 +22,10 @@ import { platformOf } from './helpers';
 type Loaded = {
   enabled: boolean;
   /** The Copilot meeting made for this event, if any. */
-  mine: MeetingListItem | null;
+  mine: MeetingView | null;
   past: MeetingListItem[];
 };
 
-const PAST_GUESTS = 3;
 const PAST_SHOWN = 3;
 
 /** Where a list row opens: a Copilot meeting's page, or the Granola note by its title. */
@@ -70,38 +70,33 @@ export function MeetingNotesSlot({
         if (live) setLoaded({ enabled: false, mine: null, past: [] });
         return;
       }
-      const emails = guestKey ? guestKey.split(',').slice(0, PAST_GUESTS) : [];
-      const [mine, ...byGuest] = await Promise.all([
-        notesCall<Omit<ListMeetingsResponse, 'ok'>>(
-          'GET',
-          `${NOTES_API.meetings}?source=copilot&eventId=${encodeURIComponent(event.id)}`,
-        ),
-        ...emails.map((email) =>
-          notesCall<Omit<ListMeetingsResponse, 'ok'>>(
-            'GET',
-            `${NOTES_API.meetings}?person=${encodeURIComponent(email)}`,
-          ),
-        ),
-      ]);
+      // One read: this event's meeting, and earlier notes with these guests
+      // (Copilot and Granola, a recorded-twice meeting once).
+      const res = await notesCall<Omit<EventNotesResponse, 'ok'>>(
+        'GET',
+        NOTES_API.eventNotes({
+          eventId: event.id,
+          recurringEventId: event.recurringEventId,
+          emails: guestKey ? guestKey.split(',') : [],
+        }),
+      );
       if (!live) return;
-      const now = Date.now();
-      const seen = new Set<string>();
-      const ownMeeting = mine?.ok ? (mine.meetings[0] ?? null) : null;
-      const past = byGuest
-        .flatMap((r) => (r.ok ? r.meetings : []))
-        .filter((m) => {
-          if (seen.has(m.qualifiedId) || m.qualifiedId === ownMeeting?.qualifiedId) return false;
-          seen.add(m.qualifiedId);
-          return Date.parse(m.occurredAt) < now && m.status !== 'scheduled';
-        })
-        .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
-        .slice(0, PAST_SHOWN);
-      setLoaded({ enabled: true, mine: ownMeeting, past });
+      const past = res.ok
+        ? [...res.pastNotes, ...res.series]
+            .filter(
+              (m, i, all) =>
+                m.status !== 'scheduled' &&
+                all.findIndex((x) => x.qualifiedId === m.qualifiedId) === i,
+            )
+            .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
+            .slice(0, PAST_SHOWN)
+        : [];
+      setLoaded({ enabled: true, mine: res.ok ? res.meeting : null, past });
     })();
     return () => {
       live = false;
     };
-  }, [event.id, guestKey]);
+  }, [event.id, event.recurringEventId, guestKey]);
 
   // Real meetings only: a block with nobody else in it (the gym, a hold) has nothing to note.
   if (!loaded?.enabled || event.allDay || (!event.verdict.meeting && guests.length === 0)) {
@@ -155,12 +150,12 @@ export function MeetingNotesSlot({
                 <CheckCircle2 className="size-4" aria-hidden /> Notes ready
               </span>
               <Button asChild size="sm" variant="secondary">
-                <Link href={noteHref(mine)}>Open notes</Link>
+                <Link href={`/meetings/${encodeURIComponent(mine.id)}`}>Open notes</Link>
               </Button>
             </>
           ) : live && mine ? (
             <Button asChild size="sm" variant="secondary">
-              <Link href={noteHref(mine)}>
+              <Link href={`/meetings/${encodeURIComponent(mine.id)}`}>
                 <Radio aria-hidden className="text-[var(--danger)]" /> Recording: open notes
               </Link>
             </Button>

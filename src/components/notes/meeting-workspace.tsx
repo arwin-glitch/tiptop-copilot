@@ -30,6 +30,7 @@ import {
 } from '@/lib/types/notes';
 import { formatTime } from '@/lib/util/time';
 import { cn } from '@/lib/util/cn';
+import { RecorderControls } from '@/components/capture/recorder-controls';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -49,7 +50,7 @@ import { PeoplePanel } from './people-panel';
 import { RecordingPill } from './recording-pill';
 import { SharePanel } from './share-dialog';
 import { TemplatePicker } from './template-picker';
-import { useRecorder } from './use-recorder';
+import { useRecorder, type CaptureEngine } from './use-recorder';
 import { WhoIsThisSheet } from './who-is-this-sheet';
 
 const CONSENT_WORDS: Record<ConsentMethod, string> = {
@@ -79,6 +80,7 @@ export function MeetingWorkspace({
   timeZone,
   demo,
   mockSpeed,
+  engine,
   initialTab,
   initialAtMs,
   openConsent,
@@ -90,6 +92,8 @@ export function MeetingWorkspace({
   timeZone: string;
   demo: boolean;
   mockSpeed: number;
+  /** 'live': the browser recorder; 'scripted': the demo's scripted call (demo mode only). */
+  engine: CaptureEngine;
   initialTab: WorkspaceTab;
   initialAtMs: number | null;
   /** Arrived from "Take notes" / "Start notes": the consent step opens at once. */
@@ -231,15 +235,18 @@ export function MeetingWorkspace({
   /* ------------------------------------------------------------ recorder == */
 
   const lastLineEndMs = segments.at(-1)?.endMs ?? 0;
+  const autoStopped = React.useRef<(reason: string) => void>(() => {});
   const recorder = useRecorder({
     meetingId: id,
     meeting,
     lastLineEndMs,
     demo,
     mockSpeed,
+    engine,
     onMeeting: setMeeting,
     onUploaded: () => void pull(),
     beforeStop: saveNotesNow,
+    onAutoStopped: (reason) => autoStopped.current(reason),
   });
 
   const recording = ['recording', 'paused', 'interrupted', 'stopping'].includes(recorder.phase);
@@ -250,6 +257,41 @@ export function MeetingWorkspace({
     const timer = setInterval(() => void pull(), 2_500);
     return () => clearInterval(timer);
   }, [meeting.status, pull]);
+
+  // The notes are written on the server after Stop and after a rename (a
+  // model call can take a while): follow along until they are fresh.
+  const following = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const followNotes = React.useCallback(() => {
+    if (following.current) clearTimeout(following.current);
+    let tries = 0;
+    const tick = async () => {
+      following.current = null;
+      tries += 1;
+      const res = await notesCall<Omit<MeetingDetailResponse, 'ok'>>('GET', NOTES_API.meeting(id));
+      if (res.ok) {
+        setMeeting(res.meeting);
+        setSpeakers(res.speakers);
+        setNote(res.note);
+      }
+      const settled = res.ok && res.meeting.status !== 'processing' && !(res.note?.stale ?? false);
+      if (!settled && tries < 45) following.current = setTimeout(() => void tick(), 2_000);
+    };
+    following.current = setTimeout(() => void tick(), 600);
+  }, [id]);
+  React.useEffect(
+    () => () => {
+      if (following.current) clearTimeout(following.current);
+    },
+    [],
+  );
+
+  // The meeting turned 'ready' while this page polled: read the notes it now has.
+  const lastStatus = React.useRef(meeting.status);
+  React.useEffect(() => {
+    const was = lastStatus.current;
+    lastStatus.current = meeting.status;
+    if (was === 'processing' && meeting.status === 'ready' && !note?.generatedAt) void reload();
+  }, [meeting.status, note?.generatedAt, reload]);
 
   /* ------------------------------------------------------------ tabs == */
 
@@ -336,7 +378,7 @@ export function MeetingWorkspace({
         res.notesRefreshing ? ' · notes refreshing' : ''
       }`,
     );
-    if (res.notesRefreshing) void regenerate(note?.templateId);
+    if (res.notesRefreshing) followNotes();
   };
 
   const split = async (mode: 'line' | 'from_here') => {
@@ -357,7 +399,7 @@ export function MeetingWorkspace({
       `Moved ${res.movedLines} ${res.movedLines === 1 ? 'line' : 'lines'} to a new voice. Say who it is.`,
     );
     setSheet({ clusterKey: res.newClusterKey, seq: null });
-    if (res.notesRefreshing) void regenerate(note?.templateId);
+    if (res.notesRefreshing) followNotes();
   };
 
   const merge = async (into: string) => {
@@ -376,7 +418,7 @@ export function MeetingWorkspace({
     await reload();
     setSheet(null);
     toast.success(`Merged: ${res.movedLines} ${res.movedLines === 1 ? 'line' : 'lines'} moved.`);
-    if (res.notesRefreshing) void regenerate(note?.templateId);
+    if (res.notesRefreshing) followNotes();
   };
 
   const editLine = async (seq: number, text: string) => {
@@ -418,14 +460,32 @@ export function MeetingWorkspace({
     return true;
   };
 
+  const afterStop = async (ready: boolean, queued: boolean) => {
+    await reload();
+    changeTab('notes');
+    if (ready) toast.success('Stopped. Your notes are ready.');
+    else if (queued) {
+      toast.success('Stopped. Writing your notes…');
+      followNotes();
+    } else toast.error('Stopped. The notes could not be written yet: press Regenerate.');
+  };
+
   const stop = async () => {
     const res = await recorder.stop();
     if (!res) return;
-    await reload();
-    changeTab('notes');
-    if (res.finalize.queued) toast.success('Stopped. Your notes are ready.');
-    else toast.error('Stopped. The notes could not be written yet: press Regenerate.');
+    await afterStop(res.meeting.status === 'ready', res.finalize.queued);
   };
+
+  React.useEffect(() => {
+    autoStopped.current = (reason) => {
+      toast.message(
+        reason === 'call_ended'
+          ? 'The call ended, so the recording stopped.'
+          : 'Nobody spoke for a while, so the recording stopped.',
+      );
+      void afterStop(false, true);
+    };
+  });
 
   const shareSettings = async (patch: {
     visibility?: 'private' | 'team';
@@ -452,9 +512,7 @@ export function MeetingWorkspace({
   const guests = participants.filter((p) => p.role !== 'self');
   const notStarted = meeting.status === 'scheduled' && !recording;
   const notesReady = Boolean(note?.generatedAt);
-  const cannotRecord = recorder.canRecord
-    ? null
-    : 'Live capture arrives with the browser recorder. Until then, take this call in Granola.';
+  const cannotRecord = recorder.canRecord ? null : recorder.cannotRecordReason;
 
   const transcriptPane = (
     <LiveTranscript
@@ -592,6 +650,13 @@ export function MeetingWorkspace({
             </div>
           ) : recording ? (
             <>
+              {recorder.capture && meeting.isRecorder ? (
+                <Card className="mb-3">
+                  <CardContent className="pt-4">
+                    <RecorderControls rec={recorder.capture} controls={false} errors={false} />
+                  </CardContent>
+                </Card>
+              ) : null}
               <div className="mb-3 flex gap-1 lg:hidden" role="group" aria-label="Show">
                 {(
                   [
@@ -794,6 +859,9 @@ export function MeetingWorkspace({
         inPerson={meeting.kind === 'in_person'}
         canRecord={recorder.canRecord}
         cannotRecordReason={cannotRecord}
+        callAudioAvailable={recorder.callAudioAvailable}
+        liveCapture={engine === 'live'}
+        error={recorder.phase === 'idle' ? recorder.error : null}
         onStart={async (input) => {
           const started = await recorder.start(input);
           if (started) changeTab('notes');

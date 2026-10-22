@@ -8,7 +8,7 @@ import {
   snapshotUnavailable,
   upcomingWeekEvents,
 } from '@/components/followups/relay-cards';
-import { listMeetingNotes } from '@/lib/services/meetings';
+import { countMeetingNotes, listMeetingNotes } from '@/lib/services/meetings';
 import { MEETINGS_TABS, SNAPSHOT_WAIT_MS, landsOnSnapshot, openingTab } from '@/lib/records-tabs';
 import {
   PAGE_PARAM,
@@ -151,6 +151,14 @@ async function copilotNotesOn(auth: AuthContext): Promise<boolean> {
     .catch(() => false);
 }
 
+/** The Copilot notes this person may see, for the source chip; null when unknown. */
+async function copilotCount(auth: AuthContext, notesOn: boolean): Promise<number | null> {
+  if (!notesOn) return null;
+  return countMeetingNotes(getStore(), auth.organizationId, auth.userId)
+    .then((c) => c.copilot)
+    .catch(() => null);
+}
+
 /** The source chips, with New note and Notes settings beside them while Copilot Notes is on. */
 function SourceRow({ notesOn, children }: { notesOn: boolean; children: ReactNode }) {
   if (!notesOn) return <>{children}</>;
@@ -172,6 +180,7 @@ async function AffinityNotesTab({ q, page }: { q: string; page: string | string[
     affinityNoteCount(auth),
     copilotNotesOn(auth),
   ]);
+  const copilotNotes = await copilotCount(auth, notesOn);
   return (
     <>
       <SourceRow notesOn={notesOn}>
@@ -180,7 +189,7 @@ async function AffinityNotesTab({ q, page }: { q: string; page: string | string[
           q={q}
           granolaCount={granolaCount}
           affinityCount={affinityCount}
-          copilot={notesOn ? { count: null } : null}
+          copilot={notesOn ? { count: copilotNotes } : null}
         />
       </SourceRow>
       <AffinityNotes auth={auth} q={q} page={page} />
@@ -203,11 +212,12 @@ async function CopilotNotesTab({
   const auth = await requireAuth();
   const notesOn = await copilotNotesOn(auth);
   if (!notesOn) return <NotesTab q={q} shown={shown} />;
-  const [granolaCount, affinityCount] = await Promise.all([
+  const [granolaCount, affinityCount, copilotNotes] = await Promise.all([
     getStore()
       .count('meeting_notes', auth.organizationId, { eq: { provider: 'granola' } })
       .catch(() => null),
     affinityNoteCount(auth),
+    copilotCount(auth, true),
   ]);
   return (
     <>
@@ -217,7 +227,7 @@ async function CopilotNotesTab({
           q={q}
           granolaCount={granolaCount}
           affinityCount={affinityCount}
-          copilot={{ count: null }}
+          copilot={{ count: copilotNotes }}
         />
       </SourceRow>
       <CopilotNotes auth={auth} source={source} filters={filters} />
@@ -231,9 +241,11 @@ async function NotesTab({ q, shown }: { q: string; shown: number }) {
   // meeting count showed a flat "500" — the cap, presented as a fact — while
   // the real figure was 922. A stat that reports a limit is worse than no stat.
   const [notes, total] = await Promise.all([
+    // Granola's list stays Granola's: Copilot's notes have their own chip.
     listMeetingNotes(getStore(), auth.organizationId, {
       search: q || undefined,
       limit: NOTES_MAX,
+      source: 'granola',
     }),
     getStore().count('meeting_notes', auth.organizationId, { eq: { provider: 'granola' } }),
   ]);
@@ -241,6 +253,7 @@ async function NotesTab({ q, shown }: { q: string; shown: number }) {
     affinityNoteCount(auth),
     copilotNotesOn(auth),
   ]);
+  const copilotNotes = await copilotCount(auth, notesOn);
 
   const people = new Set<string>();
   const companies = new Set<string>();
@@ -261,7 +274,7 @@ async function NotesTab({ q, shown }: { q: string; shown: number }) {
           q={q}
           granolaCount={total}
           affinityCount={affinityCount}
-          copilot={notesOn ? { count: null } : null}
+          copilot={notesOn ? { count: copilotNotes } : null}
         />
       </SourceRow>
       <StatGroup className="mb-5" columns={3}>

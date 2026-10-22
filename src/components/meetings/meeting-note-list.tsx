@@ -75,6 +75,15 @@ export function MeetingNoteList({ notes, timezone }: { notes: MeetingNote[]; tim
               >
                 Open the meeting: notes, transcript and chat
               </Link>
+              <span aria-hidden className="text-mini text-[var(--fg-subtle)]">
+                {' · '}
+              </span>
+              <Link
+                href={`${meetingPagePath(note.meeting_id ?? note.external_id)}?tab=chat`}
+                className="text-mini text-[var(--accent)] underline-offset-2 hover:underline"
+              >
+                Chat about it
+              </Link>
             </p>
           ) : note.source_url ? (
             <p className="mt-2">

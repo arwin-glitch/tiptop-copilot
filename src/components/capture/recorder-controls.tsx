@@ -37,9 +37,15 @@ const SOCKET_LABEL: Record<SocketState, string> = {
 export function RecorderControls({
   rec,
   className,
+  controls = true,
+  errors = true,
 }: {
   rec: MeetingRecorderApi;
   className?: string;
+  /** The pill and Pause / Resume / Stop (off where the page has its own). */
+  controls?: boolean;
+  /** The error box (off where the page shows the error itself). */
+  errors?: boolean;
 }) {
   const { state } = rec;
   const [busy, setBusy] = React.useState(false);
@@ -66,7 +72,7 @@ export function RecorderControls({
       className={cn('space-y-4', className)}
     >
       <div className="flex flex-wrap items-center gap-3">
-        <StatusPill status={state.status} elapsedMs={state.elapsedMs} />
+        {controls ? <StatusPill status={state.status} elapsedMs={state.elapsedMs} /> : null}
         {state.provider ? (
           <Badge tone="outline" data-testid="recorder-provider">
             {state.provider === 'mock' ? 'Demo speech' : state.provider}
@@ -79,35 +85,42 @@ export function RecorderControls({
               ? 'All lines saved'
               : ''}
         </span>
-        <div className="ml-auto flex flex-wrap gap-2">
-          {recording ? (
-            <Button size="sm" onClick={act(rec.pause)} disabled={busy} aria-label="Pause recording">
-              <Pause aria-hidden="true" /> Pause
-            </Button>
-          ) : null}
-          {paused ? (
-            <Button
-              size="sm"
-              onClick={act(rec.resume)}
-              disabled={busy}
-              aria-label="Resume recording"
-            >
-              <Play aria-hidden="true" /> Resume
-            </Button>
-          ) : null}
-          {recording || paused || stopping ? (
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={act(() => rec.stop('user'))}
-              disabled={busy || stopping}
-              loading={stopping}
-              aria-label="Stop recording"
-            >
-              <Square aria-hidden="true" /> Stop
-            </Button>
-          ) : null}
-        </div>
+        {controls ? (
+          <div className="ml-auto flex flex-wrap gap-2">
+            {recording ? (
+              <Button
+                size="sm"
+                onClick={act(rec.pause)}
+                disabled={busy}
+                aria-label="Pause recording"
+              >
+                <Pause aria-hidden="true" /> Pause
+              </Button>
+            ) : null}
+            {paused ? (
+              <Button
+                size="sm"
+                onClick={act(rec.resume)}
+                disabled={busy}
+                aria-label="Resume recording"
+              >
+                <Play aria-hidden="true" /> Resume
+              </Button>
+            ) : null}
+            {recording || paused || stopping ? (
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={act(() => rec.stop('user'))}
+                disabled={busy || stopping}
+                loading={stopping}
+                aria-label="Stop recording"
+              >
+                <Square aria-hidden="true" /> Stop
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {tracks.length > 0 ? (
@@ -142,7 +155,7 @@ export function RecorderControls({
         </ul>
       ) : null}
 
-      {state.error ? (
+      {errors && state.error ? (
         <div
           role="alert"
           data-testid="recorder-error"

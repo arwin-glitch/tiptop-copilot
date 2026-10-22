@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { Ban, Copy, Mic, ShieldCheck } from 'lucide-react';
 import { NOTES_API } from '@/lib/notes/api';
@@ -39,6 +40,9 @@ export function ConsentBanner({
   inPerson,
   canRecord,
   cannotRecordReason,
+  callAudioAvailable = true,
+  liveCapture = false,
+  error = null,
   onStart,
 }: {
   open: boolean;
@@ -48,12 +52,21 @@ export function ConsentBanner({
   inPerson: boolean;
   canRecord: boolean;
   cannotRecordReason: string | null;
+  /** The browser can hear a meeting tab or screen; when not, only "In the room" is offered. */
+  callAudioAvailable?: boolean;
+  /** The browser recorder captures (not the demo's scripted call): offer the sound check. */
+  liveCapture?: boolean;
+  /** Why the last Start did not record (a refused microphone, no meeting audio). */
+  error?: string | null;
   onStart: (input: StartInput) => Promise<boolean>;
 }) {
   const [method, setMethod] = React.useState<ConsentMethod>(
     inPerson ? 'in_person_notice' : 'chat_notice',
   );
-  const [mode, setMode] = React.useState<StartInput['mode']>(inPerson ? 'in_person' : 'call');
+  const [chosenMode, setMode] = React.useState<StartInput['mode']>(inPerson ? 'in_person' : 'call');
+  // A browser that cannot hear the meeting (a phone, Safari) records the room.
+  const callOk = !liveCapture || callAudioAvailable;
+  const mode: StartInput['mode'] = callOk ? chosenMode : 'in_person';
   const [told, setTold] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   const [starting, setStarting] = React.useState(false);
@@ -152,31 +165,49 @@ export function ConsentBanner({
                     ],
                     ['in_person', 'In the room', 'One microphone for everyone.'],
                   ] as const
-                ).map(([value, label, hint]) => (
-                  <label
-                    key={value}
-                    className={cn(
-                      'flex cursor-pointer items-start gap-2 rounded-md border p-2.5 text-sm',
-                      mode === value
-                        ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
-                        : 'border-[var(--border)]',
-                    )}
-                  >
-                    <input
-                      type="radio"
-                      name="capture-mode"
-                      value={value}
-                      checked={mode === value}
-                      onChange={() => setMode(value)}
-                      className="mt-0.5 size-4 accent-[var(--accent)]"
-                    />
-                    <span>
-                      <span className="font-medium">{label}</span>
-                      <span className="block text-xs text-[var(--fg-muted)]">{hint}</span>
-                    </span>
-                  </label>
-                ))}
+                ).map(([value, label, hint]) => {
+                  const unavailable = value === 'call' && !callOk;
+                  return (
+                    <label
+                      key={value}
+                      className={cn(
+                        'flex items-start gap-2 rounded-md border p-2.5 text-sm',
+                        unavailable ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                        mode === value
+                          ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
+                          : 'border-[var(--border)]',
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="capture-mode"
+                        value={value}
+                        checked={mode === value}
+                        disabled={unavailable}
+                        onChange={() => setMode(value)}
+                        className="mt-0.5 size-4 accent-[var(--accent)]"
+                      />
+                      <span>
+                        <span className="font-medium">{label}</span>
+                        <span className="block text-xs text-[var(--fg-muted)]">
+                          {unavailable
+                            ? 'This browser cannot hear a meeting tab: use Chrome or Edge on a computer.'
+                            : hint}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
+              {liveCapture ? (
+                <p className="mt-2 text-xs text-[var(--fg-muted)]">
+                  First time on this computer?{' '}
+                  <Link href="/sound-check" target="_blank" className="link-inline">
+                    Run a sound check
+                  </Link>{' '}
+                  (nothing is sent anywhere).
+                </p>
+              ) : null}
             </fieldset>
 
             <label
@@ -195,6 +226,15 @@ export function ConsentBanner({
             </label>
             {!canRecord && cannotRecordReason ? (
               <p className="text-sm text-[var(--fg-muted)]">{cannotRecordReason}</p>
+            ) : null}
+            {error ? (
+              <p
+                role="alert"
+                data-consent-error=""
+                className="rounded-md border border-[var(--danger)]/30 bg-[var(--danger-soft)] px-3 py-2 text-sm text-[var(--danger)]"
+              >
+                {error}
+              </p>
             ) : null}
           </div>
         )}
