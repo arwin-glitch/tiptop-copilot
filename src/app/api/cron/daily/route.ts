@@ -1,5 +1,6 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
 import { purgeNotes } from '@/lib/services/notes-purge';
+import { settleNotesFromRelay } from '@/lib/services/notes-bridge';
 import { timingSafeEqual } from 'node:crypto';
 import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
@@ -323,11 +324,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Copilot Notes (D-076): meetings out of the 7-day trash, and voice
-    // identifiers a year past their last use. Counts only.
+    // identifiers a year past their last use; and Arwin's notes that came
+    // back through the relay while no meeting page was open. Counts only.
     let notesStatus: string;
     try {
       const purged = await purgeNotes(store, organization.id);
-      notesStatus = `ok: ${purged.meetings} meetings and ${purged.voices} voice identifiers purged`;
+      const settled = await settleNotesFromRelay(store, organization.id, { force: true });
+      notesStatus = `ok: ${purged.meetings} meetings and ${purged.voices} voice identifiers purged; ${settled.settled} notes stored, ${settled.expired} requests expired`;
     } catch {
       notesStatus = 'failed';
       log.error('Cron Copilot Notes purge failed', { organizationId: organization.id });

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Send } from 'lucide-react';
+import { Loader2, Send } from 'lucide-react';
 import { meetingPagePath, NOTES_API } from '@/lib/notes/api';
 import {
   NOTES_LIMITS,
@@ -30,7 +30,16 @@ interface Message {
   text: string;
   parts?: AnswerPart[];
   failed?: boolean;
+  /** Arwin's routine is answering: the Ask message being waited on. */
+  pendingId?: string;
+  /** Waited long enough here: the answer will land in Ask Arwin. */
+  threadId?: string | null;
+  late?: boolean;
 }
+
+/** How long the panel keeps checking for an answer before pointing at Ask Arwin. */
+const ANSWER_WAIT_MS = 5 * 60_000;
+const ANSWER_POLL_MS = 3_000;
 
 export interface ChatPreset {
   scope: ChatScope;
@@ -43,9 +52,12 @@ export interface ChatPreset {
 
 /**
  * Ask Arwin about this meeting, a person, a company or every meeting (D-076).
- * Answers cite the lines they rest on as "[12:31 Dana Reyes]", each a jump to
- * that moment. It reads meeting content as data: nothing it says is acted on
- * by itself. "/" offers the saved recipes.
+ * The question goes to Arwin's Claude routine through the Ask bridge (zero
+ * spend), with the lines it is about; the answer arrives a little later and
+ * also shows in Ask Arwin. Without the bridge the matching lines are quoted
+ * at once. Answers cite the lines they rest on as "[12:31 Dana Reyes]", each
+ * a jump to that moment. Nothing an answer says is acted on by itself. "/"
+ * offers the saved recipes; a follow-up continues the same conversation.
  */
 export function ChatPanel({
   meetingId,
@@ -77,7 +89,60 @@ export function ChatPanel({
   const [question, setQuestion] = React.useState('');
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [asking, setAsking] = React.useState(false);
+  const [threadId, setThreadId] = React.useState<string | null>(null);
   const counter = React.useRef(0);
+  const timers = React.useRef(new Set<ReturnType<typeof setTimeout>>());
+  React.useEffect(() => {
+    const live = timers.current;
+    return () => {
+      for (const t of live) clearTimeout(t);
+      live.clear();
+    };
+  }, []);
+
+  /** Check for a pending answer until it lands, or point at Ask Arwin after a while. */
+  const waitFor = React.useCallback(
+    (bubbleId: number, messageId: string, thread: string | null) => {
+      const startedAt = Date.now();
+      const tick = async () => {
+        const res = await notesCall<Omit<NotesChatResponse, 'ok'>>(
+          'GET',
+          NOTES_API.chatAnswer(meetingId, messageId),
+        );
+        if (res.ok && res.status === 'answered') {
+          setMessages((list) =>
+            list.map((m) =>
+              m.id === bubbleId
+                ? {
+                    id: m.id,
+                    role: 'arwin',
+                    text: res.answer,
+                    parts: splitCitations(res.answer, res.citations),
+                    threadId: thread,
+                  }
+                : m,
+            ),
+          );
+          return;
+        }
+        if (Date.now() - startedAt > ANSWER_WAIT_MS) {
+          setMessages((list) => list.map((m) => (m.id === bubbleId ? { ...m, late: true } : m)));
+          return;
+        }
+        const timer = setTimeout(() => {
+          timers.current.delete(timer);
+          void tick();
+        }, ANSWER_POLL_MS);
+        timers.current.add(timer);
+      };
+      const first = setTimeout(() => {
+        timers.current.delete(first);
+        void tick();
+      }, ANSWER_POLL_MS);
+      timers.current.add(first);
+    },
+    [meetingId],
+  );
   const questionId = React.useId();
   const personId = React.useId();
   const companyId = React.useId();
@@ -109,18 +174,35 @@ export function ChatPanel({
       question: text,
       personEmail: scope === 'person' ? personEmail : null,
       companyDomain: scope === 'company' ? company : null,
+      threadId,
     });
-    setMessages((m) => [
-      ...m,
-      res.ok
-        ? {
-            id: counter.current++,
-            role: 'arwin',
-            text: res.answer,
-            parts: splitCitations(res.answer, res.citations),
-          }
-        : { id: counter.current++, role: 'arwin', text: res.message, failed: true },
-    ]);
+    const bubbleId = counter.current++;
+    if (res.ok && res.status === 'pending' && res.messageId) {
+      setThreadId(res.threadId);
+      setMessages((m) => [
+        ...m,
+        {
+          id: bubbleId,
+          role: 'arwin',
+          text: '',
+          pendingId: res.messageId ?? undefined,
+          threadId: res.threadId,
+        },
+      ]);
+      waitFor(bubbleId, res.messageId, res.threadId);
+    } else {
+      setMessages((m) => [
+        ...m,
+        res.ok
+          ? {
+              id: bubbleId,
+              role: 'arwin',
+              text: res.answer,
+              parts: splitCitations(res.answer, res.citations),
+            }
+          : { id: bubbleId, role: 'arwin', text: res.message, failed: true },
+      ]);
+    }
     setAsking(false);
   };
 
@@ -209,38 +291,61 @@ export function ChatPanel({
                   : 'rounded-bl-md border border-[var(--border)] bg-[var(--bg-raised)]',
             )}
             data-chat-message={m.role}
+            data-pending={m.pendingId ? '' : undefined}
           >
             {m.role === 'arwin' ? (
               <span className="text-micro mb-0.5 block font-semibold tracking-wider text-[var(--label-gold)] uppercase">
                 Arwin
               </span>
             ) : null}
-            {m.parts
-              ? m.parts.map((part, i) =>
-                  part.kind === 'text' ? (
-                    <React.Fragment key={i}>{part.text}</React.Fragment>
-                  ) : part.citation.meetingId === meetingId ? (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => onJump(part.citation.seq)}
-                      className="link-inline font-medium"
-                      data-citation=""
-                    >
-                      {part.citation.label}
-                    </button>
+            {m.pendingId ? (
+              <span className="flex items-start gap-2 text-[var(--fg-muted)]" role="status">
+                <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" aria-hidden />
+                <span>
+                  {m.late ? (
+                    <>
+                      Still working on it. The answer will land in{' '}
+                      <Link
+                        href={m.threadId ? `/ask?thread=${encodeURIComponent(m.threadId)}` : '/ask'}
+                        className="link-inline font-medium"
+                      >
+                        Ask Arwin
+                      </Link>{' '}
+                      too.
+                    </>
                   ) : (
-                    <Link
-                      key={i}
-                      href={meetingPagePath(part.citation.meetingId, part.citation.startMs)}
-                      className="link-inline font-medium"
-                      data-citation=""
-                    >
-                      {part.citation.label}
-                    </Link>
-                  ),
-                )
-              : m.text}
+                    'Arwin is looking through the meeting - usually under a minute.'
+                  )}
+                </span>
+              </span>
+            ) : m.parts ? (
+              m.parts.map((part, i) =>
+                part.kind === 'text' ? (
+                  <React.Fragment key={i}>{part.text}</React.Fragment>
+                ) : part.citation.meetingId === meetingId ? (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => onJump(part.citation.seq)}
+                    className="link-inline font-medium"
+                    data-citation=""
+                  >
+                    {part.citation.label}
+                  </button>
+                ) : (
+                  <Link
+                    key={i}
+                    href={meetingPagePath(part.citation.meetingId, part.citation.startMs)}
+                    className="link-inline font-medium"
+                    data-citation=""
+                  >
+                    {part.citation.label}
+                  </Link>
+                ),
+              )
+            ) : (
+              m.text
+            )}
           </li>
         ))}
       </ol>

@@ -21,6 +21,8 @@
 --   voice_identifiers      the encrypted voice identifiers themselves, server only
 --   recording_rules        never-record rules (title, attendee domain or address,
 --                          calendar)
+--   notes_requests         jobs for Arwin's Claude routine: write a meeting's
+--                          notes, or answer a question about meetings
 -- and Copilot's own notes go into the existing meeting_notes table with
 -- provider 'copilot', so the deal, company and network pages that already read
 -- meeting_notes pick them up.
@@ -632,6 +634,79 @@ comment on table voice_identifiers is
   'Encrypted voice identifiers (biometric). Server only: RLS on with no policy; never selected by default, never exported.';
 comment on table recording_rules is
   'Never-record rules: a matching meeting cannot be recorded.';
+
+-- --------------------------------------------------------- notes requests --
+--
+-- Zero spend: a meeting's notes and the meeting chat are written by Arwin's
+-- Claude routine (the Ask bridge's ask-bridge-answerer, on Arwin's plan), never
+-- by a paid API. The app fires the routine with everything it needs in the
+-- request (the routine cannot reach the app) and reads the answer back from
+-- the Slack relay. One row per job.
+--
+-- line_map holds line ids only (a cited id -> the seq range it stands for; for
+-- chat also the meeting, the moment and the speaker's name). `parts` holds a
+-- result's NOTES_RESULT_V1 parts while they arrive and is emptied once the
+-- notes are stored. No audio, ever.
+
+create table if not exists notes_requests (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  meeting_id uuid not null references meetings(id) on delete cascade,
+  kind text not null default 'notes' check (kind in ('notes', 'chat')),
+  status text not null default 'pending'
+    check (status in ('pending', 'ready', 'failed', 'expired')),
+  reason text check (reason is null or reason in ('stop', 'regenerate', 'template')),
+  -- Chat only: the pending Ask message the answer lands on, and its thread.
+  message_id uuid references chat_messages(id) on delete cascade,
+  thread_id uuid references chat_threads(id) on delete cascade,
+  template_id text check (template_id is null or char_length(template_id) <= 80),
+  meeting_day date,
+  requested_by uuid references auth.users(id) on delete set null,
+  fired_at timestamptz,
+  fire_attempts integer not null default 0 check (fire_attempts >= 0),
+  last_fire_at timestamptz,
+  line_map jsonb not null default '{}'::jsonb check (jsonb_typeof(line_map) = 'object'),
+  parts jsonb not null default '{}'::jsonb check (jsonb_typeof(parts) = 'object'),
+  payload_chars integer check (payload_chars is null or payload_chars >= 0),
+  omitted_lines integer not null default 0 check (omitted_lines >= 0),
+  -- Plain words for the page ("no answer came within a day"); never transcript text.
+  error text check (error is null or char_length(error) <= 300),
+  completed_at timestamptz,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists notes_requests_pending_idx
+  on notes_requests (organization_id, status, created_at);
+create index if not exists notes_requests_meeting_idx
+  on notes_requests (meeting_id, created_at desc);
+
+-- The request behind a Copilot note's current text ("Arwin is writing…").
+alter table meeting_notes add column if not exists notes_request_id uuid
+  references notes_requests(id) on delete set null;
+
+drop trigger if exists notes_requests_updated_at on notes_requests;
+create trigger notes_requests_updated_at before update on notes_requests
+  for each row execute function set_updated_at();
+
+alter table notes_requests enable row level security;
+drop policy if exists notes_requests_select on notes_requests;
+drop policy if exists notes_requests_insert on notes_requests;
+drop policy if exists notes_requests_update on notes_requests;
+drop policy if exists notes_requests_delete on notes_requests;
+create policy notes_requests_select on notes_requests
+  for select using (is_org_member(organization_id) and can_read_meeting(meeting_id));
+create policy notes_requests_insert on notes_requests
+  for insert with check (has_org_role(organization_id, 'member') and can_read_meeting(meeting_id));
+create policy notes_requests_update on notes_requests
+  for update using (has_org_role(organization_id, 'member') and can_read_meeting(meeting_id))
+  with check (has_org_role(organization_id, 'member'));
+create policy notes_requests_delete on notes_requests
+  for delete using (has_org_role(organization_id, 'member') and can_read_meeting(meeting_id));
+
+comment on table notes_requests is
+  'Jobs for Arwin''s Claude routine (zero spend): a meeting''s notes or a meeting chat question. Line ids only in line_map; result parts are cleared once stored. No audio.';
 
 -- No explicit grants: service_role inherits via the default privileges set in
 -- 20260101000600, and browser roles deliberately query nothing directly.

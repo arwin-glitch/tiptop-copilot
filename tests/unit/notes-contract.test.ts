@@ -106,7 +106,8 @@ describe('the migration matches the row types', () => {
 
   it('turns RLS on for every new table', () => {
     const created = [...SQL.matchAll(/create table if not exists ([a-z_]+)/g)].map((m) => m[1]);
-    expect(created).toHaveLength(12);
+    // The twelve tables of the recorder, plus notes_requests (Arwin's notes, zero spend).
+    expect(created).toHaveLength(13);
     for (const table of created) {
       const viaLoop = new RegExp(`'${table}'`).test(SQL);
       const direct = new RegExp(`alter table ${table} enable row level security`).test(SQL);

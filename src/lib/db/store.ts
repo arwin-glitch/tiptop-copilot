@@ -55,6 +55,7 @@ import type {
   NoteRecipe,
   NoteShareLink,
   NoteTemplate,
+  NotesRequest,
   RecordingRule,
   TranscriptSegment,
   VoiceIdentifier,
@@ -134,6 +135,7 @@ export interface TableMap {
   voice_profiles: VoiceProfile;
   voice_identifiers: VoiceIdentifier;
   recording_rules: RecordingRule;
+  notes_requests: NotesRequest;
 }
 
 export type TableName = keyof TableMap;

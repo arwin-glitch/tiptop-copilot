@@ -248,6 +248,18 @@ export interface AppEnv {
    */
   meetingFollowupFireUrl: string | undefined;
   meetingFollowupFireToken: string | undefined;
+  /**
+   * The most characters of a NOTES_REQUEST_V1 sent to Arwin's routine (the
+   * Ask bridge's trigger). A longer meeting is condensed to fit: consecutive
+   * lines merged, fillers dropped, then the middle trimmed with a marker.
+   */
+  notesFireMaxChars: number;
+  /**
+   * The Slack channel the routine posts NOTES_RESULT_V1 to, and the app reads
+   * it from. Defaults to the Ask relay channel; set a private channel so
+   * meeting notes stay out of a channel every member can read.
+   */
+  notesRelayChannelId: string;
 }
 
 export type NotesMode = 'off' | 'beta' | 'on';
@@ -365,6 +377,9 @@ export function env(): AppEnv {
     notesSharePepper: str('NOTES_SHARE_PEPPER'),
     meetingFollowupFireUrl: str('MEETING_FOLLOWUP_FIRE_URL'),
     meetingFollowupFireToken: str('MEETING_FOLLOWUP_FIRE_TOKEN'),
+    notesFireMaxChars: Math.min(Math.max(int('NOTES_FIRE_MAX_CHARS', 60_000), 8_000), 400_000),
+    notesRelayChannelId:
+      str('NOTES_RELAY_CHANNEL_ID') ?? str('ASK_RELAY_CHANNEL_ID') ?? 'C0C3JPW6PTJ',
   };
   return cached;
 }

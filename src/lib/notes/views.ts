@@ -8,6 +8,7 @@ import {
   type MeetingView,
   type NoteShareLink,
   type NoteTemplate,
+  type NotesRequestView,
   type ParticipantView,
   type SegmentView,
   type ShareLinkView,
@@ -145,6 +146,7 @@ export function toCopilotNoteView(
   note: MeetingNote,
   meetingId: string,
   changedSince: string | null,
+  request: NotesRequestView | null = null,
 ): CopilotNoteView {
   const generatedAt = note.generated_at ?? null;
   return {
@@ -161,6 +163,7 @@ export function toCopilotNoteView(
     stale: Boolean(
       generatedAt && changedSince && Date.parse(changedSince) > Date.parse(generatedAt),
     ),
+    request,
   };
 }
 

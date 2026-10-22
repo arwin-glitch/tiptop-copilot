@@ -172,9 +172,9 @@ test('Copilot Notes, from the calendar to a revoked share link', async ({
   await expect(page.getByText('Added to Tasks.')).toBeVisible();
   await expect(actions.getByRole('link', { name: 'In Tasks' }).first()).toBeVisible();
 
-  // 7. The Founder pitch template.
+  // 7. The Founder pitch template: Arwin's routine is asked to rewrite them.
   await notes.getByLabel('Template').selectOption({ label: 'Founder pitch' });
-  await expect(page.getByText('Notes rewritten with Founder pitch.')).toBeVisible();
+  await expect(page.getByText('Arwin is rewriting the notes with Founder pitch.')).toBeVisible();
   await expect(notes.getByLabel('Template')).toHaveValue('builtin:founder_pitch');
 
   await axe(page, '[data-meeting-workspace]');

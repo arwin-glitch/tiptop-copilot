@@ -103,6 +103,23 @@ export type TranscriberProvider = (typeof TRANSCRIBER_PROVIDERS)[number];
 export const CHAT_SCOPES = ['meeting', 'person', 'company', 'all'] as const;
 export type ChatScope = (typeof CHAT_SCOPES)[number];
 
+/**
+ * A job handed to Arwin's Claude routine (the Ask bridge, D-076): 'notes' is
+ * "write this meeting's notes", 'chat' a question about meetings asked
+ * through Ask. Nothing here calls a paid API: the routine runs on Arwin's
+ * Claude plan and answers through the Slack relay.
+ */
+export const NOTES_REQUEST_KINDS = ['notes', 'chat'] as const;
+export type NotesRequestKind = (typeof NOTES_REQUEST_KINDS)[number];
+
+/** pending → ready (the result arrived), failed (it could not be used) or expired (none came). */
+export const NOTES_REQUEST_STATUSES = ['pending', 'ready', 'failed', 'expired'] as const;
+export type NotesRequestStatus = (typeof NOTES_REQUEST_STATUSES)[number];
+
+/** Why the notes were asked for: after Stop, Regenerate, or another template. */
+export const NOTES_REQUEST_REASONS = ['stop', 'regenerate', 'template'] as const;
+export type NotesRequestReason = (typeof NOTES_REQUEST_REASONS)[number];
+
 export const SHARE_EXPIRY_DAYS = [7, 30, 90] as const;
 export type ShareExpiryDays = (typeof SHARE_EXPIRY_DAYS)[number];
 
@@ -450,6 +467,54 @@ export interface VoiceIdentifier {
   expires_at: IsoDateTime;
 }
 
+/**
+ * Where a line id the routine cites points. For notes the id is a seq and the
+ * entry is the run of lines it stands for (consecutive lines of one speaker
+ * are merged before they are sent); for chat the id is "L<n>" and the entry
+ * also names the meeting, the moment and the speaker, for "[12:31 Dana]".
+ */
+export interface NotesLineRef {
+  fromSeq: number;
+  toSeq: number;
+  meetingId?: Uuid;
+  startMs?: number;
+  speaker?: string;
+}
+
+/** One job for Arwin's routine: write a meeting's notes, or answer a question about meetings. */
+export interface NotesRequest {
+  id: Uuid;
+  organization_id: Uuid;
+  meeting_id: Uuid;
+  kind: NotesRequestKind;
+  status: NotesRequestStatus;
+  reason: NotesRequestReason | null;
+  /** Chat only: the pending Ask message the answer lands on, and its conversation. */
+  message_id: Uuid | null;
+  thread_id: Uuid | null;
+  template_id: string | null;
+  /** The meeting's day (YYYY-MM-DD) in the recorder's time zone, for due dates. */
+  meeting_day: string | null;
+  requested_by: Uuid | null;
+  /** When the routine's trigger accepted it; null while Copilot keeps trying. */
+  fired_at: IsoDateTime | null;
+  fire_attempts: number;
+  last_fire_at: IsoDateTime | null;
+  /** Line id → the lines it stands for. Ids only: never the words. */
+  line_map: Record<string, NotesLineRef>;
+  /** NOTES_RESULT_V1 parts received so far, by part number, until all have arrived. */
+  parts: Record<string, unknown>;
+  payload_chars: number | null;
+  /** Lines left out to fit NOTES_FIRE_MAX_CHARS. */
+  omitted_lines: number;
+  /** Why it failed or expired, in plain words. Never transcript text. */
+  error: string | null;
+  completed_at: IsoDateTime | null;
+  expires_at: IsoDateTime;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
 export interface RecordingRule {
   id: Uuid;
   organization_id: Uuid;
@@ -534,6 +599,8 @@ export interface CopilotNoteFields {
   /** 'team' for every Granola row; a Copilot row copies its meeting's. */
   visibility?: MeetingVisibility;
   owner_id?: Uuid | null;
+  /** The latest request for Arwin's notes (notes_requests), when there is one. */
+  notes_request_id?: Uuid | null;
 }
 
 /** A meeting_notes row written by Copilot. */
@@ -791,6 +858,29 @@ export interface CopilotNoteView {
   editedAt: IsoDateTime | null;
   /** The notes are older than a rename or a split/merge: regenerating would change them. */
   stale: boolean;
+  /**
+   * Arwin's notes, as asked for after Stop, Regenerate or a template change.
+   * While it is 'pending' the notes shown are the Quick notes (model 'none')
+   * or the previous ones; they are replaced when the result arrives.
+   */
+  request: NotesRequestView | null;
+}
+
+export interface NotesRequestView {
+  id: Uuid;
+  status: NotesRequestStatus;
+  reason: NotesRequestReason | null;
+  templateId: string | null;
+  requestedAt: IsoDateTime;
+  /** The routine was started. False while Copilot keeps trying, or when it is not connected. */
+  fired: boolean;
+  /** The routine's trigger and the relay are both set up, so the notes can arrive. */
+  connected: boolean;
+  completedAt: IsoDateTime | null;
+  /** Why it failed or expired, in plain words. */
+  error: string | null;
+  /** Lines left out of a very long meeting to fit what the routine is sent. */
+  omittedLines: number;
 }
 
 export interface ShareLinkView {
@@ -1197,12 +1287,25 @@ export interface NotesChatRequest {
   personEmail?: string | null;
   /** For scope 'company': a bare domain. */
   companyDomain?: string | null;
+  /** Continue this Ask conversation (a follow-up question). */
+  threadId?: Uuid | null;
 }
 
+/**
+ * POST /api/notes/meetings/[id]/chat, and GET ?messageId= while it is
+ * pending. With the Ask bridge set up the question goes to Arwin's routine
+ * as an Ask question ('pending': poll with the messageId); without it, the
+ * matching lines are quoted at once ('answered').
+ */
 export interface NotesChatResponse {
   ok: true;
+  status: 'answered' | 'pending';
+  /** Empty while pending. Citations read "[12:31 Dana Reyes]". */
   answer: string;
   citations: ChatCitation[];
+  /** The Ask conversation it went into (the bridge path): follow-ups continue it, and Ask lists it. */
+  threadId: Uuid | null;
+  messageId: Uuid | null;
 }
 
 /** POST /api/notes/meetings/[id]/share */

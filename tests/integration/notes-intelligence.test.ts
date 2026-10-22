@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AIProvider } from '@/lib/ai/provider';
-import { UnavailableAIProvider } from '@/lib/ai/unavailable';
 import type { AuthContext } from '@/lib/auth/session';
 import { resetEnvCache } from '@/lib/config/env';
 import { DEMO_IDS } from '@/lib/demo/ids';
@@ -208,14 +207,14 @@ afterAll(() => {
 
 /* ===================================================================== */
 
-describe('notes written by the model', () => {
-  it('Stop writes the notes through the model: typed lines verbatim, every point cited, the template picked', async () => {
+describe('notes after Stop, at zero spend', () => {
+  it('Stop writes Quick notes at once: typed lines verbatim, every point cited, the template picked', async () => {
     const { id, stopped } = await recordedAndStopped('## Acme\n- Ask about margins');
     expect(stopped).toMatchObject({ meeting: { status: 'ready' }, finalize: { queued: true } });
     const d = await detail(id);
     const note = d.note;
-    expect(note?.model).toBe('demo-offline-model');
-    expect(note?.promptVersion).toBe('meeting-notes@1.0.0');
+    expect(note?.model).toBe('none');
+    expect(note?.promptVersion).toBe('quick-notes@1.0.0');
     expect(note?.blocks.filter((b) => b.source === 'typed').map((b) => b.text)).toEqual([
       'Acme',
       'Ask about margins',
@@ -229,45 +228,32 @@ describe('notes written by the model', () => {
     const promise = note?.actionItems.find((a) => a.isPrincipalPromise);
     expect(promise).toMatchObject({ ownerName: 'Nick Tippmann' });
     expect(promise?.due).not.toBeNull();
+    // Arwin's notes are asked for (demo mode never calls the trigger).
+    expect(note?.request).toMatchObject({ status: 'pending', reason: 'stop', fired: false });
     // "intro" in the title, nothing in the CRM: the intro call template, chosen automatically.
     expect(d.template?.id).toBe('builtin:intro_call');
-    const usage = await harness.store.list('ai_usage', harness.auth.organizationId, {
-      eq: { operation: 'meeting.notes' },
-    });
-    expect(usage.length).toBe(1);
+    // No model is called for a meeting, ever: no usage row.
+    const usage = await harness.store.list('ai_usage', harness.auth.organizationId);
+    expect(usage.filter((u) => /meeting/.test(u.operation))).toHaveLength(0);
   });
 
-  it('without a model, the rules draft keeps the meeting usable; Regenerate uses the model once it is back', async () => {
-    aiOverride = new UnavailableAIProvider();
-    const { id, stopped } = await recordedAndStopped();
-    expect(stopped.meeting.status).toBe('ready');
-    expect((await detail(id)).note).toMatchObject({
-      model: 'none',
-      promptVersion: 'meeting-notes-draft@0.1.0',
-    });
-
-    aiOverride = null;
-    const again = await json<{ note: { model: string } }>(
-      await generateRoute.POST(req(`/api/notes/meetings/${id}/generate`, 'POST', {}), ctx({ id })),
-    );
-    expect(again.note.model).toBe('demo-offline-model');
-  });
-
-  it('a model that fails is recorded and the draft is kept', async () => {
-    const failing: AIProvider = {
+  it('even with the in-app model available, notes never use it', async () => {
+    const spy: AIProvider = {
       kind: 'anthropic',
       available: () => true,
-      generateStructured: async () => err('provider_unavailable', 'Down for the test.'),
-      generateText: async () => err('provider_unavailable', 'Down for the test.'),
-      runToolConversation: async () => err('provider_unavailable', 'Down for the test.'),
+      generateStructured: vi.fn(async () => err('provider_unavailable', 'Must not be called.')),
+      generateText: vi.fn(async () => err('provider_unavailable', 'Must not be called.')),
+      runToolConversation: vi.fn(async () => err('provider_unavailable', 'Must not be called.')),
     };
-    aiOverride = failing;
+    aiOverride = spy;
     const { id } = await recordedAndStopped();
-    expect((await detail(id)).note?.model).toBe('none');
+    await generateRoute.POST(req(`/api/notes/meetings/${id}/generate`, 'POST', {}), ctx({ id }));
+    expect(spy.generateStructured).not.toHaveBeenCalled();
+    expect(spy.runToolConversation).not.toHaveBeenCalled();
     const audits = (await harness.store.list('audit_events', harness.auth.organizationId, {
       eq: { action: 'notes.generated', entity_id: id },
     })) as AuditEvent[];
-    expect(audits[0]?.metadata).toMatchObject({ ai_error: 'provider_unavailable', model: 'none' });
+    expect(audits[0]?.metadata).toMatchObject({ model: 'none', arwin_requested: true });
   });
 
   it('chat answers from the transcript and cites "[0:40 Guest 1]"', async () => {
