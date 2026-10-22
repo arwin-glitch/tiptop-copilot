@@ -211,12 +211,13 @@ describe('migrations apply in filename order', () => {
   it('finds the migrations', () => {
     expect(files.length).toBeGreaterThan(0);
     // Pinned so an accidentally-deleted migration is caught. Bump it when a
-    // migration legitimately adds a table — most recently the public job
-    // board's three (job_board_settings, job_companies, job_postings), after
-    // booking_settings and booking_requests (the booking link),
-    // campaign_photos, crm_entry_tombstones, desktop_handoffs, the four
+    // migration legitimately adds a table — most recently
+    // booking_chat_questions (the booking assistant's AI answers) and the
+    // public job board's three (job_board_settings, job_companies,
+    // job_postings), after booking_settings and booking_requests (the booking
+    // link), campaign_photos, crm_entry_tombstones, desktop_handoffs, the four
     // campaign tables and mcp_tokens.
-    expect(tables.size).toBe(53);
+    expect(tables.size).toBe(54);
   });
 
   it('declares no SQL function before a table it reads', () => {

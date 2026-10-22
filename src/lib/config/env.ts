@@ -176,6 +176,28 @@ export interface AppEnv {
   askRelayChannelId: string;
 
   /**
+   * The booking page assistant's optional AI answers (D-078), on Arwin's own
+   * Claude plan: no API key, nothing billed. When both are set, a visitor's
+   * question that no written answer matches fires the booking assistant
+   * routine (a Claude Code routine with no data connectors; its prompt is in
+   * docs/BOOKING_CHAT_ROUTINE.md), and the app reads its answer back from the
+   * Slack relay with `askRelaySlackToken`. Either unset: the feature is off
+   * and the assistant answers from the written questions only. Copy both from
+   * the routine's "API trigger" settings on claude.ai (the URL ends in
+   * `/fire`); the token can only fire that one routine.
+   */
+  bookingChatFireUrl: string | undefined;
+  bookingChatToken: string | undefined;
+  /** Where the routine posts `BOOKING_ANSWER_V1`: the ask relay channel unless set. */
+  bookingChatRelayChannelId: string;
+  /**
+   * The Slack user IDs whose `BOOKING_ANSWER_V1` posts are read; everyone
+   * else's are ignored. The task routines' poster list unless set (the
+   * routines post as the same account).
+   */
+  bookingChatPosterIds: readonly string[];
+
+  /**
    * The private Slack channel the deal-sorter routine posts deal updates to
    * (`DEAL_UPSERT_V1` / `DEAL_SORTER_RUN_V1`), read with
    * `askRelaySlackToken` — which then also needs `groups:history`. Not a
@@ -285,6 +307,17 @@ export function env(): AppEnv {
     askRoutineToken: str('ASK_ROUTINE_TOKEN'),
     askRelaySlackToken: str('ASK_RELAY_SLACK_TOKEN'),
     askRelayChannelId: str('ASK_RELAY_CHANNEL_ID') ?? 'C0C3JPW6PTJ',
+    bookingChatFireUrl: str('BOOKING_CHAT_FIRE_URL'),
+    bookingChatToken: str('BOOKING_CHAT_TOKEN'),
+    bookingChatRelayChannelId:
+      str('BOOKING_CHAT_RELAY_CHANNEL_ID') ?? str('ASK_RELAY_CHANNEL_ID') ?? 'C0C3JPW6PTJ',
+    bookingChatPosterIds: ((): readonly string[] => {
+      const ids = (str('BOOKING_CHAT_POSTER_IDS') ?? str('TASK_RELAY_POSTER_IDS') ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
+      return ids.length > 0 ? ids : DEFAULT_TASK_RELAY_POSTER_IDS;
+    })(),
     dealRelayChannelId: str('DEAL_RELAY_CHANNEL_ID') ?? 'C0C40TVD4DP',
     dealRelayPosterIds: (str('DEAL_RELAY_POSTER_IDS') ?? '')
       .split(',')
@@ -708,6 +741,25 @@ export function capabilityReport(
       ? 'Set. A new question fires the answering routine immediately, and the app reads the answer back from the Slack relay channel itself.'
       : 'Not set. Questions wait for the answering routine on its hourly timer (via the GitHub relay) instead of starting instantly.',
     variables: ['ASK_ROUTINE_FIRE_URL', 'ASK_ROUTINE_TOKEN', 'ASK_RELAY_SLACK_TOKEN'],
+    required: false,
+  });
+
+  const bookingAssistant =
+    has(e.bookingChatFireUrl) && has(e.bookingChatToken) && has(e.askRelaySlackToken);
+  checks.push({
+    key: 'booking-assistant',
+    label: 'Booking page assistant: AI answers (optional)',
+    status: bookingAssistant ? 'ready' : 'optional-missing',
+    detail: bookingAssistant
+      ? `Set. A question the written answers do not cover goes to the booking assistant routine on Arwin's Claude plan (no API key), and its answer is read back from Slack (${e.bookingChatRelayChannelId}), from the listed posters only. Turn it on in the Booking tab's assistant panel.`
+      : 'Not set. The booking page assistant answers from the written questions only and books times; nothing else changes. Set it up with docs/BOOKING_CHAT_ROUTINE.md.',
+    variables: [
+      'BOOKING_CHAT_FIRE_URL',
+      'BOOKING_CHAT_TOKEN',
+      'ASK_RELAY_SLACK_TOKEN',
+      'BOOKING_CHAT_RELAY_CHANNEL_ID',
+      'BOOKING_CHAT_POSTER_IDS',
+    ],
     required: false,
   });
 

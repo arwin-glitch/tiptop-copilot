@@ -115,6 +115,7 @@ export type AuditAction =
   | 'booking.rescheduled'
   | 'booking.cancelled'
   | 'booking.synced'
+  | 'booking.chatbot_updated'
   | 'draft.created'
   | 'chat.question_asked'
   | 'brief.generated'

@@ -71,6 +71,30 @@ throughout.
   chatbot's "Monthly AI cost cap" field is gone, Settings' "Limits & cost" tab
   is now "Limits" and shows "AI cost: $0", and Diagnostics says "$0 (no paid
   AI key)". A dollar budget shows again only if a paid AI key is ever set.
+- **The booking page's Arwin now books and answers for free.** The chat on
+  the booking link no longer uses a paid AI at all. It is a quick helper with
+  buttons: book a 30-minute call, meet in person (coffee, lunch or dinner, at
+  a listed place or one the visitor suggests), ask a question, or leave a
+  message or deck. It shows the next open times, lets people add guests, and
+  books right in the chat through the same page rules as the form. Questions
+  are answered from a list Arwin writes in the Booking tab (up to 30
+  questions and answers), matched on the spot even when people word them
+  differently, with "Did you mean" suggestions. It never says a person will
+  confirm anything.
+- **Optional AI answers on Arwin's own Claude plan.** A question the list
+  does not cover can go to a separate "booking assistant" routine with no
+  access to mail, calendar or Slack history; its answer shows up in the chat
+  within a minute or two while the visitor keeps booking, and is cleaned first
+  (no links except the booking page, no emails or phone numbers, no promises).
+  No API key and no spend: it is off until the routine is set up
+  (`docs/BOOKING_CHAT_ROUTINE.md`) and switched on, and capped at 3 questions
+  per visitor, 5 per address a day and 15 a day in all (up to 30). Needs
+  `supabase/migrations/20261022200100_booking_chat.sql`; until then the chat
+  answers from the list only.
+- **An assistant panel for the Booking tab.** Turn Arwin on or off, write,
+  reorder and delete the questions and answers, try a question to see which
+  answer it gets, and switch AI answers on with their daily cap and a status
+  line ("Not set up yet" or "Working - last answer ...").
 
 - **Booking link fixes after the first live test.** In-person times no longer
   vanish for every date while Nick's Google Calendar is still set to another
@@ -130,6 +154,7 @@ throughout.
   made-up board addresses can no longer fill the server's disk, one visitor
   hammering the board is slowed down, and a company's hostile careers page,
   job description or robots.txt can no longer stall Copilot.
+
 
 - **A booking link people can use to ask Nick for time.** A public page at
   `/meet/<name>` (Nick's is `/meet/nick`), with its own TipTop look, his name,

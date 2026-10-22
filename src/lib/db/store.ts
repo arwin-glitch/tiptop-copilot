@@ -1,6 +1,7 @@
 import type {
   AiUsageRecord,
   AuditEvent,
+  BookingChatQuestion,
   BookingRequest,
   BookingSettingsRow,
   CalendarEvent,
@@ -117,6 +118,7 @@ export interface TableMap {
   job_board_settings: JobBoardSettings;
   job_companies: JobCompany;
   job_postings: JobPosting;
+  booking_chat_questions: BookingChatQuestion;
 }
 
 export type TableName = keyof TableMap;
