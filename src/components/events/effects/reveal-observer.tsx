@@ -13,6 +13,18 @@ import { useEffect, useRef } from 'react';
  */
 export function RevealObserver() {
   const ref = useRef<HTMLSpanElement>(null);
+  // The hero's CSS loops rest while it is off screen (event-effects.css).
+  useEffect(() => {
+    const root = ref.current?.closest('[data-event-root]');
+    const hero = root?.querySelector('.ev-section[data-block="hero"]');
+    if (!root || !hero || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) root.removeAttribute('data-hero-offscreen');
+      else root.setAttribute('data-hero-offscreen', '');
+    });
+    io.observe(hero);
+    return () => io.disconnect();
+  }, []);
   useEffect(() => {
     const root = ref.current?.closest('[data-event-root]');
     if (!root) return;

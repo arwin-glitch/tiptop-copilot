@@ -369,8 +369,14 @@
     transform: translate(3%, -1%);
   }
 }
-[data-event-root][data-motion='full'][data-looping] .ev-finish__grain {
+[data-event-root][data-motion='full'][data-looping][data-grain='on'] .ev-finish__grain {
   animation: ev-grain 0.9s steps(4) infinite;
+}
+/* The hero's CSS loops rest while it is off screen (reveal-observer.tsx);
+   canvas and WebGL engines already stop their own frames there. */
+[data-event-root][data-hero-offscreen] .ev-section[data-block='hero'],
+[data-event-root][data-hero-offscreen] .ev-section[data-block='hero'] * {
+  animation-play-state: paused !important;
 }
 [data-event-root] .ev-finish__paper {
   opacity: calc(var(--ev-paper) * 0.6);

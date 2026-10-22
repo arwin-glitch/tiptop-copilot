@@ -228,6 +228,8 @@ export function themeAttributes(theme: EventTheme): Record<string, string> {
     'data-bg-pattern':
       theme.background.engine === 'pattern' ? (theme.background.pattern ?? 'none') : 'none',
     'data-display-case': theme.typography.displayCase,
+    // Grain animates only when it can be seen (a near-zero grain is still).
+    'data-grain': theme.finish.grain >= 0.1 ? 'on' : 'off',
   };
 }
 

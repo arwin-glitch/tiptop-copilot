@@ -129,13 +129,21 @@ describe('tokens → CSS variables', () => {
     expect(attrs['data-rule']).toBe('gold');
     expect(attrs['data-btn-fill']).toBe('outline');
     expect(CHROMES).toContain(attrs['data-chrome']);
+    // Grain animates only when it can be seen.
+    expect(
+      themeAttributes({ ...theme, finish: { ...theme.finish, grain: 0.05 } })['data-grain'],
+    ).toBe('off');
+    expect(
+      themeAttributes({ ...theme, finish: { ...theme.finish, grain: 0.3 } })['data-grain'],
+    ).toBe('on');
   });
 
   it('builds a deep, readable accent band for every light palette', () => {
     for (const p of THEME_PRESETS) {
       const band = accentBand(p.theme.palette, false);
       expect(contrastRatio(band.fg, band.bg)).toBeGreaterThanOrEqual(4.5);
-      expect(contrastRatio(band.highlight, band.bg)).toBeGreaterThanOrEqual(3);
+      // Agenda times on the band are small text: 4.5 (design review).
+      expect(contrastRatio(band.highlight, band.bg)).toBeGreaterThanOrEqual(4.5);
       const dark = accentBand(p.theme.paletteDark, true);
       expect(dark.bg).toBe(p.theme.paletteDark.surfaceAlt);
     }
