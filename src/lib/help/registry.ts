@@ -9,6 +9,7 @@ import {
   UPDATES_TABS,
   type RecordsPageTabs,
 } from '@/lib/records-tabs';
+import { BOOKING_DEFAULT_TAB, BOOKING_PATH, BOOKING_TABS } from '@/lib/booking/tabs';
 import { tabHref } from '@/lib/util/page-tabs';
 import { GRAND_TOUR_ID, navTourId } from '@/lib/help/tour-ids';
 
@@ -476,8 +477,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
       },
       {
         target: 'calendar-bookings',
-        title: 'Booking requests',
-        body: 'Requests from the booking link open here. Approve checks the time again, then invites them.',
+        title: 'Booking link shortcut',
+        body: 'Opens the Booking tab: the public link, its open months and its bookings.',
         placement: 'left',
       },
     ],
@@ -491,6 +492,70 @@ export const HELP_PAGES: readonly HelpPage[] = [
       { x: 9.6, y: 8.4, w: 2, h: 1.6, tone: 'chip' },
       { x: 12.2, y: 7.6, w: 2, h: 4.4, tone: 'chip' },
       { x: 13, y: 9, w: 1.8, h: 1.4, tone: 'gold' },
+    ],
+  },
+  {
+    id: 'booking',
+    name: 'Booking',
+    href: BOOKING_PATH,
+    purpose:
+      'The public booking link: books at once, months you switch on, bookings, chatbot and rules.',
+    subtabs: BOOKING_TABS.map((t) => ({
+      key: t.key,
+      label: t.label,
+      blurb: t.blurb,
+      href: tabHref(BOOKING_PATH, t.key, BOOKING_DEFAULT_TAB),
+    })),
+    steps: [
+      navStep(
+        BOOKING_PATH,
+        'Your booking link',
+        'Booking holds the public link people book time on.',
+      ),
+      {
+        target: 'subtabs',
+        title: 'One section per tab',
+        body: `${BOOKING_TABS.map((t) => t.label).join(' · ')}. Tap one to switch.`,
+        placement: 'bottom',
+      },
+      {
+        target: 'booking-link-card',
+        title: 'Copy it, switch it',
+        body: 'Copy the link, open the page, and turn bookings on or off.',
+        placement: 'bottom',
+        grand: true,
+      },
+      {
+        target: 'booking-mode',
+        title: 'Booked at once',
+        body: 'A free time that passes the rules goes straight on the calendar. Approve first is optional.',
+        placement: 'top',
+      },
+      {
+        target: 'booking-why',
+        title: 'Why no times?',
+        body: 'Each day of the next two weeks, and the rule that closes it.',
+        placement: 'top',
+      },
+      {
+        target: 'booking-months',
+        title: 'Switch months on',
+        body: 'The months open on the link. On Availability, tap each month On or Off.',
+        placement: 'top',
+      },
+    ],
+    sketch: [
+      ...header(),
+      { x: 1, y: 3.8, w: 15, h: 1, tone: 'tabs', pin: 'subtabs' },
+      { x: 1, y: 5.6, w: 22, h: 2.6, tone: 'card', pin: 'booking-link-card' },
+      { x: 17.5, y: 6.2, w: 4.8, h: 1.4, tone: 'gold' },
+      { x: 1, y: 8.8, w: 10.6, h: 1.8, tone: 'card', pin: 'booking-mode' },
+      { x: 12.4, y: 8.8, w: 10.6, h: 1.8, tone: 'card' },
+      { x: 1, y: 11.2, w: 7, h: 1.6, tone: 'card' },
+      { x: 8.5, y: 11.2, w: 7, h: 1.6, tone: 'card' },
+      { x: 16, y: 11.2, w: 7, h: 1.6, tone: 'card' },
+      { x: 1, y: 13.4, w: 22, h: 1.2, tone: 'line', pin: 'booking-why' },
+      { x: 1, y: 14.9, w: 22, h: 0.9, tone: 'chip', pin: 'booking-months' },
     ],
   },
   {
@@ -718,8 +783,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         key: 'booking',
         label: 'Booking link',
-        blurb: 'The public page people book time on, its rules and its chatbot.',
-        href: '/settings?tab=booking',
+        blurb: 'Moved to its own Booking tab; this links there.',
+        href: '/booking',
       },
       { key: 'limits', label: 'Limits', blurb: 'Usage ceilings. AI runs on the Claude plan: $0.' },
       { key: 'data', label: 'Data & privacy', blurb: 'What is stored, and deleting it.' },
@@ -745,8 +810,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
       },
       {
         target: 'settings-booking',
-        title: 'Your booking link',
-        body: 'Turn the public page on, set places, hours and rules, and write the chatbot’s FAQ.',
+        title: 'Booking link moved',
+        body: 'The booking link has its own Booking tab now. This card opens it.',
         placement: 'top',
       },
     ],

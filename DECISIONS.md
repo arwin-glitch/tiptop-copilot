@@ -2847,6 +2847,14 @@ stored, so every request still waited for Approve. Now, no migration:
   two minutes and the request stays pending; a person approving it after that
   should check the calendar first, since the event may be there already.
 
+**Superseded by D-078** (part 2, the same evening): booking at once became
+how the link works, with no switch (`instant` is no longer read; the
+optional `approveFirst` replaces it, off by default), a held time instead of
+a pending request when calendar editing is off, and each booking's own page.
+`bookOnHostCalendar` and `booking.auto_approved` did not carry over: an
+instant booking is written by the submit itself, after its fresh re-check,
+through `lib/services/booking-calendar.ts`.
+
 ### D-076 — Copilot Notes: bot-free meeting notes, and the contract the recorder and the screens build on
 
 **Context.** Granola takes Nick's meeting notes today. Its transcripts label
@@ -3492,3 +3500,458 @@ connection; the board shares Copilot's root layout (manifest, service
 worker, desktop title bar and globals.css ship with its pages) until it gets
 a route group of its own; link-preview images use the default font; logos
 are typed by hand.
+
+---
+
+### D-078 — The booking link v2: booked at once, months switched on one by one, its own tab, and nothing to pay
+
+One decision in five parts, built in parallel and merged together: the
+Booking tab (part 1), the flows (part 2), the page's assistant (part 3), what
+Arwin asked for once the builders had started (part 4, the integration), and
+the fix-up after the security and UX reviews with Arwin's last two asks
+(part 5).
+Supersedes D-074's approve-first default, its 21-day horizon and its paid
+chatbot; the branch `booking-instant` (an auto-approve on top of D-074) is
+superseded by part 2.
+
+#### Part 1 — The Booking tab: a month planner, instant by default, and why no times
+
+**Context.** The booking link (D-074) lived in Settings > Booking link, opened a
+fixed 21 days, and waited for a person's Approve. Arwin (Oct 22, after the link
+went to Nick): it should book instantly ("didn't I mention the rules
+already?"), never say a person confirms, have its own tab rather than a
+Settings section, open month by month ("which month are we wanting to open"),
+and cost nothing. An empty public page with no way to see why was the other
+complaint.
+
+**Decision (the tab builder's part; bookings, cancel and reschedule are the
+flows builder's, the chatbot the chat builder's).**
+
+- **A top-level Booking tab** (`/booking`, Working, after Calendar), one
+  subtab per section in the URL (`?tab=`; `lib/booking/tabs.ts`): Overview,
+  Availability (`&view=planner|hours|rules`), Bookings (`&scope=upcoming|past|
+  messages`), Profile, Places, Chatbot, Calendars. No long scroll. Settings >
+  Booking link is a short card linking here and `/settings?tab=booking`
+  redirects; the Calendar tab's requests button is a small "Booking link"
+  shortcut, and `/calendar#booking-requests` (Today's line) goes on to
+  `/booking?tab=bookings#booking-requests`, where the approve-first drawer
+  opens as before.
+- **Months, not days** (`lib/booking/months.ts`, pure). Each month is its
+  own switch: `openMonths`, any of this month and the next eleven
+  (`MAX_MONTHS_AHEAD = 11`), in any mix (part 4 replaced the first "open
+  through <month>" window). Days: `closedDates`, `closedRanges` (with a
+  label) and `dateHours` (shorter hours on a day). Rules always win:
+  the planner can only close or shorten, never open what a rule closes (a
+  Friday, the notice, the 8:00 to 18:00 Central bounds, a day away). Past
+  entries drop off on save. `horizonDays` is gone; the busy read covers the
+  open months in parts of at most 60 days (the range reader takes 62).
+- **Every refusal has a rule code** (`ReasonCode` in `lib/booking/engine.ts`:
+  past, weekday, month_closed, date_closed, not_open, hours, notice,
+  in_person_paused, away, link_cap, meeting_cap, busy, waiting, stack) beside
+  its plain words; `slotProblem` still returns the words. `dayPlans` runs any
+  run of days through the same rules as the public page.
+- **The live preview** (`GET /api/booking/preview?month=` or `?from=&days=`,
+  signed in, any member, at most 42 days; `lib/services/booking-planner.ts`)
+  reads the calendar exactly as a visitor's page does and returns, per day
+  and per kind (call, coffee, lunch, dinner), the open start times or the
+  rule that closes it. Times only, never a title or guest. When the calendar
+  cannot be read it shows the rules alone, marked ("Visitors see no times
+  until it can be read"). The month grid, the day panel and Overview's "Why
+  no times?" (the next 14 days) all draw from it, so nobody stares at an
+  empty page again.
+- **A panel saves only its own fields** (`PATCH /api/booking/settings`, admin
+  or owner): the stored settings with only the sent `PANEL_KEYS` changed,
+  checked as a whole by the same strict schema. Never the photo (only an
+  upload) or the chatbot (its own route), so the panels and the chatbot never
+  undo each other. Planner taps save at once; hours, rules, profile and
+  places have a Save.
+- **Instant is the default** (`approveFirst: false`); Approve first is an
+  optional switch on Overview. Overview also shows one big on/off, the link
+  (copy, open, rename), and the checks: link on, calendar editing on, profile
+  filled, places set, open times in the next two weeks, and which months are
+  open (a fixed window ending inside two weeks warns). With calendar editing
+  off a banner at the top says "Turn on calendar editing so invites go out
+  automatically".
+- **Calendars** (`lib/booking/calendar-choices.ts`, pure; `GET
+  /api/booking/calendars`): by default his main calendar, every one he owns,
+  every one ticked in Google and every one turned on in Copilot count; a
+  switch on the Calendars list adds or drops any other (`calendarChoices`,
+  only real overrides kept). His main calendar always counts; a teammate's
+  own calendar never does ("Teammate · never counts").
+- **Bookings** reads the flows builder's `GET /api/booking/bookings?scope=`
+  and cancels through `POST /api/booking/bookings/[id]/cancel` (with an
+  optional note); until that lands the list says it is not switched on. The
+  tab's copy of the `LinkBooking` shape is `components/booking/tab/types.ts`.
+- **The chatbot's config** is `BookingConfig.chatbot` (`ChatbotConfig` from
+  `lib/booking/chatbot-config.ts`, read with a fallback to the older
+  `chatbotEnabled`/`faq`); the monthly AI spend setting is gone. The Chatbot
+  subtab mounts the assistant's own panel (part 3).
+
+**Known limits.** The busy read spans today to the end of the last open
+month (up to twelve months), in parts, cached a minute like before. The
+preview reads the saved settings, so a change shows after its save (planner
+taps save at once).
+
+#### Part 2 — The flows: booked at once, guests, and each booking's own page
+
+**Context.** Nick had the D-074 link in hand and Arwin asked for it to work
+without anyone watching it (Oct 22): "why does it wait for my approval.
+didnt i mention the rules already?", no "Arwin confirms" anywhere, "Add
+guests" like Calendly, and a page for each booking that says when and where
+and lets the visitor reschedule ("the reschedule will automatically move it")
+or cancel with a note that reaches Nick. And no spending: nothing here may
+use a paid service or the Anthropic API.
+
+**Decision (the flows: lib/services/booking.ts, booking-manage.ts,
+booking-calendar.ts, booking-alerts.ts).**
+
+- **Booked at once, by default.** A visitor who picks a free time that
+  passes every rule gets the event on Nick's main calendar immediately,
+  through `lib/calendar/write.ts` and its gates (editing grant, writable
+  calendar), with the host on it as the organizer (accepted), the visitor and
+  their guests invited, and `sendUpdates: 'all'`, so Google sends the
+  invitation. The server never trusts the page: from the caps to the insert
+  and the event, bookings run one at a time per organization, and the time is
+  checked again against a fresh read of the calendar (past its one-minute
+  cache) and every rule. Two visitors racing for one slot: one is booked, the
+  other gets "That time is no longer open" and the next three open times. A
+  fresh booking holds its own time until Google lists it (ten minutes). Every
+  abuse brake stays: the per-day link cap, three upcoming meetings or
+  messages per email (as booker or guest), three per sender address, six new
+  bookings a day for the whole link, the honeypot and the per-address limits
+  (part 5 makes the daily ones count cancelled bookings too).
+  "Approve first" remains an option on the Booking tab's Overview, off by
+  default (a renamed field, `approveFirst`, so the `instant: false` saved
+  under D-074 does not keep approval on); with it on, every booking waits as a
+  request, as before.
+- **Held when calendar editing is off** (part 5: also when Google is down or
+  refuses, and retried by itself on a backoff). The time is kept ("Your time is
+  held. The calendar invitation is on its way."), a Today line and the Booking
+  tab's banner say "Turn on calendar editing so invites go out automatically",
+  and once the grant exists the held times are placed by themselves (the push
+  job's half-hourly pass, a visit to the Booking tab or the booking's page),
+  each checked again, first come first served. One whose time was taken is
+  released (status declined, no person named) with a notice draft for the
+  compose window. A booking whose Google answer was lost is held "in doubt"
+  and placing it first looks for an event at its time whose description
+  carries its own page's link, so it is never made twice.
+- **Guests.** "Add guests" on the form, up to `maxGuests` (5 by default,
+  10 at most; `allowGuests` turns it off): plain addresses, deduped, never
+  the booker's own, never the host's or a teammate's. Stored in
+  `guest_emails`, invited as attendees, counted by the brakes.
+- **Each booking's own page** (`/meet/<slug>/b/<token>`, the same link): the
+  token is 32 random bytes (base64url) and only its SHA-256 is stored
+  (`manage_token_hash`, unique); it is in the event description ("Need to
+  reschedule or cancel? <url>"), on the confirmation, and in an
+  httpOnly cookie for that link's own pages, so revisiting `/meet/<slug>` says
+  "You have a meeting with Nick on <when>". The page (never indexed, no
+  referrer, braked per address) shows when (the visitor's zone and Central),
+  where (the provider and the video link, which the token holder is invited
+  to, or the place, area and map), who is coming, Add to calendar (an .ics
+  built in the browser), Reschedule and Cancel. Reschedule uses the booking
+  page's own time picker, offers the times next to the booking (its own row
+  and calendar entry left out), checks again, and moves the SAME Google event
+  (a patch with sendUpdates 'all'; never a new event), at most five times.
+  Cancel takes an optional note (500 characters) and deletes the event with
+  sendUpdates 'all', until the start time. A held time or a waiting request
+  moves or is released with no calendar write. If the event was deleted or
+  moved in Google Calendar meanwhile, the page shows that and the row follows
+  (no alert: the host did it).
+- **Nick hears about it in Copilot, never by email.** New bookings, moves,
+  visitor cancellations (`Pat Lee cancelled Tue 27 Oct 4:30 PM: "<note>"`) and
+  released holds are `booking:` keys in the phone and desktop alert feed
+  (push-alerts.ts, one notification for the kind, 8am to 8pm, a tap opens
+  the Booking tab), a Today line, and the Bookings API the Booking tab reads
+  (`GET /api/booking/bookings?scope=upcoming|past|messages`,
+  `POST /api/booking/bookings/[id]/cancel`, `GET .../[id]/notice`).
+- **No person confirms.** No visitor-facing text says Arwin, the team or
+  anyone confirms, reviews or approves.
+- **Zero spend.** No new service, key or plan; nothing in these flows calls
+  a model.
+- **Migration** `20261022200000_booking_v2.sql`: `guest_emails`,
+  `manage_token_hash`, `cancel_note`, `cancelled_at`, `cancelled_by`
+  (visitor, team, calendar), `rescheduled_count`, `previous_starts_at`, and
+  the status check widened to booked, held and cancelled. The old inline check
+  is dropped by its auto-name (`booking_requests_status_check`) and the new one
+  has a name of its own; no constraint takes a `<table>_<column>_check` name.
+  Without it the link keeps the D-074 behaviour: every booking waits as a
+  request, with no page to manage.
+
+**Known limits.**
+
+- The raw token is never kept, so an event made later (a held time placed,
+  a request approved) cannot carry the page's link in its description; the
+  visitor has it from the confirmation and the cookie.
+- Bookings are serialized in-process, like the rate limits: several app
+  instances would each have their own queue.
+- Alerts reach a computer within the desktop alerts' five-minute input cache
+  and a phone within the push job's half hour.
+
+#### Part 3 — The page's Arwin: guided, answers from a written list, AI only on Arwin's Claude plan
+
+**Context.** Arwin, Oct 22: "there shouldnt be any spending here. this should
+only connect to my claude like arwin ai on copilot.. we're trying to save
+money", and "no saying of 'arwin confirms'". D-074's chatbot ran on the
+repository's Anthropic key with a monthly spend cap.
+
+**Decision.**
+
+- **No paid AI, anywhere in the assistant.** The live-model path, its prompt
+  (`lib/booking/chat-prompt.ts`), its tools, its spend cap and its `ai_usage`
+  rows are gone. A unit test walks every runtime import from the assistant's
+  modules, routes and widgets and pins that none reaches the Anthropic SDK or
+  the app's model client (two data-only modules from `lib/ai`, zod shapes and
+  prompt text, arrive through the shared services and call nothing), and that
+  none of its files names an API key, the model client or the usage ledger.
+- **A guided helper** (`components/booking/booking-chat.tsx`): Book a 30-min
+  call, Meet in person (coffee, lunch or dinner as configured), Ask a
+  question, Leave a message or deck. It shows the engine's next open times
+  (two a day, eight a page, "More times"), the listed places (and "suggest a
+  place" when allowed), guests when the link allows them (`allowGuests`,
+  `maxGuests`, read from the stored settings with defaults: on, five), then
+  name, email, company and a note, and books through the public request route
+  exactly like the form (`source: 'chatbot'`), handling `booked`, `held`,
+  `pending` and `message`, and a taken time by offering the next ones. It only
+  accepts a manage link back into this site. Copy never says a person
+  confirms or reviews.
+- **Answers without AI** (`lib/booking/faq.ts`, pure, also used by the panel's
+  test box): Arwin writes up to 30 questions and answers (question 200
+  characters, answer 800) in the Booking tab; a visitor's words are matched
+  locally: normalised, filler words dropped, a light stem, common synonyms
+  folded together ("how much do you invest" meets "check size"), word overlap
+  weighted towards the written question and lightly towards its answer, a
+  bonus for a phrase in order. At 0.5 and above it answers word for word; the
+  next three closest become "Did you mean" chips. A few answers are built from
+  the public card and the settings only (who the host is, kinds and length of
+  meetings, places, guests, reschedule and cancel, time zone); a written one
+  wins a tie. Free text that asks to book ("can we grab coffee?") starts that
+  flow instead. Visitor text is data, never instructions.
+- **Settings** (`lib/booking/chatbot-config.ts`, `ChatbotConfig = { enabled,
+  faqItems, aiAnswers, dailyAiCap }`) live inside the booking settings
+  document as `chatbot`, read field by field; until saved, the old
+  `chatbotEnabled` switch and free-text `faq` stand in (Q:/A: pairs, or one
+  answer per line with the words before a colon as its question).
+  `PATCH /api/booking/chatbot` (admin or owner, same origin, zod-strict, 64 KB)
+  merges into `settings.chatbot` (and the old switch) and changes nothing else
+  in the document; audited by counts only (`booking.chatbot_updated`).
+- **Optional AI answers on Arwin's own Claude plan** (`lib/booking/chat-bridge.ts`):
+  a question nothing matches, with AI answers on in the panel and
+  `BOOKING_CHAT_FIRE_URL`, `BOOKING_CHAT_TOKEN` and the relay's read token all
+  set, is kept in `booking_chat_questions` and fires a dedicated routine with
+  no data connectors (`docs/BOOKING_CHAT_ROUTINE.md` has its exact prompt) as
+  `BOOKING_QUESTION_V1` plus one backticked JSON object: the question (300
+  characters, control characters and backticks stripped) and named public
+  facts only (host name, firm, the card's title and bio, the written answers,
+  the offers, the next six call times in the visitor's zone). Firing the
+  routine's trigger starts it on Arwin's plan; it is not a model call and
+  bills nothing. The routine's only action is one Slack post,
+  `BOOKING_ANSWER_V1` plus `{question_id, answer}`, to a private channel of
+  its own (`BOOKING_CHAT_RELAY_CHANNEL_ID`, no default; part 5); while the
+  widget polls (`GET
+  /api/meet/[slug]/chat/answer`, every 4 seconds for 3 minutes, 90 per address
+  per 10 minutes) the app reads that channel at most every 3 seconds, takes
+  posts from `BOOKING_CHAT_POSTER_IDS` only (no default, and never an account
+  another relay trusts; part 5), matches the question id, and makes the
+  answer plain: no markup,
+  no link but the booking page's own, no email address or phone number, every
+  sentence promising that a person will confirm, review or get back dropped,
+  600 characters at most. A question waiting five minutes expires; a refused
+  trigger expires it at once. On timeout the widget offers "Leave this as a
+  message for Nick".
+- **Caps** hold whatever is set: 3 per visitor session (the widget's own
+  random id, in memory), 5 per visitor address a day and the panel's daily
+  total (15 by default, 30 at most), both counted from the table and checked
+  and kept one at a time per organization, so they hold across restarts and
+  cannot be raced. Past any cap, or with the table missing, the assistant
+  answers from the written list and offers a message.
+- **Migration** `20261022200100_booking_chat.sql`: additive and idempotent;
+  members read, browser roles write nothing (the server writes with the
+  service role); the status check is named
+  `booking_chat_questions_status_allowed` (dropped, then added), never an
+  auto-name.
+
+**Known limits.**
+
+- The per-session cap trusts the widget's id; the per-address and daily caps,
+  counted from the table, are the real brakes.
+- The relay read is the Ask relay's: the last 100 messages of the channel. A
+  very busy channel could push an answer out of reach within the wait.
+- A Booking tab panel save writes the stored document back with only its
+  own fields changed, the `chatbot` as last read: a tab save and an assistant
+  panel save at the very same moment could still cross.
+
+#### Part 4 — The integration: months switched on freely, deletions in Google, Fyxer's link, zero spend in the UI
+
+**Context.** Arwin, after the builders started: "we want to have options to
+turn on schedules for a specific month freely"; a live test booking whose
+event was deleted from Nick's calendar still held its day's place under the
+two-a-day cap; Fyxer (which Nick uses) rewrote booking events a few seconds
+after they were made with its own "Need to reschedule? Choose a new time"
+link ("it should route to the landing page we just made for the booking");
+and the Settings and chatbot screens still showed dollar amounts ("it should
+be free why does it have 25 bucks").
+
+**Decision.**
+
+- **Months, each switched on by itself.** `openMonths: string[]` (`YYYY-MM`),
+  any of this month and the next 11, non-contiguous allowed (only December;
+  January and March). With nothing stored, this month and the next. A month
+  not on the list offers nothing: the engine skips it whole, the public page,
+  the preview and "Why no times?" ("November isn't open on the link") all
+  read it, and no count of days caps an open month (the notice still applies;
+  a month past the next 11 is "too far ahead"). An older stored
+  `openThrough`/`rollingMonths`/`closedMonths` reads as the same months
+  (`legacyOpenMonths`). The Availability strip is twelve On/Off chips (tap to
+  flip) with each month's open-time count from the engine
+  (`GET /api/booking/preview?counts=1`), "Open next 3 months" (this month and
+  the next two) and "Close all", then the month grid for closed days and
+  shorter hours. A save drops past months and refuses one past the next 11.
+- **Deleted in Google is cancelled.** The engine's own calendar read
+  (`lib/booking/availability.ts`) now also says which events it saw; a
+  booked or approved link booking whose event is missing there (its calendar
+  and its day were read, and it is more than ten minutes old) gets one
+  confirming look (`getEvent`; at most five a pass, each event at most every
+  five minutes, so no storm): gone or cancelled, it becomes `cancelled` with
+  `cancelled_by: 'calendar'` (declined before the v2 migration), frees its
+  time and its place under the caps at once, sends no alert and makes no
+  write, and the Booking tab shows "Cancelled in Google". An event moved in
+  Google moves its booking (`lib/services/booking-sync.ts`).
+- **Another tool's reschedule link never stays on a booking event.** For
+  booking-link events only (by the event id on the booking row), Copilot's
+  own description ends "Need to reschedule or cancel? <the booking's page>".
+  About 18 seconds after it creates or moves the event (an in-process timer,
+  harmless if the process restarts) and whenever the engine's normal read
+  sees the event, a description holding a third-party reschedule or cancel
+  link (fyxer.com, vimcal.com, calendly.com reschedulings/cancellations) is
+  put back to Copilot's text through `lib/services/booking-calendar.ts`
+  (write.ts gates) with `sendUpdates: 'none'`, so guests' copies change
+  quietly. At most once per event per change (its move count), recorded in
+  `description_cleaned_at`/`description_cleaned_rev` (and in memory before
+  the migration), so Copilot and the other tool never take turns.
+- **Zero spend in the UI.** No dollar amount or AI cost field anywhere unless
+  a paid AI key is configured; where cost shows, "$0: AI runs on the Claude
+  plan" (Settings, Diagnostics). The assistant's daily cap is a count of
+  answers, not money.
+- **Wiring.** The Chatbot subtab mounts the assistant's panel; the Bookings
+  subtab reads the real `LinkBooking` (plus `visitorTimeZone` and
+  `cancelledBy`); guest settings (`allowGuests`, `maxGuests`) sit under
+  Availability > Rules; Today's "requests waiting" line opens the Booking
+  tab's drawer; the dead chat-fill and chat-mode code is gone.
+
+**Known limits.**
+
+- An event made after the booking (a held time placed, a request approved)
+  has no page link to put back (the token is never kept): its restored
+  description ends without one.
+- A cleanup the same tool undoes within the same change stays undone.
+- The description check reads the saved video link at the time it runs.
+
+#### Part 5 — The fix-up: a booking never waits for a person, the brakes hold, and a calendar card
+
+**Context.** A security review and a UX review ran on the builders'
+branches while they were merged, and Arwin asked two more things. About a
+booking that could not be written to Nick's calendar falling back to Approve:
+"this should be bypassed." Looking at the live page: "there should be a card
+on the right like a calendar that shows when is that person booked or if he
+has any booked time."
+
+**Decision.**
+
+- **Instant never waits for a person.** When a free time cannot be written
+  at once (no editing grant, no writable main calendar, Google not answering
+  or refusing, an answer lost) it is `held`: its time stays blocked for every
+  other visitor, the visitor sees the neutral held copy, and Copilot books it
+  by itself (`placeHeldBookings`, `lib/booking/holds.ts`). Waiting for the
+  grant: tried on every pass, and at once from the OAuth callback when the
+  grant arrives (`after()`). A Google fault: tried again after about 1, 5, 15
+  and 60 minutes, then on every pass, with an in-process timer for the next
+  try and the alerts job now running the pass on every tick (each minute for
+  meetings, each half hour). Only a time that is truly no longer free
+  releases it (declined, no person named, a notice draft for someone to
+  send). Held "in doubt" (claimed_at) whenever Google may have made the event,
+  so the next try looks first, by the page link or (an event made when a hold
+  was placed) by the booker on its invite: never two events. New columns
+  `hold_reason`, `hold_attempts`, `hold_next_try_at` (in
+  `20261022200000_booking_v2.sql`; in memory before it). The Booking tab shows
+  such a booking as "Booking…" with the reason, when it tries next, and Try
+  now (`POST /api/booking/bookings/[id]/retry`); never Approve or Decline.
+  Before the v2 migration a free time is still booked at once as `approved`
+  when the calendar can be written (as master's first instant booking did),
+  and audited `booking.v2_missing`; only the old status check is read as "not
+  migrated", any other check failure is a real error.
+- **The daily brakes count every meeting booked in the last 24 hours,
+  cancelled or declined too** (booking and cancelling in a loop sent
+  invitations from Nick's calendar without end): six for the link, three per
+  person and four per sender address, addresses compared as one inbox
+  (lower-case, no +tag, Gmail dots ignored; `normalizeAddress`), as booker or
+  guest; ten guest invitations a day for the whole link; no guest at the host
+  side's own domains (free mail domains excepted), so team@ cannot fan out.
+  The hourly per-address limiter is charged only once the time passes the
+  check, booker and guests on separate keys, so naming someone in failed
+  requests never locks them out. The end-to-end demo server loosens the daily
+  ones (`E2E_BOOKING_BRAKES=relaxed`, honoured only with DEMO_MODE).
+- **The saved video link shows only on a booked meeting's page**, never on a
+  requested, held, cancelled or declined one.
+- **The fresh check really is fresh.** The calendar cache keeps a generation
+  per organization, bumped by every invalidation, and a read that began
+  before one never stores its answer; `fresh` reads skip the cache. A slow
+  page read can no longer put back the calendar from before Nick's new
+  meeting for the booking check to trust.
+- **An event no person approved carries no visitor text.** Instant and
+  placed events say "Their note and deck link are on the Booking tab in
+  Copilot." instead of the note and deck (Google emails the description to
+  every guest, and the assistant routines read Nick's calendar); names in
+  titles are cut to 60 characters. An approved request keeps its note.
+- **One change at a time, Approve included.** Approve runs inside the
+  organization's lock; a cancel or move of a request being approved is
+  refused for the claim's two minutes. A cancelled hold "in doubt", or a
+  booked row whose event id was never kept, finds its event and deletes it.
+  A move that finds the event deleted in Google marks the booking cancelled;
+  a move re-checks that in person is still offered; the move's "ignore its
+  own time" rule drops a calendar entry only when it is the booking's own
+  event. Anything that throws after Google made an event leaves a hold in
+  doubt, never a booked row without its event.
+- **The assistant's relay is its own.** `BOOKING_CHAT_RELAY_CHANNEL_ID` and
+  `BOOKING_CHAT_POSTER_IDS` have no defaults; AI answers stay off unless the
+  channel is not the Ask or deal relay and no poster is a task or deal relay
+  poster (`bookingChatRelayProblem`, shown in the setup check). A prompt-
+  injected answer can then never pass for a task, a briefing or a queued
+  email. Links are caught in capitals and with spelled-out dots; questions
+  are deleted after 30 days.
+- **The public page's calendar card.** Three columns from 1280px (the
+  host's card, the form, a Calendly-style month calendar); narrower, the
+  calendar sits above the times and replaces the day chips (the reschedule
+  picker uses it too). Arrows go only to the months open on the link. Each
+  day is open (with its count; pick it to see its times), booked (a meeting
+  day with every time taken: busy, the caps, the back-to-back rule, an earlier
+  booking) or not offered, and the device's own booking is "Your meeting",
+  a link to its page. The slots API adds only `days: {date, state}` and
+  `months`; never why a day is closed. A grid with arrow keys, Home, End,
+  Page Up and Page Down, and labels like "Thursday 12 November, 4 open times".
+- **UX fixes.** A typed guest counts when the form is sent (added on blur
+  too); the remembered-booking banner reads in-person times in Central, with
+  the zone, and a pending request as a request; a host's cancel note is a
+  private note (labelled "Your note", 500 characters, the toast says whether
+  Google told anyone); Add to calendar only for a booked meeting, with a UID
+  that survives a move and a SEQUENCE; the call link survives a reschedule;
+  "Book a time" (the heading and the link) when booking is instant; "Why no times?"
+  picks the reason by rule, not wording ("Busy", not "Fully busy"), and shows
+  the words beside the chip (phones have no hover); a tapped planner day
+  scrolls into view on a phone; the tour's month step lands on Overview's
+  months check; the editing check's link starts the grant; fine checks are a
+  title alone on a phone; Today says when holds are retrying rather than
+  waiting for editing.
+
+**Known limits.**
+
+- Holiday calendars mark their days free, so a switched-on holiday calendar
+  does not close a day; the Calendars copy says so, and the day is closed in
+  Availability.
+- The calendar lock is still per process; a database exclusion constraint
+  was not added (a Google move onto another booking's time would then fail
+  to sync).
+- Every guest can open the booking's page and move or cancel it for everyone
+  (the token is in the event description), as on Calendly; recorded, not
+  changed.
+- The in-process retry timer is lost on a restart; the alerts job and every
+  visit pick the hold up again.

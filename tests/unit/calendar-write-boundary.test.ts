@@ -4,13 +4,14 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * Where calendar writes can come from, read from the source. Changing an
- * event is a person's tap on the Calendar tab and nothing else: no routine,
- * cron job, AI tool, relay reader, the pings or the parity check can reach a
- * write, and nothing anywhere defaults to emailing guests. The one other
- * caller is the booking link's core (D-074): a person's Approve in the
- * Calendar tab's panel, or, with Instant booking on, the request just sent,
- * once, inside the booking service. The public page, its routes and its
- * chatbot never name a write.
+ * event is a person's tap on the Calendar tab, or the booking link's own
+ * module (lib/services/booking-calendar.ts, D-074 and D-078): a person's
+ * Approve, a visitor's instant booking, a held time placed once editing is
+ * on, and the booking's own page moving or cancelling it, each after the time
+ * was checked again. No routine, AI tool, relay reader, the pings or the
+ * parity check can reach a write; the push job only places held times; and
+ * nothing anywhere defaults to emailing guests. The public pages and the
+ * chatbot name no write themselves.
  */
 
 const SRC = join(process.cwd(), 'src');
@@ -29,40 +30,67 @@ const SOURCES = files(SRC).map((file) => ({
 }));
 
 describe('calendar writes', () => {
-  it('only the Calendar tab’s edit route and the booking approval import the write module', () => {
+  it('only the Calendar tab’s edit route and the booking link’s write module import it', () => {
     const importers = SOURCES.filter((s) => /from ['"][^'"]*calendar\/write['"]/.test(s.text)).map(
       (s) => s.rel,
     );
     expect(importers.sort()).toEqual([
       'app/api/calendar/events/route.ts',
+      'lib/services/booking-calendar.ts',
+    ]);
+    // The booking link's writes (D-078): one create, one move, one delete, each
+    // telling the guests through Google (sendUpdates 'all' via notify 'send'),
+    // and the booking's own description put back after another tool (Fyxer)
+    // added its reschedule link, telling nobody ('dont_send').
+    const writes = SOURCES.find((s) => s.rel === 'lib/services/booking-calendar.ts')!.text;
+    expect(writes.match(/createCalendarEvent\(/g)).toHaveLength(1);
+    expect(writes.match(/updateCalendarEvent\(/g)).toHaveLength(1);
+    expect(writes.match(/deleteCalendarEvent\(/g)).toHaveLength(1);
+    expect(writes.match(/notify: 'send'/g)).toHaveLength(2);
+    const move = /export async function moveLinkEvent[\s\S]*?\n}\n/.exec(writes)?.[0] ?? '';
+    expect(move).toMatch(/'send',\n\s*\);/);
+    const restore =
+      /export async function restoreLinkDescription[\s\S]*?\n}\n/.exec(writes)?.[0] ?? '';
+    expect(restore).toMatch(/\{ description: input\.description \},\s*'dont_send',?\s*\)/);
+    expect(writes.match(/'dont_send'/g)).toHaveLength(1);
+    expect(writes).not.toMatch(/recolorCalendarEvent|relabelCalendarEvent|respondToCalendarEvent/);
+    // Reached from the booking service (Approve, an instant booking), the
+    // booking's own page and held times (booking-manage), and the
+    // description put back (booking-sync) alone.
+    const users = SOURCES.filter((s) => /from ['"]\.\/booking-calendar['"]/.test(s.text)).map(
+      (s) => s.rel,
+    );
+    expect(users.sort()).toEqual([
+      'lib/services/booking-manage.ts',
+      'lib/services/booking-sync.ts',
       'lib/services/booking.ts',
     ]);
-    // In the booking service one core calls it, with the Send, and only
-    // Approve and Instant booking reach that core.
+    const sync = SOURCES.find((s) => s.rel === 'lib/services/booking-sync.ts')!.text;
+    expect(sync).not.toMatch(/createLinkEvent|moveLinkEvent|deleteLinkEvent/);
     const booking = SOURCES.find((s) => s.rel === 'lib/services/booking.ts')!.text;
-    expect(booking.match(/createCalendarEvent\(/g)).toHaveLength(1);
-    expect(booking).not.toMatch(/updateCalendarEvent|deleteCalendarEvent|recolorCalendarEvent/);
-    const fn = (name: string) =>
-      new RegExp(`\\n(?:export )?async function ${name}\\b[\\s\\S]*?\\n}\\n`).exec(booking)?.[0] ??
-      '';
-    const core = fn('bookOnHostCalendar');
-    expect(core).toMatch(/createCalendarEvent\(/);
-    expect(core).toMatch(/notify: 'send'/);
-    // The core itself, Approve, and Instant booking: nothing else.
-    expect(booking.match(/\bbookOnHostCalendar\(/g)).toHaveLength(3);
-    expect(fn('approveBookingRequest')).toMatch(/bookOnHostCalendar\(ctx, /);
-    expect(fn('bookInstantly')).toMatch(
-      /bookOnHostCalendar\(\{ store, organizationId, userId: null \}/,
-    );
-    // Instant booking runs from the submit alone, after the row is kept and
-    // audited, and only with the switch on.
-    expect(booking.match(/\bbookInstantly\(/g)).toHaveLength(2);
-    const submit = fn('submitBookingRequest');
-    expect(submit).toMatch(/if \(!config\.instant\) return[\s\S]*?bookInstantly\(/);
-    expect(submit.indexOf('bookInstantly(')).toBeGreaterThan(
-      submit.indexOf("action: 'booking.requested'"),
-    );
-    // And the service is reached for Approve from the signed-in panel route alone.
+    // Approve, an instant booking (bookOnCalendar), and an instant booking
+    // before the v2 migration is run (keepWithoutV2, kept as approved).
+    expect(booking.match(/createLinkEvent\(/g)).toHaveLength(3);
+    expect(booking).not.toMatch(/moveLinkEvent|deleteLinkEvent/);
+    const approve =
+      /export async function approveBookingRequest[\s\S]*?\n}\n/.exec(booking)?.[0] ?? '';
+    // One booking change at a time: Approve runs inside the organization's lock.
+    expect(approve).toMatch(/oneAtATime\(ctx\.organizationId, \(\) => approveUnlocked\(/);
+    const approveBody = /async function approveUnlocked[\s\S]*?\n}\n/.exec(booking)?.[0] ?? '';
+    expect(approveBody).toMatch(/createLinkEvent\(/);
+    // Every write there comes after the time was checked again, fresh.
+    const submit =
+      /export async function submitBookingRequest[\s\S]*?\n}\n/.exec(booking)?.[0] ?? '';
+    expect(submit.indexOf('fresh: true')).toBeGreaterThan(0);
+    expect(submit.indexOf('slotProblem(')).toBeGreaterThan(0);
+    expect(submit.indexOf('slotProblem(')).toBeLessThan(submit.indexOf('bookOnCalendar('));
+    expect(submit.indexOf('slotProblem(')).toBeLessThan(submit.indexOf('keepWithoutV2('));
+    expect(submit).not.toMatch(/createLinkEvent\(/);
+    for (const name of ['bookOnCalendar', 'keepWithoutV2']) {
+      // Defined once and called once, from the submit.
+      expect(booking.match(new RegExp(`\\b${name}\\(`, 'g'))).toHaveLength(2);
+    }
+    // Approve is reached from the signed-in panel route alone.
     const approvers = SOURCES.filter((s) => /\bapproveBookingRequest\(/.test(s.text)).map(
       (s) => s.rel,
     );
@@ -70,6 +98,10 @@ describe('calendar writes', () => {
       'app/api/booking/requests/[id]/route.ts',
       'lib/services/booking.ts',
     ]);
+    // The job reaches a write only by placing held times, each checked again.
+    const cron = SOURCES.find((s) => s.rel === 'app/api/cron/push/route.ts')!.text;
+    expect(cron).toMatch(/placeHeldBookingsForAll\(/);
+    expect(cron).not.toMatch(/createLinkEvent|moveLinkEvent|deleteLinkEvent|calendar\/write/);
   });
 
   it('the public booking page, its routes and its chatbot name no write at all', () => {
@@ -79,7 +111,13 @@ describe('calendar writes', () => {
         s.rel.startsWith('app/api/meet/') ||
         s.rel.startsWith('lib/booking/') ||
         s.rel.startsWith('components/booking/booking-page') ||
-        s.rel.startsWith('components/booking/booking-chat'),
+        s.rel.startsWith('components/booking/booking-chat') ||
+        s.rel.startsWith('components/booking/booking-manage') ||
+        s.rel.startsWith('components/booking/booking-confirmation') ||
+        s.rel.startsWith('components/booking/booking-details') ||
+        s.rel.startsWith('components/booking/slot-picker') ||
+        s.rel.startsWith('components/booking/month-calendar') ||
+        s.rel.startsWith('components/booking/guest-list'),
     );
     expect(publicSide.length).toBeGreaterThan(8);
     for (const { rel, text } of publicSide) {
@@ -158,11 +196,20 @@ describe('calendar writes', () => {
     ]);
     const start = SOURCES.find((s) => s.rel === 'app/api/integrations/google/start/route.ts')!;
     expect(start.text).toMatch(/searchParams\.get\('calendar'\) === '1'/);
-    // The "Turn on calendar editing" links: Settings and the Calendar tab's view-only note.
+    // The "Turn on calendar editing" links: Settings, the Calendar tab's
+    // view-only note, the Booking tab's banner and its Overview check, and
+    // Today's line about held booking times (D-078: bookings are held until
+    // it is on).
     const linkers = SOURCES.filter((s) => /google\/start\?calendar=1/.test(s.text)).map(
       (s) => s.rel,
     );
-    expect(linkers.sort()).toEqual(['app/(app)/calendar/page.tsx', 'app/(app)/settings/page.tsx']);
+    expect(linkers.sort()).toEqual([
+      'app/(app)/booking/page.tsx',
+      'app/(app)/calendar/page.tsx',
+      'app/(app)/settings/page.tsx',
+      'components/today/booking-requests-line.tsx',
+      'lib/booking/planner-status.ts',
+    ]);
   });
 
   it('a colour from the event card can never carry a request to email anyone', () => {

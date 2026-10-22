@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { BookingSettings } from '@/components/booking/booking-settings';
+import { HoursFields } from '@/components/booking/tab/availability-panel';
 import {
   BOOKING_CONFIG_SCHEMA,
   BOOKING_EARLIEST_START,
@@ -24,14 +24,7 @@ import {
   type ApprovableRequest,
 } from '@/lib/booking/event';
 import { callOptionLabel, distinctZones, videoProviderLabel, zoneName } from '@/lib/booking/public';
-import {
-  applyFill,
-  BOOKING_REQUEST_INPUT,
-  CHAT_FORM_FILL,
-  EMPTY_FORM,
-  firstProblem,
-  patchForm,
-} from '@/lib/booking/request';
+import { BOOKING_REQUEST_INPUT, EMPTY_FORM, firstProblem, patchForm } from '@/lib/booking/request';
 
 /**
  * The booking link's forms (D-074): the Settings document (lenient on read,
@@ -61,13 +54,19 @@ describe('Settings > Booking link', () => {
       stackCooldownMinutes: 60,
       stackLeadMinutes: 30,
       noticeHours: 24,
-      horizonDays: 21,
+      // D-078: months switched on one by one; filled in on read (this month and next).
+      openMonths: [],
+      closedDates: [],
+      closedRanges: [],
+      dateHours: [],
+      calendarChoices: [],
       maxLinkBookingsPerDay: 2,
       maxMeetingsPerDay: 5,
-      // Instant booking is on for a new link (D-074 addendum).
-      instant: true,
+      approveFirst: false,
+      allowGuests: true,
+      maxGuests: 5,
       chatbotEnabled: true,
-      monthlyAiCapUsd: 20,
+      chatbot: { enabled: true, faqItems: [], aiAnswers: false },
       photo: null,
       displayName: '',
       homeCity: '',
@@ -78,22 +77,34 @@ describe('Settings > Booking link', () => {
   });
 
   it('reads a stored document field by field, defaulting only what is missing or wrong', () => {
-    const parsed = parseBookingConfig({
-      displayName: 'Sam Host',
-      callBufferMinutes: 5, // looser than the standing 15: refused, so the default stands
-      noticeHours: 2,
-      weekdays: [1, 2],
-      horizonDays: 14,
-      somethingNew: true,
-    });
+    const parsed = parseBookingConfig(
+      {
+        displayName: 'Sam Host',
+        callBufferMinutes: 5, // looser than the standing 15: refused, so the default stands
+        noticeHours: 2,
+        weekdays: [1, 2],
+        rollingMonths: 3,
+        somethingNew: true,
+      },
+      { today: '2026-10-26' },
+    );
     expect(parsed.displayName).toBe('Sam Host');
-    expect(parsed.horizonDays).toBe(14);
+    // An older "this month and the next three" reads as those four months.
+    expect(parsed.openMonths).toEqual(['2026-10', '2026-11', '2026-12', '2027-01']);
+    expect('rollingMonths' in parsed).toBe(false);
     expect(parsed.callBufferMinutes).toBe(15);
     expect(parsed.noticeHours).toBe(24);
     expect(parsed.weekdays).toEqual([2, 3, 4]);
     expect('somethingNew' in parsed).toBe(false);
-    expect(parseBookingConfig(null)).toEqual(DEFAULT_BOOKING_CONFIG);
-    expect(parseBookingConfig('nonsense')).toEqual(DEFAULT_BOOKING_CONFIG);
+    const fresh = { ...DEFAULT_BOOKING_CONFIG, openMonths: ['2026-10', '2026-11'] };
+    expect(parseBookingConfig(null, { today: '2026-10-26' })).toEqual(fresh);
+    expect(parseBookingConfig('nonsense', { today: '2026-10-26' })).toEqual(fresh);
+    // A saved list stays as it is, an empty one too (every month off).
+    expect(parseBookingConfig({ openMonths: ['2027-01', '2026-12'] }).openMonths).toEqual([
+      '2026-12',
+      '2027-01',
+    ]);
+    expect(parseBookingConfig({ openMonths: [] }).openMonths).toEqual([]);
   });
 
   it('keeps a video link for calls: none by default, https only, read leniently (hotfix)', () => {
@@ -111,9 +122,9 @@ describe('Settings > Booking link', () => {
     expect(save(undefined).success).toBe(false);
     // A stored value that is not one reads as Google Meet, and the rest stands.
     expect(parseBookingConfig({ callLink: zoom }).callLink).toBe(zoom);
-    expect(parseBookingConfig({ callLink: 'ftp://example.test/x', horizonDays: 14 })).toMatchObject(
-      { callLink: '', horizonDays: 14 },
-    );
+    expect(
+      parseBookingConfig({ callLink: 'ftp://example.test/x', displayName: 'Sam Host' }),
+    ).toMatchObject({ callLink: '', displayName: 'Sam Host' });
     expect(parseBookingConfig({}).callLink).toBe('');
   });
 
@@ -129,7 +140,22 @@ describe('Settings > Booking link', () => {
     expect(bad({ stackLeadMinutes: 0 })).toBe(false);
     expect(bad({ callWindow: { from: '17:00', to: '09:00' } })).toBe(false);
     expect(bad({ callWindow: { from: '9am', to: '17:00' } })).toBe(false);
-    expect(bad({ monthlyAiCapUsd: 10_000 })).toBe(false);
+    expect(bad({ openMonths: ['2026-13'] })).toBe(false);
+    expect(bad({ openMonths: ['2026-11', '2026-11'] })).toBe(false);
+    expect(
+      bad({
+        openMonths: Array.from(
+          { length: 13 },
+          (_, i) => `2027-${String((i % 12) + 1).padStart(2, '0')}`,
+        ),
+      }),
+    ).toBe(false);
+    expect(bad({ rollingMonths: 1 })).toBe(false);
+    expect(bad({ closedDates: ['2026-11-31x'] })).toBe(false);
+    expect(bad({ closedRanges: [{ from: '2026-12-24', to: '2026-12-20', label: '' }] })).toBe(
+      false,
+    );
+    expect(bad({ monthlyAiCapUsd: 20 })).toBe(false);
     expect(bad({ faq: 'x'.repeat(4001) })).toBe(false);
     expect(bad({ extra: 1 })).toBe(false);
     expect(
@@ -243,20 +269,18 @@ describe('Settings > Booking link', () => {
     expect(parsed.kindWindows).toEqual(DEFAULT_BOOKING_CONFIG.kindWindows);
   });
 
-  it('says the bounds over the Times section in Settings (hotfix)', () => {
+  it('says the bounds over the hours on the Booking tab (hotfix, moved by D-078)', () => {
     expect(BOOKING_HOURS_HINT).toBe('8:00 AM to 6:00 PM Central; dinner 6-7 PM.');
     const markup = renderToStaticMarkup(
-      createElement(BookingSettings, {
-        available: true,
-        enabled: true,
-        slug: 'sam',
-        config: structuredClone(DEFAULT_BOOKING_CONFIG),
-        linkBase: 'https://copilot.example/meet/',
-        canEdit: true,
+      createElement(HoursFields, {
+        hours: {
+          callWindow: DEFAULT_BOOKING_CONFIG.callWindow,
+          kindWindows: structuredClone(DEFAULT_BOOKING_CONFIG.kindWindows),
+        },
         hostZone: 'America/Chicago',
-        demo: false,
-        notSetUpMessage: '',
-        initialSection: 'times',
+        disabled: false,
+        inPersonOffered: true,
+        onChange: () => {},
       }),
     );
     expect(markup).toContain('8:00 AM to 6:00 PM Central; dinner 6-7 PM.');
@@ -390,18 +414,6 @@ describe('the form the page keeps', () => {
     expect(coffee.start).toBe('x');
     expect(patchForm(coffee, { kind: 'lunch' }).start).toBeNull();
     expect(patchForm(coffee, { type: 'call' }).kind).toBeNull();
-  });
-
-  it('merges a chatbot fill without sending anything', () => {
-    const filled = applyFill(EMPTY_FORM, {
-      name: 'Pat',
-      type: 'in_person',
-      kind: 'dinner',
-      start: 's',
-    });
-    expect(filled).toMatchObject({ name: 'Pat', type: 'in_person', kind: 'dinner', start: 's' });
-    expect(CHAT_FORM_FILL.safeParse({ status: 'approved' }).success).toBe(false);
-    expect(CHAT_FORM_FILL.safeParse({ deckUrl: 'javascript:x' }).success).toBe(false);
   });
 });
 

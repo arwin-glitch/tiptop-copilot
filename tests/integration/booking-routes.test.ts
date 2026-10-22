@@ -4,8 +4,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BookingPage } from '@/components/booking/booking-page';
 import { loadMeetPage, PAGE_VIEWS_PER_10_MIN } from '@/lib/booking/page-data';
-import { BOOKED_MESSAGE, bookedHeading, inviteOnItsWay, SENT_MESSAGE } from '@/lib/booking/public';
-import { DEMO_BOOKING_CONFIG, DEMO_BOOKING_SETTINGS_ID } from '@/lib/demo/booking-fixtures';
+import { bookedTitle, HELD_MESSAGE, MESSAGE_SENT, SENT_MESSAGE } from '@/lib/booking/public';
+import { DEMO_BOOKING_SETTINGS_ID } from '@/lib/demo/booking-fixtures';
 import { getStorage } from '@/lib/runtime';
 import { resetLimiters } from '@/lib/security/limits';
 import { setBookingPhoto } from '@/lib/services/booking';
@@ -23,6 +23,7 @@ import { createHarness, type Harness } from '../helpers/harness';
 const { GET: slotsRoute } = await import('@/app/api/meet/[slug]/slots/route');
 const { POST: requestRoute } = await import('@/app/api/meet/[slug]/request/route');
 const { POST: chatRoute } = await import('@/app/api/meet/[slug]/chat/route');
+const { GET: answerRoute } = await import('@/app/api/meet/[slug]/chat/answer/route');
 const { GET: photoRoute } = await import('@/app/meet/[slug]/photo/route');
 
 const ORIGIN = 'https://copilot.example';
@@ -134,12 +135,13 @@ describe('a saved video link (hotfix)', () => {
     const slotsText = await slots.text();
     texts.push(slotsText);
     const start = (JSON.parse(slotsText) as { slots: { start: string }[] }).slots[0]!.start;
+    // The assistant (D-078): its opening, open times and questions.
     for (const body of [
-      { mode: 'guided', action: 'find_time', type: 'call' },
-      { mode: 'guided', action: 'message' },
-      { mode: 'guided', action: 'about' },
-      { mode: 'guided' },
-      { mode: 'live', messages: [{ role: 'user', content: 'What is the Zoom link?' }] },
+      { action: 'start' },
+      { action: 'times', type: 'call' },
+      { action: 'ask', question: 'What is the Zoom link?', sessionId: 'video-link-0001' },
+      { action: 'ask', question: 'How long is a call?', sessionId: 'video-link-0001' },
+      { action: 'ask', question: 'Can we hop on a zoom?', sessionId: 'video-link-0001' },
     ]) {
       const res = await chatRoute(post('/api/meet/nick/chat', body), params());
       expect(res.status).toBe(200);
@@ -161,30 +163,39 @@ describe('a saved video link (hotfix)', () => {
   });
 });
 
-describe('what the page says happens next (hotfix)', () => {
+describe('what the page says happens next (hotfix, D-078)', () => {
   it('names no person who confirms, reviews or approves', async () => {
+    // Booked at once, the default (D-078).
     const page = await loadMeetPage(harness.store, 'nick', 'visitor-key');
     const markup = renderToStaticMarkup(createElement(BookingPage, { data: page }));
     expect(markup).toContain('30-min Google Meet');
-    expect(markup).toContain('A calendar invitation once your time is booked');
-    expect(markup).toContain('You&#x27;ll get a calendar invitation once the time is booked.');
+    expect(markup).toContain('Booked straight onto the calendar');
+    expect(markup).toContain('It goes straight onto the calendar');
+    expect(markup).toContain('Book meeting');
     expect(markup).not.toMatch(/confirm|review|approv|Arwin will|the team/i);
+
+    // Approve first, the option: a request that waits, still no person named.
+    resetLimiters();
+    const org = harness.auth.organizationId;
+    const row = await harness.store.get('booking_settings', org, DEMO_BOOKING_SETTINGS_ID);
+    await harness.store.update('booking_settings', org, DEMO_BOOKING_SETTINGS_ID, {
+      settings: { ...(row!.settings as Record<string, unknown>), approveFirst: true },
+    });
+    const waiting = await loadMeetPage(harness.store, 'nick', 'visitor-key-2');
+    const later = renderToStaticMarkup(createElement(BookingPage, { data: waiting }));
+    expect(later).toContain('A calendar invitation once your time is booked');
+    expect(later).toContain('You&#x27;ll get a calendar invitation once the time is booked.');
+    expect(later).toContain('Send request');
+    expect(later).not.toMatch(/confirm|review|approv|Arwin will|the team/i);
     expect(SENT_MESSAGE).toBe(
       "Request sent. You'll get a calendar invitation once the time is booked.",
     );
   });
 
   it('says a booked time is booked, and still names nobody who confirms it (instant)', () => {
-    expect(bookedHeading('Nick Avery')).toBe("You're booked with Nick");
-    expect(inviteOnItsWay('pat@acme.example')).toBe(
-      'The calendar invitation is on its way to pat@acme.example.',
-    );
-    expect(BOOKED_MESSAGE).toBe("You're booked. The calendar invitation is on its way.");
-    for (const text of [
-      bookedHeading('Nick Avery'),
-      inviteOnItsWay('a@b.example'),
-      BOOKED_MESSAGE,
-    ]) {
+    expect(bookedTitle('Nick Avery')).toBe("You're booked with Nick");
+    expect(HELD_MESSAGE).toBe('Your time is held. The calendar invitation is on its way.');
+    for (const text of [bookedTitle('Nick Avery'), HELD_MESSAGE, MESSAGE_SENT]) {
       expect(text).not.toMatch(/confirm|review|approv|Arwin|the team|someone/i);
     }
   });
@@ -227,22 +238,35 @@ describe('sending a request', () => {
       params(),
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, status: 'pending', message: SENT_MESSAGE });
+    // Booked at once (D-078): the status, the booking's own page, the booking.
+    const json = (await res.json()) as Record<string, unknown> & { manageUrl: string };
+    expect(json).toMatchObject({
+      ok: true,
+      status: 'booked',
+      message: 'Booked.',
+      booking: { status: 'booked', type: 'call', startsAt: start, guests: [] },
+    });
+    expect(json.manageUrl).toMatch(/^\/meet\/nick\/b\/[A-Za-z0-9_-]{43}$/);
+    // This device remembers it: an httpOnly cookie sent to the link's own pages only.
+    const cookie = res.headers.get('set-cookie') ?? '';
+    expect(cookie).toContain(`tiptop_booking_nick=${json.manageUrl.split('/').pop()}`);
+    expect(cookie).toMatch(/HttpOnly/i);
+    expect(cookie).toMatch(/Path=\/meet\/nick/i);
     const rows = await harness.store.list('booking_requests', harness.auth.organizationId, {
       eq: { email: 'pat@acme.example' },
     });
     expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe('booked');
     expect(rows[0]!.ip_hash).toMatch(/^[0-9a-f]{16,}$/);
     expect(rows[0]!.ip_hash).not.toContain('203.0.113.7');
   });
 
-  it('with Instant booking on, books a free time and says so; a message and the honeypot are not booked', async () => {
-    await harness.store.update(
-      'booking_settings',
-      harness.auth.organizationId,
-      DEMO_BOOKING_SETTINGS_ID,
-      { settings: { ...DEMO_BOOKING_CONFIG, instant: true } as unknown as Record<string, unknown> },
-    );
+  it('booking at once (the default), books a free time and says so; a message and the honeypot are not booked', async () => {
+    const org = harness.auth.organizationId;
+    const stored = await harness.store.get('booking_settings', org, DEMO_BOOKING_SETTINGS_ID);
+    await harness.store.update('booking_settings', org, DEMO_BOOKING_SETTINGS_ID, {
+      settings: { ...(stored!.settings as Record<string, unknown>), approveFirst: false },
+    });
     const start = await firstCallSlot();
     const booked = await requestRoute(
       post('/api/meet/nick/request', {
@@ -254,17 +278,23 @@ describe('sending a request', () => {
       params(),
     );
     expect(booked.status).toBe(200);
-    expect(await booked.json()).toEqual({ ok: true, status: 'booked', message: BOOKED_MESSAGE });
+    expect(await booked.json()).toMatchObject({
+      ok: true,
+      status: 'booked',
+      message: 'Booked.',
+      manageUrl: expect.stringMatching(/^\/meet\/nick\/b\//),
+    });
     const [row] = await harness.store.list('booking_requests', harness.auth.organizationId, {
       eq: { email: 'pat@acme.example' },
     });
-    expect(row).toMatchObject({ status: 'approved', decided_by: null });
+    // Nobody decided it: the link's own rules did.
+    expect(row).toMatchObject({ status: 'booked', decided_by: null });
 
     const note = await requestRoute(
       post('/api/meet/nick/request', message('n@b.example')),
       params(),
     );
-    expect(await note.json()).toEqual({ ok: true, status: 'message', message: SENT_MESSAGE });
+    expect(await note.json()).toEqual({ ok: true, status: 'message', message: MESSAGE_SENT });
     const robot = await requestRoute(
       post(
         '/api/meet/nick/request',
@@ -273,7 +303,13 @@ describe('sending a request', () => {
       ),
       params(),
     );
-    expect(await robot.json()).toEqual({ ok: true, status: 'pending', message: SENT_MESSAGE });
+    // The honeypot hears what a person would, and nothing is kept.
+    expect(await robot.json()).toEqual({ ok: true, status: 'booked', message: 'Booked.' });
+    expect(
+      await harness.store.list('booking_requests', harness.auth.organizationId, {
+        eq: { email: 'robo@spam.example' },
+      }),
+    ).toEqual([]);
   });
 
   it('refuses one from another site, or with no origin at all', async () => {
@@ -329,7 +365,8 @@ describe('sending a request', () => {
     expect(fourth.status).toBe(429);
     expect(await fourth.json()).toMatchObject({
       error: {
-        message: 'You already have requests waiting. Send another once those are answered.',
+        message:
+          'You already have several meetings or messages on this link. Change or cancel one from its own page first.',
       },
     });
     await requestRoute(post('/api/meet/nick/request', message('p4@a.example')), params());
@@ -372,35 +409,42 @@ describe('sending a request', () => {
   });
 });
 
-describe('the chatbot route', () => {
-  it('answers the guided buttons, from the page only', async () => {
-    const res = await chatRoute(
+describe('the assistant routes (D-078)', () => {
+  it('answers the opening, open times and questions, from the page only', async () => {
+    const start = await chatRoute(
+      post('/api/meet/nick/chat', { action: 'start', timeZone: 'Europe/Lisbon' }),
+      params(),
+    );
+    expect(start.status).toBe(200);
+    const opening = (await start.json()) as { ok: boolean; action: string; places: unknown[] };
+    expect(opening).toMatchObject({ ok: true, action: 'start' });
+    expect(opening.places.length).toBeGreaterThan(0);
+
+    const asked = await chatRoute(
       post('/api/meet/nick/chat', {
-        mode: 'guided',
-        action: 'find_time',
-        type: 'call',
-        timeZone: 'Europe/Lisbon',
+        action: 'ask',
+        question: 'What stage do you invest in?',
+        sessionId: 'route-session-0001',
       }),
       params(),
     );
-    expect(res.status).toBe(200);
-    const json = (await res.json()) as { ok: boolean; mode: string; slots: unknown[] };
-    expect(json).toMatchObject({ ok: true, mode: 'guided' });
-    expect(json.slots.length).toBeGreaterThan(0);
+    expect(await asked.json()).toMatchObject({ ok: true, kind: 'answer', matched: 'Stage' });
+
     const elsewhere = await chatRoute(
-      post(
-        '/api/meet/nick/chat',
-        { mode: 'guided', action: 'about' },
-        { origin: 'https://evil.example' },
-      ),
+      post('/api/meet/nick/chat', { action: 'start' }, { origin: 'https://evil.example' }),
       params(),
     );
     expect(elsewhere.status).toBe(403);
     const unknown = await chatRoute(
-      post('/api/meet/nick/chat', { mode: 'guided', tool: 'read_calendar' }),
+      post('/api/meet/nick/chat', { action: 'start', tool: 'read_calendar' }),
       params(),
     );
     expect(unknown.status).toBe(400);
+    const oldShape = await chatRoute(
+      post('/api/meet/nick/chat', { mode: 'live', messages: [{ role: 'user', content: 'hi' }] }),
+      params(),
+    );
+    expect(oldShape.status).toBe(400);
   });
 
   it('brakes each address before reading anything, even while the link is closed (review fix)', async () => {
@@ -410,11 +454,30 @@ describe('the chatbot route', () => {
       DEMO_BOOKING_SETTINGS_ID,
       { enabled: false },
     );
-    const body = { mode: 'guided', action: 'about' };
+    const body = { action: 'start' };
     for (let i = 0; i < 60; i += 1) {
       expect((await chatRoute(post('/api/meet/nick/chat', body), params())).status).toBe(403);
     }
     expect((await chatRoute(post('/api/meet/nick/chat', body), params())).status).toBe(429);
+  });
+
+  it('answers a poll for an unknown or malformed question plainly, and brakes the poll', async () => {
+    const malformed = await answerRoute(get('/api/meet/nick/chat/answer?id=nope'), params());
+    expect(malformed.status).toBe(404);
+    const unknown = await answerRoute(
+      get('/api/meet/nick/chat/answer?id=12345678-1234-4234-8234-123456789012'),
+      params(),
+    );
+    expect(unknown.status).toBe(404);
+    expect(await unknown.json()).toMatchObject({ ok: false });
+    for (let i = 0; i < 90; i += 1) {
+      await answerRoute(get('/api/meet/nick/chat/answer?id=nope', '203.0.113.9'), params());
+    }
+    const braked = await answerRoute(
+      get('/api/meet/nick/chat/answer?id=nope', '203.0.113.9'),
+      params(),
+    );
+    expect(braked.status).toBe(429);
   });
 });
 
@@ -424,7 +487,7 @@ describe('the public page (review fix)', () => {
       expect((await loadMeetPage(harness.store, 'nick', 'visitor-key')).state).toBe('open');
     }
     const braked = await loadMeetPage(harness.store, 'nick', 'visitor-key');
-    expect(braked).toMatchObject({ state: 'closed', host: null, faq: '' });
+    expect(braked).toMatchObject({ state: 'closed', host: null, chatbot: { enabled: false } });
     expect((await loadMeetPage(harness.store, 'nick', 'another-key')).state).toBe('open');
   });
 });

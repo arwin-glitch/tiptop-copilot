@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MEETING_KINDS, type MeetingKind, type MeetingType } from './config';
+import { MAX_GUESTS, MEETING_KINDS, type MeetingKind, type MeetingType } from './config';
 
 /**
  * What a visitor may send from the public booking page, and what the public
@@ -77,6 +77,15 @@ export const BOOKING_REQUEST_INPUT = z
     customPlace: clean(LIMITS.customPlace, true).default(''),
     note: clean(LIMITS.note).default(''),
     deckUrl: DECK_URL.default(''),
+    /**
+     * Guests to invite with them (Calendly's "Add guests", D-078): plain
+     * addresses, at most MAX_GUESTS here and Settings' own limit on the
+     * server. Checked again with the host's and the team's addresses there.
+     */
+    guests: z
+      .array(z.string().max(LIMITS.email + 10))
+      .max(MAX_GUESTS)
+      .default([]),
     /** The visitor's own zone, to say the time back to them in the drawer. */
     timeZone: z.string().max(64).nullable().default(null),
     /** Who filled the form: the visitor, or the chatbot for them (they still pressed Send). */
@@ -105,6 +114,144 @@ export const BOOKING_REQUEST_INPUT = z
 
 export type BookingRequestInput = z.infer<typeof BOOKING_REQUEST_INPUT>;
 
+/** Whether a string is a plain address the page and the server both accept. */
+export function isPlainEmail(value: string): boolean {
+  return EMAIL_INPUT.safeParse(value).success;
+}
+
+export interface GuestRules {
+  /** The booker's own address: never their own guest. */
+  booker: string;
+  /** Addresses that are never a guest: the host's and every teammate's. */
+  blocked: readonly string[];
+  /**
+   * The host side's own email domains (never a free mail domain): no guest
+   * at them, so a group address there (team@, all@) cannot fan one booking
+   * out to the whole firm.
+   */
+  blockedDomains?: readonly string[];
+  /** Settings' limit (0 when guests are off). */
+  max: number;
+}
+
+/**
+ * Mail domains anyone can sign up at: never treated as the host side's own
+ * domain (a host on gmail.com does not block every Gmail guest).
+ */
+export const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'outlook.com',
+  'hotmail.com',
+  'live.com',
+  'msn.com',
+  'yahoo.com',
+  'icloud.com',
+  'me.com',
+  'mac.com',
+  'aol.com',
+  'proton.me',
+  'protonmail.com',
+  'gmx.com',
+  'fastmail.com',
+  'hey.com',
+  'zoho.com',
+  'yandex.com',
+]);
+
+/** The domain part of an address, lower-cased ('' when there is none). */
+export function domainOf(email: string): string {
+  const at = email.lastIndexOf('@');
+  return at < 0
+    ? ''
+    : email
+        .slice(at + 1)
+        .trim()
+        .toLowerCase();
+}
+
+/** The host side's own domains from their addresses: free mail domains left out. */
+export function ownDomains(emails: readonly string[]): string[] {
+  const out = new Set<string>();
+  for (const email of emails) {
+    const domain = domainOf(email);
+    if (domain && !FREE_MAIL_DOMAINS.has(domain)) out.add(domain);
+  }
+  return [...out];
+}
+
+/**
+ * One person's address however it is written, for the abuse brakes:
+ * lower-cased, a "+tag" dropped, and for Gmail the dots dropped too
+ * (pat.lee+1@gmail.com and patlee@googlemail.com are one inbox). Never
+ * stored and never used to send anything: only to count.
+ */
+export function normalizeAddress(email: string): string {
+  const lower = email.trim().toLowerCase();
+  const at = lower.lastIndexOf('@');
+  if (at < 0) return lower;
+  let local = lower.slice(0, at);
+  let domain = lower.slice(at + 1);
+  const plus = local.indexOf('+');
+  if (plus > 0) local = local.slice(0, plus);
+  if (domain === 'googlemail.com') domain = 'gmail.com';
+  if (domain === 'gmail.com') local = local.replace(/\./g, '');
+  return `${local}@${domain}`;
+}
+
+/**
+ * The guests a booking may invite, cleaned: trimmed, lower-cased, plain
+ * addresses only, each once, never the booker's own address, never the
+ * host's or a teammate's. A problem in plain words when one is not allowed,
+ * so the visitor can fix it rather than have a guest silently dropped.
+ */
+export function cleanGuests(
+  raw: readonly string[],
+  rules: GuestRules,
+): { ok: true; guests: string[] } | { ok: false; problem: string } {
+  const booker = rules.booker.trim().toLowerCase();
+  const blocked = new Set(rules.blocked.map((e) => e.trim().toLowerCase()).filter(Boolean));
+  const blockedDomains = new Set((rules.blockedDomains ?? []).map((d) => d.trim().toLowerCase()));
+  const out: string[] = [];
+  for (const entry of raw) {
+    const email = entry.trim().toLowerCase();
+    if (!email) continue;
+    if (!isPlainEmail(email)) return { ok: false, problem: `Check the guest address ${email}.` };
+    if (email === booker) {
+      return { ok: false, problem: 'You are invited already: add other people as guests.' };
+    }
+    if (blocked.has(email) || blockedDomains.has(domainOf(email))) {
+      return { ok: false, problem: `${email} is on the host's side already. Leave them out.` };
+    }
+    if (!out.includes(email)) out.push(email);
+  }
+  if (out.length > rules.max) {
+    return rules.max === 0
+      ? { ok: false, problem: 'This booking link does not take guests.' }
+      : { ok: false, problem: `Add at most ${rules.max} guests.` };
+  }
+  return { ok: true, guests: out };
+}
+
+/** The longest note a visitor may leave the host when they cancel. */
+export const CANCEL_NOTE_MAX = 500;
+
+/** Cancelling from the booking's own page: an optional note to the host. */
+export const CANCEL_INPUT = z
+  .object({
+    note: clean(CANCEL_NOTE_MAX).default(''),
+    website: z.string().max(200).default(''),
+  })
+  .strict();
+
+/** Moving a booking from its own page: the new start, as the page was given it. */
+export const RESCHEDULE_INPUT = z
+  .object({
+    start: z.string().max(40),
+    website: z.string().max(200).default(''),
+  })
+  .strict();
+
 /** The first problem with a request, in plain words, for the page to show. */
 export function firstProblem(error: z.ZodError): string {
   const issue = error.issues[0];
@@ -113,28 +260,7 @@ export function firstProblem(error: z.ZodError): string {
   return issue.message || 'Check the form.';
 }
 
-/**
- * What the public chatbot may put in the form: every field optional, the
- * same caps, and nothing the visitor would not see before pressing Send.
- */
-export const CHAT_FORM_FILL = z
-  .object({
-    name: clean(LIMITS.name, true).optional(),
-    email: z.string().trim().toLowerCase().max(LIMITS.email).optional(),
-    company: clean(LIMITS.company, true).optional(),
-    type: z.enum(REQUEST_TYPES).optional(),
-    kind: z.enum(MEETING_KINDS).optional(),
-    start: z.string().max(40).optional(),
-    placeId: z.string().max(40).optional(),
-    customPlace: clean(LIMITS.customPlace, true).optional(),
-    note: clean(LIMITS.note).optional(),
-    deckUrl: DECK_URL.optional(),
-  })
-  .strict();
-
-export type ChatFormFill = z.infer<typeof CHAT_FORM_FILL>;
-
-/** The form state the page keeps, which the chatbot's fill merges into. */
+/** The form state the page keeps. */
 export interface BookingFormState {
   type: RequestType;
   kind: MeetingKind | null;
@@ -146,6 +272,10 @@ export interface BookingFormState {
   company: string;
   note: string;
   deckUrl: string;
+  /** Guests to invite with the visitor (D-078). */
+  guests: string[];
+  /** A guest typed in the box but not added yet: it counts when the form is sent. */
+  guestDraft: string;
 }
 
 export const EMPTY_FORM: BookingFormState = {
@@ -159,7 +289,39 @@ export const EMPTY_FORM: BookingFormState = {
   company: '',
   note: '',
   deckUrl: '',
+  guests: [],
+  guestDraft: '',
 };
+
+/**
+ * What the guest box adds (D-078): one or more addresses typed (split on
+ * spaces, commas or semicolons), lower-cased, each once, never the visitor's
+ * own, at most `max` in all. The reason in plain words when one cannot be
+ * added, so a guest is never dropped without a word.
+ */
+export function addGuestDraft(
+  guests: readonly string[],
+  draft: string,
+  rules: { max: number; booker: string },
+): { ok: true; guests: string[] } | { ok: false; problem: string } {
+  const entries = draft
+    .split(/[\s,;]+/)
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  const next = [...guests];
+  for (const email of entries) {
+    if (!isPlainEmail(email)) {
+      return { ok: false, problem: `Check ${email}: it does not look like an email address.` };
+    }
+    if (email === rules.booker.trim().toLowerCase()) {
+      return { ok: false, problem: 'That is your own address: you are invited already.' };
+    }
+    if (next.includes(email)) continue;
+    if (next.length >= rules.max) return { ok: false, problem: `Add at most ${rules.max} guests.` };
+    next.push(email);
+  }
+  return { ok: true, guests: next };
+}
 
 /**
  * A change to the form, as the page makes one: the fields named are set
@@ -176,13 +338,4 @@ export function patchForm(
   if (patch.kind !== undefined && patch.kind !== form.kind && !retimed) next.start = null;
   if (next.type !== 'in_person') next.kind = null;
   return next;
-}
-
-/** A chatbot's fill merged into the form: only the fields it names change. */
-export function applyFill(form: BookingFormState, fill: ChatFormFill): BookingFormState {
-  const patch: Partial<BookingFormState> = {};
-  for (const [key, value] of Object.entries(fill) as [keyof ChatFormFill, string | undefined][]) {
-    if (value !== undefined) (patch as Record<string, unknown>)[key] = value;
-  }
-  return patchForm(form, patch);
 }

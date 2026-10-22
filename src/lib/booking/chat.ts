@@ -1,20 +1,12 @@
 import 'server-only';
 import { z } from 'zod';
-import { estimateCostUsd, modelFor } from '@/lib/ai/models';
-import type {
-  AIProvider,
-  ToolDefinition,
-  ToolInvocation,
-  ToolOutcome,
-  UsageInfo,
-} from '@/lib/ai/provider';
-import { envLimits } from '@/lib/config/env';
-import { listAllPages } from '@/lib/db/paging';
+import { env } from '@/lib/config/env';
+import { isMissingTableError } from '@/lib/db/missing-table';
 import type { DataStore } from '@/lib/db/store';
-import { getAI } from '@/lib/runtime';
-import { rateLimit, recordAiUsage } from '@/lib/security/limits';
-import { log } from '@/lib/security/redact';
+import { recordAudit } from '@/lib/security/audit';
+import { rateLimit } from '@/lib/security/limits';
 import {
+  BOOKING_NOT_SET_UP,
   engineInputFor,
   readHost,
   resolveOpenLink,
@@ -22,97 +14,105 @@ import {
   type OpenLink,
 } from '@/lib/services/booking';
 import { principalTimeZone } from '@/lib/services/push-alerts';
-import { processWide } from '@/lib/util/process-state';
-import { err, ok, type AppError, type Result } from '@/lib/util/result';
+import { err, ok, type Result } from '@/lib/util/result';
 import {
-  BOOKING_CHAT_PROMPT_VERSION,
-  bookingChatSystemPrompt,
-  fenceConversation,
-} from './chat-prompt';
+  askBookingRoutine,
+  bookingChatConfigured,
+  buildQuestionFacts,
+  cleanQuestion,
+  bookingChatStatus,
+  readBookingAnswer,
+  type AskUnavailable,
+  type BookingChatStatus,
+  type BookingAnswerView,
+  type BookingQuestionFacts,
+} from './chat-bridge';
+import {
+  CHATBOT_CONFIG_PATCH,
+  CHATBOT_CONFIG_SCHEMA,
+  readChatbotConfig,
+  readGuestRules,
+  type ChatbotConfig,
+  type ChatbotConfigPatch,
+} from './chatbot-config';
 import {
   firstName,
+  parseBookingConfig,
   inPersonOffered,
   KIND_LABEL,
   MEETING_KINDS,
-  TYPE_LABEL,
   type MeetingKind,
   type MeetingType,
 } from './config';
-import { openSlots, type EngineInput, type OpenSlot } from './engine';
-import { callOptionLabel, dayKeyIn, knownZone, slotLabel, videoProviderLabel } from './public';
-import { CHAT_FORM_FILL, type ChatFormFill } from './request';
+import { openSlots, type EngineInput } from './engine';
+import {
+  builtInEntries,
+  detectIntent,
+  faqEntries,
+  matchFaq,
+  type ChatIntent,
+  type FaqEntry,
+  type PublicFacts,
+} from './faq';
+import {
+  callOptionLabel,
+  dayKeyIn,
+  knownZone,
+  slotLabel,
+  videoProviderLabel,
+  zoneName,
+} from './public';
 
 /**
- * The public booking page's chatbot, "Arwin" (D-074).
+ * The public booking page's assistant, "Arwin" (D-078): no paid AI at all.
  *
- * Its whole world is three tools: open times (start and end instants, read
- * through the same engine as the page), the public FAQ text from Settings,
- * and a form fill the visitor still has to send. It is never handed a
- * calendar entry, a mailbox, a contact or a record, so it cannot leak one.
+ * - A guided helper: buttons for a 30-minute call, meeting in person, a
+ *   question, or a message. It offers the engine's next open times and the
+ *   listed places; the widget books through the same public request route
+ *   as the form (`/api/meet/[slug]/request`), so every rule, cap and brake
+ *   applies the same way.
+ * - Answers without AI: the visitor's words are matched, here, against the
+ *   questions Arwin wrote in the Booking tab and a few built from the public
+ *   card (lib/booking/faq.ts), and the best answer is given word for word.
+ * - Optionally, a question nothing matches goes to the booking assistant
+ *   routine on Arwin's own Claude plan (lib/booking/chat-bridge.ts): no API
+ *   key, nothing billed, capped. The widget polls for its answer.
  *
- * Live (the model) only when all of these hold: the chatbot is on in
- * Settings, a real API key is set, this month's chatbot spend is under the
- * Settings cap ($20 by default), the organization's daily AI budget has room,
- * and this visitor's address is under its message limit. Otherwise it is the
- * guided helper: three buttons (Find a time, About TipTop, Leave a message)
- * that use the same tools with no model at all.
+ * It never sees a calendar entry, a mailbox, a contact or a record: open
+ * times are start and end instants, and the facts are the public card, the
+ * written answers and the offers. Visitor text is data, never instructions.
  */
 
-export const BOOKING_CHAT_OPERATION = 'booking.chat';
-const CHAT_MAX_TOKENS = 600;
-const CHAT_MAX_ITERATIONS = 3;
-/**
- * The most input one model round can take: the system prompt and tools, the
- * fenced conversation (lib/booking/chat-prompt.ts caps it) and the tool
- * answers of earlier rounds, with room for text that costs several tokens a
- * character.
- */
-const CHAT_INPUT_TOKENS_CEILING = 20_000;
+/** Open times one answer offers at most, and per day when spread over days. */
+const SLOTS_PER_PAGE = 8;
+const SLOTS_PER_DAY = 2;
+const MAX_PAGES = 4;
+/** Free-text questions per visitor address, before anything is read. */
+const ASKS_PER_10_MIN = 30;
 
-/**
- * What a failed turn is counted as against the monthly cap and the daily
- * budget when the provider could not say what it spent: every round at its
- * ceiling. Counting a failure as free, or as a token amount, would let a
- * stream of failures run past the cap unseen.
- */
-export function unreportedTurnCostUsd(model: string = modelFor('fast')): number {
-  return (
-    CHAT_MAX_ITERATIONS * estimateCostUsd(model, CHAT_INPUT_TOKENS_CEILING, CHAT_MAX_TOKENS, 0)
-  );
-}
+const ZONE = z.string().max(64).optional();
 
-/** Slots one answer offers at most. */
-const SLOTS_PER_ANSWER = 8;
-
-/** Per visitor address: the model's messages, then any chatbot request at all. */
-const LIVE_PER_10_MIN = 10;
-const LIVE_PER_DAY = 40;
-const ANY_PER_10_MIN = 60;
-/** The whole link's live messages an hour, whoever sends them (in memory: resets on a deploy). */
-const LIVE_ORG_PER_HOUR = 60;
-/** The whole link's model turns in a day, counted from ai_usage (holds across deploys). */
-export const LIVE_LINK_PER_DAY = 400;
-
-export const GUIDED_ACTIONS = ['find_time', 'about', 'message'] as const;
-export type GuidedAction = (typeof GUIDED_ACTIONS)[number];
-
-export const CHAT_REQUEST = z
-  .object({
-    mode: z.enum(['live', 'guided']).default('live'),
-    action: z.enum(GUIDED_ACTIONS).optional(),
-    type: z.enum(['call', 'in_person']).optional(),
-    kind: z.enum(MEETING_KINDS).optional(),
-    messages: z
-      .array(
-        z
-          .object({ role: z.enum(['user', 'assistant']), content: z.string().trim().max(600) })
-          .strict(),
-      )
-      .max(12)
-      .default([]),
-    timeZone: z.string().max(64).optional(),
-  })
-  .strict();
+export const CHAT_REQUEST = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('start'), timeZone: ZONE }).strict(),
+  z
+    .object({
+      action: z.literal('times'),
+      type: z.enum(['call', 'in_person']),
+      kind: z.enum(MEETING_KINDS).optional(),
+      page: z.number().int().min(0).max(MAX_PAGES).default(0),
+      timeZone: ZONE,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('ask'),
+      question: z.string().trim().min(1).max(600),
+      /** The widget's own random id for this visit (the per-session AI cap). */
+      sessionId: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+      timeZone: ZONE,
+    })
+    .strict(),
+]);
 export type ChatRequest = z.infer<typeof CHAT_REQUEST>;
 
 export interface ChatSlot {
@@ -121,421 +121,384 @@ export interface ChatSlot {
   label: string;
 }
 
-export interface ChatReply {
-  mode: 'live' | 'guided';
-  reply: string;
-  /** Times to offer as buttons; a tap puts one in the form. */
-  slots: ChatSlot[];
-  /** The meeting the slots are for, so a tap fills the right kind. */
-  query?: { type: MeetingType; kind: MeetingKind | null };
-  /** What to put in the form. The visitor still reviews it and presses Send. */
-  fill: ChatFormFill | null;
-  /** Why the helper is guided right now, in plain words, when it fell back. */
-  notice?: string;
+export interface ChatPlace {
+  id: string;
+  name: string;
+  area: string;
 }
 
-/* ------------------------------------------------------------------ tools */
+export interface ChatStart {
+  action: 'start';
+  hostName: string;
+  hostFirst: string;
+  firmName: string;
+  greeting: string;
+  offers: { call: boolean; inPerson: boolean };
+  /** "30-min Zoom call": what a call is on, by name only (never its link). */
+  callLabel: string;
+  kinds: MeetingKind[];
+  places: ChatPlace[];
+  allowCustomPlace: boolean;
+  guests: { allowed: boolean; max: number };
+  /** A few written questions, as chips. */
+  suggestions: string[];
+  /** A question nothing matches may go to the booking assistant routine. */
+  aiAnswers: boolean;
+  zoneLabel: string;
+}
 
-export const BOOKING_CHAT_TOOLS: ToolDefinition[] = [
-  {
-    name: 'find_open_slots',
-    description:
-      'Open times on the booking page. Returns only start and end times and a label in the visitor time zone. Nothing else about the calendar is available.',
-    inputSchema: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        meeting_type: { type: 'string', enum: ['call', 'in_person'] },
-        kind: { type: 'string', enum: ['coffee', 'lunch', 'dinner'] },
-        date: {
-          type: 'string',
-          description: 'Optional day in the visitor time zone, YYYY-MM-DD.',
-        },
-      },
-      required: ['meeting_type'],
-    },
-  },
-  {
-    name: 'get_faq',
-    description:
-      'The public FAQ about the firm, written by the host’s team. The only source for questions about the firm.',
-    inputSchema: { type: 'object', additionalProperties: false, properties: {} },
-  },
-  {
-    name: 'fill_form',
-    description:
-      'Fill in the request form on the page for the visitor. It is never sent: the visitor reviews it and presses Send. Use a start time only from find_open_slots.',
-    inputSchema: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        name: { type: 'string' },
-        email: { type: 'string' },
-        company: { type: 'string' },
-        type: { type: 'string', enum: ['call', 'in_person', 'message'] },
-        kind: { type: 'string', enum: ['coffee', 'lunch', 'dinner'] },
-        start: { type: 'string', description: 'A start time exactly as find_open_slots gave it.' },
-        placeId: { type: 'string', description: 'The id of one of the listed places.' },
-        customPlace: { type: 'string', description: 'A place the visitor suggested.' },
-        note: { type: 'string', description: 'The reason for the meeting, or the message.' },
-        deckUrl: { type: 'string', description: 'An http or https link to a deck.' },
-      },
-    },
-  },
-];
-
-export interface OfferedSlot extends ChatSlot {
-  /** The meeting it was found for: a fill that uses it takes this type and kind. */
+export interface ChatTimes {
+  action: 'times';
   query: { type: MeetingType; kind: MeetingKind | null };
+  slots: ChatSlot[];
+  /** Another page of times exists. */
+  more: boolean;
+  zoneLabel: string;
+  reply: string;
 }
 
-export interface ToolScope {
-  link: OpenLink;
-  /** The engine input, read once per chat turn. */
-  input: () => Promise<EngineInput | null>;
-  visitorZone: string;
-  /** Starts the find tool offered this turn, which a fill may use. */
-  offered: Map<string, OfferedSlot>;
-  /** The meeting the last find was for. */
-  lastQuery: { type: MeetingType; kind: MeetingKind | null } | null;
-  fills: ChatFormFill[];
-}
+export type ChatAnswer =
+  | {
+      action: 'ask';
+      kind: 'answer';
+      answer: string;
+      /** The written question that answered. */
+      matched: string;
+      suggestions: string[];
+    }
+  | { action: 'ask'; kind: 'intent'; intent: ChatIntent; reply: string; suggestions: string[] }
+  | { action: 'ask'; kind: 'pending'; questionId: string; reply: string; suggestions: string[] }
+  | {
+      action: 'ask';
+      kind: 'none';
+      reply: string;
+      suggestions: string[];
+      reason: AskUnavailable | 'no_match';
+    };
 
-function outcome(
-  invocation: ToolInvocation,
-  okFlag: boolean,
-  content: unknown,
-  summary: string,
-): ToolOutcome {
-  return {
-    name: invocation.name,
-    ok: okFlag,
-    content: JSON.stringify(content),
-    summary,
-    input: invocation.input,
-  };
-}
+export type ChatReply = ChatStart | ChatTimes | ChatAnswer;
 
-/** Times per day in an answer that is not for one day, so a few days are offered. */
-const SLOTS_PER_DAY = 2;
+/* ------------------------------------------------------------------ times */
 
 /**
  * Open times for a query, labelled for the visitor: start, end and a label,
- * nothing more. For one day, that day's first eight; otherwise at most two a
- * day, soonest first, so the answer spreads over several days.
+ * nothing more. At most two a day, soonest first, eight to a page, so one
+ * answer spreads over several days and "More times" goes further out.
  */
 export function chatSlots(
   input: EngineInput,
   query: { type: MeetingType; kind: MeetingKind | null },
   visitorZone: string,
-  date?: string | null,
-): ChatSlot[] {
+  page = 0,
+): { slots: ChatSlot[]; more: boolean } {
   const perDay = new Map<string, number>();
-  const picked: OpenSlot[] = [];
+  const picked: ChatSlot[] = [];
+  const want = (page + 1) * SLOTS_PER_PAGE + 1;
   for (const slot of openSlots(input, query)) {
-    if (picked.length >= SLOTS_PER_ANSWER) break;
+    if (picked.length >= want) break;
     const day = dayKeyIn(slot.start, visitorZone);
-    if (date && day !== date) continue;
     const taken = perDay.get(day) ?? 0;
-    if (!date && taken >= SLOTS_PER_DAY) continue;
+    if (taken >= SLOTS_PER_DAY) continue;
     perDay.set(day, taken + 1);
-    picked.push(slot);
+    picked.push({ start: slot.start, end: slot.end, label: slotLabel(slot.start, visitorZone) });
   }
-  return picked.map((s) => ({
-    start: s.start,
-    end: s.end,
-    label: slotLabel(s.start, visitorZone),
-  }));
-}
-
-/**
- * Run one tool call. The only door between the model and the server: each
- * answer is built from the engine's open times, the FAQ text, or the fill's
- * own fields, and nothing else is in reach here.
- */
-export async function runBookingTool(
-  invocation: ToolInvocation,
-  scope: ToolScope,
-): Promise<ToolOutcome> {
-  const { config } = scope.link;
-  if (invocation.name === 'get_faq') {
-    const faq = config.faq.trim();
-    return outcome(
-      invocation,
-      true,
-      {
-        faq: faq || null,
-        note: faq ? undefined : 'No FAQ has been written. Offer to take a message.',
-      },
-      'Read the public FAQ',
-    );
-  }
-  if (invocation.name === 'find_open_slots') {
-    const raw = invocation.input;
-    const type: MeetingType = raw.meeting_type === 'in_person' ? 'in_person' : 'call';
-    const kind = (MEETING_KINDS as readonly unknown[]).includes(raw.kind)
-      ? (raw.kind as MeetingKind)
-      : null;
-    if (type === 'in_person' && !inPersonOffered(config)) {
-      return outcome(
-        invocation,
-        true,
-        { slots: [], note: 'Only calls are offered.' },
-        'No in person',
-      );
-    }
-    if (type === 'in_person' && !kind) {
-      return outcome(
-        invocation,
-        false,
-        { error: 'Ask whether they want coffee, lunch or dinner, then call again with kind.' },
-        'Needs a kind',
-      );
-    }
-    const input = await scope.input();
-    if (!input) {
-      return outcome(
-        invocation,
-        false,
-        { error: 'Open times cannot be read right now. Offer to take a message.' },
-        'Times unavailable',
-      );
-    }
-    const date =
-      typeof raw.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : null;
-    const slots = chatSlots(input, { type, kind }, scope.visitorZone, date);
-    for (const s of slots) scope.offered.set(s.start, { ...s, query: { type, kind } });
-    scope.lastQuery = { type, kind };
-    return outcome(
-      invocation,
-      true,
-      {
-        // What a call is on, by name only: the saved link goes in the invite alone.
-        meeting:
-          type === 'call'
-            ? callOptionLabel(videoProviderLabel(config.callLink))
-            : `${TYPE_LABEL.in_person}: ${KIND_LABEL[kind!]}`,
-        visitor_time_zone: scope.visitorZone,
-        slots: slots.map((s) => ({ start: s.start, label: s.label })),
-      },
-      `Found ${slots.length} open times`,
-    );
-  }
-  if (invocation.name === 'fill_form') {
-    const parsed = CHAT_FORM_FILL.safeParse(invocation.input);
-    if (!parsed.success) {
-      return outcome(invocation, false, { error: 'Those fields could not be used.' }, 'Bad fill');
-    }
-    const fill = { ...parsed.data };
-    if (fill.start) {
-      const at = Date.parse(fill.start);
-      const offered = Number.isFinite(at)
-        ? scope.offered.get(new Date(at).toISOString())
-        : undefined;
-      if (!offered) {
-        return outcome(
-          invocation,
-          false,
-          { error: 'Use a start time exactly as find_open_slots returned it this turn.' },
-          'Time not offered',
-        );
-      }
-      fill.start = offered.start;
-      // The time was found for one meeting: the fill is for that one, never
-      // a call's time with "coffee" (the page would show a time it cannot send).
-      fill.type = offered.query.type;
-      if (offered.query.kind) fill.kind = offered.query.kind;
-      else delete fill.kind;
-    }
-    if (fill.placeId && !config.places.some((p) => p.id === fill.placeId)) delete fill.placeId;
-    if (fill.customPlace && !config.allowCustomPlace) delete fill.customPlace;
-    scope.fills.push(fill);
-    return outcome(
-      invocation,
-      true,
-      { filled: Object.keys(fill), note: 'The visitor reviews the form and presses Send.' },
-      'Filled the form',
-    );
-  }
-  return outcome(invocation, false, { error: 'Unknown tool.' }, 'Unknown tool');
-}
-
-/* ------------------------------------------------------------ live or guided */
-
-function startOfMonthUtc(now: Date): string {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-}
-
-/**
- * This month's chatbot spend, the organization's spend over the last day,
- * and the chatbot's model turns over the last day. Every page of rows is
- * read (lib/db/paging.ts): a plain list stops at the database's first 1,000,
- * and a cap summed over part of the rows would never trip.
- */
-async function spend(
-  store: DataStore,
-  organizationId: string,
-  now: Date,
-): Promise<{ month: number; day: number; turnsToday: number }> {
-  const dayAgo = new Date(now.getTime() - 86_400_000).toISOString();
-  const [month, day, turnsToday] = await Promise.all([
-    listAllPages(store, 'ai_usage', organizationId, {
-      eq: { operation: BOOKING_CHAT_OPERATION },
-      gte: { created_at: startOfMonthUtc(now) },
-    }),
-    listAllPages(store, 'ai_usage', organizationId, { gte: { created_at: dayAgo } }),
-    store.count('ai_usage', organizationId, {
-      eq: { operation: BOOKING_CHAT_OPERATION },
-      gte: { created_at: dayAgo },
-    }),
-  ]);
-  const sum = (rows: { estimated_cost_usd: number | null }[]) =>
-    rows.reduce((total, r) => total + (r.estimated_cost_usd ?? 0), 0);
-  return { month: sum(month), day: sum(day), turnsToday };
-}
-
-export type ChatModeReason = 'off' | 'no_key' | 'monthly_cap' | 'daily_budget' | 'busy' | null;
-type ChatMode = { mode: 'live' | 'guided'; reason: ChatModeReason };
-
-/** The public page's answer, kept briefly per link so a burst of page views reads the spend once. */
-const modeCache = processWide(
-  'booking-chat-mode',
-  () => new Map<string, { at: number; value: ChatMode }>(),
-);
-
-/**
- * Whether the chatbot may use the model now. Never throws: any doubt is
- * guided. `cacheMs` (the public page only) reuses an answer that young; a
- * chat turn always asks afresh.
- */
-export async function chatModeFor(
-  store: DataStore,
-  link: OpenLink,
-  options: { ai?: AIProvider; now?: Date; cacheMs?: number } = {},
-): Promise<ChatMode> {
-  if (!link.config.chatbotEnabled) return { mode: 'guided', reason: 'off' };
-  const ai = options.ai ?? getAI();
-  // The demo's offline stub writes about fictional deals; it is not a chatbot.
-  if (ai.kind !== 'anthropic' || !ai.available()) return { mode: 'guided', reason: 'no_key' };
-  const now = options.now ?? new Date();
-  const key = `${link.organizationId}:${link.config.monthlyAiCapUsd}`;
-  const cached = options.cacheMs ? modeCache.get(key) : undefined;
-  if (cached && now.getTime() - cached.at < (options.cacheMs ?? 0)) return cached.value;
-  let value: ChatMode = { mode: 'live', reason: null };
-  try {
-    const used = await spend(store, link.organizationId, now);
-    if (used.month >= link.config.monthlyAiCapUsd) {
-      value = { mode: 'guided', reason: 'monthly_cap' };
-    } else if (used.day >= envLimits().dailyAiBudgetUsd || used.turnsToday >= LIVE_LINK_PER_DAY) {
-      value = { mode: 'guided', reason: 'daily_budget' };
-    }
-  } catch {
-    return { mode: 'guided', reason: 'busy' };
-  }
-  modeCache.set(key, { at: now.getTime(), value });
-  return value;
-}
-
-/** Tests: forget the page's cached answers. */
-export function resetChatModeCache(): void {
-  modeCache.clear();
-}
-
-/**
- * What a failed turn is recorded as: what the provider says it spent before
- * failing (lib/ai/anthropic.ts puts it on the error), else the worst case.
- */
-export function failedTurnUsage(error: AppError, model: string = modelFor('fast')): UsageInfo {
-  const d = error.details ?? {};
-  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-  const reported = num(d.usageCostUsd);
+  const from = page * SLOTS_PER_PAGE;
   return {
-    model: typeof d.usageModel === 'string' ? d.usageModel : model,
-    inputTokens: num(d.usageInputTokens),
-    outputTokens: num(d.usageOutputTokens),
-    cacheReadTokens: num(d.usageCacheReadTokens),
-    estimatedCostUsd: reported ?? unreportedTurnCostUsd(model),
-    durationMs: 0,
+    slots: picked.slice(from, from + SLOTS_PER_PAGE),
+    more: picked.length > from + SLOTS_PER_PAGE,
   };
 }
 
-const GUIDED_NOTICE: Record<Exclude<ChatModeReason, null>, string> = {
-  off: 'The chatbot is off, so these buttons do the job.',
-  no_key: 'I am in simple mode right now: tap a button below.',
-  monthly_cap: 'I am in simple mode for the rest of the month: tap a button below.',
-  daily_budget: 'I am in simple mode for today: tap a button below.',
-  busy: 'I am in simple mode right now: tap a button below.',
-};
+/* -------------------------------------------------------------- the link */
 
-function visitorZoneOf(zone: string | undefined, hostZone: string): string {
-  return knownZone(zone) ? zone : hostZone;
+interface ChatContextData {
+  link: OpenLink;
+  chatbot: ChatbotConfig;
+  hostName: string;
+  hostFirst: string;
+  hostZone: string;
+  visitorZone: string;
+  inPerson: boolean;
+  kinds: MeetingKind[];
+  guests: { allowed: boolean; max: number };
+  bookingUrl: string;
 }
 
-/** The guided helper: the same tools, no model, one answer per button. */
-export async function guidedReply(
-  scope: ToolScope,
-  request: Pick<ChatRequest, 'action' | 'type' | 'kind'>,
-  hostFirst: string,
-  notice?: string,
-): Promise<ChatReply> {
-  const who = hostFirst || 'the host';
-  const base = { mode: 'guided' as const, slots: [], fill: null, ...(notice ? { notice } : {}) };
-  if (request.action === 'about') {
-    const faq = scope.link.config.faq.trim();
-    return { ...base, reply: faq || `I can take a message for ${who}.` };
-  }
-  if (request.action === 'message') {
-    return {
-      ...base,
-      reply: 'Write your message (and a deck link, if you like) in the form, then press Send.',
-      fill: { type: 'message' },
-    };
-  }
-  if (request.action === 'find_time') {
-    const type: MeetingType = request.type === 'in_person' ? 'in_person' : 'call';
-    const kind = type === 'in_person' ? (request.kind ?? null) : null;
-    if (type === 'in_person' && !inPersonOffered(scope.link.config)) {
-      return { ...base, reply: 'Only calls are offered on this page.' };
-    }
-    if (type === 'in_person' && !kind) {
-      return { ...base, reply: 'Coffee, lunch or dinner? Pick one below.' };
-    }
-    const input = await scope.input();
-    if (!input) {
-      return {
-        ...base,
-        reply: 'Open times cannot be shown right now. You can leave a message instead.',
-      };
-    }
-    const slots = chatSlots(input, { type, kind }, scope.visitorZone);
-    const what =
-      type === 'call'
-        ? `a ${callOptionLabel(videoProviderLabel(scope.link.config.callLink))}`
-        : `${KIND_LABEL[kind!].toLowerCase()} (1 hour, in person)`;
-    return {
-      ...base,
-      slots,
-      query: { type, kind },
-      reply: slots.length
-        ? `Here are the next open times for ${what}, in your time zone. Tap one to put it in the form.`
-        : `There are no open times for ${what} in the next few weeks. You can leave a message instead.`,
-    };
-  }
+/** The public facts the assistant may use: the card, the offers, the places. */
+export function publicFactsFor(data: ChatContextData): PublicFacts {
+  const { config } = data.link;
   return {
-    ...base,
-    reply: `Hi, I'm Arwin, ${who}'s AI scheduling assistant. I can find a time, tell you about the firm, or take a message.`,
+    hostName: data.hostName,
+    hostFirst: data.hostFirst,
+    title: config.title,
+    bio: config.bio,
+    firmName: config.firmName,
+    offersCall: true,
+    inPersonKinds: data.inPerson ? data.kinds.map((k) => KIND_LABEL[k]) : [],
+    places: data.inPerson
+      ? config.places.map((p) => (p.area ? `${p.name} (${p.area})` : p.name))
+      : [],
+    allowCustomPlace: data.inPerson && config.allowCustomPlace,
+    guestsAllowed: data.guests.allowed,
+    maxGuests: data.guests.max,
+  };
+}
+
+/** Every answer the assistant may give: Arwin's written ones first, then the card's. */
+export function answerEntries(data: ChatContextData): FaqEntry[] {
+  return [...faqEntries(data.chatbot.faqItems), ...builtInEntries(publicFactsFor(data))];
+}
+
+/** The booking page's own address, the one link an AI answer may keep. */
+export function bookingUrlFor(slug: string): string {
+  return `${env().appUrl.replace(/\/+$/, '')}/meet/${slug}`;
+}
+
+/** The assistant's view of a link, open or not (the Booking tab reads it while off). */
+async function contextOf(
+  store: DataStore,
+  link: OpenLink,
+  timeZone: string | undefined,
+): Promise<ChatContextData> {
+  const chatbot = readChatbotConfig(link.row.settings);
+  const [hostZone, host] = await Promise.all([
+    principalTimeZone(store, link.organizationId),
+    readHost(store, link.organizationId).catch(() => null),
+  ]);
+  const hostName = link.config.displayName || host?.fullName || '';
+  const kinds = MEETING_KINDS.filter((k) => (link.config.kindWindows[k] ?? []).length > 0);
+  const inPerson = inPersonOffered(link.config) && kinds.length > 0;
+  return {
+    link,
+    chatbot,
+    hostName,
+    hostFirst: firstName(hostName),
+    hostZone,
+    visitorZone: knownZone(timeZone) ? timeZone : hostZone,
+    inPerson,
+    kinds: inPerson ? kinds : [],
+    guests: readGuestRules(link.row.settings),
+    bookingUrl: bookingUrlFor(link.row.slug),
+  };
+}
+
+async function contextFor(
+  store: DataStore,
+  slug: string,
+  timeZone: string | undefined,
+): Promise<Result<ChatContextData>> {
+  const found = await resolveOpenLink(store, slug);
+  if (!found.open) return err('forbidden', 'The assistant is not available on this page.');
+  const data = await contextOf(store, found.link, timeZone);
+  if (!data.chatbot.enabled)
+    return err('forbidden', 'The assistant is not available on this page.');
+  return ok(data);
+}
+
+/* ------------------------------------------------------------- the actions */
+
+function startReply(data: ChatContextData): ChatStart {
+  const who = data.hostFirst || 'the host';
+  const { config } = data.link;
+  return {
+    action: 'start',
+    hostName: data.hostName,
+    hostFirst: data.hostFirst,
+    firmName: config.firmName,
+    greeting: `Hi, I'm Arwin, ${who}'s AI scheduling assistant. I can book a time with ${who}, answer a question, or pass on a message.`,
+    offers: { call: true, inPerson: data.inPerson },
+    callLabel: callOptionLabel(videoProviderLabel(config.callLink)),
+    kinds: data.kinds,
+    places: data.inPerson
+      ? config.places.map((p) => ({ id: p.id, name: p.name, area: p.area }))
+      : [],
+    allowCustomPlace: data.inPerson && config.allowCustomPlace,
+    guests: data.guests,
+    suggestions: data.chatbot.faqItems.slice(0, 4).map((item) => item.q),
+    aiAnswers: data.chatbot.aiAnswers && bookingChatConfigured(),
+    zoneLabel: zoneName(data.visitorZone),
+  };
+}
+
+async function timesReply(
+  store: DataStore,
+  data: ChatContextData,
+  request: Extract<ChatRequest, { action: 'times' }>,
+  deps: BookingDeps,
+): Promise<ChatTimes> {
+  const type: MeetingType = request.type;
+  const kind = type === 'in_person' ? (request.kind ?? null) : null;
+  const query = { type, kind };
+  const zoneLabel = zoneName(data.visitorZone);
+  const empty = (reply: string): ChatTimes => ({
+    action: 'times',
+    query,
+    slots: [],
+    more: false,
+    zoneLabel,
+    reply,
+  });
+  if (type === 'in_person' && !data.inPerson) return empty('Only calls can be booked here.');
+  if (type === 'in_person' && (!kind || !data.kinds.includes(kind))) {
+    return empty('Coffee, lunch or dinner? Pick one below.');
+  }
+  const prepared = await engineInputFor(store, data.link, deps).catch(() => null);
+  if (!prepared || !prepared.ok) {
+    return empty('Open times cannot be shown right now. You can leave a message instead.');
+  }
+  const { slots, more } = chatSlots(prepared.value.input, query, data.visitorZone, request.page);
+  const what =
+    type === 'call' ? 'a 30-minute call' : `${KIND_LABEL[kind!].toLowerCase()} (1 hour, in person)`;
+  return {
+    action: 'times',
+    query,
+    slots,
+    more,
+    zoneLabel,
+    reply: slots.length
+      ? request.page > 0
+        ? `More open times for ${what}.`
+        : `Here are the next open times for ${what}. Pick one.`
+      : request.page > 0
+        ? 'There are no more open times right now.'
+        : `There are no open times for ${what} right now. You can leave a message instead.`,
+  };
+}
+
+/** The offers, as the routine is told them. */
+function offersFor(data: ChatContextData): string[] {
+  const facts = publicFactsFor(data);
+  const out = [`${callOptionLabel(videoProviderLabel(data.link.config.callLink))} (video)`];
+  for (const kind of facts.inPersonKinds) out.push(`1-hour ${kind.toLowerCase()} in person`);
+  if (facts.places.length) out.push(`In-person places: ${facts.places.join('; ')}`);
+  if (facts.allowCustomPlace) out.push('Visitors may suggest a place of their own');
+  out.push(
+    facts.guestsAllowed
+      ? `Visitors may add up to ${facts.maxGuests} guests by email`
+      : 'Guests cannot be added on this page',
+  );
+  out.push('Booking from this page sends the calendar invitation straight away');
+  out.push('Every booking confirmation has a link to reschedule or cancel');
+  return out;
+}
+
+/** The facts block the routine gets: public card, written answers, offers, next calls. */
+async function questionFacts(
+  store: DataStore,
+  data: ChatContextData,
+  deps: BookingDeps,
+): Promise<BookingQuestionFacts> {
+  const prepared = await engineInputFor(store, data.link, deps).catch(() => null);
+  const times =
+    prepared && prepared.ok
+      ? chatSlots(prepared.value.input, { type: 'call', kind: null }, data.visitorZone)
+          .slots.slice(0, 6)
+          .map((s) => `${s.label} (${zoneName(data.visitorZone, new Date(s.start))})`)
+      : [];
+  return buildQuestionFacts({
+    hostName: data.hostName,
+    firmName: data.link.config.firmName,
+    title: data.link.config.title,
+    bio: data.link.config.bio,
+    faqItems: data.chatbot.faqItems,
+    offers: offersFor(data),
+    nextOpenTimes: times,
+  });
+}
+
+function intentReply(intent: ChatIntent, data: ChatContextData): ChatIntent | null {
+  if (intent.intent === 'in_person') {
+    if (!data.inPerson) return { intent: 'call' };
+    if (intent.kind && !data.kinds.includes(intent.kind))
+      return { intent: 'in_person', kind: null };
+  }
+  return intent;
+}
+
+const NO_ANSWER: Record<AskUnavailable | 'no_match', string> = {
+  no_match: 'I don’t have an answer for that one.',
+  off: 'I don’t have an answer for that one.',
+  not_set_up: 'I don’t have an answer for that one.',
+  no_table: 'I don’t have an answer for that one.',
+  fire_failed: 'I can’t look that up right now.',
+  session_cap: 'I’ve looked up as many questions as I can for this visit.',
+  address_cap: 'I’ve looked up as many questions as I can for you today.',
+  daily_cap: 'I’ve looked up as many questions as I can today.',
+};
+
+async function askReply(
+  store: DataStore,
+  data: ChatContextData,
+  request: Extract<ChatRequest, { action: 'ask' }>,
+  context: ChatContext,
+): Promise<ChatAnswer> {
+  const question = cleanQuestion(request.question);
+  const result = matchFaq(question, answerEntries(data));
+  const suggestions = result.suggestions.map((m) => m.entry.q);
+  const intent = detectIntent(question);
+  const usable = intent ? intentReply(intent, data) : null;
+  if (usable && !(result.best && result.best.score >= 0.9)) {
+    const reply =
+      usable.intent === 'message'
+        ? 'Sure. Write your message below.'
+        : usable.intent === 'call'
+          ? 'Let’s find a time for a 30-minute call.'
+          : usable.kind
+            ? `Let’s find a time for ${KIND_LABEL[usable.kind].toLowerCase()}.`
+            : 'Coffee, lunch or dinner? Pick one below.';
+    return { action: 'ask', kind: 'intent', intent: usable, reply, suggestions: [] };
+  }
+  if (result.best) {
+    return {
+      action: 'ask',
+      kind: 'answer',
+      answer: result.best.entry.a,
+      matched: result.best.entry.q,
+      suggestions,
+    };
+  }
+  const who = data.hostFirst || 'the host';
+  const fallback = (reason: AskUnavailable | 'no_match'): ChatAnswer => ({
+    action: 'ask',
+    kind: 'none',
+    reply: `${NO_ANSWER[reason]} You can leave it as a message for ${who}${suggestions.length ? ', or try one of these.' : '.'}`,
+    suggestions,
+    reason,
+  });
+  if (!data.chatbot.aiAnswers || !bookingChatConfigured()) return fallback('no_match');
+  const asked = await askBookingRoutine(store, {
+    organizationId: data.link.organizationId,
+    chatbot: data.chatbot,
+    question,
+    sessionId: request.sessionId,
+    ipHash: context.ipHash,
+    facts: await questionFacts(store, data, context),
+    now: context.now,
+    fetchImpl: context.fetchImpl,
+  });
+  if (asked.kind === 'unavailable') return fallback(asked.reason);
+  return {
+    action: 'ask',
+    kind: 'pending',
+    questionId: asked.id,
+    reply:
+      'Arwin is looking into it - this can take a minute or two. You can keep booking meanwhile.',
+    suggestions,
   };
 }
 
 export interface ChatContext extends BookingDeps {
   /** The visitor's address key (lib/security/client-address addressKey), for the brakes. */
   addressKey: string;
-  ai?: AIProvider;
+  /** A keyed hash of the visitor's address, for the per-address AI cap. */
+  ipHash: string | null;
+  fetchImpl?: typeof fetch;
 }
 
 /**
- * One chatbot turn. Live when allowed, else guided; either way, the reply
- * carries at most a list of open times and a form fill, never a send.
+ * One assistant request: the opening (offers, places, guests, chips), the
+ * next open times, or a question. Never a booking: the widget books through
+ * the public request route like the form.
  */
 export async function runBookingChat(
   store: DataStore,
@@ -543,115 +506,167 @@ export async function runBookingChat(
   request: ChatRequest,
   context: ChatContext,
 ): Promise<Result<ChatReply>> {
-  const now = context.now ?? new Date();
+  if (request.action === 'ask') {
+    const limited = rateLimit(`booking-chat-ask:${context.addressKey}`, ASKS_PER_10_MIN, 600_000);
+    if (!limited.ok) return limited;
+  }
+  const found = await contextFor(store, slug, request.timeZone);
+  if (!found.ok) return found;
+  const data = found.value;
+  if (request.action === 'start') return ok(startReply(data));
+  if (request.action === 'times') return ok(await timesReply(store, data, request, context));
+  return ok(await askReply(store, data, request, context));
+}
+
+/** The widget's poll for a routine answer: where one question stands, or null. */
+export async function readPublicAnswer(
+  store: DataStore,
+  slug: string,
+  id: string,
+  options: { now?: Date; fetchImpl?: typeof fetch } = {},
+): Promise<Result<BookingAnswerView>> {
   const found = await resolveOpenLink(store, slug);
-  if (!found.open || !found.link.config.chatbotEnabled) {
-    return err('forbidden', 'The chatbot is not available on this page.');
+  if (!found.open || !readChatbotConfig(found.link.row.settings).enabled) {
+    return err('forbidden', 'The assistant is not available on this page.');
   }
-  const link = found.link;
-  const any = rateLimit(`booking-chat-any:${context.addressKey}`, ANY_PER_10_MIN, 600_000);
-  if (!any.ok) return any;
+  const view = await readBookingAnswer(store, found.link.organizationId, id, {
+    ...options,
+    bookingUrl: bookingUrlFor(found.link.row.slug),
+  });
+  if (!view) return err('not_found', 'That question is not here any more.');
+  return ok(view);
+}
 
-  const [hostZone, host] = await Promise.all([
-    principalTimeZone(store, link.organizationId),
-    readHost(store, link.organizationId).catch(() => null),
+/* ------------------------------------------------------- the Booking tab */
+
+export interface ChatbotPanelData {
+  /** The booking tables exist. */
+  available: boolean;
+  /** The booking link has been saved once (the assistant's settings live in its row). */
+  saved: boolean;
+  config: ChatbotConfig;
+  status: BookingChatStatus;
+  /** The public card's facts, for the panel's "Test a question" box. */
+  facts: PublicFacts;
+}
+
+const EMPTY_FACTS: PublicFacts = {
+  hostName: '',
+  hostFirst: '',
+  title: '',
+  bio: '',
+  firmName: '',
+  offersCall: true,
+  inPersonKinds: [],
+  places: [],
+  allowCustomPlace: false,
+  guestsAllowed: true,
+  maxGuests: 5,
+};
+
+async function settingsRowOf(store: DataStore, organizationId: string) {
+  try {
+    return {
+      available: true as const,
+      row: await store.findOne('booking_settings', organizationId, {}),
+    };
+  } catch (error) {
+    if (isMissingTableError(error)) return { available: false as const, row: null };
+    throw error;
+  }
+}
+
+/** What the Booking tab's assistant panel shows: the settings, the routine's state, the card. */
+export async function readChatbotPanel(
+  store: DataStore,
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<ChatbotPanelData> {
+  const [found, status] = await Promise.all([
+    settingsRowOf(store, organizationId),
+    bookingChatStatus(store, organizationId, now),
   ]);
-  const hostName = link.config.displayName || host?.fullName || '';
-  const hostFirst = firstName(hostName);
-  let cached: Promise<EngineInput | null> | null = null;
-  const scope: ToolScope = {
-    link,
-    visitorZone: visitorZoneOf(request.timeZone, hostZone),
-    offered: new Map(),
-    lastQuery: null,
-    fills: [],
-    input: () =>
-      (cached ??= engineInputFor(store, link, { now, source: context.source })
-        .then((r) => (r.ok ? r.value.input : null))
-        .catch(() => null)),
+  if (!found.row) {
+    return {
+      available: found.available,
+      saved: false,
+      config: readChatbotConfig({}),
+      status,
+      facts: EMPTY_FACTS,
+    };
+  }
+  const link: OpenLink = {
+    organizationId,
+    row: found.row,
+    config: parseBookingConfig(found.row.settings),
   };
+  const data = await contextOf(store, link, undefined);
+  return {
+    available: true,
+    saved: true,
+    config: data.chatbot,
+    status,
+    facts: publicFactsFor(data),
+  };
+}
 
-  const userTurns = request.messages.filter((m) => m.role === 'user' && m.content);
-  if (request.mode === 'guided' || request.action || userTurns.length === 0) {
-    return ok(await guidedReply(scope, request, hostFirst));
+/**
+ * Save the assistant's settings from the Booking tab: the fields given,
+ * merged onto what is stored, checked as a whole, and written into the
+ * booking link's settings document as `chatbot` (and the old
+ * `chatbotEnabled` switch, which earlier code still reads). Nothing else in
+ * the document changes. Audited by counts only.
+ */
+export async function saveChatbotConfig(
+  store: DataStore,
+  organizationId: string,
+  userId: string,
+  patch: ChatbotConfigPatch,
+  now: Date = new Date(),
+): Promise<Result<ChatbotConfig>> {
+  const input = CHATBOT_CONFIG_PATCH.safeParse(patch);
+  if (!input.success) {
+    const issue = input.error.issues[0];
+    return err('invalid_input', issue?.message || 'Check the assistant settings.');
   }
-
-  const mode = await chatModeFor(store, link, { ai: context.ai, now });
-  if (mode.mode === 'guided') {
-    return ok(await guidedReply(scope, {}, hostFirst, GUIDED_NOTICE[mode.reason ?? 'busy']));
-  }
-  const brakes = [
-    rateLimit(`booking-chat-live:${context.addressKey}`, LIVE_PER_10_MIN, 600_000),
-    rateLimit(`booking-chat-live-day:${context.addressKey}`, LIVE_PER_DAY, 86_400_000),
-    rateLimit(`booking-chat-live-org:${link.organizationId}`, LIVE_ORG_PER_HOUR, 3_600_000),
-  ];
-  if (brakes.some((b) => !b.ok)) {
-    return ok(
-      await guidedReply(
-        scope,
-        {},
-        hostFirst,
-        'You have sent a lot of messages, so I am in simple mode for a while: tap a button below.',
-      ),
+  const found = await settingsRowOf(store, organizationId);
+  if (!found.available) return err('not_configured', BOOKING_NOT_SET_UP);
+  if (!found.row) {
+    return err(
+      'not_found',
+      'Save the booking link once first, then the assistant’s answers can be saved.',
     );
   }
-
-  const ai = context.ai ?? getAI();
-  const today = dayKeyIn(now.toISOString(), scope.visitorZone);
-  const system = bookingChatSystemPrompt({
-    hostName,
-    hostFirstName: hostFirst,
-    firmName: link.config.firmName,
-    hostTimeZone: hostZone,
-    visitorTimeZone: scope.visitorZone,
-    today,
-    offersInPerson: inPersonOffered(link.config),
-    callProvider: videoProviderLabel(link.config.callLink),
+  const merged = CHATBOT_CONFIG_SCHEMA.safeParse({
+    ...readChatbotConfig(found.row.settings),
+    ...input.data,
   });
-  // One visitor turn holding the whole conversation as fenced data: the page
-  // keeps the history, so an "assistant" line from it is never trusted as one.
-  const messages = [{ role: 'user' as const, content: fenceConversation(request.messages) }];
-
-  const result = await ai.runToolConversation({
-    tier: 'fast',
-    operation: BOOKING_CHAT_OPERATION,
-    promptVersion: BOOKING_CHAT_PROMPT_VERSION,
-    system,
-    messages,
-    tools: BOOKING_CHAT_TOOLS,
-    execute: (invocation) => runBookingTool(invocation, scope),
-    finalSchema: z.object({ reply: z.string().max(1200) }),
-    maxIterations: CHAT_MAX_ITERATIONS,
-    maxTokens: CHAT_MAX_TOKENS,
-  });
-  await recordAiUsage(store, {
-    organizationId: link.organizationId,
-    userId: null,
-    operation: BOOKING_CHAT_OPERATION,
-    promptVersion: BOOKING_CHAT_PROMPT_VERSION,
-    usage: result.ok ? result.value.usage : failedTurnUsage(result.error),
-    ok: result.ok,
-    errorCode: result.ok ? null : result.error.code,
-  }).catch((error: unknown) => {
-    log.warn('Booking chat usage could not be recorded', {
-      reason: error instanceof Error ? error.message : 'unknown',
+  if (!merged.success) {
+    return err('invalid_input', merged.error.issues[0]?.message || 'Check the assistant settings.');
+  }
+  const next = merged.data;
+  try {
+    await store.update('booking_settings', organizationId, found.row.id, {
+      settings: { ...found.row.settings, chatbot: next, chatbotEnabled: next.enabled },
+      updated_by: userId,
+      updated_at: now.toISOString(),
     });
-  });
-  if (!result.ok) {
-    return ok(
-      await guidedReply(scope, {}, hostFirst, 'I could not answer just now: tap a button below.'),
-    );
+  } catch (error) {
+    if (isMissingTableError(error)) return err('not_configured', BOOKING_NOT_SET_UP);
+    throw error;
   }
-  const offered = [...scope.offered.values()].map(({ start, end, label }): ChatSlot => ({
-    start,
-    end,
-    label,
-  }));
-  return ok({
-    mode: 'live',
-    reply: result.value.value.reply.trim().slice(0, 1200),
-    slots: offered.slice(0, SLOTS_PER_ANSWER),
-    ...(scope.lastQuery ? { query: scope.lastQuery } : {}),
-    fill: scope.fills.length ? Object.assign({}, ...scope.fills) : null,
+  await recordAudit(store, {
+    organizationId,
+    userId,
+    action: 'booking.chatbot_updated',
+    entityType: 'booking_settings',
+    entityId: found.row.id,
+    metadata: {
+      enabled: next.enabled,
+      answers: next.faqItems.length,
+      ai_answers: next.aiAnswers,
+      daily_ai_cap: next.dailyAiCap,
+    },
   });
+  return ok(next);
 }

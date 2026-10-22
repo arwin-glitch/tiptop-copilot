@@ -95,8 +95,13 @@ const PAGES = [
   '/diagnostics?tab=parity',
   // Each calendar's colour labels, a table per calendar.
   '/diagnostics?tab=labels',
-  // The booking link: its public page (its own face, no app shell) and its Settings tab.
+  // The booking link: its public page (its own face, no app shell) and the
+  // Booking tab's subtabs (D-078; Settings' old address redirects there).
   '/meet/nick',
+  '/booking',
+  '/booking?tab=availability',
+  '/booking?tab=bookings',
+  '/booking?tab=calendars',
   '/settings?tab=booking',
 ];
 

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { LifeBuoy } from 'lucide-react';
+import { redirect } from 'next/navigation';
+import { CalendarCheck, LifeBuoy } from 'lucide-react';
 import { hasRole, requireAuth } from '@/lib/auth/session';
 import { env, envLimits, isDemoMode } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
@@ -29,10 +30,7 @@ import { latestDesktopRelease } from '@/lib/desktop/releases';
 import { desktopVersionHint } from '@/lib/desktop/server';
 import { updatesItself } from '@/lib/desktop/shared';
 import { McpConnectCard } from '@/components/settings/mcp-connect';
-import { BookingSettings } from '@/components/booking/booking-settings';
-import { BOOKING_NOT_SET_UP, readBookingSettings } from '@/lib/services/booking';
-import { DEFAULT_BOOKING_CONFIG } from '@/lib/booking/config';
-import { principalTimeZone } from '@/lib/services/push-alerts';
+import { readBookingSettings } from '@/lib/services/booking';
 import { log } from '@/lib/security/redact';
 import { formatDateTime } from '@/lib/util/time';
 import { notesAccess } from '@/lib/notes/flag';
@@ -59,6 +57,8 @@ export default async function SettingsPage({
   const auth = await requireAuth();
   const params = await searchParams;
   const asked = typeof params.tab === 'string' ? params.tab : null;
+  // The booking link has its own tab now (D-078): old links land there.
+  if (asked === 'booking') redirect('/booking');
   const tab = (SETTINGS_TABS as readonly string[]).includes(asked ?? '') ? asked! : 'thesis';
   const store = getStore();
   const [thesis, integration] = await Promise.all([
@@ -89,17 +89,15 @@ export default async function SettingsPage({
     userId: auth.userId,
     admin: hasRole(auth, 'admin'),
   }).catch(() => null);
-  // The booking link (D-074). A fault reading it shows the "run the
-  // migration" note rather than taking Settings down with it.
-  const [booking, hostZone] = await Promise.all([
-    readBookingSettings(store, auth.organizationId).catch((error: unknown) => {
-      log.warn('Booking settings could not be read', {
-        reason: error instanceof Error ? error.message : 'unknown',
-      });
-      return null;
-    }),
-    principalTimeZone(store, auth.organizationId),
-  ]);
+  // The booking link (D-074) lives on its own Booking tab (D-078); this
+  // tab only says whether it is on and links there. A fault reading it
+  // leaves the badge out rather than taking Settings down with it.
+  const booking = await readBookingSettings(store, auth.organizationId).catch((error: unknown) => {
+    log.warn('Booking settings could not be read', {
+      reason: error instanceof Error ? error.message : 'unknown',
+    });
+    return null;
+  });
   // Copilot Notes (D-076): its tab shows only once the server switch is not off.
   const notes = await notesAccess(store, auth).catch(() => null);
   const notesTab = Boolean(notes && notes.mode !== 'off');
@@ -390,14 +388,18 @@ export default async function SettingsPage({
 
         <TabsContent value="booking">
           <Card data-tour="settings-booking">
-            <CardHeader>
-              <div>
-                <CardTitle as="h2">Booking link</CardTitle>
-                <p className="mt-1 text-sm text-[var(--fg-muted)]">
-                  A public page where people ask for a 30-minute call or an hour in person. Open
-                  times come from the calendar. With Instant booking on, free times are booked
-                  straight away; otherwise requests wait for Approve on the Calendar tab. Off until
-                  you turn it on.
+            <CardContent className="flex flex-wrap items-center gap-3 py-4">
+              <span
+                aria-hidden="true"
+                className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)]"
+              >
+                <CalendarCheck className="size-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-title font-serif font-semibold">Booking link</h2>
+                <p className="text-sm text-[var(--fg-muted)]">
+                  It has its own tab now: the link, which months are open, bookings, profile,
+                  places, the chatbot and calendars.
                 </p>
               </div>
               {booking?.available ? (
@@ -405,19 +407,9 @@ export default async function SettingsPage({
                   {booking.enabled ? 'On' : 'Off'}
                 </Badge>
               ) : null}
-            </CardHeader>
-            <CardContent>
-              <BookingSettings
-                available={Boolean(booking?.available)}
-                enabled={booking?.enabled ?? false}
-                slug={booking?.slug ?? 'meet'}
-                config={booking?.config ?? DEFAULT_BOOKING_CONFIG}
-                linkBase={`${env().appUrl.replace(/\/+$/, '')}/meet/`}
-                canEdit={hasRole(auth, 'admin')}
-                hostZone={hostZone}
-                demo={demo}
-                notSetUpMessage={BOOKING_NOT_SET_UP}
-              />
+              <Button asChild variant="primary" size="sm">
+                <Link href="/booking">Open the Booking tab</Link>
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -453,7 +445,7 @@ export default async function SettingsPage({
                 <DataRow label="AI cost">
                   {paidAi
                     ? `Paid AI key on: capped at $${limits.dailyAiBudgetUsd.toFixed(2)} a day`
-                    : '$0: AI answers run on the Claude plan (Ask Arwin), no paid key'}
+                    : '$0: AI runs on the Claude plan'}
                 </DataRow>
                 <DataRow label="Automatic analysis">
                   {limits.autoAnalyzeEnabled ? 'On' : 'Off'}

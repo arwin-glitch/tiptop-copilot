@@ -100,9 +100,9 @@ export const ALERT_KEYS_MAX = 50;
  * The kinds of key push-alerts.ts makes, Ask Arwin answers
  * (ask-reply-alerts.ts) and feedback notes (feedback.ts). Anything else a
  * computer reports is ignored. Feed notices (feed-health.ts) are the `feed`
- * kind.
+ * kind; the booking link's changes (booking-alerts.ts, D-078) the `booking` kind.
  */
-const KEY_PREFIXES = /^(meeting|money|top3|wait|risk|docsend|campaign|ask|feedback|feed):/;
+const KEY_PREFIXES = /^(meeting|money|top3|wait|risk|docsend|campaign|ask|feedback|feed|booking):/;
 
 const DEVICE_RE = /^[0-9a-f]{32}$/;
 const TOKEN_RE = /^tcdsk_([0-9a-f]{32})_([0-9a-f]{32})_([A-Za-z0-9_-]{43})$/;

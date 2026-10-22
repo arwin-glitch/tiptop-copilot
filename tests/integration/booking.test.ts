@@ -147,6 +147,13 @@ beforeEach(async () => {
   resetCalendarRangeCache();
   resetLimiters();
   state = createMockCalendarState(NOW);
+  // These tests pin the approve-first flow (D-074), an option since D-078;
+  // instant booking, holds and the booking's own page are booking-flows.test.ts.
+  const org = harness.auth.organizationId;
+  const row = await harness.store.get('booking_settings', org, DEMO_BOOKING_SETTINGS_ID);
+  await harness.store.update('booking_settings', org, DEMO_BOOKING_SETTINGS_ID, {
+    settings: { ...(row!.settings as Record<string, unknown>), approveFirst: true },
+  });
 });
 
 afterEach(async () => {
@@ -285,7 +292,11 @@ describe('a visitor’s request', () => {
   it('answers the honeypot as if all went well, and keeps nothing', async () => {
     const [slot] = await slots('call');
     const result = await submit({ start: slot!.start, website: 'http://spam.example' });
-    expect(result).toEqual({ ok: true, value: { kind: 'ignored' } });
+    // The answer a person would get for a request that waits, and no page to manage.
+    expect(result).toEqual({
+      ok: true,
+      value: { kind: 'ignored', result: { status: 'pending', manageUrl: null, booking: null } },
+    });
     expect(
       await harness.store.count('booking_requests', harness.auth.organizationId, {
         eq: { email: 'pat@acme.example' },
@@ -300,16 +311,31 @@ describe('a visitor’s request', () => {
     expect(fourth.ok).toBe(false);
     if (!fourth.ok) {
       expect(fourth.error.code).toBe('rate_limited');
-      expect(fourth.error.message).toMatch(/Too many requests from this email address/);
+      expect(fourth.error.message).toBe(
+        'You already have 3 meetings or messages on this link. Change or cancel one from its own page first.',
+      );
     }
     // A new hour, the same three still waiting: still no.
     resetLimiters();
-    const again = await submit(message);
-    expect(again.ok).toBe(false);
-    if (!again.ok)
-      expect(again.error.message).toBe(
-        'You already have 3 requests waiting. Send another once those are answered.',
+    expect((await submit(message)).ok).toBe(false);
+    // Handled, they no longer wait; the hourly brake (three an hour) still holds.
+    const handle = () =>
+      harness.store.updateWhere(
+        'booking_requests',
+        harness.auth.organizationId,
+        { eq: { email: 'pat@acme.example', status: 'pending' } },
+        { status: 'handled' },
       );
+    await handle();
+    resetLimiters();
+    for (let i = 0; i < 3; i += 1) {
+      expect((await submit(message)).ok).toBe(true);
+      await handle();
+    }
+    const hourly = await submit(message);
+    expect(hourly.ok).toBe(false);
+    if (!hourly.ok)
+      expect(hourly.error.message).toMatch(/Too many requests from this email address/);
   });
 
   it('fills a day with at most two link bookings', async () => {
@@ -581,7 +607,7 @@ describe('the Copilot side', () => {
       {
         enabled: false,
         slug: 'sam-host',
-        config: { ...before.config, horizonDays: 14 },
+        config: { ...before.config, openMonths: ['2026-10', '2026-12'] },
       },
     );
     expect(good.ok && good.value).toMatchObject({ enabled: false, slug: 'sam-host' });
@@ -659,7 +685,8 @@ describe('the off switch', () => {
       },
     );
     const page = await publicBookingPage(harness.store, SLUG, deps());
-    expect(page).toMatchObject({ state: 'closed', host: null, places: [], faq: '' });
+    expect(page).toMatchObject({ state: 'closed', host: null, places: [] });
+    expect('faq' in page).toBe(false);
     const times = await publicSlots(harness.store, SLUG, { type: 'call', kind: null }, deps());
     expect(times).toMatchObject({ state: 'closed', slots: [], message: CLOSED_MESSAGE });
     const sent = await submit({ type: 'message', start: null, note: 'Hello' });
@@ -681,7 +708,13 @@ describe('the off switch', () => {
     );
     const view = await readBookingSettings(harness.store, harness.auth.organizationId);
     expect(view).toMatchObject({ available: true, enabled: false, saved: false, slug: 'nick' });
-    expect(view.config).toEqual({ ...DEFAULT_BOOKING_CONFIG, displayName: 'Nick Tippmann' });
+    expect(view.config).toEqual({
+      ...DEFAULT_BOOKING_CONFIG,
+      displayName: 'Nick Tippmann',
+      // This month and the next, from the day it is read.
+      openMonths: expect.any(Array),
+    });
+    expect(view.config.openMonths).toHaveLength(2);
     expect((await publicBookingPage(harness.store, SLUG, deps())).state).toBe('closed');
   });
 });
@@ -800,7 +833,7 @@ describe('review fixes', () => {
     if (!fourth.ok) {
       expect(fourth.error.code).toBe('rate_limited');
       expect(fourth.error.message).toBe(
-        'You already have requests waiting. Send another once those are answered.',
+        'You already have several meetings or messages on this link. Change or cancel one from its own page first.',
       );
     }
     // Kept in the table, so a restart (fresh limiters) changes nothing.
@@ -1182,16 +1215,16 @@ describe('booking hotfix: the hard hours, Central', () => {
   });
 });
 
-describe('Instant booking (D-074 addendum)', () => {
+describe('Instant by default (D-078; it supersedes the D-074 Instant addendum)', () => {
   const ZOOM_ROOM = 'https://example.zoom.us/j/5550001111?pwd=invented';
 
-  async function instantOn(over: Record<string, unknown> = {}) {
+  async function configure(over: Record<string, unknown> = {}) {
     const current = await readBookingSettings(harness.store, harness.auth.organizationId);
     const result = await saveBookingSettings(
       harness.store,
       harness.auth.organizationId,
       harness.auth.userId,
-      { enabled: true, slug: SLUG, config: { ...current.config, instant: true, ...over } },
+      { enabled: true, slug: SLUG, config: { ...current.config, approveFirst: false, ...over } },
     );
     expect(result.ok).toBe(true);
   }
@@ -1204,284 +1237,55 @@ describe('Instant booking (D-074 addendum)', () => {
     });
   }
 
-  const statusOf = (result: Awaited<ReturnType<typeof send>>) =>
-    result.ok && result.value.kind === 'saved' ? result.value.status : null;
-
   async function rowsFor(email: string): Promise<BookingRequest[]> {
     return harness.store.list('booking_requests', harness.auth.organizationId, {
       eq: { email },
     });
   }
 
-  /** The mock read through the range cache, as Google is: what the page was drawn from stays a while. */
-  function cachedLikeGoogle(): CalendarSource {
-    const provider = new MockCalendarProvider(NOW, state);
-    Object.defineProperty(provider, 'kind', { value: 'google' });
-    return { ...source(), provider };
-  }
-
-  it('is on for a new link, and off in the demo, which shows requests waiting', async () => {
-    expect(DEFAULT_BOOKING_CONFIG.instant).toBe(true);
-    expect(parseBookingConfig({}).instant).toBe(true);
-    expect(parseBookingConfig({ instant: false }).instant).toBe(false);
-    const demo = await readBookingSettings(harness.store, harness.auth.organizationId);
-    expect(demo.config.instant).toBe(false);
+  it('is on for a new link, and an old "instant: false" never keeps approval on', async () => {
+    expect(DEFAULT_BOOKING_CONFIG.approveFirst).toBe(false);
+    expect(parseBookingConfig({}).approveFirst).toBe(false);
+    expect(parseBookingConfig({ instant: false }).approveFirst).toBe(false);
+    expect(parseBookingConfig({ approveFirst: true }).approveFirst).toBe(true);
   });
 
-  it('books a free call straight away: one event, exactly as Approve makes it, the row approved', async () => {
-    await instantOn({ callLink: ZOOM_ROOM });
+  it('books a free call on the saved Zoom link straight away: one event, exactly as Approve makes it', async () => {
+    await configure({ callLink: ZOOM_ROOM });
     const [slot] = await slots('call');
     const result = await send({ start: slot!.start });
-    expect(statusOf(result)).toBe('booked');
+    expect(result.ok && result.value.kind === 'saved' && result.value.result.status).toBe('booked');
     expect(state.writes).toHaveLength(1);
-    const write = state.writes[0]!;
-    expect(write).toMatchObject({
+    expect(state.writes[0]).toMatchObject({
       op: 'insert',
       calendarId: MOCK_OWN_EMAIL,
       sendUpdates: 'all',
       conferenceDataVersion: 0,
     });
-    expect(write.body).toEqual({
-      summary: 'Nick <> Pat Lee (Acme)',
-      description: `Booked through the booking link.
-
-Join the call: ${ZOOM_ROOM}
-
-Seed round for a clinic scheduling tool.
-
-Deck: https://deck.example/acme`,
-      location: ZOOM_ROOM,
-      start: { dateTime: slot!.start, timeZone: TZ },
-      end: { dateTime: slot!.end, timeZone: TZ },
-      // The host first, as the organizer who has accepted; then the visitor.
-      attendees: [
-        { email: MOCK_OWN_EMAIL, organizer: true, responseStatus: 'accepted' },
-        { email: 'pat@acme.example' },
-      ],
+    expect(state.writes[0]!.body?.location).toBe(ZOOM_ROOM);
+    expect(state.writes[0]!.body?.attendees?.[0]).toEqual({
+      email: MOCK_OWN_EMAIL,
+      organizer: true,
+      responseStatus: 'accepted',
     });
+    // Nobody decided it: the link's own rules did.
     const [row] = await rowsFor('pat@acme.example');
-    expect(row).toMatchObject({
-      status: 'approved',
-      calendar_id: MOCK_OWN_EMAIL,
-      decided_by: null,
-      decided_at: NOW.toISOString(),
-      claimed_at: null,
-    });
-    expect(row!.event_id).toBeTruthy();
-    // A system decision: nobody is recorded, ids and kinds only.
-    const [auto] = await audits('booking.auto_approved');
-    expect(auto).toMatchObject({ user_id: null, entity_id: row!.id });
-    expect(auto!.metadata).toEqual({
-      type: 'call',
-      kind: null,
-      event_id: row!.event_id,
-      manual: false,
-    });
-    expect(JSON.stringify(auto)).not.toMatch(/Pat|acme|clinic|zoom/i);
-    expect(await audits('booking.approved')).toEqual([]);
-    expect((await audits('calendar.event_created'))[0]).toMatchObject({
-      user_id: null,
-      metadata: expect.objectContaining({ notified: true, meet: false, guests: 1 }),
-    });
-  });
-
-  it('books an in-person coffee too, at the listed place, with no Meet', async () => {
-    await instantOn();
-    const [slot] = await slots('in_person', 'coffee');
-    const result = await send({
-      type: 'in_person',
-      kind: 'coffee',
-      start: slot!.start,
-      placeId: 'juniper-rye',
-      deckUrl: '',
-      note: '',
-    });
-    expect(statusOf(result)).toBe('booked');
-    expect(state.writes).toHaveLength(1);
-    expect(state.writes[0]).toMatchObject({ sendUpdates: 'all', conferenceDataVersion: 0 });
-    expect(state.writes[0]!.body).toMatchObject({
-      summary: 'Coffee: Nick <> Pat Lee (Acme)',
-      location: 'Juniper & Rye Coffee, Riverside',
-    });
-  });
-
-  it('makes one event for the same request sent twice, and for two sent at once for one time', async () => {
-    await instantOn();
-    const calls = await slots('call');
-    const first = calls[0]!;
-    const other = calls.find((s) => dayKeyIn(s.start, TZ) !== dayKeyIn(first.start, TZ))!;
-
-    expect(statusOf(await send({ start: first.start }))).toBe('booked');
-    const again = await send({ start: first.start });
-    expect(again.ok).toBe(false);
-    if (!again.ok) expect(again.error.code).toBe('conflict');
-    expect(state.writes).toHaveLength(1);
-
-    const both = await Promise.all(
-      ['one@a.example', 'two@b.example'].map((email, i) =>
-        submitBookingRequest(harness.store, SLUG, request({ start: other.start, email }), {
-          ipHash: `racer-${i}`,
-          now: NOW,
-          source: source(),
-        }),
-      ),
-    );
-    expect(both.filter((r) => statusOf(r) === 'booked')).toHaveLength(1);
-    expect(both.filter((r) => !r.ok && r.error.code === 'conflict')).toHaveLength(1);
-    expect(state.writes).toHaveLength(2);
-    expect(
-      await harness.store.count('booking_requests', harness.auth.organizationId, {
-        eq: { starts_at: other.start },
-      }),
-    ).toBe(1);
-  });
-
-  it('lets only one event through when a person presses Approve while it books', async () => {
-    let entered!: () => void;
-    const inside = new Promise<void>((resolve) => (entered = resolve));
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    class SlowInsert extends MockCalendarProvider {
-      override async insertEvent(...args: Parameters<MockCalendarProvider['insertEvent']>) {
-        entered();
-        await gate;
-        return super.insertEvent(...args);
-      }
-    }
-    await instantOn();
-    const [slot] = await slots('call');
-    const sending = send(
-      { start: slot!.start },
-      { ...source(), provider: new SlowInsert(NOW, state) },
-    );
-    await inside;
-    // The instant booking holds the claim while Google is asked.
-    const [row] = await rowsFor('pat@acme.example');
-    expect(row).toMatchObject({ status: 'pending', claimed_at: NOW.toISOString() });
-    const approve = await approveBookingRequest(actor(), row!.id, deps());
-    expect(approve.ok).toBe(false);
-    if (!approve.ok) {
-      expect(approve.error.message).toMatch(/^Someone is approving this request right now/);
-    }
-    release();
-    expect(statusOf(await sending)).toBe('booked');
-    expect(state.writes).toHaveLength(1);
-    expect((await rowsFor('pat@acme.example'))[0]).toMatchObject({
-      status: 'approved',
-      decided_by: null,
-    });
-  });
-
-  it('without calendar editing: waits for Approve, the visitor told only it was sent, nothing written', async () => {
-    await instantOn();
-    const [slot] = await slots('call');
-    const result = await send({ start: slot!.start }, source(READ_SCOPES));
-    expect(result.ok).toBe(true);
-    expect(statusOf(result)).toBe('pending');
-    expect(state.writes).toEqual([]);
-    const [row] = await rowsFor('pat@acme.example');
-    expect(row).toMatchObject({
-      status: 'pending',
-      claimed_at: null,
-      event_id: null,
-      decided_by: null,
-    });
-    const [refusal] = await audits('booking.approve_refused');
-    expect(refusal).toMatchObject({ user_id: null });
-    expect(refusal!.metadata).toEqual({
-      type: 'call',
-      kind: null,
-      reason: 'needs_calendar_editing',
-      instant: true,
-    });
-    // Still on the Calendar tab for a person, whose Approve books it.
-    const waiting = await listPendingBookingRequests(harness.store, harness.auth.organizationId);
-    expect(waiting.requests.map((r) => r.id)).toContain(row!.id);
-    const later = await approveBookingRequest(actor(), row!.id, deps());
-    expect(later.ok && later.value.state).toBe('approved');
-    expect(state.writes).toHaveLength(1);
-    expect((await audits('booking.approved'))[0]?.user_id).toBe(harness.auth.userId);
-  });
-
-  it('when Google cannot be reached: waits for Approve, tried once only', async () => {
-    let tries = 0;
-    class Unavailable extends MockCalendarProvider {
-      override async insertEvent(..._args: Parameters<MockCalendarProvider['insertEvent']>) {
-        tries += 1;
-        return err('provider_unavailable', 'Google is not answering.');
-      }
-    }
-    await instantOn();
-    const [slot] = await slots('call');
-    const result = await send(
-      { start: slot!.start },
-      { ...source(), provider: new Unavailable(NOW, state) },
-    );
-    expect(statusOf(result)).toBe('pending');
-    expect(tries).toBe(1);
-    expect(state.writes).toEqual([]);
-    expect((await rowsFor('pat@acme.example'))[0]?.status).toBe('pending');
-  });
-
-  it('refuses a time taken since the page loaded, offers the next times, and writes nothing', async () => {
-    await instantOn();
-    const google = cachedLikeGoogle();
-    const read = () =>
-      publicSlots(harness.store, SLUG, { type: 'call', kind: null }, { now: NOW, source: google });
-    // The page loads: the calendar is read, and kept a while.
-    const page = await read();
-    const slot = page.slots[0]!;
-    // Someone books over it in Google Calendar before the visitor presses Send.
-    state.events.get(MOCK_OWN_EMAIL)!.push({
-      id: 'testtakenlater',
-      status: 'confirmed',
-      eventType: 'default',
-      summary: 'Board call',
-      start: { dateTime: slot.start, timeZone: TZ },
-      end: { dateTime: slot.end, timeZone: TZ },
-      organizer: { email: MOCK_OWN_EMAIL, self: true },
-    });
-    const result = await send({ start: slot.start }, google);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('conflict');
-      expect(result.error.message).toBe('That time is no longer open. Pick another time.');
-    }
-    expect(state.writes).toEqual([]);
-    expect(await rowsFor('pat@acme.example')).toEqual([]);
-    const next = await read();
-    expect(next.slots.length).toBeGreaterThan(0);
-    expect(next.slots.map((s) => s.start)).not.toContain(slot.start);
-  });
-
-  it('off: kept pending exactly as before, and a person’s Approve still books it', async () => {
-    const [slot] = await slots('call');
-    const result = await send({ start: slot!.start });
-    expect(statusOf(result)).toBe('pending');
-    expect(state.writes).toEqual([]);
-    const [row] = await rowsFor('pat@acme.example');
-    expect(row).toMatchObject({ status: 'pending', claimed_at: null });
-    expect(await audits('booking.auto_approved')).toEqual([]);
-    expect(await audits('booking.approve_refused')).toEqual([]);
-    const approved = await approveBookingRequest(actor(), row!.id, deps());
-    expect(approved.ok && approved.value.state).toBe('approved');
-    expect(state.writes).toHaveLength(1);
-    expect((await rowsFor('pat@acme.example'))[0]?.decided_by).toBe(harness.auth.userId);
+    expect(row).toMatchObject({ status: 'booked', decided_by: null, event_id: expect.any(String) });
   });
 
   it('a message stays a message', async () => {
-    await instantOn();
+    await configure();
     const note = await send({ type: 'message', start: null, note: 'Sharing our deck.' });
-    expect(statusOf(note)).toBe('message');
+    expect(note.ok && note.value.kind === 'saved' && note.value.result.status).toBe('message');
     expect(state.writes).toEqual([]);
     expect((await rowsFor('pat@acme.example'))[0]?.status).toBe('pending');
   });
 
   it('keeps the honeypot brake before anything is written', async () => {
-    await instantOn();
+    await configure();
     const [slot] = await slots('call');
     const honeypot = await send({ start: slot!.start, website: 'http://spam.example' });
-    expect(honeypot).toEqual({ ok: true, value: { kind: 'ignored' } });
+    expect(honeypot.ok && honeypot.value.kind).toBe('ignored');
     expect(state.writes).toEqual([]);
     expect(await rowsFor('pat@acme.example')).toEqual([]);
   });

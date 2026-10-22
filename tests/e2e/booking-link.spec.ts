@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { expect, test, type Browser, type Page } from '@playwright/test';
+import { pickTime } from './booking-calendar-helpers';
 
 /**
  * The booking link (D-074) in a browser, over the demo: the public page at
@@ -7,7 +8,8 @@ import { expect, test, type Browser, type Page } from '@playwright/test';
  * dark), a 30-minute call and an in-person coffee at a listed place asked
  * for, the chatbot's guided helper filling the form (the visitor presses
  * Send), then Copilot's Calendar tab approving one and declining the other,
- * and last, Instant booking switched on in Settings booking straight away.
+ * and last, Approve first switched off again (booking at once, the default,
+ * D-078) booking straight away.
  * The demo's calendar is the in-memory mock: nothing reaches Google, and
  * nothing is emailed. Screenshots land in test-results/booking-*.png.
  */
@@ -16,6 +18,28 @@ const SIGNED_IN = path.resolve('test-results', 'booking-link-state.json');
 const shot = (name: string) => path.resolve('test-results', `booking-${name}.png`);
 
 test.describe.configure({ mode: 'serial' });
+
+/**
+ * This spec walks the approve-first flow (D-074), an option since D-078:
+ * Settings > Booking link > Rules turns it on for the spec and off after it,
+ * so the rest of the suite sees the default (booked at once).
+ */
+/** Approve first is an option on the Booking tab's Overview (D-078), off by default. */
+async function setApproveFirst(page: Page, on: boolean) {
+  await page.goto('/booking');
+  const mode = page.getByRole('radiogroup', { name: 'Booking mode' });
+  const radio = mode.getByRole('radio', { name: on ? /Approve first/ : /Instant/ });
+  await expect(radio).toBeVisible();
+  if ((await radio.getAttribute('aria-checked')) !== 'true') {
+    await radio.click();
+    await expect(
+      page.getByText(
+        on ? 'Bookings now wait for approval' : 'Bookings now go straight on the calendar',
+      ),
+    ).toBeVisible();
+  }
+  await expect(radio).toHaveAttribute('aria-checked', 'true');
+}
 
 test.beforeAll(async ({ browser }, testInfo) => {
   const context = await browser.newContext({
@@ -27,14 +51,32 @@ test.beforeAll(async ({ browser }, testInfo) => {
   await page.getByRole('button', { name: 'Enter demo workspace' }).click();
   await page.waitForURL(/\/today/);
   await context.storageState({ path: SIGNED_IN });
+  await setApproveFirst(page, true);
   await context.close();
 });
 
-/** A visitor: no session at all. */
+test.afterAll(async ({ browser }, testInfo) => {
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    storageState: SIGNED_IN,
+  });
+  await setApproveFirst(await context.newPage(), false);
+  await context.close();
+});
+
+let address = 20;
+
+/**
+ * A visitor: no session at all, from its own invented address
+ * (cf-connecting-ip), so the other booking specs' per-address brakes never
+ * trip this one.
+ */
 async function visitor(browser: Browser, baseURL: string | undefined, options = {}) {
+  address += 1;
   const context = await browser.newContext({
     baseURL,
     storageState: { cookies: [], origins: [] },
+    extraHTTPHeaders: { 'cf-connecting-ip': `198.51.100.${address}` },
     ...options,
   });
   return { context, page: await context.newPage() };
@@ -53,13 +95,7 @@ async function pickFirstTime(page: Page) {
  * of the days the calendar specs drag events on.
  */
 async function pickLastTime(page: Page) {
-  const days = page.getByRole('radiogroup', { name: 'Day' });
-  await expect(days.getByRole('radio').first()).toBeVisible();
-  await days.getByRole('radio').last().click();
-  await expect(days.getByRole('radio').last()).toHaveAttribute('aria-checked', 'true');
-  const times = page.getByRole('radiogroup', { name: 'Time' });
-  await times.getByRole('radio').last().click();
-  await expect(times.getByRole('radio', { checked: true })).toHaveCount(1);
+  await pickTime(page, 'last', 'last');
 }
 
 async function fillAboutYou(page: Page, name: string, email: string, company: string) {
@@ -71,9 +107,12 @@ async function fillAboutYou(page: Page, name: string, email: string, company: st
     .fill('A short intro to what we are building.');
 }
 
-/** Booking requests open from the button over the Calendar page's header, in a drawer. */
+/**
+ * Booking requests (Approve first) open from the button on the Booking
+ * tab's Bookings subtab, in a drawer (D-078: it left the Calendar header).
+ */
 async function openRequests(page: Page) {
-  await page.goto('/calendar');
+  await page.goto('/booking?tab=bookings');
   const button = page.getByRole('button', { name: /^Booking requests/ });
   await expect(button).toBeVisible();
   await button.click();
@@ -174,10 +213,8 @@ test('on a 390px phone: no sideways scroll, and a 30-minute call asked for', asy
       name: "Request sent. You'll get a calendar invitation once the time is booked.",
     }),
   ).toBeVisible();
-  await expect(page.getByText(/30-min Google Meet ·/)).toBeVisible();
-  await expect(
-    page.getByText('Nothing is on the calendar yet. Watch your inbox for the invitation.'),
-  ).toBeVisible();
+  await expect(page.getByText('30-min Google Meet')).toBeVisible();
+  await expect(page.locator('body')).not.toContainText(/confirm|review|approv/i);
   await expectNoSidewaysScroll(page);
   await context.close();
 });
@@ -201,13 +238,13 @@ test('an hour in person: coffee at one of the listed places', async ({ browser }
       name: "Request sent. You'll get a calendar invitation once the time is booked.",
     }),
   ).toBeVisible();
-  await expect(page.getByText(/Coffee, 1 hour · .* · Juniper & Rye Coffee/)).toBeVisible();
+  await expect(page.getByText('Coffee, 1 hour at Juniper & Rye Coffee')).toBeVisible();
   await context.close();
 });
 
-test('the chatbot’s guided helper fills the form, and the visitor presses Send', async ({
-  browser,
-}, testInfo) => {
+test('the assistant books in the chat itself (D-078)', async ({ browser }, testInfo) => {
+  // The assistant's own flows are covered in booking-chat.spec.ts; this keeps
+  // the chat-booked request the Copilot side checks below ("Jordan Chat").
   const { context, page } = await visitor(browser, testInfo.project.use.baseURL, {
     viewport: { width: 1280, height: 900 },
   });
@@ -219,35 +256,18 @@ test('the chatbot’s guided helper fills the form, and the visitor presses Send
     chat.getByText("Hi, I'm Arwin, Nick's AI scheduling assistant.", { exact: false }),
   ).toBeVisible();
   await expect(chat.getByText('Arwin is an AI assistant.', { exact: false })).toBeVisible();
-  // No model in the demo: the guided buttons, no free-text box.
-  await expect(chat.getByRole('textbox')).toHaveCount(0);
 
-  await chat.getByRole('button', { name: 'About TipTop VC (Demo)' }).click();
-  await expect(
-    chat.getByText('TipTop VC (Demo) is an invented fund', { exact: false }),
-  ).toBeVisible();
-
-  await chat.getByRole('button', { name: 'Find a time' }).click();
-  await chat.getByRole('button', { name: '30-min Google Meet' }).click();
+  await chat.getByRole('button', { name: 'Book a 30-min call' }).click();
   const times = chat.getByRole('group', { name: 'Open times' }).last();
   await expect(times.getByRole('button').first()).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: shot('chatbot-guided') });
   await times.getByRole('button').first().click();
-  await expect(chat.getByText(/in the form\. Add your name and email there/)).toBeVisible();
-  await chat.getByRole('button', { name: 'Close chat' }).click();
-
-  await expect(page.getByText('Arwin filled in the form for you.', { exact: false })).toBeVisible();
-  await expect(
-    page.getByRole('radiogroup', { name: 'Time' }).getByRole('radio', { checked: true }),
-  ).toHaveCount(1);
-  // Nothing was sent until the visitor presses Send.
-  await fillAboutYou(page, 'Jordan Chat', 'jordan.chat@example.com', 'Northbeam');
-  await page.getByRole('button', { name: 'Send request' }).click();
-  await expect(
-    page.getByRole('heading', {
-      name: "Request sent. You'll get a calendar invitation once the time is booked.",
-    }),
-  ).toBeVisible();
+  const form = chat.getByRole('form', { name: 'Your details' });
+  await form.getByLabel('Name', { exact: true }).fill('Jordan Chat');
+  await form.getByLabel('Email', { exact: true }).fill('jordan.chat@example.com');
+  await form.getByLabel('Company (optional)').fill('Northbeam');
+  await form.getByRole('button', { name: /^Book / }).click();
+  await expect(chat.locator('[data-booking-status]')).toBeVisible();
   await context.close();
 });
 
@@ -258,16 +278,17 @@ test.describe('in Copilot', () => {
     await page.goto('/today');
     const line = page.getByText(/\d+ booking requests? waiting\./);
     await expect(line).toBeVisible();
-    await page.getByRole('link', { name: 'Review in Calendar →' }).click();
-    await expect(page).toHaveURL(/\/calendar#booking-requests$/);
+    await page.getByRole('link', { name: 'Review in Booking →' }).click();
+    // Straight to the Booking tab's requests drawer (D-078).
+    await expect(page).toHaveURL(/\/booking\?tab=bookings#booking-requests$/);
     // The link opens the drawer itself.
     const drawer = page.getByRole('dialog', { name: 'Booking requests' });
     await expect(drawer).toBeVisible();
     await expect(drawer.getByRole('listitem').first()).toBeVisible();
-    // Closed, it stays closed on a reload, and the calendar is where it was.
+    // Closed, it stays closed on a reload.
     await drawer.getByRole('button', { name: 'Close' }).click();
     await expect(drawer).toHaveCount(0);
-    await expect(page).toHaveURL(/\/calendar$/);
+    await expect(page).toHaveURL(/\/booking\?tab=bookings$/);
   });
 
   test('approve the call: re-checked, then on the calendar with the invite sent', async ({
@@ -325,65 +346,60 @@ test.describe('in Copilot', () => {
     await page.screenshot({ animations: 'disabled', path: shot('copilot-decline-draft') });
   });
 
-  test('the button sits beside the title, on a phone too, and moves nothing', async ({ page }) => {
+  test('the Calendar tab keeps a small Booking link shortcut, on a phone too, moving nothing', async ({
+    page,
+  }) => {
     await page.goto('/calendar');
-    const button = page.getByRole('button', { name: /^Booking requests/ });
-    await expect(button).toBeVisible();
+    const shortcut = page.getByRole('link', { name: /^Booking link/ });
+    await expect(shortcut).toBeVisible();
+    await expect(shortcut).toHaveAttribute('href', '/booking');
     await page.screenshot({
       animations: 'disabled',
       path: shot('copilot-calendar-header'),
       clip: { x: 0, y: 0, width: 1366, height: 320 },
     });
     await page.setViewportSize({ width: 390, height: 844 });
-    const phone = page.getByRole('button', { name: /^Requests/ });
-    await expect(phone).toBeVisible();
+    await expect(shortcut).toBeVisible();
     const tour = (await page.getByRole('button', { name: 'Tour this page' }).boundingBox())!;
-    const box = (await phone.boundingBox())!;
+    const box = (await shortcut.boundingBox())!;
     expect(box.x).toBeGreaterThan(tour.x + tour.width);
     expect(box.x + box.width).toBeLessThanOrEqual(390);
     await expectNoSidewaysScroll(page);
     await page.screenshot({ animations: 'disabled', path: shot('copilot-calendar-phone') });
   });
 
-  test('Settings has the Booking link tab, off-switch and all', async ({ page }) => {
+  test('the Booking tab has the off-switch, and the chatbot its answers', async ({ page }) => {
+    // Settings' old address lands on the Booking tab (D-078).
     await page.goto('/settings?tab=booking');
-    await expect(page.getByRole('tab', { name: 'Booking link' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await page.waitForURL(/\/booking$/);
     await expect(page.getByRole('switch', { name: 'Take bookings' })).toBeChecked();
-    await page.getByRole('tab', { name: 'Chatbot' }).click();
-    await expect(page.getByLabel('Public FAQ for the chatbot')).toHaveValue(/invented fund/);
+    await page
+      .getByRole('navigation', { name: 'Booking sections' })
+      .getByRole('link', { name: 'Chatbot' })
+      .click();
+    await expect(page.getByLabel('Answer 1')).toHaveValue(/TipTop VC \(Demo\) is an invented fund/);
     // Zero spend: no money field on the chatbot settings, and it says it's free.
     await expect(page.getByLabel('Monthly AI cost cap (US$)')).toHaveCount(0);
-    await expect(page.getByText('Free: no paid AI.')).toBeVisible();
+    await expect(page.getByText('Free: no API key.', { exact: false })).toBeVisible();
+    await expect(page.getByText(/US\$|AI cost|AI budget|cost cap/i)).toHaveCount(0);
     await page.screenshot({ animations: 'disabled', path: shot('copilot-settings') });
   });
 });
 
 /**
- * Instant booking (D-074 addendum): the demo keeps it off, so this switches
- * it on in Settings, books from the public page at 1440 and on a 390px
- * phone, and switches it off again whatever happens. Each booking goes about
- * three weeks out (pickLastTime), clear of the days the calendar specs use.
+ * Booking at once (D-078, which superseded the D-074 Instant switch): this
+ * spec runs with Approve first on, so it turns it off on the Booking tab,
+ * books from the public page at 1440 and on a 390px phone, cancels each
+ * booking from its own page (so the link's daily cap stays free for the
+ * specs after it), and turns Approve first back on whatever happens. Each
+ * booking goes about three weeks out (pickLastTime), clear of the days the
+ * calendar specs use.
  */
 test.describe('Instant booking', () => {
   test.use({ storageState: SIGNED_IN, viewport: { width: 1440, height: 900 } });
 
   async function setInstant(page: Page, on: boolean) {
-    await page.goto('/settings?tab=booking');
-    await page.getByRole('tab', { name: 'Rules' }).click();
-    const toggle = page.getByRole('switch', { name: 'Instant booking' });
-    await expect(
-      page.getByText(
-        'On: a request for a free time is booked straight away and the calendar invitation goes out. Off: each request waits for Approve on the Calendar tab.',
-      ),
-    ).toBeVisible();
-    if ((await toggle.isChecked()) === on) return;
-    await toggle.click();
-    await expect(toggle).toBeChecked({ checked: on });
-    await page.getByRole('button', { name: 'Save booking link' }).click();
-    await expect(page.getByText('Booking link saved')).toBeVisible();
+    await setApproveFirst(page, !on);
   }
 
   test('on: a free time is booked straight away, at 1440 and on a 390px phone', async ({
@@ -415,10 +431,12 @@ test.describe('Instant booking', () => {
         await guest.goto('/meet/nick');
         await pickLastTime(guest);
         await fillAboutYou(guest, who.name, who.email, 'Kestrel Works');
-        await guest.getByRole('button', { name: 'Send request' }).click();
+        await guest.getByRole('button', { name: 'Book meeting' }).click();
         await expect(guest.getByRole('heading', { name: "You're booked with Nick" })).toBeVisible();
-        await expect(guest.getByText(/30-min Google Meet · .*\(Eastern Time/)).toBeVisible();
-        await expect(guest.getByText(/^That is .* Central Time \(Chicago\)\.$/)).toBeVisible();
+        await expect(guest.getByText('30-min Google Meet').first()).toBeVisible();
+        // The time in their zone, and in Central.
+        await expect(guest.getByText(/Eastern Time/).first()).toBeVisible();
+        await expect(guest.getByText(/Central Time \(Chicago\)/).first()).toBeVisible();
         await expect(
           guest.getByText(`The calendar invitation is on its way to ${who.email}.`),
         ).toBeVisible();
@@ -430,6 +448,12 @@ test.describe('Instant booking', () => {
           path: shot(`instant-booked-${who.size}`),
           fullPage: true,
         });
+        await guest.getByRole('link', { name: 'Reschedule or cancel' }).click();
+        await guest.getByRole('button', { name: 'Cancel meeting' }).click();
+        await guest.getByRole('button', { name: 'Cancel meeting' }).click();
+        await expect(
+          guest.getByRole('heading', { name: 'This meeting was cancelled' }),
+        ).toBeVisible();
         await context.close();
       }
       // Booked, so neither waits on the Calendar tab.

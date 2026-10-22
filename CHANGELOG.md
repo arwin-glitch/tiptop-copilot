@@ -176,25 +176,157 @@ throughout.
   the team open still cannot. Demo mode plays a made-up three-person call
   instead of calling any speech service. (D-076)
 
-- **Instant booking now really books.** With Settings > Booking link > Rules
-  > Instant booking on, a visitor who picks a free time is booked straight
-  away: the meeting goes onto Nick's calendar exactly as Approve would put it
-  there (Nick first on the invite, the visitor invited, the saved video link
-  for calls) and Google emails the invitation. The visitor sees "You're
-  booked with Nick", the time in their own zone and in Central, and "The
-  calendar invitation is on its way to <their email>." If it cannot be booked
-  on its own (calendar editing is off, Google does not answer, or the time
-  was just taken), the request simply waits on the Calendar tab for Approve,
-  as before, and the visitor sees "Request sent. You'll get a calendar
-  invitation once the time is booked." A time taken since the page loaded is
-  refused and the page shows the next open times. Instant booking is on by
-  default for a new link; turned off, every request waits for Approve as
-  before. Messages stay messages. No database update needed.
+- **A booking never waits for a person.** If Copilot cannot put a booking on
+  Nick's calendar right away (calendar editing is off, or Google is down or
+  says no), the time is held so nobody else can take it, and Copilot puts it
+  on the calendar by itself: the moment calendar editing is turned on, or,
+  when Google had a problem, again after about 1, 5, 15 and 60 minutes and
+  then every minute or so, until it works. It never makes the meeting twice.
+  Only if the time really was taken meanwhile is the hold let go, with a
+  short note ready for someone to send. On the Booking tab such a booking
+  shows "Booking…" with the reason and a "Try now" button; there is no
+  Approve or Decline for it. The visitor only sees "Your time is held. The
+  calendar invitation is on its way."
+- **A calendar on the booking page.** On a wide screen the page now has
+  three columns: Nick's card, the form, and a month calendar like
+  Calendly's. Each day shows whether it is open (with how many times; tap it
+  to see them), fully booked, or not offered, and the arrows only go to the
+  months that are open. If this device already booked, that day says "Yours"
+  and links to the booking's own page. On a phone the calendar sits above the
+  times. It never says why a day is closed. Moving a booking uses the same
+  calendar.
+- **Booking link safety fixes.** Booking and cancelling over and over no
+  longer gets round the daily limits (cancelled bookings now count, and
+  pat.lee+1@gmail.com counts as patlee@gmail.com); the whole link sends at
+  most 10 guest invitations a day; nobody at TipTop's own email domain can be
+  added as a guest; someone named as a guest in failed attempts is never
+  locked out. The Zoom link shows only on a booked meeting's page. The
+  visitor's note and deck link stay out of calendar invites nobody approved
+  (Nick sees them on the Booking tab). A booking can no longer land on a
+  meeting Nick added a moment earlier. The booking assistant's optional AI
+  answers now need a Slack channel and account of their own, and visitors'
+  questions are deleted after 30 days.
+- **Booking link fixes from the review.** A guest typed but not added still
+  gets invited; the "You have a meeting with Nick" line shows in-person times
+  in Central with the zone; a cancel note written in Copilot is marked as a
+  private note (Google's cancellation email carries no message); "Add to
+  calendar" only appears once a meeting is booked, and a second download
+  updates the first; the call link stays on the page after a reschedule; the
+  form says "Book a time" when booking is instant; "Why no times?" names the
+  rule closing most of the day and writes the reason out (no hovering on a
+  phone); tapping a day on a phone scrolls to its panel; the tour's month
+  step shows again; Today says when bookings are still going on the calendar.
+  Run `supabase/migrations/20261022200000_booking_v2.sql` (it now also adds
+  the three columns holds use) and then `20261022200100_booking_chat.sql`.
+
+- **The booking link has its own Booking tab.** It sits in the menu right
+  after Calendar, at `/booking`, one short section per subtab (no long
+  scroll):
+  - **Overview:** the link with Copy and Open, one big on/off switch, and
+    what happens when someone picks a free time: **Instant** (the default:
+    it goes straight on Nick's calendar, because his rules already decide
+    what is free) or **Approve first**. A row of checks says what is missing
+    (calendar editing, the profile, places, open times in the next two weeks,
+    which months are open), and **Why no times?** lists each of the next 14
+    days with the rule that closes it: not a meeting day, month closed, day
+    closed, in person paused on a trip, away, the day's cap, a full day,
+    too soon, a back-to-back stack, or fully busy.
+  - **Availability:** twelve month chips, this month and the next eleven,
+    each switched On or Off with a tap, in any mix (only December, or January
+    and March), each showing how many open times it has. "Open next 3
+    months" and "Close all" do the obvious. With nothing chosen, this month
+    and next are on; a month that is off offers no times at all, and an open
+    month is open to its last day. Under the chips, a calendar of the month
+    shows a live preview of the exact times visitors see (calls, coffee,
+    lunch, dinner), worked out by the same rules as the public page. Tap a
+    day to see its times, close it, or give it shorter hours (the rules
+    always win: nothing here can open a time they close). Close a run of days
+    for a holiday. The hours and the rules (buffers, notice, caps,
+    back-to-back, and whether people may add guests and how many) moved here
+    from Settings, and keep the 8:00 AM to 6:00 PM Central bounds (dinner
+    6-7 PM).
+  - **Bookings:** upcoming, past and messages, each with who, when (Central
+    and their own time), call or in person and where, guests, the note and
+    deck, and its status (Booked, Held, Waiting, Cancelled with their note,
+    or "Cancelled in Google" when the event was deleted there).
+    Cancel (with an optional note) and Open in Calendar. While Approve first
+    is on, waiting requests open in the same Approve/Decline drawer as before.
+  - **Profile** and **Places**, moved from Settings unchanged (the photo and
+    the video link for calls included).
+  - **Chatbot:** the page's Arwin and its written answers (see below).
+  - **Calendars:** which of Nick's calendars block his time. By default his
+    main one, his own (personal, family) and the ones ticked in Google; any
+    other can be switched on or off. His main calendar always counts, a
+    teammate's never does.
+
+  When calendar editing is off, a banner at the top says to turn it on so
+  invites go out automatically. Settings > Booking link is now a short card
+  that opens the tab (its old address goes straight there), and the
+  Calendar tab's "Booking requests" button became a small "Booking link"
+  shortcut. The chatbot's monthly AI spend setting is gone: it is meant to
+  cost nothing. Help and the guided tour cover the new tab.
+- **The booking link books by itself now.** When someone picks a free time on
+  copilot.tiptop.vc/meet/nick, it goes straight onto Nick's calendar and
+  Google sends the invitation; nobody has to approve it (the rules are still
+  checked again at that moment, and two people can never take the same
+  time). Visitors can add guests, like Calendly. After booking they see
+  "You're booked with Nick" with the time, the place or call, Add to calendar,
+  and a link to their booking's own page, where they can reschedule (the same
+  calendar event moves for everyone) or cancel with a note to Nick. Nick gets
+  that note, and every new booking or move, as a Copilot alert on his phone
+  and desktop and as a line on Today. If calendar editing is not turned on,
+  bookings are held and go onto the calendar by themselves once it is.
+  "Approve first" is still an option on the Booking tab's Overview, off.
+  This replaces the "Instant booking" switch added to Settings earlier the
+  same day: there is no switch to find any more, booking at once is simply
+  how the link works. Nothing here costs money. Run
+  `supabase/migrations/20261022200000_booking_v2.sql`; until then a free time
+  is still booked at once when calendar editing is on (as before this
+  change), and otherwise waits as a request.
+- **A meeting deleted in Google Calendar is cancelled in Copilot too.** If
+  Nick deletes a booked meeting from his calendar, the booking link notices
+  on its next look at the calendar: that time is free again, it no longer
+  counts toward the two-a-day limit, and the Booking tab shows it as
+  "Cancelled in Google". A meeting moved in Google moves its booking.
+- **Fyxer's "Choose a new time" link no longer stays on booking-link
+  meetings.** Fyxer (and Vimcal or Calendly) add their own reschedule link to
+  meetings Nick organizes a few seconds after they are made. For meetings
+  booked through the link, Copilot puts its own description back, ending
+  with "Need to reschedule or cancel?" and the booking's own page, without
+  emailing anyone. It does this once per booking (and once more after a
+  reschedule), so it never fights the other tool, and it never touches
+  Nick's other meetings.
+
 - **No money figures where nothing is spent.** Copilot runs no paid AI (its AI
   answers come from the Claude plan through Ask Arwin), so the booking
   chatbot's "Monthly AI cost cap" field is gone, Settings' "Limits & cost" tab
-  is now "Limits" and shows "AI cost: $0", and Diagnostics says "$0 (no paid
-  AI key)". A dollar budget shows again only if a paid AI key is ever set.
+  is now "Limits", and Settings and Diagnostics both say "AI cost: $0: AI
+  runs on the Claude plan". A dollar budget shows again only if a paid AI key
+  is ever set.
+- **The booking page's Arwin now books and answers for free.** The chat on
+  the booking link no longer uses a paid AI at all. It is a quick helper with
+  buttons: book a 30-minute call, meet in person (coffee, lunch or dinner, at
+  a listed place or one the visitor suggests), ask a question, or leave a
+  message or deck. It shows the next open times, lets people add guests, and
+  books right in the chat through the same page rules as the form. Questions
+  are answered from a list Arwin writes in the Booking tab (up to 30
+  questions and answers), matched on the spot even when people word them
+  differently, with "Did you mean" suggestions. It never says a person will
+  confirm anything.
+- **Optional AI answers on Arwin's own Claude plan.** A question the list
+  does not cover can go to a separate "booking assistant" routine with no
+  access to mail, calendar or Slack history; its answer shows up in the chat
+  within a minute or two while the visitor keeps booking, and is cleaned first
+  (no links except the booking page, no emails or phone numbers, no promises).
+  No API key and no spend: it is off until the routine is set up
+  (`docs/BOOKING_CHAT_ROUTINE.md`) and switched on, and capped at 3 questions
+  per visitor, 5 per address a day and 15 a day in all (up to 30). Needs
+  `supabase/migrations/20261022200100_booking_chat.sql`; until then the chat
+  answers from the list only.
+- **An assistant panel for the Booking tab.** Turn Arwin on or off, write,
+  reorder and delete the questions and answers, try a question to see which
+  answer it gets, and switch AI answers on with their daily cap and a status
+  line ("Not set up yet" or "Working - last answer ...").
 
 - **Booking link fixes after the first live test.** In-person times no longer
   vanish for every date while Nick's Google Calendar is still set to another
@@ -254,6 +386,7 @@ throughout.
   made-up board addresses can no longer fill the server's disk, one visitor
   hammering the board is slowed down, and a company's hostile careers page,
   job description or robots.txt can no longer stall Copilot.
+
 
 - **A booking link people can use to ask Nick for time.** A public page at
   `/meet/<name>` (Nick's is `/meet/nick`), with its own TipTop look, his name,

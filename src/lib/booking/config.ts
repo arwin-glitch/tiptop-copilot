@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { readChatbotConfig, type ChatbotConfig } from './chatbot-config';
+import { cleanMonths, legacyOpenMonths, MAX_MONTHS_AHEAD } from './months';
+import { localDateKey } from '@/lib/util/time';
 
 /**
  * The booking link's settings (Settings > Booking link), as data: who the
@@ -183,6 +186,39 @@ export function isOwnPhotoPath(
   );
 }
 
+/** How far ahead the link may ever be opened (lib/booking/months.ts). */
+export { MAX_MONTHS_AHEAD };
+
+/** A month, `YYYY-MM`. */
+export const MONTH_KEY = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use a month like 2026-11.');
+/** A day, `YYYY-MM-DD`. */
+export const DATE_KEY = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, 'Use a date like 2026-11-24.');
+
+export const CLOSED_RANGE = z
+  .object({
+    from: DATE_KEY,
+    to: DATE_KEY,
+    label: z.string().trim().max(60).default(''),
+  })
+  .refine((r) => r.from <= r.to, 'A closed run of days has to end on or after its first day.');
+export type ClosedRange = z.infer<typeof CLOSED_RANGE>;
+
+export const DATE_HOURS = z
+  .object({ date: DATE_KEY, from: CLOCK, to: CLOCK })
+  .refine((d) => d.from < d.to, 'A day’s hours have to end after they start.');
+export type DateHours = z.infer<typeof DATE_HOURS>;
+
+export const CALENDAR_CHOICE = z.object({
+  id: z.string().min(1).max(320),
+  counts: z.boolean(),
+});
+export type CalendarChoice = z.infer<typeof CALENDAR_CHOICE>;
+
+/** The most guests a booking may ever bring (Settings may allow fewer). */
+export const MAX_GUESTS = 10;
+
 /** Everything Settings > Booking link edits, apart from on/off and the slug. */
 export interface BookingConfig {
   displayName: string;
@@ -221,23 +257,51 @@ export interface BookingConfig {
    */
   stackLeadMinutes: number;
   noticeHours: number;
-  horizonDays: number;
-  /** Link bookings (waiting and approved) a day can hold. */
+  /**
+   * The months the link offers times in, `YYYY-MM`, each switched on by
+   * itself (D-078): any of this month and the next eleven, in any mix. A
+   * month not listed offers nothing. With nothing stored, this month and the
+   * next (lib/booking/months.ts defaultOpenMonths).
+   */
+  openMonths: string[];
+  /** Single days closed on the link, `YYYY-MM-DD`. Rules always win: nothing here opens a day. */
+  closedDates: string[];
+  /** Runs of days closed (a holiday, a trip), inclusive, with an optional label. */
+  closedRanges: ClosedRange[];
+  /** Shorter hours on one day: a time is offered only wholly inside them. */
+  dateHours: DateHours[];
+  /**
+   * Which calendars count as busy, where the person chose: absent means the
+   * default (his main calendar, every one he owns, every one ticked in
+   * Google or turned on in Copilot). His main calendar always counts and a
+   * teammate's own calendar never does, whatever is stored here.
+   */
+  calendarChoices: CalendarChoice[];
+  /** Link bookings (waiting, held and booked) a day can hold. */
   maxLinkBookingsPerDay: number;
   /** A day with this many meetings already offers nothing. */
   maxMeetingsPerDay: number;
   /**
-   * Instant booking (D-074 addendum): on, a request for a free time is booked
-   * straight away through Approve's own core (the live re-check, the event on
-   * the host's main calendar, the invitation); one that cannot be booked then
-   * waits for Approve. Off, every request waits for Approve.
+   * Off by default (D-078): a visitor who picks a free time that passes
+   * every rule is booked at once, the invitation sent from the host's
+   * calendar. On, each booking waits as a request for someone to approve.
    */
-  instant: boolean;
+  approveFirst: boolean;
+  /**
+   * The public chatbot (Booking tab > Chatbot, D-078): read through
+   * lib/booking/chatbot-config.ts, which falls back to the two older fields
+   * below for a row saved before it. Saved by its own route, which merges
+   * only this field.
+   */
+  chatbot: ChatbotConfig;
+  /** @deprecated Kept so an older row still reads: `chatbot.enabled` is the setting now. */
+  /** Visitors may add guests to a booking (Calendly's "Add guests"), invited with them. */
+  allowGuests: boolean;
+  /** At most this many guests a booking (0 to 10). */
+  maxGuests: number;
   chatbotEnabled: boolean;
-  /** The only TipTop facts the public chatbot may give. */
+  /** @deprecated Kept so an older row still reads: `chatbot.faqItems` is the setting now. */
   faq: string;
-  /** The public chatbot stops using the model past this much spend in a month. */
-  monthlyAiCapUsd: number;
   photo: PhotoRef | null;
   /**
    * The host's own video link (a Zoom room, say), put in every call invite
@@ -273,13 +337,20 @@ export const DEFAULT_BOOKING_CONFIG: BookingConfig = {
   stackCooldownMinutes: 60,
   stackLeadMinutes: 30,
   noticeHours: 24,
-  horizonDays: 21,
+  // Filled in by parseBookingConfig from the day it reads (this month and the next).
+  openMonths: [],
+  closedDates: [],
+  closedRanges: [],
+  dateHours: [],
+  calendarChoices: [],
   maxLinkBookingsPerDay: 2,
   maxMeetingsPerDay: 5,
-  instant: true,
+  approveFirst: false,
+  chatbot: readChatbotConfig({}),
+  allowGuests: true,
+  maxGuests: 5,
   chatbotEnabled: true,
   faq: '',
-  monthlyAiCapUsd: 20,
   photo: null,
   callLink: '',
 };
@@ -353,13 +424,35 @@ export const BOOKING_CONFIG_SCHEMA = z
     stackCooldownMinutes: int(0, 240),
     stackLeadMinutes: int(15, 120),
     noticeHours: int(24, 24 * 14),
-    horizonDays: int(1, 45),
+    openMonths: z
+      .array(MONTH_KEY)
+      .max(MAX_MONTHS_AHEAD + 1)
+      .refine((list) => new Set(list).size === list.length, 'A month is listed twice.'),
+    closedDates: z.array(DATE_KEY).max(400),
+    closedRanges: z.array(CLOSED_RANGE).max(40),
+    dateHours: z
+      .array(DATE_HOURS)
+      .max(200)
+      .refine(
+        (list) => new Set(list.map((d) => d.date)).size === list.length,
+        'One set of hours a day.',
+      ),
+    calendarChoices: z
+      .array(CALENDAR_CHOICE)
+      .max(60)
+      .refine(
+        (list) => new Set(list.map((c) => c.id)).size === list.length,
+        'A calendar is listed twice.',
+      ),
     maxLinkBookingsPerDay: int(0, 10),
     maxMeetingsPerDay: int(1, 15),
-    instant: z.boolean(),
+    approveFirst: z.boolean(),
+    // Read leniently by its own module: the chatbot's route is what checks it on save.
+    chatbot: z.unknown().transform((value): ChatbotConfig => readChatbotConfig({ chatbot: value })),
+    allowGuests: z.boolean(),
+    maxGuests: int(0, MAX_GUESTS),
     chatbotEnabled: z.boolean(),
     faq: z.string().max(4000),
-    monthlyAiCapUsd: z.number().min(0).max(500),
     photo: PHOTO_REF.nullable(),
     callLink: CALL_LINK,
   })
@@ -425,7 +518,7 @@ function readKindWindows(raw: unknown): Record<MeetingKind, TimeWindow[]> {
  * the hours are clamped into their hard bounds (8:00 to 18:00, dinner 18:00
  * to 19:00).
  */
-export function parseBookingConfig(raw: unknown): BookingConfig {
+export function parseBookingConfig(raw: unknown, options: { today?: string } = {}): BookingConfig {
   const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const shape = BOOKING_CONFIG_SCHEMA.shape;
   const out: Record<string, unknown> = {};
@@ -435,6 +528,15 @@ export function parseBookingConfig(raw: unknown): BookingConfig {
   }
   out.callWindow = readCallWindow(source.callWindow);
   out.kindWindows = readKindWindows(source.kindWindows);
+  // Months: a stored list as it is (an empty one too: every month off); a
+  // row from before months were switched one by one becomes the same months.
+  const months = shape.openMonths.safeParse(source.openMonths);
+  out.openMonths = months.success
+    ? cleanMonths(months.data)
+    : legacyOpenMonths(source, options.today ?? localDateKey(new Date(), 'America/Chicago'));
+  // The chatbot reads the whole document: a row saved before it had its own
+  // field keeps its old on/off and FAQ.
+  out.chatbot = readChatbotConfig(source);
   return out as unknown as BookingConfig;
 }
 

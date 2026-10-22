@@ -1,6 +1,7 @@
 import type {
   AiUsageRecord,
   AuditEvent,
+  BookingChatQuestion,
   BookingRequest,
   BookingSettingsRow,
   CalendarEvent,
@@ -132,6 +133,7 @@ export interface TableMap {
   job_board_settings: JobBoardSettings;
   job_companies: JobCompany;
   job_postings: JobPosting;
+  booking_chat_questions: BookingChatQuestion;
   // Copilot Notes (D-076; supabase/migrations/20261024000000_copilot_notes.sql).
   meetings: Meeting;
   meeting_participants: MeetingParticipant;

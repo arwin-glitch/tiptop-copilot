@@ -1,4 +1,6 @@
+import { readChatbotConfig } from '@/lib/booking/chatbot-config';
 import { DEFAULT_BOOKING_CONFIG, type BookingConfig } from '@/lib/booking/config';
+import { defaultOpenMonths } from '@/lib/booking/months';
 import type { BookingRequest, BookingSettingsRow } from '@/lib/types/domain';
 import { addDaysToKey, localDateKey, wallTimeToUtc } from '@/lib/util/time';
 import { DEMO_IDS } from './ids';
@@ -19,11 +21,15 @@ const id = (n: number) => `${NS}${n.toString(16).padStart(12, '0')}`;
 export const DEMO_BOOKING_SLUG = 'nick';
 export const DEMO_BOOKING_SETTINGS_ID = id(0xb00c);
 
+const DEMO_FAQ = [
+  'TipTop VC (Demo) is an invented fund used to show this page.',
+  'Stage: pre-seed and seed software companies.',
+  'Check size: an invented $250K to $500K first check.',
+  'Pitching: share a deck link in the form; the team reads every one.',
+].join('\n');
+
 export const DEMO_BOOKING_CONFIG: BookingConfig = {
   ...structuredClone(DEFAULT_BOOKING_CONFIG),
-  // The demo shows requests waiting for Approve on the Calendar tab; Instant
-  // booking (on by default) is switched on in Settings to see it book.
-  instant: false,
   displayName: 'Nick Avery',
   title: 'Partner, TipTop VC (Demo)',
   bio: 'Backs early software teams from the first check. This is an invented demo profile: the real one is written in Settings.',
@@ -50,12 +56,9 @@ export const DEMO_BOOKING_CONFIG: BookingConfig = {
       mapUrl: 'https://maps.example/saltgrass-table',
     },
   ],
-  faq: [
-    'TipTop VC (Demo) is an invented fund used to show this page.',
-    'Stage: pre-seed and seed software companies.',
-    'Check size: an invented $250K to $500K first check.',
-    'Pitching: share a deck link in the form; the team reads every one.',
-  ].join('\n'),
+  faq: DEMO_FAQ,
+  // The chatbot's own field (D-078), read from the same invented FAQ.
+  chatbot: readChatbotConfig({ faq: DEMO_FAQ, firmName: 'TipTop VC (Demo)' }),
 };
 
 /** The next Tuesday-to-Thursday dates at least `minDays` ahead, demo time. */
@@ -108,7 +111,11 @@ export function demoBooking(now: Date): {
         organization_id: DEMO_IDS.org,
         enabled: true,
         slug: DEMO_BOOKING_SLUG,
-        settings: DEMO_BOOKING_CONFIG as unknown as Record<string, unknown>,
+        // This month and the next open, from the demo's own clock (D-078).
+        settings: {
+          ...DEMO_BOOKING_CONFIG,
+          openMonths: defaultOpenMonths(localDateKey(now, ZONE)),
+        } as unknown as Record<string, unknown>,
         updated_by: DEMO_IDS.user,
         created_at: created,
         updated_at: created,
