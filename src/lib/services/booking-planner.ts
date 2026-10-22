@@ -7,8 +7,21 @@ import {
   type CalendarLock,
 } from '@/lib/booking/calendar-choices';
 import { inPersonOffered, type BookingConfig } from '@/lib/booking/config';
-import { dayPlans, PREVIEW_QUERIES, type EngineInput, type PreviewKey } from '@/lib/booking/engine';
-import { furthestMonth, isRolling, openThroughLabelMonth, withoutPast } from '@/lib/booking/months';
+import {
+  dayPlans,
+  openSlots,
+  PREVIEW_QUERIES,
+  type EngineInput,
+  type PreviewKey,
+} from '@/lib/booking/engine';
+import {
+  furthestMonth,
+  lastOpenDay,
+  monthOf,
+  monthStrip,
+  openMonthsAhead,
+  withoutPast,
+} from '@/lib/booking/months';
 import type { PreviewDay, PreviewPlan } from '@/lib/booking/planner-status';
 import { calendarEditAccess, type CalendarEditAccess } from '@/lib/calendar/edit-access';
 import { calendarSource, readCalendarList } from '@/lib/calendar/range-reader';
@@ -64,9 +77,7 @@ export const PANEL_KEYS = [
   'stackCooldownMinutes',
   'stackLeadMinutes',
   'noticeHours',
-  'openThrough',
-  'rollingMonths',
-  'closedMonths',
+  'openMonths',
   'closedDates',
   'closedRanges',
   'dateHours',
@@ -74,6 +85,8 @@ export const PANEL_KEYS = [
   'maxLinkBookingsPerDay',
   'maxMeetingsPerDay',
   'approveFirst',
+  'allowGuests',
+  'maxGuests',
 ] as const satisfies readonly (keyof BookingConfig)[];
 export type PanelKey = (typeof PANEL_KEYS)[number];
 
@@ -107,8 +120,8 @@ export async function patchBookingSettings(
   const zone = await principalTimeZone(store, organizationId);
   const today = localDateKey(now, zone);
   const merged = withoutPast({ ...current.config, ...changes }, today);
-  if (merged.openThrough && merged.openThrough > furthestMonth(today)) {
-    return err('invalid_input', 'The link can open at most six months ahead.');
+  if (merged.openMonths.some((m) => m > furthestMonth(today))) {
+    return err('invalid_input', 'The link can open this month and the next 11, no further.');
   }
   return saveBookingSettings(
     store,
@@ -131,9 +144,10 @@ export interface BookingPreview {
   message: string | null;
   hostZone: string;
   today: string;
-  /** The last month that really takes bookings; null when none does. */
-  openThrough: string | null;
-  rolling: boolean;
+  /** The months switched on, from this month on, in order. */
+  openMonths: string[];
+  /** The last open month's last day; null when none is open. */
+  lastOpenDay: string | null;
   days: PreviewDay[];
 }
 
@@ -215,9 +229,67 @@ export async function bookingPreview(
     message,
     hostZone,
     today,
-    openThrough: openThroughLabelMonth(config, today),
-    rolling: isRolling(config),
+    openMonths: openMonthsAhead(config, today),
+    lastOpenDay: lastOpenDay(config, today),
     days,
+  });
+}
+
+/* ---------------------------------------------------- the months' counts */
+
+export interface MonthCount {
+  month: string;
+  /** Switched on. */
+  open: boolean;
+  /** Open start times in it, calls and in person together (0 when off). */
+  times: number;
+}
+
+export interface MonthCounts {
+  state: 'ok' | 'unavailable';
+  message: string | null;
+  today: string;
+  months: MonthCount[];
+}
+
+/**
+ * The month strip's counts: for this month and the next eleven, whether it
+ * is switched on and how many open times it offers, from the same engine
+ * and calendar read as the public page (a month that is off offers none).
+ */
+export async function bookingMonthCounts(
+  store: DataStore,
+  organizationId: string,
+  deps: BookingDeps = {},
+): Promise<Result<MonthCounts>> {
+  const now = deps.now ?? new Date();
+  const settings = await readBookingSettings(store, organizationId);
+  if (!settings.available) return err('not_configured', BOOKING_NOT_SET_UP);
+  const { config } = settings;
+  const hostZone = await principalTimeZone(store, organizationId);
+  const today = localDateKey(now, hostZone);
+  const strip = monthStrip(today);
+  const read = await engineInputFor(store, { organizationId, config }, deps).catch(() => null);
+  const counts = new Map(strip.map((m) => [m, 0]));
+  if (read?.ok) {
+    const inPerson = inPersonOffered(config);
+    for (const q of PREVIEW_QUERIES) {
+      if (q.key !== 'call' && !inPerson) continue;
+      for (const slot of openSlots(read.value.input, q.query)) {
+        const m = monthOf(slot.date);
+        counts.set(m, (counts.get(m) ?? 0) + 1);
+      }
+    }
+  }
+  return ok({
+    state: read?.ok ? 'ok' : 'unavailable',
+    message: read?.ok ? null : 'The calendar could not be read, so the counts are not known.',
+    today,
+    months: strip.map((m) => ({
+      month: m,
+      open: config.openMonths.includes(m),
+      times: counts.get(m) ?? 0,
+    })),
   });
 }
 

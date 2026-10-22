@@ -45,6 +45,7 @@ import {
   hostNameFor,
   linkEventDraft,
   manageTokenHash,
+  manageUrl,
   MAX_RESCHEDULES,
   oneAtATime,
   photoUrl,
@@ -60,6 +61,7 @@ import {
   moveLinkEvent,
   type LinkWriteContext,
 } from './booking-calendar';
+import { markCancelledInGoogle, markMovedInGoogle, scheduleDescriptionCheck } from './booking-sync';
 import { principalTimeZone } from './push-alerts';
 
 /**
@@ -182,31 +184,11 @@ async function syncWithCalendar(
   const { row, organizationId } = found;
   if (row.status !== 'booked' && row.status !== 'approved') return { row, notice: null };
   if (live.state === 'gone') {
-    const patch = {
+    const next = await markCancelledInGoogle(store, organizationId, row, now).catch(() => ({
+      ...row,
       status: 'cancelled' as const,
-      cancelled_at: now.toISOString(),
-      cancelled_by: 'calendar' as const,
-      claimed_at: null,
-    };
-    const changed = await store
-      .updateWhere(
-        'booking_requests',
-        organizationId,
-        { eq: { id: row.id, status: row.status } },
-        patch,
-      )
-      .catch(() => []);
-    if (changed.length) {
-      await recordAudit(store, {
-        organizationId,
-        userId: null,
-        action: 'booking.synced',
-        entityType: 'booking_request',
-        entityId: row.id,
-        metadata: { change: 'deleted' },
-      });
-    }
-    return { row: { ...row, ...patch }, notice: 'This meeting was cancelled.' };
+    }));
+    return { row: next, notice: 'This meeting was cancelled.' };
   }
   if (
     live.state === 'there' &&
@@ -215,29 +197,11 @@ async function syncWithCalendar(
     (live.startsAt !== new Date(row.starts_at ?? 0).toISOString() ||
       live.endsAt !== new Date(row.ends_at ?? 0).toISOString())
   ) {
-    const patch = { starts_at: live.startsAt, ends_at: live.endsAt };
-    const changed = await store
-      .updateWhere(
-        'booking_requests',
-        organizationId,
-        { eq: { id: row.id, status: row.status } },
-        patch,
-      )
-      .catch(() => []);
-    if (changed.length) {
-      await recordAudit(store, {
-        organizationId,
-        userId: null,
-        action: 'booking.synced',
-        entityType: 'booking_request',
-        entityId: row.id,
-        metadata: { change: 'moved' },
-      });
-    }
-    return {
-      row: { ...row, ...patch },
-      notice: 'The time of this meeting changed in the calendar.',
-    };
+    const next = await markMovedInGoogle(store, organizationId, row, {
+      startsAt: live.startsAt,
+      endsAt: live.endsAt,
+    });
+    return { row: next, notice: 'The time of this meeting changed in the calendar.' };
   }
   return { row, notice: null };
 }
@@ -443,6 +407,14 @@ export async function rescheduleByToken(
           { retryable: true },
         );
       }
+      // A move is a change: another tool may add its reschedule link again,
+      // so one more look later (once for this move).
+      scheduleDescriptionCheck(
+        { store, organizationId, source, config, hostZone: prepared.value.hostZone, now },
+        row.id,
+        manageUrl(found.settings.slug, token),
+        deps.schedule,
+      );
     }
     const patch = {
       starts_at: iso,
@@ -802,6 +774,12 @@ export async function placeHeldBookings(
       }
       await markPlaced(store, organizationId, row, primary.id, created.value.eventId);
       outcome.placed += 1;
+      scheduleDescriptionCheck(
+        { store, organizationId, source, config, hostZone, now },
+        row.id,
+        null,
+        deps.schedule,
+      );
     });
   }
   return outcome;

@@ -428,7 +428,7 @@ describe('the public page (review fix)', () => {
       expect((await loadMeetPage(harness.store, 'nick', 'visitor-key')).state).toBe('open');
     }
     const braked = await loadMeetPage(harness.store, 'nick', 'visitor-key');
-    expect(braked).toMatchObject({ state: 'closed', host: null, faq: '' });
+    expect(braked).toMatchObject({ state: 'closed', host: null, chatbot: { enabled: false } });
     expect((await loadMeetPage(harness.store, 'nick', 'another-key')).state).toBe('open');
   });
 });

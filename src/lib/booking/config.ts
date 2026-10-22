@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { readChatbotConfig, type ChatbotConfig } from './chatbot-config';
+import { cleanMonths, legacyOpenMonths, MAX_MONTHS_AHEAD } from './months';
+import { localDateKey } from '@/lib/util/time';
 
 /**
  * The booking link's settings (Settings > Booking link), as data: who the
@@ -184,11 +186,8 @@ export function isOwnPhotoPath(
   );
 }
 
-/**
- * How far ahead the link may ever be opened (D-078): this month and the next
- * six, never more. The Booking tab's month strip shows all seven.
- */
-export const MAX_MONTHS_AHEAD = 6;
+/** How far ahead the link may ever be opened (lib/booking/months.ts). */
+export { MAX_MONTHS_AHEAD };
 
 /** A month, `YYYY-MM`. */
 export const MONTH_KEY = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use a month like 2026-11.');
@@ -259,15 +258,12 @@ export interface BookingConfig {
   stackLeadMinutes: number;
   noticeHours: number;
   /**
-   * The last month the link is open through, `YYYY-MM`, or null for a
-   * rolling window of `rollingMonths` after this one (D-078: the horizon is
-   * a month, not a count of days).
+   * The months the link offers times in, `YYYY-MM`, each switched on by
+   * itself (D-078): any of this month and the next eleven, in any mix. A
+   * month not listed offers nothing. With nothing stored, this month and the
+   * next (lib/booking/months.ts defaultOpenMonths).
    */
-  openThrough: string | null;
-  /** With no `openThrough`: this month and this many after it (1: this month and next). */
-  rollingMonths: number;
-  /** Months closed on the link, `YYYY-MM`, inside the open window. */
-  closedMonths: string[];
+  openMonths: string[];
   /** Single days closed on the link, `YYYY-MM-DD`. Rules always win: nothing here opens a day. */
   closedDates: string[];
   /** Runs of days closed (a holiday, a trip), inclusive, with an optional label. */
@@ -341,9 +337,8 @@ export const DEFAULT_BOOKING_CONFIG: BookingConfig = {
   stackCooldownMinutes: 60,
   stackLeadMinutes: 30,
   noticeHours: 24,
-  openThrough: null,
-  rollingMonths: 1,
-  closedMonths: [],
+  // Filled in by parseBookingConfig from the day it reads (this month and the next).
+  openMonths: [],
   closedDates: [],
   closedRanges: [],
   dateHours: [],
@@ -429,9 +424,10 @@ export const BOOKING_CONFIG_SCHEMA = z
     stackCooldownMinutes: int(0, 240),
     stackLeadMinutes: int(15, 120),
     noticeHours: int(24, 24 * 14),
-    openThrough: MONTH_KEY.nullable(),
-    rollingMonths: int(0, MAX_MONTHS_AHEAD),
-    closedMonths: z.array(MONTH_KEY).max(36),
+    openMonths: z
+      .array(MONTH_KEY)
+      .max(MAX_MONTHS_AHEAD + 1)
+      .refine((list) => new Set(list).size === list.length, 'A month is listed twice.'),
     closedDates: z.array(DATE_KEY).max(400),
     closedRanges: z.array(CLOSED_RANGE).max(40),
     dateHours: z
@@ -522,7 +518,7 @@ function readKindWindows(raw: unknown): Record<MeetingKind, TimeWindow[]> {
  * the hours are clamped into their hard bounds (8:00 to 18:00, dinner 18:00
  * to 19:00).
  */
-export function parseBookingConfig(raw: unknown): BookingConfig {
+export function parseBookingConfig(raw: unknown, options: { today?: string } = {}): BookingConfig {
   const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const shape = BOOKING_CONFIG_SCHEMA.shape;
   const out: Record<string, unknown> = {};
@@ -532,6 +528,12 @@ export function parseBookingConfig(raw: unknown): BookingConfig {
   }
   out.callWindow = readCallWindow(source.callWindow);
   out.kindWindows = readKindWindows(source.kindWindows);
+  // Months: a stored list as it is (an empty one too: every month off); a
+  // row from before months were switched one by one becomes the same months.
+  const months = shape.openMonths.safeParse(source.openMonths);
+  out.openMonths = months.success
+    ? cleanMonths(months.data)
+    : legacyOpenMonths(source, options.today ?? localDateKey(new Date(), 'America/Chicago'));
   // The chatbot reads the whole document: a row saved before it had its own
   // field keeps its old on/off and FAQ.
   out.chatbot = readChatbotConfig(source);

@@ -23,14 +23,7 @@ import {
   type PublicSlots,
   type RememberedBooking,
 } from '@/lib/booking/public';
-import {
-  applyFill,
-  EMPTY_FORM,
-  LIMITS,
-  patchForm,
-  type BookingFormState,
-  type ChatFormFill,
-} from '@/lib/booking/request';
+import { EMPTY_FORM, LIMITS, patchForm, type BookingFormState } from '@/lib/booking/request';
 import { SUPPORTED_TIMEZONES } from '@/lib/util/time';
 import { cn } from '@/lib/util/cn';
 import { BookingChat } from './booking-chat';
@@ -238,7 +231,6 @@ function OpenPage({
   const [latest, setLatest] = React.useState<RememberedBooking | null>(remembered);
   const submitLabel =
     form.type === 'message' ? 'Send message' : data.instant ? 'Book meeting' : 'Send request';
-  const [filledByChat, setFilledByChat] = React.useState(false);
   const [website, setWebsite] = React.useState('');
   const [reload, setReload] = React.useState(0);
   const formRef = React.useRef<HTMLDivElement>(null);
@@ -296,14 +288,6 @@ function OpenPage({
     setForm((f) => patchForm(f, patch));
   };
 
-  const fillFromChat = (fill: ChatFormFill) => {
-    setProblem(null);
-    setForm((f) => applyFill(f, fill));
-    setFilledByChat(true);
-    if (fill.start) setDay(dayKeyIn(fill.start, zone));
-    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
   const send = async (event: React.FormEvent) => {
     event.preventDefault();
     if (sending) return;
@@ -333,7 +317,7 @@ function OpenPage({
         deckUrl: form.deckUrl,
         guests: form.type === 'message' || !data.guests.allowed ? [] : form.guests,
         timeZone: zone,
-        source: filledByChat ? 'chatbot' : 'form',
+        source: 'form',
         website,
       }),
     }).catch(() => null);
@@ -383,7 +367,6 @@ function OpenPage({
           onAnother={() => {
             setSent(null);
             setForm(EMPTY_FORM);
-            setFilledByChat(false);
             setReload((n) => n + 1);
           }}
         />
@@ -426,11 +409,6 @@ function OpenPage({
                     ? 'Pick what suits you. It goes straight onto the calendar, and the invitation comes by email.'
                     : "Pick what suits you. You'll get a calendar invitation once the time is booked."}
               </p>
-              {filledByChat ? (
-                <Notice className="mt-3">
-                  Arwin filled in the form for you. Check it, then press {submitLabel}.
-                </Notice>
-              ) : null}
             </div>
 
             {form.type !== 'message' ? (
@@ -755,13 +733,11 @@ function OpenPage({
       {data.chatbot.enabled ? (
         <BookingChat
           slug={data.slug}
-          mode={data.chatbot.mode}
           hostName={host.displayName}
           firmName={host.firmName}
           kinds={data.offers.inPerson ? data.kinds : []}
           callLabel={callLabel}
           zone={visitorZone}
-          onFill={fillFromChat}
         />
       ) : null}
     </Shell>

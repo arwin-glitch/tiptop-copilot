@@ -22,6 +22,11 @@
 --     calendar (the event was deleted in Google Calendar).
 --   - rescheduled_count / previous_starts_at: how often the visitor moved it
 --     (at most 5), and the time before the last move.
+--   - description_cleaned_at / description_cleaned_rev: when Copilot last put
+--     the event's own description back after another scheduling tool (Fyxer,
+--     Vimcal, Calendly) appended its reschedule link, and for which change
+--     (the move count then): at most once per event per change, so Copilot
+--     and the other tool never take turns.
 --
 -- Additive and idempotent like every migration here: safe to run again in
 -- the SQL editor. Until it is applied the link keeps working the old way
@@ -39,6 +44,8 @@ alter table booking_requests add column if not exists cancelled_at timestamptz;
 alter table booking_requests add column if not exists cancelled_by text;
 alter table booking_requests add column if not exists rescheduled_count integer not null default 0;
 alter table booking_requests add column if not exists previous_starts_at timestamptz;
+alter table booking_requests add column if not exists description_cleaned_at timestamptz;
+alter table booking_requests add column if not exists description_cleaned_rev integer;
 
 alter table booking_requests drop constraint if exists booking_requests_status_check;
 alter table booking_requests drop constraint if exists booking_requests_status_allowed;

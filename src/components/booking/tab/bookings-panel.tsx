@@ -183,7 +183,10 @@ function BookingCard({
   canCancel: boolean;
   onCancel: () => void;
 }) {
-  const status = STATUS[b.status];
+  const status =
+    b.status === 'cancelled' && b.cancelledBy === 'calendar'
+      ? { label: 'Cancelled in Google', tone: 'neutral' as const }
+      : STATUS[b.status];
   const what =
     b.type === 'message'
       ? 'Message'
@@ -274,6 +277,12 @@ function BookingCard({
           {b.note ? (
             <p className="text-read line-clamp-3 rounded-md bg-[var(--bg-sunken)] px-3 py-2 whitespace-pre-line">
               {b.note}
+            </p>
+          ) : null}
+          {b.status === 'cancelled' && b.cancelledBy === 'calendar' ? (
+            <p className="text-sm text-[var(--fg-muted)]">
+              The event was deleted in Google Calendar, so this time is free again and no longer
+              counts toward the day&apos;s cap.
             </p>
           ) : null}
           {b.status === 'cancelled' && b.cancelNote ? (

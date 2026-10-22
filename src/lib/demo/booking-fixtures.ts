@@ -1,5 +1,6 @@
 import { readChatbotConfig } from '@/lib/booking/chatbot-config';
 import { DEFAULT_BOOKING_CONFIG, type BookingConfig } from '@/lib/booking/config';
+import { defaultOpenMonths } from '@/lib/booking/months';
 import type { BookingRequest, BookingSettingsRow } from '@/lib/types/domain';
 import { addDaysToKey, localDateKey, wallTimeToUtc } from '@/lib/util/time';
 import { DEMO_IDS } from './ids';
@@ -57,7 +58,7 @@ export const DEMO_BOOKING_CONFIG: BookingConfig = {
   ],
   faq: DEMO_FAQ,
   // The chatbot's own field (D-078), read from the same invented FAQ.
-  chatbot: readChatbotConfig({ faq: DEMO_FAQ }),
+  chatbot: readChatbotConfig({ faq: DEMO_FAQ, firmName: 'TipTop VC (Demo)' }),
 };
 
 /** The next Tuesday-to-Thursday dates at least `minDays` ahead, demo time. */
@@ -110,7 +111,11 @@ export function demoBooking(now: Date): {
         organization_id: DEMO_IDS.org,
         enabled: true,
         slug: DEMO_BOOKING_SLUG,
-        settings: DEMO_BOOKING_CONFIG as unknown as Record<string, unknown>,
+        // This month and the next open, from the demo's own clock (D-078).
+        settings: {
+          ...DEMO_BOOKING_CONFIG,
+          openMonths: defaultOpenMonths(localDateKey(now, ZONE)),
+        } as unknown as Record<string, unknown>,
         updated_by: DEMO_IDS.user,
         created_at: created,
         updated_at: created,

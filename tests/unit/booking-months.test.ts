@@ -17,20 +17,22 @@ import {
 import {
   addClosedRange,
   addMonths,
+  closeAllMonths,
   daysOf,
+  defaultOpenMonths,
   furthestMonth,
   hoursFor,
-  keepRolling,
   lastDayOf,
   lastOpenDay,
   lastOpenMonth,
+  legacyOpenMonths,
   monthGrid,
   monthLabel,
-  monthState,
+  monthOpen,
   monthStrip,
   monthsBetween,
-  openThroughLabelMonth,
-  openThroughPassed,
+  openMonthsAhead,
+  openNextMonths,
   plannerClosure,
   removeClosedRange,
   setDateHours,
@@ -50,9 +52,9 @@ import {
 import { wallTimeToUtc } from '@/lib/util/time';
 
 /**
- * The booking link's month planner (D-078): which months are open (rolling
- * by default, this month and next; never past six months ahead), each month
- * on its own switch, closed days and runs, shorter hours on a day, and how
+ * The booking link's month planner (D-078): which months are open (each
+ * switched on by itself, any of this month and the next eleven; this month
+ * and next with nothing saved), closed days and runs, shorter hours on a day, and how
  * all of it feeds the engine, whose every refusal now carries a rule code
  * for the Booking tab's "Why no times?" list. Plus the Calendars choices and
  * the Overview's checks. Every value is invented.
@@ -68,9 +70,7 @@ const iso = (day: string, h: number, m = 0) => new Date(at(day, h, m)).toISOStri
 
 function planner(over: Partial<PlannerConfig> = {}): PlannerConfig {
   return {
-    openThrough: null,
-    rollingMonths: 1,
-    closedMonths: [],
+    openMonths: ['2026-10', '2026-11'],
     closedDates: [],
     closedRanges: [],
     dateHours: [],
@@ -82,7 +82,12 @@ function input(config: Partial<BookingConfig> = {}, over: Partial<EngineInput> =
   return {
     now: NOW,
     hostZone: TZ,
-    config: { ...structuredClone(DEFAULT_BOOKING_CONFIG), homeCity: 'Harbor City', ...config },
+    config: {
+      ...structuredClone(DEFAULT_BOOKING_CONFIG),
+      openMonths: ['2026-10', '2026-11'],
+      homeCity: 'Harbor City',
+      ...config,
+    },
     busy: [],
     travelDays: new Set(),
     linkBookings: [],
@@ -112,8 +117,8 @@ describe('months as keys', () => {
     expect(rows.flat().filter(Boolean)).toHaveLength(30);
   });
 
-  it('shows this month and the next six, and never opens past them', () => {
-    expect(MAX_MONTHS_AHEAD).toBe(6);
+  it('shows this month and the next eleven, and never opens past them', () => {
+    expect(MAX_MONTHS_AHEAD).toBe(11);
     expect(monthStrip(TODAY)).toEqual([
       '2026-10',
       '2026-11',
@@ -122,81 +127,90 @@ describe('months as keys', () => {
       '2027-02',
       '2027-03',
       '2027-04',
+      '2027-05',
+      '2027-06',
+      '2027-07',
+      '2027-08',
+      '2027-09',
     ]);
-    expect(furthestMonth(TODAY)).toBe('2027-04');
-    expect(lastOpenMonth(planner({ openThrough: '2028-01' }), TODAY)).toBe('2027-04');
-    expect(lastOpenMonth(planner({ rollingMonths: 99 }), TODAY)).toBe('2027-04');
+    expect(furthestMonth(TODAY)).toBe('2027-09');
+    // A month past the strip on the list offers nothing.
+    expect(monthOpen(planner({ openMonths: ['2027-10'] }), '2027-10', TODAY)).toBe(false);
+    expect(lastOpenMonth(planner({ openMonths: ['2026-11', '2027-10'] }), TODAY)).toBe('2026-11');
   });
 });
 
-describe('the open window', () => {
-  it('rolls by default: this month and next', () => {
+describe('the open months, each switched on by itself', () => {
+  it('opens this month and the next with nothing saved', () => {
+    expect(defaultOpenMonths(TODAY)).toEqual(['2026-10', '2026-11']);
     expect(lastOpenMonth(planner(), TODAY)).toBe('2026-11');
     expect(lastOpenDay(planner(), TODAY)).toBe('2026-11-30');
-    // A month later it has moved on by itself.
-    expect(lastOpenMonth(planner(), '2026-11-02')).toBe('2026-12');
-    expect(monthState(planner(), '2026-10', TODAY)).toBe('open');
-    expect(monthState(planner(), '2026-11', TODAY)).toBe('open');
-    expect(monthState(planner(), '2026-12', TODAY)).toBe('not_open');
-    expect(monthState(planner(), '2026-09', TODAY)).toBe('not_open');
+    expect(monthOpen(planner(), '2026-10', TODAY)).toBe(true);
+    expect(monthOpen(planner(), '2026-12', TODAY)).toBe(false);
+    // A month already past is never open, whatever the list says.
+    expect(monthOpen(planner({ openMonths: ['2026-09'] }), '2026-09', TODAY)).toBe(false);
   });
 
-  it('a fixed month stays put, and once it passes nothing is open', () => {
-    const fixed = planner({ openThrough: '2026-12' });
-    expect(lastOpenDay(fixed, TODAY)).toBe('2026-12-31');
-    expect(openThroughPassed(fixed, '2027-01-05')).toBe(true);
-    expect(monthState(fixed, '2027-01', '2027-01-05')).toBe('not_open');
-    expect(openThroughLabelMonth(fixed, '2027-01-05')).toBeNull();
+  it('takes any mix: only December, or January and March', () => {
+    const december = planner({ openMonths: ['2026-12'] });
+    expect(openMonthsAhead(december, TODAY)).toEqual(['2026-12']);
+    expect(lastOpenDay(december, TODAY)).toBe('2026-12-31');
+    const gaps = planner({ openMonths: ['2027-03', '2027-01'] });
+    expect(openMonthsAhead(gaps, TODAY)).toEqual(['2027-01', '2027-03']);
+    expect(monthOpen(gaps, '2027-02', TODAY)).toBe(false);
   });
 
-  it('says "open through" the last month that really takes bookings', () => {
-    expect(openThroughLabelMonth(planner({ closedMonths: ['2026-11'] }), TODAY)).toBe('2026-10');
-    expect(openThroughLabelMonth(planner({ closedMonths: ['2026-10', '2026-11'] }), TODAY)).toBe(
-      null,
-    );
+  it('opens nothing at all once every month is off', () => {
+    const none = planner({ openMonths: [] });
+    expect(lastOpenMonth(none, TODAY)).toBeNull();
+    expect(lastOpenDay(none, TODAY)).toBeNull();
+    expect(closeAllMonths()).toEqual({ openMonths: [] });
+  });
+
+  it('reads an older saved window as the same months', () => {
+    // "This month and the next two", one closed by hand.
+    expect(legacyOpenMonths({ rollingMonths: 2, closedMonths: ['2026-11'] }, TODAY)).toEqual([
+      '2026-10',
+      '2026-12',
+    ]);
+    // "Open through January".
+    expect(legacyOpenMonths({ openThrough: '2027-01', rollingMonths: 1 }, TODAY)).toEqual([
+      '2026-10',
+      '2026-11',
+      '2026-12',
+      '2027-01',
+    ]);
+    // A fixed month already past: nothing open.
+    expect(legacyOpenMonths({ openThrough: '2026-09' }, TODAY)).toEqual([]);
+    // Never past the strip.
+    expect(legacyOpenMonths({ openThrough: '2028-05' }, TODAY).at(-1)).toBe('2027-09');
+    // Nothing saved about months (a row from before the planner): this month and next.
+    expect(legacyOpenMonths({}, TODAY)).toEqual(['2026-10', '2026-11']);
   });
 });
 
 describe('the month switch, each month on its own', () => {
-  it('closes an open month and opens it again', () => {
-    const closed = toggleMonth(planner(), '2026-11', TODAY);
-    expect(closed).toEqual({ openThrough: null, closedMonths: ['2026-11'] });
-    expect(monthState(planner(closed), '2026-11', TODAY)).toBe('closed');
-    const back = toggleMonth(planner(closed), '2026-11', TODAY);
-    expect(back.closedMonths).toEqual([]);
+  it('switches a month on and off again, leaving the others as they are', () => {
+    const on = toggleMonth(planner(), '2027-02', TODAY);
+    expect(on).toEqual({ openMonths: ['2026-10', '2026-11', '2027-02'] });
+    const off = toggleMonth(planner(on), '2026-11', TODAY);
+    expect(off).toEqual({ openMonths: ['2026-10', '2027-02'] });
+    expect(toggleMonth(planner(off), '2027-02', TODAY)).toEqual({ openMonths: ['2026-10'] });
   });
 
-  it('opens just the month tapped past the window, the ones between stay closed', () => {
-    const next = toggleMonth(planner(), '2027-02', TODAY);
-    expect(next.openThrough).toBe('2027-02');
-    expect(next.closedMonths).toEqual(['2026-12', '2027-01']);
-    const p = planner(next);
-    expect(monthState(p, '2026-11', TODAY)).toBe('open');
-    expect(monthState(p, '2026-12', TODAY)).toBe('closed');
-    expect(monthState(p, '2027-02', TODAY)).toBe('open');
-    expect(monthState(p, '2027-03', TODAY)).toBe('not_open');
-  });
-
-  it('opens a month after a fixed window has passed, keeping the months before it closed', () => {
-    const passed = planner({ openThrough: '2026-09' });
-    const next = toggleMonth(passed, '2026-11', TODAY);
-    expect(next).toEqual({ openThrough: '2026-11', closedMonths: ['2026-10'] });
-  });
-
-  it('changes nothing for a month off the strip', () => {
-    expect(toggleMonth(planner(), '2027-05', TODAY)).toEqual({
-      openThrough: null,
-      closedMonths: [],
+  it('changes nothing for a month off the strip, and drops months already past', () => {
+    expect(toggleMonth(planner(), '2027-10', TODAY)).toEqual({
+      openMonths: ['2026-10', '2026-11'],
     });
-    expect(toggleMonth(planner(), '2026-09', TODAY).openThrough).toBeNull();
+    expect(toggleMonth(planner({ openMonths: ['2026-09', '2026-11'] }), '2026-09', TODAY)).toEqual({
+      openMonths: ['2026-11'],
+    });
   });
 
-  it('"keep rolling" turns a fixed window into the same rolling one', () => {
-    expect(keepRolling(planner({ openThrough: '2027-01' }), TODAY)).toEqual({
-      openThrough: null,
-      rollingMonths: 3,
+  it('"Open next 3 months" switches on this month and the next two, keeping any other', () => {
+    expect(openNextMonths(planner({ openMonths: ['2027-05'] }), TODAY)).toEqual({
+      openMonths: ['2026-10', '2026-11', '2026-12', '2027-05'],
     });
-    expect(keepRolling(planner({ openThrough: '2026-08' }), TODAY).rollingMonths).toBe(0);
   });
 });
 
@@ -230,13 +244,13 @@ describe('closed days, runs and shorter hours', () => {
     expect(removed.closedRanges).toEqual([]);
   });
 
-  it('names a closed month before a closed day', () => {
+  it('names a month that is off before a closed day, in plain words', () => {
     expect(
       plannerClosure(
-        planner({ closedMonths: ['2026-11'], closedDates: ['2026-11-04'] }),
+        planner({ openMonths: ['2026-10'], closedDates: ['2026-11-04'] }),
         '2026-11-04',
-      )?.code,
-    ).toBe('month_closed');
+      ),
+    ).toEqual({ code: 'month_closed', text: 'November isn’t open on the link.' });
   });
 
   it('sets and clears one day’s shorter hours', () => {
@@ -250,7 +264,7 @@ describe('closed days, runs and shorter hours', () => {
   it('drops what is wholly past when it saves', () => {
     const kept = withoutPast(
       planner({
-        closedMonths: ['2026-09', '2026-10'],
+        openMonths: ['2026-09', '2026-10', '2026-12'],
         closedDates: ['2026-10-20', '2026-10-27'],
         closedRanges: [
           { from: '2026-10-01', to: '2026-10-10', label: '' },
@@ -263,7 +277,7 @@ describe('closed days, runs and shorter hours', () => {
       }),
       TODAY,
     );
-    expect(kept.closedMonths).toEqual(['2026-10']);
+    expect(kept.openMonths).toEqual(['2026-10', '2026-12']);
     expect(kept.closedDates).toEqual(['2026-10-27']);
     expect(kept.closedRanges).toEqual([{ from: '2026-10-20', to: '2026-10-28', label: '' }]);
     expect(kept.dateHours.map((d) => d.date)).toEqual(['2026-10-29']);
@@ -271,27 +285,38 @@ describe('closed days, runs and shorter hours', () => {
 });
 
 describe('the planner in the engine: rules always win', () => {
-  it('offers nothing in a closed month, on a closed day, or past the open months', () => {
-    expect(openSlots(input({ closedMonths: ['2026-11'] }), CALL).at(-1)!.date).toBe('2026-10-29');
+  it('offers nothing in a month that is off, on a closed day, or with every month off', () => {
+    expect(openSlots(input({ openMonths: ['2026-10'] }), CALL).at(-1)!.date).toBe('2026-10-29');
     expect(
       openSlots(input({ closedDates: ['2026-10-27'] }), CALL).some((s) => s.date === '2026-10-27'),
     ).toBe(false);
     expect(
       slotProblemDetail(input({ closedDates: ['2026-10-27'] }), CALL, iso('2026-10-27', 10)),
     ).toEqual({ code: 'date_closed', text: 'That day is closed on the booking link.' });
-    expect(slotProblemDetail(input(), CALL, iso('2026-12-01', 10))?.code).toBe('not_open');
-    expect(
-      slotProblemDetail(input({ openThrough: '2026-09' }), CALL, iso('2026-10-27', 10)),
-    ).toEqual({
-      code: 'not_open',
-      text: 'The booking link is not open for any month right now.',
+    expect(slotProblemDetail(input(), CALL, iso('2026-12-01', 10))).toEqual({
+      code: 'month_closed',
+      text: 'December isn’t open on the link.',
     });
+    expect(openSlots(input({ openMonths: [] }), CALL)).toEqual([]);
   });
 
-  it('opens a month up to six ahead, and no further', () => {
-    const slots = openSlots(input({ openThrough: '2027-04' }), CALL);
-    expect(slots.at(-1)!.date).toBe('2027-04-29');
-    expect(openSlots(input({ openThrough: '2027-06' }), CALL).at(-1)!.date).toBe('2027-04-29');
+  it('opens only the month switched on, two months out: only its days offer times', () => {
+    const slots = openSlots(input({ openMonths: ['2026-12'] }), CALL);
+    expect(slots.length).toBeGreaterThan(0);
+    expect(new Set(slots.map((s) => s.date.slice(0, 7)))).toEqual(new Set(['2026-12']));
+    // No count of days caps an open month: its last Thursday is offered too.
+    expect(slots.at(-1)!.date).toBe('2026-12-31');
+    // Switched off again: nothing.
+    expect(openSlots(input({ openMonths: [] }), CALL)).toEqual([]);
+  });
+
+  it('opens a month up to eleven ahead, and no further', () => {
+    const slots = openSlots(input({ openMonths: ['2027-09'] }), CALL);
+    expect(slots.at(-1)!.date).toBe('2027-09-30');
+    expect(openSlots(input({ openMonths: ['2027-10'] }), CALL)).toEqual([]);
+    expect(
+      slotProblemDetail(input({ openMonths: ['2027-10'] }), CALL, iso('2027-10-05', 10)),
+    ).toEqual({ code: 'not_open', text: 'That month is too far ahead for the booking link.' });
   });
 
   it('keeps every time on a shorter-hours day wholly inside them', () => {
@@ -330,7 +355,7 @@ describe('why a day offers nothing (the Booking tab’s list)', () => {
   it('gives each day its rule, with a code', () => {
     const plans = dayPlans(
       input(
-        { closedDates: ['2026-11-04'], closedMonths: [] },
+        { closedDates: ['2026-11-04'] },
         {
           busy: [busy('2026-10-28', 7, 19)],
           travelDays: new Set(['2026-10-29']),
@@ -440,8 +465,7 @@ describe('the Overview', () => {
     profile: { displayName: 'Sam Host', title: 'Partner', bio: '' },
     inPersonOffered: true,
     nextTwoWeeks: { calls: 10, inPerson: 4 },
-    openThrough: '2026-11',
-    rolling: true,
+    openMonths: ['2026-10', '2026-11'],
     today: TODAY,
     lastOpenDay: '2026-11-30',
   };
@@ -468,14 +492,16 @@ describe('the Overview', () => {
     expect(state({ inPersonOffered: false }).places).toBe('warn');
     expect(state({ nextTwoWeeks: { calls: 0, inPerson: 0 } }).times).toBe('warn');
     expect(state({ nextTwoWeeks: null }).times).toBeUndefined();
-    expect(state({ openThrough: null }).months).toBe('warn');
-    // A fixed window ending inside two weeks needs the next month opened.
-    expect(
-      state({ rolling: false, openThrough: '2026-10', lastOpenDay: '2026-10-31' }).months,
-    ).toBe('warn');
-    expect(
-      state({ rolling: false, openThrough: '2026-12', lastOpenDay: '2026-12-31' }).months,
-    ).toBe('ok');
+    expect(state({ openMonths: [], lastOpenDay: null }).months).toBe('warn');
+    // The open months ending inside two weeks need the next one switched on.
+    expect(state({ openMonths: ['2026-10'], lastOpenDay: '2026-10-31' }).months).toBe('warn');
+    expect(state({ openMonths: ['2026-12'], lastOpenDay: '2026-12-31' }).months).toBe('ok');
+    const months = statusChecks({
+      ...base,
+      openMonths: ['2026-11', '2027-03'],
+      lastOpenDay: '2027-03-31',
+    }).find((c) => c.key === 'months');
+    expect(months?.title).toBe('Open: Nov and Mar 2027');
   });
 });
 

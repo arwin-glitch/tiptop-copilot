@@ -188,28 +188,7 @@ export function firstProblem(error: z.ZodError): string {
   return issue.message || 'Check the form.';
 }
 
-/**
- * What the public chatbot may put in the form: every field optional, the
- * same caps, and nothing the visitor would not see before pressing Send.
- */
-export const CHAT_FORM_FILL = z
-  .object({
-    name: clean(LIMITS.name, true).optional(),
-    email: z.string().trim().toLowerCase().max(LIMITS.email).optional(),
-    company: clean(LIMITS.company, true).optional(),
-    type: z.enum(REQUEST_TYPES).optional(),
-    kind: z.enum(MEETING_KINDS).optional(),
-    start: z.string().max(40).optional(),
-    placeId: z.string().max(40).optional(),
-    customPlace: clean(LIMITS.customPlace, true).optional(),
-    note: clean(LIMITS.note).optional(),
-    deckUrl: DECK_URL.optional(),
-  })
-  .strict();
-
-export type ChatFormFill = z.infer<typeof CHAT_FORM_FILL>;
-
-/** The form state the page keeps, which the chatbot's fill merges into. */
+/** The form state the page keeps. */
 export interface BookingFormState {
   type: RequestType;
   kind: MeetingKind | null;
@@ -254,13 +233,4 @@ export function patchForm(
   if (patch.kind !== undefined && patch.kind !== form.kind && !retimed) next.start = null;
   if (next.type !== 'in_person') next.kind = null;
   return next;
-}
-
-/** A chatbot's fill merged into the form: only the fields it names change. */
-export function applyFill(form: BookingFormState, fill: ChatFormFill): BookingFormState {
-  const patch: Partial<BookingFormState> = {};
-  for (const [key, value] of Object.entries(fill) as [keyof ChatFormFill, string | undefined][]) {
-    if (value !== undefined) (patch as Record<string, unknown>)[key] = value;
-  }
-  return patchForm(form, patch);
 }

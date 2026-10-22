@@ -40,8 +40,8 @@ export interface OverviewPanelProps {
   inPersonOffered: boolean;
   today: string;
   hostZone: string;
-  openThrough: string | null;
-  rolling: boolean;
+  /** The months switched on, from this month on. */
+  openMonths: string[];
   lastOpenDay: string | null;
 }
 
@@ -72,8 +72,7 @@ export function OverviewPanel(props: OverviewPanelProps) {
     profile: props.profile,
     inPersonOffered: props.inPersonOffered,
     nextTwoWeeks: open,
-    openThrough: props.openThrough,
-    rolling: props.rolling,
+    openMonths: props.openMonths,
     today: props.today,
     lastOpenDay: props.lastOpenDay,
   });

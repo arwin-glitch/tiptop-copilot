@@ -137,18 +137,22 @@ describe('a panel’s save', () => {
     expect(approve.ok && approve.value.enabled).toBe(false);
   });
 
-  it('drops the planner’s past days and refuses a window past six months', async () => {
+  it('drops the planner’s past days and months, and refuses a month past the next eleven', async () => {
     const saved = await patch({
       closedDates: ['2026-10-01', '2026-11-04'],
-      closedMonths: ['2026-09', '2026-12'],
+      openMonths: ['2026-09', '2026-12'],
     });
     expect(saved.ok && saved.value.config.closedDates).toEqual(['2026-11-04']);
-    expect(saved.ok && saved.value.config.closedMonths).toEqual(['2026-12']);
-    const far = await patch({ openThrough: '2027-05' });
+    expect(saved.ok && saved.value.config.openMonths).toEqual(['2026-12']);
+    const far = await patch({ openMonths: ['2027-10'] });
     expect(far.ok).toBe(false);
-    if (!far.ok) expect(far.error.message).toBe('The link can open at most six months ahead.');
-    const ok = await patch({ openThrough: '2027-04' });
-    expect(ok.ok && ok.value.config.openThrough).toBe('2027-04');
+    if (!far.ok) {
+      expect(far.error.message).toBe('The link can open this month and the next 11, no further.');
+    }
+    const ok = await patch({ openMonths: ['2027-01', '2027-09'] });
+    expect(ok.ok && ok.value.config.openMonths).toEqual(['2027-01', '2027-09']);
+    const none = await patch({ openMonths: [] });
+    expect(none.ok && none.value.config.openMonths).toEqual([]);
   });
 
   it('refuses hours outside the hard bounds with the same plain message as before', async () => {
@@ -189,8 +193,8 @@ describe('the live preview', () => {
       state: 'ok',
       hostZone: TZ,
       today: '2026-10-26',
-      openThrough: '2026-11',
-      rolling: true,
+      openMonths: ['2026-10', '2026-11'],
+      lastOpenDay: '2026-11-30',
     });
     const by = Object.fromEntries(preview.days.map((d) => [d.date, d]));
     expect(by['2026-10-25']!.plans.call.code).toBe('past');

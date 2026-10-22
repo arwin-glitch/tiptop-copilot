@@ -39,19 +39,34 @@ describe('calendar writes', () => {
       'lib/services/booking-calendar.ts',
     ]);
     // The booking link's writes (D-078): one create, one move, one delete, each
-    // telling the guests through Google (sendUpdates 'all' via notify 'send').
+    // telling the guests through Google (sendUpdates 'all' via notify 'send'),
+    // and the booking's own description put back after another tool (Fyxer)
+    // added its reschedule link, telling nobody ('dont_send').
     const writes = SOURCES.find((s) => s.rel === 'lib/services/booking-calendar.ts')!.text;
     expect(writes.match(/createCalendarEvent\(/g)).toHaveLength(1);
     expect(writes.match(/updateCalendarEvent\(/g)).toHaveLength(1);
     expect(writes.match(/deleteCalendarEvent\(/g)).toHaveLength(1);
-    expect(writes.match(/notify: 'send'/g)).toHaveLength(3);
+    expect(writes.match(/notify: 'send'/g)).toHaveLength(2);
+    const move = /export async function moveLinkEvent[\s\S]*?\n}\n/.exec(writes)?.[0] ?? '';
+    expect(move).toMatch(/'send',\n\s*\);/);
+    const restore =
+      /export async function restoreLinkDescription[\s\S]*?\n}\n/.exec(writes)?.[0] ?? '';
+    expect(restore).toMatch(/\{ description: input\.description \}, 'dont_send'\)/);
+    expect(writes.match(/'dont_send'/g)).toHaveLength(1);
     expect(writes).not.toMatch(/recolorCalendarEvent|relabelCalendarEvent|respondToCalendarEvent/);
-    // Reached from the booking service (Approve, an instant booking) and the
-    // booking's own page and held times (booking-manage) alone.
+    // Reached from the booking service (Approve, an instant booking), the
+    // booking's own page and held times (booking-manage), and the
+    // description put back (booking-sync) alone.
     const users = SOURCES.filter((s) => /from ['"]\.\/booking-calendar['"]/.test(s.text)).map(
       (s) => s.rel,
     );
-    expect(users.sort()).toEqual(['lib/services/booking-manage.ts', 'lib/services/booking.ts']);
+    expect(users.sort()).toEqual([
+      'lib/services/booking-manage.ts',
+      'lib/services/booking-sync.ts',
+      'lib/services/booking.ts',
+    ]);
+    const sync = SOURCES.find((s) => s.rel === 'lib/services/booking-sync.ts')!.text;
+    expect(sync).not.toMatch(/createLinkEvent|moveLinkEvent|deleteLinkEvent/);
     const booking = SOURCES.find((s) => s.rel === 'lib/services/booking.ts')!.text;
     expect(booking.match(/createLinkEvent\(/g)).toHaveLength(2);
     expect(booking).not.toMatch(/moveLinkEvent|deleteLinkEvent/);

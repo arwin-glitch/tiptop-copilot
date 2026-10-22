@@ -2,7 +2,11 @@ import type { NextRequest } from 'next/server';
 import { calendarAuth, done, fail } from '@/lib/calendar/route-auth';
 import { daysOf } from '@/lib/booking/months';
 import { getStore } from '@/lib/runtime';
-import { bookingPreview, MAX_PREVIEW_DAYS } from '@/lib/services/booking-planner';
+import {
+  bookingMonthCounts,
+  bookingPreview,
+  MAX_PREVIEW_DAYS,
+} from '@/lib/services/booking-planner';
 import { addDaysToKey } from '@/lib/util/time';
 
 export const dynamic = 'force-dynamic';
@@ -13,7 +17,8 @@ const DAY = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 /**
  * The Booking tab's live preview (D-078): the open times the public page
  * offers on each day, per kind of meeting, and why a day offers none. Either
- * a month (`?month=2026-11`) or a run of days (`?from=2026-10-22&days=14`).
+ * a month (`?month=2026-11`) or a run of days (`?from=2026-10-22&days=14`);
+ * or, with `?counts=1`, each month of the strip with its open-time count.
  * Times only, like the public page: no title, guest or place of any entry
  * on the calendar. Signed in (any member), within a rate limit.
  */
@@ -21,6 +26,11 @@ export async function GET(request: NextRequest) {
   const gate = await calendarAuth(request, { bucket: 'booking-preview', max: 90 });
   if (!gate.ok) return gate.response;
   const params = request.nextUrl.searchParams;
+  if (params.get('counts') === '1') {
+    const counts = await bookingMonthCounts(getStore(), gate.auth.organizationId);
+    if (!counts.ok) return fail(counts.error);
+    return done({ counts: counts.value });
+  }
   const month = params.get('month');
   const from = params.get('from');
   let range: { from: string; to: string } | null = null;

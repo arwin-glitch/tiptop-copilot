@@ -592,7 +592,7 @@ describe('the Copilot side', () => {
       {
         enabled: false,
         slug: 'sam-host',
-        config: { ...before.config, rollingMonths: 2 },
+        config: { ...before.config, openMonths: ['2026-10', '2026-12'] },
       },
     );
     expect(good.ok && good.value).toMatchObject({ enabled: false, slug: 'sam-host' });
@@ -670,7 +670,8 @@ describe('the off switch', () => {
       },
     );
     const page = await publicBookingPage(harness.store, SLUG, deps());
-    expect(page).toMatchObject({ state: 'closed', host: null, places: [], faq: '' });
+    expect(page).toMatchObject({ state: 'closed', host: null, places: [] });
+    expect('faq' in page).toBe(false);
     const times = await publicSlots(harness.store, SLUG, { type: 'call', kind: null }, deps());
     expect(times).toMatchObject({ state: 'closed', slots: [], message: CLOSED_MESSAGE });
     const sent = await submit({ type: 'message', start: null, note: 'Hello' });
@@ -692,7 +693,13 @@ describe('the off switch', () => {
     );
     const view = await readBookingSettings(harness.store, harness.auth.organizationId);
     expect(view).toMatchObject({ available: true, enabled: false, saved: false, slug: 'nick' });
-    expect(view.config).toEqual({ ...DEFAULT_BOOKING_CONFIG, displayName: 'Nick Tippmann' });
+    expect(view.config).toEqual({
+      ...DEFAULT_BOOKING_CONFIG,
+      displayName: 'Nick Tippmann',
+      // This month and the next, from the day it is read.
+      openMonths: expect.any(Array),
+    });
+    expect(view.config.openMonths).toHaveLength(2);
     expect((await publicBookingPage(harness.store, SLUG, deps())).state).toBe('closed');
   });
 });

@@ -12,14 +12,7 @@ import {
   type MeetingKind,
   type MeetingType,
 } from './config';
-import {
-  hoursFor,
-  lastOpenDay,
-  lastOpenMonth,
-  monthLabel,
-  openThroughPassed,
-  plannerClosure,
-} from './months';
+import { furthestMonth, hoursFor, lastOpenDay, monthOf, plannerClosure } from './months';
 
 /**
  * The booking link's slot engine: which times the public page may offer, and
@@ -32,9 +25,9 @@ import {
  * the first rule it breaks is the reason it is not offered:
  *
  *  1. Tuesday, Wednesday or Thursday only (and only the ones Settings keeps).
- *  2. The month planner (D-078, lib/booking/months.ts): not in a closed
- *     month, on a closed day or in a closed run of days, and no later than
- *     the end of the month the link is open through.
+ *  2. The month planner (D-078, lib/booking/months.ts): in a month that is
+ *     switched on (`openMonths`, any of this month and the next eleven), not
+ *     on a closed day or in a closed run of days.
  *  3. Inside its window: a call wholly inside the call window; an in-person
  *     meeting starting inside one of its kind's windows; and, on a day with
  *     shorter hours, wholly inside those too. Host time, so a day the clocks
@@ -399,14 +392,8 @@ function problemFor(
   const closed = plannerClosure(config, day);
   if (closed) return problem(closed.code, closed.text);
   const today = localDateKey(input.askedAt ?? now, hostZone);
-  if (openThroughPassed(config, today)) {
-    return problem('not_open', 'The booking link is not open for any month right now.');
-  }
-  if (day > lastOpenDay(config, today)) {
-    return problem(
-      'not_open',
-      `That time is past the months the link is open for (through ${monthLabel(lastOpenMonth(config, today))}).`,
-    );
+  if (monthOf(day) > furthestMonth(today)) {
+    return problem('not_open', 'That month is too far ahead for the booking link.');
   }
   if (query.type === 'in_person' && !query.kind) {
     return problem('hours', 'Pick coffee, lunch or dinner.');
@@ -499,15 +486,19 @@ export const WAITING_CLASH =
   'An earlier booking request is waiting for an overlapping time. Approve or decline that one first.';
 
 /**
- * The host-zone day keys the engine walks: today through the end of the
- * last month the link is open for (none once a fixed month has passed).
+ * The host-zone day keys the engine walks: the days of the open months from
+ * today on (none when no month is open). A month switched off is skipped
+ * whole, and no count of days caps an open one (the notice still applies).
  */
 export function openDays(now: Date, hostZone: string, config: BookingConfig): string[] {
   const today = localDateKey(now, hostZone);
-  if (openThroughPassed(config, today)) return [];
   const last = lastOpenDay(config, today);
+  if (!last) return [];
+  const open = new Set(config.openMonths);
   const out: string[] = [];
-  for (let day = today; day <= last; day = addDaysToKey(day, 1)) out.push(day);
+  for (let day = today; day <= last; day = addDaysToKey(day, 1)) {
+    if (open.has(monthOf(day))) out.push(day);
+  }
   return out;
 }
 

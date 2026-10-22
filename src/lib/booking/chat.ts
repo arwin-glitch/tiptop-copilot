@@ -537,19 +537,6 @@ export async function readPublicAnswer(
   return ok(view);
 }
 
-/**
- * The public page asks whether the assistant uses a live model. It never
- * does any more (D-078: no paid AI); kept so the page's data loader, which
- * still asks, gets the same answer every time without reading anything.
- */
-export async function chatModeFor(
-  _store: DataStore,
-  _link: OpenLink,
-  _options: { ai?: unknown; now?: Date; cacheMs?: number } = {},
-): Promise<{ mode: 'guided'; reason: null }> {
-  return { mode: 'guided', reason: null };
-}
-
 /* ------------------------------------------------------- the Booking tab */
 
 export interface ChatbotPanelData {

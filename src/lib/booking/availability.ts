@@ -86,6 +86,29 @@ export interface BusyRead {
    * (his next flight home lands), or every day ('all'); null when not.
    */
   inPersonPausedThrough: string | 'all' | null;
+  /**
+   * What the read saw, for the link's own bookings (D-078): the days it
+   * covered, the calendars it read, and each timed event by id with its
+   * times and description. A booking whose event is missing here was
+   * deleted or cancelled in Google (lib/services/booking-sync.ts), and a
+   * booking event carrying another tool's reschedule line is put back.
+   */
+  seen: SeenRead;
+}
+
+export interface SeenEvent {
+  calendarId: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  description: string | null;
+}
+
+export interface SeenRead {
+  /** Host-zone day keys: from, and to (exclusive). */
+  from: string;
+  to: string;
+  calendarIds: Set<string>;
+  events: Map<string, SeenEvent>;
 }
 
 export async function busyPictureFor(
@@ -119,9 +142,11 @@ export async function busyPictureFor(
 
   // Today through the end of the last open month, and a day more (an entry
   // the evening before the next day still says he travels), in parts the
-  // reader takes; an entry in two parts is one entry (toBusyPicture).
+  // reader takes; an entry in two parts is one entry (toBusyPicture). With
+  // no month open, today and tomorrow only (the read still says whether the
+  // calendar can be read).
   const from = localDateKey(now, hostZone);
-  const last = lastOpenDay(config, from);
+  const last = lastOpenDay(config, from) ?? from;
   const to = addDaysToKey(last, 2);
   const events: RangeEvent[] = [];
   let calendars: CalendarInfo[] = [];
@@ -142,12 +167,23 @@ export async function busyPictureFor(
     if (!calendars.length) calendars = range.calendars;
   }
   const range = { events, calendars };
+  const seen: SeenRead = { from, to, calendarIds: new Set(shown), events: new Map() };
+  for (const e of events) {
+    if (e.allDay || e.recurringEventId) continue;
+    seen.events.set(e.id, {
+      calendarId: e.calendarId,
+      startsAt: e.startsAt,
+      endsAt: e.endsAt,
+      description: e.description,
+    });
+  }
   const picture = toBusyPicture(range.events, {
     hostZone,
     ownEmails: source.ownEmails,
     home: { city: config.homeCity, aliases: config.homeAliases, places: config.places },
   });
   return ok({
+    seen,
     busy: picture.busy,
     travelDays: picture.travelDays,
     inPersonPausedThrough: inPersonPausedThrough(range.calendars, picture.homeLandings, {

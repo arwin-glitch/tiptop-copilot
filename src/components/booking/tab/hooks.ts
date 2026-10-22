@@ -65,8 +65,8 @@ export interface PreviewData {
   message: string | null;
   hostZone: string;
   today: string;
-  openThrough: string | null;
-  rolling: boolean;
+  openMonths: string[];
+  lastOpenDay: string | null;
   days: PreviewDay[];
 }
 
@@ -109,6 +109,40 @@ export function usePreview(query: PreviewQuery, version: number) {
     error: current?.error ?? null,
     loading: current === null,
   };
+}
+
+export interface MonthCountsData {
+  state: 'ok' | 'unavailable';
+  message: string | null;
+  today: string;
+  months: { month: string; open: boolean; times: number }[];
+}
+
+/** Each month of the strip with its open-time count; `version` refetches after a save. */
+export function useMonthCounts(version: number) {
+  const [state, setState] = React.useState<{
+    version: number;
+    data: MonthCountsData | null;
+  } | null>(null);
+  React.useEffect(() => {
+    let live = true;
+    void fetch('/api/booking/preview?counts=1', { cache: 'no-store' })
+      .then(async (res) => {
+        const json = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          counts?: MonthCountsData;
+        } | null;
+        if (live) setState({ version, data: res.ok && json?.counts ? json.counts : null });
+      })
+      .catch(() => {
+        if (live) setState({ version, data: null });
+      });
+    return () => {
+      live = false;
+    };
+  }, [version]);
+  // The last counts stay up while new ones load, so the chips do not flicker.
+  return { data: state?.data ?? null, loading: state?.version !== version };
 }
 
 export type BookingsState =

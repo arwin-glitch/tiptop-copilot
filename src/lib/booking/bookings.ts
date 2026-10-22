@@ -33,6 +33,14 @@ export interface LinkBooking {
   rescheduledCount: number;
   /** The event in Google Calendar, when Copilot made it. */
   eventLink: string | null;
+  /** The visitor's own zone, when it names a real one (both clocks on the tab). */
+  visitorTimeZone: string | null;
+  /**
+   * Who cancelled: the visitor (on its page), the team (in Copilot) or the
+   * calendar (the event was deleted or cancelled in Google: "Cancelled in
+   * Google"). Null while it is not cancelled.
+   */
+  cancelledBy: 'visitor' | 'team' | 'calendar' | null;
 }
 
 export const BOOKING_SCOPES = ['upcoming', 'past', 'messages'] as const;
@@ -92,6 +100,8 @@ export function toLinkBooking(row: BookingRequest): LinkBooking {
     createdAt: row.created_at,
     rescheduledCount: row.rescheduled_count ?? 0,
     eventLink: googleEventLink(row.event_id, row.calendar_id),
+    visitorTimeZone: row.visitor_time_zone,
+    cancelledBy: row.status === 'cancelled' ? (row.cancelled_by ?? null) : null,
   };
 }
 

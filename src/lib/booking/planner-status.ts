@@ -1,5 +1,5 @@
 import type { PreviewKey, ReasonCode } from './engine';
-import { dateLabel, monthLabel } from './months';
+import { dateLabel, monthShort } from './months';
 
 /**
  * The Booking tab's plain-words layer over the engine (D-078): what each
@@ -37,9 +37,9 @@ export type ReasonTone = 'muted' | 'closed' | 'busy' | 'warn';
 export const REASON_CHIP: Record<PreviewCode, { label: string; tone: ReasonTone }> = {
   past: { label: 'Passed', tone: 'muted' },
   weekday: { label: 'Not a meeting day', tone: 'muted' },
-  month_closed: { label: 'Month closed', tone: 'closed' },
+  month_closed: { label: 'Month off', tone: 'closed' },
   date_closed: { label: 'Day closed', tone: 'closed' },
-  not_open: { label: 'Month not opened', tone: 'closed' },
+  not_open: { label: 'Too far ahead', tone: 'closed' },
   hours: { label: 'Outside the hours', tone: 'muted' },
   notice: { label: 'Too soon (notice)', tone: 'muted' },
   in_person_paused: { label: 'In person paused', tone: 'warn' },
@@ -93,12 +93,22 @@ export interface StatusInput {
   inPersonOffered: boolean;
   /** Open times over the next two weeks, or null while unknown. */
   nextTwoWeeks: { calls: number; inPerson: number } | null;
-  openThrough: string | null;
-  rolling: boolean;
+  /** The months switched on, from this month on, in order. */
+  openMonths: string[];
   /** Today, host zone. */
   today: string;
-  /** The open window's last day. */
+  /** The last open month's last day; null when none is open. */
   lastOpenDay: string | null;
+}
+
+/** "Nov, Dec and Mar 2027": the open months in a few words (the year when it is not this one). */
+export function openMonthsLabel(months: readonly string[], today: string): string {
+  const year = today.slice(0, 4);
+  const names = months.map((m) =>
+    m.slice(0, 4) === year ? monthShort(m) : `${monthShort(m)} ${m.slice(0, 4)}`,
+  );
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 }
 
 /** The Overview's checks, in order: anything that would leave the page empty or half set up. */
@@ -182,28 +192,23 @@ export function statusChecks(input: StatusInput): StatusCheck[] {
           },
     );
   }
-  if (!input.openThrough) {
+  if (!input.openMonths.length || !input.lastOpenDay) {
     checks.push({
       key: 'months',
       state: 'warn',
       title: 'No month is open',
-      detail: 'Open a month so people can book.',
+      detail: 'Switch a month on so people can book.',
       fix: { label: 'Availability', href: 'availability' },
     });
   } else {
-    const endsSoon =
-      !input.rolling &&
-      input.lastOpenDay !== null &&
-      daysBetweenKeys(input.today, input.lastOpenDay) <= 14;
+    const endsSoon = daysBetweenKeys(input.today, input.lastOpenDay) <= 14;
     checks.push({
       key: 'months',
       state: endsSoon ? 'warn' : 'ok',
-      title: `Open through ${monthLabel(input.openThrough)}`,
-      detail: input.rolling
-        ? 'Rolls on by itself: each new month opens the next one.'
-        : endsSoon
-          ? `Nothing after ${dateLabel(input.lastOpenDay!)}. Open the next month.`
-          : 'Fixed: no month after it opens by itself.',
+      title: `Open: ${openMonthsLabel(input.openMonths, input.today)}`,
+      detail: endsSoon
+        ? `Nothing after ${dateLabel(input.lastOpenDay)}. Switch on the next month.`
+        : 'Only these months offer times. Switch any month on or off under Availability.',
       fix: endsSoon ? { label: 'Availability', href: 'availability' } : undefined,
     });
   }

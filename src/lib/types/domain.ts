@@ -1414,6 +1414,13 @@ export interface BookingRequest {
   cancelled_by?: 'visitor' | 'team' | 'calendar' | null;
   rescheduled_count?: number;
   previous_starts_at?: IsoDateTime | null;
+  /**
+   * When Copilot last put the event's own description back after another
+   * scheduling tool (Fyxer, Vimcal, Calendly) added its reschedule link, and
+   * for which change (the move count then): once per event per change.
+   */
+  description_cleaned_at?: IsoDateTime | null;
+  description_cleaned_rev?: number | null;
 }
 
 /**

@@ -208,7 +208,7 @@ describe('instant booking (the default)', () => {
     expect(write.body?.start).toEqual({ dateTime: slot!.start, timeZone: TZ });
     // The booking's own page is in the description, and nothing else secret.
     expect(write.body?.description).toContain(
-      `Need to make a change? Reschedule or cancel: http://localhost:3000/meet/${SLUG}/b/${token}`,
+      `Need to reschedule or cancel? http://localhost:3000/meet/${SLUG}/b/${token}`,
     );
     expect(row).toMatchObject({
       status: 'booked',
@@ -634,6 +634,8 @@ describe('the Booking tab', () => {
       createdAt: NOW.toISOString(),
       rescheduledCount: 0,
       eventLink: expect.stringMatching(/^https:\/\/www\.google\.com\/calendar\/event\?eid=/),
+      visitorTimeZone: 'America/New_York',
+      cancelledBy: null,
     });
     expect(JSON.stringify(upcoming)).not.toMatch(/manage_token|ip_hash|hash-a/);
     expect(upcoming.calendarEditing).toBe(true);

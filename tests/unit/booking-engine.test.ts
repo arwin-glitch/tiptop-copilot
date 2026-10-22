@@ -63,7 +63,13 @@ function input(over: Partial<EngineInput> = {}, config: Partial<BookingConfig> =
   return {
     now: NOW,
     hostZone: TZ,
-    config: { ...structuredClone(DEFAULT_BOOKING_CONFIG), homeCity: 'Harbor City', ...config },
+    config: {
+      ...structuredClone(DEFAULT_BOOKING_CONFIG),
+      // This month and next switched on (D-078).
+      openMonths: ['2026-10', '2026-11'],
+      homeCity: 'Harbor City',
+      ...config,
+    },
     busy: [],
     travelDays: new Set(),
     linkBookings: [],
@@ -175,14 +181,14 @@ describe('notice and horizon', () => {
     expect(slotProblem(input(), CALL, iso(TUE, 10, 0))).toBeNull();
   });
 
-  it('looks ahead through the months the link is open for: this month and next by default (D-078)', () => {
+  it('looks ahead through the months switched on: this month and next here (D-078)', () => {
     const slots = openSlots(input(), CALL);
     expect(slots.at(-1)!.date).toBe('2026-11-26');
     expect(slotProblem(input(), CALL, iso('2026-12-01', 10))).toBe(
-      'That time is past the months the link is open for (through November 2026).',
+      'December isn’t open on the link.',
     );
-    expect(openSlots(input({}, { openThrough: '2026-10' }), CALL).at(-1)!.date).toBe(THU);
-    expect(openSlots(input({}, { rollingMonths: 0 }), CALL).at(-1)!.date).toBe(THU);
+    expect(openSlots(input({}, { openMonths: ['2026-10'] }), CALL).at(-1)!.date).toBe(THU);
+    expect(openSlots(input({}, { openMonths: [] }), CALL)).toEqual([]);
   });
 });
 
@@ -199,7 +205,7 @@ describe('the clock change weeks', () => {
 
   it('and on both sides of the March change', () => {
     const now = new Date('2027-03-08T16:00:00Z'); // Monday 10:00 CST; clocks go forward 14 March.
-    const slots = openSlots(input({ now }), CALL);
+    const slots = openSlots(input({ now }, { openMonths: ['2027-03'] }), CALL);
     expect(slots.find((s) => s.date === '2027-03-09' && clock(s.start) === '10:00')?.start).toBe(
       '2027-03-09T16:00:00.000Z',
     );

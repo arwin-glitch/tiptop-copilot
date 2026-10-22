@@ -1,5 +1,5 @@
 import 'server-only';
-import type { EventDraft } from '@/lib/calendar/edit-rules';
+import type { EventDraft, GuestChoice } from '@/lib/calendar/edit-rules';
 import type { CalendarSource } from '@/lib/calendar/range-reader';
 import {
   createCalendarEvent,
@@ -12,18 +12,21 @@ import { err, ok, type Result } from '@/lib/util/result';
 /**
  * The booking link's only calendar writes (D-074, D-078), each through
  * lib/calendar/write.ts and its gates (calendar editing on, a calendar this
- * account can write to, an event it may change). Every one tells the guests
- * through Google itself (sendUpdates 'all'): the invitation when a booking
- * is made, the update when it moves, the cancellation when it goes.
+ * account can write to, an event it may change). Every booking change tells
+ * the guests through Google itself (sendUpdates 'all'): the invitation when
+ * a booking is made, the update when it moves, the cancellation when it
+ * goes. Putting its description back tells nobody.
  * Copilot sends no email of its own.
  *
- * Reached from four places only, each after the time was checked again
- * against the live calendar and every rule (lib/services/booking.ts and
- * lib/services/booking-manage.ts):
+ * Reached from these places only, each time-changing write after the time
+ * was checked again against the live calendar and every rule
+ * (lib/services/booking.ts and lib/services/booking-manage.ts):
  *   - a person's Approve in the Calendar tab (approve first, an option);
  *   - a visitor booking a free time at once (the default, Arwin's decision);
  *   - a held time placed once calendar editing is on;
- *   - the booking's own page, where the visitor moves or cancels it.
+ *   - the booking's own page, where the visitor moves or cancels it;
+ *   - and, telling nobody, a booking's own description put back after
+ *     another tool added its reschedule link (lib/services/booking-sync.ts).
  */
 
 export interface LinkWriteContext {
@@ -59,19 +62,48 @@ export async function createLinkEvent(
   return ok({ eventId, meetUrl: created.value.event?.meetUrl ?? null });
 }
 
+/** One change to a booking's event: the only update this module makes. */
+async function changeLinkEvent(
+  ctx: LinkWriteContext,
+  input: { calendarId: string; eventId: string },
+  changes: Partial<EventDraft>,
+  notify: GuestChoice,
+): Promise<Result<true>> {
+  const changed = await updateCalendarEvent(write(ctx), {
+    calendarId: input.calendarId,
+    eventId: input.eventId,
+    scope: 'this',
+    notify,
+    changes,
+  });
+  return changed.ok ? ok(true) : changed;
+}
+
 /** The same event moved to a new time: Google sends everyone the update. */
 export async function moveLinkEvent(
   ctx: LinkWriteContext,
   input: { calendarId: string; eventId: string; start: string; end: string; timeZone: string },
 ): Promise<Result<true>> {
-  const moved = await updateCalendarEvent(write(ctx), {
-    calendarId: input.calendarId,
-    eventId: input.eventId,
-    scope: 'this',
-    notify: 'send',
-    changes: { allDay: false, start: input.start, end: input.end, timeZone: input.timeZone },
-  });
-  return moved.ok ? ok(true) : moved;
+  return changeLinkEvent(
+    ctx,
+    input,
+    { allDay: false, start: input.start, end: input.end, timeZone: input.timeZone },
+    'send',
+  );
+}
+
+/**
+ * A booking's own description put back (D-078), after another scheduling
+ * tool (Fyxer, Vimcal, Calendly) appended its reschedule link to it: told
+ * to nobody (sendUpdates 'none'), so the guests' copies change quietly and
+ * nobody gets an email about it. Only ever a booking-link event, found by
+ * the event id on its booking (lib/services/booking-sync.ts).
+ */
+export async function restoreLinkDescription(
+  ctx: LinkWriteContext,
+  input: { calendarId: string; eventId: string; description: string },
+): Promise<Result<true>> {
+  return changeLinkEvent(ctx, input, { description: input.description }, 'dont_send');
 }
 
 /** The event deleted: Google sends everyone its cancellation. */

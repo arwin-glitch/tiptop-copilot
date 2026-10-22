@@ -31,9 +31,8 @@ export interface PublicBookingPage {
    * saved video link itself, which only goes in the invite (videoProviderLabel).
    */
   callProvider: string;
-  chatbot: { enabled: boolean; mode: 'live' | 'guided' };
-  /** The public FAQ text, for the guided helper's "About TipTop". */
-  faq: string;
+  /** The page's assistant (Booking tab > Chatbot): free, no paid AI (D-078). */
+  chatbot: { enabled: boolean };
   /** A free time is booked at once (D-078); false when each waits for approval. */
   instant: boolean;
   /** "Add guests": whether a visitor may, and how many. */

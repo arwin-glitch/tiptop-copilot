@@ -10,7 +10,6 @@ import {
   resolveOpenLink,
   type BookingDeps,
 } from '@/lib/services/booking';
-import { chatModeFor } from './chat';
 import type { PublicBookingPage } from './public';
 
 /**
@@ -18,12 +17,11 @@ import type { PublicBookingPage } from './public';
  * address. The page is outside sign-in, so a loop over its address must not
  * become a cheap way to load the database the whole app runs on: past the
  * brake it shows the closed page and reads nothing, the link is read once
- * per view (the metadata and the page share it through React's `cache`),
- * and the chatbot's spend check is reused for half a minute.
+ * per view (the metadata and the page share it through React's `cache`).
+ * The assistant spends nothing (D-078), so there is no spend check to make.
  */
 
 export const PAGE_VIEWS_PER_10_MIN = 120;
-const CHAT_MODE_CACHE_MS = 30_000;
 
 export async function loadMeetPage(
   store: DataStore,
@@ -35,12 +33,7 @@ export async function loadMeetPage(
   if (!limited.ok) return closedBookingPage(slug);
   const found = await resolveOpenLink(store, slug);
   if (!found.open) return closedBookingPage(slug);
-  const chat = await chatModeFor(store, found.link, {
-    ai: deps.ai,
-    now: deps.now,
-    cacheMs: CHAT_MODE_CACHE_MS,
-  });
-  return publicBookingPage(store, slug, { ...deps, chatMode: chat.mode, link: found.link });
+  return publicBookingPage(store, slug, { ...deps, link: found.link });
 }
 
 /** One view's page data: computed once per request for a slug and an address. */

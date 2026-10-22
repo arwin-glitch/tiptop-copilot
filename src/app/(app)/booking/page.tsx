@@ -4,12 +4,7 @@ import { CalendarClock } from 'lucide-react';
 import { hasRole, requireAuth } from '@/lib/auth/session';
 import { env } from '@/lib/config/env';
 import { inPersonOffered } from '@/lib/booking/config';
-import {
-  lastOpenDay,
-  openThroughLabelMonth,
-  isRolling,
-  openThroughPassed,
-} from '@/lib/booking/months';
+import { lastOpenDay, openMonthsAhead } from '@/lib/booking/months';
 import {
   AVAILABILITY_VIEWS,
   BOOKING_DEFAULT_TAB,
@@ -111,8 +106,14 @@ async function BookingBody({
   const { config } = settings;
   const canEdit = hasRole(auth, 'admin');
   const today = localDateKey(new Date(), hostZone);
-  const through = openThroughLabelMonth(config, today);
-  const pending = await listPendingBookingRequests(store, auth.organizationId).catch(() => null);
+  const [pending, held] = await Promise.all([
+    listPendingBookingRequests(store, auth.organizationId).catch(() => null),
+    access.allowed
+      ? Promise.resolve(0)
+      : store
+          .count('booking_requests', auth.organizationId, { eq: { status: 'held' } })
+          .catch(() => 0),
+  ]);
   const waitingCount = pending?.requests.length ?? 0;
   const linkBase = `${env().appUrl.replace(/\/+$/, '')}/meet/`;
 
@@ -129,9 +130,10 @@ async function BookingBody({
             <p className="font-semibold">
               Turn on calendar editing so invites go out automatically
             </p>
-            <p className="text-sm text-[var(--fg-muted)]">
-              Until then, a booking holds its time and goes on the calendar by itself once editing
-              is on.
+            <p className="text-sm text-[var(--fg-muted)]" data-testid="held-count">
+              {held
+                ? `${held} ${held === 1 ? 'booking is' : 'bookings are'} held until then; they go on the calendar by themselves once it is on.`
+                : 'Until then, a booking holds its time and goes on the calendar by itself once editing is on.'}
             </p>
           </div>
           {access.connected ? (
@@ -177,25 +179,22 @@ async function BookingBody({
           inPersonOffered={inPersonOffered(config)}
           today={today}
           hostZone={hostZone}
-          openThrough={through}
-          rolling={isRolling(config)}
-          lastOpenDay={
-            through && !openThroughPassed(config, today) ? lastOpenDay(config, today) : null
-          }
+          openMonths={openMonthsAhead(config, today)}
+          lastOpenDay={lastOpenDay(config, today)}
         />
       ) : null}
       {tab === 'availability' ? (
         <AvailabilityPanel
           planner={{
-            openThrough: config.openThrough,
-            rollingMonths: config.rollingMonths,
-            closedMonths: config.closedMonths,
+            openMonths: config.openMonths,
             closedDates: config.closedDates,
             closedRanges: config.closedRanges,
             dateHours: config.dateHours,
           }}
           hours={{ callWindow: config.callWindow, kindWindows: config.kindWindows }}
           rules={{
+            allowGuests: config.allowGuests,
+            maxGuests: config.maxGuests,
             weekdays: config.weekdays,
             callBufferMinutes: config.callBufferMinutes,
             inPersonBufferMinutes: config.inPersonBufferMinutes,

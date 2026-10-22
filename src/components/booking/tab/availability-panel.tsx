@@ -2,7 +2,17 @@
 
 import * as React from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { CalendarX, Lock, Plus, Repeat, Trash2, X } from 'lucide-react';
+import {
+  CalendarOff,
+  CalendarPlus,
+  CalendarX,
+  ChevronLeft,
+  ChevronRight,
+  Lock,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Notice, Skeleton } from '@/components/ui/feedback';
@@ -20,18 +30,19 @@ import {
 import type { PreviewKey } from '@/lib/booking/engine';
 import {
   addClosedRange,
+  closeAllMonths,
   dateClosed,
   dateLabel,
   hoursFor,
-  isRolling,
-  keepRolling,
   monthGrid,
   monthLabel,
+  monthName,
   monthOf,
+  monthOpen,
   monthShort,
-  monthState,
   monthStrip,
-  openThroughLabelMonth,
+  openMonthsAhead,
+  openNextMonths,
   plannerClosure,
   removeClosedRange,
   setDateHours,
@@ -41,6 +52,7 @@ import {
 } from '@/lib/booking/months';
 import {
   openCount,
+  openMonthsLabel,
   PREVIEW_KEYS,
   PREVIEW_LABEL,
   type PreviewDay,
@@ -49,11 +61,13 @@ import { zoneName } from '@/lib/booking/public';
 import { AVAILABILITY_VIEWS, type AvailabilityView } from '@/lib/booking/tabs';
 import { cn } from '@/lib/util/cn';
 import { KindWindows, NumberField, WindowRow } from './fields';
-import { usePreview, useSettingsSave } from './hooks';
+import { useMonthCounts, usePreview, useSettingsSave } from './hooks';
 import { KIND_ICON, KindLine, ReasonChip } from './reasons';
 
 type RulesConfig = Pick<
   BookingConfig,
+  | 'allowGuests'
+  | 'maxGuests'
   | 'weekdays'
   | 'callBufferMinutes'
   | 'inPersonBufferMinutes'
@@ -147,12 +161,14 @@ export function AvailabilityPanel(props: AvailabilityPanelProps) {
 function Planner(props: AvailabilityPanelProps) {
   const { save, saving } = useSettingsSave();
   const [planner, setPlanner] = React.useState<PlannerConfig>(props.planner);
-  const [month, setMonth] = React.useState(monthOf(props.today));
+  const strip = monthStrip(props.today);
+  const firstOpen = props.planner.openMonths.find((m) => strip.includes(m));
+  const [month, setMonth] = React.useState(firstOpen ?? monthOf(props.today));
   const [version, setVersion] = React.useState(0);
   const [selected, setSelected] = React.useState<string | null>(null);
   const [show, setShow] = React.useState<'all' | PreviewKey>('all');
   const preview = usePreview({ month }, version);
-  const strip = monthStrip(props.today);
+  const counts = useMonthCounts(version);
   const disabled = !props.canEdit || saving;
 
   const apply = async (changes: Partial<PlannerConfig>, done: string) => {
@@ -164,9 +180,7 @@ function Planner(props: AvailabilityPanelProps) {
       return;
     }
     setPlanner({
-      openThrough: saved.config.openThrough,
-      rollingMonths: saved.config.rollingMonths,
-      closedMonths: saved.config.closedMonths,
+      openMonths: saved.config.openMonths,
       closedDates: saved.config.closedDates,
       closedRanges: saved.config.closedRanges,
       dateHours: saved.config.dateHours,
@@ -174,110 +188,158 @@ function Planner(props: AvailabilityPanelProps) {
     setVersion((v) => v + 1);
   };
 
-  const through = openThroughLabelMonth(planner, props.today);
+  const open = openMonthsAhead(planner, props.today);
   const days = preview.data?.days ?? [];
   const byDate = new Map(days.map((d) => [d.date, d]));
   const keys = show === 'all' ? PREVIEW_KEYS : [show];
   const selectedDay = selected ? byDate.get(selected) : undefined;
+  const monthIndex = strip.indexOf(month);
+  const monthIsOpen = monthOpen(planner, month, props.today);
+  const timesIn = (m: string) => counts.data?.months.find((c) => c.month === m)?.times ?? null;
 
   return (
     <div className="space-y-5">
-      {/* Which months are open. */}
-      <section aria-labelledby="booking-months" className="space-y-2" data-tour="booking-months">
+      {/* Which months are open: each month its own switch. */}
+      <section aria-labelledby="booking-months" className="space-y-3" data-tour="booking-months">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 id="booking-months" className="text-title font-serif font-semibold">
             Which months are open?
           </h2>
-          <p className="text-sm text-[var(--fg-muted)]" data-testid="open-through">
-            {through ? (
+          <p className="text-sm text-[var(--fg-muted)]" data-testid="open-months">
+            {open.length ? (
               <>
-                Open through <span className="font-semibold">{monthLabel(through)}</span>
-                {isRolling(planner) ? ' · rolls on by itself' : ' · fixed'}
+                Open: <span className="font-semibold">{openMonthsLabel(open, props.today)}</span>
               </>
             ) : (
-              'No month is open.'
+              'No month is open: visitors see no times.'
             )}
           </p>
         </div>
-        <ul className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+        <p className="text-xs text-[var(--fg-muted)]">
+          Tap a month to switch it on or off. Any mix works: only December, or January and March.
+        </p>
+        <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-12">
           {strip.map((m) => {
-            const state = monthState(planner, m, props.today);
-            const open = state === 'open';
+            const on = monthOpen(planner, m, props.today);
+            const times = timesIn(m);
             return (
-              <li
-                key={m}
-                data-month={m}
-                data-state={state}
-                className={cn(
-                  'flex flex-col gap-1.5 rounded-[var(--radius-panel)] border p-2 transition-colors',
-                  m === month && 'shadow-[inset_0_0_0_2px_var(--accent)]',
-                  open
-                    ? 'border-[var(--ok)]/40 bg-[var(--ok-soft)]'
-                    : 'border-[var(--border)] bg-[var(--bg-sunken)]',
-                )}
-              >
+              <li key={m}>
                 <button
                   type="button"
+                  data-month={m}
+                  data-state={on ? 'open' : 'off'}
+                  aria-pressed={on}
+                  aria-label={`${monthLabel(m)}: ${on ? 'on' : 'off'}. Tap to switch it ${on ? 'off' : 'on'}.`}
+                  disabled={disabled}
                   onClick={() => {
                     setMonth(m);
                     setSelected(null);
+                    void apply(
+                      toggleMonth(planner, m, props.today),
+                      on ? `${monthLabel(m)} is off` : `${monthLabel(m)} is on`,
+                    );
                   }}
-                  aria-pressed={m === month}
-                  aria-label={`Show ${monthLabel(m)}`}
-                  className="text-left"
+                  className={cn(
+                    'flex w-full min-w-0 flex-col items-start gap-0.5 rounded-[var(--radius-panel)] border p-2 text-left transition-colors disabled:cursor-not-allowed',
+                    on
+                      ? 'border-[var(--ok)]/50 bg-[var(--ok-soft)] hover:brightness-105'
+                      : 'border-[var(--border)] bg-[var(--bg-sunken)] hover:bg-[var(--bg-hover)]',
+                    m === month && 'shadow-[inset_0_0_0_2px_var(--accent)]',
+                  )}
                 >
-                  <span className="block text-sm font-semibold">{monthShort(m)}</span>
-                  <span className="block text-[11px] text-[var(--fg-muted)]">{m.slice(0, 4)}</span>
-                </button>
-                <div className="flex items-center justify-between gap-1">
-                  <span
-                    className={cn(
-                      'text-[11px] font-medium',
-                      open ? 'text-[var(--ok)]' : 'text-[var(--fg-muted)]',
-                    )}
-                  >
-                    {open ? 'Open' : 'Closed'}
+                  <span className="flex w-full items-center justify-between gap-1">
+                    <span className="text-sm font-semibold">{monthShort(m)}</span>
+                    <span
+                      className={cn(
+                        'rounded-full px-1.5 text-[10px] font-semibold tracking-wide uppercase',
+                        on
+                          ? 'bg-[var(--ok)] text-[var(--bg)]'
+                          : 'bg-[var(--bg-hover)] text-[var(--fg-muted)]',
+                      )}
+                    >
+                      {on ? 'On' : 'Off'}
+                    </span>
                   </span>
-                  <Switch
-                    checked={open}
-                    disabled={disabled}
-                    aria-label={`Open ${monthLabel(m)}`}
-                    onCheckedChange={() =>
-                      void apply(
-                        toggleMonth(planner, m, props.today),
-                        open ? `${monthLabel(m)} closed` : `${monthLabel(m)} open`,
-                      )
-                    }
-                  />
-                </div>
+                  <span className="text-[11px] text-[var(--fg-muted)]">{m.slice(0, 4)}</span>
+                  <span
+                    className="tabular text-[11px] font-medium"
+                    data-testid={`month-count-${m}`}
+                  >
+                    {!on
+                      ? 'No times'
+                      : times === null
+                        ? counts.loading
+                          ? '…'
+                          : '—'
+                        : `${times} time${times === 1 ? '' : 's'}`}
+                  </span>
+                </button>
               </li>
             );
           })}
         </ul>
-        {!isRolling(planner) && props.canEdit ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={disabled}
-            onClick={() =>
-              void apply(
-                keepRolling(planner, props.today),
-                'The open months now roll on by themselves',
-              )
-            }
-          >
-            <Repeat aria-hidden="true" />
-            Keep rolling: open the next month by itself each month
-          </Button>
+        {props.canEdit ? (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={disabled}
+              title="This month and the next two"
+              onClick={() =>
+                void apply(openNextMonths(planner, props.today, 3), 'The next 3 months are on')
+              }
+            >
+              <CalendarPlus aria-hidden="true" />
+              Open next 3 months
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={disabled || open.length === 0}
+              onClick={() => void apply(closeAllMonths(), 'Every month is off')}
+            >
+              <CalendarOff aria-hidden="true" />
+              Close all
+            </Button>
+          </div>
+        ) : null}
+        {counts.data?.state === 'unavailable' && counts.data.message ? (
+          <p className="text-xs text-[var(--fg-muted)]">{counts.data.message}</p>
         ) : null}
       </section>
 
       {/* The month, day by day, with the live preview. */}
       <section aria-labelledby="booking-grid" className="space-y-2" data-tour="booking-preview">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 id="booking-grid" className="text-title font-serif font-semibold">
-            {monthLabel(month)}: what visitors see
-          </h2>
+          <div className="flex items-center gap-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="Previous month"
+              disabled={monthIndex <= 0}
+              onClick={() => {
+                setMonth(strip[monthIndex - 1]!);
+                setSelected(null);
+              }}
+            >
+              <ChevronLeft aria-hidden="true" />
+            </Button>
+            <h2 id="booking-grid" className="text-title font-serif font-semibold">
+              {monthLabel(month)}: what visitors see
+            </h2>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="Next month"
+              disabled={monthIndex < 0 || monthIndex >= strip.length - 1}
+              onClick={() => {
+                setMonth(strip[monthIndex + 1]!);
+                setSelected(null);
+              }}
+            >
+              <ChevronRight aria-hidden="true" />
+            </Button>
+          </div>
           <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5">
             {(['all', ...PREVIEW_KEYS] as const).map((k) => (
               <button
@@ -296,6 +358,11 @@ function Planner(props: AvailabilityPanelProps) {
           Live, from the same rules as the public page. Times in {zoneName(props.hostZone)}. Tap a
           day to close it or give it shorter hours.
         </p>
+        {!monthIsOpen ? (
+          <Notice>
+            {monthName(month)} is off, so it offers no times. Tap it above to switch it on.
+          </Notice>
+        ) : null}
         {preview.error ? <Notice tone="warn">{preview.error}</Notice> : null}
         {preview.data?.state === 'unavailable' && preview.data.message ? (
           <Notice tone="warn">{preview.data.message}</Notice>
@@ -844,7 +911,7 @@ function RulesForm(props: AvailabilityPanelProps) {
     setDirty(true);
   };
   const field = (
-    key: keyof Omit<RulesConfig, 'weekdays'>,
+    key: keyof Omit<RulesConfig, 'weekdays' | 'allowGuests'>,
     label: string,
     min: number,
     max: number,
@@ -896,6 +963,27 @@ function RulesForm(props: AvailabilityPanelProps) {
         {field('stackCooldownMinutes', 'Free time after such a run (min)', 0, 240)}
         {field('stackLeadMinutes', 'Free time before such a run (min)', 15, 120)}
       </div>
+      <fieldset
+        className="space-y-3 rounded-[var(--radius-panel)] border border-[var(--border)] p-3"
+        data-tour="booking-guests"
+      >
+        <legend className="px-1 text-sm font-medium">Guests</legend>
+        <label className="flex items-center justify-between gap-3 text-sm">
+          <span>
+            <span className="block font-medium">Let people add guests</span>
+            <span className="block text-xs text-[var(--fg-muted)]">
+              Like Calendly: a co-founder or a colleague, invited with them.
+            </span>
+          </span>
+          <Switch
+            checked={rules.allowGuests}
+            disabled={disabled}
+            aria-label="Let people add guests"
+            onCheckedChange={(v) => set('allowGuests', v)}
+          />
+        </label>
+        {rules.allowGuests ? field('maxGuests', 'Guests a booking, at most', 0, 10) : null}
+      </fieldset>
       <SaveBar
         dirty={dirty}
         saving={saving}

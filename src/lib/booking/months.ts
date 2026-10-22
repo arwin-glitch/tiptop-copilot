@@ -1,5 +1,12 @@
 import { addDaysToKey } from '@/lib/util/time';
-import { MAX_MONTHS_AHEAD, type BookingConfig, type TimeWindow } from './config';
+import type { BookingConfig, TimeWindow } from './config';
+
+/**
+ * How far ahead the link may ever be opened (D-078): this month and the next
+ * eleven, never more. The Booking tab's month strip shows all twelve, each
+ * its own switch.
+ */
+export const MAX_MONTHS_AHEAD = 11;
 
 /**
  * The booking link's month planner (D-078), as pure data: which months the
@@ -9,10 +16,11 @@ import { MAX_MONTHS_AHEAD, type BookingConfig, type TimeWindow } from './config'
  * open a day the standing rules close (a Monday, a day inside the notice, a
  * day away), it can only close more or shorten hours.
  *
- * The open window is "this month through <month>": either rolling (this
- * month and the next `rollingMonths`, so a new month opens the next one by
- * itself) or fixed at `openThrough`. Never past this month and the next
- * MAX_MONTHS_AHEAD. Inside it, any month can be closed by hand.
+ * Months are switched on one by one (Arwin: "options to turn on schedules
+ * for a specific month freely"): `openMonths` lists the months the link
+ * offers, any of this month and the next MAX_MONTHS_AHEAD, in any mix (only
+ * December; January and March). A month not on the list offers nothing.
+ * With nothing saved yet, this month and the next are open.
  *
  * Days and months are host-zone keys (`YYYY-MM-DD`, `YYYY-MM`), compared as
  * strings, so no clock is read here.
@@ -20,8 +28,10 @@ import { MAX_MONTHS_AHEAD, type BookingConfig, type TimeWindow } from './config'
 
 export type PlannerConfig = Pick<
   BookingConfig,
-  'openThrough' | 'rollingMonths' | 'closedMonths' | 'closedDates' | 'closedRanges' | 'dateHours'
+  'openMonths' | 'closedDates' | 'closedRanges' | 'dateHours'
 >;
+
+const MONTH_SHAPE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /** `YYYY-MM` of a day key. */
 export function monthOf(dateKey: string): string {
@@ -84,129 +94,144 @@ export function monthStrip(todayKey: string): string[] {
   return Array.from({ length: MAX_MONTHS_AHEAD + 1 }, (_, i) => addMonths(first, i));
 }
 
-/** The furthest month the link may ever be opened through, from today. */
+/** The furthest month the link may ever be opened, from today. */
 export function furthestMonth(todayKey: string): string {
   return addMonths(monthOf(todayKey), MAX_MONTHS_AHEAD);
 }
 
+/** The months open with nothing saved yet: this month and the next. */
+export function defaultOpenMonths(todayKey: string): string[] {
+  const first = monthOf(todayKey);
+  return [first, addMonths(first, 1)];
+}
+
+/** Month keys cleaned: well formed, once each, in order. */
+export function cleanMonths(months: readonly string[]): string[] {
+  return [...new Set(months.filter((m) => MONTH_SHAPE.test(m)))].sort();
+}
+
 /**
- * The last month of the open window: the month Settings names (never past
- * the strip, never before this month), else this month plus the rolling
- * count.
+ * The months a link stored before months were switched one by one, as the
+ * same open months: "this month through <openThrough>" or "this month and
+ * the next <rollingMonths>", less any month closed by hand. A stored row
+ * with none of those fields opens this month and the next.
  */
-export function lastOpenMonth(config: PlannerConfig, todayKey: string): string {
+export function legacyOpenMonths(
+  stored: { openThrough?: unknown; rollingMonths?: unknown; closedMonths?: unknown },
+  todayKey: string,
+): string[] {
   const first = monthOf(todayKey);
   const max = furthestMonth(todayKey);
-  const wanted = config.openThrough ?? addMonths(first, config.rollingMonths);
-  if (wanted < first) return first;
-  return wanted > max ? max : wanted;
+  const through =
+    typeof stored.openThrough === 'string' && MONTH_SHAPE.test(stored.openThrough)
+      ? stored.openThrough
+      : null;
+  const rolling =
+    typeof stored.rollingMonths === 'number' && Number.isInteger(stored.rollingMonths)
+      ? Math.max(0, stored.rollingMonths)
+      : null;
+  if (through === null && rolling === null) return defaultOpenMonths(todayKey);
+  const closed = new Set(
+    Array.isArray(stored.closedMonths)
+      ? stored.closedMonths.filter((m): m is string => typeof m === 'string')
+      : [],
+  );
+  let last = through ?? addMonths(first, rolling ?? 1);
+  if (last > max) last = max;
+  const out: string[] = [];
+  for (let m = first; m <= last; m = addMonths(m, 1)) if (!closed.has(m)) out.push(m);
+  return out;
 }
 
-/** The last day the link may offer: the end of its last open month. */
-export function lastOpenDay(config: PlannerConfig, todayKey: string): string {
-  return lastDayOf(lastOpenMonth(config, todayKey));
-}
-
-/**
- * Whether the link has passed its fixed "open through" month: then it shows
- * nothing until someone opens another one (the Booking tab warns before).
- */
-export function openThroughPassed(config: PlannerConfig, todayKey: string): boolean {
-  return config.openThrough !== null && config.openThrough < monthOf(todayKey);
-}
-
-/** Whether the window moves on by itself each month (no fixed "open through"). */
-export function isRolling(config: Pick<PlannerConfig, 'openThrough'>): boolean {
-  return config.openThrough === null;
-}
-
-export type MonthState = 'open' | 'closed' | 'not_open';
-
-/** A month as the planner shows it: open, closed by hand, or past the open window. */
-export function monthState(config: PlannerConfig, month: string, todayKey: string): MonthState {
-  if (month < monthOf(todayKey)) return 'not_open';
-  if (openThroughPassed(config, todayKey) || month > lastOpenMonth(config, todayKey)) {
-    return 'not_open';
-  }
-  return config.closedMonths.includes(month) ? 'closed' : 'open';
-}
-
-/** Whether a month takes bookings: inside the window and not closed by hand. */
-export function monthOpen(config: PlannerConfig, month: string, todayKey: string): boolean {
-  return monthState(config, month, todayKey) === 'open';
-}
-
-/**
- * The last month that really takes bookings (inside the window, not closed
- * by hand), for "Open through <month>"; null when none does.
- */
-export function openThroughLabelMonth(config: PlannerConfig, todayKey: string): string | null {
-  const months = monthStrip(todayKey).filter((m) => monthOpen(config, m, todayKey));
-  return months.at(-1) ?? null;
-}
-
-/**
- * The planner's month tap, each month on its own: an open month closes; a
- * closed one opens again; a month past the window opens just that month (the
- * window is fixed through it, and the months between stay closed, so a tap
- * never opens a month nobody tapped). Past the strip, nothing changes.
- */
-export function toggleMonth(
-  config: PlannerConfig,
+/** Whether a month takes bookings: on the list, and inside this month and the next eleven. */
+export function monthOpen(
+  config: Pick<PlannerConfig, 'openMonths'>,
   month: string,
   todayKey: string,
-): Pick<PlannerConfig, 'openThrough' | 'closedMonths'> {
-  const keep = { openThrough: config.openThrough, closedMonths: [...config.closedMonths] };
-  if (month < monthOf(todayKey) || month > furthestMonth(todayKey)) return keep;
-  const state = monthState(config, month, todayKey);
-  if (state === 'open') {
-    return { ...keep, closedMonths: [...new Set([...config.closedMonths, month])].sort() };
-  }
-  if (state === 'closed') {
-    return { ...keep, closedMonths: config.closedMonths.filter((m) => m !== month) };
-  }
-  // Past the window: the months between the window's end and this one stay closed.
-  const passed = openThroughPassed(config, todayKey);
-  const windowEnd = passed ? null : lastOpenMonth(config, todayKey);
-  const between: string[] = [];
-  for (
-    let m = windowEnd ? addMonths(windowEnd, 1) : monthOf(todayKey);
-    m < month;
-    m = addMonths(m, 1)
-  ) {
-    between.push(m);
-  }
+): boolean {
+  return (
+    month >= monthOf(todayKey) &&
+    month <= furthestMonth(todayKey) &&
+    config.openMonths.includes(month)
+  );
+}
+
+/** The open months from this month on, in order (none past the strip). */
+export function openMonthsAhead(
+  config: Pick<PlannerConfig, 'openMonths'>,
+  todayKey: string,
+): string[] {
+  return cleanMonths(config.openMonths).filter((m) => monthOpen(config, m, todayKey));
+}
+
+/** The last open month; null when none is open. */
+export function lastOpenMonth(
+  config: Pick<PlannerConfig, 'openMonths'>,
+  todayKey: string,
+): string | null {
+  return openMonthsAhead(config, todayKey).at(-1) ?? null;
+}
+
+/** The last day the link may offer (the end of its last open month); null when none is open. */
+export function lastOpenDay(
+  config: Pick<PlannerConfig, 'openMonths'>,
+  todayKey: string,
+): string | null {
+  const last = lastOpenMonth(config, todayKey);
+  return last ? lastDayOf(last) : null;
+}
+
+/**
+ * The planner's month tap, each month on its own: an open month closes, a
+ * closed one opens. Months already past drop off; past the strip, nothing
+ * changes.
+ */
+export function toggleMonth(
+  config: Pick<PlannerConfig, 'openMonths'>,
+  month: string,
+  todayKey: string,
+): Pick<PlannerConfig, 'openMonths'> {
+  const kept = cleanMonths(config.openMonths).filter((m) => m >= monthOf(todayKey));
+  if (month < monthOf(todayKey) || month > furthestMonth(todayKey)) return { openMonths: kept };
   return {
-    openThrough: month,
-    closedMonths: [...new Set([...config.closedMonths, ...between])]
-      .filter((m) => m !== month)
-      .sort(),
+    openMonths: kept.includes(month)
+      ? kept.filter((m) => m !== month)
+      : cleanMonths([...kept, month]),
   };
 }
 
 /**
- * "Keep rolling": the same window from today, but moving on by itself each
- * month (this month and the same number after it).
+ * "Open next 3 months": this month and the next two open too; any other
+ * month already open stays open.
  */
-export function keepRolling(
-  config: PlannerConfig,
+export function openNextMonths(
+  config: Pick<PlannerConfig, 'openMonths'>,
   todayKey: string,
-): Pick<PlannerConfig, 'openThrough' | 'rollingMonths'> {
-  const last = openThroughPassed(config, todayKey)
-    ? monthOf(todayKey)
-    : lastOpenMonth(config, todayKey);
-  return {
-    openThrough: null,
-    rollingMonths: Math.min(MAX_MONTHS_AHEAD, Math.max(0, monthsBetween(monthOf(todayKey), last))),
-  };
+  count = 3,
+): Pick<PlannerConfig, 'openMonths'> {
+  const first = monthOf(todayKey);
+  const next = Array.from({ length: Math.min(count, MAX_MONTHS_AHEAD + 1) }, (_, i) =>
+    addMonths(first, i),
+  );
+  return { openMonths: cleanMonths([...config.openMonths.filter((m) => m >= first), ...next]) };
 }
 
-/** Closed months, days and runs that are wholly in the past: dropped on save, so the lists stay short. */
+/** "Close all": no month open, so the link offers nothing until one is switched on. */
+export function closeAllMonths(): Pick<PlannerConfig, 'openMonths'> {
+  return { openMonths: [] };
+}
+
+/** "November isn't open on the link." */
+export function monthClosedText(month: string): string {
+  return `${monthName(month)} isn’t open on the link.`;
+}
+
+/** Months, days and runs that are wholly in the past: dropped on save, so the lists stay short. */
 export function withoutPast<T extends PlannerConfig>(config: T, todayKey: string): T {
   const thisMonth = monthOf(todayKey);
   return {
     ...config,
-    closedMonths: config.closedMonths.filter((m) => m >= thisMonth),
+    openMonths: cleanMonths(config.openMonths).filter((m) => m >= thisMonth),
     closedDates: config.closedDates.filter((d) => d >= todayKey),
     closedRanges: config.closedRanges.filter((r) => r.to >= todayKey),
     dateHours: config.dateHours.filter((d) => d.date >= todayKey),
@@ -227,8 +252,8 @@ export interface PlannerClosure {
  * planner leaves it open (the standing rules may still close it).
  */
 export function plannerClosure(config: PlannerConfig, dateKey: string): PlannerClosure | null {
-  if (config.closedMonths.includes(monthOf(dateKey))) {
-    return { code: 'month_closed', text: 'That month is closed on the booking link.' };
+  if (!config.openMonths.includes(monthOf(dateKey))) {
+    return { code: 'month_closed', text: monthClosedText(monthOf(dateKey)) };
   }
   if (config.closedDates.includes(dateKey)) {
     return { code: 'date_closed', text: 'That day is closed on the booking link.' };
@@ -316,6 +341,14 @@ export function monthLabel(month: string): string {
     year: 'numeric',
     timeZone: 'UTC',
   }).format(new Date(Date.UTC(y, m - 1, 15)));
+}
+
+/** "November". */
+export function monthName(month: string): string {
+  const [y, m] = month.split('-').map(Number) as [number, number];
+  return new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' }).format(
+    new Date(Date.UTC(y, m - 1, 15)),
+  );
 }
 
 /** "Nov". */

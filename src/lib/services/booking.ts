@@ -3,7 +3,6 @@ import { randomBytes } from 'node:crypto';
 import { busyPictureFor } from '@/lib/booking/availability';
 import {
   BOOKING_CONFIG_SCHEMA,
-  DEFAULT_BOOKING_CONFIG,
   firstName,
   inPersonOffered,
   MEETING_KINDS,
@@ -24,7 +23,12 @@ import {
   type EngineInput,
   type LinkBooking,
 } from '@/lib/booking/engine';
-import { bookingEventDraft, declineDraft, googleCalendarTemplateUrl } from '@/lib/booking/event';
+import {
+  bookingEventDraft,
+  declineDraft,
+  googleCalendarTemplateUrl,
+  linkRequestFromRow,
+} from '@/lib/booking/event';
 import {
   CLOSED_MESSAGE,
   knownZone,
@@ -62,6 +66,7 @@ import { newId, sha256 } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
 import { err, ok, type Result } from '@/lib/util/result';
 import { createLinkEvent } from './booking-calendar';
+import { reconcileLinkBookings, scheduleDescriptionCheck, type Scheduler } from './booking-sync';
 import { principalTimeZone } from './push-alerts';
 
 /**
@@ -185,7 +190,7 @@ export async function readBookingSettings(
       available: found.available,
       enabled: false,
       slug: suggestedSlug(host?.fullName),
-      config: { ...structuredClone(DEFAULT_BOOKING_CONFIG), displayName: host?.fullName ?? '' },
+      config: parseBookingConfig({ displayName: host?.fullName ?? '' }),
       saved: false,
     };
   }
@@ -267,7 +272,7 @@ export async function saveBookingSettings(
     entityId: row.id,
     metadata: {
       enabled: row.enabled,
-      chatbot: config.data.chatbotEnabled,
+      chatbot: config.data.chatbot.enabled,
       approve_first: config.data.approveFirst,
       places: config.data.places.length,
     },
@@ -327,10 +332,10 @@ export interface BookingDeps {
   now?: Date;
   /** Tests: read and write this calendar instead of the runtime's. */
   source?: CalendarSource;
-  /** Whether the public chatbot can use the model right now (lib/booking/chat.ts decides). */
-  chatMode?: 'live' | 'guided';
   /** The open link, when the caller resolved it already (one read per page view). */
   link?: OpenLink;
+  /** Tests: when the re-read after a calendar write runs (lib/services/booking-sync.ts). */
+  schedule?: Scheduler;
 }
 
 /** The page a closed link shows: nothing about the host at all. */
@@ -345,8 +350,7 @@ export function closedBookingPage(slug: string): PublicBookingPage {
     allowCustomPlace: false,
     kinds: [],
     callProvider: videoProviderLabel(''),
-    chatbot: { enabled: false, mode: 'guided' },
-    faq: '',
+    chatbot: { enabled: false },
     instant: false,
     guests: { allowed: false, max: 0 },
   };
@@ -385,8 +389,7 @@ export async function publicBookingPage(
     kinds: inPerson ? kinds : [],
     // What a call is on, never the saved link: that goes only in the invite.
     callProvider: videoProviderLabel(config.callLink),
-    chatbot: { enabled: config.chatbotEnabled, mode: deps.chatMode ?? 'guided' },
-    faq: config.faq,
+    chatbot: { enabled: config.chatbot.enabled },
     instant: !config.approveFirst,
     guests: { allowed: config.allowGuests && config.maxGuests > 0, max: config.maxGuests },
   };
@@ -398,25 +401,33 @@ export const ON_CALENDAR_AFTER_MS = 10 * 60_000;
 /** Statuses whose time is taken: waiting, held, approved and booked. */
 export const TIME_HOLDING_STATUSES = ['pending', 'held', 'approved', 'booked'] as const;
 
-/**
- * The link's own bookings that hold time: waiting, held, approved or booked,
- * from a day ago on. One on the calendar (approved, or booked more than ten
- * minutes ago) is among the busy blocks already, so it is never counted
- * twice; a fresh one holds its own time until Google lists it (an entry at
- * exactly its time stands in for it, lib/booking/engine.ts).
- */
-async function linkBookings(
+/** The link's own bookings that hold time (waiting, held, approved or booked), from a day ago on. */
+async function timeHoldingRows(
   store: DataStore,
   organizationId: string,
   now: Date,
-): Promise<LinkBooking[]> {
-  const rows = await store.list('booking_requests', organizationId, {
+): Promise<BookingRequest[]> {
+  return store.list('booking_requests', organizationId, {
     in: { status: [...TIME_HOLDING_STATUSES] },
     neq: { meeting_type: 'message' },
     gte: { starts_at: new Date(now.getTime() - 86_400_000).toISOString() },
   });
+}
+
+/**
+ * Those rows as the engine counts them. One on the calendar (approved, or
+ * booked more than ten minutes ago) is among the busy blocks already, so it
+ * is never counted twice; a fresh one holds its own time until Google lists
+ * it (an entry at exactly its time stands in for it, lib/booking/engine.ts).
+ * A row cancelled in Google meanwhile (lib/services/booking-sync.ts) holds
+ * nothing and counts toward no cap.
+ */
+function linkBookings(rows: readonly BookingRequest[], now: Date): LinkBooking[] {
   return rows.flatMap((r) =>
-    r.starts_at && r.ends_at && r.meeting_type !== 'message'
+    r.starts_at &&
+    r.ends_at &&
+    r.meeting_type !== 'message' &&
+    (TIME_HOLDING_STATUSES as readonly string[]).includes(r.status)
       ? [
           {
             id: r.id,
@@ -474,7 +485,15 @@ export async function engineInputFor(
     now,
   });
   if (!picture.ok) return picture;
-  let bookings = await linkBookings(store, organizationId, now);
+  // The read saw the link's own events too: one deleted in Google is a
+  // cancelled booking, one moved there moves, and another tool's reschedule
+  // link comes back out of its description (lib/services/booking-sync.ts).
+  const synced = await reconcileLinkBookings(
+    { store, organizationId, source, config, hostZone, now },
+    await timeHoldingRows(store, organizationId, now),
+    picture.value.seen,
+  );
+  let bookings = linkBookings(synced.rows, now);
   let busy = picture.value.busy;
   const ignore = deps.ignore;
   if (ignore) {
@@ -551,6 +570,8 @@ export interface SubmitContext {
   ipHash: string | null;
   now?: Date;
   source?: CalendarSource;
+  /** Tests: when the re-read after the event is made runs (lib/services/booking-sync.ts). */
+  schedule?: Scheduler;
 }
 
 export type SubmitOutcome =
@@ -988,11 +1009,12 @@ export async function submitBookingRequest(
       let meetUrl: string | null = null;
       if (status === 'booked' && primary) {
         const host = await readHost(store, organizationId);
+        const pageUrl = manageUrl(found.link.row.slug, token);
         const created = await createLinkEvent(
           { store, organizationId, source, actorId: null },
           primary.id,
           linkEventDraft(hostNameFor(config, host), row, hostZone, {
-            manageUrl: manageUrl(found.link.row.slug, token),
+            manageUrl: pageUrl,
             callLink: config.callLink,
             hostEmail: hostCalendarEmail(source, host, primary.id),
           }),
@@ -1007,6 +1029,14 @@ export async function submitBookingRequest(
           );
           row.calendar_id = primary.id;
           row.event_id = created.value.eventId;
+          // Fyxer edits a new event a few seconds after it is made: one look
+          // later puts the booking's own description back.
+          scheduleDescriptionCheck(
+            { store, organizationId, source, config, hostZone, now },
+            row.id,
+            pageUrl,
+            context.schedule,
+          );
         } else {
           // Google may have made it before an answer was lost (a timeout):
           // held "in doubt" (claimed_at), so placing it later looks for the
@@ -1080,27 +1110,10 @@ export function linkEventDraft(
   hostZone: string,
   options: { manageUrl: string | null; callLink: string | null; hostEmail: string | null },
 ): EventDraft {
-  return bookingEventDraft(
-    hostName,
-    {
-      type: row.meeting_type === 'in_person' ? 'in_person' : 'call',
-      kind: row.kind,
-      starts_at: row.starts_at ?? '',
-      ends_at: row.ends_at ?? '',
-      name: row.name,
-      email: row.email,
-      company: row.company,
-      place_name: row.place_name,
-      place_area: row.place_area,
-      place_map_url: row.place_map_url,
-      note: row.note,
-      deck_url: row.deck_url,
-      guests: row.guest_emails ?? [],
-      manageUrl: options.manageUrl,
-    },
-    hostZone,
-    { callLink: options.callLink, hostEmail: options.hostEmail },
-  );
+  return bookingEventDraft(hostName, linkRequestFromRow(row, options.manageUrl), hostZone, {
+    callLink: options.callLink,
+    hostEmail: options.hostEmail,
+  });
 }
 
 /**
@@ -1392,6 +1405,20 @@ export async function approveBookingRequest(
   );
   if (finished.length === 0) {
     log.warn('A booking approval finished after its claim was taken over', { request: id });
+  } else if (eventId) {
+    scheduleDescriptionCheck(
+      {
+        store: ctx.store,
+        organizationId: ctx.organizationId,
+        source,
+        config: settings.config,
+        hostZone,
+        now,
+      },
+      id,
+      null,
+      deps.schedule,
+    );
   }
   await recordAudit(ctx.store, {
     organizationId: ctx.organizationId,

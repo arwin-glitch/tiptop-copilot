@@ -1,5 +1,6 @@
 import type { EventDraft } from '@/lib/calendar/edit-rules';
 import { firstName, KIND_LABEL, type MeetingKind, type MeetingType } from './config';
+import type { BookingRequest } from '@/lib/types/domain';
 import { slotLabel, zoneName } from './public';
 
 /**
@@ -59,8 +60,71 @@ export interface ApprovableRequest {
   manageUrl?: string | null;
 }
 
-/** The line every booked event's description ends with, before the link. */
-export const MANAGE_LINE = 'Need to make a change? Reschedule or cancel:';
+/**
+ * The line every booked event's description ends with, before the booking's
+ * own page (D-078): the link guests use to move or cancel it. Another tool's
+ * reschedule line (Fyxer's, say) is taken back out (lib/services/booking-sync.ts).
+ */
+export const MANAGE_LINE = 'Need to reschedule or cancel?';
+
+/**
+ * Another scheduling tool's reschedule or cancel link in an event's
+ * description: Fyxer edits events its user organizes a few seconds after
+ * they are made ("Need to reschedule? Choose a new time" on app.fyxer.com),
+ * and Vimcal and Calendly add their own. On a booking-link event the only
+ * such line is the booking's own page.
+ */
+export const THIRD_PARTY_RESCHEDULE =
+  /https?:\/\/[^\s"'<>]*(?:fyxer\.com|vimcal\.com|calendly\.com\/(?:reschedulings|cancellations))/i;
+
+/** Whether a description carries another tool's reschedule or cancel link. */
+export function hasThirdPartyReschedule(description: string | null | undefined): boolean {
+  return Boolean(description && THIRD_PARTY_RESCHEDULE.test(description));
+}
+
+/** The booking pages a description links to, by token (`/meet/<slug>/b/<token>`). */
+export function manageTokensIn(description: string | null | undefined): string[] {
+  if (!description) return [];
+  return [...description.matchAll(/\/meet\/[a-z0-9-]+\/b\/([A-Za-z0-9_-]{43})/g)].map((m) => m[1]!);
+}
+
+/** A stored booking as the event is built from it (D-078), with its page's link. */
+export function linkRequestFromRow(
+  row: Pick<
+    BookingRequest,
+    | 'meeting_type'
+    | 'kind'
+    | 'starts_at'
+    | 'ends_at'
+    | 'name'
+    | 'email'
+    | 'company'
+    | 'place_name'
+    | 'place_area'
+    | 'place_map_url'
+    | 'note'
+    | 'deck_url'
+    | 'guest_emails'
+  >,
+  manageUrl: string | null,
+): ApprovableRequest {
+  return {
+    type: row.meeting_type === 'in_person' ? 'in_person' : 'call',
+    kind: row.kind,
+    starts_at: row.starts_at ?? '',
+    ends_at: row.ends_at ?? '',
+    name: row.name,
+    email: row.email,
+    company: row.company,
+    place_name: row.place_name,
+    place_area: row.place_area,
+    place_map_url: row.place_map_url,
+    note: row.note,
+    deck_url: row.deck_url,
+    guests: row.guest_emails ?? [],
+    manageUrl,
+  };
+}
 
 /**
  * "Sam <> Pat Lee (Acme)": the host's first name, the requester and their

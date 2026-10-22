@@ -19,7 +19,6 @@ import { Button } from '@/components/ui/button';
 import { Input, Label, Textarea } from '@/components/ui/form';
 import type { ChatAnswer, ChatPlace, ChatSlot, ChatStart, ChatTimes } from '@/lib/booking/chat';
 import { KIND_LABEL, firstName, type MeetingKind, type MeetingType } from '@/lib/booking/config';
-import type { ChatFormFill } from '@/lib/booking/request';
 import { DECK_URL, EMAIL_INPUT, LIMITS } from '@/lib/booking/request';
 import { cn } from '@/lib/util/cn';
 
@@ -34,9 +33,7 @@ import { cn } from '@/lib/util/cn';
  * routine on Arwin's own Claude plan, and the answer appears here when it
  * comes (a minute or two), while the visitor keeps booking. It never says a
  * person will confirm anything.
- *
- * The page still passes `mode` and `onFill` (the old helper's); they are
- * accepted and unused: the assistant books on its own now.
+
  */
 
 export interface BookingChatProps {
@@ -49,10 +46,6 @@ export interface BookingChatProps {
   zone: string;
   /** "30-min Zoom call": what a call is on, never its link (the server's own label wins). */
   callLabel?: string;
-  /** Unused since D-078 (kept so the page's props still fit). */
-  mode?: 'live' | 'guided';
-  /** Unused since D-078 (kept so the page's props still fit). */
-  onFill?: (fill: ChatFormFill) => void;
 }
 
 type Query = { type: MeetingType; kind: MeetingKind | null };
