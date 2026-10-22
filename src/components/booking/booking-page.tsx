@@ -13,6 +13,7 @@ import {
   SENT_MESSAGE,
   dayKeyIn,
   dayLabel,
+  distinctZones,
   knownZone,
   slotLabel,
   timeLabel,
@@ -73,7 +74,13 @@ export function BookingPage({ data }: { data: PublicBookingPage }) {
     );
   }
   return (
-    <OpenPage data={data} zone={zone} onZone={setChosenZone} detectedZone={detected ?? null} />
+    <OpenPage
+      data={data}
+      visitorZone={zone}
+      zonePicked={chosenZone !== null}
+      onZone={setChosenZone}
+      detectedZone={detected ?? null}
+    />
   );
 }
 
@@ -172,17 +179,25 @@ function slotKey(form: Pick<BookingFormState, 'type' | 'kind'>): string | null {
 
 function OpenPage({
   data,
-  zone,
+  visitorZone,
+  zonePicked,
   onZone,
   detectedZone,
 }: {
   data: PublicBookingPage;
-  zone: string;
+  visitorZone: string;
+  /** The visitor chose a zone in the picker: it wins everywhere. */
+  zonePicked: boolean;
   onZone: (zone: string) => void;
   detectedZone: string | null;
 }) {
   const host = data.host!;
   const [form, setForm] = React.useState<BookingFormState>(EMPTY_FORM);
+  // In person the visitor will be in the host's city, so its times read in
+  // the host's own clock (coffee at 8:30 AM, not 9:30 PM in Manila) unless
+  // they pick another zone. Calls stay in the visitor's zone.
+  const hostClock = form.type === 'in_person' && !zonePicked;
+  const zone = hostClock ? data.hostTimeZone : visitorZone;
   const [slots, setSlots] = React.useState<Record<string, SlotState>>({});
   const [day, setDay] = React.useState<string | null>(null);
   const [sending, setSending] = React.useState(false);
@@ -333,7 +348,7 @@ function OpenPage({
           <p className="mt-2 text-sm text-[var(--fg-muted)]">
             {sent.type === 'message'
               ? `Your message is with ${host.displayName}'s team.`
-              : `${sent.type === 'call' ? '30-minute call' : `${KIND_LABEL[sent.kind as MeetingKind]}, 1 hour`} · ${slotLabel(sent.start!, zone)} (${zoneName(zone)})${place ? ` · ${place}` : ''}`}
+              : `${sent.type === 'call' ? '30-minute call' : `${KIND_LABEL[sent.kind as MeetingKind]}, 1 hour`} · ${slotLabel(sent.start!, zone)} (${zoneName(zone, new Date(sent.start!))})${place ? ` · ${place}` : ''}`}
           </p>
           <p className="mt-4 text-xs text-[var(--fg-subtle)]">
             Nothing is booked until Arwin confirms. Watch for an email from the team.
@@ -355,9 +370,7 @@ function OpenPage({
     );
   }
 
-  const zones = [
-    ...new Set([zone, detectedZone, data.hostTimeZone, ...SUPPORTED_TIMEZONES]),
-  ].filter((z): z is string => knownZone(z));
+  const zones = distinctZones([zone, detectedZone, data.hostTimeZone, ...SUPPORTED_TIMEZONES]);
 
   return (
     <Shell firmName={host.firmName || 'TipTop Ventures'}>
@@ -454,11 +467,20 @@ function OpenPage({
                     {zones.map((z) => (
                       <option key={z} value={z}>
                         {zoneName(z)}
-                        {z === detectedZone ? ' (your time zone)' : ''}
+                        {z === detectedZone
+                          ? ' (your time zone)'
+                          : z === data.hostTimeZone && hostClock
+                            ? ' (where you will meet)'
+                            : ''}
                       </option>
                     ))}
                   </Select>
                 </div>
+                {hostClock && zone !== detectedZone ? (
+                  <p className="text-xs text-[var(--fg-muted)]">
+                    In-person times are local time where you will meet.
+                  </p>
+                ) : null}
                 {current?.loading ? (
                   <p className="text-sm text-[var(--fg-muted)]" aria-live="polite">
                     Finding open times…
@@ -721,7 +743,7 @@ function OpenPage({
           hostName={host.displayName}
           firmName={host.firmName}
           kinds={data.offers.inPerson ? data.kinds : []}
-          zone={zone}
+          zone={visitorZone}
           onFill={fillFromChat}
         />
       ) : null}

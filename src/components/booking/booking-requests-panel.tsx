@@ -30,7 +30,10 @@ import { relativeTime } from '@/lib/util/time';
  * the time and only then puts the meeting on the host's calendar (the
  * requester invited); without calendar editing it offers the Google Calendar
  * page, filled in, instead. Decline marks it declined and can open a decline
- * email in the compose window, which sends only on Send.
+ * email in the compose window, which sends only on Send. Approve asks once
+ * more before it emails an invitation (the address is whatever the visitor
+ * typed: nobody checked it), and a request whose time has passed can only be
+ * declined.
  *
  * A button at the top right of the page's header (over the band, out of the
  * flow, so the calendar below does not move by a pixel) opens the list in a
@@ -96,11 +99,16 @@ export function BookingRequestsPanel({
   const [busy, setBusy] = React.useState<string | null>(null);
   const [outcomes, setOutcomes] = React.useState<Record<string, Outcome>>({});
   const [compose, setCompose] = React.useState<ComposeDraft | null>(null);
+  /** The request whose Approve is waiting for its "Yes". */
+  const [confirming, setConfirming] = React.useState<string | null>(null);
+  /** The viewer's clock when the drawer last opened: a request before it has passed. */
+  const [now, setNow] = React.useState(() => Date.now());
   const fromLink = React.useSyncExternalStore(subscribeHash, hashAsksOpen, serverClosed);
   const [chosen, setChosen] = React.useState<boolean | null>(null);
   const open = chosen ?? fromLink;
   const setOpen = (next: boolean) => {
     setChosen(next);
+    if (next) setNow(Date.now());
     // Closing forgets the link's #booking-requests, so a reload does not reopen it.
     if (!next && window.location.hash === HASH) {
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
@@ -109,6 +117,7 @@ export function BookingRequestsPanel({
   const host = hostName.split(/\s+/)[0] || 'the host';
 
   const act = async (id: string, action: 'approve' | 'decline' | 'handled' | 'added_by_hand') => {
+    setConfirming(null);
     setBusy(`${id}:${action}`);
     const res = await fetch(`/api/booking/requests/${encodeURIComponent(id)}`, {
       method: 'POST',
@@ -146,12 +155,11 @@ export function BookingRequestsPanel({
       return;
     }
     if (action === 'decline') {
-      const draft = outcome.draft
+      const draft: ComposeDraft | null = outcome.draft
         ? {
             ...outcome.draft,
-            hints: [
-              'Written as Arwin: pick Arwin’s signature before you send. Nothing sends on its own.',
-            ],
+            signature: 'arwin',
+            hints: ['Written and signed as Arwin. Nothing sends on its own.'],
           }
         : null;
       setOutcomes((o) => ({ ...o, [id]: { kind: 'declined', draft } }));
@@ -241,6 +249,7 @@ export function BookingRequestsPanel({
                       : `${KIND_LABEL[r.kind ?? 'coffee']}, 1 hour in person`;
                 const deck = httpsOnly(r.deckUrl);
                 const map = httpsOnly(r.placeMapUrl);
+                const passed = r.startsAt ? Date.parse(r.startsAt) < now : false;
                 return (
                   <li
                     key={r.id}
@@ -295,7 +304,7 @@ export function BookingRequestsPanel({
                           </p>
                         ) : null}
                         <p className="text-sm text-[var(--fg-muted)]">
-                          <a href={`mailto:${r.email}`} className="link-inline">
+                          <a href={`mailto:${encodeURIComponent(r.email)}`} className="link-inline">
                             {r.email}
                           </a>
                           {' · '}asked {relativeTime(r.createdAt)}
@@ -318,6 +327,12 @@ export function BookingRequestsPanel({
                           </p>
                         ) : null}
                         <div className="flex flex-wrap gap-1.5">
+                          {passed ? <Badge tone="warn">Time passed</Badge> : null}
+                          <Badge tone="neutral">
+                            <span title="Anyone can type any address. Approve emails the invitation to this one.">
+                              Email not checked
+                            </span>
+                          </Badge>
                           {r.source === 'chatbot' ? (
                             <Badge tone="neutral">Filled with the chatbot</Badge>
                           ) : null}
@@ -384,6 +399,32 @@ export function BookingRequestsPanel({
                           Done
                         </Button>
                       </div>
+                    ) : confirming === r.id ? (
+                      <div
+                        role="group"
+                        aria-label="Confirm approval"
+                        className="mt-3 rounded-md border border-[var(--border)] bg-[var(--bg-sunken)] p-3 sm:ml-11"
+                      >
+                        <p className="text-sm">
+                          Add to {host}&apos;s calendar and email an invitation to{' '}
+                          <span className="font-medium break-all">{r.email}</span>?
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            loading={busy === `${r.id}:approve`}
+                            disabled={busy !== null}
+                            onClick={() => void act(r.id, 'approve')}
+                          >
+                            <Check aria-hidden="true" />
+                            Yes, approve
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
                     ) : (
                       <div className="mt-3 flex flex-wrap gap-2 sm:pl-11">
                         {r.type === 'message' ? (
@@ -396,13 +437,12 @@ export function BookingRequestsPanel({
                             <Check aria-hidden="true" />
                             Mark handled
                           </Button>
-                        ) : (
+                        ) : passed ? null : (
                           <Button
                             size="sm"
                             variant="primary"
-                            loading={busy === `${r.id}:approve`}
                             disabled={busy !== null}
-                            onClick={() => void act(r.id, 'approve')}
+                            onClick={() => setConfirming(r.id)}
                           >
                             <Check aria-hidden="true" />
                             Approve

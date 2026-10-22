@@ -98,8 +98,8 @@ test('the public page opens with nobody signed in, in its own TipTop face', asyn
   });
   await page.goto('/meet/nick');
   await expect(page).toHaveURL(/\/meet\/nick$/);
-  await expect(page).toHaveTitle('Meet with Nick Tippmann');
-  await expect(page.getByRole('heading', { level: 1, name: 'Nick Tippmann' })).toBeVisible();
+  await expect(page).toHaveTitle('Meet with Nick Avery');
+  await expect(page.getByRole('heading', { level: 1, name: 'Nick Avery' })).toBeVisible();
   await expect(page.getByText('Partner, TipTop VC (Demo)')).toBeVisible();
   await expect(page.getByText('Scheduling by TipTop Copilot')).toBeVisible();
   // The chatbot is tagged AI.
@@ -143,7 +143,7 @@ test('on a 390px phone: no sideways scroll, and a 30-minute call asked for', asy
     colorScheme: 'dark',
   });
   await page.goto('/meet/nick');
-  await expect(page.getByRole('heading', { level: 1, name: 'Nick Tippmann' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Nick Avery' })).toBeVisible();
   await expect(
     page.getByRole('radiogroup', { name: 'Time' }).getByRole('radio').first(),
   ).toBeVisible();
@@ -282,7 +282,12 @@ test.describe('in Copilot', () => {
     ).toBeVisible();
     await page.screenshot({ animations: 'disabled', path: shot('copilot-panel') });
 
+    // Nobody checked the address, and Approve emails it: one more tap to be sure.
+    await expect(call.getByText('Email not checked')).toBeVisible();
     await call.getByRole('button', { name: 'Approve' }).click();
+    const confirm = call.getByRole('group', { name: 'Confirm approval' });
+    await expect(confirm).toContainText('email an invitation to casey.call@example.com');
+    await confirm.getByRole('button', { name: 'Yes, approve' }).click();
     await expect(
       page.getByText("Added to Nick's calendar. The invitation went to the requester."),
     ).toBeVisible();
@@ -305,7 +310,11 @@ test.describe('in Copilot', () => {
     await expect(composer).toBeVisible();
     await expect(composer.getByLabel('To')).toHaveValue('morgan.coffee@example.com');
     await expect(composer.getByLabel('Subject')).toHaveValue('Your meeting request with Nick');
-    await expect(composer.getByText('Written as Arwin', { exact: false })).toBeVisible();
+    await expect(composer.getByText('Written and signed as Arwin', { exact: false })).toBeVisible();
+    await expect(composer.getByRole('button', { name: 'Arwin', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     await page.screenshot({ animations: 'disabled', path: shot('copilot-decline-draft') });
   });
 
