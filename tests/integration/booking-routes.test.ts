@@ -20,6 +20,7 @@ import { createHarness, type Harness } from '../helpers/harness';
 const { GET: slotsRoute } = await import('@/app/api/meet/[slug]/slots/route');
 const { POST: requestRoute } = await import('@/app/api/meet/[slug]/request/route');
 const { POST: chatRoute } = await import('@/app/api/meet/[slug]/chat/route');
+const { GET: answerRoute } = await import('@/app/api/meet/[slug]/chat/answer/route');
 const { GET: photoRoute } = await import('@/app/meet/[slug]/photo/route');
 
 const ORIGIN = 'https://copilot.example';
@@ -242,35 +243,42 @@ describe('sending a request', () => {
   });
 });
 
-describe('the chatbot route', () => {
-  it('answers the guided buttons, from the page only', async () => {
-    const res = await chatRoute(
+describe('the assistant routes (D-078)', () => {
+  it('answers the opening, open times and questions, from the page only', async () => {
+    const start = await chatRoute(
+      post('/api/meet/nick/chat', { action: 'start', timeZone: 'Europe/Lisbon' }),
+      params(),
+    );
+    expect(start.status).toBe(200);
+    const opening = (await start.json()) as { ok: boolean; action: string; places: unknown[] };
+    expect(opening).toMatchObject({ ok: true, action: 'start' });
+    expect(opening.places.length).toBeGreaterThan(0);
+
+    const asked = await chatRoute(
       post('/api/meet/nick/chat', {
-        mode: 'guided',
-        action: 'find_time',
-        type: 'call',
-        timeZone: 'Europe/Lisbon',
+        action: 'ask',
+        question: 'What stage do you invest in?',
+        sessionId: 'route-session-0001',
       }),
       params(),
     );
-    expect(res.status).toBe(200);
-    const json = (await res.json()) as { ok: boolean; mode: string; slots: unknown[] };
-    expect(json).toMatchObject({ ok: true, mode: 'guided' });
-    expect(json.slots.length).toBeGreaterThan(0);
+    expect(await asked.json()).toMatchObject({ ok: true, kind: 'answer', matched: 'Stage' });
+
     const elsewhere = await chatRoute(
-      post(
-        '/api/meet/nick/chat',
-        { mode: 'guided', action: 'about' },
-        { origin: 'https://evil.example' },
-      ),
+      post('/api/meet/nick/chat', { action: 'start' }, { origin: 'https://evil.example' }),
       params(),
     );
     expect(elsewhere.status).toBe(403);
     const unknown = await chatRoute(
-      post('/api/meet/nick/chat', { mode: 'guided', tool: 'read_calendar' }),
+      post('/api/meet/nick/chat', { action: 'start', tool: 'read_calendar' }),
       params(),
     );
     expect(unknown.status).toBe(400);
+    const oldShape = await chatRoute(
+      post('/api/meet/nick/chat', { mode: 'live', messages: [{ role: 'user', content: 'hi' }] }),
+      params(),
+    );
+    expect(oldShape.status).toBe(400);
   });
 
   it('brakes each address before reading anything, even while the link is closed (review fix)', async () => {
@@ -280,11 +288,30 @@ describe('the chatbot route', () => {
       DEMO_BOOKING_SETTINGS_ID,
       { enabled: false },
     );
-    const body = { mode: 'guided', action: 'about' };
+    const body = { action: 'start' };
     for (let i = 0; i < 60; i += 1) {
       expect((await chatRoute(post('/api/meet/nick/chat', body), params())).status).toBe(403);
     }
     expect((await chatRoute(post('/api/meet/nick/chat', body), params())).status).toBe(429);
+  });
+
+  it('answers a poll for an unknown or malformed question plainly, and brakes the poll', async () => {
+    const malformed = await answerRoute(get('/api/meet/nick/chat/answer?id=nope'), params());
+    expect(malformed.status).toBe(404);
+    const unknown = await answerRoute(
+      get('/api/meet/nick/chat/answer?id=12345678-1234-4234-8234-123456789012'),
+      params(),
+    );
+    expect(unknown.status).toBe(404);
+    expect(await unknown.json()).toMatchObject({ ok: false });
+    for (let i = 0; i < 90; i += 1) {
+      await answerRoute(get('/api/meet/nick/chat/answer?id=nope', '203.0.113.9'), params());
+    }
+    const braked = await answerRoute(
+      get('/api/meet/nick/chat/answer?id=nope', '203.0.113.9'),
+      params(),
+    );
+    expect(braked.status).toBe(429);
   });
 });
 

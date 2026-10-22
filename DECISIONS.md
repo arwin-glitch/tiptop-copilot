@@ -2759,3 +2759,99 @@ him), a public chatbot that calls itself Arwin, and "don't create chaos".
 - Requests are judged again at approval: one approved after the day filled up
   by hand is refused, not squeezed in.
 - Instant booking is stored but does not book on its own (above).
+
+### D-078 (assistant) — The booking page's Arwin: guided, answers from a written list, AI only on Arwin's Claude plan
+
+Part of D-078 (the booking link v2). This entry covers the public assistant;
+the flows (instant booking, guests, reschedule and cancel) and the Booking
+tab have their own parts.
+
+**Context.** Arwin, Oct 22: "there shouldnt be any spending here. this should
+only connect to my claude like arwin ai on copilot.. we're trying to save
+money", and "no saying of 'arwin confirms'". D-074's chatbot ran on the
+repository's Anthropic key with a monthly spend cap.
+
+**Decision.**
+
+- **No paid AI, anywhere in the assistant.** The live-model path, its prompt
+  (`lib/booking/chat-prompt.ts`), its tools, its spend cap and its `ai_usage`
+  rows are gone. A unit test walks every runtime import from the assistant's
+  modules, routes and widgets and pins that none reaches the Anthropic SDK or
+  the app's model client (two data-only modules from `lib/ai`, zod shapes and
+  prompt text, arrive through the shared services and call nothing), and that
+  none of its files names an API key, the model client or the usage ledger.
+- **A guided helper** (`components/booking/booking-chat.tsx`, same export and
+  props as before; `mode` and `onFill` are accepted and unused): Book a 30-min
+  call, Meet in person (coffee, lunch or dinner as configured), Ask a
+  question, Leave a message or deck. It shows the engine's next open times
+  (two a day, eight a page, "More times"), the listed places (and "suggest a
+  place" when allowed), guests when the link allows them (`allowGuests`,
+  `maxGuests`, read from the stored settings with defaults: on, five), then
+  name, email, company and a note, and books through the public request route
+  exactly like the form (`source: 'chatbot'`), handling `booked`, `held`,
+  `pending` and `message`, and a taken time by offering the next ones. It only
+  accepts a manage link back into this site. Copy never says a person
+  confirms or reviews.
+- **Answers without AI** (`lib/booking/faq.ts`, pure, also used by the panel's
+  test box): Arwin writes up to 30 questions and answers (question 200
+  characters, answer 800) in the Booking tab; a visitor's words are matched
+  locally: normalised, filler words dropped, a light stem, common synonyms
+  folded together ("how much do you invest" meets "check size"), word overlap
+  weighted towards the written question and lightly towards its answer, a
+  bonus for a phrase in order. At 0.5 and above it answers word for word; the
+  next three closest become "Did you mean" chips. A few answers are built from
+  the public card and the settings only (who the host is, kinds and length of
+  meetings, places, guests, reschedule and cancel, time zone); a written one
+  wins a tie. Free text that asks to book ("can we grab coffee?") starts that
+  flow instead. Visitor text is data, never instructions.
+- **Settings** (`lib/booking/chatbot-config.ts`, `ChatbotConfig = { enabled,
+  faqItems, aiAnswers, dailyAiCap }`) live inside the booking settings
+  document as `chatbot`, read field by field; until saved, the old
+  `chatbotEnabled` switch and free-text `faq` stand in (Q:/A: pairs, or one
+  answer per line with the words before a colon as its question).
+  `PATCH /api/booking/chatbot` (admin or owner, same origin, zod-strict, 64 KB)
+  merges into `settings.chatbot` (and the old switch) and changes nothing else
+  in the document; audited by counts only (`booking.chatbot_updated`).
+- **Optional AI answers on Arwin's own Claude plan** (`lib/booking/chat-bridge.ts`):
+  a question nothing matches, with AI answers on in the panel and
+  `BOOKING_CHAT_FIRE_URL`, `BOOKING_CHAT_TOKEN` and the relay's read token all
+  set, is kept in `booking_chat_questions` and fires a dedicated routine with
+  no data connectors (`docs/BOOKING_CHAT_ROUTINE.md` has its exact prompt) as
+  `BOOKING_QUESTION_V1` plus one backticked JSON object: the question (300
+  characters, control characters and backticks stripped) and named public
+  facts only (host name, firm, the card's title and bio, the written answers,
+  the offers, the next six call times in the visitor's zone). Firing the
+  routine's trigger starts it on Arwin's plan; it is not a model call and
+  bills nothing. The routine's only action is one Slack post,
+  `BOOKING_ANSWER_V1` plus `{question_id, answer}`, to the relay channel the
+  app already reads; while the widget polls (`GET
+  /api/meet/[slug]/chat/answer`, every 4 seconds for 3 minutes, 90 per address
+  per 10 minutes) the app reads that channel at most every 3 seconds, takes
+  posts from `BOOKING_CHAT_POSTER_IDS` only (default: the task routines'
+  account), matches the question id, and makes the answer plain: no markup,
+  no link but the booking page's own, no email address or phone number, every
+  sentence promising that a person will confirm, review or get back dropped,
+  600 characters at most. A question waiting five minutes expires; a refused
+  trigger expires it at once. On timeout the widget offers "Leave this as a
+  message for Nick".
+- **Caps** hold whatever is set: 3 per visitor session (the widget's own
+  random id, in memory), 5 per visitor address a day and the panel's daily
+  total (15 by default, 30 at most), both counted from the table and checked
+  and kept one at a time per organization, so they hold across restarts and
+  cannot be raced. Past any cap, or with the table missing, the assistant
+  answers from the written list and offers a message.
+- **Migration** `20261022200100_booking_chat.sql`: additive and idempotent;
+  members read, browser roles write nothing (the server writes with the
+  service role); the status check is named
+  `booking_chat_questions_status_allowed` (dropped, then added), never an
+  auto-name.
+
+**Known limits.**
+
+- The per-session cap trusts the widget's id; the per-address and daily caps,
+  counted from the table, are the real brakes.
+- The relay read is the Ask relay's: the last 100 messages of the channel. A
+  very busy channel could push an answer out of reach within the wait.
+- `saveBookingSettings` writes the whole settings document; it must keep the
+  stored `chatbot` (as it keeps the photo) so a Booking tab save never undoes
+  an assistant panel save.

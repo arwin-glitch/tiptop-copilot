@@ -27,6 +27,8 @@ export interface FaqEntry extends FaqItem {
   /** Stable within one list: `faq:<index>` for Arwin's, `card:<name>` for built-ins. */
   id: string;
   builtIn?: boolean;
+  /** Words matched instead of `q` (a built-in's short question shows; these match). */
+  match?: string;
 }
 
 export interface FaqMatch {
@@ -126,7 +128,6 @@ const SYNONYMS: Record<string, string> = {
   attende: 'guest',
   colleague: 'guest',
   cofounder: 'guest',
-  partner: 'guest',
   bring: 'guest',
   invite: 'guest',
   add: 'guest',
@@ -226,11 +227,11 @@ function bigrams(words: string[]): Set<string> {
 }
 
 /** How well a visitor's question fits one entry, 0 and up (1 is a strong match). */
-export function scoreEntry(question: string, entry: FaqItem): number {
+export function scoreEntry(question: string, entry: FaqItem & { match?: string }): number {
   const qWords = wordList(question);
   const q = new Set(qWords);
   if (!q.size) return 0;
-  const written = wordList(entry.q);
+  const written = wordList(entry.match ?? entry.q);
   const asked = new Set(written);
   const answer = tokens(entry.a);
   let score = overlap(q, asked);
@@ -299,12 +300,17 @@ export function builtInEntries(facts: PublicFacts): FaqEntry[] {
   const first = facts.hostFirst.trim() || who || 'the host';
   const firm = facts.firmName.trim();
   const out: FaqEntry[] = [];
-  const add = (name: string, q: string, a: string) =>
-    out.push({ id: `card:${name}`, q, a: a.trim(), builtIn: true });
+  const add = (name: string, q: string, match: string, a: string) =>
+    out.push({ id: `card:${name}`, q, match, a: a.trim(), builtIn: true });
 
   if (who && (facts.title.trim() || facts.bio.trim())) {
     const line = [who, facts.title.trim()].filter(Boolean).join(', ');
-    add('who', `Who is ${who}? Tell me about ${first}`, [line, facts.bio.trim()].join('. ').trim());
+    add(
+      'who',
+      `Who is ${who}?`,
+      `Who is ${who}? Tell me about ${first}`,
+      [line, facts.bio.trim()].join('. ').trim(),
+    );
   }
   const kinds = facts.inPersonKinds.map((k) => k.toLowerCase());
   const meetings = [
@@ -314,6 +320,7 @@ export function builtInEntries(facts: PublicFacts): FaqEntry[] {
   if (meetings.length) {
     add(
       'kinds',
+      'What kinds of meetings can I book?',
       'What kinds of meetings can I book? How long is a meeting? Video call or in person?',
       `You can book ${joinOr(meetings)} with ${first}. Pick a time right here and the invitation is sent straight away.`,
     );
@@ -321,10 +328,16 @@ export function builtInEntries(facts: PublicFacts): FaqEntry[] {
   if (kinds.length && (facts.places.length || facts.allowCustomPlace)) {
     const listed = facts.places.length ? `Places to meet: ${facts.places.join('; ')}.` : '';
     const own = facts.allowCustomPlace ? ' You can also suggest a place of your own.' : '';
-    add('places', 'Where do we meet in person? What location or place?', `${listed}${own}`);
+    add(
+      'places',
+      'Where do we meet?',
+      'Where do we meet in person? What location or place?',
+      `${listed}${own}`,
+    );
   }
   add(
     'guests',
+    'Can I add guests?',
     'Can I add guests or bring a colleague or cofounder to the meeting?',
     facts.guestsAllowed
       ? `Yes. Add up to ${facts.maxGuests} guest${facts.maxGuests === 1 ? '' : 's'} by email when you book, and they get the invitation too.`
@@ -332,16 +345,18 @@ export function builtInEntries(facts: PublicFacts): FaqEntry[] {
   );
   add(
     'reschedule',
+    'How do I reschedule or cancel?',
     'How do I reschedule or cancel a meeting? Change or move the time',
     'Your booking confirmation has a link to reschedule or cancel. Rescheduling moves the meeting for you, and you can leave a note when you cancel.',
   );
   add(
     'zone',
     'What time zone are the times in?',
+    'What time zone are the times in?',
     'Times are shown in your own time zone. You can change it above the times on the page.',
   );
   if (firm) {
-    add('firm', `What is ${firm}?`, `${who || first} is with ${firm}.`);
+    add('firm', `What is ${firm}?`, `What is ${firm}?`, `${who || first} is with ${firm}.`);
   }
   return out;
 }

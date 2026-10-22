@@ -272,22 +272,25 @@ export function ChatbotPanel({ initial, canEdit }: ChatbotPanelProps) {
                   key={row.key}
                   className="space-y-2 rounded-md border border-[var(--border)] bg-[var(--bg)] p-3"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-xs font-semibold text-[var(--accent)]">
                       {index + 1}
                     </span>
-                    <Label htmlFor={`${uid}-q-${row.key}`} className="sr-only">
-                      Question {index + 1}
-                    </Label>
-                    <Input
-                      id={`${uid}-q-${row.key}`}
-                      value={row.q}
-                      placeholder="Question, e.g. What stage do you invest in?"
-                      maxLength={FAQ_LIMITS.question}
-                      disabled={disabled}
-                      onChange={(e) => updateRow(row.key, { q: e.target.value })}
-                    />
-                    <div className="flex shrink-0">
+                    {/* A phone gives the question its own full row under the number and buttons. */}
+                    <div className="order-last basis-full sm:order-none sm:min-w-0 sm:flex-1 sm:basis-0">
+                      <Label htmlFor={`${uid}-q-${row.key}`} className="sr-only">
+                        Question {index + 1}
+                      </Label>
+                      <Input
+                        id={`${uid}-q-${row.key}`}
+                        value={row.q}
+                        placeholder="Question, e.g. What stage do you invest in?"
+                        maxLength={FAQ_LIMITS.question}
+                        disabled={disabled}
+                        onChange={(e) => updateRow(row.key, { q: e.target.value })}
+                      />
+                    </div>
+                    <div className="ml-auto flex shrink-0">
                       <Button
                         type="button"
                         variant="ghost"
