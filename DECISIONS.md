@@ -3258,6 +3258,39 @@ answers, the AI cue pass and their `ai_usage` rows are gone).
   for `NOTES_REQUEST_V1` and for the `context` field, added after the
   routine's persona block, which stays untouched.
 
+**Zero spend, put together (integration).** The speech and the routine
+halves were merged into one branch with the booking link and the job board.
+What changed in joining them:
+
+- **The whole chain is one test.** `tests/e2e/notes-zero-spend-flow.spec.ts`
+  walks it at 1440 and 390 pixels in demo mode: Calendar, Take notes, the
+  consent step (the server refuses a start without it), the scripted speech
+  engine behind the same interface as Whisper, the mic named as the recorder,
+  a guest voice named by the calendar (the phone run) and one by a tap, the
+  whole meeting relabelled, typed notes, Stop, Quick notes with "Arwin is
+  writing your notes", a template, Arwin's `NOTES_RESULT_V1` through the demo
+  relay, his notes with sources in the template's sections, the action item
+  in Tasks, a chat answer through the Ask bridge citing a line, a
+  summary-only share link revoked, the deal, company and person pages,
+  search, and the MCP meeting tools. A second test walks the five-picture
+  tour.
+- **Person pages list meetings.** A CRM profile (`/lists/records/[id]`) now
+  has a Meetings section: Granola's notes and Copilot's own (shared with the
+  team), matched by the person's addresses, or for a company by its domain
+  and its people's addresses (`notesForRecord`). A person's own domain is
+  never used, so a colleague's meeting is not theirs.
+- **Small joins.** The share page drops Arwin's own "Summary" heading under
+  its "Summary"; Settings opens on the Copilot Notes tab from
+  `?tab=notes` when the feature is on; the meeting follow-up routine's fire
+  shares the Ask routine's headers (`routineFireHeaders`), so no notes file
+  carries a routines protocol header of its own. The demo store version is
+  16, past both sides' 15. Nothing in the notes paths names a speech vendor
+  or reads an API key.
+- **Still open.** The routine prompt sections still have to be added to
+  `ask-bridge-answerer`; until then Arwin's notes never arrive and the Quick
+  notes stay. The meeting follow-up routine still reads notes through the MCP
+  tools. WebGPU and the Better and Best models need a run on Nick's computer.
+
 ### D-077 — A public job board: published by a person, read from companies' own boards, off until switched on
 
 **Context.** Nick saw Portfolio › Jobs (the roles founders email him, from the

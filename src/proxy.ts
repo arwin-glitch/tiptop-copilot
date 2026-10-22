@@ -277,10 +277,10 @@ const OWN_CSP_PATH = /^\/api\/briefings\/[a-z]+\/view$/;
 
 /**
  * Pages people outside the team open: a shared note, the booking page, campaign
- * tracking, the public job board. They never record, so the microphone and
- * screen capture stay off there even though Copilot's own pages may ask for them.
+ * tracking. They never record, so the microphone and screen capture stay off
+ * there even though Copilot's own pages may ask for them.
  */
-const OUTSIDER_PAGE = /^\/(n|meet|t|jobs)(\/|$)/;
+const OUTSIDER_PAGE = /^\/(n|meet|t)(\/|$)/;
 
 /** A shared note's page: never indexed, never cached, and no referrer leaves it. */
 const SHARED_NOTE_PAGE = /^\/n(\/|$)/;

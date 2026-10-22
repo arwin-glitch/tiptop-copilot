@@ -10,6 +10,18 @@ throughout.
 
 ## [Unreleased]
 
+- **Copilot Notes, joined up (still off by default).** The free speech on
+  your computer and Arwin writing the notes now work together from start to
+  finish: a calendar event, Take notes, the consent step, the live
+  transcript with names, Stop, Quick notes, Arwin's notes with their
+  sources, the action items in Tasks, the chat, a share link, and the notes
+  on the deal, company and person pages, in search and in the tools the
+  routines use. A person's or company's page in Lists now has a Meetings
+  section with every meeting note with them (Granola's, and Copilot's once
+  shared with the team). A shared link no longer says "Summary" twice, the
+  Notes tour has five pictures, and Settings can open straight on the
+  Copilot Notes tab. (D-076)
+
 - **Copilot Notes costs nothing to run: Arwin writes the notes (still off by
   default).** When a recording stops you get Quick notes straight away (what
   you typed, word for word, plus the key lines and the promises, each linked

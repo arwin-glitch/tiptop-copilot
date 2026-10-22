@@ -98,7 +98,10 @@ export default async function SharedNotePage({ params }: { params: Promise<{ tok
   );
 }
 
-function Blocks({ blocks }: { blocks: SharedNoteView['blocks'] }) {
+function Blocks({ blocks: all }: { blocks: SharedNoteView['blocks'] }) {
+  // Arwin's notes carry their own "Summary" heading; under this page's
+  // "Summary" it would say it twice.
+  const blocks = all.filter((b) => !(b.kind === 'heading' && /^summary$/i.test(b.text.trim())));
   if (blocks.length === 0) {
     return <p className="mt-3 text-sm text-[var(--fg-muted)]">No summary was written.</p>;
   }

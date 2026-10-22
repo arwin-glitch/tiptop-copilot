@@ -73,6 +73,20 @@ export async function fireAskRoutine(
 }
 
 /**
+ * The headers a cloud routine's /fire address takes: the routine's own
+ * trigger token and the routines protocol version. No API key: a routine
+ * runs on Arwin's Claude plan. Shared with the meeting follow-up routine.
+ */
+export function routineFireHeaders(token: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    'anthropic-version': '2023-06-01',
+    'anthropic-beta': 'experimental-cc-routine-2026-04-01',
+    'Content-Type': 'application/json',
+  };
+}
+
+/**
  * Start the answering routine with any relay-shaped text: an Ask question
  * (fireText) or a Copilot Notes job (NOTES_REQUEST_V1, lib/notes/
  * bridge-protocol.ts). The routine runs on Arwin's Claude plan, so nothing
@@ -88,12 +102,7 @@ export async function fireRoutineText(
   try {
     const response = await fetchImpl(e.askRoutineFireUrl, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${e.askRoutineToken}`,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'experimental-cc-routine-2026-04-01',
-        'Content-Type': 'application/json',
-      },
+      headers: routineFireHeaders(e.askRoutineToken),
       body: JSON.stringify({ text }),
       signal: AbortSignal.timeout(FIRE_TIMEOUT_MS),
     });

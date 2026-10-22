@@ -31,12 +31,7 @@ describe('microphone and screen capture', () => {
   });
 
   it('stay off on pages outsiders open', async () => {
-    for (const path of [
-      '/n/abcdefghijklmnopqrstuvwxyz012345',
-      '/meet/nick',
-      '/t/o/x',
-      '/jobs',
-    ]) {
+    for (const path of ['/n/abcdefghijklmnopqrstuvwxyz012345', '/meet/nick', '/t/o/x']) {
       const policy = (await headersFor(path, false)).headers.get('permissions-policy') ?? '';
       expect(policy, path).toContain('microphone=()');
       expect(policy, path).toContain('display-capture=()');

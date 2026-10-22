@@ -20,12 +20,14 @@ import {
 } from '@/lib/services/crm';
 import { readDestinationOverrides } from '@/lib/services/crm-destinations';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
+import { notesForRecord } from '@/lib/services/meetings';
 import { getRecordRelationship, relationshipScope } from '@/lib/services/relationships';
 import { getActiveThesis } from '@/lib/services/thesis';
 import { CrmBreadcrumb } from '@/components/lists/crm-breadcrumb';
 import { CrmNotesPanel } from '@/components/lists/crm-notes-panel';
 import { AddRecordToListButton } from '@/components/lists/record-dialogs';
 import { ExportNotesLink } from '@/components/lists/export-notes-link';
+import { MeetingNoteList } from '@/components/meetings/meeting-note-list';
 import { CrmValueView } from '@/components/lists/crm-value';
 import { RelationshipPanel, WhoCanIntro } from '@/components/network/record-relationship';
 import { KeepInTouchCard } from '@/components/network/keep-in-touch-card';
@@ -35,7 +37,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { ErrorState, SkeletonText } from '@/components/ui/feedback';
 import { NotConfigured } from '@/components/ui/not-configured';
-import type { CrmValue } from '@/lib/types/domain';
+import type { CrmRecord, CrmValue } from '@/lib/types/domain';
 
 export const dynamic = 'force-dynamic';
 
@@ -290,6 +292,19 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
               empty="No notes yet. Add one above, or bring them across with an Affinity notes export."
             />
           </section>
+
+          <Suspense fallback={<SkeletonText lines={3} />}>
+            <RecordMeetings
+              organizationId={org}
+              record={record}
+              relatedEmails={
+                isCompany
+                  ? related.map((r) => r.primary_email).filter((e): e is string => Boolean(e))
+                  : []
+              }
+              timezone={timezone}
+            />
+          </Suspense>
         </div>
 
         <aside className="min-w-0 space-y-6">
@@ -379,6 +394,43 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
         </aside>
       </div>
     </PageShell>
+  );
+}
+
+/**
+ * Meetings with this person or company (D-076): Granola's notes and Copilot's
+ * own (once shared with the team), matched by address, or for a company by
+ * its domain and its people's addresses. Streams in after the profile.
+ */
+async function RecordMeetings({
+  organizationId,
+  record,
+  relatedEmails,
+  timezone,
+}: {
+  organizationId: string;
+  record: Pick<CrmRecord, 'kind' | 'domain' | 'emails'>;
+  relatedEmails: string[];
+  timezone: string;
+}) {
+  const notes = await notesForRecord(getStore(), organizationId, record, relatedEmails).catch(
+    () => null,
+  );
+  return (
+    <section aria-labelledby="profile-meetings" data-profile-meetings="">
+      <SectionHeading count={notes?.length}>
+        <span id="profile-meetings">Meetings</span>
+      </SectionHeading>
+      {notes === null ? (
+        <p className="text-sm text-[var(--fg-subtle)]">Meeting notes could not be read just now.</p>
+      ) : (
+        <MeetingNoteList
+          notes={notes}
+          timezone={timezone}
+          empty="No meeting notes with them yet. Granola's notes and meetings recorded in Copilot (shared with the team) show here."
+        />
+      )}
+    </section>
   );
 }
 

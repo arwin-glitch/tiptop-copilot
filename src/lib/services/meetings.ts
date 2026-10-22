@@ -287,6 +287,28 @@ export async function notesForCompany(
   });
 }
 
+/**
+ * Notes for one CRM profile (D-076): a person by any of their addresses, a
+ * company by its domain or the addresses of its people. Granola's notes and
+ * Copilot's own (shared with the team) alike, with the same twin rule as the
+ * deal and company pages, so a meeting recorded by both tools shows once.
+ */
+export async function notesForRecord(
+  store: DataStore,
+  organizationId: string,
+  record: { kind: 'company' | 'person'; domain: string | null; emails: readonly string[] },
+  relatedEmails: readonly string[] = [],
+): Promise<MeetingNote[]> {
+  const domain = record.kind === 'company' ? (record.domain?.toLowerCase() ?? null) : null;
+  const people = new Set([...record.emails, ...relatedEmails].map((e) => e.toLowerCase()));
+  if (!domain && people.size === 0) return [];
+  const notes = await recentNotes(store, organizationId);
+  return notes.filter((note) => {
+    if (domain && attendeeDomains(note).has(domain)) return true;
+    return note.attendees.some((a) => people.has(a.email.toLowerCase()));
+  });
+}
+
 /** Note counts per attendee address, for the relationship list. */
 export async function noteCountsByEmail(
   store: DataStore,

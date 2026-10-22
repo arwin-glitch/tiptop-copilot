@@ -20,12 +20,21 @@ import { formatDate, relativeTime } from '@/lib/util/time';
  * 'copilot', so these pages list them too (the readers already leave out a
  * private one): their provenance says Copilot, and they open the meeting.
  */
-export function MeetingNoteList({ notes, timezone }: { notes: MeetingNote[]; timezone?: string }) {
+export function MeetingNoteList({
+  notes,
+  timezone,
+  empty,
+}: {
+  notes: MeetingNote[];
+  timezone?: string;
+  /** What an empty list says, where the default (about the Granola webhook) does not fit. */
+  empty?: string;
+}) {
   if (notes.length === 0) {
     return (
       <p className="text-sm text-[var(--fg-subtle)]">
-        No meeting notes yet. Notes arrive automatically once the Granola webhook is connected —
-        Diagnostics shows whether it is.
+        {empty ??
+          'No meeting notes yet. Notes arrive automatically once the Granola webhook is connected — Diagnostics shows whether it is.'}
       </p>
     );
   }

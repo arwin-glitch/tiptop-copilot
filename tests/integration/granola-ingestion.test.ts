@@ -10,6 +10,7 @@ import {
   normaliseAttendees,
   notesForCompany,
   notesForDeal,
+  notesForRecord,
   parseGranolaEmail,
 } from '@/lib/services/meetings';
 import { promoteGranolaEmail } from '@/lib/services/inbox';
@@ -155,6 +156,32 @@ describe('read-time linking', () => {
       'maya@ledgerly.demo',
     ]);
     expect(notes.some((n) => n.title.includes('Ledgerly'))).toBe(true);
+  });
+
+  it('a CRM profile sees its meetings: a person by address, a company by domain, never a stranger', async () => {
+    const org = harness.auth.organizationId;
+    const maya = await notesForRecord(harness.store, org, {
+      kind: 'person',
+      domain: null,
+      emails: ['MAYA@ledgerly.demo'],
+    });
+    expect(maya.some((n) => n.title.includes('Ledgerly'))).toBe(true);
+    const company = await notesForRecord(harness.store, org, {
+      kind: 'company',
+      domain: 'ledgerly.demo',
+      emails: [],
+    });
+    expect(company.some((n) => n.title.includes('Ledgerly'))).toBe(true);
+    // A person's domain is never used: a colleague's meeting is not theirs.
+    const colleague = await notesForRecord(harness.store, org, {
+      kind: 'person',
+      domain: 'ledgerly.demo',
+      emails: ['someone.else@ledgerly.demo'],
+    });
+    expect(colleague).toEqual([]);
+    expect(
+      await notesForRecord(harness.store, org, { kind: 'company', domain: null, emails: [] }),
+    ).toEqual([]);
   });
 });
 

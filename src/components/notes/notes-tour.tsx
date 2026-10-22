@@ -97,7 +97,7 @@ export function NotesTour() {
           className="flex flex-wrap items-center gap-2 rounded-md border border-l-2 border-[var(--border)] border-l-[var(--gold)] bg-[var(--note-soft)] px-3 py-2 text-sm"
           data-notes-tour-banner=""
         >
-          <span>New to Copilot Notes? Four pictures show how it works.</span>
+          <span>New to Copilot Notes? Five pictures show how it works.</span>
           <Button size="sm" variant="secondary" onClick={show}>
             Show me
           </Button>

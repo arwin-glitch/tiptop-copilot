@@ -1,6 +1,7 @@
 import 'server-only';
 import { env } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
+import { routineFireHeaders } from '@/lib/services/ask-routine';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
 import type { AuditEvent } from '@/lib/types/domain';
@@ -61,12 +62,7 @@ export async function fireMeetingFollowUp(
   try {
     const response = await fetchImpl(e.meetingFollowupFireUrl, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${e.meetingFollowupFireToken}`,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'experimental-cc-routine-2026-04-01',
-        'Content-Type': 'application/json',
-      },
+      headers: routineFireHeaders(e.meetingFollowupFireToken),
       body: JSON.stringify({ text: followUpFireText(meeting.id) }),
       signal: AbortSignal.timeout(FIRE_TIMEOUT_MS),
     });
