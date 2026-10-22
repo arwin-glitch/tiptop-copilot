@@ -21,9 +21,11 @@ export function modelFor(tier: ModelTier): string {
  * most expensive entry.
  */
 export const PRICE_TABLE: Readonly<Record<string, { input: number; output: number }>> = {
-  // Anthropic list prices per million tokens, October 2026 (D-076). A model
-  // missing here falls back to the most expensive rate, which overstates
-  // spend and trips the daily budget early: add new models when they ship.
+  // Anthropic list prices per million tokens, October 2026, for the in-app
+  // calls that still use ANTHROPIC_API_KEY. Copilot Notes spends nothing here:
+  // its notes and chat go to Arwin's Claude routine (D-076). A model missing
+  // here falls back to the most expensive rate, which overstates spend and
+  // trips the daily budget early: add new models when they ship.
   'claude-fable-5-1': { input: 10, output: 50 },
   'claude-fable-5': { input: 10, output: 50 },
   'claude-opus-5-5': { input: 4, output: 20 },

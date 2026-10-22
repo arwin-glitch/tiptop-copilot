@@ -153,6 +153,12 @@ export type AuditAction =
   | 'notes.recording_rule_created'
   | 'notes.recording_rule_updated'
   | 'notes.recording_rule_deleted'
+  // Arwin's notes and the meeting chat through the Ask bridge (zero spend).
+  | 'notes.requested'
+  | 'notes.request_fired'
+  | 'notes.result_applied'
+  | 'notes.request_failed'
+  | 'notes.request_expired'
   | 'voice.consent'
   | 'voice.revoke'
   | 'voice.enrolled'

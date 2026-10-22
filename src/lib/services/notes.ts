@@ -69,6 +69,7 @@ import { newId } from '@/lib/util/hash';
 import { err, ok, type AppError, type Result } from '@/lib/util/result';
 import { meetingCrmContext, readTeamInfo } from './notes-context';
 import { applyNamingLadder, type NamingOptions } from './notes-naming';
+import { requestOfNote, toRequestView } from './notes-request-view';
 
 /**
  * Copilot Notes, the core (D-076): meetings, the consent step and the
@@ -439,6 +440,12 @@ export async function createMeeting(
   });
 }
 
+/** The request for Arwin's notes behind a note's text (D-076), as the page shows it. */
+async function noteRequestView(ctx: NotesContext, note: MeetingNote) {
+  const request = await requestOfNote(ctx.store, ctx.auth.organizationId, note);
+  return request ? toRequestView(request) : null;
+}
+
 /** Everything the meeting page shows, in one read. */
 export async function getMeetingDetail(
   ctx: NotesContext,
@@ -471,7 +478,9 @@ export async function getMeetingDetail(
       // Line counts over every line, not just the first page sent here.
       speakers: await speakerViews(ctx, meeting, speakers),
       segments: segments.map(toSegmentView),
-      note: note ? toCopilotNoteView(note, meeting.id, changedSince) : null,
+      note: note
+        ? toCopilotNoteView(note, meeting.id, changedSince, await noteRequestView(ctx, note))
+        : null,
       shareLinks: links.map((l) => toShareLinkView(l, nowOf(ctx))),
       template: await templateViewFor(ctx, meeting.template_id),
     });

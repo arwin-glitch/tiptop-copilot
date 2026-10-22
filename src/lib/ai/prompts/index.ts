@@ -1,5 +1,4 @@
 import { UNTRUSTED_CONTENT_RULE } from '@/lib/security/injection';
-import { MEETING_CUES_TASK, MEETING_NOTES_TASK } from './meeting-notes-tasks';
 
 /**
  * Versioned prompts.
@@ -26,9 +25,6 @@ export const PROMPT_VERSIONS = {
   schedulingReply: 'scheduling-reply@1.1.0',
   injectionDetection: 'injection-detection@1.1.0',
   dealComparison: 'deal-comparison@1.1.0',
-  // Copilot Notes (D-076); the task text is in ./meeting-notes-tasks.ts.
-  meetingNotes: 'meeting-notes@1.0.0',
-  meetingSpeakerCues: 'meeting-speaker-cues@1.0.0',
 } as const;
 
 export type PromptName = keyof typeof PROMPT_VERSIONS;
@@ -315,9 +311,4 @@ export const PROMPTS: Record<PromptName, { version: string; system: string }> = 
     system: INJECTION_DETECTION_PROMPT,
   },
   dealComparison: { version: PROMPT_VERSIONS.dealComparison, system: DEAL_COMPARISON_PROMPT },
-  meetingNotes: { version: PROMPT_VERSIONS.meetingNotes, system: systemPrompt(MEETING_NOTES_TASK) },
-  meetingSpeakerCues: {
-    version: PROMPT_VERSIONS.meetingSpeakerCues,
-    system: systemPrompt(MEETING_CUES_TASK),
-  },
 };

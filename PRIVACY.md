@@ -63,9 +63,12 @@ action.
   A voiceprint is a speaker embedding made on the recorder's computer; it is
   sent only to that recorder's browser, for recordings with that person on
   the invite (or a teammate), labelled with an id, never a name. Everyone
-  else's voice is told apart on the computer and never leaves it. Meeting notes are written by the AI model from the transcript; the
-  transcript goes to the model provider like any other source Copilot
-  analyses, with the same no-training terms. The cloud routines can read only
+  else's voice is told apart on the computer and never leaves it. Meeting
+  notes and answers about meetings are written by Arwin's own Claude routine
+  (the one behind Ask Arwin), never by a paid API: the transcript text (names
+  and roles, never an address) goes to that routine in its start request, and
+  the notes come back through the Slack relay channel (a private one when
+  `NOTES_RELAY_CHANNEL_ID` is set). The cloud routines can read only
   meetings their recorder shared with the team, never a private one or a
   private folder (Coaching). A meeting deleted to the trash is gone for good,
   with its transcript and notes, after seven days.

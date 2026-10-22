@@ -267,26 +267,40 @@ export function MeetingWorkspace({
     return () => clearInterval(timer);
   }, [meeting.status, pull]);
 
-  // The notes are written on the server after Stop and after a rename (a
-  // model call can take a while): follow along until they are fresh.
+  // After Stop, Regenerate or a rename the page follows the notes until they
+  // are settled: Arwin's (written by his Claude routine, through the Ask
+  // bridge) take a minute or three, so while they are on their way the poll
+  // asks the server to check the relay (settle=1): every 3 seconds for three
+  // minutes, then every 15 seconds for half an hour.
   const following = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const followNotes = React.useCallback(() => {
     if (following.current) clearTimeout(following.current);
-    let tries = 0;
+    const startedAt = Date.now();
     const tick = async () => {
       following.current = null;
-      tries += 1;
-      const res = await notesCall<Omit<MeetingDetailResponse, 'ok'>>('GET', NOTES_API.meeting(id));
+      const res = await notesCall<Omit<MeetingDetailResponse, 'ok'>>(
+        'GET',
+        `${NOTES_API.meeting(id)}?settle=1`,
+      );
       if (res.ok) {
         setMeeting(res.meeting);
         setSpeakers(res.speakers);
         setNote(res.note);
       }
-      const settled = res.ok && res.meeting.status !== 'processing' && !(res.note?.stale ?? false);
-      if (!settled && tries < 45) following.current = setTimeout(() => void tick(), 2_000);
+      const waiting = res.ok && res.note?.request?.status === 'pending';
+      const settled =
+        res.ok && res.meeting.status !== 'processing' && !(res.note?.stale ?? false) && !waiting;
+      const elapsed = Date.now() - startedAt;
+      if (settled || elapsed > 30 * 60_000) return;
+      following.current = setTimeout(() => void tick(), elapsed < 3 * 60_000 ? 3_000 : 15_000);
     };
     following.current = setTimeout(() => void tick(), 600);
   }, [id]);
+  // Opened while Arwin is still writing: follow along from the start.
+  const waitingOnArwin = note?.request?.status === 'pending';
+  React.useEffect(() => {
+    if (waitingOnArwin) followNotes();
+  }, [waitingOnArwin, followNotes]);
   React.useEffect(
     () => () => {
       if (following.current) clearTimeout(following.current);
@@ -327,7 +341,7 @@ export function MeetingWorkspace({
   /* ------------------------------------------------------------ actions == */
 
   const regenerate = React.useCallback(
-    async (templateId?: string | null) => {
+    async (templateId?: string | null): Promise<false | 'asked' | 'written'> => {
       setRegenerating(true);
       const res = await notesCall<Omit<GenerateNotesResponse, 'ok'>>(
         'POST',
@@ -345,15 +359,18 @@ export function MeetingWorkspace({
         templateId: res.note.templateId,
         status: m.status === 'processing' || m.status === 'failed' ? 'ready' : m.status,
       }));
-      return true;
+      if (res.note.request?.status === 'pending') followNotes();
+      return res.note.request?.status === 'pending' ? 'asked' : 'written';
     },
-    [id],
+    [id, followNotes],
   );
 
   const changeTemplate = async (templateId: string | null) => {
     const name = templates.find((t) => t.id === templateId)?.name ?? 'Automatic';
     if (note && (meeting.status === 'ready' || meeting.status === 'failed')) {
-      if (await regenerate(templateId)) toast.success(`Notes rewritten with ${name}.`);
+      const done = await regenerate(templateId);
+      if (done === 'asked') toast.success(`Arwin is rewriting the notes with ${name}.`);
+      else if (done === 'written') toast.success(`Notes rewritten with ${name}.`);
       return;
     }
     const res = await notesCall<Omit<MeetingResponse, 'ok'>>('PATCH', NOTES_API.meeting(id), {
@@ -485,8 +502,10 @@ export function MeetingWorkspace({
   const afterStop = async (ready: boolean, queued: boolean) => {
     await reload();
     changeTab('notes');
-    if (ready) toast.success('Stopped. Your notes are ready.');
-    else if (queued) {
+    if (ready) {
+      toast.success('Stopped. Quick notes are ready; Arwin is writing yours.');
+      followNotes();
+    } else if (queued) {
       toast.success('Stopped. Writing your notes…');
       followNotes();
     } else toast.error('Stopped. The notes could not be written yet: press Regenerate.');
@@ -737,6 +756,7 @@ export function MeetingWorkspace({
                       speakers={speakers}
                       templates={templates}
                       regenerating={regenerating}
+                      demo={demo}
                       onRegenerate={() => void regenerate(note.templateId)}
                       onTemplate={(t) => void changeTemplate(t)}
                       onEdit={() => setEditingNotes(true)}

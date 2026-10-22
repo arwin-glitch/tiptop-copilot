@@ -2,19 +2,19 @@ import type { ActionItem, EnhancedBlock, TranscriptSegment } from '@/lib/types/n
 import { addDaysToKey } from '@/lib/util/time';
 
 /**
- * Notes built by rules, with no model (D-076): the typed notes word for word,
- * the lines that carry numbers or decisions, and the promises ("I'll…",
- * "we'll…", "let's…") as action items with their speaker as owner. Every
- * point links to the line it came from and nothing is invented.
+ * Quick notes, built by rules with no model at all (D-076): the typed notes
+ * word for word, the transcript's key lines picked by a simple score
+ * (numbers, money, the round, decisions, customers…), and the promises
+ * ("I'll…", "we'll…", "let's…") as action items with their speaker as owner.
+ * Every point links to the line it came from and nothing is invented.
  *
- * Two uses: the notes Copilot keeps when no model is available (production
- * without ANTHROPIC_API_KEY, a model failure, the daily budget spent), saved
- * with model 'none'; and the offline model's answer in demo mode
- * (lib/notes/mock-ai.ts), which goes through the same assembly as a real
- * answer. Pure and client-safe.
+ * They are there the moment Stop is pressed, saved with model 'none', so a
+ * meeting always has notes; Arwin's notes, written by his Claude routine
+ * through the Ask bridge, replace them when they arrive. Pure and
+ * client-safe.
  */
 
-export const DRAFT_PROMPT_VERSION = 'meeting-notes-draft@0.1.0';
+export const DRAFT_PROMPT_VERSION = 'quick-notes@1.0.0';
 export const DRAFT_MODEL = 'none';
 
 /* ============================================================ typed == */
@@ -96,7 +96,38 @@ export function clip(text: string, max = 220): string {
 
 type DraftLine = Pick<TranscriptSegment, 'seq' | 'cluster_key' | 'text' | 'edited_text'>;
 
-/** The lines a rules draft lifts as key points, and the promises it lifts as action items. */
+/** Words that make a line worth keeping in a VC meeting's notes. */
+const KEY_TERMS_RE =
+  /\b(raising|round|valuation|cap|seed|series|lead|term sheet|revenue|arr|mrr|retention|churn|margin|burn|runway|customers?|pilots?|contracts?|pipeline|growth|hires?|hiring|team|deck|data room|decid\w*|agreed?|next steps?|timeline|launch|deadline|budget|pricing|price)\b/gi;
+const MONEY_RE = /[$€£]|\b(percent|million|thousand|billion|k)\b|%/i;
+const KEY_POINTS_MAX = 8;
+/** The least a line must score to be a key point. */
+const KEY_POINT_MIN_SCORE = 2.5;
+
+/**
+ * How much a line says, by simple rules: numbers and money, the words a VC
+ * meeting turns on, and a sensible length. A promise is not scored here: it
+ * becomes an action item instead.
+ */
+export function lineScore(text: string): number {
+  const t = text.trim();
+  if (!t) return 0;
+  const words = t.split(/\s+/).length;
+  let score = 0;
+  if (/\d/.test(t)) score += 1.5;
+  if (MONEY_RE.test(t)) score += 1.5;
+  if (KEY_POINT_RE.test(t)) score += 1;
+  score += Math.min(3, (t.match(KEY_TERMS_RE) ?? []).length * 1);
+  if (words >= 8 && words <= 60) score += 1;
+  if (words < 5) score -= 2;
+  if (t.endsWith('?')) score -= 0.5;
+  return score;
+}
+
+/**
+ * The lines Quick notes lift as key points (the best few by lineScore, in the
+ * order they were said), and the promises they lift as action items.
+ */
 export function draftPicks(segments: readonly DraftLine[]): {
   keyPoints: { seq: number; key: string; text: string }[];
   promises: { seq: number; key: string; text: string }[];
@@ -106,10 +137,16 @@ export function draftPicks(segments: readonly DraftLine[]): {
     key: s.cluster_key,
     text: (s.edited_text ?? s.text).trim(),
   }));
+  const keyPoints = lines
+    .filter((l) => !PROMISE_RE.test(l.text))
+    .map((l, i) => ({ l, i, score: lineScore(l.text) }))
+    .filter((x) => x.score >= KEY_POINT_MIN_SCORE)
+    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .slice(0, KEY_POINTS_MAX)
+    .sort((a, b) => a.l.seq - b.l.seq)
+    .map((x) => x.l);
   return {
-    keyPoints: lines
-      .filter((l) => KEY_POINT_RE.test(l.text) && !PROMISE_RE.test(l.text))
-      .slice(0, 8),
+    keyPoints,
     promises: lines.filter((l) => PROMISE_RE.test(l.text)).slice(0, 20),
   };
 }

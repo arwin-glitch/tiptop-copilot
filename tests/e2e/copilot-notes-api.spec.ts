@@ -4,9 +4,10 @@ import { expect, test, type Page } from '@playwright/test';
  * Copilot Notes' core API (D-076) against the demo server, the way the
  * screens and the recorder will call it: make a meeting from an event, refuse
  * to start before consent, start, get a speech session (the mock in demo
- * mode), post lines, stop (the notes job with the offline model), rename a
+ * mode), post lines, stop (Quick notes, and a request to Arwin), rename a
  * voice, ask a question, and find the words said through the app's search.
- * Fictional people only; no speech service is ever called.
+ * Notes are Quick notes (rules) until Arwin's routine answers: no model.
+ * Fictional people only; no speech service or vendor is ever called.
  */
 
 async function enterDemo(page: Page) {
@@ -159,7 +160,8 @@ test('a meeting from event to notes, through the API', async ({ page }) => {
   const detail = (await call.get(base)).body as {
     note: { model: string; actionItems: { isPrincipalPromise: boolean; ownerName: string }[] };
   };
-  expect(detail.note.model).toBe('demo-offline-model');
+  // Quick notes at once (no model); Arwin's routine is asked for the rest.
+  expect(detail.note.model).toBe('none');
   expect(detail.note.actionItems.find((a) => a.isPrincipalPromise)?.ownerName).toBe(
     'Nick Tippmann',
   );

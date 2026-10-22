@@ -8,8 +8,11 @@ import {
   Cpu,
   HelpCircle,
   Link2,
+  Loader2,
   Mic,
+  Quote,
   ShieldOff,
+  Square,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,9 +20,10 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { cn } from '@/lib/util/cn';
 
 /**
- * A four-picture tour of Copilot Notes (D-076), for a visual learner:
+ * A five-picture tour of Copilot Notes (D-076), for a visual learner:
  * diagrams, not paragraphs. The consent step, speech staying on this
- * computer, fixing a name, and sharing.
+ * computer, fixing a name, Arwin writing the notes (Quick notes at once, his
+ * in a minute or three), and sharing.
  * Offered as a small banner the first time (never a pop-up over the meeting),
  * and from "How it works" afterwards. Whether it was seen is a display
  * preference, kept in this browser only.
@@ -64,6 +68,10 @@ const STEPS = [
     caption: 'Your computer turns speech into text, for free. Only the words are saved.',
   },
   { title: 'Fix a name', caption: 'Tap a name chip, pick the person: every line changes.' },
+  {
+    title: 'Arwin writes the notes',
+    caption: "Quick notes at once. Arwin's in 1-3 minutes, each point with its source.",
+  },
   { title: 'Share', caption: 'Summary only unless you add the transcript. Revoke any time.' },
 ] as const;
 
@@ -121,6 +129,8 @@ export function NotesTour() {
               <SpeechSketch />
             ) : step === 2 ? (
               <NameSketch />
+            ) : step === 3 ? (
+              <ArwinSketch />
             ) : (
               <ShareSketch />
             )}
@@ -254,6 +264,39 @@ function NameSketch() {
             Priya Shah
           </span>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function ArwinSketch() {
+  return (
+    <div
+      className="flex flex-wrap items-center justify-center gap-3"
+      role="img"
+      aria-label="Stop, Quick notes at once, then Arwin's notes with a source on every point"
+    >
+      <span className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-raised)] px-2.5 py-1 text-[11px] font-semibold">
+        <Square className="size-3" aria-hidden /> Stop
+      </span>
+      <Arrow />
+      <div className="w-32 space-y-1 rounded border border-[var(--border)] bg-[var(--bg-raised)] p-2 text-[11px]">
+        <span className="block font-semibold">Quick notes</span>
+        <span className="flex items-center gap-1 text-[var(--fg-muted)]">
+          <Loader2 className="size-3 animate-spin" aria-hidden /> Arwin is writing…
+        </span>
+      </div>
+      <Arrow />
+      <div className="w-36 space-y-1 rounded border border-[var(--gold-rule)] bg-[var(--note-soft)] p-2 text-[11px]">
+        <span className="block font-semibold">Written by Arwin</span>
+        <span className="flex items-center justify-between gap-1">
+          Raising $4M seed
+          <Quote className="size-2.5 text-[var(--fg-subtle)]" aria-hidden />
+        </span>
+        <span className="flex items-center justify-between gap-1">
+          Send the data room
+          <Check className="size-3 text-[var(--ok)]" aria-hidden />
+        </span>
       </div>
     </div>
   );

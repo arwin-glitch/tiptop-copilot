@@ -2608,7 +2608,9 @@ Rust toolchain to build it), so the core lands a contract first.
   company and network pages read them unchanged. The first notes are a draft
   made by rules (typed notes verbatim, lines with numbers or decisions,
   "I'll / we'll / let's" as action items, each with its source lines; `model`
-  `none`); the AI pass replaces the draft behind the same shapes.
+  `none`); Arwin's notes, written by his Claude routine through the Ask
+  bridge, replace the draft behind the same shapes (the zero-spend section
+  below).
 - **Share links store a hash only** (HMAC under `NOTES_SHARE_PEPPER`), share
   the summary unless the transcript is switched on, expire in 7, 30 or 90 days
   (90 at most, by a check), revoke at once, and show no email address.
@@ -2635,30 +2637,23 @@ the flag on.
 calls made while building it. Everything is additive to the contract: new
 routes, and optional fields on existing answers.
 
-- **Notes by Claude, checked by code.** The notes are written by the deep tier
-  (now Claude Opus 5.5 by default) through `generateStructured` with the
-  versioned `meeting-notes@1.0.0` prompt (`lib/ai/prompts/meeting-notes.ts`):
-  the typed notes, the transcript, the invite, the voices' names, CRM facts
-  (deal stage, portfolio, LP list membership, network) and earlier meetings
-  with the same guests, the transcript and notes fenced as untrusted.
-  `lib/notes/notes-assembly.ts` checks the answer: typed lines are put back
-  by the app word for word (the model only says where each goes, and a typed
-  line it drops is kept at the top), every point must cite transcript lines
-  that exist (ranges are trimmed; a point with none is dropped), action-item
-  owners must be voices of the meeting and take their spelling from them,
-  the principal's own promises are flagged, a due date is a real date or
-  nothing. The rules draft stays as the fallback (no key, a refusal, an
-  outage, the daily budget spent), saved with `model` `none`, and Regenerate
-  tries the model again. Every call is budget-checked and recorded in
-  `ai_usage`.
+- **Notes written for Nick, checked by code.** First built on an in-app model
+  call (`generateStructured`, Opus 5.5); replaced before shipping by Arwin's
+  Claude routine through the Ask bridge, at zero spend (the zero-spend
+  section below). What stayed: typed lines are put back by the app word for
+  word, every point must cite transcript lines that were sent, action-item
+  owners take their spelling from the voices, the principal's own promises
+  are flagged, a due date is a real date or nothing, and the rules draft
+  (now "Quick notes") is there the moment Stop is pressed.
 - **Templates pick themselves** on the first generation when nobody chose one:
   a custom template's rule (a guest's domain, then a title word, then the
   meeting type), else the type from the CRM (a portfolio company's domain:
   check-in; someone on an LP list: LP call; a company in the pipeline: founder
   pitch; only teammates: 1:1), else the title's words, else general notes.
 - **The naming ladder, completed** (`lib/speakers/naming.ts`). Transcript cues
-  ("I'm Dana", "Priya, how does…", "Thanks, Priya") are found by rules and,
-  after Stop, by a fast-tier AI pass; both only match people on the invite.
+  ("I'm Dana", "Priya, how does…", "Thanks, Priya") are found by rules, and
+  only match people on the invite (the after-Stop AI pass was removed: zero
+  spend).
   Calendar elimination names a voice in two cases only: one guest and one
   voice left (0.9), or as many guests as voices with the cues singling out a
   pair in both directions (0.8), repeated until the last pair falls to the
@@ -2668,16 +2663,16 @@ routes, and optional fields on existing answers.
   is cleared only when a stronger rung or a person gives that guest to another
   voice. The pass runs on every batch that brings an unnamed voice (rules
   only), after every rename, split and merge (so naming one voice can name the
-  last), and after Stop (with the AI cues). A voice the vendor matched to a
+  last), and after Stop. A voice the vendor matched to a
   consented profile (`sys:<profile id>`) is named by the voiceprint rung; the
   meeting app's roster (`POST /roster`, the Meet extension's speaking timeline)
   names a voice whose talk time falls mostly in one person's turns.
 - **A rename rewrites the notes.** Action-item owners are re-read from the
-  voices at once, with no model call; a rules draft regenerates at once; model
-  notes regenerate after the route has answered (Next's `after`), once per
-  run of taps (the first run brings them up to date, later ones find nothing
-  stale). Stop waits up to 20 seconds for the notes and finishes the rest after
-  answering; the meeting reads `processing` until then.
+  voices at once; Quick notes are written again; Arwin's notes take the new
+  names in place (every "Guest 2" now named, every renamed owner), with no new
+  request to the routine, so a run of taps costs no routine runs. Stop waits
+  up to 20 seconds for the notes job and finishes the rest after answering;
+  the meeting reads `processing` until the Quick notes are written.
 - **Voice enrolment** is a speech session for one consented person's solo clip
   (diarized, recognising nobody) or "Remember this voice" during a live
   meeting (the recorder asks the vendor for that one label's identifiers);
@@ -2711,9 +2706,10 @@ routes, and optional fields on existing answers.
   identifiers. A `meeting-capture` feed on Diagnostics reads "stopped" when a
   meeting has been marked as recording for 20 minutes with no new line (a
   closed tab).
-- **Prices.** The AI price table gains Opus 5.5 ($4/$20), Sonnet 5.5 and
-  Haiku 5.5, and Sonnet 5 drops to $2/$10, so the daily budget is no longer
-  overstated about 2.5 times; `AI_MODEL_DEEP` defaults to `claude-opus-5-5`.
+- **Prices.** The AI price table carries the current list prices (Opus 5.5
+  $4/$20, Sonnet 5.5, Haiku 5.5, Sonnet 5 at $2/$10) for the in-app calls that
+  still use `ANTHROPIC_API_KEY`; `AI_MODEL_DEEP` defaults to
+  `claude-opus-5-5`. Copilot Notes no longer uses either.
 
 **The screens (notes-ui), on top of the contract.**
 
@@ -2804,10 +2800,9 @@ routes, and optional fields on existing answers.
   consent was given for that meeting already. Anything else that is not
   `scheduled` is still refused.
 - **The server rewrites the notes, the page follows.** After a rename,
-  split or merge the core already rewrites the notes (`after()`); the page
-  now follows the stale flag instead of calling `/generate` a second time,
-  which would have paid for the notes twice. After Stop a meeting still
-  `processing` is followed the same way until its notes land.
+  split or merge the core rewrites the notes itself; the page follows the
+  stale flag instead of calling `/generate` a second time. After Stop the
+  page follows the notes until Arwin's have landed.
 - **The Meet roster reaches the ladder.** While recording, and once more
   before Stop, the extension's speaking timeline goes to
   `POST /api/notes/meetings/[id]/roster` (names and times only, never
@@ -2913,3 +2908,62 @@ web recorder above.
   thresholds were tuned on synthetic and built-in voices, not real calls; the
   Tauri desktop app can use the same web recorder (its webview is Chromium on
   Windows) until native capture is built.
+
+**Zero spend: Arwin writes the notes and answers the chat (the Ask bridge).**
+Arwin asked that Copilot Notes spend nothing and connect only to his own
+Claude, the way Ask Arwin already does: the point is to save money, not to
+move the bill. So no meeting prompt, model call or API key is left in the
+notes code (`lib/ai/prompts/meeting-notes.ts`, the offline model's meeting
+answers, the AI cue pass and their `ai_usage` rows are gone).
+
+- **Arwin's notes come from the `ask-bridge-answerer` routine**, the cloud
+  routine that answers Ask on Arwin's plan. On Stop, Regenerate or a template
+  change the app writes a `notes_requests` row (pending) and fires the routine
+  (`ASK_ROUTINE_FIRE_URL`, the same trigger as Ask) with `NOTES_REQUEST_V1`:
+  the title, time and time zone, attendees as names and roles only, the
+  template's sections and instructions, the typed notes, and the transcript
+  as `[line_id, speaker, "m:ss", text]`. The routine cannot reach the app, so
+  everything it needs is in that text, condensed to `NOTES_FIRE_MAX_CHARS`
+  (default 60,000): fillers and back-channels dropped, a speaker's consecutive
+  lines merged, then the middle trimmed evenly with a `[... N lines omitted
+  ...]` marker. Every line kept keeps its id (`lib/notes/bridge-protocol.ts`).
+- **The routine posts `NOTES_RESULT_V1` to the Slack relay**, in parts of at
+  most 3,500 characters; the app reads them while the meeting page is open
+  (its poll asks the server to check, `?settle=1`) and in the daily job,
+  puts the parts together by request id, validates them with zod, makes every
+  string plain and capped, drops cited ids it never sent, puts the typed lines
+  back word for word, stores the notes (`model` `arwin-routine`), and files
+  the action items as tasks through the tasks service (add-only, to the
+  principal, a title already known never added twice, the principal's own
+  promises marked "Your promise"). A result is stored once; answers for a
+  replaced request are ignored. The follow-up routine is fired when Arwin's
+  notes are stored.
+- **There is always something to read.** Quick notes (the typed notes, the
+  key lines by a simple score, the promises as action items, each with its
+  source) are written the moment Stop is pressed, and the page says "Arwin is
+  writing your notes - usually 1-3 minutes" over them while the transcript and
+  the notepad stay usable. When notes are being rewritten, the old ones stay
+  until the new ones land.
+- **When the trigger is missing or fails** the request stays pending: the app
+  has no posting path to the relay, so it posts nothing there, and a poll by
+  someone who can see the meeting fires it again after a back-off (six tries).
+  A request with no answer within a day expires and the page offers "Ask
+  Arwin again". The routine can answer with an error, which fails the request
+  in plain words.
+- **Chat goes through Ask.** A question on the meeting page becomes an
+  ordinary Ask question (it shows in Ask Arwin's history) with an optional
+  `context`: the scope, the meetings in it, their notes, and the transcript
+  lines a small BM25 ranking picked for the question, within 12,000
+  characters (`lib/notes/chat-retrieval.ts`). The routine cites line ids
+  (`[M1.152]`), which the app turns into "[12:31 Dana Reyes]" links and drops
+  when they were not sent. Ask payloads without a context are unchanged, the
+  webhook never lists contexts, and without `ASK_BRIDGE_TOKEN` the chat quotes
+  the matching lines at once instead.
+- **Privacy.** Transcript text leaves the app only in the routine's fire text
+  (Arwin's Claude account) and comes back as notes in the relay channel.
+  `NOTES_RELAY_CHANNEL_ID` points both at a private channel; it defaults to
+  the Ask relay channel. Audio never leaves the device. The demo relay
+  (`POST /api/notes/demo/relay`) exists in demo mode only.
+- **The routine's side** is `docs/NOTES_ROUTINE.md`: the exact prompt sections
+  for `NOTES_REQUEST_V1` and for the `context` field, added after the
+  routine's persona block, which stays untouched.

@@ -39,6 +39,11 @@ export const NOTES_API = {
   generate: (id: string) => `${m(id)}/generate`,
   /** POST: NotesChatRequest. */
   chat: (id: string) => `${m(id)}/chat`,
+  /** GET: a pending chat answer (NotesChatResponse), once Arwin's routine has posted it. */
+  chatAnswer: (id: string, messageId: string) =>
+    `${m(id)}/chat?messageId=${encodeURIComponent(messageId)}`,
+  /** POST, demo mode only: a message as if Arwin's routine had posted it to the relay. */
+  demoRelay: `${base}/demo/relay`,
   /** GET (links) / POST (CreateShareLinkRequest). */
   share: (id: string) => `${m(id)}/share`,
   /** DELETE: revoke. */

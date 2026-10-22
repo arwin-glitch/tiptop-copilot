@@ -1,6 +1,7 @@
 'use client';
 
 import { Pencil, RefreshCw } from 'lucide-react';
+import { DRAFT_MODEL } from '@/lib/notes/draft';
 import type {
   CopilotNoteView,
   EnhancedBlock,
@@ -12,14 +13,18 @@ import { AiBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/feedback';
 import { cn } from '@/lib/util/cn';
+import { ArwinNotesStatus } from './arwin-notes-status';
 import { SourcePopover } from './source-popover';
 import { TemplatePicker } from './template-picker';
 
 /**
  * The notes after Stop (D-076). Lines the person typed stay in full ink with
- * a gold rule (they are kept word for word); what Copilot wrote is a lighter
- * tone, and each such point carries a source mark that opens the transcript
- * lines behind it. Regenerate, switch the template, or Edit the typed notes.
+ * a gold rule (they are kept word for word); what was written for them is a
+ * lighter tone, and each such point carries a source mark that opens the
+ * transcript lines behind it. First the Quick notes (rules, at once), then
+ * Arwin's notes when his Claude routine sends them; the status above says
+ * which, and that Arwin is still writing. Regenerate, switch the template,
+ * or Edit the typed notes.
  */
 export function EnhancedNotes({
   note,
@@ -27,6 +32,7 @@ export function EnhancedNotes({
   speakers,
   templates,
   regenerating,
+  demo = false,
   onRegenerate,
   onTemplate,
   onEdit,
@@ -37,14 +43,21 @@ export function EnhancedNotes({
   speakers: readonly SpeakerView[];
   templates: readonly TemplateView[];
   regenerating: boolean;
+  /** The demo workspace: Arwin's routine is never connected there. */
+  demo?: boolean;
   onRegenerate: () => void;
   onTemplate: (templateId: string | null) => void;
   onEdit: () => void;
   onJump: (seq: number) => void;
 }) {
   const typedCount = note.blocks.filter((b) => b.source === 'typed').length;
+  const quick = note.model === DRAFT_MODEL;
   return (
-    <section aria-label="Enhanced notes" data-enhanced-notes="">
+    <section
+      aria-label="Enhanced notes"
+      data-enhanced-notes=""
+      data-notes-kind={quick ? 'quick' : 'arwin'}
+    >
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
         <TemplatePicker
           templates={templates}
@@ -59,9 +72,20 @@ export function EnhancedNotes({
           <Pencil aria-hidden /> Edit
         </Button>
         <span className="ml-auto flex items-center gap-2">
-          <AiBadge label={note.model === 'none' ? 'Drafted from the transcript' : 'AI-written'} />
+          <AiBadge label={quick ? 'Quick notes' : 'Written by Arwin'} />
         </span>
       </div>
+
+      {note.request ? (
+        <ArwinNotesStatus
+          request={note.request}
+          showingQuick={quick}
+          demo={demo}
+          busy={regenerating}
+          onAskAgain={onRegenerate}
+          className="mt-3"
+        />
+      ) : null}
 
       {note.stale ? (
         <Notice className="mt-3">
@@ -75,8 +99,8 @@ export function EnhancedNotes({
           {typedCount})
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden className="h-3 w-0.5 rounded bg-[var(--border-strong)]" /> Written by
-          Copilot, with its source
+          <span aria-hidden className="h-3 w-0.5 rounded bg-[var(--border-strong)]" />{' '}
+          {quick ? 'Picked from the transcript' : 'Written by Arwin'}, with its source
         </span>
       </p>
 

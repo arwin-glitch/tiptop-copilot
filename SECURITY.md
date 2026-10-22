@@ -247,10 +247,15 @@ file Copilot serves itself (no CDN). A shared note's
 page (`/n/<token>`) is also sent `X-Robots-Tag: noindex, nofollow`,
 `Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
 
-Copilot Notes' other surfaces (D-076): spoken words reach the notes model
-fenced as untrusted, and what comes back is checked before it is stored
-(lines that exist, voices that exist, typed notes put back verbatim), so a
-sentence said on a call cannot plant a point, an owner or an instruction.
+Copilot Notes' other surfaces (D-076): no model is called for a meeting. The
+notes and the meeting chat are written by Arwin's Claude routine through the
+Ask bridge, which is told the transcript is data, never instructions; what
+comes back through the relay is validated and checked before it is stored
+(plain text, cited line ids that were sent, voices that exist, typed notes put
+back verbatim, sizes capped), so a sentence said on a call cannot plant a
+point, an owner or an instruction. Backticks are stripped from what is sent,
+so a transcript cannot break out of the relay's JSON. The demo relay route
+exists in demo mode only.
 Voice identifiers are sealed with AES-256-GCM under `VOICEPRINT_ENC_KEY`, the
 profile id bound in as additional data, and no route, MCP tool or log ever
 returns one; enrolment refuses anyone without consent on file. The MCP

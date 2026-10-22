@@ -7,6 +7,7 @@ import { isDemoMode } from '@/lib/config/env';
 import { notesAccess } from '@/lib/notes/flag';
 import { getStore } from '@/lib/runtime';
 import { getMeetingDetail, listFolders, listRecipes, listTemplates } from '@/lib/services/notes';
+import { meetingHasPendingRequest, settleNotesFromRelay } from '@/lib/services/notes-bridge';
 import { MEETINGS_TABS } from '@/lib/records-tabs';
 import { tabHref } from '@/lib/util/page-tabs';
 import { formatDateTime } from '@/lib/util/time';
@@ -54,6 +55,10 @@ export default async function MeetingPage({
   const access = await notesAccess(store, auth);
   if (!access.enabled) notFound();
   const ctx = { store, auth };
+  // Arwin's notes may have come back while nobody had this page open.
+  if (await meetingHasPendingRequest(store, auth.organizationId, id)) {
+    await settleNotesFromRelay(store, auth.organizationId, { ctx });
+  }
   const detail = await getMeetingDetail(ctx, id);
 
   const back = (

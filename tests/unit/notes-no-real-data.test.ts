@@ -14,8 +14,7 @@ const FILES = [
   'src/lib/transcribe/mock-script.ts',
   'src/lib/types/notes.ts',
   'src/lib/mcp/meeting-tools.ts',
-  'src/lib/ai/prompts/meeting-notes.ts',
-  'src/lib/ai/prompts/meeting-notes-tasks.ts',
+  'docs/NOTES_ROUTINE.md',
   // Everything Copilot Notes owns under lib/ (never-record.ts among them).
   ...['src/lib/notes', 'src/lib/speakers', 'src/lib/transcribe'].flatMap((dir) =>
     readdirSync(path.join(ROOT, dir))

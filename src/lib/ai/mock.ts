@@ -1,6 +1,5 @@
 import 'server-only';
 import type { z } from 'zod';
-import { mockMeetingOutput } from '@/lib/notes/mock-ai';
 import { scanForInjection } from '@/lib/security/injection';
 import { ok, type Result } from '@/lib/util/result';
 import type {
@@ -247,11 +246,6 @@ function buildOutput(
       return mockCompare(context, sources);
     case 'injection.detect':
       return mockInjection(sources, prompt);
-    // Copilot Notes (D-076): notes, the speaker-cue pass and the meeting chat.
-    case 'meeting.notes':
-    case 'meeting.cues':
-    case 'meeting.chat':
-      return mockMeetingOutput(operation, context, sources);
     default:
       return {};
   }

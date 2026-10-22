@@ -559,7 +559,9 @@ Meetings Copilot records and transcribes itself, without a bot
 (`NOTES_ENABLED`). Shapes and the API contract: `lib/types/notes.ts`; request
 schemas `lib/notes/schemas.ts`; services `lib/services/notes.ts` (meetings,
 consent and recording state, lines, voices, templates, folders, recipes),
-`notes-generate.ts` (notes, action items, chat), `notes-naming.ts` (the
+`notes-generate.ts` (Quick notes, action items, renames), `notes-bridge.ts`
+(Arwin's notes through the Ask bridge), `notes-chat.ts` (chat over meetings
+through Ask), `notes-naming.ts` (the
 naming ladder), `notes-context.ts` (CRM facts and the template auto-pick),
 `notes-share.ts`, `notes-search.ts`, `notes-settings.ts`, `notes-pairing.ts`,
 `notes-followup.ts`, `notes-purge.ts` and `voice-profiles.ts`; routes under
@@ -579,6 +581,7 @@ naming ladder), `notes-context.ts` (CRM facts and the template auto-pick),
 | `voice_profiles` | Opt-in voice enrolment consent per person: `consent_status` (`not_asked`, `granted`, `revoked`), `consent_evidence` (`self_checkbox` for oneself only; `written` or `verbal_recorded` for anyone else), `consent_text_version`, who recorded it, `enrolled_at`, `last_used_at`, `expires_at`, `revoked_at`. |
 | `voice_identifiers` | The encrypted voice identifier (AES-256-GCM under `VOICEPRINT_ENC_KEY`, bound to the profile) and its model version, expiring within a year of last use. RLS on with no policy: server only, never returned by a route, never exported. Withdrawing consent deletes it at once. |
 | `recording_rules` | Never-record rules by title words, guest domain or address, or calendar. Built-in defaults (legal and family words in the title) live in `lib/notes/never-record.ts`; anything specific to the firm is a row, never a name in code. |
+| `notes_requests` | Jobs for Arwin's Claude routine, at zero spend: `kind` `notes` (write a meeting's notes; `reason` `stop`, `regenerate` or `template`) or `chat` (a meeting chat question, with the Ask `message_id` and `thread_id` its answer lands on). `status` `pending` → `ready`, `failed` or `expired` (a day without an answer), `fired_at` / `fire_attempts` / `last_fire_at` for the trigger, `line_map` (a cited line id → the seq range it stands for, and for chat the meeting, moment and speaker; ids only), `parts` (NOTES_RESULT_V1 parts while they arrive, emptied once stored), `meeting_day`, `template_id`, `omitted_lines`, `error`. `meeting_notes.notes_request_id` points at the request behind a note's current text. |
 
 A meeting and everything under it is read only where its visibility allows
 (`can_read_meeting()` in the policies; `canSeeMeeting` in the service, which

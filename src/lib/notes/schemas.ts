@@ -231,6 +231,7 @@ export const NOTES_CHAT = z
     question: z.string().trim().min(1).max(NOTES_LIMITS.maxChatQuestionChars),
     personEmail: email.nullable().optional(),
     companyDomain: domain.nullable().optional(),
+    threadId: z.string().uuid().nullable().optional(),
   })
   .strict()
   .refine((v) => v.scope !== 'person' || Boolean(v.personEmail), {

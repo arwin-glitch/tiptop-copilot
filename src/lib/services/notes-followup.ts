@@ -1,14 +1,14 @@
 import 'server-only';
 import { env } from '@/lib/config/env';
+import type { DataStore } from '@/lib/db/store';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
 import type { AuditEvent } from '@/lib/types/domain';
 import type { Meeting } from '@/lib/types/notes';
-import type { NotesContext } from './notes';
 
 /**
- * Start the meeting-follow-up routine the moment a meeting's notes are ready
- * (D-076), instead of waiting for its two-hourly schedule. The app POSTs the
+ * Start the meeting-follow-up routine the moment Arwin's notes for a meeting
+ * are stored (D-076), instead of waiting for its two-hourly schedule. The app POSTs the
  * routine's /fire address (MEETING_FOLLOWUP_FIRE_URL, with its token) the
  * way the Ask routine is fired (ask-routine.ts): the text names the meeting
  * and nothing else, and the routine reads the notes through Copilot's MCP
@@ -30,8 +30,14 @@ export function followUpFireText(meetingId: string): string {
 
 export type FireOutcome = 'fired' | 'not_set_up' | 'private' | 'already' | 'failed';
 
+/** What firing needs: the store and the organization (a signed-in person, or the daily job). */
+export interface FollowUpContext {
+  store: DataStore;
+  auth: { organizationId: string; userId: string | null };
+}
+
 export async function fireMeetingFollowUp(
-  ctx: NotesContext,
+  ctx: FollowUpContext,
   meeting: Meeting,
   fetchImpl: typeof fetch = fetch,
 ): Promise<FireOutcome> {
