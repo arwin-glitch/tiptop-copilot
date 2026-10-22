@@ -212,6 +212,51 @@ test('a "+N" holds what does not fit beside the others and lists it', async ({ p
   await expect(more).toBeFocused();
 });
 
+test('a laptop at 1024px: the calendars move behind their button, and chips keep the minimum', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  for (const offset of [BUSY_DAY, BUSY_DAY + 1]) {
+    const date = dayFromToday(offset);
+    await page.goto(`/calendar?view=week&date=${date}`);
+    await expect(grid(page, 'week')).toBeVisible();
+    await expect(page.locator(`[data-date="${date}"] [data-event-chip]`).first()).toBeVisible();
+    // The month and the calendars leave the side, so the week has the room.
+    await expect(page.locator('[data-tour="calendar-list"]')).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Calendars' })).toBeVisible();
+    const chips = await chipsOn(page, date);
+    expect(chips.length).toBeGreaterThanOrEqual(8);
+    for (const c of chips) expect(c.width, c.label).toBeGreaterThanOrEqual(MIN_CHIP_PX - 0.5);
+    // A title that wraps has room for whole words; with less it takes one line,
+    // never a column of one letter and an ellipsis each.
+    const wrapped = await page
+      .locator(`[data-date="${date}"] [data-chip-title]`)
+      .evaluateAll((els) =>
+        els
+          .filter((el) => getComputedStyle(el).whiteSpace !== 'nowrap')
+          .map((el) => ({ text: el.textContent ?? '', width: el.clientWidth })),
+      );
+    for (const t of wrapped) expect(t.width, t.text).toBeGreaterThanOrEqual(43);
+    // Every chip can still be pressed somewhere: none is wholly covered.
+    const covered = await page.locator(`[data-date="${date}"]`).evaluate((column) =>
+      [...column.querySelectorAll<HTMLElement>('[data-event-chip]')]
+        .filter((el) => {
+          el.scrollIntoView({ block: 'center' });
+          const r = el.getBoundingClientRect();
+          for (let y = r.top + 2; y < r.bottom - 1; y += 4) {
+            for (let x = r.left + 2; x < r.right - 1; x += 4) {
+              if (document.elementFromPoint(x, y)?.closest('[data-event-chip]') === el)
+                return false;
+            }
+          }
+          return true;
+        })
+        .map((el) => el.getAttribute('aria-label')),
+    );
+    expect(covered).toEqual([]);
+  }
+});
+
 test('closing a long block’s card with Esc leaves the meetings drawn over it on top', async ({
   page,
 }) => {

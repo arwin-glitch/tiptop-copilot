@@ -851,7 +851,7 @@ export function CalendarViews(props: CalendarViewsProps) {
           </div>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="sm" className="lg:hidden">
+              <Button variant="ghost" size="sm" className="xl:hidden">
                 <Layers aria-hidden /> Calendars
               </Button>
             </PopoverTrigger>
@@ -891,8 +891,13 @@ export function CalendarViews(props: CalendarViewsProps) {
         <Notice tone="warn">Could not read {failedNames.join(', ')} this time.</Notice>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-[13.5rem_minmax(0,1fr)]">
-        <aside className="hidden space-y-4 lg:block">
+      {/* The month and the calendars sit beside the grid from 1280px; on a
+          laptop narrower than that they would squeeze Week's columns to
+          about 60px, too narrow for two events side by side at the minimum
+          width, so they move behind the Calendars button and the date
+          picker instead. */}
+      <div className="grid gap-4 xl:grid-cols-[13.5rem_minmax(0,1fr)]">
+        <aside className="hidden space-y-4 xl:block">
           <MiniMonth
             selected={date}
             today={today}

@@ -60,6 +60,17 @@ const CHIP_GAP_PX = 3;
 const ONE_LINE_CHIP_PX = 52;
 const COLOUR_ONLY_CHIP_PX = 16;
 /**
+ * The least room a title needs to wrap over words (about six letters): with
+ * less, most words would end in an ellipsis one under another ("D… S… c…"),
+ * so it takes one line instead.
+ */
+const MIN_WRAP_TITLE_PX = 44;
+/** A chip's padding and border either side of its title, and the Hold tag and bell beside it. */
+const CHIP_INSET_PX = 14;
+const NARROW_CHIP_INSET_PX = 6;
+const HOLD_TAG_PX = 32;
+const BELL_PX = 16;
+/**
  * Chips stack by start (1 up); a chip being dragged goes above them all, under
  * only the new event's placeholder (900) and the time line (910). A focused
  * chip keeps its place in the stack: raised, a long block would cover every
@@ -571,7 +582,13 @@ export function TimeGrid({
                   const widthPx = place.width * columnPx - CHIP_GAP_PX;
                   const narrow = widthPx < ONE_LINE_CHIP_PX;
                   const colourOnly = widthPx < COLOUR_ONLY_CHIP_PX;
-                  const oneLine = compact || narrow;
+                  // The title's own room, beside the Hold tag and the bell: too little to wrap words, one line.
+                  const titlePx =
+                    widthPx -
+                    (narrow ? NARROW_CHIP_INSET_PX : CHIP_INSET_PX) -
+                    (event.hold && !narrow ? HOLD_TAG_PX : 0) -
+                    (event.verdict.meeting && !narrow ? BELL_PX : 0);
+                  const oneLine = compact || narrow || titlePx < MIN_WRAP_TITLE_PX;
                   // As many lines of title as the height allows; the time follows if room is left.
                   const titleLines = Math.max(1, Math.floor((height - 4) / CHIP_LINE_PX));
                   return (
