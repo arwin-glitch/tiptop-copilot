@@ -24,6 +24,7 @@ import {
 import { receiptLine } from '@/lib/campaigns/receipt';
 import { finishedCampaignsSince, type FinishedCampaign } from './campaigns';
 import { buildReaders, readDocSendViews, type DocSendReader } from './docsend';
+import { listEditorNotices, noticeSentence, type EditorNotice } from './event-editors';
 import { getPrimaryIntegration } from './inbox';
 import { readFollowUps, type FollowUpsSnapshot } from './follow-ups';
 
@@ -373,6 +374,49 @@ export function computeCampaignAlerts(
   ];
 }
 
+/**
+ * Outside edit links (D-075): a first open, use from a new device or
+ * network, or "ready for review", as one notification for the kind. Each
+ * notice alerts once (ledger key `editor:<audit id>`), inside 8am-8pm and
+ * within the campaign alert window; a tap opens the event's Sharing tab.
+ * Pure, for tests.
+ */
+export function computeEditorAlerts(
+  notices: readonly EditorNotice[],
+  alreadySent: ReadonlySet<string>,
+  now: Date,
+  timeZone: string,
+): PushAlert[] {
+  if (quietHours(now, timeZone)) return [];
+  const windowMs = campaignAlertWindowMs(now, timeZone);
+  const due = notices
+    .filter((n) => now.getTime() - Date.parse(n.at) <= windowMs)
+    .map((n) => ({ key: `editor:${n.id}`, n }))
+    .filter(({ key }) => !alreadySent.has(key));
+  if (!due.length) return [];
+  const [only] = due;
+  const review = due.filter(({ n }) => n.kind === 'ready_for_review');
+  return [
+    {
+      keys: due.map((d) => d.key),
+      title:
+        due.length === 1 && only
+          ? only.n.kind === 'ready_for_review'
+            ? 'Event page ready for review'
+            : 'Outside edit link used'
+          : review.length
+            ? `${review.length} event page${review.length === 1 ? '' : 's'} ready for review`
+            : `${due.length} outside edit link notices`,
+      body: listBody(due.map(({ n }) => noticeSentence(n))),
+      url:
+        only && due.every((d) => d.n.eventId === only.n.eventId)
+          ? `/events/${encodeURIComponent(only.n.eventId)}?tab=sharing`
+          : '/events',
+      tag: 'event-editors',
+    },
+  ];
+}
+
 async function alertedKeys(
   store: DataStore,
   organizationId: string,
@@ -505,6 +549,8 @@ export interface AlertInputs {
   followUps: FollowUpsSnapshot | null;
   readers: DocSendReader[];
   finished: FinishedCampaign[];
+  /** Events (D-075): outside-link first opens, new devices, "ready for review". */
+  editorNotices?: EditorNotice[];
 }
 
 /**
@@ -525,10 +571,15 @@ export async function readAlertInputs(
     organizationId,
     new Date(now.getTime() - campaignAlertWindowMs(now, timeZone)),
   ).catch(() => null);
+  const notices = await listEditorNotices(store, organizationId, {
+    since: new Date(now.getTime() - campaignAlertWindowMs(now, timeZone)).toISOString(),
+    limit: 20,
+  }).catch(() => null);
   const inputs: AlertInputs = {
     followUps: null,
     readers: [],
     finished: finished?.ok ? finished.value : [],
+    editorNotices: notices?.ok ? notices.value : [],
   };
   const followUps = await readFollowUps(store, organizationId, { now, force });
   if (followUps.state === 'ok') {
@@ -555,6 +606,7 @@ export function alertsFromInputs(
 ): PushAlert[] {
   return [
     ...computeCampaignAlerts(inputs.finished, sent, now, timeZone),
+    ...computeEditorAlerts(inputs.editorNotices ?? [], sent, now, timeZone),
     ...(inputs.followUps
       ? computeDueAlerts(inputs.followUps, sent, now, timeZone, inputs.readers)
       : []),

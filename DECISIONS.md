@@ -2798,3 +2798,52 @@ sleeps (T16's other brakes hold). `X-Robots-Tag` is sent on personal and staff
 paths by the proxy; an unlisted event's own page says noindex in its meta tag
 (the proxy cannot know an event's visibility). The timed claim window for
 promoted waitlisters (v1 nice) is not built; `claim_expires_at` stays empty.
+
+**Studio and outside links, as built (WS3).**
+
+- **Studio** is one client component for owners (`/events/[id]/studio`, in a
+  `(focus)` route group: full screen, same root layout, no app shell) and
+  outside editors (`/e/edit/[id]`), gated by the capabilities in its
+  bootstrap. The canvas is WS2's `EventPage` in a device frame (its own
+  scroller, `contain: paint`, an inline-size container, scaled to fit), with
+  "Preview as" going through the same `filterDocForViewer` the public page
+  uses. The inspector is generated from the block registry's field
+  descriptors; until a block has descriptors, Studio falls back to a short
+  per-block list plus fields inferred from the props a section holds.
+- **The client draft** (`lib/events/editor/draft-editor.ts`) keeps what the
+  server confirmed plus the person's queued ops and shows confirmed + queued
+  through `merge.ts` itself, so a change the server would refuse as stale is
+  already not shown. When one of a person's own batches lands, their ops
+  still queued behind it are rebased onto the new revs only where every
+  newer key rev is their own write. Undo (100 steps, per person, cleared on
+  reload) sends the inverse as a new rev-checked op and says "Can't undo –
+  Morgan changed this since" when someone did. "Keep mine" in the conflict
+  dialog resends over whatever is there (the person has seen both versions).
+- **Autosave**: debounced 1.2 s with an 8 s ceiling, flushed with
+  `keepalive` when the tab hides, one batch in flight, retried with backoff
+  and on `online`; unsaved ops are also kept in `localStorage` (a
+  convenience copy, re-sent rev-checked on the next load).
+- **Sync and presence** (`lib/services/event-presence.ts`): every Studio
+  starts from a full snapshot, so `GET …/sync?since=n` returns sections and
+  theme with revs above `n`, deletions from `event_edits`, and the presence
+  list, and a whole document only when the client is ahead of the server or
+  a restore happened since. Each poll upserts the caller's presence row.
+  Soft locks are worked out in the browser: owners may override at once,
+  outside editors after 60 s with no typing from the other person.
+- **The claim** is two POSTs to `/api/e/edit/session`: one that only says
+  who the link is for (no writes, shares the claim brake of 10 per 10
+  minutes per address bucket), and the explicit "Open editor" click. The
+  signed cookie holds grant, organization, event, token version and expiry,
+  and is set on exactly two paths, `/e/edit/<id>` and `/api/e/edit/<id>`
+  (one `Set-Cookie` header each; staff links use `/e/checkin/<id>` and
+  `/api/e/checkin/<id>`), for 12 hours sliding, re-issued by API answers
+  when under 11 hours remain and never past the link's expiry.
+- **Owners are told** about a link's first use, use from a new address or
+  browser, and "Ready for review": audit rows read by `listEditorNotices`,
+  shown on the Sharing tab, and alerted once each on phones and the desktop
+  app through `computeEditorAlerts` in `push-alerts.ts` (8am to 8pm).
+- **Brakes**: 120 outsider ops a minute per link, 20 uploads an hour per
+  link and 200 MB a day per event, six "Ready for review" an hour.
+- **"Draft an email to Morgan"** opens a `mailto:` draft in the owner's own
+  mail app. Copilot has no Gmail draft-creation path that never sends, and
+  this one cannot send anything.
