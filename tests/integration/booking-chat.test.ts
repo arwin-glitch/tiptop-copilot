@@ -10,8 +10,10 @@ import {
   BOOKING_CHAT_OPERATION,
   CHAT_REQUEST,
   chatModeFor,
-  FAILED_CALL_ESTIMATE_USD,
+  LIVE_LINK_PER_DAY,
+  resetChatModeCache,
   runBookingChat,
+  unreportedTurnCostUsd,
   type ChatReply,
 } from '@/lib/booking/chat';
 import {
@@ -24,6 +26,7 @@ import { resetCalendarRangeCache, type CalendarSource } from '@/lib/calendar/ran
 import { DEMO_BOOKING_SETTINGS_ID } from '@/lib/demo/booking-fixtures';
 import { resetLimiters } from '@/lib/security/limits';
 import { publicBookingPage, publicSlots, resolveOpenLink } from '@/lib/services/booking';
+import type { DataStore } from '@/lib/db/store';
 import type { AiUsageRecord } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
 import { createHarness, type Harness } from '../helpers/harness';
@@ -81,8 +84,8 @@ function privateStrings(): string[] {
       add(a.displayName);
     }
   }
-  // The host's public name is on the page by design; nothing else is.
-  out.delete('Nick Tippmann');
+  // The host's public name (Settings' display name) is on the page by design;
+  // the principal's own account name is not, nor anything else.
   return [...out];
 }
 
@@ -99,6 +102,8 @@ class FakeModel implements AIProvider {
   requests: ToolConversationRequest<z.ZodType>[] = [];
   outcomes: ToolOutcome[] = [];
   fail = false;
+  /** What the provider says it spent before failing, as lib/ai/anthropic.ts reports it. */
+  failDetails: Record<string, string | number> | null = null;
   constructor(
     private readonly script: (
       call: (name: string, input: Record<string, unknown>) => Promise<ToolOutcome>,
@@ -122,7 +127,13 @@ class FakeModel implements AIProvider {
       this.outcomes.push(outcome);
       return outcome;
     });
-    if (this.fail) return err('provider_unavailable', 'The model is down.');
+    if (this.fail) {
+      return err(
+        'provider_unavailable',
+        'The model is down.',
+        this.failDetails ? { details: this.failDetails } : {},
+      );
+    }
     return ok({
       value: { reply: 'Here are some times. I put one in the form for you.' } as z.infer<T>,
       toolOutcomes: this.outcomes,
@@ -164,6 +175,7 @@ beforeEach(async () => {
   harness = await createHarness({ now: NOW });
   resetCalendarRangeCache();
   resetLimiters();
+  resetChatModeCache();
   state = createMockCalendarState(NOW);
 });
 
@@ -257,7 +269,7 @@ describe('live, with a model', () => {
     expect(usage.map((u) => (u as AiUsageRecord).estimated_cost_usd)).toEqual([0.0018]);
   });
 
-  it('counts a failed call against the cap, and falls back to the buttons', async () => {
+  it('counts a failed turn whose spend is unknown at its worst case, and falls back to the buttons', async () => {
     const model = new FakeModel(async () => {});
     model.fail = true;
     const reply = await chat(ask('Hello'), model);
@@ -267,8 +279,10 @@ describe('live, with a model', () => {
       eq: { operation: BOOKING_CHAT_OPERATION },
     })) as AiUsageRecord[];
     expect(usage.map((u) => [u.ok, u.estimated_cost_usd])).toEqual([
-      [false, FAILED_CALL_ESTIMATE_USD],
+      [false, unreportedTurnCostUsd()],
     ]);
+    // Three full rounds at the input ceiling: far above a flat cent.
+    expect(unreportedTurnCostUsd()).toBeGreaterThan(0.05);
   });
 
   it('stops using the model at the monthly cap', async () => {
@@ -418,7 +432,7 @@ describe('the public page and its times', () => {
     expect(page).toMatchObject({
       state: 'open',
       slug: 'nick',
-      host: { displayName: 'Nick Tippmann', firmName: 'TipTop VC (Demo)', photoUrl: null },
+      host: { displayName: 'Nick Avery', firmName: 'TipTop VC (Demo)', photoUrl: null },
       hostTimeZone: 'America/Chicago',
       offers: { call: true, inPerson: true },
       kinds: ['coffee', 'lunch', 'dinner'],
@@ -468,5 +482,126 @@ describe('the public page and its times', () => {
       expectNothingPrivate(times, `the ${kind ?? type} times`);
       expect(JSON.stringify(times)).not.toContain(MOCK_OWN_EMAIL);
     }
+  });
+});
+
+describe('spend control (review fixes)', () => {
+  function usageRow(n: number, costUsd: number, at = NOW.getTime() - 3_600_000): AiUsageRecord {
+    return {
+      id: `usage-${n}`,
+      organization_id: harness.auth.organizationId,
+      user_id: null,
+      operation: BOOKING_CHAT_OPERATION,
+      model: 'claude-haiku-4-5',
+      prompt_version: 'booking-chat@1.0.0',
+      input_tokens: 1,
+      output_tokens: 1,
+      cache_read_tokens: 0,
+      estimated_cost_usd: costUsd,
+      ok: true,
+      error_code: null,
+      duration_ms: 1,
+      created_at: new Date(at - n).toISOString(),
+    } as AiUsageRecord;
+  }
+
+  /** The store as Supabase answers: a list with no limit stops at the first 1,000 rows. */
+  function firstThousandOnly(store: DataStore): DataStore {
+    return new Proxy(store, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value !== 'function') return value;
+        if (prop !== 'list')
+          return (...a: unknown[]) => (value as (...x: unknown[]) => unknown).apply(target, a);
+        return async (...a: unknown[]) => {
+          const rows = (await (value as (...x: unknown[]) => Promise<unknown[]>).apply(
+            target,
+            a,
+          )) as unknown[];
+          const options = a[3] as { limit?: number } | undefined;
+          return options?.limit ? rows : rows.slice(0, 1000);
+        };
+      },
+    });
+  }
+
+  it('records what a failed turn really spent when the provider reports it', async () => {
+    const model = new FakeModel(async () => {});
+    model.fail = true;
+    model.failDetails = {
+      usageModel: 'claude-haiku-4-5',
+      usageInputTokens: 30_000,
+      usageOutputTokens: 1_800,
+      usageCacheReadTokens: 0,
+      usageCostUsd: 0.039,
+    };
+    expect((await chat(ask('Check each date one at a time'), model)).mode).toBe('guided');
+    const [row] = (await harness.store.list('ai_usage', harness.auth.organizationId, {
+      eq: { operation: BOOKING_CHAT_OPERATION },
+    })) as AiUsageRecord[];
+    expect(row).toMatchObject({
+      ok: false,
+      estimated_cost_usd: 0.039,
+      input_tokens: 30_000,
+      output_tokens: 1_800,
+      model: 'claude-haiku-4-5',
+    });
+  });
+
+  it('trips the monthly cap past the first 1,000 rows', async () => {
+    await harness.store.insertMany(
+      'ai_usage',
+      Array.from({ length: 1_500 }, (_, i) => usageRow(i, 0.015)),
+    );
+    const found = await resolveOpenLink(harness.store, SLUG);
+    if (!found.open) throw new Error('closed');
+    const model = new FakeModel(async () => {});
+    // 1,500 x $0.015 is $22.50, over the $20 cap; the first 1,000 alone are $15.
+    expect(
+      await chatModeFor(firstThousandOnly(harness.store), found.link, { ai: model, now: NOW }),
+    ).toEqual({ mode: 'guided', reason: 'monthly_cap' });
+  });
+
+  it('stops using the model after a day’s worth of turns on the link, counted from the table', async () => {
+    await harness.store.insertMany(
+      'ai_usage',
+      Array.from({ length: LIVE_LINK_PER_DAY }, (_, i) => usageRow(i, 0)),
+    );
+    const found = await resolveOpenLink(harness.store, SLUG);
+    if (!found.open) throw new Error('closed');
+    const model = new FakeModel(async () => {});
+    expect(await chatModeFor(harness.store, found.link, { ai: model, now: NOW })).toEqual({
+      mode: 'guided',
+      reason: 'daily_budget',
+    });
+    expect(LIVE_LINK_PER_DAY).toBe(400);
+  });
+
+  it('lets the public page reuse its answer briefly, while a chat turn always asks afresh', async () => {
+    const found = await resolveOpenLink(harness.store, SLUG);
+    if (!found.open) throw new Error('closed');
+    const model = new FakeModel(async () => {});
+    const page = { ai: model, now: NOW, cacheMs: 30_000 };
+    expect((await chatModeFor(harness.store, found.link, page)).mode).toBe('live');
+    await harness.store.insert('ai_usage', usageRow(1, 25));
+    expect((await chatModeFor(harness.store, found.link, page)).mode).toBe('live');
+    expect((await chatModeFor(harness.store, found.link, { ai: model, now: NOW })).mode).toBe(
+      'guided',
+    );
+    const later = { ...page, now: new Date(NOW.getTime() + 31_000) };
+    expect((await chatModeFor(harness.store, found.link, later)).mode).toBe('guided');
+  });
+
+  it('fills the form for the meeting the time was found for', async () => {
+    let start = '';
+    const model = new FakeModel(async (call) => {
+      const calls = await call('find_open_slots', { meeting_type: 'call' });
+      start = (JSON.parse(calls.content) as { slots: { start: string }[] }).slots[0]!.start;
+      await call('fill_form', { type: 'in_person', kind: 'coffee', start, placeId: 'juniper-rye' });
+    });
+    const reply = await chat(ask('A call, please'), model);
+    expect(reply.fill).toEqual({ type: 'call', start, placeId: 'juniper-rye' });
+    for (const slot of reply.slots)
+      expect(Object.keys(slot).sort()).toEqual(['end', 'label', 'start']);
   });
 });

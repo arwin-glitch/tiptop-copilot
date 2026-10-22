@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { loadMeetPage, PAGE_VIEWS_PER_10_MIN } from '@/lib/booking/page-data';
 import { SENT_MESSAGE } from '@/lib/booking/public';
 import { DEMO_BOOKING_SETTINGS_ID } from '@/lib/demo/booking-fixtures';
 import { getStorage } from '@/lib/runtime';
@@ -186,19 +187,33 @@ describe('sending a request', () => {
     expect(junk.status).toBe(400);
   });
 
-  it('brakes each address: five in ten minutes', async () => {
-    for (let i = 0; i < 5; i += 1) {
+  it('brakes each address: three waiting at most, and five tries in ten minutes', async () => {
+    for (let i = 0; i < 3; i += 1) {
       const res = await requestRoute(
         post('/api/meet/nick/request', message(`p${i}@a.example`)),
         params(),
       );
       expect(res.status, `request ${i + 1}`).toBe(200);
     }
+    // A fourth waiting request from the same address, under any email: no.
+    const fourth = await requestRoute(
+      post('/api/meet/nick/request', message('p3@a.example')),
+      params(),
+    );
+    expect(fourth.status).toBe(429);
+    expect(await fourth.json()).toMatchObject({
+      error: { message: 'You already have requests waiting. Arwin will reply to those first.' },
+    });
+    await requestRoute(post('/api/meet/nick/request', message('p4@a.example')), params());
+    // The sixth try in ten minutes is braked before anything is read.
     const sixth = await requestRoute(
       post('/api/meet/nick/request', message('p6@a.example')),
       params(),
     );
     expect(sixth.status).toBe(429);
+    expect(await sixth.json()).not.toMatchObject({
+      error: { message: 'You already have requests waiting. Arwin will reply to those first.' },
+    });
     const elsewhere = await requestRoute(
       post('/api/meet/nick/request', message('p7@a.example'), { ip: '198.51.100.20' }),
       params(),
@@ -257,6 +272,31 @@ describe('the chatbot route', () => {
     );
     expect(unknown.status).toBe(400);
   });
+
+  it('brakes each address before reading anything, even while the link is closed (review fix)', async () => {
+    await harness.store.update(
+      'booking_settings',
+      harness.auth.organizationId,
+      DEMO_BOOKING_SETTINGS_ID,
+      { enabled: false },
+    );
+    const body = { mode: 'guided', action: 'about' };
+    for (let i = 0; i < 60; i += 1) {
+      expect((await chatRoute(post('/api/meet/nick/chat', body), params())).status).toBe(403);
+    }
+    expect((await chatRoute(post('/api/meet/nick/chat', body), params())).status).toBe(429);
+  });
+});
+
+describe('the public page (review fix)', () => {
+  it('shows the closed page to an address past its brake, and reads nothing for it', async () => {
+    for (let i = 0; i < PAGE_VIEWS_PER_10_MIN; i += 1) {
+      expect((await loadMeetPage(harness.store, 'nick', 'visitor-key')).state).toBe('open');
+    }
+    const braked = await loadMeetPage(harness.store, 'nick', 'visitor-key');
+    expect(braked).toMatchObject({ state: 'closed', host: null, faq: '' });
+    expect((await loadMeetPage(harness.store, 'nick', 'another-key')).state).toBe('open');
+  });
 });
 
 describe('the host photo', () => {
@@ -297,6 +337,34 @@ describe('the host photo', () => {
       null,
     );
     expect(removed.ok && removed.value.config.photo).toBeNull();
+  });
+
+  it('serves only the exact file an upload wrote, never another path in the bucket (review fix)', async () => {
+    const org = harness.auth.organizationId;
+    const canary = `booking/${org}/../../secret-docs/canary.pdf`;
+    await getStorage().put(
+      canary,
+      new TextEncoder().encode('CANARY-PRIVATE-DOCUMENT'),
+      'image/png',
+    );
+    const row = await harness.store.get('booking_settings', org, DEMO_BOOKING_SETTINGS_ID);
+    for (const photo of [
+      { path: canary, type: 'image/png', version: 'abcd1234' },
+      {
+        path: `booking/${org}/host-photo-abcd1234.png/../x`,
+        type: 'image/png',
+        version: 'abcd1234',
+      },
+      { path: `booking/${org}/host-photo-abcd1234.jpg`, type: 'image/png', version: 'abcd1234' },
+    ]) {
+      // Written straight into the row, as a hand-made save might once have.
+      await harness.store.update('booking_settings', org, DEMO_BOOKING_SETTINGS_ID, {
+        settings: { ...(row!.settings as Record<string, unknown>), photo },
+      });
+      const res = await photoRoute(get('/meet/nick/photo'), params());
+      expect(res.status, photo.path).toBe(404);
+      expect(await res.text()).not.toContain('CANARY');
+    }
   });
 
   it('takes only a real JPG, PNG or WebP under 3 MB', async () => {

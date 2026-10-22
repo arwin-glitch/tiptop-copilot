@@ -113,14 +113,27 @@ describe('the visitor’s words, fenced', () => {
     expect(fenced.match(/<visitor-message>/g)).toHaveLength(1);
   });
 
-  it('keeps only the last twelve turns', () => {
+  it('keeps only the last six turns', () => {
     const many = Array.from({ length: 30 }, (_, i) => ({
       role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant',
       content: `turn ${i}`,
     }));
     const fenced = fenceConversation(many);
-    expect(fenced).not.toContain('turn 17');
-    expect(fenced).toContain('turn 18');
+    expect(fenced).not.toContain('turn 23');
+    expect(fenced).toContain('turn 24');
     expect(fenced).toContain('<visitor-message>\nturn 28\n</visitor-message>');
+  });
+
+  it('sends at most 3,000 characters of visitor text, the oldest turns dropped first (review fix)', () => {
+    const long = (tag: string) => `${tag} ${'界'.repeat(590)}`;
+    const turns = Array.from({ length: 12 }, (_, i) => ({
+      role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant',
+      content: long(`turn${i}`),
+    }));
+    const fenced = fenceConversation(turns);
+    expect(fenced.length).toBeLessThanOrEqual(3_000 + 250);
+    expect(fenced).toContain('<visitor-message>\nturn10 ');
+    expect(fenced).toContain('turn9 ');
+    expect(fenced).not.toContain('turn6 ');
   });
 });

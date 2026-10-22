@@ -88,19 +88,31 @@ export interface ChatTurn {
  * single user turn means a forged line is never an assistant turn the model
  * would take as its own words.
  */
-export function fenceConversation(turns: readonly ChatTurn[], max = 12): string {
+/** Turns sent to the model at most: the latest visitor message and the five before it. */
+export const CONVERSATION_MAX_TURNS = 6;
+/** Characters of visitor-supplied text sent to the model at most, so one turn's input stays small. */
+export const CONVERSATION_MAX_CHARS = 3_000;
+
+export function fenceConversation(
+  turns: readonly ChatTurn[],
+  max = CONVERSATION_MAX_TURNS,
+): string {
   const kept = turns.filter((t) => t.content.trim()).slice(-max);
   let lastVisitor = -1;
   kept.forEach((t, i) => {
     if (t.role === 'user') lastVisitor = i;
   });
-  const earlier = (lastVisitor >= 0 ? kept.slice(0, lastVisitor) : kept)
-    .map(
-      (t) =>
-        `${t.role === 'user' ? 'Visitor' : 'Arwin (as the page remembers it)'}: ${cleanVisitorText(t.content)}`,
-    )
-    .join('\n');
-  const latest = lastVisitor >= 0 ? kept[lastVisitor]!.content : '';
+  const latest = lastVisitor >= 0 ? cleanVisitorText(kept[lastVisitor]!.content) : '';
+  // The newest earlier turns first, until the budget the latest message leaves is spent.
+  let budget = CONVERSATION_MAX_CHARS - latest.length;
+  const lines: string[] = [];
+  for (const t of (lastVisitor >= 0 ? kept.slice(0, lastVisitor) : kept).reverse()) {
+    const line = `${t.role === 'user' ? 'Visitor' : 'Arwin (as the page remembers it)'}: ${cleanVisitorText(t.content)}`;
+    if (line.length > budget) break;
+    budget -= line.length;
+    lines.unshift(line);
+  }
+  const earlier = lines.join('\n');
   return [
     '<conversation>',
     ...(earlier ? ['<earlier>', earlier, '</earlier>'] : []),

@@ -269,6 +269,29 @@ export class AnthropicProvider implements AIProvider {
     let totalInput = 0;
     let totalOutput = 0;
     let totalCached = 0;
+    let paidCalls = 0;
+    /**
+     * A failure after a paid round still cost those rounds: its error carries
+     * what was spent (in `details`), so a caller with a spending cap can count
+     * it rather than guess.
+     */
+    const failed = (result: Result<never>): Result<never> => {
+      if (result.ok || paidCalls === 0) return result;
+      return {
+        ok: false,
+        error: {
+          ...result.error,
+          details: {
+            ...result.error.details,
+            usageModel: model,
+            usageInputTokens: totalInput,
+            usageOutputTokens: totalOutput,
+            usageCacheReadTokens: totalCached,
+            usageCostUsd: estimateCostUsd(model, totalInput, totalOutput, totalCached),
+          },
+        },
+      };
+    };
 
     const outputConfig: RequestBody = {
       format: { type: 'json_schema', schema: toModelJsonSchema(request.finalSchema) },
@@ -296,16 +319,17 @@ export class AnthropicProvider implements AIProvider {
           body as unknown as Anthropic.MessageCreateParamsNonStreaming,
         )) as unknown as AnthropicMessageResponse;
       } catch (error) {
-        return mapProviderError(error, request.operation);
+        return failed(mapProviderError(error, request.operation));
       }
 
       const u = response.usage ?? {};
       totalInput += u.input_tokens ?? 0;
       totalOutput += u.output_tokens ?? 0;
       totalCached += u.cache_read_input_tokens ?? 0;
+      paidCalls += 1;
 
       if (response.stop_reason === 'refusal') {
-        return err('provider_unavailable', 'The model declined to answer this request.');
+        return failed(err('provider_unavailable', 'The model declined to answer this request.'));
       }
 
       const toolUses = response.content.filter((b) => b.type === 'tool_use');
@@ -319,15 +343,19 @@ export class AnthropicProvider implements AIProvider {
         try {
           parsedJson = JSON.parse(text);
         } catch {
-          return err('invalid_model_output', 'The assistant response was not valid JSON.', {
-            retryable: true,
-          });
+          return failed(
+            err('invalid_model_output', 'The assistant response was not valid JSON.', {
+              retryable: true,
+            }),
+          );
         }
         const parsed = request.finalSchema.safeParse(parsedJson);
         if (!parsed.success) {
-          return err('invalid_model_output', 'The assistant response did not match its schema.', {
-            retryable: true,
-          });
+          return failed(
+            err('invalid_model_output', 'The assistant response did not match its schema.', {
+              retryable: true,
+            }),
+          );
         }
         return ok({
           value: parsed.data as z.infer<T>,
@@ -364,10 +392,12 @@ export class AnthropicProvider implements AIProvider {
       conversation.push({ role: 'user', content: results });
     }
 
-    return err(
-      'timeout',
-      'The assistant used its tool budget without reaching an answer. Try a narrower question.',
-      { retryable: true },
+    return failed(
+      err(
+        'timeout',
+        'The assistant used its tool budget without reaching an answer. Try a narrower question.',
+        { retryable: true },
+      ),
     );
   }
 }

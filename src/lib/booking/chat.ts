@@ -1,7 +1,15 @@
 import 'server-only';
 import { z } from 'zod';
-import type { AIProvider, ToolDefinition, ToolInvocation, ToolOutcome } from '@/lib/ai/provider';
+import { estimateCostUsd, modelFor } from '@/lib/ai/models';
+import type {
+  AIProvider,
+  ToolDefinition,
+  ToolInvocation,
+  ToolOutcome,
+  UsageInfo,
+} from '@/lib/ai/provider';
 import { envLimits } from '@/lib/config/env';
+import { listAllPages } from '@/lib/db/paging';
 import type { DataStore } from '@/lib/db/store';
 import { getAI } from '@/lib/runtime';
 import { rateLimit, recordAiUsage } from '@/lib/security/limits';
@@ -14,7 +22,8 @@ import {
   type OpenLink,
 } from '@/lib/services/booking';
 import { principalTimeZone } from '@/lib/services/push-alerts';
-import { err, ok, type Result } from '@/lib/util/result';
+import { processWide } from '@/lib/util/process-state';
+import { err, ok, type AppError, type Result } from '@/lib/util/result';
 import {
   BOOKING_CHAT_PROMPT_VERSION,
   bookingChatSystemPrompt,
@@ -51,14 +60,27 @@ import { CHAT_FORM_FILL, type ChatFormFill } from './request';
 
 export const BOOKING_CHAT_OPERATION = 'booking.chat';
 const CHAT_MAX_TOKENS = 600;
-/**
- * What a failed model call is counted as against the monthly cap: the
- * provider reports no usage for one, and counting it as free would let a
- * stream of failures run past the cap unseen. Generous for the fast model at
- * these token limits.
- */
-export const FAILED_CALL_ESTIMATE_USD = 0.01;
 const CHAT_MAX_ITERATIONS = 3;
+/**
+ * The most input one model round can take: the system prompt and tools, the
+ * fenced conversation (lib/booking/chat-prompt.ts caps it) and the tool
+ * answers of earlier rounds, with room for text that costs several tokens a
+ * character.
+ */
+const CHAT_INPUT_TOKENS_CEILING = 20_000;
+
+/**
+ * What a failed turn is counted as against the monthly cap and the daily
+ * budget when the provider could not say what it spent: every round at its
+ * ceiling. Counting a failure as free, or as a token amount, would let a
+ * stream of failures run past the cap unseen.
+ */
+export function unreportedTurnCostUsd(model: string = modelFor('fast')): number {
+  return (
+    CHAT_MAX_ITERATIONS * estimateCostUsd(model, CHAT_INPUT_TOKENS_CEILING, CHAT_MAX_TOKENS, 0)
+  );
+}
+
 /** Slots one answer offers at most. */
 const SLOTS_PER_ANSWER = 8;
 
@@ -66,8 +88,10 @@ const SLOTS_PER_ANSWER = 8;
 const LIVE_PER_10_MIN = 10;
 const LIVE_PER_DAY = 40;
 const ANY_PER_10_MIN = 60;
-/** The whole link's live messages an hour, whoever sends them. */
-const LIVE_ORG_PER_HOUR = 300;
+/** The whole link's live messages an hour, whoever sends them (in memory: resets on a deploy). */
+const LIVE_ORG_PER_HOUR = 60;
+/** The whole link's model turns in a day, counted from ai_usage (holds across deploys). */
+export const LIVE_LINK_PER_DAY = 400;
 
 export const GUIDED_ACTIONS = ['find_time', 'about', 'message'] as const;
 export type GuidedAction = (typeof GUIDED_ACTIONS)[number];
@@ -160,13 +184,18 @@ export const BOOKING_CHAT_TOOLS: ToolDefinition[] = [
   },
 ];
 
+export interface OfferedSlot extends ChatSlot {
+  /** The meeting it was found for: a fill that uses it takes this type and kind. */
+  query: { type: MeetingType; kind: MeetingKind | null };
+}
+
 export interface ToolScope {
   link: OpenLink;
   /** The engine input, read once per chat turn. */
   input: () => Promise<EngineInput | null>;
   visitorZone: string;
   /** Starts the find tool offered this turn, which a fill may use. */
-  offered: Map<string, ChatSlot>;
+  offered: Map<string, OfferedSlot>;
   /** The meeting the last find was for. */
   lastQuery: { type: MeetingType; kind: MeetingKind | null } | null;
   fills: ChatFormFill[];
@@ -275,7 +304,7 @@ export async function runBookingTool(
     const date =
       typeof raw.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : null;
     const slots = chatSlots(input, { type, kind }, scope.visitorZone, date);
-    for (const s of slots) scope.offered.set(s.start, s);
+    for (const s of slots) scope.offered.set(s.start, { ...s, query: { type, kind } });
     scope.lastQuery = { type, kind };
     return outcome(
       invocation,
@@ -309,6 +338,11 @@ export async function runBookingTool(
         );
       }
       fill.start = offered.start;
+      // The time was found for one meeting: the fill is for that one, never
+      // a call's time with "coffee" (the page would show a time it cannot send).
+      fill.type = offered.query.type;
+      if (offered.query.kind) fill.kind = offered.query.kind;
+      else delete fill.kind;
     }
     if (fill.placeId && !config.places.some((p) => p.id === fill.placeId)) delete fill.placeId;
     if (fill.customPlace && !config.allowCustomPlace) delete fill.customPlace;
@@ -329,46 +363,97 @@ function startOfMonthUtc(now: Date): string {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
 }
 
-/** This month's chatbot spend, and the organization's spend over the last day. */
+/**
+ * This month's chatbot spend, the organization's spend over the last day,
+ * and the chatbot's model turns over the last day. Every page of rows is
+ * read (lib/db/paging.ts): a plain list stops at the database's first 1,000,
+ * and a cap summed over part of the rows would never trip.
+ */
 async function spend(
   store: DataStore,
   organizationId: string,
   now: Date,
-): Promise<{ month: number; day: number }> {
-  const [month, day] = await Promise.all([
-    store.list('ai_usage', organizationId, {
+): Promise<{ month: number; day: number; turnsToday: number }> {
+  const dayAgo = new Date(now.getTime() - 86_400_000).toISOString();
+  const [month, day, turnsToday] = await Promise.all([
+    listAllPages(store, 'ai_usage', organizationId, {
       eq: { operation: BOOKING_CHAT_OPERATION },
       gte: { created_at: startOfMonthUtc(now) },
     }),
-    store.list('ai_usage', organizationId, {
-      gte: { created_at: new Date(now.getTime() - 86_400_000).toISOString() },
+    listAllPages(store, 'ai_usage', organizationId, { gte: { created_at: dayAgo } }),
+    store.count('ai_usage', organizationId, {
+      eq: { operation: BOOKING_CHAT_OPERATION },
+      gte: { created_at: dayAgo },
     }),
   ]);
   const sum = (rows: { estimated_cost_usd: number | null }[]) =>
     rows.reduce((total, r) => total + (r.estimated_cost_usd ?? 0), 0);
-  return { month: sum(month), day: sum(day) };
+  return { month: sum(month), day: sum(day), turnsToday };
 }
 
 export type ChatModeReason = 'off' | 'no_key' | 'monthly_cap' | 'daily_budget' | 'busy' | null;
+type ChatMode = { mode: 'live' | 'guided'; reason: ChatModeReason };
 
-/** Whether the chatbot may use the model now. Never throws: any doubt is guided. */
+/** The public page's answer, kept briefly per link so a burst of page views reads the spend once. */
+const modeCache = processWide(
+  'booking-chat-mode',
+  () => new Map<string, { at: number; value: ChatMode }>(),
+);
+
+/**
+ * Whether the chatbot may use the model now. Never throws: any doubt is
+ * guided. `cacheMs` (the public page only) reuses an answer that young; a
+ * chat turn always asks afresh.
+ */
 export async function chatModeFor(
   store: DataStore,
   link: OpenLink,
-  options: { ai?: AIProvider; now?: Date } = {},
-): Promise<{ mode: 'live' | 'guided'; reason: ChatModeReason }> {
+  options: { ai?: AIProvider; now?: Date; cacheMs?: number } = {},
+): Promise<ChatMode> {
   if (!link.config.chatbotEnabled) return { mode: 'guided', reason: 'off' };
   const ai = options.ai ?? getAI();
   // The demo's offline stub writes about fictional deals; it is not a chatbot.
   if (ai.kind !== 'anthropic' || !ai.available()) return { mode: 'guided', reason: 'no_key' };
+  const now = options.now ?? new Date();
+  const key = `${link.organizationId}:${link.config.monthlyAiCapUsd}`;
+  const cached = options.cacheMs ? modeCache.get(key) : undefined;
+  if (cached && now.getTime() - cached.at < (options.cacheMs ?? 0)) return cached.value;
+  let value: ChatMode = { mode: 'live', reason: null };
   try {
-    const used = await spend(store, link.organizationId, options.now ?? new Date());
-    if (used.month >= link.config.monthlyAiCapUsd) return { mode: 'guided', reason: 'monthly_cap' };
-    if (used.day >= envLimits().dailyAiBudgetUsd) return { mode: 'guided', reason: 'daily_budget' };
+    const used = await spend(store, link.organizationId, now);
+    if (used.month >= link.config.monthlyAiCapUsd) {
+      value = { mode: 'guided', reason: 'monthly_cap' };
+    } else if (used.day >= envLimits().dailyAiBudgetUsd || used.turnsToday >= LIVE_LINK_PER_DAY) {
+      value = { mode: 'guided', reason: 'daily_budget' };
+    }
   } catch {
     return { mode: 'guided', reason: 'busy' };
   }
-  return { mode: 'live', reason: null };
+  modeCache.set(key, { at: now.getTime(), value });
+  return value;
+}
+
+/** Tests: forget the page's cached answers. */
+export function resetChatModeCache(): void {
+  modeCache.clear();
+}
+
+/**
+ * What a failed turn is recorded as: what the provider says it spent before
+ * failing (lib/ai/anthropic.ts puts it on the error), else the worst case.
+ */
+export function failedTurnUsage(error: AppError, model: string = modelFor('fast')): UsageInfo {
+  const d = error.details ?? {};
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const reported = num(d.usageCostUsd);
+  return {
+    model: typeof d.usageModel === 'string' ? d.usageModel : model,
+    inputTokens: num(d.usageInputTokens),
+    outputTokens: num(d.usageOutputTokens),
+    cacheReadTokens: num(d.usageCacheReadTokens),
+    estimatedCostUsd: reported ?? unreportedTurnCostUsd(model),
+    durationMs: 0,
+  };
 }
 
 const GUIDED_NOTICE: Record<Exclude<ChatModeReason, null>, string> = {
@@ -540,16 +625,7 @@ export async function runBookingChat(
     userId: null,
     operation: BOOKING_CHAT_OPERATION,
     promptVersion: BOOKING_CHAT_PROMPT_VERSION,
-    usage: result.ok
-      ? result.value.usage
-      : {
-          model: 'unknown',
-          inputTokens: null,
-          outputTokens: null,
-          cacheReadTokens: null,
-          estimatedCostUsd: FAILED_CALL_ESTIMATE_USD,
-          durationMs: 0,
-        },
+    usage: result.ok ? result.value.usage : failedTurnUsage(result.error),
     ok: result.ok,
     errorCode: result.ok ? null : result.error.code,
   }).catch((error: unknown) => {
@@ -562,7 +638,11 @@ export async function runBookingChat(
       await guidedReply(scope, {}, hostFirst, 'I could not answer just now: tap a button below.'),
     );
   }
-  const offered = [...scope.offered.values()];
+  const offered = [...scope.offered.values()].map(({ start, end, label }): ChatSlot => ({
+    start,
+    end,
+    label,
+  }));
   return ok({
     mode: 'live',
     reply: result.value.value.reply.trim().slice(0, 1200),

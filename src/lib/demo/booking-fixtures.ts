@@ -21,7 +21,7 @@ export const DEMO_BOOKING_SETTINGS_ID = id(0xb00c);
 
 export const DEMO_BOOKING_CONFIG: BookingConfig = {
   ...structuredClone(DEFAULT_BOOKING_CONFIG),
-  displayName: 'Nick Tippmann',
+  displayName: 'Nick Avery',
   title: 'Partner, TipTop VC (Demo)',
   bio: 'Backs early software teams from the first check. This is an invented demo profile: the real one is written in Settings.',
   firmName: 'TipTop VC (Demo)',

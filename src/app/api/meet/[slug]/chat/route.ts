@@ -14,7 +14,12 @@ type Context = { params: Promise<{ slug: string }> };
  * and a form fill; the visitor still presses Send.
  */
 export async function POST(request: NextRequest, context: Context) {
-  const gate = visitorGate(request, { write: true, limits: [] });
+  // Braked before anything is read: the link, its settings and the spend
+  // check are not free, so a flood stops here.
+  const gate = visitorGate(request, {
+    write: true,
+    limits: [{ bucket: 'booking-chat', max: 60, windowMs: 600_000 }],
+  });
   if (!gate.ok) return gate.response;
   const body = await readJson(request, 24_000);
   const parsed = CHAT_REQUEST.safeParse(body ?? {});
