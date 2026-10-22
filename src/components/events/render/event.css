@@ -772,12 +772,20 @@
     animation-timeline: view();
     /* A fixed distance, not a share of the section: a tall section (the RSVP
        form) would otherwise stay faded or blurred until it nearly filled the
-       screen. */
-    animation-range: entry 0% entry 240px;
+       screen. Capped at the element's own entry (100%) so a short section,
+       or the last one on the page that can never scroll 240px in, still
+       finishes once it is fully in view. */
+    animation-range: entry 0% entry min(240px, 100%);
   }
   [data-event-root][data-motion='full'] .ev-stagger {
     animation-name: ev-enter-fade-up;
-    animation-range: entry 0% entry 160px;
+    animation-range: entry 0% entry min(160px, 100%);
+  }
+  /* Backstop: the page's last section (the footer) may stop short of a full
+     entry at the bottom of the scroll; it is shown whole. */
+  [data-event-root][data-motion='full'] .ev-page > .ev-section:last-child > .ev-section__inner,
+  [data-event-root][data-motion='full'] .ev-page > .ev-section:last-child .ev-stagger {
+    animation: none;
   }
   [data-event-root][data-motion='full']
     .ev-section[data-entrance='fade_up']:not([data-block='hero'])

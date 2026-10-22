@@ -111,6 +111,33 @@ function statusFor(item: GuestListItem, sessionId: string | null): EventGuestSta
   return item.status;
 }
 
+/**
+ * Statuses whose tab (and count, and audience) means "in ANY session": a
+ * guest Going to the Meeting with a pending Reception request still waits for
+ * the host's answer, and must show under Pending. Not going and Declined stay
+ * guest-level (not coming to anything).
+ */
+export const ANY_SESSION_STATUSES: ReadonlySet<EventGuestStatus> = new Set([
+  'going',
+  'pending',
+  'waitlist',
+  'maybe',
+  'invited',
+]);
+
+/**
+ * Whether a guest with these per-session statuses is in a "status" audience
+ * with no session chosen: any session for Going, Pending, Waitlist, Maybe and
+ * Invited; guest-level (not coming to anything) for Not going and Declined.
+ */
+export function statusAudienceMatch(
+  wanted: readonly EventGuestStatus[],
+  statuses: readonly EventGuestStatus[],
+): boolean {
+  if (wanted.includes(strongestStatus(statuses))) return true;
+  return statuses.some((s) => ANY_SESSION_STATUSES.has(s) && wanted.includes(s));
+}
+
 export function inTab(
   item: GuestListItem,
   tab: GuestTab,
@@ -121,6 +148,12 @@ export function inTab(
     return sessionId
       ? Boolean(item.sessions[sessionId]?.checkedInAt)
       : Object.values(item.sessions).some((s) => s.checkedInAt);
+  }
+  if (!sessionId && ANY_SESSION_STATUSES.has(tab)) {
+    const states = Object.values(item.sessions);
+    // On the list with no session rows yet: their guest-level status counts.
+    if (!states.length) return item.status === tab;
+    return states.some((s) => s.status === tab);
   }
   return statusFor(item, sessionId) === tab;
 }

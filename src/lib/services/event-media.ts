@@ -11,6 +11,7 @@ import {
   type ResolvedMediaVariant,
 } from '@/lib/events/contracts';
 import { ImageRefused, processImage, sniff } from '@/lib/events/media-process';
+import { scrubVideoMetadata } from '@/lib/events/video-meta';
 import type { EventDoc } from '@/lib/events/schema';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
@@ -214,6 +215,7 @@ export async function createUploadUrl(
     async () => {
       const event = await loadEvent(store, organizationId, eventId);
       if (!event) return notFound();
+      await sweepStaleUploads(store, organizationId, eventId);
       if (actor.kind === 'grant') {
         if (event.editing_paused)
           return refuse('Editing is paused. TipTop will reopen it when ready.');
@@ -344,8 +346,12 @@ async function derive(
     if (type !== 'mp4' && type !== 'webm') {
       throw new ProcessingRefused('That file is not an MP4 or WebM video.');
     }
+    // No transcoder here, so the location/device metadata phones write is
+    // wiped in place before the file can reach the public bucket.
+    const scrubbed = scrubVideoMetadata(original, type);
+    if (!scrubbed.ok) throw new ProcessingRefused(scrubbed.reason);
     const path = `${base}.${media.width ?? 0}.${type}`;
-    const stored = await storage.put(bucket, path, original, `video/${type}`);
+    const stored = await storage.put(bucket, path, scrubbed.bytes, `video/${type}`);
     if (!stored.ok) throw new ProcessingRefused('That video could not be stored just now.');
     return {
       variants: [{ w: media.width ?? 0, format: type, path, bytes: original.byteLength }],
@@ -388,6 +394,30 @@ async function markFailed(store: DataStore, media: EventMedia, message: string) 
     error: message.slice(0, 500),
     updated_at: new Date().toISOString(),
   });
+  // A refused original is never kept: it would only use up the storage plan.
+  const removed = await getEventStorage().remove('private', [media.original_path]);
+  if (!removed.ok) log.warn('Event media: a refused original could not be removed');
+}
+
+/** How far an upload may exceed the size its ticket declared (rounding, headers). */
+const DECLARED_SLACK = 1.05;
+
+/**
+ * Uploads whose ticket ran out (2 hours) without being processed: the row and
+ * any original that arrived are removed. Runs whenever a new upload starts.
+ */
+async function sweepStaleUploads(store: DataStore, organizationId: string, eventId: string) {
+  const cutoff = new Date(Date.now() - UPLOAD_URL_SECONDS * 1000).toISOString();
+  const stale = await store.list('event_media', organizationId, {
+    eq: { event_id: eventId, status: 'uploaded' },
+    lt: { created_at: cutoff },
+  });
+  if (!stale.length) return;
+  await getEventStorage().remove(
+    'private',
+    stale.map((m) => m.original_path),
+  );
+  for (const m of stale) await store.remove('event_media', organizationId, m.id);
 }
 
 /** Process an uploaded original. Idempotent: a ready item comes back as it is. */
@@ -420,6 +450,29 @@ export async function processMedia(
         return err('not_found', 'The upload has not arrived yet. Try again in a moment.', {
           retryable: true,
         });
+      }
+      // An outside link is charged for what actually arrived, not what its
+      // ticket declared: a file bigger than declared, or one that takes the
+      // event past its daily allowance, is refused and deleted.
+      if (actor.kind === 'grant') {
+        const actual = original.value.byteLength;
+        if (actual > (media.bytes ?? 0) * DECLARED_SLACK + 1024) {
+          await markFailed(store, media, 'The file is bigger than it said it was.');
+          return err('too_large', 'That file is bigger than it said it was. Upload it again.');
+        }
+        const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const today = await store.list('event_media', organizationId, {
+          eq: { event_id: eventId },
+          gte: { created_at: dayAgo },
+        });
+        const used = today
+          .filter((m) => m.id !== media.id && m.created_by_actor.startsWith('g:'))
+          .filter((m) => m.status !== 'failed')
+          .reduce((sum, m) => sum + (m.bytes ?? 0), 0);
+        if (used + actual > GRANT_BYTES_PER_DAY) {
+          await markFailed(store, media, 'Today’s upload allowance for this event is used up.');
+          return err('rate_limited', 'Today’s upload allowance for this event is used up.');
+        }
       }
       let processed: Processed;
       try {

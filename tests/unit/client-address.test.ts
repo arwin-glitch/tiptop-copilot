@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { addressBucket, addressKey, clientAddress } from '@/lib/security/client-address';
 import { limiterBucketCount, rateLimit, resetLimiters } from '@/lib/security/limits';
 
@@ -8,15 +8,44 @@ import { limiterBucketCount, rateLimit, resetLimiters } from '@/lib/security/lim
  * limiter drops spent windows instead of keeping every key for ever.
  */
 
-afterEach(() => resetLimiters());
+afterEach(() => {
+  resetLimiters();
+  vi.unstubAllEnvs();
+});
 
 describe('clientAddress', () => {
-  it('prefers the edge address, then the last forwarded hop', () => {
+  it('prefers the edge address behind Cloudflare, then the last forwarded hop', () => {
+    vi.stubEnv('TRUST_CF_CONNECTING_IP', 'true');
     expect(clientAddress(new Headers({ 'cf-connecting-ip': '198.51.100.4' }))).toBe('198.51.100.4');
     expect(clientAddress(new Headers({ 'x-forwarded-for': '10.0.0.1, 203.0.113.9' }))).toBe(
       '203.0.113.9',
     );
     expect(clientAddress(new Headers())).toBe('unknown');
+  });
+
+  it('ignores a CF-Connecting-IP a client wrote when Cloudflare is not in front', () => {
+    vi.stubEnv('TRUST_CF_CONNECTING_IP', '');
+    vi.stubEnv('RENDER', '');
+    const forged = new Headers({
+      'cf-connecting-ip': '192.0.2.1',
+      'x-forwarded-for': '192.0.2.1, 203.0.113.9',
+    });
+    expect(clientAddress(forged)).toBe('203.0.113.9');
+    // Render serves through Cloudflare (and says so with RENDER=true).
+    vi.stubEnv('RENDER', 'true');
+    expect(clientAddress(forged)).toBe('192.0.2.1');
+    // An explicit "false" wins over the guess.
+    vi.stubEnv('TRUST_CF_CONNECTING_IP', 'false');
+    expect(clientAddress(forged)).toBe('203.0.113.9');
+    // Vercel's own edge header.
+    vi.stubEnv('TRUST_CF_CONNECTING_IP', '');
+    vi.stubEnv('RENDER', '');
+    vi.stubEnv('VERCEL', '1');
+    expect(
+      clientAddress(
+        new Headers({ 'x-vercel-forwarded-for': '198.51.100.7', 'x-forwarded-for': '1.2.3.4' }),
+      ),
+    ).toBe('198.51.100.7');
   });
 });
 
@@ -37,6 +66,7 @@ describe('addressBucket', () => {
   });
 
   it('gives one limiter key to a whole /64, and never the raw address', () => {
+    vi.stubEnv('TRUST_CF_CONNECTING_IP', 'true');
     const one = addressKey(new Headers({ 'cf-connecting-ip': '2001:db8:aaaa:bbbb::1' }));
     const two = addressKey(new Headers({ 'cf-connecting-ip': '2001:db8:aaaa:bbbb::2' }));
     expect(one).toBe(two);

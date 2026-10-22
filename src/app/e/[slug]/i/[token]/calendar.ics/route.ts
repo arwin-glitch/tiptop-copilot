@@ -1,7 +1,7 @@
 import { eventPaths } from '@/lib/events/contracts';
 import { buildIcs, icsFilename } from '@/lib/events/ics';
 import { locationLine } from '@/lib/events/calendar-links';
-import { venueForViewer, viewerForGuest } from '@/lib/events/visibility';
+import { venueForViewer, viewerForGuest, viewerForSession } from '@/lib/events/visibility';
 import { getStore } from '@/lib/runtime';
 import { absoluteUrl, resolveInvite, resolvePublicEvent } from '@/lib/services/event-public';
 
@@ -46,7 +46,10 @@ export async function GET(_request: Request, context: Context) {
     sessions: resolved.sessions
       .filter((s) => attending.has(s.id) && (s.starts_at ?? event.starts_at))
       .map((s) => {
-        const venue = venueForViewer(s.venue ?? event.venue, viewer);
+        // A session's own venue follows the guest's status in that session.
+        const venue = s.venue
+          ? venueForViewer(s.venue, viewerForSession(viewer, s.id))
+          : venueForViewer(event.venue, viewer);
         return {
           id: s.id,
           name: s.name,

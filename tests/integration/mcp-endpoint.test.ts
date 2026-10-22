@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
 import { DELETE, GET, POST } from '@/app/api/mcp/route';
 import { POST as postWithPathToken } from '@/app/api/mcp/[token]/route';
@@ -51,6 +51,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await harness.dispose();
+  vi.unstubAllEnvs();
 });
 
 function request(
@@ -210,6 +211,8 @@ describe('authentication', () => {
   });
 
   it("prefers Cloudflare's CF-Connecting-IP to X-Forwarded-For for the brake", async () => {
+    // Behind Cloudflare only (Render sets RENDER=true); elsewhere the header is a client's.
+    vi.stubEnv('RENDER', 'true');
     // Behind a proxy that appends itself, every caller shares the last hop;
     // the edge's header still tells callers apart.
     const via = (edge: string, bearer: string) =>

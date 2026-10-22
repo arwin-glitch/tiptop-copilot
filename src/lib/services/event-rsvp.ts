@@ -1,9 +1,11 @@
 import 'server-only';
+import { randomUUID } from 'node:crypto';
 import type { DataStore } from '@/lib/db/store';
 import {
   planInviteResponse,
   planPublicRegistration,
   type PlusOnePlanInput,
+  type PublicRegistrationInput,
   type RegistrationOutcome,
   type Response,
 } from '@/lib/events/capacity';
@@ -48,6 +50,41 @@ export interface RsvpResult {
 /** The neutral answer to an email already on the list: reveals no link and no details. */
 export const ALREADY_REGISTERED_MESSAGE =
   'You’re already registered. Use the link in your invitation, or contact the host.';
+
+/**
+ * On approval and invite-only events the form must not tell a stranger
+ * whether an email is already on the guest list (an LP's, say). So an email
+ * that is already there gets EXACTLY the answer a new request would get (the
+ * same per-session outcome, no ticket link, a cookie that opens nothing), and
+ * the host sees an "rsvp_duplicate" entry in the audit log instead. New
+ * registrations there get no ticket link in the answer either; their
+ * remembered browser finds it on the page. Open events keep the plain
+ * "already registered" message.
+ */
+function quietDuplicates(event: Pick<EventRecord, 'access'>): boolean {
+  return event.access !== 'open';
+}
+
+/**
+ * A per-event cap on new self-registrations that does not depend on the
+ * caller's address (which a client can sometimes choose): past it, the form
+ * asks people to try again later and the host sees it in the audit log.
+ */
+export const SELF_REGISTRATIONS_PER_HOUR = 50;
+const BUSY_MESSAGE = 'A lot of people are registering right now. Try again in a little while.';
+
+function recentSelfRegistrations(
+  guests: readonly Pick<EventGuest, 'source' | 'parent_guest_id' | 'created_at'>[],
+  now: Date,
+): number {
+  const since = now.getTime() - 60 * 60 * 1000;
+  return guests.filter(
+    (g) =>
+      !g.parent_guest_id &&
+      (g.source === 'public' || g.source === 'request') &&
+      Date.parse(g.created_at) >= since,
+  ).length;
+}
 
 const CLOSED_MESSAGE = 'RSVPs are closed for this event. Contact the host to change yours.';
 
@@ -162,39 +199,68 @@ export async function registerPublic(
   if (!plusOnes.ok) return err('invalid_input', plusOnes.message);
 
   let guestRow: EventGuest | null = null;
+  const quiet = quietDuplicates(event);
+  let duplicate = false;
+  let busy = false;
+  let lastOutcome: RegistrationOutcome | null = null;
   const result = await runPlanned<RegistrationOutcome>(
     store,
     event.organization_id,
     event.id,
     (loaded) => {
-      const planned = planPublicRegistration(
-        {
-          event: loaded.event,
-          sessions: loaded.sessions,
-          guests: loaded.guests,
-          rows: loaded.rows,
-          now: now.toISOString(),
-          newId,
-        },
-        {
-          person: { ...personFields(input), email: input.email },
-          sessionIds: chosen,
-          answers: answers.answers,
-          plusOnes: plusOnes.value,
-          showOnWall: input.showOnWall,
-          request: input.request,
-          referralCode: input.via ?? null,
-          utm: input.utm
-            ? (Object.fromEntries(Object.entries(input.utm).filter(([, v]) => v)) as Record<
-                string,
-                string
-              >)
-            : null,
-          ipHash: context.ipHash,
-        },
-      );
+      const registration: PublicRegistrationInput = {
+        person: { ...personFields(input), email: input.email },
+        sessionIds: chosen,
+        answers: answers.answers,
+        plusOnes: plusOnes.value,
+        showOnWall: input.showOnWall,
+        request: input.request,
+        referralCode: input.via ?? null,
+        utm: input.utm
+          ? (Object.fromEntries(Object.entries(input.utm).filter(([, v]) => v)) as Record<
+              string,
+              string
+            >)
+          : null,
+        ipHash: context.ipHash,
+      };
+      const plan = (guests: typeof loaded.guests, rows: typeof loaded.rows) =>
+        planPublicRegistration(
+          {
+            event: loaded.event,
+            sessions: loaded.sessions,
+            guests,
+            rows,
+            now: now.toISOString(),
+            newId,
+          },
+          registration,
+        );
+      if (recentSelfRegistrations(loaded.guests, now) >= SELF_REGISTRATIONS_PER_HOUR) {
+        busy = true;
+        return { kind: 'stop', result: err('rate_limited', BUSY_MESSAGE) };
+      }
+      const planned = plan(loaded.guests, loaded.rows);
       if (planned.kind === 'already_registered') {
-        return { kind: 'stop', result: err('conflict', ALREADY_REGISTERED_MESSAGE) };
+        if (!quiet) return { kind: 'stop', result: err('conflict', ALREADY_REGISTERED_MESSAGE) };
+        // What a brand-new person would have been told: plan without the
+        // existing guest (nothing is written).
+        const email = input.email.trim().toLowerCase();
+        const existing = loaded.guests.find((g) => g.email === email);
+        const others = loaded.guests.filter(
+          (g) => g.id !== existing?.id && g.parent_guest_id !== existing?.id,
+        );
+        const kept = new Set(others.map((g) => g.id));
+        const shape = plan(
+          others,
+          loaded.rows.filter((r) => kept.has(r.guest_id)),
+        );
+        duplicate = true;
+        if (shape.kind === 'planned') return { kind: 'stop', result: ok(shape.outcome) };
+        if (shape.kind === 'full') {
+          return { kind: 'stop', result: err('conflict', 'This event is full.') };
+        }
+        return { kind: 'stop', result: err('invalid_input', 'Check the form and try again.') };
       }
       if (planned.kind === 'full') {
         return { kind: 'stop', result: err('conflict', 'This event is full.') };
@@ -203,11 +269,52 @@ export async function registerPublic(
         return { kind: 'stop', result: err('invalid_input', planned.message) };
       }
       guestRow = planned.plan.upsertGuests.find((g) => g.id === planned.outcome.guestId) ?? null;
+      lastOutcome = planned.outcome;
       return { kind: 'plan', plan: planned.plan, value: planned.outcome };
     },
-    { onDuplicateEmail: () => err('conflict', ALREADY_REGISTERED_MESSAGE) },
+    {
+      // A race with the same email, or a plus-one's email already on the list.
+      onDuplicateEmail: () => {
+        if (!quiet || !lastOutcome) return err('conflict', ALREADY_REGISTERED_MESSAGE);
+        duplicate = true;
+        return ok(lastOutcome);
+      },
+    },
   );
-  if (!result.ok) return result;
+  if (!result.ok) {
+    if (busy) {
+      await recordAudit(store, {
+        organizationId: event.organization_id,
+        userId: null,
+        action: 'event.rsvp_busy',
+        entityType: 'event',
+        entityId: event.id,
+        metadata: { per_hour: SELF_REGISTRATIONS_PER_HOUR },
+      });
+    }
+    return result;
+  }
+  if (duplicate) {
+    await recordAudit(store, {
+      organizationId: event.organization_id,
+      userId: null,
+      action: 'event.rsvp_duplicate',
+      entityType: 'event',
+      entityId: event.id,
+      metadata: { sessions: chosen, plus_ones: input.plusOnes.length },
+    });
+    return ok({
+      outcome: result.value,
+      // Signed like a real one, for a guest that does not exist: it opens nothing.
+      rememberCookie: rememberCookieValue({
+        eventId: event.id,
+        guestId: randomUUID(),
+        tokenVersion: 1,
+      }),
+      ticketPath: null,
+      invitePath: null,
+    });
+  }
   const guest = guestRow as EventGuest | null;
   if (!guest) return err('internal', 'That RSVP could not be saved. Try again.');
 
@@ -228,8 +335,8 @@ export async function registerPublic(
   return ok({
     outcome: result.value,
     rememberCookie: rememberFor(event, guest),
-    ticketPath: links.ticketPath,
-    invitePath: links.invitePath,
+    ticketPath: quiet ? null : links.ticketPath,
+    invitePath: quiet ? null : links.invitePath,
   });
 }
 

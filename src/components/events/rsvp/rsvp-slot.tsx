@@ -95,6 +95,13 @@ function Result({
         <div className="evu-stack">
           <h3 className="evu-title">{view.title}</h3>
           <p className="evu-muted">{view.body}</p>
+          {!response.ticketPath && !context.invite && view.tone !== 'bad' ? (
+            // Approval and invite-only pages answer an email already on the
+            // list exactly like a new request, so say where its link is.
+            <p className="evu-muted evu-small" data-rsvp-already>
+              Already on the list? Use the link in your invitation.
+            </p>
+          ) : null}
           {Object.keys(sessions).length > 1 ? (
             <ul className="evu-list">
               {Object.entries(sessions).map(([id, status]) => (

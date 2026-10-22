@@ -585,11 +585,14 @@ function SessionCard({
               onChange={(e) => setVenueReveal(e.target.value as 'public' | 'registered' | 'going')}
             >
               <option value="public">Everyone</option>
-              <option value="registered">Registered guests</option>
-              <option value="going">Going guests</option>
+              <option value="registered">Registered guests (Going or Maybe)</option>
+              <option value="going">Going to this session</option>
             </Select>
           </Field>
         </div>
+        <p className="mt-2 text-xs text-[var(--fg-muted)]">
+          Pending requests and the waitlist never see a hidden address.
+        </p>
       </details>
       <Button size="sm" variant="primary" loading={busy} onClick={save}>
         Save session

@@ -39,6 +39,7 @@ import {
   filterDocForViewer,
   sessionVisibleTo,
   venueForViewer,
+  viewerForSession,
   viewerForGuest,
 } from '@/lib/events/visibility';
 import { sign } from '@/lib/security/crypto';
@@ -238,7 +239,8 @@ export function absoluteUrl(path: string): string {
 /* ------------------------------------------------------------- facts */
 
 function sessionVenue(session: EventSession, viewer: EventViewer): EventVenuePublic | null {
-  return session.venue ? venueForViewer(session.venue, viewer) : null;
+  // A session's own venue is revealed by the guest's status in that session.
+  return session.venue ? venueForViewer(session.venue, viewerForSession(viewer, session.id)) : null;
 }
 
 /** The sessions this viewer may see, as the page shows them. */
@@ -252,7 +254,11 @@ export function publicSessions(
     .filter((s) => sessionVisibleTo(s, viewer))
     .map((s) => {
       const left = seatsLeft(s, event, rows);
-      const full = left !== null && left <= 0;
+      // People already waiting get freed seats first (lib/events/capacity.ts
+      // queueAhead), so a session with a waitlist reads as full to newcomers.
+      const queued =
+        waitlistOn(s, event) && rows.some((r) => r.session_id === s.id && r.status === 'waitlist');
+      const full = (left !== null && left <= 0) || queued;
       return {
         id: s.id,
         name: s.name,
@@ -260,7 +266,7 @@ export function publicSessions(
         startsAt: s.starts_at,
         endsAt: s.ends_at,
         venue: sessionVenue(s, viewer),
-        remaining: event.registration.show_remaining ? left : null,
+        remaining: event.registration.show_remaining ? (queued && left !== null ? 0 : left) : null,
         full,
         waitlistOpen: full && waitlistOn(s, event),
         requiresApproval: needsApproval(s, event, 'public'),
@@ -484,7 +490,7 @@ export async function buildTicket(
         name: s.name,
         startsAt: s.starts_at,
         endsAt: s.ends_at,
-        venue: s.venue ? venueForViewer(s.venue, viewer) : null,
+        venue: s.venue ? venueForViewer(s.venue, viewerForSession(viewer, s.id)) : null,
       })),
     people: people.map((p) => {
       const own = rows.filter((r) => r.guest_id === p.id);

@@ -97,9 +97,17 @@ export function needsApproval(
   event: Pick<EngineEvent, 'access'>,
   source: EventGuestSource,
 ): boolean {
+  // An invite request ("Request an invite" on an invite-only page) is always
+  // the host's call, whatever the session or the event says.
+  if (source === 'request') return true;
   if (session.requires_approval === true) return true;
   if (session.requires_approval === false) return false;
-  return event.access === 'approval' && (source === 'public' || source === 'request');
+  return event.access === 'approval' && source === 'public';
+}
+
+/** Sources that mean the person put themselves on the list (the public form or a request). */
+export function isSelfRegistered(source: EventGuestSource): boolean {
+  return source === 'public' || source === 'request';
 }
 
 /** Whether a full session takes people onto its waitlist. */
@@ -429,16 +437,58 @@ export interface Promotion {
   partySize: number;
 }
 
-/** FIFO order of a waitlist: request time, then when they were added. */
-function waitOrder(draft: Draft, sessionId: string): EventGuest[] {
-  return draft
-    .allGuests()
-    .filter((g) => !g.parent_guest_id && draft.status(g.id, sessionId) === 'waitlist')
-    .sort((a, b) => {
-      const ra = draft.row(a.id, sessionId)?.requested_at ?? a.created_at;
-      const rb = draft.row(b.id, sessionId)?.requested_at ?? b.created_at;
-      return ra.localeCompare(rb) || a.created_at.localeCompare(b.created_at);
-    });
+/**
+ * One place in a session's waitlist: a waitlisted guest with their waitlisted
+ * plus-ones, or the waitlisted plus-ones of a guest who already has a seat
+ * (a +1 added when the session was full waits on its own).
+ */
+interface WaitingUnit {
+  /** The guest the party belongs to (the host of plus-ones waiting alone). */
+  owner: string;
+  /** Who would be seated: the waiting guest and/or their waiting plus-ones. */
+  ids: string[];
+  requestedAt: string;
+  createdAt: string;
+}
+
+/** A session's waitlist as parties, first in first out (request time, then when added). */
+function waitingUnits(draft: Draft, sessionId: string): WaitingUnit[] {
+  const units: WaitingUnit[] = [];
+  for (const g of draft.allGuests()) {
+    if (g.parent_guest_id) continue;
+    const head = draft.status(g.id, sessionId);
+    const kids = draft.childrenOf(g.id).filter((c) => draft.status(c.id, sessionId) === 'waitlist');
+    if (head === 'waitlist') {
+      units.push({
+        owner: g.id,
+        ids: [g.id, ...kids.map((c) => c.id)],
+        requestedAt: draft.row(g.id, sessionId)?.requested_at ?? g.created_at,
+        createdAt: g.created_at,
+      });
+    } else if (head === 'going' && kids.length) {
+      const times = kids.map((c) => draft.row(c.id, sessionId)?.requested_at ?? c.created_at);
+      units.push({
+        owner: g.id,
+        ids: kids.map((c) => c.id),
+        requestedAt: times.sort()[0]!,
+        createdAt: kids[0]!.created_at,
+      });
+    }
+  }
+  return units.sort(
+    (a, b) => a.requestedAt.localeCompare(b.requestedAt) || a.createdAt.localeCompare(b.createdAt),
+  );
+}
+
+/**
+ * Whether someone already waiting would take a seat that is free now: a
+ * newcomer then joins the back of the waitlist instead of jumping it (freed
+ * seats go through promotion, first in first out).
+ */
+export function queueAhead(draft: Draft, sessionId: string, party: readonly string[]): boolean {
+  return waitingUnits(draft, sessionId).some(
+    (u) => !u.ids.some((id) => party.includes(id)) && draft.fits(sessionId, u.ids),
+  );
 }
 
 /**
@@ -453,15 +503,9 @@ export function promoteWaitlist(
 ): Promotion[] {
   const promoted: Promotion[] = [];
   for (const sessionId of sessionIds) {
-    for (const guest of waitOrder(draft, sessionId)) {
-      if (options.guestIds && !options.guestIds.includes(guest.id)) continue;
-      const party = [
-        guest.id,
-        ...draft
-          .childrenOf(guest.id)
-          .filter((c) => draft.status(c.id, sessionId) === 'waitlist')
-          .map((c) => c.id),
-      ];
+    for (const unit of waitingUnits(draft, sessionId)) {
+      if (options.guestIds && !options.guestIds.includes(unit.owner)) continue;
+      const party = unit.ids;
       if (!options.force && !draft.fits(sessionId, party)) continue;
       for (const id of party) {
         draft.setStatus(id, sessionId, 'going', {
@@ -469,9 +513,9 @@ export function promoteWaitlist(
           decided_by: options.by ?? null,
         });
       }
-      promoted.push({ guestId: guest.id, sessionId, partySize: party.length });
+      promoted.push({ guestId: party[0]!, sessionId, partySize: party.length });
     }
-    // Plus-ones waitlisted alone (an owner seated their host but not them).
+    // Plus-ones chosen on their own (an owner seats one +1 of a waiting party).
     if (options.guestIds) {
       for (const id of options.guestIds) {
         const g = draft.guest(id);
@@ -670,6 +714,8 @@ export function planPublicRegistration(
     const party = [guest.id, ...partyPlusOnes.map((po) => po.row.id)];
     let status: SessionOutcome;
     if (input.request || needsApproval(session, ctx.event, guest.source)) status = 'pending';
+    else if (waitlistOn(session, ctx.event) && queueAhead(draft, sessionId, party))
+      status = 'waitlist';
     else if (draft.fits(sessionId, party)) status = 'going';
     else if (waitlistOn(session, ctx.event)) status = 'waitlist';
     else status = 'full';
@@ -801,10 +847,17 @@ export function planInviteResponse(ctx: EngineContext, input: InviteResponsePlan
     if (entry) entry.sessions[sessionId] = status;
   };
 
+  const selfRegistered = isSelfRegistered(guest.source);
   for (const sessionId of responded) {
     const session = draft.session(sessionId)!;
     const response = input.responses[sessionId]!;
     const prev = draft.status(guest.id, sessionId);
+    // A host decision on this row (approved, or put on the waitlist) means the
+    // host has vetted this person for this session: coming back after "can't
+    // go" does not ask again. Everyone else who needs approval waits for it,
+    // whatever route they take (pending → can't go → going stays Pending).
+    const vetted = Boolean(draft.row(guest.id, sessionId)?.decided_at);
+    const gated = !vetted && needsApproval(session, ctx.event, guest.source);
     const children = [...wanted.entries()]
       .filter(([, s]) => s.includes(sessionId))
       .map(([id]) => id);
@@ -818,6 +871,25 @@ export function planInviteResponse(ctx: EngineContext, input: InviteResponsePlan
     if (prev === 'declined') {
       outcome.sessions[sessionId] = 'declined';
       for (const id of children) draft.removeRow(id, sessionId);
+      continue;
+    }
+
+    // An unvetted self-registrant's Maybe is still a request: it never turns a
+    // pending request (or a withdrawn one) into a place on the list.
+    if (response === 'maybe' && gated && selfRegistered && prev !== 'going') {
+      draft.setStatus(
+        guest.id,
+        sessionId,
+        'pending',
+        prev === 'pending' ? {} : { requested_at: ctx.now },
+      );
+      outcome.sessions[sessionId] = 'pending';
+      for (const id of children) {
+        if (draft.status(id, sessionId) !== 'pending') {
+          draft.setStatus(id, sessionId, 'pending', { requested_at: ctx.now });
+        }
+        setPlusOne(id, sessionId, 'pending');
+      }
       continue;
     }
 
@@ -873,7 +945,9 @@ export function planInviteResponse(ctx: EngineContext, input: InviteResponsePlan
 
     const party = [guest.id, ...children];
     let status: SessionOutcome;
-    if (needsApproval(session, ctx.event, guest.source)) status = 'pending';
+    if (gated) status = 'pending';
+    else if (waitlistOn(session, ctx.event) && queueAhead(draft, sessionId, party))
+      status = 'waitlist';
     else if (draft.fits(sessionId, party)) status = 'going';
     else if (waitlistOn(session, ctx.event)) status = 'waitlist';
     else status = 'full';
@@ -936,7 +1010,10 @@ export function planHostStatus(
   const decision =
     input.to === 'going' || input.to === 'declined' || input.to === 'waitlist'
       ? { decided_by: input.by, decided_at: ctx.now, decision_note: input.note ?? null }
-      : {};
+      : input.to === 'pending'
+        ? // Back to Pending: the host wants to decide again, so it is no longer vetted.
+          { decided_by: null, decided_at: null, decision_note: input.note ?? null }
+        : {};
 
   for (const guestId of input.guestIds) {
     const guest = draft.guest(guestId);
@@ -973,9 +1050,13 @@ export function planHostStatus(
         }
         draft.setStatus(id, sessionId, input.to, {
           ...decision,
-          ...(was === null || input.to === 'waitlist' || input.to === 'pending'
-            ? { requested_at: draft.row(id, sessionId)?.requested_at ?? ctx.now }
-            : {}),
+          // Moved INTO the waitlist: the back of the line (a row already
+          // waiting keeps its place).
+          ...(input.to === 'waitlist' && was !== 'waitlist'
+            ? { requested_at: ctx.now }
+            : was === null || input.to === 'waitlist' || input.to === 'pending'
+              ? { requested_at: draft.row(id, sessionId)?.requested_at ?? ctx.now }
+              : {}),
         });
         if (id === guestId) outcome.changed.push({ guestId, sessionId, from: was, to: input.to });
       }

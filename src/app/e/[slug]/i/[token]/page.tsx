@@ -43,7 +43,13 @@ export default async function InvitePage({ params }: Props) {
   const { slug, token } = await params;
   const store = getStore();
   const resolved = await resolvePublicEvent(store, slug, { personal: true });
-  if (resolved.kind === 'redirect') permanentRedirect(eventPaths.invite(resolved.slug, token));
+  if (resolved.kind === 'redirect') {
+    // Only a real personal link follows an old address: a forged one learns
+    // nothing, not even a private event's new slug.
+    const target = await resolvePublicEvent(store, resolved.slug, { personal: true });
+    if (target.kind !== 'event' || !(await resolveInvite(store, target.event, token))) notFound();
+    permanentRedirect(eventPaths.invite(resolved.slug, token));
+  }
   if (resolved.kind === 'not_found') notFound();
   const guest = await resolveInvite(store, resolved.event, token);
   if (!guest) notFound();

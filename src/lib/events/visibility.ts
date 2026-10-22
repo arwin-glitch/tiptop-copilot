@@ -18,8 +18,10 @@ import type {
  *
  * The rules (Everyone / Registered / Going / Tags / Hidden):
  *   - everyone:   anyone who can open the page.
- *   - registered: the viewer has asked for or been given a place in a
- *                 session (Going, Maybe, Pending or Waitlist).
+ *   - registered: the host has given the viewer a place in a session
+ *                 (Going or Maybe). A pending request or a place on the
+ *                 waitlist does NOT count: approval and the waitlist would
+ *                 mean nothing if asking were enough to see the details.
  *   - going:      Going to at least one session.
  *   - tags:       the viewer carries one of the tags AND is in good standing
  *                 — invited, Maybe or Going somewhere. A waitlisted, pending,
@@ -64,13 +66,8 @@ export const VENUE_SECRET_PROPS = [
 
 const PRIVILEGED = new Set(['owner', 'editor', 'viewer']);
 
-/** Statuses that mean "has a place or asked for one". */
-const REGISTERED: ReadonlySet<EventGuestStatus> = new Set([
-  'going',
-  'maybe',
-  'pending',
-  'waitlist',
-]);
+/** Statuses that mean "has a place the host granted" (never Pending or Waitlist). */
+export const REGISTERED: ReadonlySet<EventGuestStatus> = new Set(['going', 'maybe']);
 /** Statuses that keep tag-gated details visible. */
 const GOOD_STANDING: ReadonlySet<EventGuestStatus> = new Set(['going', 'maybe', 'invited']);
 
@@ -229,6 +226,21 @@ export function venueRevealedTo(reveal: EventVenueReveal, viewer: EventViewer): 
   if (reveal === 'public') return true;
   if (reveal === 'registered') return viewer.registered;
   return viewer.going;
+}
+
+/**
+ * The viewer as one session sees them: Going/Registered in THAT session, not
+ * anywhere. A session's own venue (the reception address) is revealed by the
+ * guest's status in that session only. Privileged viewers are unchanged.
+ */
+export function viewerForSession(viewer: EventViewer, sessionId: string): EventViewer {
+  if (isPrivilegedViewer(viewer) || viewer.kind !== 'guest' || !viewer.rsvp) return viewer;
+  const status = viewer.rsvp[sessionId];
+  return {
+    ...viewer,
+    going: status === 'going',
+    registered: status ? REGISTERED.has(status) : false,
+  };
 }
 
 /** The venue as this viewer may see it: address, maps and online links only when revealed. */

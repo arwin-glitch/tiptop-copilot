@@ -33,6 +33,7 @@ import {
 } from '@/lib/events/csv';
 import {
   filterGuests,
+  statusAudienceMatch,
   strongestStatus,
   type GuestFilter,
   type GuestListItem,
@@ -119,12 +120,18 @@ export async function guestCounts(
       const status = guestLevelStatus(entry?.statuses ?? []);
       counts.total += 1;
       if (entry?.checkedIn) counts.checkedIn += 1;
+      // Pending and Waitlist count anyone with such a row in ANY session (a
+      // pending Reception request behind a Going Meeting still needs the host),
+      // so they can overlap Going; the other buckets are guest-level.
+      const statuses = entry?.statuses ?? [];
+      if (statuses.includes('pending')) counts.pending += 1;
+      if (statuses.includes('waitlist')) counts.waitlist += 1;
       if (status === 'going') {
         counts.going += 1;
         if (guest.parent_guest_id) counts.plusOnes += 1;
-      } else if (status === 'pending') counts.pending += 1;
-      else if (status === 'waitlist') counts.waitlist += 1;
-      else if (status === 'maybe') counts.maybe += 1;
+      } else if (status === 'pending' || status === 'waitlist') {
+        // counted above
+      } else if (status === 'maybe') counts.maybe += 1;
       else if (status === 'invited') counts.invited += 1;
       else if (status === 'not_going') counts.notGoing += 1;
       else if (status === 'declined') counts.declined += 1;
@@ -1149,7 +1156,10 @@ function matchesAudience(
         const row = own.find((r) => r.session_id === audience.sessionId);
         return Boolean(row && audience.statuses.includes(row.status));
       }
-      return audience.statuses.includes(guestLevelStatus(own.map((r) => r.status)));
+      return statusAudienceMatch(
+        audience.statuses,
+        own.map((r) => r.status),
+      );
     }
   }
 }

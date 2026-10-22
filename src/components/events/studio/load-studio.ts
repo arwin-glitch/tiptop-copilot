@@ -151,7 +151,9 @@ async function previewGuests(
         name,
         company: g.company,
         tags: g.tags,
-        registered: mine.some((s) => !['invited', 'declined', 'not_going'].includes(s.status)),
+        // Registered = a place the host granted (Going or Maybe); a pending
+        // request or the waitlist doesn't qualify (lib/events/visibility.ts).
+        registered: mine.some((s) => s.status === 'going' || s.status === 'maybe'),
         going: mine.some((s) => s.status === 'going'),
       };
     });

@@ -479,7 +479,19 @@ describe('personal links and the public page', () => {
       { ...base, request: true },
       { ipHash: null },
     );
-    expect(!again.ok && again.error.message).toMatch(/already registered/i);
+    // An email already on an invite-only list gets exactly a new request's
+    // answer (no link, a cookie that opens nothing): no membership oracle.
+    expect(again.ok && again.value.outcome.sessions).toEqual({ [ID.sessionMeeting]: 'pending' });
+    expect(again.ok && again.value.ticketPath).toBeNull();
+    expect(request.ok && request.value.ticketPath).toBeNull();
+    const remembered = again.ok
+      ? await resolveRemembered(h.store, ev, again.value.rememberCookie)
+      : 1;
+    expect(remembered).toBeNull();
+    const same = await h.store.list('event_guests', owner.organizationId, {
+      eq: { event_id: ev.id, email: base.email.toLowerCase() },
+    });
+    expect(same).toHaveLength(1);
   });
 
   it('only shows published, non-private events, and 301s old slugs', async () => {

@@ -22,6 +22,7 @@ const EVENT = '00000000-0000-4000-8000-00000000e001';
 
 afterEach(() => {
   resetLimiters();
+  vi.unstubAllEnvs();
   delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   delete process.env.TURNSTILE_SECRET_KEY;
 });
@@ -66,6 +67,7 @@ describe('publicGate', () => {
   });
 
   it('brakes per address bucket, IPv6 grouped by /64', async () => {
+    vi.stubEnv('TRUST_CF_CONNECTING_IP', 'true'); // behind Cloudflare (Render)
     const limit = { bucket: 'test-rsvp', max: 2, windowMs: 60_000 };
     const at = (ip: string) =>
       publicGate(request({ origin: 'http://localhost:3000', 'cf-connecting-ip': ip }), {

@@ -46,6 +46,9 @@ export default async function TicketPage({ params }: Props) {
   const store = getStore();
   const resolved = await resolvePublicEvent(store, slug, { personal: true });
   if (resolved.kind === 'redirect') {
+    // Only a real personal link follows an old address (see the invite page).
+    const target = await resolvePublicEvent(store, resolved.slug, { personal: true });
+    if (target.kind !== 'event' || !(await resolveInvite(store, target.event, token))) notFound();
     permanentRedirect(`${eventPaths.invite(resolved.slug, token)}/ticket`);
   }
   if (resolved.kind === 'not_found') notFound();

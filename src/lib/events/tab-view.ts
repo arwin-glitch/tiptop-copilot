@@ -4,6 +4,7 @@ import type {
   GuestCounts,
   NotifyKind,
 } from '@/lib/events/contracts';
+import { statusAudienceMatch } from '@/lib/events/guest-list';
 import type {
   CampaignStatus,
   EventAccess,
@@ -276,8 +277,9 @@ export function readinessChecklist(input: ReadinessInput): ReadyItem[] {
       ? 'No date yet. Set the session times in Registration.'
       : input.venueSet
         ? `${input.sessions} ${input.sessions === 1 ? 'session' : 'sessions'}, venue set.`
-        : 'Add the venue (or the online link).',
-    tab: 'registration',
+        : 'Add the venue (or the online link) in Manage, under Details.',
+    // The venue lives on Manage's Details card; session times in Registration.
+    tab: dateSet ? 'settings' : 'registration',
   });
   items.push({
     key: 'page',
@@ -522,10 +524,15 @@ export function audienceGuestIds(
         case 'all':
           return true;
         case 'status': {
-          const status = sessionId
-            ? (scoped[0]?.status ?? 'invited')
-            : overallStatus(mine.map((r) => r.status));
-          return audience.statuses.includes(status);
+          if (sessionId) return audience.statuses.includes(scoped[0]?.status ?? 'invited');
+          // No session: any session for Going/Pending/Waitlist/Maybe/Invited
+          // (lib/events/guest-list.ts statusAudienceMatch).
+          return mine.length
+            ? statusAudienceMatch(
+                audience.statuses,
+                mine.map((r) => r.status),
+              )
+            : audience.statuses.includes(overallStatus([]));
         }
         case 'tag':
           return g.tags.some((t) => t.toLowerCase() === audience.tag.toLowerCase());

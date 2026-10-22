@@ -2,19 +2,39 @@ import 'server-only';
 import { sha256 } from '@/lib/util/hash';
 
 /**
+ * Whether CF-Connecting-IP can be believed: only behind Cloudflare, which
+ * overwrites whatever a client sent. Render serves through Cloudflare (and
+ * sets RENDER=true on every service); anywhere else (the Vercel standby, a
+ * direct origin) a client could set the header and walk past every brake.
+ * TRUST_CF_CONNECTING_IP=true/false overrides the guess.
+ */
+function trustsCloudflare(): boolean {
+  const explicit = process.env.TRUST_CF_CONNECTING_IP?.trim().toLowerCase();
+  if (explicit === 'true') return true;
+  if (explicit === 'false') return false;
+  return process.env.RENDER === 'true';
+}
+
+/**
  * The caller's address, for abuse brakes and the audit trail.
  *
- * Render serves through Cloudflare, which sets CF-Connecting-IP to the
- * address that reached its edge (overwriting whatever a client sent), so that
- * is preferred. Otherwise the last X-Forwarded-For hop: the first is whatever
- * the client wrote, while the last was added by the nearest proxy — though on
- * a host whose own proxy appends itself it is that proxy's address, shared by
- * every caller. So a brake keyed on it must stay an abuse brake: a wrong or
- * shared key may slow people down, and must never be what grants access.
+ * Behind Cloudflare (above), CF-Connecting-IP; on Vercel, its own
+ * x-vercel-forwarded-for (set by its edge). Otherwise the last
+ * X-Forwarded-For hop: the first is whatever the client wrote, while the last
+ * was added by the nearest proxy — though on a host whose own proxy appends
+ * itself it is that proxy's address, shared by every caller. So a brake keyed
+ * on it must stay an abuse brake: a wrong or shared key may slow people down,
+ * and must never be what grants access.
  */
 export function clientAddress(headers: Headers): string {
-  const edge = headers.get('cf-connecting-ip')?.trim();
-  if (edge) return edge;
+  if (trustsCloudflare()) {
+    const edge = headers.get('cf-connecting-ip')?.trim();
+    if (edge) return edge;
+  }
+  if (process.env.VERCEL === '1') {
+    const vercel = headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim();
+    if (vercel) return vercel;
+  }
   const hops = (headers.get('x-forwarded-for') ?? '')
     .split(',')
     .map((h) => h.trim())

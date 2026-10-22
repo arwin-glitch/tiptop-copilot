@@ -119,6 +119,8 @@ export type AuditAction =
   | 'event.guests_imported'
   | 'event.rsvp_received'
   | 'event.rsvp_changed'
+  | 'event.rsvp_duplicate'
+  | 'event.rsvp_busy'
   | 'event.checkin'
   | 'event.checkin_undone'
   | 'event.walk_in_added'

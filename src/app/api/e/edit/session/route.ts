@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
+import { isSameOrigin } from '@/lib/auth/desktop-handoff';
 import {
   appendGrantCookies,
   claimGrant,
@@ -30,6 +31,9 @@ const BODY = z.strictObject({
  * Unknown, expired and revoked links all get the same 404.
  */
 export async function POST(request: NextRequest) {
+  // Same-origin only, like the staff claim: a cross-site form must not plant
+  // an edit link's cookie in someone's browser, or test secrets from elsewhere.
+  if (!isSameOrigin(request)) return notValid();
   const parsed = BODY.safeParse(await readJson(request, 4096));
   if (!parsed.success) return notValid();
   const store = getStore();

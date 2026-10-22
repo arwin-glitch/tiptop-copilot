@@ -33,7 +33,8 @@ import { draftOpsRequest, type DraftOpsResult, type OpConflict } from '@/lib/eve
 import { parseEventDoc, type EventDoc, type ParseOptions } from '@/lib/events/schema';
 import { getStarter } from '@/lib/events/starters';
 import { getThemePreset } from '@/lib/events/themes';
-import { filterDocForViewer } from '@/lib/events/visibility';
+import type { RegistrationQuestion } from '@/lib/events/questions';
+import { ITEM_SESSION_KEY, filterDocForViewer } from '@/lib/events/visibility';
 import { recordAudit } from '@/lib/security/audit';
 import { hashIp } from '@/lib/security/crypto';
 import { log } from '@/lib/security/redact';
@@ -1635,6 +1636,28 @@ export async function deleteEvent(
 const MAX_SHIFT_DAYS = 3660;
 
 /** Replace every media id in a JSON value (keys ending in mediaId) through `map`. */
+/**
+ * A copied page's agenda items and other list items tied to a session
+ * (ITEM_SESSION_KEY) must point at the COPY's sessions, or the visibility
+ * filter drops them from the new event's live page. Unknown ids become null
+ * (untied) rather than dangling.
+ */
+function remapSessionIds(value: unknown, map: Map<string, string>, key = ''): unknown {
+  if (Array.isArray(value)) return value.map((v) => remapSessionIds(v, map));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        remapSessionIds(v, map, k),
+      ]),
+    );
+  }
+  if (key === ITEM_SESSION_KEY && typeof value === 'string' && value) {
+    return map.get(value) ?? null;
+  }
+  return value;
+}
+
 function remapMediaIds(value: unknown, map: Map<string, string>, key = ''): unknown {
   if (Array.isArray(value)) return value.map((v) => remapMediaIds(v, map));
   if (value && typeof value === 'object') {
@@ -1701,19 +1724,7 @@ export async function duplicateEvent(
       };
     });
 
-    const remapped = remapMediaIds(sourceDoc.value, mediaMap) as EventDoc;
-    const doc: EventDoc = {
-      schemaVersion: remapped.schemaVersion,
-      theme: { ...remapped.theme, rev: 0, keyRevs: {} },
-      meta: { ...remapped.meta, rev: 0, keyRevs: {} },
-      sections: remapped.sections.map((s) => {
-        const { id: _old, position, rev: _rev, keyRevs: _revs, ...template } = s;
-        return placeSection(template, newId(), position, 0);
-      }),
-    };
-    const checked = parseEventDoc(doc);
-    if (!checked.ok) return err('internal', 'That page could not be copied just now.');
-
+    // Sessions first: the page's session-tied items and the questions follow them.
     const sourceSessions = await store.list(
       'event_sessions',
       organizationId,
@@ -1734,13 +1745,43 @@ export async function duplicateEvent(
         updated_at: now,
       };
     });
-    const questions: EventQuestion[] = (source.questions ?? [])
-      .filter((q) => !q.removed_at)
-      .map((q) => ({
+
+    const remapped = remapSessionIds(
+      remapMediaIds(sourceDoc.value, mediaMap),
+      sessionMap,
+    ) as EventDoc;
+    const doc: EventDoc = {
+      schemaVersion: remapped.schemaVersion,
+      theme: { ...remapped.theme, rev: 0, keyRevs: {} },
+      meta: { ...remapped.meta, rev: 0, keyRevs: {} },
+      sections: remapped.sections.map((s) => {
+        const { id: _old, position, rev: _rev, keyRevs: _revs, ...template } = s;
+        return placeSection(template, newId(), position, 0);
+      }),
+    };
+    const checked = parseEventDoc(doc);
+    if (!checked.ok) return err('internal', 'That page could not be copied just now.');
+
+    const kept = ((source.questions ?? []) as RegistrationQuestion[]).filter((q) => !q.removed_at);
+    const questionMap = new Map(kept.map((q) => [q.id, newId()]));
+    const questions: RegistrationQuestion[] = kept.map((q) => {
+      // Conditions follow the copy's sessions and questions; one whose target
+      // is gone is dropped (the question is then always asked).
+      let showIf = q.show_if ?? null;
+      if (showIf?.kind === 'session') {
+        const sid = sessionMap.get(showIf.session_id);
+        showIf = sid ? { kind: 'session', session_id: sid } : null;
+      } else if (showIf?.kind === 'answer') {
+        const qid = questionMap.get(showIf.question_id);
+        showIf = qid ? { ...showIf, question_id: qid } : null;
+      }
+      return {
         ...structuredClone(q),
-        id: newId(),
+        id: questionMap.get(q.id)!,
         session_id: q.session_id ? (sessionMap.get(q.session_id) ?? null) : null,
-      }));
+        show_if: showIf,
+      };
+    });
 
     const event: EventRecord = {
       ...structuredClone(source),

@@ -560,3 +560,202 @@ describe('the capacity invariant (what event_register enforces)', () => {
     ).toEqual([]);
   });
 });
+
+describe('approval cannot be skipped (security + guests review)', () => {
+  // The AGM shape: invite-only, "Request an invite" on, sessions inherit approval.
+  const agm = () => ctx({ access: 'invite_only', sessions: [session(S1, 50), session(S2, 50)] });
+
+  /** Apply one personal-link response on top of a context; returns the next context. */
+  function respond(
+    c: EngineContext,
+    guestId: string,
+    responses: Record<string, 'going' | 'maybe' | 'not_going'>,
+  ): { c: EngineContext; sessions: Record<string, string> } {
+    const r = planInviteResponse(c, { guestId, responses });
+    if (r.kind !== 'planned') throw new Error(`unexpected ${r.kind}`);
+    const guests = [
+      ...c.guests.filter((g) => !r.plan.upsertGuests.some((u) => u.id === g.id)),
+      ...r.plan.upsertGuests,
+    ];
+    return {
+      c: { ...c, guests, rows: rowsAfterPlan(c.rows, r.plan) },
+      sessions: r.outcome.sessions,
+    };
+  }
+
+  function requested(): { c: EngineContext; id: string } {
+    const c = agm();
+    const r = planPublicRegistration(
+      c,
+      publicInput('stranger@example.com', { request: true, sessionIds: [S1, S2] }),
+    );
+    if (r.kind !== 'planned') throw new Error('not planned');
+    return {
+      c: { ...c, guests: r.plan.upsertGuests, rows: rowsAfterPlan(c.rows, r.plan) },
+      id: r.outcome.guestId,
+    };
+  }
+
+  it('an invite request always needs the host, whatever the session says', () => {
+    expect(needsApproval({ requires_approval: null }, { access: 'invite_only' }, 'request')).toBe(
+      true,
+    );
+    expect(needsApproval({ requires_approval: false }, { access: 'open' }, 'request')).toBe(true);
+    expect(needsApproval({ requires_approval: null }, { access: 'invite_only' }, 'invite')).toBe(
+      false,
+    );
+  });
+
+  it('pending, then Maybe, then Going stays Pending', () => {
+    const { c, id } = requested();
+    const maybe = respond(c, id, { [S1]: 'maybe', [S2]: 'maybe' });
+    expect(maybe.sessions).toEqual({ [S1]: 'pending', [S2]: 'pending' });
+    const going = respond(maybe.c, id, { [S1]: 'going', [S2]: 'going' });
+    expect(going.sessions).toEqual({ [S1]: 'pending', [S2]: 'pending' });
+    expect(going.c.rows.filter((r) => r.guest_id === id).map((r) => r.status)).toEqual([
+      'pending',
+      'pending',
+    ]);
+  });
+
+  it('pending, then Can not go, then Going asks again (Pending), and Maybe too', () => {
+    const { c, id } = requested();
+    const out = respond(c, id, { [S1]: 'not_going' });
+    expect(out.sessions[S1]).toBe('not_going');
+    expect(respond(out.c, id, { [S1]: 'going' }).sessions[S1]).toBe('pending');
+    expect(respond(out.c, id, { [S1]: 'maybe' }).sessions[S1]).toBe('pending');
+  });
+
+  it('an approval event self-registrant cannot reach Maybe or Going without the host', () => {
+    const c = ctx({ access: 'approval', sessions: [session(S1, 10)] });
+    const r = planPublicRegistration(c, publicInput('self@example.com'));
+    if (r.kind !== 'planned') throw new Error('not planned');
+    const next = { ...c, guests: r.plan.upsertGuests, rows: rowsAfterPlan(c.rows, r.plan) };
+    const out = respond(next, r.outcome.guestId, { [S1]: 'not_going' });
+    expect(respond(out.c, r.outcome.guestId, { [S1]: 'maybe' }).sessions[S1]).toBe('pending');
+    expect(respond(out.c, r.outcome.guestId, { [S1]: 'going' }).sessions[S1]).toBe('pending');
+  });
+
+  it('an approved requester who cancels and comes back is Going again', () => {
+    const { c, id } = requested();
+    const approved = planHostStatus(c, {
+      guestIds: [id],
+      sessionIds: [S1],
+      to: 'going',
+      from: ['pending'],
+      by: 'owner',
+    });
+    const after = { ...c, rows: rowsAfterPlan(c.rows, approved.plan) };
+    const out = respond(after, id, { [S1]: 'not_going' });
+    expect(respond(out.c, id, { [S1]: 'going' }).sessions[S1]).toBe('going');
+    expect(respond(out.c, id, { [S1]: 'maybe' }).sessions[S1]).toBe('maybe');
+    // Moved back to Pending by the host: no longer vetted.
+    const repend = planHostStatus(after, {
+      guestIds: [id],
+      sessionIds: [S1],
+      to: 'pending',
+      by: 'owner',
+    });
+    const again = respond({ ...after, rows: rowsAfterPlan(after.rows, repend.plan) }, id, {
+      [S1]: 'not_going',
+    });
+    expect(respond(again.c, id, { [S1]: 'going' }).sessions[S1]).toBe('pending');
+  });
+
+  it('invited guests are unaffected: Maybe then Going seats them', () => {
+    const inv = guest('00000000-0000-4000-8000-0000000000f9');
+    const c = ctx({ access: 'invite_only', guests: [inv], rows: [row(inv.id, S1, 'invited')] });
+    const maybe = respond(c, inv.id, { [S1]: 'maybe' });
+    expect(maybe.sessions[S1]).toBe('maybe');
+    expect(respond(maybe.c, inv.id, { [S1]: 'going' }).sessions[S1]).toBe('going');
+  });
+});
+
+describe('the waitlist is first in, first out (guests review)', () => {
+  const host = guest('00000000-0000-4000-8000-0000000000aa');
+  const waiter = guest('00000000-0000-4000-8000-0000000000ab');
+  const late = guest('00000000-0000-4000-8000-0000000000ac');
+
+  it('a newcomer joins the back while someone waiting would fit the free seat', () => {
+    // One seat free (the host freed it, auto-promote off): the waiting guest gets it.
+    const c = ctx({
+      sessions: [session(S1, 2)],
+      guests: [host, waiter],
+      rows: [row(host.id, S1, 'going'), row(waiter.id, S1, 'waitlist')],
+    });
+    const pub = planPublicRegistration(c, publicInput('new@example.com'));
+    expect(pub.kind === 'planned' && pub.outcome.sessions[S1]).toBe('waitlist');
+    const invited = ctx({
+      sessions: [session(S1, 2)],
+      guests: [host, waiter, late],
+      rows: [
+        row(host.id, S1, 'going'),
+        row(waiter.id, S1, 'waitlist'),
+        row(late.id, S1, 'invited'),
+      ],
+    });
+    const r = planInviteResponse(invited, { guestId: late.id, responses: { [S1]: 'going' } });
+    expect(r.kind === 'planned' && r.outcome.sessions[S1]).toBe('waitlist');
+  });
+
+  it('a waitlisted guest cannot jump the queue through Maybe', () => {
+    const first = guest('00000000-0000-4000-8000-0000000000ad');
+    const c = ctx({
+      sessions: [session(S1, 2)],
+      guests: [host, first, waiter],
+      rows: [
+        row(host.id, S1, 'going'),
+        row(first.id, S1, 'waitlist', '2030-01-01T00:00:00.000Z'),
+        row(waiter.id, S1, 'waitlist', '2030-01-05T00:00:00.000Z'),
+      ],
+    });
+    const maybe = planInviteResponse(c, { guestId: waiter.id, responses: { [S1]: 'maybe' } });
+    if (maybe.kind !== 'planned') throw new Error('not planned');
+    const next = { ...c, rows: rowsAfterPlan(c.rows, maybe.plan) };
+    const going = planInviteResponse(next, { guestId: waiter.id, responses: { [S1]: 'going' } });
+    expect(going.kind === 'planned' && going.outcome.sessions[S1]).toBe('waitlist');
+  });
+
+  it('promotes a plus-one waitlisted alone behind a Going host', () => {
+    const kid = guest('00000000-0000-4000-8000-0000000000ae', {
+      parent_guest_id: host.id,
+      email: null,
+      source: 'plus_one',
+    });
+    const other = guest('00000000-0000-4000-8000-0000000000af');
+    const c = ctx({
+      reg: { auto_promote: true },
+      sessions: [session(S1, 2)],
+      guests: [host, kid, other],
+      rows: [row(host.id, S1, 'going'), row(other.id, S1, 'going'), row(kid.id, S1, 'waitlist')],
+    });
+    // A seat frees: the +1 is first in line.
+    const freed = planInviteResponse(c, { guestId: other.id, responses: { [S1]: 'not_going' } });
+    expect(freed.kind === 'planned' && freed.outcome.promoted.map((p) => p.guestId)).toEqual([
+      kid.id,
+    ]);
+    // And the host's bulk "Promote" seats them too.
+    const roomy = ctx({
+      sessions: [session(S1, 3)],
+      guests: [host, kid],
+      rows: [row(host.id, S1, 'going'), row(kid.id, S1, 'waitlist')],
+    });
+    const promoted = planPromote(roomy, { guestIds: [host.id], sessionIds: [S1], by: 'owner' });
+    expect(promoted.outcome.promoted).toEqual([{ guestId: kid.id, sessionId: S1, partySize: 1 }]);
+  });
+
+  it('bulk "Move to Waitlist" puts people at the back', () => {
+    const c = ctx({
+      sessions: [session(S1, 5)],
+      guests: [host],
+      rows: [row(host.id, S1, 'going', '2030-01-01T00:00:00.000Z')],
+    });
+    const { plan } = planHostStatus(c, {
+      guestIds: [host.id],
+      sessionIds: [S1],
+      to: 'waitlist',
+      by: 'owner',
+    });
+    expect(plan.upsertRows[0]).toMatchObject({ status: 'waitlist', requested_at: NOW });
+  });
+});

@@ -373,7 +373,7 @@ function VisibilityTab({ section, lockText }: { section: EventSection; lockText:
     studio.updateSection(section.id, { visibility: next }, 'Change who sees this');
   const describe: Record<string, string> = {
     everyone: 'Everyone who can open the page',
-    registered: 'Guests who registered (any reply but "can\'t go")',
+    registered: 'Guests with a place: Going or Maybe (not pending requests or the waitlist)',
     going: 'Guests who are going',
     tags: 'Going guests with one of these tags',
     hidden: 'Nobody (kept in the draft)',

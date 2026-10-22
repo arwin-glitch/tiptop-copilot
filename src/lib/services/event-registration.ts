@@ -400,9 +400,17 @@ export async function removeSession(
     await store.remove('event_sessions', owner.organizationId, sessionId);
     // Questions tied to it stay stored (removed) for exports.
     const now = new Date().toISOString();
-    const questions = (event.questions as RegistrationQuestion[]).map((q) =>
-      q.session_id === sessionId && !q.removed_at ? { ...q, removed_at: now } : q,
-    );
+    // A condition on the removed session goes too (the question is then
+    // always asked), or every later questions save would be refused.
+    const questions = (event.questions as RegistrationQuestion[]).map((q) => {
+      const next =
+        q.show_if?.kind === 'session' && q.show_if.session_id === sessionId
+          ? { ...q, show_if: null }
+          : q;
+      return next.session_id === sessionId && !next.removed_at
+        ? { ...next, removed_at: now }
+        : next;
+    });
     await syncEventSpan(store, owner.organizationId, eventId, {
       schedule_version: event.schedule_version + 1,
       questions,

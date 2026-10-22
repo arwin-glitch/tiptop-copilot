@@ -9,6 +9,7 @@ import {
   sessionVisibleTo,
   venueForViewer,
   viewerForGuest,
+  viewerForSession,
 } from '@/lib/events/visibility';
 import type { EventGuestStatus, EventVenue } from '@/lib/types/domain';
 
@@ -90,7 +91,12 @@ describe('rules', () => {
     expect(ruleAllows(rule('hidden'), going)).toBe(false);
     expect(ruleAllows(rule('hidden'), owner)).toBe(true);
     expect(ruleAllows(rule('registered'), PUBLIC_VIEWER)).toBe(false);
-    expect(ruleAllows(rule('registered'), pending)).toBe(true);
+    // Registered = a place the host granted: Going or Maybe. A pending request
+    // or the waitlist does not qualify (security review: approval bypass).
+    expect(ruleAllows(rule('registered'), pending)).toBe(false);
+    expect(ruleAllows(rule('registered'), viewer({ s1: 'waitlist' }))).toBe(false);
+    expect(ruleAllows(rule('registered'), viewer({ s1: 'maybe' }))).toBe(true);
+    expect(ruleAllows(rule('registered'), going)).toBe(true);
     expect(ruleAllows(rule('going'), pending)).toBe(false);
     expect(ruleAllows(rule('going'), going)).toBe(true);
     // Tags: the tag (case-insensitive) and good standing.
@@ -195,7 +201,11 @@ describe('sessions and venue', () => {
       address: '100 Example Avenue',
       revealed: true,
     });
-    expect(venueForViewer({ ...venue, reveal: 'registered' }, pending).revealed).toBe(true);
+    expect(venueForViewer({ ...venue, reveal: 'registered' }, pending).revealed).toBe(false);
+    expect(
+      venueForViewer({ ...venue, reveal: 'registered' }, viewer({ s1: 'waitlist' })).revealed,
+    ).toBe(false);
+    expect(venueForViewer({ ...venue, reveal: 'registered' }, going).revealed).toBe(true);
     expect(venueForViewer({ ...venue, reveal: 'public' }, PUBLIC_VIEWER).revealed).toBe(true);
   });
 
@@ -207,7 +217,44 @@ describe('sessions and venue', () => {
       registered: true,
       going: true,
     });
-    expect(pending).toMatchObject({ registered: true, going: false });
+    expect(pending).toMatchObject({ registered: false, going: false });
+    expect(viewer({ s1: 'maybe' })).toMatchObject({ registered: true, going: false });
     expect(viewer({ s1: 'invited' })).toMatchObject({ registered: false, going: false });
+  });
+});
+
+describe('a session’s own venue (guests review: reception address)', () => {
+  const reception: EventVenue = {
+    kind: 'in_person',
+    name: 'The Garden Room',
+    address: '1 Hidden Lane',
+    lat: null,
+    lng: null,
+    place_id: null,
+    maps_url: null,
+    online_url: null,
+    notes: null,
+    reveal: 'going',
+  };
+
+  it('is revealed by the status in THAT session, not Going anywhere', () => {
+    const mixed = viewer({ s1: 'going', s2: 'waitlist' });
+    expect(venueForViewer(reception, mixed).revealed).toBe(true); // any-session view
+    expect(venueForViewer(reception, viewerForSession(mixed, 's2'))).toMatchObject({
+      address: null,
+      revealed: false,
+    });
+    expect(venueForViewer(reception, viewerForSession(mixed, 's1')).revealed).toBe(true);
+    const registered = { ...reception, reveal: 'registered' as const };
+    expect(venueForViewer(registered, viewerForSession(mixed, 's2')).revealed).toBe(false);
+    expect(
+      venueForViewer(registered, viewerForSession(viewer({ s1: 'going', s2: 'maybe' }), 's2'))
+        .revealed,
+    ).toBe(true);
+  });
+
+  it('leaves owners and previews alone', () => {
+    expect(viewerForSession(owner, 's2')).toBe(owner);
+    expect(viewerForSession(SAMPLE_GUEST_VIEWER, 's2')).toBe(SAMPLE_GUEST_VIEWER);
   });
 });
