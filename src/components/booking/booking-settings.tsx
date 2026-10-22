@@ -9,7 +9,10 @@ import { Notice } from '@/components/ui/feedback';
 import { Input, Label, Switch, Textarea } from '@/components/ui/form';
 import {
   ALLOWED_WEEKDAYS,
+  BOOKING_HOURS_HINT,
+  CALL_BOUNDS,
   KIND_LABEL,
+  KIND_START_BOUNDS,
   MEETING_KINDS,
   WEEKDAY_NAME,
   inPersonOffered,
@@ -37,6 +40,8 @@ export interface BookingSettingsProps {
   hostZone: string;
   demo: boolean;
   notSetUpMessage: string;
+  /** The section shown first (the Link section unless named). */
+  initialSection?: SectionKey;
 }
 
 const SECTIONS = [
@@ -47,7 +52,7 @@ const SECTIONS = [
   { key: 'rules', label: 'Rules' },
   { key: 'chatbot', label: 'Chatbot' },
 ] as const;
-type SectionKey = (typeof SECTIONS)[number]['key'];
+export type SectionKey = (typeof SECTIONS)[number]['key'];
 
 function placeId(name: string, taken: readonly string[]): string {
   const base =
@@ -66,7 +71,7 @@ export function BookingSettings(props: BookingSettingsProps) {
   const [enabled, setEnabled] = React.useState(props.enabled);
   const [slug, setSlug] = React.useState(props.slug);
   const [config, setConfig] = React.useState<BookingConfig>(props.config);
-  const [section, setSection] = React.useState<SectionKey>('link');
+  const [section, setSection] = React.useState<SectionKey>(props.initialSection ?? 'link');
   const [saving, setSaving] = React.useState(false);
   const [problem, setProblem] = React.useState<string | null>(null);
   const [dirty, setDirty] = React.useState(false);
@@ -436,11 +441,12 @@ export function BookingSettings(props: BookingSettingsProps) {
         {section === 'times' ? (
           <>
             <p className="text-sm text-[var(--fg-muted)]">
-              All in the host&apos;s time zone, {props.hostZone}.
+              {BOOKING_HOURS_HINT} All in the host&apos;s time zone, {props.hostZone}.
             </p>
             <WindowRow
               label="Calls (30 minutes) between"
               window={config.callWindow}
+              bounds={CALL_BOUNDS}
               disabled={disabled}
               onChange={(w) => set('callWindow', w)}
             />
@@ -746,12 +752,15 @@ function NumberField({
 function WindowRow({
   label,
   window,
+  bounds,
   disabled,
   onChange,
   onRemove,
 }: {
   label: string;
   window: TimeWindow;
+  /** The hard bounds the window must keep inside (config.ts). */
+  bounds: TimeWindow;
   disabled: boolean;
   onChange: (window: TimeWindow) => void;
   onRemove?: () => void;
@@ -764,6 +773,8 @@ function WindowRow({
         <Input
           id={`${uid}-from`}
           type="time"
+          min={bounds.from}
+          max={bounds.to}
           value={window.from}
           disabled={disabled}
           className="w-32"
@@ -775,6 +786,8 @@ function WindowRow({
         <Input
           id={`${uid}-to`}
           type="time"
+          min={bounds.from}
+          max={bounds.to}
           value={window.to}
           disabled={disabled}
           className="w-32"
@@ -816,6 +829,7 @@ function KindWindows({
           key={i}
           label="From"
           window={w}
+          bounds={KIND_START_BOUNDS[kind]}
           disabled={disabled}
           onChange={(next) => onChange(windows.map((x, j) => (j === i ? next : x)))}
           onRemove={() => onChange(windows.filter((_, j) => j !== i))}
@@ -826,7 +840,12 @@ function KindWindows({
           size="sm"
           variant="ghost"
           disabled={disabled}
-          onClick={() => onChange([...windows, { from: '09:00', to: '10:00' }])}
+          onClick={() =>
+            onChange([
+              ...windows,
+              kind === 'dinner' ? { ...KIND_START_BOUNDS.dinner } : { from: '09:00', to: '10:00' },
+            ])
+          }
         >
           <Plus aria-hidden="true" />
           Add hours

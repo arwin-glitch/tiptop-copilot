@@ -1,7 +1,11 @@
-import { addDaysToKey, localDateKey, wallTimeToUtc } from '@/lib/util/time';
+import { addDaysToKey, localClock, localDateKey, wallTimeToUtc } from '@/lib/util/time';
 import {
   ALLOWED_WEEKDAYS,
+  CALL_BOUNDS,
+  clockMinutes,
+  firstName,
   KIND_LABEL,
+  KIND_START_BOUNDS,
   MEETING_KINDS,
   MEETING_MINUTES,
   type BookingConfig,
@@ -34,9 +38,13 @@ import {
  *  3. Inside its window: a call wholly inside the call window; an in-person
  *     meeting starting inside one of its kind's windows; and, on a day with
  *     shorter hours, wholly inside those too. Host time, so a day the clocks
- *     change is right too (wallTimeToUtc).
+ *     change is right too (wallTimeToUtc). And inside the hard bounds
+ *     whatever Settings holds (config.ts): nothing starts before 8:00,
+ *     calls, coffee and lunch end by 18:00, dinner is 18:00 to 19:00.
  *  4. Notice: at least `noticeHours` ahead.
- *  5. In person only on a day the host is home: no travel signs that day.
+ *  5. In person only on a day the host is home: no travel signs that day,
+ *     and not while his calendar shows another zone, through the day his
+ *     flight home lands (inPersonPausedThrough).
  *  6. The day's caps: at most `maxLinkBookingsPerDay` link bookings (waiting,
  *     held or booked), and nothing on a day that already has
  *     `maxMeetingsPerDay` meetings.
@@ -116,8 +124,13 @@ export interface EngineInput {
   /** Host-zone day keys with a travel sign: no in-person meetings on them. */
   travelDays: ReadonlySet<string>;
   linkBookings: readonly LinkBooking[];
-  /** The host's calendar is set to another time zone: in person paused everywhere. */
-  inPersonPaused?: boolean;
+  /**
+   * The host's main calendar is set to another time zone
+   * (lib/booking/busy.ts inPersonPausedThrough): in person is paused through
+   * this host-zone day (the day his flight home lands), or on every day
+   * ('all', no flight home on the calendar). Null or absent: not paused.
+   */
+  inPersonPausedThrough?: string | 'all' | null;
   /**
    * The approval re-check: notice and horizon are measured from when the
    * request was made, and the slot must still be at least an hour away.
@@ -144,17 +157,16 @@ export function weekdayOf(dateKey: string): number {
   return d === 0 ? 7 : d;
 }
 
-function minutesOf(clock: string): number {
-  const [h, m] = clock.split(':').map(Number);
-  return (h ?? 0) * 60 + (m ?? 0);
-}
-
 function toInstant(dateKey: string, minuteOfDay: number, zone: string): number | null {
   const at = wallTimeToUtc(dateKey, Math.floor(minuteOfDay / 60), minuteOfDay % 60, zone);
   return at ? at.getTime() : null;
 }
 
-/** The starts a day offers before any rule but the window: half-hour steps, host time. */
+/**
+ * The starts a day offers before any rule but the window: half-hour steps,
+ * host time, each window first cut to the hard bounds (config.ts), so no
+ * saved setting can open a time before 8:00, past 18:00 or a dinner off 18:00.
+ */
 export function candidateStarts(
   dateKey: string,
   query: SlotQuery,
@@ -164,16 +176,17 @@ export function candidateStarts(
   const minutes = MEETING_MINUTES[query.type];
   const out = new Set<number>();
   if (query.type === 'call') {
-    const from = minutesOf(config.callWindow.from);
-    const to = minutesOf(config.callWindow.to);
+    const from = Math.max(clockMinutes(config.callWindow.from), clockMinutes(CALL_BOUNDS.from));
+    const to = Math.min(clockMinutes(config.callWindow.to), clockMinutes(CALL_BOUNDS.to));
     for (let t = from; t + minutes <= to; t += SLOT_STEP_MINUTES) {
       const at = toInstant(dateKey, t, zone);
       if (at !== null) out.add(at);
     }
   } else if (query.kind) {
+    const bounds = KIND_START_BOUNDS[query.kind];
     for (const window of config.kindWindows[query.kind] ?? []) {
-      const from = minutesOf(window.from);
-      const to = minutesOf(window.to);
+      const from = Math.max(clockMinutes(window.from), clockMinutes(bounds.from));
+      const to = Math.min(clockMinutes(window.to), clockMinutes(bounds.to));
       for (let t = from; t <= to; t += SLOT_STEP_MINUTES) {
         const at = toInstant(dateKey, t, zone);
         if (at !== null) out.add(at);
@@ -187,6 +200,63 @@ export function candidateStarts(
 function inWindow(start: number, query: SlotQuery, config: BookingConfig, zone: string): boolean {
   const day = localDateKey(new Date(start), zone);
   return candidateStarts(day, query, config, zone).includes(start);
+}
+
+/**
+ * Whether a start keeps to the hard bounds on the host's own clock, read
+ * straight off the instant (not off the windows): checked on every offer and
+ * every re-check, whatever Settings holds.
+ */
+export function withinBookingHours(start: number, query: SlotQuery, zone: string): boolean {
+  const clock = localClock(new Date(start), zone);
+  const from = clock.hour * 60 + clock.minute;
+  const to = from + MEETING_MINUTES[query.type];
+  if (query.type === 'call') {
+    return from >= clockMinutes(CALL_BOUNDS.from) && to <= clockMinutes(CALL_BOUNDS.to);
+  }
+  if (!query.kind) return false;
+  const bounds = KIND_START_BOUNDS[query.kind];
+  return from >= clockMinutes(bounds.from) && from <= clockMinutes(bounds.to);
+}
+
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_SHORT = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/** "Sat 24 Oct" for a day key. */
+export function shortDayLabel(dateKey: string): string {
+  const d = new Date(`${dateKey}T12:00:00Z`);
+  return `${WEEKDAY_SHORT[d.getUTCDay()]} ${d.getUTCDate()} ${MONTH_SHORT[d.getUTCMonth()]}`;
+}
+
+/**
+ * Why in person is paused, in plain words: until the day after his flight
+ * home lands, or (no flight home on the calendar) while his calendar shows
+ * another zone.
+ */
+export function inPersonPauseReason(through: string | 'all', displayName: string): string {
+  const who = firstName(displayName) || 'the host';
+  if (through === 'all') {
+    return `In person is paused while ${who}'s calendar is set to another time zone.`;
+  }
+  return `In person is paused until ${who} is back (from ${shortDayLabel(addDaysToKey(through, 1))}).`;
+}
+
+/** Whether the pause covers a host-zone day. */
+export function inPersonPausedOn(day: string, through: string | 'all' | null | undefined): boolean {
+  return through === 'all' || (typeof through === 'string' && day <= through);
 }
 
 interface Run {
@@ -307,15 +377,18 @@ function problemFor(
     return `That time is past the months the link is open for (through ${monthLabel(lastOpenMonth(config, today))}).`;
   }
   if (query.type === 'in_person' && !query.kind) return 'Pick coffee, lunch or dinner.';
-  if (!known?.inWindow && !inWindow(start, query, config, hostZone)) {
+  if (
+    !withinBookingHours(start, query, hostZone) ||
+    (!known?.inWindow && !inWindow(start, query, config, hostZone))
+  ) {
     return query.type === 'call'
       ? 'That time is outside the hours for calls.'
       : 'That time is outside the hours for this kind of meeting.';
   }
   const hours = hoursFor(config, day);
   if (hours) {
-    const opens = toInstant(day, minutesOf(hours.from), hostZone);
-    const closes = toInstant(day, minutesOf(hours.to), hostZone);
+    const opens = toInstant(day, clockMinutes(hours.from), hostZone);
+    const closes = toInstant(day, clockMinutes(hours.to), hostZone);
     if (opens === null || closes === null || start < opens || end > closes) {
       return 'That time is outside the shorter hours set for that day.';
     }
@@ -328,8 +401,9 @@ function problemFor(
   if (input.askedAt && start < now.getTime() + HOUR) return 'That time is too close now.';
 
   if (query.type === 'in_person') {
-    if (input.inPersonPaused) {
-      return 'The calendar is set to another time zone, so in-person meetings are paused.';
+    const paused = input.inPersonPausedThrough;
+    if (paused && inPersonPausedOn(day, paused)) {
+      return inPersonPauseReason(paused, config.displayName);
     }
     if (input.travelDays.has(day)) return 'The host is away that day.';
   }

@@ -10,7 +10,7 @@ import { readCalendarPrefs } from '@/lib/services/calendar-prefs';
 import { readTeamMembers } from '@/lib/tasks/principal';
 import { err, ok, type Result } from '@/lib/util/result';
 import { addDaysToKey, localDateKey } from '@/lib/util/time';
-import { calendarZoneDiffers, toBusyPicture } from './busy';
+import { inPersonPausedThrough, toBusyPicture } from './busy';
 import type { BookingConfig } from './config';
 import type { BusyBlock } from './engine';
 import { lastOpenDay } from './months';
@@ -66,7 +66,12 @@ export function teammateCalendarIds(
 export interface BusyRead {
   busy: BusyBlock[];
   travelDays: Set<string>;
-  inPersonPaused: boolean;
+  /**
+   * The main calendar is set to another zone (lib/booking/busy.ts
+   * inPersonPausedThrough): in person paused through this host-zone day
+   * (his next flight home lands), or every day ('all'); null when not.
+   */
+  inPersonPausedThrough: string | 'all' | null;
 }
 
 export async function busyPictureFor(
@@ -96,11 +101,13 @@ export async function busyPictureFor(
   );
 
   const from = localDateKey(now, hostZone);
+  // Through the end of the last month the link is open for (D-078), and a
+  // little past it, so a meeting just after the window still counts.
+  const last = lastOpenDay(config, from);
+  const horizonDays = Math.round((Date.parse(last) - Date.parse(from)) / 86_400_000);
   const range = await readCalendarRange(store, organizationId, {
     from,
-    // Through the end of the last month the link is open for (D-078), and a
-    // little past it, so a meeting just after the window still counts.
-    to: addDaysToKey(lastOpenDay(config, from), 2),
+    to: addDaysToKey(last, 2),
     timeZone: hostZone,
     ownEmail: source.ownEmails[0] ?? '',
     calendarIds: shown,
@@ -116,7 +123,12 @@ export async function busyPictureFor(
     home: { city: config.homeCity, aliases: config.homeAliases, places: config.places },
   });
   return ok({
-    ...picture,
-    inPersonPaused: calendarZoneDiffers(range.calendars, hostZone, now),
+    busy: picture.busy,
+    travelDays: picture.travelDays,
+    inPersonPausedThrough: inPersonPausedThrough(range.calendars, picture.homeLandings, {
+      hostZone,
+      now,
+      horizonDays,
+    }),
   });
 }
