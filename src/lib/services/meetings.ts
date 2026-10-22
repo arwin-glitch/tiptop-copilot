@@ -198,10 +198,11 @@ const NOTE_LIMIT = 200;
 
 /**
  * Notes as a shared page shows them (D-076): private Copilot notes left out
- * (or kept for their own recorder, when the viewer is known), and a Granola
- * note whose Copilot twin is shown left out too, so a conversation recorded
- * by both tools appears once. Before the Copilot Notes migration there are no
- * twins and every row passes.
+ * (or kept for their own recorder, when the viewer is known), a Copilot note
+ * whose meeting is in the trash left out (its page would not open), and a
+ * Granola note whose Copilot twin is shown left out too, so a conversation
+ * recorded by both tools appears once. Before the Copilot Notes migration
+ * there are no twins and every row passes.
  */
 export async function visibleNotes(
   store: DataStore,
@@ -215,17 +216,27 @@ export async function visibleNotes(
     .map((n) => n.meeting_id ?? n.external_id);
   if (copilot.length === 0) return visible;
   let twins: Set<string>;
+  let trashed: Set<string>;
   try {
     const meetings = (await store.list('meetings', organizationId, {
       in: { id: copilot },
     })) as Meeting[];
+    trashed = new Set(meetings.filter((m) => m.deleted_at).map((m) => m.id));
+    // A trashed Copilot meeting no longer hides its Granola twin.
     twins = new Set(
-      meetings.map((m) => m.granola_external_id).filter((x): x is string => Boolean(x)),
+      meetings
+        .filter((m) => !m.deleted_at)
+        .map((m) => m.granola_external_id)
+        .filter((x): x is string => Boolean(x)),
     );
   } catch {
     return visible;
   }
-  return visible.filter((n) => !(n.provider === 'granola' && twins.has(n.external_id)));
+  return visible.filter((n) =>
+    n.provider === 'copilot'
+      ? !trashed.has(n.meeting_id ?? n.external_id)
+      : !(n.provider === 'granola' && twins.has(n.external_id)),
+  );
 }
 
 async function recentNotes(store: DataStore, organizationId: string): Promise<MeetingNote[]> {

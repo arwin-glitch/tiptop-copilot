@@ -70,6 +70,23 @@ async function axe(page: Page, selector: string) {
   expect(violations, `axe on ${selector}`).toEqual([]);
 }
 
+/**
+ * Delete the tasks a meeting filed (their detail names the meeting), so the
+ * specs after this one see the demo's own tasks only.
+ */
+async function deleteMeetingTasks(page: Page, meetingTitle: string) {
+  await page.goto('/tasks');
+  const rows = page
+    .getByRole('tabpanel', { name: /^To do/ })
+    .getByRole('listitem')
+    .filter({ hasText: `From the meeting "${meetingTitle}"` });
+  for (let left = await rows.count(); left > 0; left--) {
+    await rows.first().getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('menuitem', { name: 'Delete' }).press('Enter');
+    await expect(rows).toHaveCount(left - 1);
+  }
+}
+
 async function noSidewaysScroll(page: Page) {
   const overflow = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -298,6 +315,9 @@ test('Copilot Notes, from the calendar to a revoked share link', async ({
   const found = await mcp('query_meetings', { query: 'net revenue retention' });
   expect(found).toContain(title);
   await fresh.getByRole('button', { name: 'Done, I have copied it' }).click();
+
+  // The task "Add to Tasks" filed goes, so later specs see the demo's own tasks.
+  await deleteMeetingTasks(page, title);
 });
 
 test('a never-record meeting cannot start', async ({ page }) => {

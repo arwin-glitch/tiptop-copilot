@@ -6,7 +6,12 @@ import { resetEnvCache } from '@/lib/config/env';
 import { DEMO_IDS } from '@/lib/demo/ids';
 import { DEMO_NOTES_IDS } from '@/lib/demo/notes-fixtures';
 import { buildFeedReport, readCaptureState } from '@/lib/services/feed-health';
-import { countMeetingNotes, ingestGranolaNote, listMeetingNotes } from '@/lib/services/meetings';
+import {
+  countMeetingNotes,
+  ingestGranolaNote,
+  listMeetingNotes,
+  notesForRecord,
+} from '@/lib/services/meetings';
 import { fireMeetingFollowUp, followUpFireText } from '@/lib/services/notes-followup';
 import { purgeNotes } from '@/lib/services/notes-purge';
 import { searchEverything } from '@/lib/services/search';
@@ -734,6 +739,35 @@ describe('Granola twins', () => {
       copilot: before.copilot,
       total: before.total,
     });
+  });
+
+  it('a meeting in the trash leaves the shared pages, and its Granola twin comes back', async () => {
+    const org = harness.auth.organizationId;
+    const intro = (await harness.store.get(
+      'meetings',
+      org,
+      DEMO_NOTES_IDS.meetingAcmeIntro,
+    )) as Meeting;
+    await harness.store.update('meeting_notes', org, DEMO_NOTES_IDS.noteAcmeIntro, {
+      visibility: 'team',
+    });
+    await ingestGranolaNote(harness.store, org, {
+      external_id: 'granola-acme-twin-trash',
+      title: intro.title,
+      occurred_at: intro.started_at as string,
+      attendee_emails: [DANA.email],
+      attendee_names: [DANA.name],
+      content: "Granola's summary of the same call.",
+    });
+    const person = { kind: 'person' as const, domain: null, emails: [DANA.email] };
+    const shown = await notesForRecord(harness.store, org, person);
+    expect(shown.some((n) => n.provider === 'copilot' && n.meeting_id === intro.id)).toBe(true);
+    expect(shown.some((n) => n.external_id === 'granola-acme-twin-trash')).toBe(false);
+
+    await harness.store.update('meetings', org, intro.id, { deleted_at: new Date().toISOString() });
+    const after = await notesForRecord(harness.store, org, person);
+    expect(after.some((n) => n.provider === 'copilot' && n.meeting_id === intro.id)).toBe(false);
+    expect(after.some((n) => n.external_id === 'granola-acme-twin-trash')).toBe(true);
   });
 });
 

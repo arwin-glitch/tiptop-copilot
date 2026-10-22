@@ -112,7 +112,7 @@ function notesResult(requestId: string): string {
       ],
       action_items: [
         {
-          text: 'Intro to the operations lead',
+          text: 'Send the pricing playbook from the operations lead',
           owner_name: 'Nick Tippmann',
           due: null,
           is_nick_promise: true,
@@ -122,6 +122,23 @@ function notesResult(requestId: string): string {
       open_questions: [{ text: 'Who leads the round?', sources: [3] }],
     },
   })}\``;
+}
+
+/**
+ * Delete the tasks a meeting filed (their detail names the meeting), so the
+ * specs after this one see the demo's own tasks only.
+ */
+async function deleteMeetingTasks(page: Page, meetingTitle: string) {
+  await page.goto('/tasks');
+  const rows = page
+    .getByRole('tabpanel', { name: /^To do/ })
+    .getByRole('listitem')
+    .filter({ hasText: `From the meeting "${meetingTitle}"` });
+  for (let left = await rows.count(); left > 0; left--) {
+    await rows.first().getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('menuitem', { name: 'Delete' }).press('Enter');
+    await expect(rows).toHaveCount(left - 1);
+  }
 }
 
 async function noSidewaysScroll(page: Page) {
@@ -183,7 +200,7 @@ for (const viewport of [
 
       // 4. The action item was filed as a task, once, for the principal.
       const actions = page.locator('[data-action-items]');
-      await expect(actions).toContainText('Intro to the operations lead');
+      await expect(actions).toContainText('Send the pricing playbook from the operations lead');
       await expect(actions.getByRole('link', { name: 'In Tasks' }).first()).toBeVisible();
       await noSidewaysScroll(page);
 
@@ -219,6 +236,7 @@ for (const viewport of [
       await noSidewaysScroll(page);
     } finally {
       await call.post('/api/notes/demo/relay', { bridge: false });
+      await deleteMeetingTasks(page, `Acme bridge check (${viewport.label})`);
     }
   });
 }
