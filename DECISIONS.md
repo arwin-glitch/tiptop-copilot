@@ -2786,3 +2786,45 @@ routes, and optional fields on existing answers.
   recording running; the page lines them up with voices as suggestions and
   sends nothing to the server (a roster route is a core follow-up). Its
   selectors were written without a live Meet call and need checking in one.
+
+**Integration: one meeting page, two engines, and the loose ends tied.**
+
+- **The browser recorder is the meeting page's engine.** `use-recorder.ts`
+  mounts `lib/capture`'s recorder as the `live` engine everywhere; the
+  scripted mock call stays as the `scripted` engine in demo mode only, so a
+  demo needs no microphone and the screen tests no fake devices
+  (`?capture=live` runs the recorder against the mock vendor in demo mode,
+  and `tests/e2e/notes-live-capture.spec.ts` drives it with Chromium's fake
+  devices). The page keeps its own consent window, pill, Pause and Stop; the
+  recorder's meters and warnings sit under the pill and its errors show in
+  the consent window. The share picker is still asked for straight from the
+  Start click.
+- **A paused recording picks up after a reload.** Start on a meeting that is
+  `paused`, by the person recording it, resumes it (logged as `resumed`):
+  consent was given for that meeting already. Anything else that is not
+  `scheduled` is still refused.
+- **The server rewrites the notes, the page follows.** After a rename,
+  split or merge the core already rewrites the notes (`after()`); the page
+  now follows the stale flag instead of calling `/generate` a second time,
+  which would have paid for the notes twice. After Stop a meeting still
+  `processing` is followed the same way until its notes land.
+- **The Meet roster reaches the ladder.** While recording, and once more
+  before Stop, the extension's speaking timeline goes to
+  `POST /api/notes/meetings/[id]/roster` (names and times only, never
+  stored), so the roster rung names voices on the server.
+- **"Remember this voice" on a live call.** When the relabel answers
+  `requested`, the page asks the open session for that one voice
+  (`GetSpeakers`, not final), keeps only that label's identifiers and posts
+  them to `/voice-profiles/enroll`, which checks consent again and seals
+  them. The model version stored is `<provider>:realtime` (informational:
+  nothing compares it yet). Enrolling your own voice from a solo clip is
+  still not built: the mic is not diarized, so the owner cannot be
+  remembered from a meeting.
+- **Never-record rules: the core's routes won.** Both branches wrote them;
+  the core's version (admins to weaken a rule, renames allowed) is kept and
+  the duplicate types folded into its superset.
+- **Settings close the core's open screens:** the per-person default for who
+  sees new meetings, and Edit / Remove on the team's own templates.
+- **Lists and cards use the core's readers:** the calendar card reads the
+  `by-event` lookup in one call (series included), the Notes tab shows the
+  viewer's Copilot count, and the Granola chip lists Granola's notes only.

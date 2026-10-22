@@ -10,6 +10,21 @@ throughout.
 
 ## [Unreleased]
 
+- **Copilot Notes, put together (still off by default).** The meeting page now
+  records for real in Chrome and Edge: your microphone and the meeting tab you
+  share, or one microphone for everyone "in the room" (the way an iPhone
+  records), each sent straight to the speech service. Level bars and plain
+  warnings ("no meeting audio") sit under the red recording pill, and a page
+  reloaded mid-meeting offers Resume. A recording that stops by itself (a long
+  silence, the call ending) writes the notes just as Stop does, and a rename no
+  longer pays for the notes twice. "Remember this voice" works during a live
+  call for a guest who agreed to it. Notes settings let you share every meeting
+  you record with the team by default (which is what lets the cloud routines
+  read them) and edit or remove your own templates. The calendar card shows
+  earlier notes with the same people in one quick read; the Notes tab counts
+  your Copilot notes; deal and company pages link a Copilot note straight to
+  its chat. (D-076)
+
 - **Copilot Notes now writes real notes, names people, and talks to the
   routines (still off by default).** When a recording stops, Claude writes the
   notes from the transcript, the notes you typed (kept word for word), the
