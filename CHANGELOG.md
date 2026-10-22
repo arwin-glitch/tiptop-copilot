@@ -10,6 +10,49 @@ throughout.
 
 ## [Unreleased]
 
+- **A booking never waits for a person.** If Copilot cannot put a booking on
+  Nick's calendar right away (calendar editing is off, or Google is down or
+  says no), the time is held so nobody else can take it, and Copilot puts it
+  on the calendar by itself: the moment calendar editing is turned on, or,
+  when Google had a problem, again after about 1, 5, 15 and 60 minutes and
+  then every minute or so, until it works. It never makes the meeting twice.
+  Only if the time really was taken meanwhile is the hold let go, with a
+  short note ready for someone to send. On the Booking tab such a booking
+  shows "Booking…" with the reason and a "Try now" button; there is no
+  Approve or Decline for it. The visitor only sees "Your time is held. The
+  calendar invitation is on its way."
+- **A calendar on the booking page.** On a wide screen the page now has
+  three columns: Nick's card, the form, and a month calendar like
+  Calendly's. Each day shows whether it is open (with how many times; tap it
+  to see them), fully booked, or not offered, and the arrows only go to the
+  months that are open. If this device already booked, that day says "Yours"
+  and links to the booking's own page. On a phone the calendar sits above the
+  times. It never says why a day is closed. Moving a booking uses the same
+  calendar.
+- **Booking link safety fixes.** Booking and cancelling over and over no
+  longer gets round the daily limits (cancelled bookings now count, and
+  pat.lee+1@gmail.com counts as patlee@gmail.com); the whole link sends at
+  most 10 guest invitations a day; nobody at TipTop's own email domain can be
+  added as a guest; someone named as a guest in failed attempts is never
+  locked out. The Zoom link shows only on a booked meeting's page. The
+  visitor's note and deck link stay out of calendar invites nobody approved
+  (Nick sees them on the Booking tab). A booking can no longer land on a
+  meeting Nick added a moment earlier. The booking assistant's optional AI
+  answers now need a Slack channel and account of their own, and visitors'
+  questions are deleted after 30 days.
+- **Booking link fixes from the review.** A guest typed but not added still
+  gets invited; the "You have a meeting with Nick" line shows in-person times
+  in Central with the zone; a cancel note written in Copilot is marked as a
+  private note (Google's cancellation email carries no message); "Add to
+  calendar" only appears once a meeting is booked, and a second download
+  updates the first; the call link stays on the page after a reschedule; the
+  form says "Book a time" when booking is instant; "Why no times?" names the
+  rule closing most of the day and writes the reason out (no hovering on a
+  phone); tapping a day on a phone scrolls to its panel; the tour's month
+  step shows again; Today says when bookings are still going on the calendar.
+  Run `supabase/migrations/20261022200000_booking_v2.sql` (it now also adds
+  the three columns holds use) and then `20261022200100_booking_chat.sql`.
+
 - **The booking link has its own Booking tab.** It sits in the menu right
   after Calendar, at `/booking`, one short section per subtab (no long
   scroll):
@@ -71,8 +114,9 @@ throughout.
   This replaces the "Instant booking" switch added to Settings earlier the
   same day: there is no switch to find any more, booking at once is simply
   how the link works. Nothing here costs money. Run
-  `supabase/migrations/20261022200000_booking_v2.sql`; until then bookings
-  wait as requests, as before.
+  `supabase/migrations/20261022200000_booking_v2.sql`; until then a free time
+  is still booked at once when calendar editing is on (as before this
+  change), and otherwise waits as a request.
 - **A meeting deleted in Google Calendar is cancelled in Copilot too.** If
   Nick deletes a booked meeting from his calendar, the booking link notices
   on its next look at the calendar: that time is free again, it no longer

@@ -47,6 +47,10 @@ export default defineConfig({
       // an X-Forwarded-Host header, as there is no DNS for it here. Never set
       // in a real deployment (lib/jobs-board/host.ts).
       JOBS_BOARD_TRUST_FORWARDED_HOST: 'true',
+      // Every booking spec's visitors book on the one shared demo calendar,
+      // cancelled bookings included, so the link's daily brakes are loosened
+      // here. Honoured only with DEMO_MODE on (lib/config/env.ts).
+      E2E_BOOKING_BRAKES: 'relaxed',
     },
   },
 });

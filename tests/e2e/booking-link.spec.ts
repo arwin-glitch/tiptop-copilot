@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { expect, test, type Browser, type Page } from '@playwright/test';
+import { pickTime } from './booking-calendar-helpers';
 
 /**
  * The booking link (D-074) in a browser, over the demo: the public page at
@@ -94,13 +95,7 @@ async function pickFirstTime(page: Page) {
  * of the days the calendar specs drag events on.
  */
 async function pickLastTime(page: Page) {
-  const days = page.getByRole('radiogroup', { name: 'Day' });
-  await expect(days.getByRole('radio').first()).toBeVisible();
-  await days.getByRole('radio').last().click();
-  await expect(days.getByRole('radio').last()).toHaveAttribute('aria-checked', 'true');
-  const times = page.getByRole('radiogroup', { name: 'Time' });
-  await times.getByRole('radio').last().click();
-  await expect(times.getByRole('radio', { checked: true })).toHaveCount(1);
+  await pickTime(page, 'last', 'last');
 }
 
 async function fillAboutYou(page: Page, name: string, email: string, company: string) {

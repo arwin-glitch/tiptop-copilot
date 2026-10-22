@@ -3005,9 +3005,11 @@ are typed by hand.
 
 ### D-078 — The booking link v2: booked at once, months switched on one by one, its own tab, and nothing to pay
 
-One decision in four parts, built in parallel and merged together: the
-Booking tab (part 1), the flows (part 2), the page's assistant (part 3), and
-what Arwin asked for once the builders had started (part 4, the integration).
+One decision in five parts, built in parallel and merged together: the
+Booking tab (part 1), the flows (part 2), the page's assistant (part 3), what
+Arwin asked for once the builders had started (part 4, the integration), and
+the fix-up after the security and UX reviews with Arwin's last two asks
+(part 5).
 Supersedes D-074's approve-first default, its 21-day horizon and its paid
 chatbot; the branch `booking-instant` (an auto-approve on top of D-074) is
 superseded by part 2.
@@ -3116,12 +3118,14 @@ booking-calendar.ts, booking-alerts.ts).**
   fresh booking holds its own time until Google lists it (ten minutes). Every
   abuse brake stays: the per-day link cap, three upcoming meetings or
   messages per email (as booker or guest), three per sender address, six new
-  bookings a day for the whole link, the honeypot and the per-address limits.
+  bookings a day for the whole link, the honeypot and the per-address limits
+  (part 5 makes the daily ones count cancelled bookings too).
   "Approve first" remains an option on the Booking tab's Overview, off by
   default (a renamed field, `approveFirst`, so the `instant: false` saved
   under D-074 does not keep approval on); with it on, every booking waits as a
   request, as before.
-- **Held when calendar editing is off.** The time is kept ("Your time is
+- **Held when calendar editing is off** (part 5: also when Google is down or
+  refuses, and retried by itself on a backoff). The time is kept ("Your time is
   held. The calendar invitation is on its way."), a Today line and the Booking
   tab's banner say "Turn on calendar editing so invites go out automatically",
   and once the grant exists the held times are placed by themselves (the push
@@ -3241,12 +3245,14 @@ repository's Anthropic key with a monthly spend cap.
   the offers, the next six call times in the visitor's zone). Firing the
   routine's trigger starts it on Arwin's plan; it is not a model call and
   bills nothing. The routine's only action is one Slack post,
-  `BOOKING_ANSWER_V1` plus `{question_id, answer}`, to the relay channel the
-  app already reads; while the widget polls (`GET
+  `BOOKING_ANSWER_V1` plus `{question_id, answer}`, to a private channel of
+  its own (`BOOKING_CHAT_RELAY_CHANNEL_ID`, no default; part 5); while the
+  widget polls (`GET
   /api/meet/[slug]/chat/answer`, every 4 seconds for 3 minutes, 90 per address
   per 10 minutes) the app reads that channel at most every 3 seconds, takes
-  posts from `BOOKING_CHAT_POSTER_IDS` only (default: the task routines'
-  account), matches the question id, and makes the answer plain: no markup,
+  posts from `BOOKING_CHAT_POSTER_IDS` only (no default, and never an account
+  another relay trusts; part 5), matches the question id, and makes the
+  answer plain: no markup,
   no link but the booking page's own, no email address or phone number, every
   sentence promising that a person will confirm, review or get back dropped,
   600 characters at most. A question waiting five minutes expires; a refused
@@ -3339,3 +3345,113 @@ be free why does it have 25 bucks").
   description ends without one.
 - A cleanup the same tool undoes within the same change stays undone.
 - The description check reads the saved video link at the time it runs.
+
+#### Part 5 — The fix-up: a booking never waits for a person, the brakes hold, and a calendar card
+
+**Context.** A security review and a UX review ran on the builders'
+branches while they were merged, and Arwin asked two more things. About a
+booking that could not be written to Nick's calendar falling back to Approve:
+"this should be bypassed." Looking at the live page: "there should be a card
+on the right like a calendar that shows when is that person booked or if he
+has any booked time."
+
+**Decision.**
+
+- **Instant never waits for a person.** When a free time cannot be written
+  at once (no editing grant, no writable main calendar, Google not answering
+  or refusing, an answer lost) it is `held`: its time stays blocked for every
+  other visitor, the visitor sees the neutral held copy, and Copilot books it
+  by itself (`placeHeldBookings`, `lib/booking/holds.ts`). Waiting for the
+  grant: tried on every pass, and at once from the OAuth callback when the
+  grant arrives (`after()`). A Google fault: tried again after about 1, 5, 15
+  and 60 minutes, then on every pass, with an in-process timer for the next
+  try and the alerts job now running the pass on every tick (each minute for
+  meetings, each half hour). Only a time that is truly no longer free
+  releases it (declined, no person named, a notice draft for someone to
+  send). Held "in doubt" (claimed_at) whenever Google may have made the event,
+  so the next try looks first, by the page link or (an event made when a hold
+  was placed) by the booker on its invite: never two events. New columns
+  `hold_reason`, `hold_attempts`, `hold_next_try_at` (in
+  `20261022200000_booking_v2.sql`; in memory before it). The Booking tab shows
+  such a booking as "Booking…" with the reason, when it tries next, and Try
+  now (`POST /api/booking/bookings/[id]/retry`); never Approve or Decline.
+  Before the v2 migration a free time is still booked at once as `approved`
+  when the calendar can be written (as master's first instant booking did),
+  and audited `booking.v2_missing`; only the old status check is read as "not
+  migrated", any other check failure is a real error.
+- **The daily brakes count every meeting booked in the last 24 hours,
+  cancelled or declined too** (booking and cancelling in a loop sent
+  invitations from Nick's calendar without end): six for the link, three per
+  person and four per sender address, addresses compared as one inbox
+  (lower-case, no +tag, Gmail dots ignored; `normalizeAddress`), as booker or
+  guest; ten guest invitations a day for the whole link; no guest at the host
+  side's own domains (free mail domains excepted), so team@ cannot fan out.
+  The hourly per-address limiter is charged only once the time passes the
+  check, booker and guests on separate keys, so naming someone in failed
+  requests never locks them out. The end-to-end demo server loosens the daily
+  ones (`E2E_BOOKING_BRAKES=relaxed`, honoured only with DEMO_MODE).
+- **The saved video link shows only on a booked meeting's page**, never on a
+  requested, held, cancelled or declined one.
+- **The fresh check really is fresh.** The calendar cache keeps a generation
+  per organization, bumped by every invalidation, and a read that began
+  before one never stores its answer; `fresh` reads skip the cache. A slow
+  page read can no longer put back the calendar from before Nick's new
+  meeting for the booking check to trust.
+- **An event no person approved carries no visitor text.** Instant and
+  placed events say "Their note and deck link are on the Booking tab in
+  Copilot." instead of the note and deck (Google emails the description to
+  every guest, and the assistant routines read Nick's calendar); names in
+  titles are cut to 60 characters. An approved request keeps its note.
+- **One change at a time, Approve included.** Approve runs inside the
+  organization's lock; a cancel or move of a request being approved is
+  refused for the claim's two minutes. A cancelled hold "in doubt", or a
+  booked row whose event id was never kept, finds its event and deletes it.
+  A move that finds the event deleted in Google marks the booking cancelled;
+  a move re-checks that in person is still offered; the move's "ignore its
+  own time" rule drops a calendar entry only when it is the booking's own
+  event. Anything that throws after Google made an event leaves a hold in
+  doubt, never a booked row without its event.
+- **The assistant's relay is its own.** `BOOKING_CHAT_RELAY_CHANNEL_ID` and
+  `BOOKING_CHAT_POSTER_IDS` have no defaults; AI answers stay off unless the
+  channel is not the Ask or deal relay and no poster is a task or deal relay
+  poster (`bookingChatRelayProblem`, shown in the setup check). A prompt-
+  injected answer can then never pass for a task, a briefing or a queued
+  email. Links are caught in capitals and with spelled-out dots; questions
+  are deleted after 30 days.
+- **The public page's calendar card.** Three columns from 1280px (the
+  host's card, the form, a Calendly-style month calendar); narrower, the
+  calendar sits above the times and replaces the day chips (the reschedule
+  picker uses it too). Arrows go only to the months open on the link. Each
+  day is open (with its count; pick it to see its times), booked (a meeting
+  day with every time taken: busy, the caps, the back-to-back rule, an earlier
+  booking) or not offered, and the device's own booking is "Your meeting",
+  a link to its page. The slots API adds only `days: {date, state}` and
+  `months`; never why a day is closed. A grid with arrow keys, Home, End,
+  Page Up and Page Down, and labels like "Thursday 12 November, 4 open times".
+- **UX fixes.** A typed guest counts when the form is sent (added on blur
+  too); the remembered-booking banner reads in-person times in Central, with
+  the zone, and a pending request as a request; a host's cancel note is a
+  private note (labelled "Your note", 500 characters, the toast says whether
+  Google told anyone); Add to calendar only for a booked meeting, with a UID
+  that survives a move and a SEQUENCE; the call link survives a reschedule;
+  "Book a time" (the heading and the link) when booking is instant; "Why no times?"
+  picks the reason by rule, not wording ("Busy", not "Fully busy"), and shows
+  the words beside the chip (phones have no hover); a tapped planner day
+  scrolls into view on a phone; the tour's month step lands on Overview's
+  months check; the editing check's link starts the grant; fine checks are a
+  title alone on a phone; Today says when holds are retrying rather than
+  waiting for editing.
+
+**Known limits.**
+
+- Holiday calendars mark their days free, so a switched-on holiday calendar
+  does not close a day; the Calendars copy says so, and the day is closed in
+  Availability.
+- The calendar lock is still per process; a database exclusion constraint
+  was not added (a Google move onto another booking's time would then fail
+  to sync).
+- Every guest can open the booking's page and move or cancel it for everyone
+  (the token is in the event description), as on Calendly; recorded, not
+  changed.
+- The in-process retry timer is lost on a restart; the alerts job and every
+  visit pick the hold up again.

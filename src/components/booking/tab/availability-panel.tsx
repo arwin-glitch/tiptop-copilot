@@ -182,10 +182,18 @@ function Planner(props: AvailabilityPanelProps) {
   const counts = useMonthCounts(version);
   const disabled = !props.canEdit || saving;
 
-  const apply = async (changes: Partial<PlannerConfig>, done: string) => {
+  const apply = async (changes: Partial<PlannerConfig>, done: string, undoable = true) => {
     const before = planner;
     setPlanner({ ...planner, ...changes });
-    const saved = await save({ config: changes }, done);
+    // A month or day tap saves at once, so its toast offers Undo.
+    const previous = Object.fromEntries(
+      Object.keys(changes).map((k) => [k, before[k as keyof PlannerConfig]]),
+    ) as Partial<PlannerConfig>;
+    const saved = await save(
+      { config: changes },
+      done,
+      undoable ? () => void apply(previous, 'Put back', false) : undefined,
+    );
     if (!saved) {
       setPlanner(before);
       return;

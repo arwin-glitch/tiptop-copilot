@@ -7,6 +7,7 @@ import {
   type BrowserContext,
   type Page,
 } from '@playwright/test';
+import { pickTime } from './booking-calendar-helpers';
 
 /**
  * The whole booking link v2 demo flow (D-078), in a browser, at 1440 and at a
@@ -99,20 +100,9 @@ async function expectNoSidewaysScroll(page: Page) {
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 2);
 }
 
-/** A day in the middle of what is offered, then its first time. */
+/** A day in the middle of the last open month, then its first or last time. */
 async function pickMiddleTime(page: Page, which: 'first' | 'last' = 'first') {
-  const days = page.getByRole('radiogroup', { name: 'Day' });
-  await expect(days.getByRole('radio').first()).toBeVisible();
-  const count = await days.getByRole('radio').count();
-  await days
-    .getByRole('radio')
-    .nth(Math.floor(count / 2))
-    .click();
-  const times = page.getByRole('radiogroup', { name: 'Time' });
-  await (
-    which === 'first' ? times.getByRole('radio').first() : times.getByRole('radio').last()
-  ).click();
-  await expect(times.getByRole('radio', { checked: true })).toHaveCount(1);
+  await pickTime(page, 'middle', which);
 }
 
 test('the Booking tab switches months on and off, and the public page follows', async ({

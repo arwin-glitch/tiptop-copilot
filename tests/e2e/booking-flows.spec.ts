@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { expect, test, type Browser, type Page } from '@playwright/test';
+import { pickTime } from './booking-calendar-helpers';
 
 /**
  * The booking link v2 (D-078) in a browser, over the demo, at 1440 and at a
@@ -31,12 +32,7 @@ async function visitor(browser: Browser, baseURL: string | undefined, width: num
 
 /** The last time on the last day offered: clear of the days the calendar specs use. */
 async function pickLastTime(page: Page) {
-  const days = page.getByRole('radiogroup', { name: 'Day' });
-  await expect(days.getByRole('radio').first()).toBeVisible();
-  await days.getByRole('radio').last().click();
-  const times = page.getByRole('radiogroup', { name: 'Time' });
-  await times.getByRole('radio').last().click();
-  await expect(times.getByRole('radio', { checked: true })).toHaveCount(1);
+  await pickTime(page, 'last', 'last');
 }
 
 async function expectNoSidewaysScroll(page: Page) {

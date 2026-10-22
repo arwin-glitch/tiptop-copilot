@@ -331,11 +331,17 @@ export function BookingCalendar({
         aria-label="What the days show"
       >
         <li className="inline-flex items-center gap-1.5">
-          <span className="size-2.5 rounded-full bg-[var(--accent)]" aria-hidden="true" />
+          <span
+            className="size-2.5 rounded-full border border-[var(--accent)] bg-[var(--accent-soft)]"
+            aria-hidden="true"
+          />
           Open
         </li>
         <li className="inline-flex items-center gap-1.5">
-          <span className="size-2.5 rounded-full bg-[var(--fg-subtle)]" aria-hidden="true" />
+          <span
+            className="size-2.5 rounded-full border border-[var(--border-strong)] bg-[var(--bg-sunken)]"
+            aria-hidden="true"
+          />
           Booked
         </li>
         <li className="inline-flex items-center gap-1.5">
@@ -352,17 +358,6 @@ export function BookingCalendar({
           </li>
         ) : null}
       </ul>
-      {yourMeeting && mine && monthOf(mine) === shown ? (
-        <p className="mt-2 text-xs">
-          <span className="text-[var(--fg-muted)]">
-            Your meeting: {dayLabel(yourMeeting.startsAt, zone)},{' '}
-            {timeLabel(yourMeeting.startsAt, zone)}.{' '}
-          </span>
-          <a href={yourMeeting.manageUrl} className="link-inline whitespace-nowrap">
-            See, reschedule or cancel
-          </a>
-        </p>
-      ) : null}
     </div>
   );
 }

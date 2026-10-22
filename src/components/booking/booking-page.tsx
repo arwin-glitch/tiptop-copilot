@@ -495,7 +495,7 @@ function OpenPage({
                 {form.type === 'message'
                   ? 'Leave a message'
                   : data.instant
-                    ? 'Pick a time'
+                    ? 'Book a time'
                     : 'Ask for a time'}
               </h2>
               <p className="mt-1 text-sm text-[var(--fg-muted)]">

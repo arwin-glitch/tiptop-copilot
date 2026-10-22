@@ -23,7 +23,7 @@ visitor's question ──▶ Copilot (no written answer matches; caps checked)
               booking assistant routine (this prompt, no connectors)
                         │  one slack_send_message
                         ▼
-              relay channel:  BOOKING_ANSWER_V1 + `{question_id, answer}`
+              its own channel: BOOKING_ANSWER_V1 + `{question_id, answer}`
                         │
                         ▼
               Copilot reads the channel while the widget waits (posters
@@ -36,25 +36,41 @@ the daily total in the Booking tab (15 by default, 30 at most).
 
 ## Set it up (once)
 
-1. On claude.ai, create a new routine named **Booking assistant**.
-2. **Connectors:** add Slack only, and allow only `slack_send_message`. Remove
-   every other connector (Gmail, Calendar, Drive, GitHub, Granola, Copilot
-   MCP). **No repository.** No schedule: it runs only when fired.
-3. Paste the prompt below as the routine's instructions.
-4. Open the routine's **API trigger**, copy the URL (ends in `/fire`) and the
-   token, and set them on Render as `BOOKING_CHAT_FIRE_URL` and
-   `BOOKING_CHAT_TOKEN`. `ASK_RELAY_SLACK_TOKEN` must already be set (it is, for
-   Ask and the Today page).
-5. Optional: `BOOKING_CHAT_RELAY_CHANNEL_ID` (default: the ask relay channel,
-   `#briefing-ask-relay`) and `BOOKING_CHAT_POSTER_IDS` (default: the account the
-   task routines post as). Set the poster IDs if the routine posts as a
-   different Slack user, or its answers are ignored.
+**Why its own channel and its own Slack account.** A stranger's question
+reaches this routine. Copilot's task, briefing, job and follow-up readers
+trust posts in `#briefing-ask-relay` from the account the routines post as, so
+a prompt-injected answer posted there could pass for one of them. The booking
+assistant therefore posts to a private channel **no other relay reads**, as a
+Slack account **no other relay trusts**, and Copilot refuses to turn AI answers
+on otherwise (the Diagnostics setup check says why). If no such account exists
+at no cost, leave **Answer other questions with AI** off: the assistant still
+books times and answers from the written list.
+
+1. In Slack, create a private channel used by nothing else (for example
+   `#booking-assistant-relay`) and invite the Copilot Slack app to it (it reads
+   with `ASK_RELAY_SLACK_TOKEN`, which needs `groups:history`). Note its ID.
+2. On claude.ai, create a new routine named **Booking assistant**.
+3. **Connectors:** add Slack only, connected as a Slack user that **no other
+   relay trusts** (not the account the task, deal or Ask routines post as), and
+   allow only `slack_send_message`. Remove every other connector (Gmail,
+   Calendar, Drive, GitHub, Granola, Copilot MCP). **No repository.** No
+   schedule: it runs only when fired.
+4. Paste the prompt below as the routine's instructions, with
+   `<RELAY_CHANNEL_ID>` replaced by the channel's ID from step 1.
+5. Open the routine's **API trigger**, copy the URL (ends in `/fire`) and the
+   token. On Render set all four (a person adds them; nothing else changes):
+   - `BOOKING_CHAT_FIRE_URL`: the trigger URL;
+   - `BOOKING_CHAT_TOKEN`: the trigger token;
+   - `BOOKING_CHAT_RELAY_CHANNEL_ID`: the channel from step 1 (no default; never
+     the Ask or deal relay channel);
+   - `BOOKING_CHAT_POSTER_IDS`: the Slack user ID from step 3 (no default; never
+     one of `TASK_RELAY_POSTER_IDS` or `DEAL_RELAY_POSTER_IDS`).
+
+   `ASK_RELAY_SLACK_TOKEN` must already be set (it is, for Ask and the Today
+   page).
 6. In Copilot, open the Booking tab's assistant panel, turn on **Answer other
    questions with AI**, and save. The panel then says "Set up - no answers yet",
    and "Working - last answer …" after the first one.
-
-Replace `<RELAY_CHANNEL_ID>` in the prompt with the channel the app reads
-(`BOOKING_CHAT_RELAY_CHANNEL_ID`, or the ask relay channel ID).
 
 ## The routine prompt (paste exactly)
 
@@ -100,9 +116,10 @@ the message that started you has no BOOKING_QUESTION_V1 line with valid JSON.
 
 ## What the app does with the answer
 
-- Reads the relay channel only while a question waits, at most every 3 seconds,
-  and only posts from `BOOKING_CHAT_POSTER_IDS`. A post whose `question_id` is
-  not waiting is ignored.
+- Reads its own channel only while a question waits, at most every 3 seconds,
+  and only posts from `BOOKING_CHAT_POSTER_IDS` (none at all while the list is
+  empty). A post whose `question_id` is not waiting is ignored.
+- Deletes the visitors' questions and answers after 30 days.
 - Makes the answer plain before anyone sees it: no markup, tags or code; no link
   except the booking page's own; no email address or phone number; every
   sentence promising that a person will confirm, review or get back is dropped;

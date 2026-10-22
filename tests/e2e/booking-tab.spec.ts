@@ -67,6 +67,9 @@ function bookings(now: Date) {
     createdAt: day(-1, 15),
     rescheduledCount: 0,
     eventLink: null,
+    cancelledBy: null,
+    holdReason: null,
+    nextTryAt: null,
   };
   return [
     {
@@ -99,6 +102,9 @@ function bookings(now: Date) {
       placeArea: 'Riverside',
       source: 'chatbot',
       rescheduledCount: 1,
+      // Booked by the visitor; Google did not answer, so Copilot keeps trying.
+      holdReason: 'calendar_unreachable',
+      nextTryAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
     },
   ];
 }
@@ -225,6 +231,11 @@ test('Availability: each month on its own switch, a day closed and opened, the l
   await third.click();
   await expect(third).toHaveAttribute('data-state', 'off');
   await expect(page.getByTestId(`month-count-${thirdName}`)).toHaveText('No times');
+  // A tap saves at once, so its toast offers Undo: it comes back on.
+  await page.getByRole('button', { name: 'Undo' }).last().click();
+  await expect(third).toHaveAttribute('data-state', 'open');
+  await third.click();
+  await expect(third).toHaveAttribute('data-state', 'off');
   // Back to the month that is open, for the day panel below.
   await months.nth(1).click();
   await expect(months.nth(1)).toHaveAttribute('data-state', 'off');
@@ -300,7 +311,12 @@ test('Bookings: who, when, where, guests and status, Cancel with a note', async 
   await page.route('**/api/booking/bookings/*/cancel', async (route) => {
     const id = route.request().url().split('/').at(-2)!;
     cancelled = { id, body: route.request().postDataJSON() };
-    await route.fulfill({ json: { ok: true } });
+    await route.fulfill({ json: { ok: true, removedEvent: true, calendarLeft: false } });
+  });
+  let retried: string | null = null;
+  await page.route('**/api/booking/bookings/*/retry', async (route) => {
+    retried = route.request().url().split('/').at(-2)!;
+    await route.fulfill({ json: { ok: true, status: 'booked', holdReason: null } });
   });
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/booking?tab=bookings');
@@ -319,7 +335,12 @@ test('Bookings: who, when, where, guests and status, Cancel with a note', async 
     /\/calendar\?view=day&date=\d{4}-\d{2}-\d{2}$/,
   );
   const morgan = page.getByRole('listitem', { name: 'Booking with Morgan Ash' });
-  await expect(morgan.getByText('Held', { exact: true })).toBeVisible();
+  // A held booking books itself: "Booking…", why, and Try now; never Approve.
+  await expect(morgan.getByText('Booking…', { exact: true })).toBeVisible();
+  await expect(morgan.getByTestId('held-reason')).toContainText(
+    'Google Calendar did not answer. Copilot tries again by itself.',
+  );
+  await expect(morgan.getByRole('button', { name: /Approve|Decline/ })).toHaveCount(0);
   await expect(morgan.getByText(/Juniper & Rye Coffee, Riverside/)).toBeVisible();
   await expect(morgan.getByText('Moved once')).toBeVisible();
   // The demo's requests wait for approval in the drawer they always had.
@@ -330,12 +351,19 @@ test('Bookings: who, when, where, guests and status, Cancel with a note', async 
     fullPage: true,
   });
 
+  await morgan.getByRole('button', { name: 'Try now' }).click();
+  await expect(page.getByText(/^Booked: it is on the calendar/)).toBeVisible();
+  expect(retried).toBe('00000000-0000-4000-8000-00000000c002');
+
   await robin.getByRole('button', { name: 'Cancel' }).click();
   const dialog = page.getByRole('dialog', { name: 'Cancel with Robin Vale?' });
   await expect(dialog).toBeVisible();
-  await dialog.getByLabel('Note (optional)').fill('Sorry, a clash came up.');
+  // The team's note stays in Copilot: Google's cancellation carries no text.
+  await dialog
+    .getByLabel('Private note (the visitor does not see it)')
+    .fill('Sorry, a clash came up.');
   await dialog.getByRole('button', { name: 'Cancel the booking' }).click();
-  await expect(page.getByText('Cancelled. Google Calendar tells them.')).toBeVisible();
+  await expect(page.getByText('Cancelled. Google Calendar tells everyone invited.')).toBeVisible();
   expect(cancelled).toEqual({
     id: '00000000-0000-4000-8000-00000000c001',
     body: { note: 'Sorry, a clash came up.' },

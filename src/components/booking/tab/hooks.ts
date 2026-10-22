@@ -31,7 +31,12 @@ export function useSettingsSave() {
   const [saving, setSaving] = React.useState(false);
   const [problem, setProblem] = React.useState<string | null>(null);
   const save = React.useCallback(
-    async (patch: SettingsPatchBody, done = 'Saved'): Promise<SavedSettings | null> => {
+    async (
+      patch: SettingsPatchBody,
+      done = 'Saved',
+      /** Puts the change back: the toast offers Undo (a tap saves at once). */
+      undo?: () => void,
+    ): Promise<SavedSettings | null> => {
       setSaving(true);
       setProblem(null);
       const res = await fetch('/api/booking/settings', {
@@ -51,7 +56,7 @@ export function useSettingsSave() {
         toast.error(message);
         return null;
       }
-      toast.success(done);
+      toast.success(done, undo ? { action: { label: 'Undo', onClick: undo } } : undefined);
       router.refresh();
       return json.settings;
     },
