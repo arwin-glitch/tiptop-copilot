@@ -64,6 +64,30 @@ throughout.
   carry a **Start notes** button. A three-picture tour explains consent,
   fixing a name and sharing. (D-076)
 
+- **Copilot Notes can record in Chrome (off by default).** The recorder
+  behind the coming meeting page: it listens to two things at once, your
+  microphone (you) and the meeting tab or screen you share (everyone else),
+  and sends the sound straight to the speech service, never through Copilot.
+  Nothing is heard until the consent box is ticked and Copilot has logged it
+  and checked the never-record list. Finished lines are saved every couple of
+  seconds and are safe to send twice. If the connection drops, Copilot keeps
+  the last 30 seconds in memory and catches up when it is back, with no
+  missing or repeated lines; if a drop lasts longer it says how much was
+  missed. Each sound has its own level bar, and Copilot warns "No meeting
+  audio detected" after 20 quiet seconds (usually "Share tab audio" was left
+  unticked). Pause closes the connection so it costs nothing; recording stops
+  by itself after 15 minutes of silence, or 2 minutes after the shared call
+  window closes. Leaving the meeting page pauses the recording and lets go of
+  the microphone. On an iPhone it records in-person meetings from the
+  microphone, keeps the screen awake and says what was missed if the screen
+  went off. A new **Sound check** page tests the microphone and the meeting
+  audio on your computer before a call (nothing is sent), and in demo mode
+  records the made-up demo call end to end. Also new, optional: a Chrome
+  extension for Google Meet that suggests participants' names for voices,
+  only while a recording with consent runs and only if you switch it on, and
+  posts the consent notice in the Meet chat when you press its button. No
+  audio is stored anywhere. (D-076)
+
 - **Copilot Notes, the groundwork (off by default).** Copilot can now keep
   its own meetings, transcripts and notes, ready for the recorder and the
   Notes screens that come next: a meeting made from a calendar event (or "+

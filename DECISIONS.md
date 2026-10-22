@@ -2750,3 +2750,39 @@ routes, and optional fields on existing answers.
 - **The public page** `/n/[token]` is server-rendered from
   `resolveSharedNote`, with no app chrome; anything that is not a live link
   is `notFound()`.
+
+**The web recorder (workstream 3), `lib/capture`.**
+
+- **Nothing is heard before consent.** `start()` refuses without
+  `consent.confirmed`; from the click it asks for the share and the
+  microphone (the browser shows the share picker only for a click), then
+  calls `/start`, and only after the server logs consent and clears the
+  never-record list does any audio flow. A refusal releases the devices; no
+  audio left the page.
+- **Two tracks, two sockets.** The mic (`echoCancellation: 'all'`) and the
+  shared tab or screen (taken raw; its video is stopped at once) each run
+  through an AudioWorklet (`public/worklets/pcm16.js`) at 16 kHz into its own
+  vendor socket. "Mic only" is one diarized `mixed` track (in person, phones,
+  Zoom desktop on a Mac).
+- **The recording has its own clock** (16 kHz samples, pauses excluded). A
+  socket's times are moved onto it by where its audio started. A new socket
+  replays the 30-second in-memory buffer from the end of the vendor's last
+  finished line (or from where a graceful close left off), and a finished
+  line that ends at or before the last one delivered is dropped: reconnects
+  have no gap and no repeat, and a drop that outlasts the buffer is reported
+  only if speech was lost.
+- **Seqs are given at first send and never change**, in the order lines were
+  said within a batch, so a retried batch is stored once (`/segments` upserts
+  on seq). Lines wait in memory while offline.
+- **Pause closes the sockets** (AssemblyAI bills idle time) and disables the
+  tracks; resume mints fresh keys. Silence auto-stop after 15 minutes on
+  every track; "call ended" 2 minutes after the share ends with a quiet mic.
+  Leaving the page pauses and releases the devices (a re-render does not).
+- **The mock vendor hears by audio, not the wall clock**, so demo mode and
+  the end-to-end tests exercise pause, drops and replay the way a real vendor
+  would. Chromium's fake devices drive it in `tests/e2e/capture-recorder.spec.ts`.
+- **The Meet names extension** (`extension/meet`, MV3, `storage` only) passes
+  roster snapshots tab to tab, only with its switch on and a consented
+  recording running; the page lines them up with voices as suggestions and
+  sends nothing to the server (a roster route is a core follow-up). Its
+  selectors were written without a live Meet call and need checking in one.

@@ -65,6 +65,11 @@ action.
   meetings their recorder shared with the team, never a private one or a
   private folder (Coaching). A meeting deleted to the trash is gone for good,
   with its transcript and notes, after seven days.
+  The Sound check page tests the microphone and the shared meeting audio on
+  your computer alone and sends nothing. The optional Google Meet extension
+  passes participant names from the Meet tab to the Copilot tab on the same
+  computer, only while a recording with confirmed consent runs and only if
+  its switch is on; it sends nothing to any server.
 
 ---
 
