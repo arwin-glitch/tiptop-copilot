@@ -247,3 +247,63 @@ const HOMEWARD = /\b(home|homeward|return(?:ing)?|back)\b/i;
 export function homewardSign(entry: Pick<TravelInput, 'title'>, home: HomePlace): boolean {
   return HOMEWARD.test(entry.title) || namesHome(entry.title, home);
 }
+
+/** Whether a piece of text names the home city itself or one of its aliases (not a listed place). */
+export function namesHomeCity(text: string, home: Pick<HomePlace, 'city' | 'aliases'>): boolean {
+  return namesAny(text, [home.city, ...home.aliases]);
+}
+
+/** "to Harbor City", "→ AUS", "-> Riverside", "– LKP": where a title says a journey goes. */
+const TITLE_DESTINATION = /(?:\bto\b|→|->|–|—)\s*([^,;()[\]|\n]+)/gi;
+
+/** "SFO-AUS": two airport codes, the second the destination. */
+const CODE_ROUTE = /\b[A-Z]{3}\s*(?:→|->|–|—|-|to)\s*([A-Z]{3})\b/g;
+
+/**
+ * A route line in a booking's description, as Google writes one for a flight
+ * it found in Gmail: "Lakeport LKP 11:59pm (local time) - Harbor City HCX
+ * 5:46am (local time)". Both ends carry an airport code.
+ */
+const DESCRIPTION_ROUTE = /^(.*\b[A-Z]{3}\b.*?)\s+[-–—→]\s+(.*\b[A-Z]{3}\b.*)$/;
+
+/** Where a journey ends, as its title says it: the last "to X" or "AAA-BBB", else null. */
+function titleDestination(title: string): string | null {
+  const codes = [...title.matchAll(CODE_ROUTE)];
+  const words = [...title.matchAll(TITLE_DESTINATION)];
+  const lastCode = codes.at(-1);
+  const lastWord = words.at(-1);
+  const pick =
+    lastCode && (!lastWord || (lastCode.index ?? 0) >= (lastWord.index ?? 0))
+      ? lastCode[1]
+      : lastWord?.[1];
+  // "to Lakeport from Harbor City": the part after "from" is where it left.
+  const cleaned = pick?.replace(/\s+(?:from|via|on|at|for)\b.*$/i, '').trim();
+  return cleaned || null;
+}
+
+/** Where a journey ends, as a booking's route line says it, else null. */
+function descriptionDestination(description: string | null | undefined): string | null {
+  if (!description) return null;
+  for (const line of description.slice(0, 2000).split(/\r?\n/)) {
+    const route = DESCRIPTION_ROUTE.exec(line.trim());
+    if (route?.[2]) return route[2];
+  }
+  return null;
+}
+
+/**
+ * Whether a travel entry lands the host back in his home city (or one of
+ * its aliases): its title says where it goes ("Flight to Harbor City (UA
+ * 400)", "LKP → HCX" with HCX an alias), else its route line does, else its
+ * title says "home" ("Red-eye home"). A journey that names somewhere else as
+ * its end ("Flight home to Lakeport") does not, nor one that says nothing.
+ */
+export function arrivesHome(
+  entry: Pick<TravelInput, 'title'> & { description?: string | null },
+  home: Pick<HomePlace, 'city' | 'aliases'>,
+): boolean {
+  if (!home.city.trim()) return false;
+  const destination = titleDestination(entry.title) ?? descriptionDestination(entry.description);
+  if (destination) return namesHomeCity(destination, home);
+  return /\bhome(?:ward)?\b/i.test(entry.title);
+}

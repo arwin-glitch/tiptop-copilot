@@ -51,10 +51,77 @@ export const WEEKDAY_NAME: Record<number, string> = {
 /** A wall-clock time in the host's zone, "HH:MM", 24-hour. */
 const CLOCK = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use a time like 09:30.');
 
+/**
+ * A window of host time. `from` may equal `to`: a start window that holds one
+ * start (dinner starts at 18:00 and nowhere else).
+ */
 export const TIME_WINDOW = z
   .object({ from: CLOCK, to: CLOCK })
   .refine((w) => w.from <= w.to, 'A window has to end after it starts.');
 export type TimeWindow = z.infer<typeof TIME_WINDOW>;
+
+/**
+ * The hard bounds on the hours, host time (Central, America/Chicago: CDT
+ * until 1 November, CST after). Whatever Settings holds, nothing starts
+ * before 8:00; calls, coffee and lunch end by 18:00 (the last call 17:30 to
+ * 18:00, the last coffee 17:00 to 18:00); dinner is 18:00 to 19:00 and
+ * nothing else. The engine checks them on every offer and on every re-check
+ * of a stored time (lib/booking/engine.ts), Settings refuses a window
+ * outside them, and a stored window is clamped into them.
+ */
+export const BOOKING_EARLIEST_START = '08:00';
+export const BOOKING_LATEST_END = '18:00';
+export const DINNER_WINDOW = { from: '18:00', to: '19:00' } as const;
+
+/** The hint over Settings > Booking link > Times. */
+export const BOOKING_HOURS_HINT = '8:00 AM to 6:00 PM Central; dinner 6-7 PM.';
+
+/** "09:30" as minutes after midnight. */
+export function clockMinutes(clock: string): number {
+  const [h, m] = clock.split(':').map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+function clockOf(minutes: number): string {
+  const h = String(Math.floor(minutes / 60)).padStart(2, '0');
+  return `${h}:${String(minutes % 60).padStart(2, '0')}`;
+}
+
+/** The window a whole call must sit inside. */
+export const CALL_BOUNDS: TimeWindow = { from: BOOKING_EARLIEST_START, to: BOOKING_LATEST_END };
+
+/** The latest start of an hour that ends by 18:00. */
+const LAST_HOUR_START = clockOf(clockMinutes(BOOKING_LATEST_END) - MEETING_MINUTES.in_person);
+
+/**
+ * The start windows each in-person kind is held to: an hour long, so coffee
+ * and lunch start by 17:00 to end by 18:00, and dinner starts at 18:00.
+ */
+export const KIND_START_BOUNDS: Record<MeetingKind, TimeWindow> = {
+  coffee: { from: BOOKING_EARLIEST_START, to: LAST_HOUR_START },
+  lunch: { from: BOOKING_EARLIEST_START, to: LAST_HOUR_START },
+  dinner: {
+    from: DINNER_WINDOW.from,
+    to: clockOf(clockMinutes(DINNER_WINDOW.to) - MEETING_MINUTES.in_person),
+  },
+};
+
+/** Whether a window lies inside its bounds. */
+export function windowWithin(window: TimeWindow, bounds: TimeWindow): boolean {
+  return window.from >= bounds.from && window.to <= bounds.to;
+}
+
+/**
+ * A window cut down to its bounds, or null when none of it is inside them
+ * (a stored window that would otherwise shrink to a start nobody chose).
+ */
+export function clampWindow(window: TimeWindow, bounds: TimeWindow): TimeWindow | null {
+  if (window.to < bounds.from || window.from > bounds.to) return null;
+  return {
+    from: window.from < bounds.from ? bounds.from : window.from,
+    to: window.to > bounds.to ? bounds.to : window.to,
+  };
+}
 
 const HTTP_URL = z
   .string()
@@ -131,9 +198,12 @@ export interface BookingConfig {
   allowCustomPlace: boolean;
   /** Which of Tuesday to Thursday are offered (ISO weekdays, a subset of 2..4). */
   weekdays: number[];
-  /** Calls: the whole call sits inside this window, host time. */
+  /** Calls: the whole call sits inside this window, host time (inside CALL_BOUNDS). */
   callWindow: TimeWindow;
-  /** In person: the start-time windows of each kind, host time (start inside, inclusive). */
+  /**
+   * In person: the start-time windows of each kind, host time (start inside,
+   * inclusive; inside KIND_START_BOUNDS).
+   */
   kindWindows: Record<MeetingKind, TimeWindow[]>;
   /** Minutes kept free before and after any existing meeting, for a call. */
   callBufferMinutes: number;
@@ -180,14 +250,14 @@ export const DEFAULT_BOOKING_CONFIG: BookingConfig = {
   places: [],
   allowCustomPlace: true,
   weekdays: [...ALLOWED_WEEKDAYS],
-  callWindow: { from: '09:00', to: '17:00' },
+  callWindow: { from: '08:00', to: '18:00' },
   kindWindows: {
     coffee: [
-      { from: '08:30', to: '11:00' },
-      { from: '14:00', to: '16:00' },
+      { from: '08:00', to: '11:00' },
+      { from: '14:00', to: '17:00' },
     ],
     lunch: [{ from: '11:30', to: '13:00' }],
-    dinner: [{ from: '18:00', to: '19:30' }],
+    dinner: [{ from: '18:00', to: '18:00' }],
   },
   callBufferMinutes: 15,
   inPersonBufferMinutes: 30,
@@ -207,6 +277,13 @@ export const DEFAULT_BOOKING_CONFIG: BookingConfig = {
 };
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
+
+/** A coffee or lunch start window, held inside its bounds. */
+const kindWindow = (kind: 'coffee' | 'lunch', label: string) =>
+  TIME_WINDOW.refine(
+    (w) => windowWithin(w, KIND_START_BOUNDS[kind]),
+    `${label} has to start between 8:00 AM and 5:00 PM Central, so it ends by 6:00 PM`,
+  );
 
 /** The shape Settings saves: strict, every field required, every value bounded. */
 export const BOOKING_CONFIG_SCHEMA = z
@@ -229,11 +306,21 @@ export const BOOKING_CONFIG_SCHEMA = z
         (days) => days.every((d) => (ALLOWED_WEEKDAYS as readonly number[]).includes(d)),
         'Only Tuesday, Wednesday and Thursday can be offered.',
       ),
-    callWindow: TIME_WINDOW,
+    callWindow: TIME_WINDOW.refine(
+      (w) => windowWithin(w, CALL_BOUNDS),
+      'Calls have to be between 8:00 AM and 6:00 PM Central',
+    ),
     kindWindows: z.object({
-      coffee: z.array(TIME_WINDOW).max(4),
-      lunch: z.array(TIME_WINDOW).max(4),
-      dinner: z.array(TIME_WINDOW).max(4),
+      coffee: z.array(kindWindow('coffee', 'Coffee')).max(4),
+      lunch: z.array(kindWindow('lunch', 'Lunch')).max(4),
+      dinner: z
+        .array(
+          TIME_WINDOW.refine(
+            (w) => windowWithin(w, KIND_START_BOUNDS.dinner),
+            'Dinner is 6:00 to 7:00 PM Central, so it starts at 6:00 PM',
+          ),
+        )
+        .max(4),
     }),
     callBufferMinutes: int(15, 120),
     inPersonBufferMinutes: int(30, 180),
@@ -254,10 +341,64 @@ export const BOOKING_CONFIG_SCHEMA = z
   .strict();
 
 /**
+ * The windows every link had before the hours got their hard bounds
+ * (22 October 2026). A stored window still equal to one of them was never
+ * chosen, only saved along with the rest, so it reads as today's default.
+ */
+const EARLIER_DEFAULT_WINDOWS: Partial<Record<'callWindow' | MeetingKind, TimeWindow[]>> = {
+  callWindow: [{ from: '09:00', to: '17:00' }],
+  coffee: [
+    { from: '08:30', to: '11:00' },
+    { from: '14:00', to: '16:00' },
+  ],
+  dinner: [{ from: '18:00', to: '19:30' }],
+};
+
+function sameWindows(a: readonly TimeWindow[], b: readonly TimeWindow[] | undefined): boolean {
+  return Boolean(
+    b && a.length === b.length && a.every((w, i) => w.from === b[i]!.from && w.to === b[i]!.to),
+  );
+}
+
+/** A stored call window, clamped into the bounds; the default when unreadable or wholly outside. */
+function readCallWindow(raw: unknown): TimeWindow {
+  const parsed = TIME_WINDOW.safeParse(raw);
+  const clamped =
+    parsed.success && !sameWindows([parsed.data], EARLIER_DEFAULT_WINDOWS.callWindow)
+      ? clampWindow(parsed.data, CALL_BOUNDS)
+      : null;
+  return clamped ?? structuredClone(DEFAULT_BOOKING_CONFIG.callWindow);
+}
+
+/**
+ * Stored start windows, kind by kind, each clamped into its kind's bounds: a
+ * window wholly outside them is dropped, and an unreadable list takes its
+ * kind's default.
+ */
+function readKindWindows(raw: unknown): Record<MeetingKind, TimeWindow[]> {
+  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const out = {} as Record<MeetingKind, TimeWindow[]>;
+  for (const kind of MEETING_KINDS) {
+    const parsed = z.array(TIME_WINDOW).max(4).safeParse(source[kind]);
+    if (!parsed.success || sameWindows(parsed.data, EARLIER_DEFAULT_WINDOWS[kind])) {
+      out[kind] = structuredClone(DEFAULT_BOOKING_CONFIG.kindWindows[kind]);
+      continue;
+    }
+    out[kind] = parsed.data.flatMap((w) => {
+      const clamped = clampWindow(w, KIND_START_BOUNDS[kind]);
+      return clamped ? [clamped] : [];
+    });
+  }
+  return out;
+}
+
+/**
  * A stored document read leniently: each field that is missing or fails its
  * check takes its default, so one bad value never hides the rest. Buffers,
  * notice and the weekday list can only be tightened, never loosened, past
- * the standing rules (15 and 30 minutes, 24 hours, Tuesday to Thursday).
+ * the standing rules (15 and 30 minutes, 24 hours, Tuesday to Thursday), and
+ * the hours are clamped into their hard bounds (8:00 to 18:00, dinner 18:00
+ * to 19:00).
  */
 export function parseBookingConfig(raw: unknown): BookingConfig {
   const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
@@ -267,6 +408,8 @@ export function parseBookingConfig(raw: unknown): BookingConfig {
     const parsed = (shape[key] as z.ZodType).safeParse(source[key]);
     out[key] = parsed.success ? parsed.data : structuredClone(DEFAULT_BOOKING_CONFIG[key]);
   }
+  out.callWindow = readCallWindow(source.callWindow);
+  out.kindWindows = readKindWindows(source.kindWindows);
   return out as unknown as BookingConfig;
 }
 
