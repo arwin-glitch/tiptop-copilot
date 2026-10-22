@@ -23,9 +23,14 @@ export const dynamic = 'force-dynamic';
 type Props = { params: Promise<{ slug: string; token: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { slug } = await params;
-  const resolved = await resolvePublicEvent(getStore(), slug, { personal: true });
-  const title = resolved.kind === 'event' ? resolved.event.title : 'Event';
+  const { slug, token } = await params;
+  const store = getStore();
+  const resolved = await resolvePublicEvent(store, slug, { personal: true });
+  // The title only for a real personal link: a private event's name never
+  // reaches someone who only guessed its address.
+  const guest =
+    resolved.kind === 'event' ? await resolveInvite(store, resolved.event, token) : null;
+  const title = resolved.kind === 'event' && guest ? resolved.event.title : 'Event';
   return {
     title: { absolute: `Your invitation – ${title}` },
     applicationName: null,

@@ -165,6 +165,21 @@ describe('a private event opens only through personal links', () => {
     expect(anonymousView.status).toBe(404);
   });
 
+  it('names the event in a personal page’s title only for a real personal link', async () => {
+    const invitePage = await import('@/app/e/[slug]/i/[token]/page');
+    const ticketPage = await import('@/app/e/[slug]/i/[token]/ticket/page');
+    const forged = `${'A'.repeat(43)}.${'b'.repeat(22)}`;
+    const title = async (mod: typeof invitePage, t: string) => {
+      const meta = await mod.generateMetadata({
+        params: Promise.resolve({ slug: SLUG, token: t }),
+      });
+      return JSON.stringify(meta.title);
+    };
+    expect(await title(invitePage, forged)).not.toContain('Harborview');
+    expect(await title(ticketPage as typeof invitePage, forged)).not.toContain('Harborview');
+    expect(await title(invitePage, token())).toContain('Harborview');
+  });
+
   it('serves the guest’s own calendar file and view beacon', async () => {
     const t = token();
     const ics = await personalIcsRoute.GET(new Request(`${ORIGIN}/e/${SLUG}/i/${t}/calendar.ics`), {
