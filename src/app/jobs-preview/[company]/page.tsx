@@ -1,5 +1,6 @@
-import { requireAuth } from '@/lib/auth/session';
-import { CompanyPage, companyMetadata } from '@/components/jobs-board/pages';
+import { redirect } from 'next/navigation';
+import { getAuthContext } from '@/lib/auth/session';
+import { CompanyPage } from '@/components/jobs-board/pages';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,13 +10,8 @@ interface Props {
   params: Promise<{ company: string }>;
 }
 
-export async function generateMetadata({ params }: Props) {
-  const { company } = await params;
-  return companyMetadata({ base: BASE, slug: company, preview: true });
-}
-
 export default async function JobsBoardPreviewCompany({ params }: Props) {
-  await requireAuth();
+  if (!(await getAuthContext())) redirect('/login');
   const { company } = await params;
   return <CompanyPage base={BASE} slug={company} preview />;
 }

@@ -22,6 +22,8 @@ import {
 } from '@/lib/services/jobs-board-sync';
 import { revalidatePublicBoard } from '@/lib/services/jobs-board';
 import { readPortfolioJobs } from '@/lib/services/portfolio-jobs';
+import { jobLinkVerdicts } from '@/lib/services/job-liveness';
+import { applyJobLiveness } from '@/lib/portfolio/jobs';
 import { sweepKeepInTouch } from '@/lib/services/keep-in-touch';
 import { settlesWithin } from '@/lib/util/settle';
 import type { AuthContext } from '@/lib/auth/session';
@@ -346,12 +348,19 @@ export async function POST(request: NextRequest) {
         const run = (async () => {
           const summary = await syncJobBoards(store, organization.id, { trigger: 'daily' });
           const scan = await readPortfolioJobs(store, organization.id).catch(() => null);
-          const imported =
+          // A role whose posting its job board has dropped reads as closed,
+          // as on the Jobs tab, so it never goes (or stays) public.
+          const roles =
             summary.state === 'ok' && scan?.state === 'ok' && scan.snapshot
-              ? await importEmailedRoles(store, organization.id, scan.snapshot.roles).catch(
-                  () => null,
-                )
+              ? scan.snapshot.roles
               : null;
+          const imported = roles
+            ? await importEmailedRoles(
+                store,
+                organization.id,
+                applyJobLiveness(roles, await jobLinkVerdicts(roles)),
+              ).catch(() => null)
+            : null;
           // A founder's "filled" can close a public role: rebuild the board.
           if (imported?.closed) revalidatePublicBoard();
           return formatJobsCronStatus(summary, imported);

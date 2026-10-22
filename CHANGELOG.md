@@ -29,6 +29,30 @@ throughout.
   on, and needs the database update
   `20261022100000_public_jobs.sql`.
 
+- **The job board, checked over before launch.** While the board is off, the
+  big button on Jobs is now "Preview board" (the public page only says
+  "coming soon" until then), and the line about emailed roles waiting links
+  straight to Approvals. A company's public "about" is only what someone
+  types for the board: Copilot's own notes about a company are offered as a
+  "Use this text" button, never published by themselves. An emailed role
+  whose link is a Google Doc, Drive, Notion or Dropbox file asks the approver
+  to check that anyone can open it first. Emailed and hand-added roles come
+  off the board after 60 days unless the founder mentions them again or
+  someone re-confirms them, an emailed role whose job posting has gone closes
+  on the board too, and it is dated from its approval rather than from the
+  founder's first mention. A hidden role stays hidden when the company's own
+  board lists the same role. A filled role's old link now says "This role
+  has closed" with the company's other roles, and every board link, closed
+  or not, previews as the TipTop job board, never as Copilot. Links to
+  jobs.tiptop.vc/jobs/... redirect properly, link-preview images work on
+  jobs.tiptop.vc, Google for Jobs gets the place, country, pay and expiry it
+  asks for (and no data at all for a role it would reject), and on a phone
+  the Apply button rides along the bottom of a role's page. Behind the
+  scenes: the signed-in preview gives nothing away to a made-up sign-in,
+  made-up board addresses can no longer fill the server's disk, one visitor
+  hammering the board is slowed down, and a company's hostile careers page,
+  job description or robots.txt can no longer stall Copilot.
+
 - **A routine's post that runs a little long no longer leaves its card on
   yesterday's copy.** When a routine wrote a note, a prep or a title longer
   than the app allows, or listed one item the app could not read (a meeting

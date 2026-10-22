@@ -223,6 +223,7 @@ export function RoleActions({
   featured,
   source,
   approveLabel = 'Publish',
+  confirmLink = false,
 }: {
   id: string;
   title: string;
@@ -232,6 +233,8 @@ export function RoleActions({
   featured: boolean;
   source: JobPosting['source'];
   approveLabel?: string;
+  /** The person was shown that the role's link may be private, and approves having checked it. */
+  confirmLink?: boolean;
 }) {
   const { pending, run } = useAction();
   return (
@@ -242,7 +245,9 @@ export function RoleActions({
           variant="primary"
           disabled={pending}
           aria-label={`${approveLabel}: ${title}`}
-          onClick={() => run(() => publishJobAction(id), `${title} is on the public board`)}
+          onClick={() =>
+            run(() => publishJobAction(id, { confirmLink }), `${title} is on the public board`)
+          }
         >
           <Upload aria-hidden="true" />
           {approveLabel}
@@ -657,11 +662,7 @@ export function CompanyJobsForm({
           <Field
             label="About (public)"
             htmlFor={`co-${id}-about`}
-            hint={
-              aboutFallback
-                ? `Empty: "${aboutFallback.slice(0, 80)}" from Portfolio.`
-                : 'One or two sentences.'
-            }
+            hint="One or two sentences. Empty: “<Company> is a TipTop VC portfolio company.”"
           >
             <Textarea
               id={`co-${id}-about`}
@@ -671,6 +672,24 @@ export function CompanyJobsForm({
               onChange={(e) => setText(e.target.value)}
             />
           </Field>
+          {aboutFallback && !text.trim() ? (
+            // Copilot's own portfolio description is internal: it is never
+            // published unless a person copies it in here on purpose.
+            <div className="text-sm text-[var(--fg-muted)] sm:col-span-2">
+              <p>
+                From Portfolio (internal, not public): &ldquo;{aboutFallback.slice(0, 200)}&rdquo;
+              </p>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-1"
+                aria-label={`Use the Portfolio description as ${companyName}'s public about`}
+                onClick={() => setText(aboutFallback.slice(0, 600))}
+              >
+                Use this text
+              </Button>
+            </div>
+          ) : null}
           <div className="sm:col-span-2">
             <Button
               size="sm"

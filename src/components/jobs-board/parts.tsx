@@ -88,11 +88,18 @@ export function CompanyLogo({
 }
 
 /** "Oct 18" (in UTC, so a cached page never disagrees with itself). */
-export function postedDate(iso: string | null): string | null {
+/** "Oct 1", with the year when it is not this year ("Dec 12, 2025"). */
+export function postedDate(iso: string | null, now: Date = new Date()): string | null {
   if (!iso) return null;
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const sameYear = date.getUTCFullYear() === now.getUTCFullYear();
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+    timeZone: 'UTC',
+  });
 }
 
 /** A role's short facts as chips: place, remote, level, type. */

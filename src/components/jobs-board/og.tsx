@@ -1,6 +1,6 @@
 import { ImageResponse } from 'next/og';
 import { placeLine } from '@/lib/jobs-board/fields';
-import { readPublicBoard } from '@/lib/services/jobs-board';
+import { readPublicBoardCached } from '@/lib/services/jobs-board';
 
 /**
  * The board's link-preview images (Open Graph): the board's dark card with
@@ -105,14 +105,23 @@ export function boardHomeOgImage() {
   });
 }
 
-/** A role's card: its title and company; the board's card when the role is not public. */
+/**
+ * A role's card: its title and company. A role that is not public (or an
+ * address nobody published) is a 404, never a drawn image: drawing costs real
+ * CPU, and a made-up address must not be able to ask for it.
+ */
 export async function jobOgImage(companySlug: string, roleSlug: string) {
-  const read = await readPublicBoard();
+  const read = await readPublicBoardCached(false);
   const job =
     read.state === 'on'
       ? read.board.jobs.find((j) => j.companySlug === companySlug && j.slug === roleSlug)
       : undefined;
-  if (read.state !== 'on' || !job) return boardHomeOgImage();
+  if (read.state !== 'on' || !job) {
+    return new Response('Not found', {
+      status: 404,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
+  }
   const place = placeLine(job.locations, job.remote);
   return boardOgImage({
     eyebrow: job.companyName,

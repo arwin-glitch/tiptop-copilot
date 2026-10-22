@@ -505,20 +505,21 @@ async function JobsTab({
     readPortfolioJobs(store, auth.organizationId, { now }).catch(() => null),
     listPortfolio(auth.organizationId).catch(() => []),
   ]);
+  // Each role's posting checked on its job board (cached for a day), so a
+  // posting that has gone reads as closed here and on the public board alike.
+  const scanned = jobs?.state === 'ok' && jobs.snapshot ? jobs.snapshot.roles : null;
+  const verdicts = scanned ? await jobLinkVerdicts(scanned, { now }) : new Map();
+  const liveRoles = scanned ? applyJobLiveness(scanned, verdicts) : null;
   // The public board (D-077): its header on every view, and the scan's
   // emailed roles brought in as drafts waiting for approval. Never throws.
-  const board = await loadJobsBoardTab(
-    store,
-    auth.organizationId,
-    jobs?.state === 'ok' ? (jobs.snapshot?.roles ?? null) : null,
-  );
+  const board = await loadJobsBoardTab(store, auth.organizationId, liveRoles);
   const header = <JobsBoardHeader data={board} view={view} />;
   if (board.available && view !== 'email') {
     return (
       <>
         {header}
         {view === 'approvals' ? (
-          <JobApprovalsView data={board} timeZone={auth.profile.timezone} />
+          <JobApprovalsView data={board} timeZone={auth.profile.timezone} now={now} />
         ) : view === 'board' ? (
           <JobBoardRolesView
             data={board}
@@ -555,13 +556,12 @@ async function JobsTab({
       </>
     );
   }
-  const verdicts = await jobLinkVerdicts(jobs.snapshot.roles, { now });
   return (
     <>
       {header}
       <PortfolioJobsView
         snapshot={jobs.snapshot}
-        roles={applyJobLiveness(jobs.snapshot.roles, verdicts)}
+        roles={liveRoles ?? applyJobLiveness(jobs.snapshot.roles, verdicts)}
         filters={parseJobFilters(params)}
         companies={companies}
         mailbox={DEFAULT_MAILBOX}

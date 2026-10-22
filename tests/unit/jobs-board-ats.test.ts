@@ -238,3 +238,18 @@ describe('parseAtsJobs', () => {
     expect(parseAtsJobs('greenhouse', { jobs: [] })).toEqual({ postings: [], skipped: 0 });
   });
 });
+
+describe('detectAtsInHtml on a hostile careers page', () => {
+  it('reads a page full of half-finished embed addresses in linear time', () => {
+    const page = 'boards.greenhouse.io/embed/job_board?'.repeat(40_000);
+    const started = performance.now();
+    expect(detectAtsInHtml(page)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(300);
+    // A real embed is still found.
+    expect(
+      detectAtsInHtml(
+        '<script src="https://boards.greenhouse.io/embed/job_board/js?for=fixtureco">',
+      ),
+    ).toEqual({ ats: 'greenhouse', token: 'fixtureco' });
+  });
+});

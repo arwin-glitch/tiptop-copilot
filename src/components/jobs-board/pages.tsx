@@ -21,7 +21,11 @@ import {
   type PublicJob,
 } from '@/lib/jobs-board/public';
 import { descriptionSummary, parseStructuredText } from '@/lib/jobs-board/sanitize';
-import { readPublicBoard, type PublicBoardRead } from '@/lib/services/jobs-board';
+import {
+  readPublicBoard,
+  readPublicBoardCached,
+  type PublicBoardRead,
+} from '@/lib/services/jobs-board';
 import { BoardBrowser } from './browser';
 import {
   ArrowRight,
@@ -45,9 +49,10 @@ import { BoardShell } from './shell';
  *     the board while it is still switched off.
  * Each route file is a few lines that call these with its base.
  *
- * Every page reads the board once per request (React `cache`), and the
- * public routes are cached by Next and rebuilt every ten minutes or as soon
- * as a person changes something in Copilot (revalidatePublicBoard).
+ * Every page reads the board once per request (React `cache`). Public reads
+ * go through one shared data cache entry (readPublicBoardCached), rebuilt
+ * every ten minutes or as soon as a person changes something in Copilot
+ * (revalidatePublicBoard); the preview reads the database directly.
  */
 
 export interface BoardPageOptions {
@@ -56,7 +61,11 @@ export interface BoardPageOptions {
 }
 
 const readBoard = cache(async (descriptions: boolean, preview: boolean): Promise<PublicBoardRead> =>
-  unlessBuildCannotRead(await readPublicBoard({ descriptions, preview })),
+  unlessBuildCannotRead(
+    preview
+      ? await readPublicBoard({ descriptions, preview: true })
+      : await readPublicBoardCached(descriptions),
+  ),
 );
 
 /**
@@ -75,6 +84,12 @@ async function unlessBuildCannotRead(read: PublicBoardRead): Promise<PublicBoard
 function canonical(path: string, preview?: boolean): string | undefined {
   return preview ? undefined : canonicalBoardUrl(path);
 }
+
+const NOT_FOUND_METADATA: Metadata = {
+  title: { absolute: 'Not found | TipTop VC Jobs' },
+  description: 'This page is not on the TipTop VC job board.',
+  robots: { index: false, follow: true },
+};
 
 const OFF_METADATA: Metadata = {
   title: { absolute: 'TipTop VC Jobs: coming soon' },
@@ -166,11 +181,6 @@ function CompanyCard({ company, base }: { company: PublicCompany; base: string }
         <CompanyLogo name={company.name} logoUrl={company.logoUrl} />
         <span>
           <h3>{company.name}</h3>
-          {company.sector ? (
-            <span className="jb-muted" style={{ fontSize: 13 }}>
-              {company.sector}
-            </span>
-          ) : null}
         </span>
       </span>
       <p>{company.about ?? `${company.name} is a TipTop VC portfolio company.`}</p>
@@ -317,6 +327,53 @@ export async function CompaniesPage({ base, preview }: BoardPageOptions) {
   );
 }
 
+/** A role address at a company still on the board, whose role has closed (or never existed). */
+function ClosedRole({
+  base,
+  board,
+  company,
+  preview,
+}: {
+  base: string;
+  board: PublicBoard;
+  company: PublicCompany;
+  preview: boolean;
+}) {
+  const jobs = board.jobs.filter((j) => j.companySlug === company.slug).slice(0, 8);
+  return (
+    <BoardShell base={base} board={board} active="jobs" preview={preview}>
+      <section className="jb-wrap jb-page">
+        <Link href={homePath(base)} className="jb-back">
+          ← All open roles
+        </Link>
+        <div className="jb-empty" style={{ marginBottom: 24 }}>
+          <h1 style={{ fontSize: 'clamp(26px, 5vw, 36px)' }}>This role has closed.</h1>
+          <p>
+            It may have been filled, or its link has changed.{' '}
+            {jobs.length > 0
+              ? `${company.name} has ${jobs.length === 1 ? 'another role' : 'other roles'} open.`
+              : `${company.name} has nothing else open right now.`}
+          </p>
+        </div>
+        {jobs.length > 0 ? (
+          <ul className="jb-jobs" aria-label={`Open roles at ${company.name}`}>
+            {jobs.map((job) => (
+              <li key={job.key}>
+                <JobRow job={job} company={company} base={base} showCompany={false} />
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <p style={{ marginTop: 24 }}>
+          <Link className="jb-btn jb-btn-ghost" href={companyPath(base, company.slug)}>
+            More about {company.name}
+          </Link>
+        </p>
+      </section>
+    </BoardShell>
+  );
+}
+
 /* ---------------------------------------------------------- company -- */
 
 function findCompany(board: PublicBoard, slug: string) {
@@ -329,8 +386,7 @@ export async function companyMetadata(
   const read = await readBoard(false, Boolean(options.preview));
   if (read.state !== 'on') return OFF_METADATA;
   const company = findCompany(read.board, options.slug);
-  if (!company)
-    return { title: { absolute: 'Not found | TipTop VC Jobs' }, robots: { index: false } };
+  if (!company) return NOT_FOUND_METADATA;
   const title = `Jobs at ${company.name}`;
   const description =
     `${company.openRoles} open ${company.openRoles === 1 ? 'role' : 'roles'} at ${company.name}, a TipTop VC portfolio company.${company.about ? ` ${company.about}` : ''}`.slice(
@@ -363,12 +419,22 @@ export async function CompanyPage({ base, preview, slug }: BoardPageOptions & { 
         <div className="jb-company-hero">
           <CompanyLogo name={company.name} logoUrl={company.logoUrl} size="lg" />
           <div>
-            <p className="jb-eyebrow">{company.sector ?? 'TipTop VC portfolio'}</p>
+            <p className="jb-eyebrow">TipTop VC portfolio</p>
             <h1>{company.name}</h1>
             {company.about ? <p style={{ marginTop: 10 }}>{company.about}</p> : null}
           </div>
         </div>
         <div className="jb-company-links" style={{ marginBottom: 24 }}>
+          {company.careersUrl ? (
+            <a
+              className="jb-btn jb-btn-primary jb-btn-small"
+              href={company.careersUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Careers page <ExternalIcon />
+            </a>
+          ) : null}
           {company.website ? (
             <a
               className="jb-btn jb-btn-ghost jb-btn-small"
@@ -416,7 +482,23 @@ export async function jobMetadata(
   const read = await readBoard(true, Boolean(options.preview));
   if (read.state !== 'on') return OFF_METADATA;
   const job = findJob(read.board, options.companySlug, options.roleSlug);
-  if (!job) return { title: { absolute: 'Not found | TipTop VC Jobs' }, robots: { index: false } };
+  if (!job) {
+    const company = findCompany(read.board, options.companySlug);
+    if (!company) return NOT_FOUND_METADATA;
+    // A role that has closed (or a changed link) at a company still on the
+    // board: kept out of search results, and its old link still unfurls as
+    // the board, never as a blank page.
+    return {
+      title: { absolute: 'Role closed | TipTop VC Jobs' },
+      description: `This role at ${company.name} has closed. See ${company.name}'s open roles and more at TipTop VC portfolio companies.`,
+      robots: { index: false, follow: true },
+      openGraph: {
+        title: `Role closed at ${company.name}`,
+        description: `See ${company.name}'s open roles on the TipTop VC job board.`,
+        siteName: 'TipTop VC',
+      },
+    };
+  }
   const title = `${job.title} at ${job.companyName}`;
   const place = placeLine(job.locations, job.remote);
   const description =
@@ -449,12 +531,17 @@ export async function JobPage({
   if (read.state !== 'on') return <ComingSoon base={base} state={read.state} />;
   const { board } = read;
   const job = findJob(board, companySlug, roleSlug);
-  if (!job) notFound();
+  if (!job) {
+    const closedAt = findCompany(board, companySlug);
+    if (!closedAt) notFound();
+    return <ClosedRole base={base} board={board} company={closedAt} preview={read.preview} />;
+  }
   const company = findCompany(board, job.companySlug) ?? undefined;
   const more = board.jobs
     .filter((j) => j.companySlug === job.companySlug && j.key !== job.key)
     .slice(0, 5);
   const url = canonicalBoardUrl(`/${job.companySlug}/${job.slug}`);
+  const jsonLd = jobPostingJsonLd(job, company ?? null, url);
   const posted = postedDate(job.postedAt);
   const facts: [string, string][] = [];
   const place = placeLine(job.locations, null);
@@ -469,7 +556,7 @@ export async function JobPage({
 
   return (
     <BoardShell base={base} board={board} active="jobs" preview={read.preview}>
-      <JsonLd data={jobPostingJsonLd(job, company ?? null, url)} />
+      {jsonLd ? <JsonLd data={jsonLd} /> : null}
       <article className="jb-wrap jb-page">
         <Link href={homePath(base)} className="jb-back">
           ← All open roles
@@ -531,6 +618,18 @@ export async function JobPage({
             <ShareButtons url={url} title={`${job.title} at ${job.companyName}`} />
           </aside>
         </div>
+        {/* On a phone the facts box comes after the whole description, so the
+            apply button also rides along the bottom of the screen. */}
+        <div className="jb-apply-bar">
+          <a
+            className="jb-btn jb-btn-primary jb-btn-block"
+            href={job.applyUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Apply now at {job.companyName} <ExternalIcon />
+          </a>
+        </div>
 
         {more.length > 0 ? (
           <section className="jb-section" aria-labelledby="more-roles" style={{ marginTop: 32 }}>
@@ -558,7 +657,7 @@ export async function JobPage({
 
 /** The board's sitemap: home, companies, each company and each role, at their canonical addresses. */
 export async function boardSitemapXml(): Promise<string> {
-  const read = await unlessBuildCannotRead(await readPublicBoard());
+  const read = await unlessBuildCannotRead(await readPublicBoardCached(false));
   const urls: { loc: string; lastmod?: string }[] = [];
   if (read.state === 'on') {
     urls.push({ loc: canonicalBoardUrl('') }, { loc: canonicalBoardUrl('/companies') });

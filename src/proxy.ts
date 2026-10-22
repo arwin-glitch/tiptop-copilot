@@ -1,7 +1,14 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { isSupabaseAuthCookie } from '@/lib/auth/cookies';
-import { boardHosts, requestHosts, routeBoardHost } from '@/lib/jobs-board/host';
+import { boardHostOrigin } from '@/lib/jobs-board/config';
+import {
+  boardHosts,
+  isCopilotBoardPath,
+  requestHosts,
+  routeBoardHost,
+} from '@/lib/jobs-board/host';
+import { boardRequestAllowed } from '@/lib/jobs-board/rate-limit';
 
 /**
  * Next.js 16 renamed `middleware` to `proxy`. This runs on the Node runtime.
@@ -85,8 +92,9 @@ const PUBLIC_PATHS = [
   '/t',
   // The public job board (D-077): open roles at portfolio companies, for
   // anyone. Its pages show only roles a person published, and say "coming
-  // soon" with no data while the board is switched off. /jobs-preview, the
-  // signed-in preview, is not matched by this entry and stays private.
+  // soon" with no data while the board is switched off. Handled before this
+  // list is read (see proxy()); listed so the list stays the whole story.
+  // /jobs-preview, the signed-in preview, is not matched and stays private.
   '/jobs',
 ];
 
@@ -150,24 +158,41 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
   // The job board's own host (jobs.tiptop.vc) is the board and nothing else:
   // every address there is rewritten to the board's pages, which need no
-  // session, so the rest of this function never runs for it.
+  // session, so the rest of this function never runs for it. An address that
+  // is not shaped like a board page is a plain 404 here, before any page
+  // renders, and board pages are braked per address (lib/jobs-board/rate-limit.ts).
   const board = routeBoardHost(pathname, requestHosts(request.headers), boardHosts(process.env));
-  if (board.kind === 'not_found') {
-    return withSecurityHeaders(new NextResponse('Not found', { status: 404 }));
+  if (board.kind === 'not_found') return notFound();
+  if (board.kind === 'serve') {
+    // The board host's own files: public, never through Copilot's sign-in.
+    if (pathname.endsWith('/opengraph-image') && !boardRequestAllowed(request.headers, pathname)) {
+      return tooManyRequests();
+    }
+    return withSecurityHeaders(NextResponse.next());
   }
   if (board.kind === 'redirect') {
-    // A relative Location: stays on whichever host the visitor used.
-    return withSecurityHeaders(
-      new NextResponse(null, {
-        status: 308,
-        headers: { Location: `${board.pathname}${request.nextUrl.search}` },
-      }),
-    );
+    if (!boardRequestAllowed(request.headers, pathname)) return tooManyRequests();
+    // Absolute (Next refuses a relative Location here), and its origin comes
+    // from the environment, never from a request header.
+    const target = new URL(`${board.pathname}${request.nextUrl.search}`, boardHostOrigin());
+    return withSecurityHeaders(NextResponse.redirect(target, 308));
   }
   if (board.kind === 'rewrite') {
+    if (!boardRequestAllowed(request.headers, pathname)) return tooManyRequests();
     const target = request.nextUrl.clone();
     target.pathname = board.pathname;
     return withSecurityHeaders(NextResponse.rewrite(target));
+  }
+
+  // The board at Copilot's own /jobs: public, braked like the board host, and
+  // never through the session refresh below, so a rotated session cookie can
+  // never ride on a public page. A /jobs address the board does not serve is
+  // a 404 before any page renders.
+  const copilotBoard = isCopilotBoardPath(pathname);
+  if (copilotBoard === false) return notFound();
+  if (copilotBoard === true) {
+    if (!boardRequestAllowed(request.headers, pathname)) return tooManyRequests();
+    return withSecurityHeaders(NextResponse.next());
   }
 
   const isPublic =
@@ -213,6 +238,24 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // policy added here would be intersected with it and block its print button.
   if (OWN_CSP_PATH.test(pathname)) return withSecurityHeaders(response, { ownCsp: true });
   return withSecurityHeaders(response);
+}
+
+function notFound(): NextResponse {
+  return withSecurityHeaders(
+    new NextResponse('Not found', {
+      status: 404,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    }),
+  );
+}
+
+function tooManyRequests(): NextResponse {
+  return withSecurityHeaders(
+    new NextResponse('Too many requests. Try again in a minute.', {
+      status: 429,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '60' },
+    }),
+  );
 }
 
 /** Routes that set their own Content-Security-Policy. */

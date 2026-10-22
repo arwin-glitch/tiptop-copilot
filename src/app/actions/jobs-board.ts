@@ -26,6 +26,8 @@ import {
   type EmailImport,
 } from '@/lib/services/jobs-board-sync';
 import { readPortfolioJobs } from '@/lib/services/portfolio-jobs';
+import { jobLinkVerdicts } from '@/lib/services/job-liveness';
+import { applyJobLiveness } from '@/lib/portfolio/jobs';
 import type { AppError, Result } from '@/lib/util/result';
 import type { ActionResult } from './index';
 
@@ -154,9 +156,10 @@ export async function refreshJobBoardsAction(portfolioCompanyId?: string): Promi
   if (!portfolioCompanyId) {
     const jobs = await readPortfolioJobs(store, auth.organizationId).catch(() => null);
     if (jobs?.state === 'ok' && jobs.snapshot) {
-      imported = await importEmailedRoles(store, auth.organizationId, jobs.snapshot.roles).catch(
-        () => null,
-      );
+      // A posting its job board has dropped reads as closed, as on the Jobs tab.
+      const roles = jobs.snapshot.roles;
+      const live = applyJobLiveness(roles, await jobLinkVerdicts(roles));
+      imported = await importEmailedRoles(store, auth.organizationId, live).catch(() => null);
     }
   }
   revalidatePath('/portfolio');
@@ -164,10 +167,15 @@ export async function refreshJobBoardsAction(portfolioCompanyId?: string): Promi
   return { ok: true, data: { results: summary.results, imported } };
 }
 
-export async function publishJobAction(postingId: string): Promise<ActionResult<{ id: string }>> {
+export async function publishJobAction(
+  postingId: string,
+  options?: { confirmLink?: boolean },
+): Promise<ActionResult<{ id: string }>> {
   const { actor, denied } = await writer();
   if (denied) return denied;
-  const result = await publishPosting(getStore(), actor, String(postingId ?? ''));
+  const result = await publishPosting(getStore(), actor, String(postingId ?? ''), {
+    confirmLink: options?.confirmLink === true,
+  });
   return done(result.ok ? { ok: true, value: { id: result.value.id } } : result);
 }
 

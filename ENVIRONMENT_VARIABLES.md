@@ -481,6 +481,14 @@ Optional. More hosts that serve the board at their root, comma separated
 (`jobs.tiptop.vc` always does). Every address on such a host is the board's;
 Copilot itself is never reachable there.
 
+### `JOBS_BOARD_TRUST_FORWARDED_HOST`
+
+Test only; never set in a deployment. `true` lets an `X-Forwarded-Host`
+header pick the board's host, which the e2e server needs (it has no DNS for
+`jobs.tiptop.vc`; `playwright.config.ts` sets it). Unset, only the `Host`
+header counts: Render routes by it and passes it on, while `X-Forwarded-Host`
+is a header any client can write.
+
 ---
 
 ## Ceilings

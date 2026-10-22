@@ -1,5 +1,5 @@
 import 'server-only';
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, revalidateTag, unstable_cache } from 'next/cache';
 import { isMissingColumnError, isMissingTableError } from '@/lib/db/missing-table';
 import type { DataStore, Row } from '@/lib/db/store';
 import { soleOrganizationId } from '@/lib/db/tenancy';
@@ -25,6 +25,7 @@ import {
   buildPublicBoard,
   type PublicBoard,
 } from '@/lib/jobs-board/public';
+import { isPrivateDocLink, PRIVATE_LINK_MESSAGE } from '@/lib/jobs-board/links';
 import { plainToStructuredText } from '@/lib/jobs-board/sanitize';
 import { companySlug, roleSlug } from '@/lib/jobs-board/slug';
 import { normalizeJobFunction } from '@/lib/portfolio/job-taxonomy';
@@ -189,12 +190,51 @@ export async function readPublicBoard(
   return { state: 'on', board, preview: Boolean(options.preview) && !data.settings?.enabled };
 }
 
+/** The cache tag on the public board's one cached read (readPublicBoardCached). */
+export const JOBS_BOARD_CACHE_TAG = 'jobs-board';
+
+class BoardUnreadable extends Error {}
+
+const cachedRead = unstable_cache(
+  async (descriptions: boolean): Promise<PublicBoardRead> => {
+    const read = await readPublicBoard({ descriptions });
+    // Never cache an outage: thrown, so the next visit reads again.
+    if (read.state === 'unavailable') throw new BoardUnreadable();
+    return read;
+  },
+  ['jobs-board-public-v1'],
+  { tags: [JOBS_BOARD_CACHE_TAG], revalidate: 600 },
+);
+
 /**
- * Ask Next to rebuild the cached public pages, after anything that changes
- * what they show. Outside a request (a test, a script) there is nothing to
- * rebuild and the call is skipped.
+ * The public board for the public pages, through one shared cache entry
+ * (two: with and without descriptions) that expires every ten minutes or the
+ * moment Copilot changes the board. The pages that take an address
+ * (/<company>, /<company>/<role>) render per request from this entry instead
+ * of keeping a cached page per address, so made-up addresses can never fill
+ * the server's disk. Public reads only: never the preview.
+ */
+export async function readPublicBoardCached(descriptions: boolean): Promise<PublicBoardRead> {
+  try {
+    return await cachedRead(descriptions);
+  } catch {
+    return { state: 'unavailable' };
+  }
+}
+
+/**
+ * Ask Next to rebuild the cached public pages and their data, after anything
+ * that changes what they show. Outside a request (a test, a script) there is
+ * nothing to rebuild and the call is skipped.
  */
 export function revalidatePublicBoard(): void {
+  try {
+    // Expired at once (not stale-while-revalidate): switching the board off
+    // must take the roles down on the very next visit.
+    revalidateTag(JOBS_BOARD_CACHE_TAG, { expire: 0 });
+  } catch {
+    // No request context: nothing cached to drop.
+  }
   for (const path of ['/jobs', '/jobs-host']) {
     try {
       revalidatePath(path, 'layout');
@@ -560,12 +600,16 @@ async function posting(
 /**
  * Publish a role: a person's approval, recorded with who and when. Needs an
  * open role with somewhere to apply (its own link or its company's careers
- * page). Clears an earlier hide.
+ * page). Clears an earlier hide. An emailed role whose link is on a document
+ * host that is often private needs `confirmLink`, after the person checked
+ * that anyone can open it. Publishing again also re-confirms that a role is
+ * still open (UNCONFIRMED_ROLE_DAYS).
  */
 export async function publishPosting(
   store: DataStore,
   actor: JobsActor,
   postingId: string,
+  options: { confirmLink?: boolean } = {},
 ): Promise<Result<JobPosting>> {
   try {
     const role = await posting(store, actor.organizationId, postingId);
@@ -585,6 +629,9 @@ export async function publishPosting(
         'invalid_input',
         'Add an apply link to the role (or a careers page to its company) first.',
       );
+    }
+    if (role.source === 'email' && isPrivateDocLink(role.apply_url) && !options.confirmLink) {
+      return err('conflict', PRIVATE_LINK_MESSAGE, { details: { confirm_link: true } });
     }
     const now = new Date().toISOString();
     const saved = await store.update('job_postings', actor.organizationId, role.id, {

@@ -2,6 +2,7 @@ import { ExternalLink, Eye, Globe } from 'lucide-react';
 import { ATS_LABELS, atsBoardUrl } from '@/lib/jobs-board/ats';
 import { functionLabel, placeLine, SENIORITY_LABELS } from '@/lib/jobs-board/fields';
 import { PUBLIC_STATE_LABELS, applyLinkFor, type PublicState } from '@/lib/jobs-board/public';
+import { isPrivateDocLink } from '@/lib/jobs-board/links';
 import { PORTFOLIO_TABS } from '@/lib/records-tabs';
 import { formatMonthDay, relativeTime } from '@/lib/util/time';
 import type { JobPosting } from '@/lib/types/domain';
@@ -53,11 +54,13 @@ const STATE_TONE: Record<PublicState, BadgeProps['tone']> = {
   needs_approval: 'warn',
   not_published: 'outline',
   auto_publish_off: 'outline',
+  stale: 'warn',
   no_apply_link: 'warn',
   company_gone: 'neutral',
 };
 
 export function JobsBoardHeader({ data, view }: { data: JobsBoardTab; view: JobsView }) {
+  const previewFirst = data.available && !data.enabled;
   const publicRoles = data.board.jobs.length;
   const publicCompanies = data.board.companies.filter((c) => c.openRoles > 0).length;
   const chips: LinkChip[] = [
@@ -68,6 +71,7 @@ export function JobsBoardHeader({ data, view }: { data: JobsBoardTab; view: Jobs
       count: data.pending.length,
       href: jobsViewHref('approvals'),
       active: view === 'approvals',
+      attention: data.pending.length > 0,
     },
     {
       key: 'board',
@@ -107,27 +111,37 @@ export function JobsBoardHeader({ data, view }: { data: JobsBoardTab; view: Jobs
                   : data.enabled
                     ? `Anyone can see it. ${publicRoles} ${publicRoles === 1 ? 'role' : 'roles'} from ${publicCompanies} ${publicCompanies === 1 ? 'company' : 'companies'} are public.`
                     : `Off: visitors see a "coming soon" page with no roles. ${publicRoles} ${publicRoles === 1 ? 'role is' : 'roles are'} ready to show when it is on.`}
-                {data.available && data.pending.length > 0
-                  ? ` ${data.pending.length} emailed ${data.pending.length === 1 ? 'role waits' : 'roles wait'} for approval.`
-                  : ''}
               </p>
+              {data.available && data.pending.length > 0 ? (
+                <p className="mt-1 text-sm">
+                  <a
+                    href={jobsViewHref('approvals')}
+                    className="font-medium text-[var(--warn)] hover:underline"
+                  >
+                    {data.pending.length} emailed{' '}
+                    {data.pending.length === 1 ? 'role waits' : 'roles wait'} for approval →
+                  </a>
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button asChild size="sm" variant="primary">
-                <a href={data.publicHref} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink aria-hidden="true" />
-                  View public board
-                </a>
-              </Button>
-              <CopyBoardLink href={data.publicHref} />
-              {data.available && !data.enabled ? (
-                <Button asChild size="sm" variant="secondary">
+              {previewFirst ? (
+                // While the board is off the public page only says "coming
+                // soon", so the first button shows the board as it will look.
+                <Button asChild size="sm" variant="primary">
                   <a href="/jobs-preview" target="_blank" rel="noopener noreferrer">
                     <Eye aria-hidden="true" />
-                    Preview
+                    Preview board
                   </a>
                 </Button>
               ) : null}
+              <Button asChild size="sm" variant={previewFirst ? 'secondary' : 'primary'}>
+                <a href={data.publicHref} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink aria-hidden="true" />
+                  {previewFirst ? 'View public board (coming soon)' : 'View public board'}
+                </a>
+              </Button>
+              <CopyBoardLink href={data.publicHref} />
               {data.available ? (
                 <>
                   <BoardSwitch enabled={data.enabled} />
@@ -167,10 +181,13 @@ function RoleSummary({
   data,
   posting,
   timeZone,
+  now,
 }: {
   data: JobsBoardTab;
   posting: JobPosting;
   timeZone: string;
+  /** Set on Approvals: how long ago the founder first mentioned the role. */
+  now?: Date;
 }) {
   const place = placeLine(posting.locations, posting.remote);
   const details = [
@@ -210,7 +227,11 @@ function RoleSummary({
         ) : (
           'No apply link yet: add one with Edit, or a careers page on Companies.'
         )}
-        {posting.posted_at ? ` · since ${formatMonthDay(posting.posted_at, timeZone)}` : ''}
+        {posting.posted_at
+          ? now && posting.source === 'email'
+            ? ` · first mentioned ${relativeTime(posting.posted_at, now)}`
+            : ` · since ${formatMonthDay(posting.posted_at, timeZone)}`
+          : ''}
       </p>
     </div>
   );
@@ -218,7 +239,15 @@ function RoleSummary({
 
 /* --------------------------------------------------------- approvals -- */
 
-export function JobApprovalsView({ data, timeZone }: { data: JobsBoardTab; timeZone: string }) {
+export function JobApprovalsView({
+  data,
+  timeZone,
+  now = new Date(),
+}: {
+  data: JobsBoardTab;
+  timeZone: string;
+  now?: Date;
+}) {
   const options = companyOptions(data);
   return (
     <section aria-label="Roles waiting for approval">
@@ -235,31 +264,42 @@ export function JobApprovalsView({ data, timeZone }: { data: JobsBoardTab; timeZ
         />
       ) : (
         <ul className="space-y-3" aria-label="Roles to approve">
-          {data.pending.map((posting) => (
-            <li key={posting.id}>
-              <Card>
-                <CardContent className="pt-4">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <RoleSummary data={data} posting={posting} timeZone={timeZone} />
-                    <Badge tone="warn">{SOURCE_LABELS.email}</Badge>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <RoleActions
-                      id={posting.id}
-                      title={posting.title}
-                      isPublic={false}
-                      hidden={false}
-                      closed={false}
-                      featured={false}
-                      source="email"
-                      approveLabel="Approve and publish"
-                    />
-                    <RoleEditorButton companies={options} posting={posting} />
-                  </div>
-                </CardContent>
-              </Card>
-            </li>
-          ))}
+          {data.pending.map((posting) => {
+            const privateLink = isPrivateDocLink(posting.apply_url);
+            return (
+              <li key={posting.id}>
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <RoleSummary data={data} posting={posting} timeZone={timeZone} now={now} />
+                      <Badge tone="warn">{SOURCE_LABELS.email}</Badge>
+                    </div>
+                    {privateLink ? (
+                      <Notice tone="warn" className="mt-3">
+                        The founder&rsquo;s link is a shared document, which may be private. Open it
+                        and check that anyone can see it before approving, or use Edit to point the
+                        role at the company&rsquo;s careers page.
+                      </Notice>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <RoleActions
+                        id={posting.id}
+                        title={posting.title}
+                        isPublic={false}
+                        hidden={false}
+                        closed={false}
+                        featured={false}
+                        source="email"
+                        approveLabel={privateLink ? 'Link checked: approve' : 'Approve and publish'}
+                        confirmLink={privateLink}
+                      />
+                      <RoleEditorButton companies={options} posting={posting} />
+                    </div>
+                  </CardContent>
+                </Card>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
@@ -386,6 +426,10 @@ export function JobBoardRolesView({
                         closed={posting.status !== 'active'}
                         featured={posting.featured}
                         source={posting.source}
+                        approveLabel={state === 'stale' ? 'Still open: re-confirm' : undefined}
+                        confirmLink={
+                          posting.source === 'email' && isPrivateDocLink(posting.apply_url)
+                        }
                       />
                       {posting.source !== 'ats' ? (
                         <RoleEditorButton companies={companyOptions(data)} posting={posting} />
@@ -473,7 +517,7 @@ export function JobCompaniesView({ data, now }: { data: JobsBoardTab; now: Date 
                             </a>
                           </Badge>
                         ) : settings?.careers_url ? (
-                          <Badge tone="outline">No supported job board found</Badge>
+                          <Badge tone="warn">No supported job board found</Badge>
                         ) : (
                           <Badge tone="outline">No careers page</Badge>
                         )}
@@ -485,6 +529,14 @@ export function JobCompaniesView({ data, now }: { data: JobsBoardTab; now: Date 
                         ) : null}
                       </span>
                     </div>
+                    {settings?.careers_url && !board ? (
+                      <p className="mb-3 text-sm text-[var(--fg-muted)]">
+                        Copilot can&rsquo;t read this company&rsquo;s job board (it may use
+                        Rippling, BambooHR, Wellfound or its own page). Add its roles by hand with
+                        &ldquo;Add a role&rdquo; on Public board, or switch on &ldquo;List it even
+                        with no open roles&rdquo; so visitors get a link to its careers page.
+                      </p>
+                    ) : null}
                     <CompanyJobsForm
                       companyId={company.id}
                       companyName={company.name}

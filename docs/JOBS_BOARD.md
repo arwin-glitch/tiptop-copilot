@@ -8,7 +8,10 @@ application going straight to the company. Decision D-077.
 
 - **Copilot:** Portfolio › Jobs. A "Public job board" bar sits on every Jobs
   view with **View public board** (opens it in a new tab), **Copy link**, the
-  on/off switch, **Preview** (while it is off) and **Board text**. The views:
+  on/off switch and **Board text**. While the board is off, the first button
+  is **Preview board** (the public page only says "coming soon" until it is
+  on), and a line under the title links to the emailed roles waiting on
+  Approvals. The views:
   - **From email**: the roles founders email Nick (the weekly jobs scan),
     as before.
   - **Approvals**: those emailed roles as drafts. None is public until a
@@ -26,19 +29,31 @@ application going straight to the company. Decision D-077.
 | Where it comes from | Public when |
 | --- | --- |
 | A company's own job board (Greenhouse, Lever, Ashby, Workable, Recruitee), read daily and by Refresh now | a person publishes it, or turned that company's auto-publish on |
-| A founder's email to Nick (the jobs scan) | a person approves that role. Always. |
+| A founder's email to Nick (the jobs scan) | a person approves that role. Always. A link to a shared document (Google Docs, Drive, Notion, Dropbox, SharePoint) asks the approver to check that anyone can open it. |
 | Added by hand | the person adding it publishes it |
 
 And, for every role: the board is on, the role is open, nobody hid it, and it
 has an apply link (its own, or its company's careers page). Hide is sticky: a
-hidden role stays off whatever later reads of its job board say. Turning
+hidden role stays off whatever later reads of its job board say, including
+when the board lists a role someone hid as an emailed one. Turning
 auto-publish off takes down the board roles nobody published one by one.
+
+Emailed and hand-added roles have nothing that closes them on their own, so
+they stay public for 60 days after their last confirmation: the approval, or
+the founder mentioning the role again in a later jobs scan. After that they
+show as "Not public: still open? Re-confirm it" on Public board, and
+**Still open: re-confirm** puts them back. An emailed role whose job posting
+its board has dropped closes on the board too, and an emailed role is dated
+from its approval, not from the founder's first mention.
 
 What a visitor sees of a role: title, company, team, places, remote or
 on-site, type, level, pay only where the company publishes it (or a person
 typed it), the description, and the apply link. Of a company: name, website,
-logo, the public about, sector, its open roles. Nothing else: never an email
-address, a contact, a founder's note, a source email or who approved what.
+careers page, logo, the public about a person typed (Copilot's own portfolio
+description is offered on Companies as "Use this text", never published by
+itself; the sector is not shown), its open roles. Nothing else: never an
+email address, a contact, a founder's note, a source email or who approved
+what.
 
 ## Reading companies' job boards
 
@@ -62,14 +77,24 @@ unlisted are skipped. Demo mode never calls out.
 
 ## Caching, speed and search engines
 
-The public pages are cached by Next (incremental static regeneration): built
-on first visit, rebuilt at most every 10 minutes, and at once whenever
-someone changes the board in Copilot or a sync changes roles. A build with
-no database to read (CI, a laptop) renders them per request instead, so
-nothing stale is baked in. Filtering runs in the browser on the list the page
+The board is read through one cached entry (Next's data cache, tag
+`jobs-board`): refreshed at most every 10 minutes, and at once whenever
+someone changes the board in Copilot or a sync changes roles. The fixed pages
+(home, companies, sitemap) are also cached as pages; a company or role page
+renders per request from that entry (a few milliseconds), so an address
+someone makes up never adds a file to the server's cache. A build with no
+database to read (CI, a laptop) renders the fixed pages per request instead,
+so nothing stale is baked in.
+
+The proxy answers 404 to any address that is not shaped like a board page
+(`/.env`, `/wp-login.php`, three levels deep) before anything renders, and
+slows down one address that floods the board: 120 pages and 20 preview
+images a minute, then a 429 for the rest of that minute. Filtering runs in the browser on the list the page
 already has, so searching is instant. Each role page carries JobPosting
 structured data (Google for Jobs), a canonical link, Open Graph tags and a
-generated preview image; the board has a sitemap (`/jobs/sitemap.xml`, or
+generated preview image (JSON-LD only when the role has a real description
+and a place Google can read, or is remote; a role it would reject gets none);
+the board has a sitemap (`/jobs/sitemap.xml`, or
 `/sitemap.xml` on its own host). Copilot's own `robots.txt` disallows
 everything but `/jobs`; the board host's allows everything. While the board
 is off every page says "coming soon", is marked noindex, and the sitemap is
@@ -82,6 +107,11 @@ ping every 10 minutes, would.
 
 ## Setting it live
 
+0. **Before announcing it:** keep the Render service awake. The free plan
+   sleeps after 15 idle minutes and takes 30 to 60 seconds to wake, which
+   is what the first people clicking a LinkedIn post would meet. Move the
+   service to an always-on paid instance, or ping `/jobs` every 10 minutes
+   from an outside monitor.
 1. **Apply the migration.** Run `supabase/migrations/20261022100000_public_jobs.sql`
    in the Supabase SQL editor (additive and safe to run again). Until then
    Portfolio › Jobs says the board needs it and the public pages say "coming
@@ -107,7 +137,10 @@ reachable there). To point the name at it:
    Do not touch the root `tiptop.vc` or `www` records (they point to Framer).
 3. Wait for Render to show the domain as verified with a certificate.
 4. **Render environment:** set `JOBS_BOARD_URL=https://jobs.tiptop.vc` and
-   redeploy. Canonical links, the sitemap and Copilot's "View public board"
+   redeploy, in the same sitting as the custom domain (until it is set, the
+   board host's sitemap lists copilot.tiptop.vc addresses, which search
+   engines ignore there). Never set `JOBS_BOARD_TRUST_FORWARDED_HOST` here:
+   it is for the e2e server only. Canonical links, the sitemap and Copilot's "View public board"
    button then use the short address; `copilot.tiptop.vc/jobs` keeps
    working.
 5. Check `https://jobs.tiptop.vc/`, a role page, `/sitemap.xml` and

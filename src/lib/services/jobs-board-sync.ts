@@ -155,10 +155,37 @@ type Fetched =
   | { kind: 'too_large' }
   | { kind: 'network' };
 
-async function readCapped(response: Response, max: number): Promise<string | null> {
+/**
+ * A response's text, or null once it passes `max` characters. Read as it
+ * arrives and cancelled at the cap: an answer with no Content-Length (or a
+ * false one) could otherwise stream hundreds of megabytes into memory before
+ * any length check ran.
+ */
+export async function readCapped(response: Response, max: number): Promise<string | null> {
   const length = Number(response.headers.get('content-length') ?? '0');
-  if (length > max * 2) return null;
-  const text = await response.text();
+  if (length > max * 4) {
+    await response.body?.cancel().catch(() => undefined);
+    return null;
+  }
+  if (!response.body) {
+    const text = await response.text();
+    return text.length > max ? null : text;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    text += decoder.decode(value, { stream: true });
+    if (text.length > max || bytes > max * 4) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+  }
+  text += decoder.decode();
   return text.length > max ? null : text;
 }
 
@@ -273,7 +300,16 @@ const MAX_PAGE_HOPS = 3;
  * public internet (so never fetched from a careers address a person typed).
  */
 export function isPrivateAddress(ip: string): boolean {
-  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip.replace(/^::ffff:/i, ''));
+  const lower = ip.trim().toLowerCase();
+  // An IPv4 address carried in IPv6: "::ffff:a.b.c.d", "::a.b.c.d", or the
+  // mapped form in hex ("::ffff:7f00:1").
+  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(lower);
+  const carried = hexMapped
+    ? [parseInt(hexMapped[1]!, 16), parseInt(hexMapped[2]!, 16)]
+        .flatMap((n) => [n >> 8, n & 255])
+        .join('.')
+    : lower.replace(/^::(ffff:)?(?=\d{1,3}\.)/, '');
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(carried);
   if (v4) {
     const [a, b] = [Number(v4[1]), Number(v4[2])];
     return (
@@ -288,9 +324,20 @@ export function isPrivateAddress(ip: string): boolean {
       a >= 224
     );
   }
-  const v6 = ip.toLowerCase();
+  const v6 = lower;
   if (v6 === '::' || v6 === '::1') return true;
-  return /^(fc|fd|fe8|fe9|fea|feb|ff)/.test(v6);
+  // Unique-local, link-local, site-local and multicast; and the ranges that
+  // tunnel to an IPv4 address anyone could choose: NAT64 (64:ff9b::/96 and
+  // 64:ff9b:1::/48), 6to4 (2002::/16), Teredo (2001:0::/32), plus
+  // documentation (2001:db8::/32) and discard (100::/64).
+  return (
+    /^(fc|fd|fe[89a-f]|ff)/.test(v6) ||
+    /^64:ff9b:/.test(v6) ||
+    /^2002:/.test(v6) ||
+    /^2001:(0{1,4})?:/.test(v6) ||
+    /^2001:db8:/.test(v6) ||
+    /^100:(0{1,4})?:/.test(v6)
+  );
 }
 
 async function lookupAddresses(hostname: string): Promise<string[]> {
@@ -428,9 +475,12 @@ async function applyBoardPostings(
       continue;
     }
 
-    // The same role from the founders' emails: this copy replaces it.
+    // The same role from the founders' emails: this copy replaces it. A
+    // person's approval moves to it, and so does a person's hide: a role
+    // hidden on purpose (a confidential replacement) stays hidden.
     const twin = emailed.find((r) => sameTitle(r.title, p.title));
-    const approvedTwin = twin?.published && twin.approved_at ? twin : null;
+    const hiddenTwin = twin?.hidden_at ? twin : null;
+    const approvedTwin = !hiddenTwin && twin?.published && twin.approved_at ? twin : null;
     const row: JobPosting = {
       id: newId(),
       organization_id: organizationId,
@@ -439,12 +489,12 @@ async function applyBoardPostings(
       source_key: key,
       slug: roleSlug(p.title, shortHash(key, 6)),
       ...fields,
-      published: Boolean(approvedTwin) || company.auto_publish,
+      published: hiddenTwin ? false : Boolean(approvedTwin) || company.auto_publish,
       featured: Boolean(approvedTwin?.featured),
       approved_by: approvedTwin?.approved_by ?? null,
       approved_at: approvedTwin?.approved_at ?? null,
-      hidden_by: null,
-      hidden_at: null,
+      hidden_by: hiddenTwin?.hidden_by ?? null,
+      hidden_at: hiddenTwin?.hidden_at ?? null,
       first_seen_at: now,
       created_at: now,
       updated_at: now,
@@ -554,6 +604,9 @@ async function readAndApply(
     timeoutMs: CALL_TIMEOUT_MS,
     maxChars: MAX_API_CHARS,
     accept: 'application/json',
+    // Never followed: a redirect (a Recruitee board moving to a company's own
+    // domain) could point anywhere, including inside Render's network.
+    redirect: 'manual',
   });
   const fail = (message: string) => result(company, portfolio, 'failed', message);
   const skip = (message: string) => result(company, portfolio, 'skipped', message);
@@ -569,13 +622,7 @@ async function readAndApply(
     case 'network':
       return fail('The job board did not answer in time; the next run tries again.');
   }
-  if (answer.status === 404) {
-    return fail('The job board was not found. Check the careers page address.');
-  }
-  if (answer.status === 429)
-    return skip('The job board asked for a pause; the next run tries again.');
-  if (answer.status !== 200)
-    return fail(`The job board answered ${answer.status}; the next run tries again.`);
+  // Where the answer came from is checked before anything about it is kept.
   const finalHost = (() => {
     try {
       return new URL(answer.finalUrl).hostname;
@@ -586,6 +633,16 @@ async function readAndApply(
   if (finalHost && finalHost !== new URL(atsApiUrl(board)).hostname) {
     return fail('The job board sent Copilot somewhere else, so nothing was read.');
   }
+  if (answer.status >= 300 && answer.status < 400) {
+    return fail('The job board moved; check the careers address.');
+  }
+  if (answer.status === 404) {
+    return fail('The job board was not found. Check the careers page address.');
+  }
+  if (answer.status === 429)
+    return skip('The job board asked for a pause; the next run tries again.');
+  if (answer.status !== 200)
+    return fail(`The job board answered ${answer.status}; the next run tries again.`);
   let body: unknown;
   try {
     body = JSON.parse(answer.text);
@@ -776,6 +833,10 @@ export async function importEmailedRoles(
       continue;
     }
     const open = role.status === 'active';
+    // When the founder last mentioned the role: an emailed role stays public
+    // only while it is confirmed (UNCONFIRMED_ROLE_DAYS in lib/jobs-board/public.ts).
+    const mentioned = Date.parse(role.last_seen);
+    const lastSeenAt = Number.isNaN(mentioned) ? now : new Date(mentioned).toISOString();
     const existing = postings.find((p) => p.source === 'email' && p.source_key === role.id);
     if (existing) {
       if (!open && existing.status === 'active') {
@@ -786,6 +847,16 @@ export async function importEmailedRoles(
           updated_at: now,
         });
         out.closed++;
+      } else if (
+        open &&
+        existing.status === 'active' &&
+        Date.parse(lastSeenAt) > Date.parse(existing.last_seen_at)
+      ) {
+        // Mentioned again: confirmed open. Nothing else about it changes.
+        await store.update('job_postings', organizationId, existing.id, {
+          last_seen_at: lastSeenAt,
+          updated_at: now,
+        });
       }
       continue;
     }
@@ -833,7 +904,7 @@ export async function importEmailedRoles(
       hidden_by: null,
       hidden_at: null,
       first_seen_at: now,
-      last_seen_at: now,
+      last_seen_at: lastSeenAt,
       closed_at: null,
       created_at: now,
       updated_at: now,

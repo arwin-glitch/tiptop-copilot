@@ -45,23 +45,42 @@ function parseGroups(text: string): Group[] {
     lastWasAgent = false;
     if (!current) continue;
     if (field === 'allow' || field === 'disallow') {
-      // An empty Disallow allows everything; it adds no rule.
-      if (value) current.rules.push({ allow: field === 'allow', pattern: value });
+      // An empty Disallow allows everything; it adds no rule. A huge rule, or
+      // one past the first MAX_RULES in a group, is ignored.
+      if (value && value.length <= MAX_RULE_CHARS && current.rules.length < MAX_RULES) {
+        current.rules.push({ allow: field === 'allow', pattern: value });
+      }
     }
   }
   return groups;
 }
 
-function matches(pattern: string, path: string): boolean {
+/** A rule longer than this is ignored, and a group's rules stop counting after MAX_RULES. */
+const MAX_RULE_CHARS = 512;
+const MAX_RULES = 500;
+
+/**
+ * Whether a rule matches a path: `*` any run of characters, a closing `$`
+ * the end. Linear in the path, never a regular expression: the rules come
+ * from hosts Copilot does not control, and `/****Z` as a regex backtracks
+ * for seconds to hours, freezing the whole app.
+ */
+export function robotsRuleMatches(pattern: string, path: string): boolean {
   const anchored = pattern.endsWith('$');
-  const body = anchored ? pattern.slice(0, -1) : pattern;
-  const regex = new RegExp(
-    `^${body
-      .split('*')
-      .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
-      .join('.*')}${anchored ? '$' : ''}`,
-  );
-  return regex.test(path);
+  const parts = (anchored ? pattern.slice(0, -1) : pattern).replace(/\*+/g, '*').split('*');
+  const first = parts[0]!;
+  if (!path.startsWith(first)) return false;
+  if (parts.length === 1) return anchored ? path.length === first.length : true;
+  let pos = first.length;
+  for (let i = 1; i < parts.length - 1; i++) {
+    const part = parts[i]!;
+    const at = path.indexOf(part, pos);
+    if (at < 0) return false;
+    pos = at + part.length;
+  }
+  const last = parts.at(-1)!;
+  if (anchored) return path.length - last.length >= pos && path.endsWith(last);
+  return path.indexOf(last, pos) >= 0;
 }
 
 /** Whether robots.txt lets this user agent fetch this path (with its query). */
@@ -78,7 +97,7 @@ export function robotsAllows(
   const rules = chosen.flatMap((g) => g.rules);
   let best: Rule | null = null;
   for (const rule of rules) {
-    if (!matches(rule.pattern, path)) continue;
+    if (!robotsRuleMatches(rule.pattern, path)) continue;
     if (
       !best ||
       rule.pattern.length > best.pattern.length ||

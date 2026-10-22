@@ -1,12 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { boardHosts, requestHosts, routeBoardHost } from '@/lib/jobs-board/host';
+import {
+  boardHosts,
+  isBoardPath,
+  isCopilotBoardPath,
+  requestHosts,
+  routeBoardHost,
+} from '@/lib/jobs-board/host';
+import {
+  BOARD_IMAGE_LIMIT,
+  BOARD_PAGE_LIMIT,
+  boardClientKey,
+  boardRequestAllowed,
+  resetBoardRateLimit,
+} from '@/lib/jobs-board/rate-limit';
 import {
   boardHostOrigin,
   boardPublicUrl,
   canonicalBoardUrl,
   configuredBoardUrl,
 } from '@/lib/jobs-board/config';
-import { robotsAllows, robotsCrawlDelaySeconds } from '@/lib/jobs-board/robots';
+import { robotsAllows, robotsCrawlDelaySeconds, robotsRuleMatches } from '@/lib/jobs-board/robots';
 import { companySlug, roleSlug, slugify } from '@/lib/jobs-board/slug';
 import {
   formatPayRange,
@@ -36,19 +49,56 @@ describe('routeBoardHost', () => {
     });
   });
 
-  it('never exposes Copilot on the board host: its pages become board addresses', () => {
+  it('never exposes Copilot on the board host: its pages become board addresses or a 404', () => {
     expect(routeBoardHost('/today', ['jobs.tiptop.vc'], HOSTS)).toEqual({
       kind: 'rewrite',
       pathname: '/jobs-host/today',
-    });
-    expect(routeBoardHost('/api/inbox', ['jobs.tiptop.vc'], HOSTS)).toEqual({
-      kind: 'rewrite',
-      pathname: '/jobs-host/api/inbox',
     });
     expect(routeBoardHost('/jobs-preview', ['jobs.tiptop.vc'], HOSTS)).toEqual({
       kind: 'rewrite',
       pathname: '/jobs-host/jobs-preview',
     });
+    // Three levels deep is no board address: a 404 before any page renders.
+    expect(routeBoardHost('/api/cron/daily', ['jobs.tiptop.vc'], HOSTS)).toEqual({
+      kind: 'not_found',
+    });
+  });
+
+  it('answers 404 to scanner paths and odd shapes, so they never render a page', () => {
+    for (const path of [
+      '/.env',
+      '/wp-login.php',
+      '/admin/config.php',
+      '/a/b/c',
+      '/Acme',
+      '/acme/opengraph-image',
+      '/acme/role/other',
+      `/${'a'.repeat(102)}`,
+    ]) {
+      expect(routeBoardHost(path, ['jobs.tiptop.vc'], HOSTS)).toEqual({ kind: 'not_found' });
+    }
+    expect(routeBoardHost('/jobs/.env', ['jobs.tiptop.vc'], HOSTS)).toEqual({
+      kind: 'not_found',
+    });
+  });
+
+  it("serves the pages' link-preview images at their internal addresses, and nothing else internal", () => {
+    expect(routeBoardHost('/jobs-host/opengraph-image', ['jobs.tiptop.vc'], HOSTS)).toEqual({
+      kind: 'serve',
+    });
+    expect(
+      routeBoardHost('/jobs-host/acme/vp-sales-1a2b3c/opengraph-image', ['jobs.tiptop.vc'], HOSTS),
+    ).toEqual({ kind: 'serve' });
+    expect(routeBoardHost('/jobs-host/acme', ['jobs.tiptop.vc'], HOSTS)).toEqual({
+      kind: 'not_found',
+    });
+    expect(
+      routeBoardHost(
+        '/jobs-host/acme/vp-sales-1a2b3c/opengraph-image',
+        ['copilot.tiptop.vc'],
+        HOSTS,
+      ),
+    ).toEqual({ kind: 'not_found' });
   });
 
   it('redirects old /jobs links to the short form, and passes Next assets through', () => {
@@ -61,9 +111,9 @@ describe('routeBoardHost', () => {
       pathname: '/acme',
     });
     expect(routeBoardHost('/_next/static/chunk.js', ['jobs.tiptop.vc'], HOSTS)).toEqual({
-      kind: 'pass',
+      kind: 'serve',
     });
-    expect(routeBoardHost('/icon.svg', ['jobs.tiptop.vc'], HOSTS)).toEqual({ kind: 'pass' });
+    expect(routeBoardHost('/icon.svg', ['jobs.tiptop.vc'], HOSTS)).toEqual({ kind: 'serve' });
   });
 
   it('keeps /jobs-host internal everywhere, and leaves other hosts alone', () => {
@@ -76,20 +126,30 @@ describe('routeBoardHost', () => {
     expect(routeBoardHost('/', [], HOSTS)).toEqual({ kind: 'pass' });
   });
 
-  it('reads both the Host header and the forwarded host, without ports', () => {
+  it('reads the Host header without its port or trailing dot', () => {
     const headers = (values: Record<string, string>) => ({ get: (n: string) => values[n] ?? null });
-    expect(requestHosts(headers({ host: 'JOBS.tiptop.vc:443' }))).toEqual(['jobs.tiptop.vc']);
-    expect(
-      requestHosts(
-        headers({ host: 'copilot.tiptop.vc', 'x-forwarded-host': 'jobs.tiptop.vc, proxy' }),
-      ),
-    ).toEqual(['copilot.tiptop.vc', 'jobs.tiptop.vc']);
-    expect(requestHosts(headers({ host: 'bad host!' }))).toEqual([]);
+    expect(requestHosts(headers({ host: 'JOBS.tiptop.vc:443' }), {})).toEqual(['jobs.tiptop.vc']);
+    expect(requestHosts(headers({ host: 'jobs.tiptop.vc.' }), {})).toEqual(['jobs.tiptop.vc']);
+    expect(requestHosts(headers({ host: 'bad host!' }), {})).toEqual([]);
+  });
+
+  it('ignores X-Forwarded-Host unless the deployment says to trust it', () => {
+    const headers = (values: Record<string, string>) => ({ get: (n: string) => values[n] ?? null });
+    const spoofed = headers({ host: 'copilot.tiptop.vc', 'x-forwarded-host': 'jobs.tiptop.vc' });
+    // Any client can write the header: by default it changes nothing.
+    expect(requestHosts(spoofed, {})).toEqual(['copilot.tiptop.vc']);
+    expect(routeBoardHost('/today', requestHosts(spoofed, {}), HOSTS)).toEqual({ kind: 'pass' });
+    // The e2e server, which has no DNS for the board host, trusts it.
+    expect(requestHosts(spoofed, { JOBS_BOARD_TRUST_FORWARDED_HOST: 'true' })).toEqual([
+      'copilot.tiptop.vc',
+      'jobs.tiptop.vc',
+    ]);
   });
 
   it('cannot be talked out of the board on its own host by a forwarded header', () => {
     const headers = { get: (n: string) => (n === 'host' ? 'jobs.tiptop.vc' : 'copilot.tiptop.vc') };
-    expect(routeBoardHost('/today', requestHosts(headers), HOSTS)).toEqual({
+    const trusted = { JOBS_BOARD_TRUST_FORWARDED_HOST: 'true' };
+    expect(routeBoardHost('/today', requestHosts(headers, trusted), HOSTS)).toEqual({
       kind: 'rewrite',
       pathname: '/jobs-host/today',
     });
@@ -103,6 +163,76 @@ describe('routeBoardHost', () => {
       }),
     ).toEqual(['jobs.tiptop.vc', 'careers.example.org', 'jobs.localhost', 'x.test']);
     expect(boardHosts({ JOBS_BOARD_URL: 'not a url' })).toEqual(['jobs.tiptop.vc']);
+  });
+});
+
+describe('board paths', () => {
+  it('knows the shapes the board serves', () => {
+    for (const ok of [
+      '/',
+      '',
+      '/companies',
+      '/acme',
+      '/acme/',
+      '/acme/vp-sales-1a2b3c',
+      '/acme/vp-sales-1a2b3c/opengraph-image',
+      '/opengraph-image',
+      '/sitemap.xml',
+      '/robots.txt',
+    ]) {
+      expect(isBoardPath(ok)).toBe(true);
+    }
+    for (const bad of ['/.env', '/a/b/c', '/a b', '/acme/opengraph-image', '/-acme', 'acme']) {
+      expect(isBoardPath(bad)).toBe(false);
+    }
+  });
+
+  it("judges Copilot's own /jobs addresses, and leaves the rest alone", () => {
+    expect(isCopilotBoardPath('/jobs')).toBe(true);
+    expect(isCopilotBoardPath('/jobs/acme/vp-sales-1a2b3c')).toBe(true);
+    expect(isCopilotBoardPath('/jobs/sitemap.xml')).toBe(true);
+    expect(isCopilotBoardPath('/jobs/a/b/c')).toBe(false);
+    expect(isCopilotBoardPath('/jobs/wp-login.php')).toBe(false);
+    expect(isCopilotBoardPath('/jobs-preview')).toBeNull();
+    expect(isCopilotBoardPath('/today')).toBeNull();
+  });
+});
+
+describe('the board brake', () => {
+  const from = (ip: string) => ({ get: (n: string) => (n === 'cf-connecting-ip' ? ip : null) });
+
+  it('allows a page allowance per address per minute, and a smaller one for images', () => {
+    resetBoardRateLimit();
+    const now = 1_000_000;
+    for (let i = 0; i < BOARD_PAGE_LIMIT; i++) {
+      expect(boardRequestAllowed(from('203.0.113.7'), '/jobs', now)).toBe(true);
+    }
+    expect(boardRequestAllowed(from('203.0.113.7'), '/jobs/acme', now)).toBe(false);
+    // Another address is untouched; the next minute starts afresh.
+    expect(boardRequestAllowed(from('203.0.113.8'), '/jobs', now)).toBe(true);
+    expect(boardRequestAllowed(from('203.0.113.7'), '/jobs', now + 60_000)).toBe(true);
+
+    for (let i = 0; i < BOARD_IMAGE_LIMIT; i++) {
+      expect(boardRequestAllowed(from('203.0.113.9'), '/a/b/opengraph-image', now)).toBe(true);
+    }
+    expect(boardRequestAllowed(from('203.0.113.9'), '/a/b/opengraph-image', now)).toBe(false);
+    // Pages have their own allowance.
+    expect(boardRequestAllowed(from('203.0.113.9'), '/a/b', now)).toBe(true);
+    resetBoardRateLimit();
+  });
+
+  it('keys on the edge address, else the last forwarded hop, and an IPv6 /64', () => {
+    const headers = (values: Record<string, string>) => ({ get: (n: string) => values[n] ?? null });
+    expect(boardClientKey(headers({ 'x-forwarded-for': '1.1.1.1, 198.51.100.4' }))).toBe(
+      '198.51.100.4',
+    );
+    expect(
+      boardClientKey(headers({ 'cf-connecting-ip': '203.0.113.5', 'x-forwarded-for': '1.1.1.1' })),
+    ).toBe('203.0.113.5');
+    expect(boardClientKey(headers({ 'cf-connecting-ip': '2001:db8:aa:bb:1:2:3:4' }))).toBe(
+      '2001:db8:aa:bb::/64',
+    );
+    expect(boardClientKey(headers({}))).toBe('unknown');
   });
 });
 
@@ -142,6 +272,24 @@ describe('robots.txt', () => {
   it('prefers a group naming this bot', () => {
     const txt = 'User-agent: TipTopJobsBot\nDisallow: /\n\nUser-agent: *\nAllow: /';
     expect(robotsAllows(txt, '/v1/boards')).toBe(false);
+  });
+
+  it('matches wildcards in linear time, so a hostile rule cannot freeze the app', () => {
+    expect(robotsRuleMatches('/a*b*c$', '/axxbyyc')).toBe(true);
+    expect(robotsRuleMatches('/a*b*c$', '/axxbyycz')).toBe(false);
+    expect(robotsRuleMatches('/*.json$', '/x/y.json')).toBe(true);
+    expect(robotsRuleMatches('/fish*', '/fishheads')).toBe(true);
+    expect(robotsRuleMatches('/fish$', '/fishheads')).toBe(false);
+    expect(robotsRuleMatches('/*', '/')).toBe(true);
+    const hostile = `User-agent: *\nDisallow: /${'*'.repeat(30)}Z\n`;
+    const path = `/v1/boards/${'a'.repeat(60)}/jobs?content=true`;
+    const started = performance.now();
+    expect(robotsAllows(hostile, path)).toBe(true);
+    expect(performance.now() - started).toBeLessThan(50);
+    // A rule past the size cap is ignored rather than matched.
+    expect(
+      robotsAllows(`User-agent: *\nDisallow: /${'x'.repeat(600)}*\n`, `/${'x'.repeat(700)}`),
+    ).toBe(true);
   });
 
   it('reads the crawl delay, capped', () => {
@@ -211,6 +359,12 @@ describe('private addresses', () => {
       'fd00::1',
       'fe80::1',
       '::ffff:10.0.0.1',
+      '::ffff:7f00:1',
+      '::127.0.0.1',
+      '64:ff9b::a00:1',
+      '2002:a00:1::1',
+      '2001:0:4136:e378::1',
+      'fec0::1',
     ]) {
       expect(isPrivateAddress(ip)).toBe(true);
     }

@@ -3,10 +3,8 @@ import { OG_CONTENT_TYPE, OG_SIZE, jobOgImage } from '@/components/jobs-board/og
 export const alt = 'An open role at a TipTop VC portfolio company';
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
-export const revalidate = 600;
-export function generateStaticParams() {
-  return [];
-}
+/** Drawn per request for public roles only (a 404 otherwise), never cached per address. */
+export const dynamic = 'force-dynamic';
 
 export default async function Image({
   params,

@@ -37,9 +37,15 @@ export interface PublicCompany {
   /** `https://<domain>`, only a plain hostname. */
   website: string | null;
   domain: string | null;
+  /** The careers page a person gave the company (http/https only). */
+  careersUrl: string | null;
   logoUrl: string | null;
+  /**
+   * Only what a person typed as the company's public "about". Never Copilot's
+   * own portfolio description or sector: those are internal notes nobody
+   * chose to publish.
+   */
   about: string | null;
-  sector: string | null;
   openRoles: number;
 }
 
@@ -59,6 +65,13 @@ export interface PublicJob {
   comp: string | null;
   applyUrl: string;
   postedAt: string | null;
+  /**
+   * When a role nobody re-checks stops counting as open: emailed and
+   * hand-added roles, 60 days after a person or a founder's email last
+   * confirmed them. Null for roles read from a company's own job board,
+   * which close themselves when the board drops them.
+   */
+  validThrough: string | null;
   featured: boolean;
   /** Structured text; left out of lists, which never show it. */
   description: string | null;
@@ -82,6 +95,7 @@ export type PublicState =
   | 'needs_approval'
   | 'not_published'
   | 'auto_publish_off'
+  | 'stale'
   | 'no_apply_link'
   | 'company_gone';
 
@@ -92,9 +106,40 @@ export const PUBLIC_STATE_LABELS: Record<PublicState, string> = {
   needs_approval: 'Waiting for approval',
   not_published: 'Not public',
   auto_publish_off: 'Not public: auto-publish is off',
+  stale: 'Not public: still open? Re-confirm it',
   no_apply_link: 'Not public: no apply link',
   company_gone: 'Not public: company archived',
 };
+
+/**
+ * How long an emailed or hand-added role stays public after a person (or a
+ * founder's email) last confirmed it. Nothing closes these roles on its own,
+ * and a board showing filled roles is the quickest way to lose trust (Google
+ * also asks for expired postings to come down).
+ */
+export const UNCONFIRMED_ROLE_DAYS = 60;
+const DAY_MS = 86_400_000;
+
+/** When an emailed or hand-added role was last confirmed: approved, or mentioned again. */
+export function lastConfirmedAt(
+  posting: Pick<JobPosting, 'approved_at' | 'last_seen_at'>,
+): number | null {
+  const times = [posting.approved_at, posting.last_seen_at]
+    .map((t) => (t ? Date.parse(t) : Number.NaN))
+    .filter((t) => Number.isFinite(t));
+  return times.length > 0 ? Math.max(...times) : null;
+}
+
+/** The end of a role's public life (see UNCONFIRMED_ROLE_DAYS); null for board roles. */
+export function validThroughOf(
+  posting: Pick<JobPosting, 'source' | 'approved_at' | 'last_seen_at'>,
+): string | null {
+  if (posting.source === 'ats') return null;
+  const confirmed = lastConfirmedAt(posting);
+  return confirmed === null
+    ? null
+    : new Date(confirmed + UNCONFIRMED_ROLE_DAYS * DAY_MS).toISOString();
+}
 
 /** The apply link a role offers: its own, else its company's careers page. */
 export function applyLinkFor(
@@ -126,15 +171,18 @@ function httpLink(value: string | null | undefined): string | null {
  *       - an emailed or hand-added role was approved by a person, and
  *       - a board-synced role a person never approved individually is public
  *         only while its company's auto-publish switch is on;
+ *   - an emailed or hand-added role was confirmed (approved, or mentioned
+ *     again by the founder) within UNCONFIRMED_ROLE_DAYS;
  *   - it has somewhere to apply.
  */
 export function postingPublicState(
   posting: Pick<
     JobPosting,
-    'status' | 'hidden_at' | 'published' | 'source' | 'approved_at' | 'apply_url'
+    'status' | 'hidden_at' | 'published' | 'source' | 'approved_at' | 'apply_url' | 'last_seen_at'
   >,
   company: Pick<JobCompany, 'auto_publish' | 'careers_url'> | null,
   portfolio: Pick<PortfolioCompany, 'is_archived'> | null,
+  now: Date = new Date(),
 ): PublicState {
   if (!portfolio || portfolio.is_archived) return 'company_gone';
   if (posting.status !== 'active') return 'closed';
@@ -143,6 +191,10 @@ export function postingPublicState(
   if (!posting.published) return 'not_published';
   if (posting.source === 'ats' && !posting.approved_at && !company?.auto_publish) {
     return 'auto_publish_off';
+  }
+  if (posting.source !== 'ats') {
+    const until = validThroughOf(posting);
+    if (until && Date.parse(until) <= now.getTime()) return 'stale';
   }
   if (!applyLinkFor(posting, company)) return 'no_apply_link';
   return 'public';
@@ -163,8 +215,9 @@ export interface BoardRows {
  */
 export function buildPublicBoard(
   rows: BoardRows,
-  options: { descriptions?: boolean } = {},
+  options: { descriptions?: boolean; now?: Date } = {},
 ): PublicBoard {
+  const now = options.now ?? new Date();
   const portfolioById = new Map(rows.portfolio.map((p) => [p.id, p]));
   const companyByPortfolio = new Map(rows.jobCompanies.map((c) => [c.portfolio_company_id, c]));
 
@@ -173,7 +226,7 @@ export function buildPublicBoard(
     const portfolio = portfolioById.get(posting.portfolio_company_id) ?? null;
     const company = companyByPortfolio.get(posting.portfolio_company_id) ?? null;
     if (!company) continue;
-    if (postingPublicState(posting, company, portfolio) !== 'public') continue;
+    if (postingPublicState(posting, company, portfolio, now) !== 'public') continue;
     const key = `${posting.portfolio_company_id}|${normalizeJobTitle(posting.title)}`;
     const seen = chosen.get(key);
     if (!seen || rank(posting) > rank(seen.posting)) chosen.set(key, { posting, company });
@@ -189,13 +242,18 @@ export function buildPublicBoard(
       title: posting.title,
       team: posting.team,
       fn: normalizeJobFunction(posting.job_function),
-      locations: posting.locations.slice(0, 10),
-      remote: posting.remote,
+      ...placesAndRemote(posting.locations, posting.remote),
       employmentType: isEmploymentType(posting.employment_type) ? posting.employment_type : null,
       seniority: isSeniority(posting.seniority) ? posting.seniority : null,
       comp: posting.comp,
       applyUrl: applyLinkFor(posting, company)!,
-      postedAt: posting.posted_at ?? posting.approved_at ?? posting.first_seen_at,
+      // An emailed role's own date is the founder's first mention, which can
+      // be months old: the board dates it from the approval instead.
+      postedAt:
+        posting.source === 'email'
+          ? (posting.approved_at ?? posting.first_seen_at)
+          : (posting.posted_at ?? posting.approved_at ?? posting.first_seen_at),
+      validThrough: validThroughOf(posting),
       featured: posting.featured,
       description: options.descriptions ? posting.description : null,
     };
@@ -217,9 +275,9 @@ export function buildPublicBoard(
       name: portfolio.name,
       website: websiteHref(portfolio.website ?? portfolio.domain),
       domain,
+      careersUrl: httpLink(company.careers_url),
       logoUrl: company.logo_url && /^https:\/\//i.test(company.logo_url) ? company.logo_url : null,
-      about: company.about?.trim() || portfolio.description?.trim() || null,
-      sector: portfolio.sector?.trim() || null,
+      about: company.about?.trim() || null,
       openRoles,
     });
   }
@@ -236,6 +294,42 @@ export function buildPublicBoard(
     companies,
     jobs,
   };
+}
+
+const SETUP_SUFFIX = /\s*[([]\s*(hybrid|remote|on-?site|in[- ]office)\s*[)\]]\s*$/i;
+const SETUP_OF: Record<string, JobRemote> = {
+  hybrid: 'hybrid',
+  remote: 'remote',
+  onsite: 'onsite',
+  'on-site': 'onsite',
+  'in-office': 'onsite',
+  'in office': 'onsite',
+};
+
+/**
+ * A role's places as the board lists them: a trailing "(Hybrid)" or
+ * "(Remote)" moves into the work setup when that is empty, spaces are
+ * tidied, and the same place twice is kept once. So "Chicago, IL (Hybrid)"
+ * and "Chicago, IL" are one location filter, not two.
+ */
+export function placesAndRemote(
+  locations: readonly string[],
+  remote: JobRemote | null,
+): { locations: string[]; remote: JobRemote | null } {
+  let setup = remote;
+  const out: string[] = [];
+  for (const raw of locations) {
+    let place = raw.replace(/\s+/g, ' ').trim();
+    const suffix = SETUP_SUFFIX.exec(place);
+    if (suffix) {
+      setup ??= SETUP_OF[suffix[1]!.toLowerCase()] ?? null;
+      place = place.slice(0, suffix.index).trim();
+    }
+    if (!place || out.some((p) => p.toLowerCase() === place.toLowerCase())) continue;
+    out.push(place);
+    if (out.length >= 10) break;
+  }
+  return { locations: out, remote: setup };
 }
 
 /** Which of two copies of one role the board shows: the company's own board, then the newest. */

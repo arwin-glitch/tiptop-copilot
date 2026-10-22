@@ -1,15 +1,12 @@
-import { requireAuth } from '@/lib/auth/session';
-import { CompaniesPage, companiesMetadata } from '@/components/jobs-board/pages';
+import { redirect } from 'next/navigation';
+import { getAuthContext } from '@/lib/auth/session';
+import { CompaniesPage } from '@/components/jobs-board/pages';
 
 export const dynamic = 'force-dynamic';
 
 const BASE = '/jobs-preview';
 
-export function generateMetadata() {
-  return companiesMetadata({ base: BASE, preview: true });
-}
-
 export default async function JobsBoardPreviewCompanies() {
-  await requireAuth();
+  if (!(await getAuthContext())) redirect('/login');
   return <CompaniesPage base={BASE} preview />;
 }

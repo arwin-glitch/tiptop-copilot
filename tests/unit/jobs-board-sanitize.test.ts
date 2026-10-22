@@ -90,3 +90,31 @@ describe('plainToStructuredText and parseStructuredText', () => {
     expect(descriptionSummary(null)).toBe('');
   });
 });
+
+describe('hostile descriptions cost linear time', () => {
+  // Companies write these (their job boards and careers pages), and the daily
+  // sync reads up to 500 per board on the one process that serves Copilot: a
+  // pattern that rescans to the end for each tag would stall everything.
+  const timed = (work: () => unknown) => {
+    const started = performance.now();
+    work();
+    return performance.now() - started;
+  };
+
+  it('reads unclosed tags, scripts and comments quickly', () => {
+    expect(timed(() => htmlToStructuredText('<a '.repeat(150_000)))).toBeLessThan(300);
+    expect(timed(() => htmlToStructuredText('<script '.repeat(50_000)))).toBeLessThan(300);
+    expect(timed(() => htmlToStructuredText('<!--x'.repeat(60_000)))).toBeLessThan(300);
+    expect(timed(() => htmlToStructuredText('<p><b>'.repeat(50_000)))).toBeLessThan(300);
+  });
+
+  it('still drops scripts, styles and comments whole, and an unclosed one takes the rest', () => {
+    expect(
+      htmlToStructuredText(
+        '<p>Hi</p><script>alert(1)</script><style>p{}</style><!-- note --><p>There</p>',
+      ),
+    ).toBe('Hi\n\nThere');
+    expect(htmlToStructuredText('<p>Kept</p><script>alert(1)<p>gone</p>')).toBe('Kept');
+    expect(htmlToStructuredText('<p>Kept</p><!-- never closed <p>gone</p>')).toBe('Kept');
+  });
+});

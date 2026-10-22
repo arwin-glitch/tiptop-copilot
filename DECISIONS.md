@@ -2633,10 +2633,72 @@ founders' own words, so none of that can go public as it stands.
 - No job alerts or talent network (they would collect visitors' emails).
 - Locations are free text from each board, so the location filter groups by
   exact place name; no stage, size or industry filters.
-- An emailed role's posted date is when the founder first mentioned it.
 - Greenhouse EU, Lever EU, BambooHR and SmartRecruiters are not read.
 - The free Render plan's wake-up after idling is not hidden by caching.
 - The careers-page check refuses address literals, internal names and hosts
   whose addresses are private, and follows redirects by hand, checking each;
   it does not pin the address it checked, so a name that changes between the
-  check and the fetch is not caught.
+  check and the fetch is not caught (only signed-in members can type a
+  careers address).
+
+**Review fix-up (before launch).** A security and a UX review of the branch
+found these, now changed:
+
+- **The preview reads nothing for its metadata.** `/jobs-preview` pages have
+  fixed metadata, and the layout and every page check the session themselves
+  and redirect to `/login` (the proxy only checks a cookie is present, and a
+  page's `generateMetadata` runs apart from its body, so it was leaking the
+  staged roles' titles to a made-up cookie).
+- **No cache entry per address.** `/<company>`, `/<company>/<role>` and the
+  role preview images render per request from one tagged data-cache entry
+  (`readPublicBoardCached`, tag `jobs-board`, 10 minutes, expired at once by
+  `revalidatePublicBoard`); only the fixed pages (home, companies, sitemap)
+  stay ISR. A role image for anything not public is a 404, never a drawing.
+  The proxy answers 404 to any address not shaped like a board page
+  (`isBoardPath`: scanner paths never render), and brakes board traffic per
+  address (120 pages and 20 images a minute; `lib/jobs-board/rate-limit.ts`).
+  `/jobs` skips the session refresh, so no session cookie rides on a public
+  page.
+- **Hosts.** Only the `Host` header picks the board's host;
+  `X-Forwarded-Host` counts only with `JOBS_BOARD_TRUST_FORWARDED_HOST=true`
+  (the e2e server). A trailing dot is ignored. Old `/jobs/...` links on the
+  board host redirect with an absolute Location from the environment (a
+  relative one was a 500). The pages' internal `og:image` addresses are
+  served on the board host.
+- **Nothing internal published by default.** A company's public about is
+  only `job_companies.about`; the portfolio description is a "Use this text"
+  suggestion and the sector is not public. `PublicCompany` gains the
+  careers page.
+- **Roles that go stale.** Emailed and hand-added roles stop being public 60
+  days after their last confirmation (approval, or the founder mentioning
+  them again: `last_seen_at`), state `stale`, until a person publishes again
+  ("Still open: re-confirm"). The import uses the same liveness check as the
+  Jobs list, so an emailed role whose posting its board dropped closes.
+  An emailed role's public date is its approval. A hidden emailed role's
+  hide moves to the board's copy, like an approval does. An emailed role
+  whose link is on a shared-document host needs `confirmLink` to publish.
+- **Board pages.** Fallback metadata and a dark theme colour for the board's
+  layouts (no board address shows Copilot's title or description); a closed
+  role at a company still on the board gets a noindex "This role has closed"
+  page with the company's open roles; the not-found text is generic. JSON-LD
+  meets Google's required fields or is left out: places parsed to locality,
+  region and country, `applicantLocationRequirements` for remote roles,
+  `baseSalary` when pay parses, `validThrough` for emailed and hand-added
+  roles, and no invented description. Locations fold "(Hybrid)" into the
+  work setup and dedupe. A sticky Apply bar on phones; 16px filters (no iOS
+  zoom); three featured cards on a phone; the year on old dates.
+- **Hostile input costs linear time.** robots.txt wildcards are matched
+  without a regex, rules are capped; the description sanitizer's tag
+  patterns stop at the next `<`, dropped elements and comments are cut in one
+  forward pass, and its input cap is 100 KB; the careers-page embed pattern
+  is bounded; answers are read as a stream and cancelled at the size cap.
+  Job board API calls never follow redirects, and the host check runs before
+  anything about the answer is kept. More private IPv6 ranges are refused.
+- **Copilot's robots.txt** also allows `/_next/static/` and `/icon.svg`, so
+  search engines can render the board's pages.
+
+Still open, deliberately: the careers-page DNS check is not pinned to the
+connection; the board shares Copilot's root layout (manifest, service
+worker, desktop title bar and globals.css ship with its pages) until it gets
+a route group of its own; link-preview images use the default font; logos
+are typed by hand.

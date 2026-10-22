@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   boardFiltersToSearch,
   buildPublicBoard,
@@ -7,9 +7,17 @@ import {
   filterBoardJobs,
   hasFilters,
   parseBoardFilters,
+  placesAndRemote,
   postingPublicState,
+  validThroughOf,
 } from '@/lib/jobs-board/public';
-import { descriptionHtml, jobPostingJsonLd, serializeJsonLd } from '@/lib/jobs-board/json-ld';
+import {
+  descriptionHtml,
+  jobPostingJsonLd,
+  parsePay,
+  parsePlace,
+  serializeJsonLd,
+} from '@/lib/jobs-board/json-ld';
 import type { JobCompany, JobPosting, PortfolioCompany } from '@/lib/types/domain';
 
 /**
@@ -19,6 +27,16 @@ import type { JobCompany, JobPosting, PortfolioCompany } from '@/lib/types/domai
 
 const ORG = 'org-1';
 const NOW = '2026-10-20T12:00:00.000Z';
+
+// The gate ages emailed and hand-added roles against the clock: pin it, so
+// these fixed dates never go stale under a later run.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(NOW));
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 function portfolio(
   id: string,
@@ -197,14 +215,16 @@ describe('buildPublicBoard', () => {
     expect(board.jobs[0]!.description).toBeNull();
     const text = JSON.stringify(board);
     expect(text).not.toMatch(/internal|4%|Runway/);
+    // Copilot's own portfolio description and sector are internal: never public.
+    expect(text).not.toMatch(/makes things|Robotics/);
     expect(board.companies[0]).toEqual({
       slug: 'acme-fixture',
       name: 'Acme Fixture',
       website: 'https://acmefixture.example',
       domain: 'acmefixture.example',
+      careersUrl: null,
       logoUrl: null,
-      about: 'Acme Fixture makes things.',
-      sector: 'Robotics',
+      about: null,
       openRoles: 1,
     });
     expect(
@@ -350,6 +370,8 @@ describe('board filters', () => {
 });
 
 describe('JobPosting structured data', () => {
+  const LONG =
+    'Build the services that reconcile ledgers for accounting firms. You will own our matching engine end to end, from bank feeds to the review queue accountants use every day.\n\n## What you will do\n\n- Ship <b>Bold</b> features\n- Run the matching engine';
   const board = buildPublicBoard(
     {
       settings: null,
@@ -359,37 +381,228 @@ describe('JobPosting structured data', () => {
       ],
       postings: [
         posting('pc-acme', {
+          slug: 'remote-role',
           title: 'Engineer </script><script>alert(1)</script>',
-          description: '## About\n\n- <b>Bold</b> claim',
+          description: LONG,
           remote: 'remote',
           locations: ['Remote - US', 'Austin, TX'],
+          comp: '$190K – $220K / year',
+        }),
+        posting('pc-acme', {
+          slug: 'hybrid-role',
+          title: 'Hybrid Designer',
+          description: LONG,
+          remote: null,
+          locations: ['Chicago, IL (Hybrid)'],
+          source: 'ats',
+        }),
+        posting('pc-acme', {
+          slug: 'thin-role',
+          title: 'Thin Role',
+          description: 'Too short to be a real description.',
+        }),
+        posting('pc-acme', {
+          slug: 'nowhere-role',
+          title: 'Nowhere Role',
+          description: LONG,
+          locations: ['Somewhere nice'],
+          remote: 'onsite',
+        }),
+        posting('pc-acme', {
+          slug: 'remote-canada',
+          title: 'Remote Canada Role',
+          description: LONG,
+          locations: ['Remote (Canada)'],
+          remote: 'remote',
+        }),
+        posting('pc-acme', {
+          slug: 'remote-plain',
+          title: 'Remote Plain Role',
+          description: LONG,
+          locations: [],
+          remote: 'remote',
         }),
       ],
     },
     { descriptions: true },
   );
-  const job = board.jobs[0]!;
+  const bySlug = (slug: string) => board.jobs.find((j) => j.slug === slug)!;
+  const jsonLd = (slug: string) =>
+    jobPostingJsonLd(
+      bySlug(slug),
+      board.companies[0]!,
+      `https://jobs.example/acme-fixture/${slug}`,
+    );
 
-  it('describes the role for Google for Jobs from public fields only', () => {
-    const data = jobPostingJsonLd(job, board.companies[0]!, 'https://jobs.example/acme-fixture/x');
+  it('describes the role for Google for Jobs from public fields only, with every required field', () => {
+    const data = jsonLd('remote-role')!;
     expect(data).toMatchObject({
       '@type': 'JobPosting',
       datePosted: '2026-10-20',
+      validThrough: '2026-12-19T12:00:00.000Z',
       employmentType: 'FULL_TIME',
       jobLocationType: 'TELECOMMUTE',
+      applicantLocationRequirements: [{ '@type': 'Country', name: 'US' }],
+      jobLocation: [
+        {
+          '@type': 'Place',
+          address: {
+            '@type': 'PostalAddress',
+            addressLocality: 'Austin',
+            addressRegion: 'TX',
+            addressCountry: 'US',
+          },
+        },
+      ],
+      baseSalary: {
+        '@type': 'MonetaryAmount',
+        currency: 'USD',
+        value: {
+          '@type': 'QuantitativeValue',
+          minValue: 190000,
+          maxValue: 220000,
+          unitText: 'YEAR',
+        },
+      },
       hiringOrganization: {
         name: 'Acme Fixture',
         sameAs: 'https://acmefixture.example',
         logo: 'https://cdn.example/acme.png',
       },
     });
-    expect((data.jobLocation as unknown[]).length).toBe(1);
+  });
+
+  it('reads a hybrid place without its "(Hybrid)", and gives board roles no validThrough', () => {
+    const data = jsonLd('hybrid-role')!;
+    expect(data.jobLocation).toEqual([
+      {
+        '@type': 'Place',
+        address: {
+          '@type': 'PostalAddress',
+          addressLocality: 'Chicago',
+          addressRegion: 'IL',
+          addressCountry: 'US',
+        },
+      },
+    ]);
+    expect(data).not.toHaveProperty('jobLocationType');
+    expect(data).not.toHaveProperty('validThrough');
+    expect(bySlug('hybrid-role').remote).toBe('hybrid');
+  });
+
+  it('names the country a remote role hires in, defaulting to the US', () => {
+    expect(jsonLd('remote-canada')!.applicantLocationRequirements).toEqual([
+      { '@type': 'Country', name: 'CA' },
+    ]);
+    expect(jsonLd('remote-plain')!.applicantLocationRequirements).toEqual([
+      { '@type': 'Country', name: 'US' },
+    ]);
+    expect(jsonLd('remote-plain')).not.toHaveProperty('jobLocation');
+  });
+
+  it('gives no structured data rather than invented or incomplete fields', () => {
+    // A short description is not padded with made-up words.
+    expect(jsonLd('thin-role')).toBeNull();
+    // No place Google can read and not remote: nothing.
+    expect(jsonLd('nowhere-role')).toBeNull();
+    // An emailed role with no description: nothing.
+    const emailed = { ...bySlug('remote-role'), description: null };
+    expect(jobPostingJsonLd(emailed, null, 'https://jobs.example/x')).toBeNull();
   });
 
   it('escapes everything, so the script tag can never be closed early', () => {
-    const json = serializeJsonLd(jobPostingJsonLd(job, null, 'https://jobs.example/x'));
+    const json = serializeJsonLd(jsonLd('remote-role'));
     expect(json).not.toContain('<');
     expect(JSON.parse(json).title).toBe('Engineer </script><script>alert(1)</script>');
-    expect(descriptionHtml('- <b>x</b>', 'f')).toBe('<ul><li>&lt;b&gt;x&lt;/b&gt;</li></ul>');
+    expect(descriptionHtml('- <b>x</b>')).toBe('<ul><li>&lt;b&gt;x&lt;/b&gt;</li></ul>');
+    expect(descriptionHtml('')).toBeNull();
+  });
+
+  it('parses places and pay only when they read cleanly', () => {
+    expect(parsePlace('Austin, TX')).toEqual({ locality: 'Austin', region: 'TX', country: 'US' });
+    expect(parsePlace('Denver, CO, USA')).toEqual({
+      locality: 'Denver',
+      region: 'CO',
+      country: 'US',
+    });
+    expect(parsePlace('Toronto, ON')).toEqual({ locality: 'Toronto', region: 'ON', country: 'CA' });
+    expect(parsePlace('Berlin, Germany')).toEqual({
+      locality: 'Berlin',
+      region: null,
+      country: 'DE',
+    });
+    expect(parsePlace('Canada')).toEqual({ locality: null, region: null, country: 'CA' });
+    expect(parsePlace('Remote - US')).toBeNull();
+    expect(parsePlace('Bay Area')).toBeNull();
+    expect(parsePlace('Austin, ZZ')).toBeNull();
+
+    expect(parsePay('$150,000 - $180,000')).toEqual({
+      currency: 'USD',
+      min: 150000,
+      max: 180000,
+      unit: 'YEAR',
+    });
+    expect(parsePay('USD 60-75/hr')).toEqual({ currency: 'USD', min: 60, max: 75, unit: 'HOUR' });
+    expect(parsePay('$150K base + 0.5% equity')).toEqual({
+      currency: 'USD',
+      min: 150000,
+      max: 150000,
+      unit: 'YEAR',
+    });
+    expect(parsePay('0.5% - 1% equity')).toBeNull();
+    expect(parsePay('Competitive')).toBeNull();
+    expect(parsePay('$5 - $9')).toBeNull();
+  });
+});
+
+describe('stale emailed and hand-added roles', () => {
+  const DAY = 86_400_000;
+  const ago = (days: number) => new Date(Date.parse(NOW) - days * DAY).toISOString();
+
+  it('takes a role nobody confirmed for 60 days off the board, until a person re-confirms it', () => {
+    const old = posting('pc-acme', { approved_at: ago(61), last_seen_at: ago(61) });
+    expect(postingPublicState(old, ACME_CO, ACME)).toBe('stale');
+    // Mentioned again by the founder: confirmed.
+    expect(postingPublicState({ ...old, last_seen_at: ago(3) }, ACME_CO, ACME)).toBe('public');
+    // Re-approved by a person (Publish again): confirmed.
+    expect(postingPublicState({ ...old, approved_at: ago(0) }, ACME_CO, ACME)).toBe('public');
+    // A role from the company's own board closes itself instead: never stale.
+    expect(
+      postingPublicState(
+        { ...old, source: 'ats' },
+        company('pc-acme', 'a', { auto_publish: true }),
+        ACME,
+      ),
+    ).toBe('public');
+    expect(validThroughOf({ source: 'ats', approved_at: NOW, last_seen_at: NOW })).toBeNull();
+  });
+
+  it("dates an emailed role from its approval, not the founder's first mention", () => {
+    const board = buildPublicBoard({
+      settings: null,
+      portfolio: [ACME],
+      jobCompanies: [ACME_CO],
+      postings: [
+        posting('pc-acme', {
+          source: 'email',
+          posted_at: ago(90),
+          first_seen_at: ago(90),
+          approved_at: ago(1),
+        }),
+      ],
+    });
+    expect(board.jobs[0]!.postedAt).toBe(ago(1));
+  });
+
+  it('folds "(Hybrid)" into the work setup and keeps each place once', () => {
+    expect(placesAndRemote(['Chicago, IL (Hybrid)', 'Chicago,  IL', 'chicago, il'], null)).toEqual({
+      locations: ['Chicago, IL'],
+      remote: 'hybrid',
+    });
+    // A setup a person chose stands.
+    expect(placesAndRemote(['Austin, TX (Remote)'], 'onsite')).toEqual({
+      locations: ['Austin, TX'],
+      remote: 'onsite',
+    });
   });
 });

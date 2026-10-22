@@ -136,11 +136,30 @@ test('the board switch: off shows "coming soon" with no roles, on brings them ba
   page,
   browser,
 }) => {
+  // A role's address, read while the board is on, to try once it is off.
+  await page.goto('/jobs/ledgerly');
+  const roleHref = await page
+    .locator('.jb-job', { hasText: 'VP Sales' })
+    .first()
+    .getAttribute('href');
+  expect(roleHref).toMatch(/^\/jobs\/ledgerly\/vp-sales-[a-z0-9]+$/);
+  const roleSlug = roleHref!.split('/').pop()!;
+
   await openJobsView(page);
   const toggle = page.getByRole('switch', { name: 'Public board on' });
   await toggle.click();
   await expect(page.getByText(/The public board is off/)).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Public job board' })).toContainText('Off');
+  const bar = page.getByRole('region', { name: 'Public job board' });
+  await expect(bar).toContainText('Off');
+  // While off, the first button previews the board; the public page says "coming soon".
+  await expect(bar.getByRole('link', { name: 'Preview board' })).toHaveAttribute(
+    'href',
+    '/jobs-preview',
+  );
+  await expect(bar.getByRole('link', { name: 'View public board (coming soon)' })).toHaveAttribute(
+    'href',
+    '/jobs',
+  );
 
   // A visitor with no session.
   const visitor = await browser.newContext({ storageState: { cookies: [], origins: [] } });
@@ -160,6 +179,25 @@ test('the board switch: off shows "coming soon" with no roles, on brings them ba
   // A visitor cannot reach the preview.
   await pub.goto('/jobs-preview');
   await expect(pub).toHaveURL(/\/login/);
+  // Nor with a made-up session cookie: every preview address sends it to
+  // /login, and not even the page title carries a role or a company.
+  for (const path of [
+    '/jobs-preview',
+    '/jobs-preview/companies',
+    '/jobs-preview/ledgerly',
+    `/jobs-preview/ledgerly/${roleSlug}`,
+  ]) {
+    const forged = await visitor.request.get(path, {
+      headers: { Cookie: 'tiptop_session=forged' },
+      maxRedirects: 0,
+    });
+    expect(forged.status(), path).toBe(307);
+    expect(forged.headers()['location'], path).toContain('/login');
+    const body = await forged.text();
+    expect(body, path).not.toContain('VP Sales');
+    expect(body, path).not.toContain('Ledgerly');
+    expect(body, path).not.toMatch(/open roles? at/);
+  }
 
   await openJobsView(page);
   await page.getByRole('switch', { name: 'Public board on' }).click();
@@ -250,10 +288,20 @@ test.describe('the public board, as a visitor', () => {
     await page.getByRole('link', { name: 'Ledgerly', exact: true }).first().click();
     await expect(page.getByRole('heading', { level: 1, name: 'Ledgerly' })).toBeVisible();
     await expect(page.getByText('AI bookkeeping for accounting firms')).toBeVisible();
-    const missing = await page.goto('/jobs/ledgerly/no-such-role-000000');
+    // A closed role at a company still on the board: its own page, kept out
+    // of search, listing the company's open roles.
+    await page.goto('/jobs/ledgerly/no-such-role-000000');
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'This role has closed.' }),
+    ).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Open roles at Ledgerly' })).toContainText(
+      'VP Sales',
+    );
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
+    const missing = await page.goto('/jobs/no-such-company');
     expect(missing?.status()).toBe(404);
     await expect(
-      page.getByRole('heading', { name: 'This role is not open any more.' }),
+      page.getByRole('heading', { name: 'This page isn’t on the board.' }),
     ).toBeVisible();
     // The hidden role is not reachable by its address either.
     await page.goto('/jobs/companies');
@@ -306,10 +354,105 @@ test.describe('the public board, as a visitor', () => {
       .first()
       .click();
     await expect(page.getByRole('heading', { level: 1, name: 'Operations Lead' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Apply at Stonebridge Ops' })).toBeVisible();
+    // The apply button also rides along the bottom of a phone's screen.
+    const applyBar = page.getByRole('link', { name: 'Apply now at Stonebridge Ops' });
+    await expect(applyBar).toBeInViewport();
+    await expect(applyBar).toHaveAttribute('href', /stonebridgeops\.demo/);
+    // Filters use 16px text, so iOS never zooms into them.
+    await page.goto('/jobs');
+    const fontSize = await page.getByLabel('Team').evaluate((el) => getComputedStyle(el).fontSize);
+    expect(fontSize).toBe('16px');
+    await page.goBack();
     const detailOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth - window.innerWidth,
     );
     expect(detailOverflow).toBeLessThanOrEqual(0);
+  });
+});
+
+test.describe('the public board, as a link scraper sees it (no JavaScript)', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+  const boardHost = { 'x-forwarded-host': 'jobs.tiptop.vc' };
+
+  /** A URL's path and query, to ask the local server for it. */
+  const local = (url: string) => {
+    const parsed = new URL(url.replace(/&amp;/g, '&'));
+    return parsed.pathname + parsed.search;
+  };
+  const ogImage = (html: string) => /<meta property="og:image" content="([^"]+)"/.exec(html)?.[1];
+
+  test('old /jobs links on the board host redirect to the short form', async ({ request }) => {
+    for (const [from, to] of [
+      ['/jobs/ledgerly', '/ledgerly'],
+      ['/jobs', '/'],
+      ['/jobs/companies?x=1', '/companies?x=1'],
+    ] as const) {
+      const res = await request.get(from, { headers: boardHost, maxRedirects: 0 });
+      expect(res.status(), from).toBe(308);
+      expect(local(res.headers()['location']!), from).toBe(to);
+    }
+  });
+
+  test("the board host's link-preview images load", async ({ request }) => {
+    const homeHtml = await (await request.get('/', { headers: boardHost })).text();
+    const homeImage = ogImage(homeHtml);
+    expect(homeImage).toBeDefined();
+    const home = await request.get(local(homeImage!), { headers: boardHost });
+    expect(home.status()).toBe(200);
+    expect(home.headers()['content-type']).toContain('image/png');
+
+    const company = await (await request.get('/ledgerly', { headers: boardHost })).text();
+    const rolePath = /href="(\/ledgerly\/vp-sales-[a-z0-9]+)"/.exec(company)![1]!;
+    const roleImage = ogImage(await (await request.get(rolePath, { headers: boardHost })).text());
+    expect(new URL(roleImage!).origin).toBe('https://jobs.tiptop.vc');
+    const role = await request.get(local(roleImage!), { headers: boardHost });
+    expect(role.status()).toBe(200);
+    expect(role.headers()['content-type']).toContain('image/png');
+
+    // A made-up role has no image to draw.
+    const none = await request.get('/jobs/ledgerly/no-such-role-000000/opengraph-image');
+    expect(none.status()).toBe(404);
+  });
+
+  test('closed roles and unknown addresses unfurl as the board, never as Copilot', async ({
+    request,
+  }) => {
+    for (const [path, headers] of [
+      ['/jobs/ledgerly/no-such-role-000000', {}],
+      ['/jobs/no-such-company', {}],
+      ['/some-typo', boardHost],
+      ['/ledgerly/no-such-role-000000', boardHost],
+    ] as const) {
+      const html = await (await request.get(path, { headers })).text();
+      const title = /<title>([^<]*)<\/title>/.exec(html)?.[1] ?? '';
+      expect(title, path).toContain('TipTop VC Jobs');
+      expect(title, path).not.toContain('Copilot');
+      expect(html, path).not.toContain('investment cockpit');
+      expect(html, path).toMatch(/<meta name="robots" content="noindex/);
+    }
+  });
+
+  test('a made-up address is rendered fresh, never cached per address', async ({ request }) => {
+    const res = await request.get('/jobs/no-such-company-a1/no-such-role-b2c3d4');
+    expect(res.headers()['x-nextjs-cache']).toBeUndefined();
+    expect(res.headers()['cache-control'] ?? '').not.toContain('s-maxage');
+    // A scanner's path on the board host never reaches a page at all.
+    const scan = await request.get('/wp-login.php', { headers: boardHost });
+    expect(scan.status()).toBe(404);
+    expect(await scan.text()).toBe('Not found');
+  });
+
+  test('an address that floods the board is braked', async ({ request }) => {
+    const flood = { 'cf-connecting-ip': '203.0.113.77' };
+    let status = 200;
+    for (let i = 0; i < 125 && status !== 429; i++) {
+      status = (await request.get('/jobs/sitemap.xml', { headers: flood })).status();
+    }
+    expect(status).toBe(429);
+    // Everyone else is untouched.
+    const other = await request.get('/jobs/sitemap.xml', {
+      headers: { 'cf-connecting-ip': '203.0.113.78' },
+    });
+    expect(other.status()).toBe(200);
   });
 });

@@ -14,6 +14,8 @@
  */
 
 export const MAX_DESCRIPTION_CHARS = 20_000;
+/** A description's HTML is read up to this size; real ones are a few KB. */
+export const MAX_HTML_CHARS = 100_000;
 
 export type DescriptionBlock =
   | { kind: 'heading'; text: string }
@@ -70,8 +72,45 @@ function looksEncoded(html: string): boolean {
   return /&lt;\/?[a-z][a-z0-9]*[\s&]/i.test(html) && !/<\/?(p|div|ul|li|br|h[1-6])\b/i.test(html);
 }
 
-const DROPPED_ELEMENTS =
-  /<(script|style|noscript|iframe|object|embed|svg|math|template|form|select|textarea|button|head|title)\b[\s\S]*?<\/\1\s*>/gi;
+/** Elements dropped whole, with everything inside them. */
+const DROPPED_OPENER =
+  /<(script|style|noscript|iframe|object|embed|svg|math|template|form|select|textarea|button|head|title)\b/gi;
+
+/**
+ * Every DROPPED_OPENER element cut out, up to its closing tag; one that never
+ * closes takes the rest of the input with it. One forward pass (each search
+ * starts where the last ended), so a description full of unclosed
+ * `<script` tags costs the same as any other: a regex with a lazy match and
+ * a back-reference rescans to the end for each one.
+ */
+function dropElements(html: string): string {
+  const opener = new RegExp(DROPPED_OPENER.source, 'gi');
+  let out = '';
+  let pos = 0;
+  for (let m = opener.exec(html); m; m = opener.exec(html)) {
+    out += `${html.slice(pos, m.index)} `;
+    const closer = new RegExp(`</${m[1]}\\b[^<>]*>`, 'gi');
+    closer.lastIndex = opener.lastIndex;
+    const close = closer.exec(html);
+    if (!close) return out;
+    pos = closer.lastIndex;
+    opener.lastIndex = pos;
+  }
+  return out + html.slice(pos);
+}
+
+/** Every `<!-- ... -->` (or `<![CDATA[ ... ]]>`) replaced by a space; an unclosed one ends the input. */
+function dropSpans(html: string, open: string, close: string): string {
+  let out = '';
+  let pos = 0;
+  for (let at = html.indexOf(open, pos); at >= 0; at = html.indexOf(open, pos)) {
+    out += `${html.slice(pos, at)} `;
+    const end = html.indexOf(close, at + open.length);
+    if (end < 0) return out;
+    pos = end + close.length;
+  }
+  return out + html.slice(pos);
+}
 
 /**
  * Board HTML -> the structured text above. Headings, paragraphs, line breaks
@@ -84,39 +123,40 @@ export function htmlToStructuredText(
   max = MAX_DESCRIPTION_CHARS,
 ): string {
   if (!input || typeof input !== 'string') return '';
-  let html = input.length > 400_000 ? input.slice(0, 400_000) : input;
+  let html = input.length > MAX_HTML_CHARS ? input.slice(0, MAX_HTML_CHARS) : input;
   if (looksEncoded(html)) html = decodeEntities(html);
 
-  html = html
-    // The two marker characters below are never taken from the input.
-    .replace(/[\u0002\u0003]/g, '')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, ' ')
-    .replace(DROPPED_ELEMENTS, ' ')
+  // The two marker characters below are never taken from the input.
+  html = html.replace(/[\u0002\u0003]/g, '');
+  html = dropElements(dropSpans(dropSpans(html, '<!--', '-->'), '<![CDATA[', ']]>'))
     // Unclosed dangerous openers: drop from there to the end of the tag.
-    .replace(/<(script|style|iframe|object|embed)\b[^>]*>/gi, ' ');
+    .replace(/<(script|style|iframe|object|embed)\b[^<>]*>?/gi, ' ');
 
+  // Every tag pattern below stops at the next "<" ([^<>] rather than [^>]),
+  // so a tag that never closes costs one short scan, not one to the end of
+  // the input: the descriptions are written by companies, and a quadratic
+  // pattern here would stall all of Copilot.
   // A paragraph that is only bold words reads as a heading ("<p><b>About you</b></p>").
   html = html.replace(
-    /<p\b[^>]*>\s*<(strong|b)\b[^>]*>([^<]{1,90})<\/\1>\s*:?\s*(?:<br\s*\/?>\s*)?<\/p>/gi,
+    /<p\b[^<>]*>\s*<(strong|b)\b[^<>]*>([^<]{1,90})<\/\1>\s*:?\s*(?:<br\s*\/?>\s*)?<\/p>/gi,
     (_, _tag: string, words: string) => `\n\n\u0002${words}\n\n`,
   );
 
   const text = html
-    .replace(/<h[1-6]\b[^>]*>/gi, '\n\n\u0002')
+    .replace(/<h[1-6]\b[^<>]*>/gi, '\n\n\u0002')
     .replace(/<\/h[1-6]\s*>/gi, '\n\n')
-    .replace(/<li\b[^>]*>/gi, '\n\u0003')
+    .replace(/<li\b[^<>]*>/gi, '\n\u0003')
     .replace(/<\/li\s*>/gi, '\n')
-    .replace(/<\/?(ul|ol|dl)\b[^>]*>/gi, '\n\n')
+    .replace(/<\/?(ul|ol|dl)\b[^<>]*>/gi, '\n\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(
-      /<\/?(p|div|section|article|header|footer|blockquote|table|tr|pre|dd|dt)\b[^>]*>/gi,
+      /<\/?(p|div|section|article|header|footer|blockquote|table|tr|pre|dd|dt)\b[^<>]*>/gi,
       '\n\n',
     )
-    .replace(/<\/?(td|th)\b[^>]*>/gi, ' ')
+    .replace(/<\/?(td|th)\b[^<>]*>/gi, ' ')
     // Any other tag (it starts with a letter, "/", "!" or "?"); a bare "<"
     // in text ("5 < 6") is not a tag.
-    .replace(/<\/?[a-z!?][^>]*>/gi, '')
+    .replace(/<\/?[a-z!?][^<>]*>/gi, '')
     // Anything left that still looks like a tag start is text, never markup.
     .replace(/</g, '‹');
 

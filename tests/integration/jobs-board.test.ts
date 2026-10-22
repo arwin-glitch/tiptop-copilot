@@ -520,7 +520,8 @@ describe('the board host in the proxy', () => {
       request('https://jobs.tiptop.vc/jobs/ledgerly?x=1', { host: 'jobs.tiptop.vc' }),
     );
     expect(old.status).toBe(308);
-    expect(old.headers.get('location')).toBe('/ledgerly?x=1');
+    // Absolute: Next refuses a relative Location from the proxy (a 500 in a real server).
+    expect(old.headers.get('location')).toBe('https://jobs.tiptop.vc/ledgerly?x=1');
   });
 
   it('serves /jobs on Copilot with no sign-in, keeps the preview and the app signed in, hides /jobs-host', async () => {
@@ -532,5 +533,176 @@ describe('the board host in the proxy', () => {
     expect(previewPage.headers.get('location')).toContain('/login');
     const internal = await proxy(request('https://copilot.tiptop.vc/jobs-host/ledgerly'));
     expect(internal.status).toBe(404);
+  });
+});
+
+describe('emailed roles: hides, private links and staleness', () => {
+  const roles = () => demoJobs(new Date()).roles;
+
+  it("keeps a person's hide when the company board lists the same role", async () => {
+    await importEmailedRoles(harness.store, ORG(), roles());
+    const draft = (await postings()).find((p) => p.source === 'email')!;
+    await publishPosting(harness.store, actor, draft.id);
+    // Hidden on purpose (say, a confidential replacement).
+    await hidePosting(harness.store, actor, draft.id);
+
+    await stonebridgeOnGreenhouse(true);
+    const sameRole = { ...GREENHOUSE.jobs[0]!, id: 7000099, title: 'Founding Engineer' };
+    await sync(network({ [EXAMPLE_API]: () => json({ jobs: [sameRole] }) }).fetchImpl, [
+      DEMO_IDS.pcStonebridge,
+    ]);
+    const fromBoard = (await postings()).find(
+      (p) => p.source === 'ats' && p.title === 'Founding Engineer',
+    )!;
+    expect(fromBoard.published).toBe(false);
+    expect(fromBoard.hidden_at).not.toBeNull();
+    expect(await publicTitles()).not.toContain('Founding Engineer');
+    // And the next read keeps it hidden too.
+    await sync(network({ [EXAMPLE_API]: () => json({ jobs: [sameRole] }) }).fetchImpl, [
+      DEMO_IDS.pcStonebridge,
+    ]);
+    expect(await publicTitles()).not.toContain('Founding Engineer');
+  });
+
+  it('asks the approver to confirm a link to a shared document before it goes public', async () => {
+    const withDoc = roles().map((r) =>
+      r.title === 'Founding Engineer'
+        ? { ...r, link: 'https://docs.google.com/document/d/fixture-doc/edit' }
+        : r,
+    );
+    await importEmailedRoles(harness.store, ORG(), withDoc);
+    const draft = (await postings()).find((p) => p.source === 'email')!;
+    const refused = await publishPosting(harness.store, actor, draft.id);
+    expect(!refused.ok && refused.error.code).toBe('conflict');
+    expect(!refused.ok && refused.error.message).toMatch(/may be private/);
+    expect(await publicTitles()).not.toContain('Founding Engineer');
+
+    const confirmed = await publishPosting(harness.store, actor, draft.id, { confirmLink: true });
+    expect(confirmed.ok).toBe(true);
+    expect(await publicTitles()).toContain('Founding Engineer');
+  });
+
+  it("records the founder's last mention, and a later mention re-confirms the role", async () => {
+    const DAY = 86_400_000;
+    const day = (daysAgo: number) =>
+      new Date(Date.now() - daysAgo * DAY).toISOString().slice(0, 10);
+    const old = roles().map((r) =>
+      r.title === 'Founding Engineer' ? { ...r, first_seen: day(120), last_seen: day(90) } : r,
+    );
+    await importEmailedRoles(harness.store, ORG(), old);
+    const draft = (await postings()).find((p) => p.source === 'email')!;
+    expect(draft.last_seen_at.slice(0, 10)).toBe(day(90));
+
+    // Approved long ago and never mentioned since: stale, off the board.
+    await publishPosting(harness.store, actor, draft.id);
+    await harness.store.update('job_postings', ORG(), draft.id, {
+      approved_at: new Date(Date.now() - 70 * DAY).toISOString(),
+    });
+    expect(await publicTitles()).not.toContain('Founding Engineer');
+
+    // The founder mentions it again in this week's scan: confirmed open.
+    const again = old.map((r) =>
+      r.title === 'Founding Engineer' ? { ...r, last_seen: day(2) } : r,
+    );
+    await importEmailedRoles(harness.store, ORG(), again);
+    const after = (await postings()).find((p) => p.id === draft.id)!;
+    expect(after.last_seen_at.slice(0, 10)).toBe(day(2));
+    expect(await publicTitles()).toContain('Founding Engineer');
+  });
+});
+
+describe('polite reads', () => {
+  it('never follows a job board API redirect, and keeps where it pointed out of the message', async () => {
+    await stonebridgeOnGreenhouse(true);
+    const seen: RequestInit[] = [];
+    const net = network({
+      [EXAMPLE_API]: () =>
+        new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/' } }),
+    });
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith(EXAMPLE_API)) seen.push(init ?? {});
+      return net.fetchImpl(input, init);
+    }) as typeof fetch;
+    const result = await sync(fetchImpl, [DEMO_IDS.pcStonebridge]);
+    expect(result.results[0]).toMatchObject({ status: 'failed' });
+    expect(result.results[0]!.message).toMatch(/moved/);
+    expect(result.results[0]!.message).not.toMatch(/169\.254|302/);
+    expect(seen[0]?.redirect).toBe('manual');
+    expect(net.calls.some((c) => c.includes('169.254'))).toBe(false);
+  });
+
+  it('stops reading an answer the moment it passes the size cap', async () => {
+    const { readCapped } = await import('@/lib/services/jobs-board-sync');
+    let pulled = 0;
+    let cancelled = false;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(new TextEncoder().encode('x'.repeat(64_000)));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    // No Content-Length: only reading as it arrives can stop it.
+    expect(await readCapped(new Response(endless), 200_000)).toBeNull();
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThan(10);
+    expect(await readCapped(new Response('small'), 200_000)).toBe('small');
+  });
+});
+
+describe('the board host brakes and shapes', () => {
+  const request = (url: string, headers: Record<string, string> = {}) =>
+    new NextRequest(url, { headers });
+
+  it('answers scanner paths with a 404 before any page, on both hosts', async () => {
+    for (const path of ['/.env', '/wp-login.php', '/a/b/c']) {
+      const res = await proxy(request(`https://jobs.tiptop.vc${path}`, { host: 'jobs.tiptop.vc' }));
+      expect(res.status).toBe(404);
+      expect(res.headers.get('x-middleware-rewrite')).toBeNull();
+    }
+    const deep = await proxy(request('https://copilot.tiptop.vc/jobs/a/b/c'));
+    expect(deep.status).toBe(404);
+  });
+
+  it("serves the pages' preview images on the board host with no sign-in", async () => {
+    for (const path of [
+      '/jobs-host/opengraph-image',
+      '/jobs-host/ledgerly/vp-sales-1a2b3c/opengraph-image',
+    ]) {
+      const res = await proxy(request(`https://jobs.tiptop.vc${path}`, { host: 'jobs.tiptop.vc' }));
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('location'), path).toBeNull();
+      expect(res.headers.get('x-middleware-rewrite'), path).toBeNull();
+    }
+  });
+
+  it('does not let X-Forwarded-Host turn Copilot into the board', async () => {
+    const res = await proxy(
+      request('https://copilot.tiptop.vc/today', {
+        host: 'copilot.tiptop.vc',
+        'x-forwarded-host': 'jobs.tiptop.vc',
+      }),
+    );
+    expect(res.headers.get('x-middleware-rewrite')).toBeNull();
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/login');
+  });
+
+  it('brakes one address that floods the board, and leaves the rest alone', async () => {
+    const { resetBoardRateLimit, BOARD_PAGE_LIMIT } = await import('@/lib/jobs-board/rate-limit');
+    resetBoardRateLimit();
+    const from = (ip: string) => ({ host: 'jobs.tiptop.vc', 'cf-connecting-ip': ip });
+    for (let i = 0; i < BOARD_PAGE_LIMIT; i++) {
+      const ok = await proxy(request('https://jobs.tiptop.vc/ledgerly', from('203.0.113.50')));
+      expect(ok.status).toBe(200);
+    }
+    const braked = await proxy(request('https://jobs.tiptop.vc/ledgerly', from('203.0.113.50')));
+    expect(braked.status).toBe(429);
+    expect(braked.headers.get('retry-after')).toBe('60');
+    const other = await proxy(request('https://jobs.tiptop.vc/ledgerly', from('203.0.113.51')));
+    expect(other.status).toBe(200);
+    resetBoardRateLimit();
   });
 });

@@ -450,7 +450,8 @@ html:has(.jb-root) body {
   color: var(--jb-ink);
   border: 1px solid var(--jb-border);
   border-radius: 8px;
-  font: 600 14px var(--jb-font);
+  /* 16px on phones: iOS zooms the page into any smaller control on focus. */
+  font: 600 16px var(--jb-font);
   padding: 10px 30px 10px 12px;
   min-height: 44px;
   cursor: pointer;
@@ -945,9 +946,36 @@ html:has(.jb-root) body {
   font-size: 12px;
 }
 
+/* ---------- the phone's apply bar ---------- */
+/* On a phone the facts box (with Apply) comes after the whole description,
+   so Apply also rides along the bottom of the screen until then. */
+.jb-apply-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: 24px -16px 0;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--jb-bg);
+  border-top: 1px solid var(--jb-border);
+}
+
+/* Featured cards stack full width on a phone: three is plenty before the list. */
+@media (max-width: 639px) {
+  .jb-featured > li:nth-child(n + 4) {
+    display: none;
+  }
+}
+
 /* ---------- larger screens ---------- */
 @media (min-width: 640px) {
   .jb-wrap {
+    padding-inline: 24px;
+  }
+  .jb-select select {
+    font-size: 14px;
+  }
+  .jb-apply-bar {
+    margin-inline: -24px;
     padding-inline: 24px;
   }
   .jb-filters {
@@ -996,6 +1024,9 @@ html:has(.jb-root) body {
   .jb-side-card {
     position: sticky;
     top: 96px;
+  }
+  .jb-apply-bar {
+    display: none;
   }
   .jb-footer-inner {
     flex-direction: row;

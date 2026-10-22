@@ -73,9 +73,10 @@ from email, the sender's address, the subject and the Gmail thread id.
 `TASK_SNAPSHOT_FEED=off` stops that post.
 
 The public job board (`/jobs`, and jobs.tiptop.vc) is the one part anyone can
-see. It shows only roles a person published and the companies' public details:
-never an email address, a contact, a founder's note, a source email or anything
-else stored here. Emailed roles are public only after a person approves each
+see. It shows only roles a person published and the companies' public details
+(name, website, logo, careers page and an "about" a person typed for the board):
+never an email address, a contact, a founder's note, a source email, Copilot's
+own portfolio notes or anything else stored here. Emailed roles are public only after a person approves each
 one. Reading a company's own public job board sends only that board's public
 API request. The board collects nothing from its visitors: no forms, no
 cookies of its own, no analytics.

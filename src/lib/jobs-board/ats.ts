@@ -143,7 +143,10 @@ export function detectAtsFromUrl(raw: string | null | undefined): AtsBoard | nul
 const HTML_PATTERNS: [JobAts, RegExp][] = [
   [
     'greenhouse',
-    /boards\.greenhouse\.io\/embed\/job_board(?:\/js)?\?(?:[^"'\s>]*&(?:amp;)?)?for=([A-Za-z0-9._-]+)/i,
+    // The query before `for=` is bounded: an unbounded run here rescans the
+    // rest of the page for each embed address, which a hostile careers page
+    // can repeat thousands of times.
+    /boards\.greenhouse\.io\/embed\/job_board(?:\/js)?\?(?:[^"'\s<>]{0,500}&(?:amp;)?)?for=([A-Za-z0-9._-]+)/i,
   ],
   ['greenhouse', /(?:job-)?boards(?:-api)?\.greenhouse\.io\/(?:v1\/boards\/)?([A-Za-z0-9._-]+)/i],
   ['lever', /jobs\.lever\.co\/([A-Za-z0-9._-]+)/i],

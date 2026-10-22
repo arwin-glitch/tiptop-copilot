@@ -8,7 +8,13 @@ import { appOrigin } from '@/lib/jobs-board/config';
  */
 export default function robots(): MetadataRoute.Robots {
   return {
-    rules: { userAgent: '*', allow: ['/jobs$', '/jobs/'], disallow: '/' },
+    // The board's own styles, scripts and fonts are allowed too, or search
+    // engines would render its pages unstyled (and call them not mobile-friendly).
+    rules: {
+      userAgent: '*',
+      allow: ['/jobs$', '/jobs/', '/_next/static/', '/icon.svg'],
+      disallow: '/',
+    },
     sitemap: appOrigin() + '/jobs/sitemap.xml',
   };
 }
