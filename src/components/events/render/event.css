@@ -1,0 +1,865 @@
+/*
+ * Event pages (D-075, WS2): the core of the guest renderer's styles.
+ *
+ * Rules every selector follows:
+ *   - scoped to [data-event-root] (Studio renders pages inside Copilot);
+ *   - colours, fonts and sizes come only from --ev-* variables set by
+ *     lib/events/theme/tokens.ts from a validated theme (never from text);
+ *   - layout responds to the CONTAINER (.ev-page), not the viewport, so
+ *     Studio's phone frame renders exactly like a phone.
+ *
+ * Files: event.css (tokens, bands, type, layout, buttons, motion gating),
+ * event-effects.css (backgrounds, overlays, finish, intros, moments) and
+ * event-blocks.css (every block and variant).
+ */
+
+@property --ev-conic-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+/* ---------------------------------------------------------------- tokens */
+
+[data-event-root] {
+  --ev-bg: var(--ev-l-bg);
+  --ev-surface: var(--ev-l-surface);
+  --ev-surface-alt: var(--ev-l-surface-alt);
+  --ev-text: var(--ev-l-text);
+  --ev-muted: var(--ev-l-muted);
+  --ev-accent: var(--ev-l-accent);
+  --ev-accent-fg: var(--ev-l-accent-fg);
+  --ev-border: var(--ev-l-border);
+  --ev-highlight: var(--ev-l-highlight);
+  --ev-gradient: var(--ev-l-gradient);
+  --ev-band-bg: var(--ev-l-band-bg);
+  --ev-band-fg: var(--ev-l-band-fg);
+  --ev-band-hl: var(--ev-l-band-hl);
+  --ev-motion-k: 0.75;
+  --ev-gutter: clamp(1rem, 5cqi, 3rem);
+  --ev-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ev-ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
+  color-scheme: light;
+}
+
+[data-event-root][data-theme-mode='dark'] {
+  --ev-bg: var(--ev-d-bg);
+  --ev-surface: var(--ev-d-surface);
+  --ev-surface-alt: var(--ev-d-surface-alt);
+  --ev-text: var(--ev-d-text);
+  --ev-muted: var(--ev-d-muted);
+  --ev-accent: var(--ev-d-accent);
+  --ev-accent-fg: var(--ev-d-accent-fg);
+  --ev-border: var(--ev-d-border);
+  --ev-highlight: var(--ev-d-highlight);
+  --ev-gradient: var(--ev-d-gradient);
+  --ev-band-bg: var(--ev-d-band-bg);
+  --ev-band-fg: var(--ev-d-band-fg);
+  --ev-band-hl: var(--ev-d-band-hl);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-event-root][data-theme-mode='auto'] {
+    --ev-bg: var(--ev-d-bg);
+    --ev-surface: var(--ev-d-surface);
+    --ev-surface-alt: var(--ev-d-surface-alt);
+    --ev-text: var(--ev-d-text);
+    --ev-muted: var(--ev-d-muted);
+    --ev-accent: var(--ev-d-accent);
+    --ev-accent-fg: var(--ev-d-accent-fg);
+    --ev-border: var(--ev-d-border);
+    --ev-highlight: var(--ev-d-highlight);
+    --ev-gradient: var(--ev-d-gradient);
+    --ev-band-bg: var(--ev-d-band-bg);
+    --ev-band-fg: var(--ev-d-band-fg);
+    --ev-band-hl: var(--ev-d-band-hl);
+    color-scheme: dark;
+  }
+}
+
+[data-event-root][data-master='off'] {
+  --ev-motion-k: 0;
+}
+[data-event-root][data-master='subtle'] {
+  --ev-motion-k: 0.4;
+}
+[data-event-root][data-master='party'] {
+  --ev-motion-k: 1;
+}
+
+/* Section bands: a section can be a dark or light band whatever the page is. */
+[data-event-root] [data-band='dark'] {
+  --ev-bg: var(--ev-d-bg);
+  --ev-surface: var(--ev-d-surface);
+  --ev-surface-alt: var(--ev-d-surface-alt);
+  --ev-text: var(--ev-d-text);
+  --ev-muted: var(--ev-d-muted);
+  --ev-accent: var(--ev-d-accent);
+  --ev-accent-fg: var(--ev-d-accent-fg);
+  --ev-border: var(--ev-d-border);
+  --ev-highlight: var(--ev-d-highlight);
+  --ev-gradient: var(--ev-d-gradient);
+  --ev-section-bg: var(--ev-d-bg);
+  color-scheme: dark;
+}
+
+[data-event-root] [data-band='light'] {
+  --ev-bg: var(--ev-l-bg);
+  --ev-surface: var(--ev-l-surface);
+  --ev-surface-alt: var(--ev-l-surface-alt);
+  --ev-text: var(--ev-l-text);
+  --ev-muted: var(--ev-l-muted);
+  --ev-accent: var(--ev-l-accent);
+  --ev-accent-fg: var(--ev-l-accent-fg);
+  --ev-border: var(--ev-l-border);
+  --ev-highlight: var(--ev-l-highlight);
+  --ev-gradient: var(--ev-l-gradient);
+  --ev-section-bg: var(--ev-l-bg);
+  color-scheme: light;
+}
+
+[data-event-root] [data-band='surface'] {
+  --ev-section-bg: var(--ev-surface);
+}
+[data-event-root] [data-band='alt'] {
+  --ev-section-bg: var(--ev-surface-alt);
+}
+
+/* Accent band: a deep tone of the accent (tokens.ts accentBand); contents remap onto it. */
+[data-event-root] [data-band='accent'] {
+  --ev-section-bg: var(--ev-band-bg);
+}
+[data-event-root] [data-band='accent'] > .ev-section__inner {
+  --ev-bg: var(--ev-band-bg);
+  --ev-text: var(--ev-band-fg);
+  --ev-muted: color-mix(in srgb, var(--ev-band-fg) 82%, var(--ev-band-bg));
+  --ev-surface: color-mix(in srgb, var(--ev-band-fg) 9%, var(--ev-band-bg));
+  --ev-surface-alt: color-mix(in srgb, var(--ev-band-fg) 14%, var(--ev-band-bg));
+  --ev-border: color-mix(in srgb, var(--ev-band-fg) 26%, var(--ev-band-bg));
+  --ev-highlight: var(--ev-band-hl);
+  --ev-accent: var(--ev-band-fg);
+  --ev-accent-fg: var(--ev-band-bg);
+  color: var(--ev-text);
+}
+
+/* Rule colour (gold / ink / accent), recomputed wherever the tokens change. */
+[data-event-root],
+[data-event-root] [data-band],
+[data-event-root] [data-band] > .ev-section__inner {
+  --ev-rule-c: var(--ev-accent);
+  --ev-card-bg: var(--ev-surface);
+  --ev-hairline: color-mix(in srgb, var(--ev-rule-c) 55%, transparent);
+}
+[data-event-root][data-rule='gold'],
+[data-event-root][data-rule='gold'] [data-band],
+[data-event-root][data-rule='gold'] [data-band] > .ev-section__inner {
+  --ev-rule-c: var(--ev-highlight);
+}
+[data-event-root][data-rule='ink'],
+[data-event-root][data-rule='ink'] [data-band],
+[data-event-root][data-rule='ink'] [data-band] > .ev-section__inner {
+  --ev-rule-c: var(--ev-text);
+}
+
+/* ------------------------------------------------------------------ root */
+
+[data-event-root] {
+  position: relative;
+  isolation: isolate;
+  display: block;
+  min-height: 100dvh;
+  overflow-x: clip;
+  background: var(--ev-bg);
+  color: var(--ev-text);
+  font-family: var(--ev-font-body);
+  font-size: var(--ev-fs-body);
+  line-height: var(--ev-line);
+  font-variant-numeric: var(--ev-nums);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+
+[data-event-root] *,
+[data-event-root] *::before,
+[data-event-root] *::after {
+  box-sizing: border-box;
+}
+
+[data-event-root] :where(h1, h2, h3, h4, p, ul, ol, dl, dd, figure, blockquote) {
+  margin: 0;
+}
+[data-event-root] :where(ul, ol) {
+  padding: 0;
+  list-style: none;
+}
+[data-event-root] :where(img, video, svg, canvas) {
+  display: block;
+  max-width: 100%;
+}
+[data-event-root] :where(button) {
+  font: inherit;
+  color: inherit;
+}
+
+[data-event-root] .ev-page {
+  position: relative;
+  z-index: 2;
+  container: ev / inline-size;
+}
+
+[data-event-root] .ev-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+[data-event-root] .ev-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------ typography */
+
+[data-event-root] :where(h1, h2, h3, .ev-headline, .ev-h2) {
+  font-family: var(--ev-font-display);
+  font-weight: var(--ev-display-weight);
+  text-transform: var(--ev-display-case);
+  letter-spacing: var(--ev-tracking);
+  line-height: 1.08;
+  text-wrap: balance;
+  font-variant-numeric: normal;
+}
+
+[data-event-root] .ev-headline {
+  font-size: var(--ev-fs-h1);
+  line-height: 1.02;
+  overflow-wrap: break-word;
+}
+
+[data-event-root] .ev-h2 {
+  font-size: var(--ev-fs-h2);
+}
+
+[data-event-root] .ev-h2[data-empty] {
+  opacity: 0.4;
+}
+
+[data-event-root] .ev-rich :where(h3, h4, .ev-rt-h) {
+  font-size: var(--ev-fs-h3);
+  margin-block: 1.4em 0.5em;
+}
+[data-event-root] .ev-rich h4 {
+  font-size: var(--ev-fs-h4);
+}
+
+[data-event-root] p {
+  text-wrap: pretty;
+}
+
+[data-event-root] .ev-eyebrow {
+  font-family: var(--ev-font-mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ev-highlight);
+}
+[data-event-root] .ev-eyebrow[data-empty] {
+  opacity: 0.45;
+}
+
+[data-event-root] .ev-lede {
+  max-width: 62ch;
+  color: var(--ev-muted);
+  font-size: calc(var(--ev-fs-body) * 1.08);
+}
+
+[data-event-root] .ev-section-head {
+  display: grid;
+  gap: 0.6rem;
+  margin-bottom: calc(var(--ev-gap) * 1.6);
+}
+[data-event-root] .ev-section-head + .ev-lede {
+  margin-top: calc(var(--ev-gap) * -0.8);
+  margin-bottom: calc(var(--ev-gap) * 1.6);
+}
+
+[data-event-root] .ev-rich {
+  max-width: 68ch;
+}
+[data-event-root] .ev-rich > * + * {
+  margin-top: 0.9em;
+}
+[data-event-root] .ev-rich :where(ul, ol) {
+  padding-left: 1.3em;
+}
+[data-event-root] .ev-rich ul {
+  list-style: disc;
+}
+[data-event-root] .ev-rich ol {
+  list-style: decimal;
+}
+[data-event-root] .ev-rich li + li {
+  margin-top: 0.35em;
+}
+[data-event-root] .ev-rich li::marker {
+  color: var(--ev-highlight);
+}
+[data-event-root] .ev-rich blockquote {
+  border-left: 2px solid var(--ev-rule-c);
+  padding: 0.2em 0 0.2em 1.1em;
+  font-family: var(--ev-font-display);
+  font-size: var(--ev-fs-h4);
+  line-height: 1.4;
+}
+[data-event-root] .ev-rich strong {
+  font-weight: 650;
+}
+
+[data-event-root] a {
+  color: inherit;
+}
+[data-event-root] .ev-rich a,
+[data-event-root] .ev-venue a:not(.ev-btn),
+[data-event-root] .ev-footer a {
+  color: var(--ev-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+[data-event-root] .ev-rich a:hover {
+  text-decoration-thickness: 2px;
+}
+
+[data-event-root] :focus-visible {
+  outline: 2px solid var(--ev-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+[data-event-root] ::selection {
+  background: color-mix(in srgb, var(--ev-highlight) 35%, transparent);
+}
+
+/* ---------------------------------------------------------------- layout */
+
+[data-event-root] .ev-section {
+  position: relative;
+  isolation: isolate;
+  padding-block: calc(var(--ev-section-pad) * var(--ev-pad-k, 1));
+  background: var(--ev-section-bg, transparent);
+  color: var(--ev-text);
+}
+[data-event-root] .ev-section[data-pad='none'] {
+  --ev-pad-k: 0;
+}
+[data-event-root] .ev-section[data-pad='s'] {
+  --ev-pad-k: 0.5;
+}
+[data-event-root] .ev-section[data-pad='l'] {
+  --ev-pad-k: 1.35;
+}
+[data-event-root] .ev-section[data-pad='xl'] {
+  --ev-pad-k: 1.8;
+}
+
+[data-event-root] .ev-section__inner {
+  color: var(--ev-text);
+  position: relative;
+  z-index: 2;
+  width: min(100% - 2 * var(--ev-gutter), var(--ev-section-width, var(--ev-width)));
+  margin-inline: auto;
+}
+[data-event-root][data-width='full'] .ev-section__inner {
+  width: calc(100% - 2 * var(--ev-gutter));
+}
+[data-event-root] .ev-section[data-width='640'] {
+  --ev-section-width: 640px;
+}
+[data-event-root] .ev-section[data-width='880'] {
+  --ev-section-width: 880px;
+}
+[data-event-root] .ev-section[data-width='1200'] {
+  --ev-section-width: 1200px;
+}
+[data-event-root] .ev-section[data-width='full'] {
+  --ev-section-width: 100%;
+}
+
+[data-event-root][data-align='center'] .ev-section:not([data-align='left']) .ev-section__inner,
+[data-event-root] .ev-section[data-align='center'] .ev-section__inner {
+  text-align: center;
+}
+[data-event-root][data-align='center']
+  .ev-section:not([data-align='left'])
+  :is(.ev-section__inner, .ev-text, .ev-rsvp__card)
+  > :is(.ev-lede, .ev-rich, .ev-section-head),
+[data-event-root]
+  .ev-section[data-align='center']
+  :is(.ev-section__inner, .ev-text, .ev-rsvp__card)
+  > :is(.ev-lede, .ev-rich, .ev-section-head) {
+  margin-inline: auto;
+}
+[data-event-root][data-align='center']
+  .ev-section:not([data-align='left'])
+  .ev-rich
+  :where(ul, ol, blockquote) {
+  text-align: left;
+}
+
+/* Page-scope backgrounds show through every inherit section. */
+[data-event-root][data-bg-scope='page'] .ev-section:not([data-band]) {
+  background: transparent;
+}
+
+[data-event-root] .ev-section__media {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+[data-event-root] .ev-section__media :is(picture, video, img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+[data-event-root] .ev-section__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(0 0 0 / 0.45), rgb(0 0 0 / 0.62));
+}
+
+/* Dividers between sections. */
+[data-event-root] .ev-divider {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  translate: -50% -50%;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  color: var(--ev-rule-c);
+  pointer-events: none;
+}
+[data-event-root] .ev-divider--hairline {
+  width: min(100% - 2 * var(--ev-gutter), var(--ev-width));
+  height: 1px;
+  background: var(--ev-hairline);
+  translate: -50% 0;
+}
+[data-event-root] .ev-divider--wave svg {
+  width: min(240px, 50cqi);
+}
+
+[data-event-root] .ev-card {
+  background: var(--ev-card-bg);
+  border: 1px solid var(--ev-border);
+  border-radius: var(--ev-radius);
+  padding: var(--ev-card-pad);
+}
+
+/* --------------------------------------------------------------- buttons */
+
+[data-event-root] .ev-btn {
+  --ev-btn-bg: var(--ev-accent);
+  --ev-btn-fg: var(--ev-accent-fg);
+  --ev-btn-border: var(--ev-accent);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  min-height: 46px;
+  padding: 0.7em 1.5em;
+  border: 1.5px solid var(--ev-btn-border);
+  border-radius: var(--ev-btn-radius);
+  background: var(--ev-btn-bg);
+  color: var(--ev-btn-fg);
+  font-family: var(--ev-font-body);
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  text-decoration: none;
+  text-transform: none;
+  cursor: pointer;
+  transition:
+    transform 180ms var(--ev-ease),
+    box-shadow 220ms var(--ev-ease),
+    background-color 180ms ease,
+    color 180ms ease;
+}
+[data-event-root] .ev-btn svg {
+  width: 1.05em;
+  height: 1.05em;
+}
+
+/* Fill styles (theme.shape.buttonFill) for the primary button. */
+[data-event-root][data-btn-fill='outline'] .ev-btn--primary {
+  --ev-btn-bg: transparent;
+  --ev-btn-fg: var(--ev-accent);
+}
+[data-event-root][data-btn-fill='outline'] .ev-btn--primary:hover {
+  --ev-btn-bg: var(--ev-accent);
+  --ev-btn-fg: var(--ev-accent-fg);
+}
+[data-event-root][data-btn-fill='glass'] .ev-btn--primary {
+  --ev-btn-bg: color-mix(in srgb, var(--ev-surface) 55%, transparent);
+  --ev-btn-fg: var(--ev-text);
+  --ev-btn-border: color-mix(in srgb, var(--ev-text) 22%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+}
+[data-event-root][data-btn-fill='gradient'] .ev-btn--primary {
+  --ev-btn-border: transparent;
+  background-image: var(--ev-gradient);
+}
+[data-event-root][data-btn-fill='shimmer'] .ev-btn--primary {
+  background-image: linear-gradient(
+    110deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.35) 50%,
+    transparent 70%
+  );
+  background-size: 250% 100%;
+  animation: ev-shimmer 3.2s linear infinite;
+}
+[data-event-root][data-btn-fill='rainbow'] .ev-btn--primary {
+  --ev-btn-border: transparent;
+  background:
+    linear-gradient(var(--ev-accent), var(--ev-accent)) padding-box,
+    var(--ev-gradient) border-box;
+  border-width: 2px;
+}
+
+[data-event-root] .ev-btn--secondary {
+  --ev-btn-bg: transparent;
+  --ev-btn-fg: var(--ev-text);
+  --ev-btn-border: color-mix(in srgb, var(--ev-text) 30%, transparent);
+}
+[data-event-root] .ev-btn--secondary:hover {
+  --ev-btn-border: var(--ev-text);
+}
+[data-event-root] .ev-btn--ghost {
+  --ev-btn-bg: transparent;
+  --ev-btn-fg: var(--ev-text);
+  --ev-btn-border: transparent;
+  padding-inline: 0.6em;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* Shapes the radius cannot express. */
+[data-event-root][data-btn-shape='ticket'] .ev-btn--primary {
+  border-radius: 6px;
+  -webkit-mask:
+    radial-gradient(circle 7px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
+    radial-gradient(circle 7px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
+  mask:
+    radial-gradient(circle 7px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
+    radial-gradient(circle 7px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
+  padding-inline: 1.9em;
+}
+[data-event-root][data-btn-shape='stamp'] .ev-btn--primary {
+  border-radius: 0;
+  border: none;
+  -webkit-mask:
+    radial-gradient(circle 3px, transparent 96%, #000) -4px -4px / 9px 9px repeat,
+    linear-gradient(#000, #000) center / calc(100% - 9px) calc(100% - 9px) no-repeat;
+  mask:
+    radial-gradient(circle 3px, transparent 96%, #000) -4px -4px / 9px 9px repeat,
+    linear-gradient(#000, #000) center / calc(100% - 9px) calc(100% - 9px) no-repeat;
+  padding: 0.9em 1.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.86rem;
+}
+
+/* Hover (theme.shape.buttonHover); magnetic falls back to lift (no script). */
+@media (hover: hover) {
+  [data-event-root]:is([data-btn-hover='lift'], [data-btn-hover='magnetic']) .ev-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px -12px color-mix(in srgb, var(--ev-accent) 70%, transparent);
+  }
+  [data-event-root][data-btn-hover='glow'] .ev-btn:hover {
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--ev-accent) 22%, transparent),
+      0 0 28px color-mix(in srgb, var(--ev-accent) 45%, transparent);
+  }
+}
+[data-event-root] .ev-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* ------------------------------------------------- photo treatments/masks */
+
+[data-event-root] .ev-person-photo {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: var(--ev-surface-alt);
+  aspect-ratio: 1;
+}
+[data-event-root] .ev-person-photo :is(picture, img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+[data-event-root][data-people='grayscale'] .ev-person-photo img {
+  filter: grayscale(1) contrast(1.05);
+}
+[data-event-root][data-people='duotone'] .ev-person-photo img {
+  filter: var(--ev-duotone-filter, grayscale(1));
+}
+[data-event-root]:is([data-people='dither'], [data-people='halftone']) .ev-person-photo img,
+[data-event-root] .ev-person-photo[data-treatment='dither'] img {
+  filter: grayscale(1) contrast(1.6) brightness(1.08);
+}
+[data-event-root]:is([data-people='dither'], [data-people='halftone']) .ev-person-photo::after,
+[data-event-root] .ev-person-photo[data-treatment='dither']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+      circle,
+      transparent 0.9px,
+      color-mix(in srgb, var(--ev-bg) 70%, transparent) 1.2px
+    )
+    0 0 / 3px 3px;
+  mix-blend-mode: normal;
+  pointer-events: none;
+}
+[data-event-root][data-people='halftone'] .ev-person-photo::after {
+  background-size: 5px 5px;
+}
+[data-event-root][data-people-mask='circle'] .ev-person-photo {
+  border-radius: 50%;
+}
+[data-event-root][data-people-mask='arch'] .ev-person-photo {
+  border-radius: 999px 999px var(--ev-radius-sm) var(--ev-radius-sm);
+  aspect-ratio: 4 / 5;
+}
+[data-event-root][data-people-mask='squircle'] .ev-person-photo {
+  border-radius: 32%;
+}
+[data-event-root][data-people-mask='rounded'] .ev-person-photo {
+  border-radius: var(--ev-radius);
+}
+[data-event-root] .ev-person-photo--initials {
+  display: grid;
+  place-items: center;
+  font-family: var(--ev-font-display);
+  font-size: 1.6rem;
+  color: var(--ev-muted);
+  border: 1px solid var(--ev-border);
+}
+
+/* ----------------------------------------------------------- media slots */
+
+[data-event-root] .ev-img {
+  display: block;
+  background-size: cover;
+  background-position: center;
+}
+[data-event-root] .ev-img img {
+  width: 100%;
+  height: auto;
+}
+[data-event-root] .ev-media-empty {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  width: 100%;
+  height: 100%;
+  border: 1.5px dashed color-mix(in srgb, var(--ev-text) 30%, transparent);
+  border-radius: var(--ev-radius);
+  color: var(--ev-muted);
+  font-size: 0.9rem;
+  background: color-mix(in srgb, var(--ev-surface) 60%, transparent);
+}
+[data-event-root] .ev-studio-hint {
+  padding: 1rem 1.2rem;
+  border: 1.5px dashed color-mix(in srgb, var(--ev-text) 25%, transparent);
+  border-radius: var(--ev-radius-sm);
+  color: var(--ev-muted);
+  font-size: 0.9rem;
+}
+
+/* --------------------------------------------------------------- studio */
+
+[data-event-root][data-mode='studio'] .ev-section[data-selected='true'] {
+  outline: 2px solid var(--ev-accent);
+  outline-offset: -2px;
+}
+[data-event-root][data-mode='studio'] [data-field]:hover {
+  outline: 1px dashed color-mix(in srgb, var(--ev-accent) 70%, transparent);
+  outline-offset: 4px;
+  cursor: text;
+}
+[data-event-root] .ev-empty-page {
+  display: grid;
+  place-items: center;
+  min-height: 60vh;
+  color: var(--ev-muted);
+}
+
+[data-event-root] .ev-cancelled {
+  position: relative;
+  z-index: 4;
+  padding: 1rem var(--ev-gutter);
+  background: var(--ev-text);
+  color: var(--ev-bg);
+  text-align: center;
+}
+[data-event-root] .ev-cancelled__title {
+  font-family: var(--ev-font-display);
+  font-size: var(--ev-fs-h3);
+}
+
+/* ---------------------------------------------------------- entrances */
+
+@keyframes ev-enter-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(calc(32px * var(--ev-motion-k)));
+  }
+}
+@keyframes ev-enter-slide {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-40px * var(--ev-motion-k)));
+  }
+}
+@keyframes ev-enter-blur {
+  from {
+    opacity: 0;
+    filter: blur(calc(14px * var(--ev-motion-k)));
+  }
+}
+@keyframes ev-enter-mask {
+  from {
+    clip-path: inset(0 0 100% 0);
+    transform: translateY(calc(24px * var(--ev-motion-k)));
+  }
+}
+@keyframes ev-enter-scale {
+  from {
+    opacity: 0;
+    transform: scale(calc(1 - 0.06 * var(--ev-motion-k)));
+  }
+}
+@keyframes ev-shimmer {
+  to {
+    background-position: -150% 0;
+  }
+}
+
+/* Scroll-driven where supported: progress follows the scroll, so content
+   above the fold is already finished on load and nothing waits on time. */
+@supports (animation-timeline: view()) {
+  [data-event-root][data-motion='full'] .ev-section:not([data-block='hero']) > .ev-section__inner,
+  [data-event-root][data-motion='full'] .ev-stagger {
+    animation-duration: auto;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 70%;
+  }
+  [data-event-root][data-motion='full'] .ev-stagger {
+    animation-name: ev-enter-fade-up;
+    animation-range: entry 0% entry 60%;
+  }
+  [data-event-root][data-motion='full']
+    .ev-section[data-entrance='fade_up']:not([data-block='hero'])
+    > .ev-section__inner {
+    animation-name: ev-enter-fade-up;
+  }
+  [data-event-root][data-motion='full']
+    .ev-section[data-entrance='slide']:not([data-block='hero'])
+    > .ev-section__inner {
+    animation-name: ev-enter-slide;
+  }
+  [data-event-root][data-motion='full']
+    .ev-section[data-entrance='blur']:not([data-block='hero'])
+    > .ev-section__inner {
+    animation-name: ev-enter-blur;
+  }
+  [data-event-root][data-motion='full']
+    .ev-section[data-entrance='mask']:not([data-block='hero'])
+    > .ev-section__inner {
+    animation-name: ev-enter-mask;
+  }
+  [data-event-root][data-motion='full']
+    .ev-section[data-entrance='scale_in']:not([data-block='hero'])
+    > .ev-section__inner {
+    animation-name: ev-enter-scale;
+  }
+}
+
+/* IntersectionObserver fallback (reveal-observer.tsx): only below-the-fold
+   sections are ever hidden, and only once that script has run. */
+[data-event-root][data-reveal-js][data-motion='full'] .ev-section > .ev-section__inner {
+  transition:
+    opacity 560ms var(--ev-ease),
+    transform 560ms var(--ev-ease),
+    filter 560ms var(--ev-ease);
+}
+[data-event-root][data-reveal-js][data-motion='full']
+  .ev-section
+  > .ev-section__inner[data-reveal='pending'] {
+  opacity: 0;
+  transform: translateY(calc(28px * var(--ev-motion-k)));
+}
+
+/* ------------------------------------------------------- motion gating */
+
+[data-event-root]:is([data-motion='off'], [data-motion='reduced']) .ev-page *,
+[data-event-root]:is([data-motion='off'], [data-motion='reduced']) .ev-bg *,
+[data-event-root]:is([data-motion='off'], [data-motion='reduced']) .ev-finish * {
+  animation: none !important;
+  transition-duration: 0s !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-event-root]:not([data-motion-force]) .ev-page *,
+  [data-event-root]:not([data-motion-force]) .ev-bg *,
+  [data-event-root]:not([data-motion-force]) .ev-finish * {
+    animation: none !important;
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  [data-event-root]:not([data-motion-force]) .ev-overlay,
+  [data-event-root]:not([data-motion-force]) .ev-particles--overlay {
+    display: none !important;
+  }
+}
+
+/* The visitor's Pause: loops stop where they are; entrances are simply done. */
+[data-event-root][data-paused] :is(.ev-page, .ev-bg, .ev-finish, .ev-overlay) * {
+  animation-play-state: paused !important;
+}
+[data-event-root][data-paused] :is(.ev-section > .ev-section__inner, .ev-stagger, .ev-hl-piece) {
+  animation: none !important;
+}
+[data-event-root][data-paused] .ev-overlay {
+  display: none;
+}
+
+@media print {
+  [data-event-root] *,
+  [data-event-root] *::before,
+  [data-event-root] *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  [data-event-root] :is(.ev-pause, .ev-dock, .ev-intro, .ev-overlay, .ev-finish, .ev-moment) {
+    display: none !important;
+  }
+}

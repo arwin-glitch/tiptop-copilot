@@ -1,16 +1,23 @@
 import type { StarterDoc } from '@/lib/events/contracts';
 import { sectionTemplate } from '@/lib/events/doc';
 import { DEFAULT_THEME_PRESET_ID } from '@/lib/events/themes';
+import { agmStarter } from './agm';
+import {
+  demoDayStarter,
+  dinnerSalonStarter,
+  founderGolfStarter,
+  holidayPartyStarter,
+} from './more';
 
 /**
- * CONTRACT STUB — owned by WS2 (Design system). Replace the body, keep the
- * exports: STARTERS, BLANK_STARTER_ID, getStarter.
+ * Starter pages (D-075, WS2). Exports kept from the contract: STARTERS,
+ * BLANK_STARTER_ID, getStarter.
  *
- * Holds only "Blank" today. WS2 adds the five TipTop starters (AGM Day +
- * Evening, Founder Golf / Pitch & Putt, Dinner Salon, Demo Day, Holiday
- * Party) with FICTIONAL copy only. Empty props are deliberate: an empty
- * hero headline falls back to the event title, an empty media slot shows
- * "Add photo", never lorem ipsum.
+ * Five TipTop starters (AGM Day + Evening, Founder Golf / Pitch & Putt,
+ * Dinner Salon, Demo Day, Holiday Party) plus Blank. Every name, company
+ * and place in them is FICTIONAL placeholder copy (the repo is public); the
+ * host replaces it in Studio. Sessions are offsets from the event start;
+ * the new-event dialog's times win.
  */
 
 export const BLANK_STARTER_ID = 'blank';
@@ -31,7 +38,14 @@ const blank: StarterDoc = {
   ],
 };
 
-export const STARTERS: readonly StarterDoc[] = [blank];
+export const STARTERS: readonly StarterDoc[] = [
+  agmStarter,
+  founderGolfStarter,
+  dinnerSalonStarter,
+  demoDayStarter,
+  holidayPartyStarter,
+  blank,
+];
 
 export function getStarter(id: string | null | undefined): StarterDoc {
   return STARTERS.find((s) => s.id === id) ?? blank;
