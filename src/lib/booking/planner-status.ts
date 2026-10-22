@@ -46,7 +46,7 @@ export const REASON_CHIP: Record<PreviewCode, { label: string; tone: ReasonTone 
   away: { label: 'Away or travelling', tone: 'warn' },
   link_cap: { label: 'Link cap reached', tone: 'busy' },
   meeting_cap: { label: 'Day is full', tone: 'busy' },
-  busy: { label: 'Fully busy', tone: 'busy' },
+  busy: { label: 'Busy', tone: 'busy' },
   waiting: { label: 'Held for a request', tone: 'busy' },
   stack: { label: 'Back-to-back stack', tone: 'busy' },
   in_person_off: { label: 'In person off', tone: 'warn' },
@@ -66,7 +66,14 @@ export function dayWideReason(day: PreviewDay): { code: PreviewCode; reason: str
   if (openCount(day) > 0) return null;
   const call = day.plans.call;
   if (!call.code || !call.reason) return null;
-  const wide: PreviewCode[] = ['past', 'weekday', 'month_closed', 'date_closed', 'not_open'];
+  const wide: PreviewCode[] = [
+    'past',
+    'weekday',
+    'month_closed',
+    'date_closed',
+    'not_open',
+    'notice',
+  ];
   if (!wide.includes(call.code)) return null;
   const same = PREVIEW_KEYS.every((k) => {
     const code = day.plans[k].code;
@@ -141,7 +148,9 @@ export function statusChecks(input: StatusInput): StatusCheck[] {
           detail: input.editing.connected
             ? 'Bookings are held until it is on, then go on the calendar by themselves.'
             : 'Connect Google first: bookings are held until then.',
-          fix: { label: 'Turn it on', href: '/settings?tab=integrations' },
+          fix: input.editing.connected
+            ? { label: 'Turn it on', href: '/api/integrations/google/start?calendar=1' }
+            : { label: 'Connect Google', href: '/settings?tab=integrations' },
         },
   );
   const profileDone = Boolean(

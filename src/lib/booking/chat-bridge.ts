@@ -1,5 +1,5 @@
 import 'server-only';
-import { env } from '@/lib/config/env';
+import { bookingChatRelayProblem, env } from '@/lib/config/env';
 import { isMissingTableError } from '@/lib/db/missing-table';
 import type { DataStore, Filter } from '@/lib/db/store';
 import { rateLimit, rateLimitHasRoom } from '@/lib/security/limits';
@@ -53,9 +53,12 @@ const FACT_LIMITS = { offers: 8, times: 6, text: 600, profile: 1200 } as const;
 
 /* ------------------------------------------------------------------ setup */
 
-/** The routine can be fired and its answer read back. */
+/** The routine can be fired and its answer read back, through a relay of its own. */
 export function bookingChatConfigured(e = env()): boolean {
-  return Boolean(e.bookingChatFireUrl && e.bookingChatToken && e.askRelaySlackToken);
+  return (
+    Boolean(e.bookingChatFireUrl && e.bookingChatToken && e.askRelaySlackToken) &&
+    bookingChatRelayProblem(e) === null
+  );
 }
 
 /* ---------------------------------------------------------------- payload */
@@ -197,7 +200,10 @@ const EMAIL_RE = /[a-z0-9._%+'-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
  * never matched again from its middle.
  */
 const URL_RE =
-  /(?:\b[hH][tT][tT][pP][sS]?:\/\/|\b[wW]{3}\.)[^\s]+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,24}\b(?:\/[^\s]*)?/g;
+  /(?:\bhttps?:\/\/|\bwww\.)[^\s]+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,24}\b(?:\/[^\s]*)?/gi;
+/** A dot written out to slip past the link filter: "evil[.]com", "evil (dot) com", "evil dot com". */
+const SPELLED_DOT =
+  /\s*(?:\[\s*(?:\.|dot)\s*\]|\(\s*(?:\.|dot)\s*\)|\{\s*(?:\.|dot)\s*\})\s*|\s+dot\s+(?=[a-z0-9-]+\b)/gi;
 const PHONE_RE = /\+?\(?\d[\d\s().-]{5,}\d/g;
 const CONFIRM_WORD =
   /\b(confirm\w*|approv\w*|review\w*|get(?:s|ting)? back|follow(?:s|ing)? up|reach(?:es|ing)? out|be in touch|check(?:s|ing)? with)\b/i;
@@ -232,6 +238,7 @@ export function sanitiseBookingAnswer(
     .replace(/<[^>]*>/g, ' ')
     .replace(/[<>]/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(SPELLED_DOT, '.')
     .replace(EMAIL_RE, ' ');
   text = text.replace(URL_RE, (match) => {
     const trimmed = match.replace(/[.,;:!?)\]'"]+$/, '');
@@ -416,6 +423,48 @@ async function expireStale(store: DataStore, organizationId: string, now: Date):
   );
 }
 
+/** Visitors' questions (and their answers) are kept this long, then deleted. */
+export const QUESTION_RETENTION_DAYS = 30;
+
+/**
+ * Delete the questions older than QUESTION_RETENTION_DAYS: a visitor's
+ * question is personal data, kept only while it is useful (the caps count a
+ * day of them). Run by the alerts job; never throws.
+ */
+export async function pruneBookingQuestions(
+  store: DataStore,
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<number> {
+  try {
+    return await store.removeWhere('booking_chat_questions', organizationId, {
+      lt: {
+        created_at: new Date(now.getTime() - QUESTION_RETENTION_DAYS * DAY_MS).toISOString(),
+      },
+    });
+  } catch (error) {
+    if (!isMissingTableError(error)) {
+      log.warn('Old booking questions could not be deleted', {
+        reason: error instanceof Error ? error.message : 'unknown',
+      });
+    }
+    return 0;
+  }
+}
+
+/** The alerts job's pass over every organization: never throws. */
+export async function pruneBookingQuestionsForAll(
+  store: DataStore,
+  now: Date = new Date(),
+): Promise<number> {
+  const organizations = (await store.list('organizations', '', {}).catch(() => [])) as {
+    id: string;
+  }[];
+  let removed = 0;
+  for (const org of organizations) removed += await pruneBookingQuestions(store, org.id, now);
+  return removed;
+}
+
 /**
  * If a question is waiting, read the relay channel and complete every one
  * whose answer is there, from the configured posters only, made plain
@@ -438,6 +487,8 @@ export async function settleBookingAnswers(
         eq: { status: 'pending' },
       });
       if (pending.length === 0) return 0;
+      // Only through a relay of its own, from posters no other relay trusts.
+      if (bookingChatRelayProblem(e) !== null || !e.bookingChatRelayChannelId) return 0;
       const messages = await readRelayChannel(e.bookingChatRelayChannelId, options.fetchImpl);
       if (!messages) return 0;
       const posters = e.bookingChatPosterIds;
@@ -445,12 +496,7 @@ export async function settleBookingAnswers(
       let settled = 0;
       for (const message of messages) {
         if (message.subtype !== undefined && message.subtype !== null) continue;
-        if (
-          posters.length > 0 &&
-          !(typeof message.user === 'string' && posters.includes(message.user))
-        ) {
-          continue;
-        }
+        if (!(typeof message.user === 'string' && posters.includes(message.user))) continue;
         const relayed = parseBookingAnswer(message.text);
         if (!relayed || !waiting.has(relayed.question_id)) continue;
         const answer = sanitiseBookingAnswer(relayed.answer, { bookingUrl: options.bookingUrl });

@@ -166,6 +166,17 @@ function Planner(props: AvailabilityPanelProps) {
   const [month, setMonth] = React.useState(firstOpen ?? monthOf(props.today));
   const [version, setVersion] = React.useState(0);
   const [selected, setSelected] = React.useState<string | null>(null);
+  const dayPanelRef = React.useRef<HTMLDivElement>(null);
+  // On a phone the day's panel sits under the month grid: bring it into
+  // view when a day is tapped, so the tap visibly does something.
+  const selectDay = (day: string | null) => {
+    setSelected(day);
+    if (!day || typeof window === 'undefined') return;
+    if (window.matchMedia('(min-width: 1024px)').matches) return;
+    requestAnimationFrame(() =>
+      dayPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    );
+  };
   const [show, setShow] = React.useState<'all' | PreviewKey>('all');
   const preview = usePreview({ month }, version);
   const counts = useMonthCounts(version);
@@ -376,9 +387,9 @@ function Planner(props: AvailabilityPanelProps) {
             keys={keys}
             loading={preview.loading}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={selectDay}
           />
-          <div className="min-w-0">
+          <div className="min-w-0 scroll-mt-24" ref={dayPanelRef} data-testid="day-panel-slot">
             {selected ? (
               <DayPanel
                 key={selected}
@@ -631,7 +642,7 @@ function DayPanel({
       </div>
       <div className="grid gap-1.5">
         {day ? (
-          PREVIEW_KEYS.map((k) => <KindLine key={k} kind={k} day={day} zone={zone} />)
+          PREVIEW_KEYS.map((k) => <KindLine key={k} kind={k} day={day} zone={zone} showReason />)
         ) : (
           <Skeleton className="h-16 w-full" />
         )}

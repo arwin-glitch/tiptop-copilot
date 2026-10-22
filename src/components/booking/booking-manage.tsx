@@ -11,6 +11,7 @@ import {
   slotLabel,
   zoneName,
   type PublicBookingView,
+  type PublicDay,
   type PublicManagePage,
   type PublicSlot,
   type PublicSlots,
@@ -155,7 +156,7 @@ function Manage({
               </p>
             ) : booking.status === 'pending' ? (
               <p className="mt-1 text-sm text-[var(--fg-muted)]">
-                The calendar invitation follows by email.
+                You&apos;ll get a calendar invitation once the time is booked.
               </p>
             ) : booking.status === 'declined' ? (
               <p className="mt-1 text-sm text-[var(--fg-muted)]">
@@ -207,6 +208,11 @@ function Manage({
         {mode === 'cancel' ? (
           <CancelForm
             hostFirst={first}
+            canReschedule={booking.canReschedule}
+            onReschedule={() => {
+              setProblem(null);
+              setMode('reschedule');
+            }}
             busy={busy}
             onKeep={() => {
               setMode('view');
@@ -258,13 +264,13 @@ function Manage({
                 Cancel meeting
               </Button>
             ) : null}
-            {live ? (
+            {booking.status === 'booked' ? (
               <AddToCalendarButton
                 booking={booking}
                 hostName={host.displayName}
                 manageUrl={manageUrl}
               />
-            ) : (
+            ) : live ? null : (
               <Link
                 href={`/meet/${slug}`}
                 className="inline-flex h-9 items-center rounded-md px-3.5 text-sm font-medium text-[var(--accent)] underline decoration-[color:var(--link-underline)] underline-offset-4 hover:text-[var(--accent-hover)]"
@@ -302,6 +308,8 @@ function Reschedule({
   onPick: (start: string) => void;
 }) {
   const [slots, setSlots] = React.useState<PublicSlot[] | null>(null);
+  const [days, setDays] = React.useState<PublicDay[] | undefined>(undefined);
+  const [months, setMonths] = React.useState<string[] | undefined>(undefined);
   const [message, setMessage] = React.useState<string | null>(null);
   const [start, setStart] = React.useState<string | null>(null);
   const [day, setDay] = React.useState<string | null>(null);
@@ -319,6 +327,8 @@ function Reschedule({
           return;
         }
         setSlots(json.slots);
+        setDays(json.days);
+        setMonths(json.months);
         setMessage(
           json.state === 'ok' ? null : (json.message ?? 'Open times could not be loaded.'),
         );
@@ -358,6 +368,9 @@ function Reschedule({
           onChange={setStart}
           day={day}
           onDay={setDay}
+          days={days}
+          months={months}
+          label="Open days to move it to"
         />
       )}
       <div className="flex flex-wrap items-center gap-2 pt-2">
@@ -380,11 +393,15 @@ function Reschedule({
 
 function CancelForm({
   hostFirst,
+  canReschedule,
+  onReschedule,
   busy,
   onKeep,
   onCancel,
 }: {
   hostFirst: string;
+  canReschedule: boolean;
+  onReschedule: () => void;
   busy: boolean;
   onKeep: () => void;
   onCancel: (note: string) => void;
@@ -393,6 +410,15 @@ function CancelForm({
   const uid = React.useId();
   return (
     <div className="mt-6 space-y-3 border-t border-[var(--border)] pt-5">
+      {canReschedule ? (
+        <p className="text-sm text-[var(--fg-muted)]">
+          Need a different time?{' '}
+          <button type="button" onClick={onReschedule} className="link-inline">
+            Reschedule instead
+          </button>
+          : it moves the meeting for everyone.
+        </p>
+      ) : null}
       <div className="space-y-1.5">
         <Label htmlFor={`${uid}-note`}>
           Note to {hostFirst}{' '}
@@ -403,7 +429,7 @@ function CancelForm({
           rows={3}
           maxLength={CANCEL_NOTE_MAX}
           value={note}
-          placeholder="Something came up. Could we find another time?"
+          placeholder={`Optional: a short note for ${hostFirst}`}
           onChange={(e) => setNote(e.target.value)}
         />
         <p className="text-right text-[11px] text-[var(--fg-subtle)] tabular-nums">

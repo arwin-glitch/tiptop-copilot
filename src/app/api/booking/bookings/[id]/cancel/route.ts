@@ -38,5 +38,8 @@ export async function POST(request: NextRequest, context: Context) {
     parsed.data.note ?? '',
   );
   if (!cancelled.ok) return fail(cancelled.error);
-  return done({});
+  return done({
+    removedEvent: cancelled.value.removedEvent,
+    calendarLeft: cancelled.value.calendarLeft,
+  });
 }

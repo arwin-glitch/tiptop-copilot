@@ -12,8 +12,12 @@ import {
 } from '@/lib/booking/chat';
 import {
   BOOKING_ANSWER_MARKER,
+  bookingChatConfigured,
   EXPIRE_AFTER_MS,
+  pruneBookingQuestions,
+  QUESTION_RETENTION_DAYS,
   resetBookingSettleThrottle,
+  settleBookingAnswers,
 } from '@/lib/booking/chat-bridge';
 import {
   createMockCalendarState,
@@ -22,7 +26,8 @@ import {
 } from '@/lib/calendar/mock-calendar';
 import { MockCalendarProvider } from '@/lib/calendar/provider';
 import { resetCalendarRangeCache, type CalendarSource } from '@/lib/calendar/range-reader';
-import { resetEnvCache } from '@/lib/config/env';
+import { bookingChatRelayProblem, env, resetEnvCache } from '@/lib/config/env';
+import { patchBookingSettings } from '@/lib/services/booking-planner';
 import { DEMO_BOOKING_SETTINGS_ID } from '@/lib/demo/booking-fixtures';
 import { resetLimiters } from '@/lib/security/limits';
 import type { BookingChatQuestion } from '@/lib/types/domain';
@@ -489,7 +494,104 @@ describe('AI answers on the booking assistant routine', () => {
   });
 });
 
+describe('the routine’s relay is its own (D-078 security review)', () => {
+  it('stays off unless the routine has a channel and a poster no other relay uses', () => {
+    routineOn();
+    expect(bookingChatConfigured()).toBe(true);
+    expect(bookingChatRelayProblem()).toBeNull();
+    // No fallback to the shared relay any more.
+    delete process.env.BOOKING_CHAT_RELAY_CHANNEL_ID;
+    resetEnvCache();
+    expect(bookingChatConfigured()).toBe(false);
+    expect(bookingChatRelayProblem()).toMatch(/BOOKING_CHAT_RELAY_CHANNEL_ID is not set/);
+    // The channel the task, briefing and follow-up readers trust.
+    process.env.BOOKING_CHAT_RELAY_CHANNEL_ID = env().askRelayChannelId;
+    resetEnvCache();
+    expect(bookingChatConfigured()).toBe(false);
+    expect(bookingChatRelayProblem()).toMatch(/a channel another relay reads/);
+    process.env.BOOKING_CHAT_RELAY_CHANNEL_ID = 'C0TESTRELAY';
+    // The account the task routines post as.
+    process.env.BOOKING_CHAT_POSTER_IDS = env().taskRelayPosterIds[0]!;
+    resetEnvCache();
+    expect(bookingChatConfigured()).toBe(false);
+    expect(bookingChatRelayProblem()).toMatch(/an account another relay trusts/);
+    delete process.env.BOOKING_CHAT_POSTER_IDS;
+    resetEnvCache();
+    expect(bookingChatRelayProblem()).toMatch(/BOOKING_CHAT_POSTER_IDS is not set/);
+  });
+
+  it('never settles an answer without its own poster list', async () => {
+    routineOn();
+    await turnOnAi();
+    const asked = await ask('Do you invest in climate hardware?', undefined, {
+      fetchImpl: fireRecorder().impl,
+    });
+    if (asked.kind !== 'pending') throw new Error('expected pending');
+    delete process.env.BOOKING_CHAT_POSTER_IDS;
+    resetEnvCache();
+    const relay = `${BOOKING_ANSWER_MARKER}\n\`${JSON.stringify({ question_id: asked.questionId, answer: 'Seed only.' })}\``;
+    const slack = slackFetch([{ user: 'U0ANYONE', text: relay }]);
+    const settled = await settleBookingAnswers(harness.store, harness.auth.organizationId, {
+      bookingUrl: 'http://localhost:3000/meet/nick',
+      now: NOW,
+      fetchImpl: slack.impl,
+    });
+    expect(settled).toBe(0);
+    expect(slack.urls).toEqual([]);
+    expect(((await questionRows())[0] as BookingChatQuestion).status).toBe('pending');
+  });
+
+  it('deletes visitors’ questions after 30 days', async () => {
+    const old = new Date(NOW.getTime() - (QUESTION_RETENTION_DAYS + 1) * 86_400_000);
+    for (const [id, created] of [
+      ['11111111-1111-4111-8111-111111111111', old],
+      ['22222222-2222-4222-8222-222222222222', NOW],
+    ] as const) {
+      await harness.store.insert('booking_chat_questions', {
+        id,
+        organization_id: harness.auth.organizationId,
+        question: 'Do you lead rounds?',
+        answer: null,
+        status: 'expired',
+        ip_hash: null,
+        created_at: created.toISOString(),
+        answered_at: null,
+      });
+    }
+    expect(await pruneBookingQuestions(harness.store, harness.auth.organizationId, NOW)).toBe(1);
+    expect((await questionRows()).map((r) => r.id)).toEqual([
+      '22222222-2222-4222-8222-222222222222',
+    ]);
+  });
+});
+
 describe('the Booking tab panel', () => {
+  it('a panel save never wipes the assistant’s saved settings', async () => {
+    const saved = await saveChatbotConfig(
+      harness.store,
+      harness.auth.organizationId,
+      harness.auth.userId,
+      { faqItems: [{ q: 'What stage?', a: 'Pre-seed and seed.' }], dailyAiCap: 12 },
+      NOW,
+    );
+    expect(saved.ok).toBe(true);
+    const panel = await patchBookingSettings(
+      harness.store,
+      harness.auth.organizationId,
+      harness.auth.userId,
+      { config: { noticeHours: 48 } },
+      NOW,
+    );
+    expect(panel.ok).toBe(true);
+    const row = await harness.store.get(
+      'booking_settings',
+      harness.auth.organizationId,
+      DEMO_BOOKING_SETTINGS_ID,
+    );
+    expect(row?.settings.noticeHours).toBe(48);
+    expect(row?.settings.chatbot).toEqual(saved.ok ? saved.value : null);
+  });
+
   it('reads the assistant settings from an old row and saves into settings.chatbot only', async () => {
     const before = await readChatbotPanel(harness.store, harness.auth.organizationId, NOW);
     expect(before.saved).toBe(true);

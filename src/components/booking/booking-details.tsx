@@ -160,7 +160,10 @@ export function AddToCalendarButton({
         ? (booking.video?.url ?? booking.video?.label ?? '')
         : [booking.place?.name, booking.place?.area].filter(Boolean).join(', ');
     const text = icsFile({
-      uid: `${booking.startsAt}-${booking.email}@booking.tiptop-copilot`,
+      // The booking's own id (hashed): the same after a move, so a second
+      // download updates the first, with SEQUENCE saying which is newer.
+      uid: booking.icsUid,
+      sequence: booking.icsSequence,
       title,
       start: booking.startsAt,
       end: booking.endsAt,

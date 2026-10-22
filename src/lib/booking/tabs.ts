@@ -34,7 +34,7 @@ export const BOOKING_TABS: readonly PageTabDef<BookingTabKey>[] = [
   {
     key: 'bookings',
     label: 'Bookings',
-    blurb: 'Who booked, when and where, moves and cancellations with their notes.',
+    blurb: 'Who booked, when and where, moves and cancellations. "Booking…" books itself.',
   },
   { key: 'profile', label: 'Profile', blurb: 'The name, photo and video link the page shows.' },
   { key: 'places', label: 'Places', blurb: 'Home city and the places he meets people.' },

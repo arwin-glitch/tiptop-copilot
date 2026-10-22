@@ -58,7 +58,17 @@ export interface ApprovableRequest {
    * (the people invited are the people the page is for) and nowhere else.
    */
   manageUrl?: string | null;
+  /**
+   * Booked with no person in between (instant, or a held time placed
+   * later): the visitor's own words (note, deck link) stay out of the event,
+   * which Google emails to every guest and the assistant routines read. They
+   * are on the Booking tab in Copilot instead.
+   */
+  unattended?: boolean;
 }
+
+/** What an unattended booking's event says instead of the visitor's note and deck link. */
+export const NOTE_IN_COPILOT = 'Their note and deck link are on the Booking tab in Copilot.';
 
 /**
  * The line every booked event's description ends with, before the booking's
@@ -105,6 +115,8 @@ export function linkRequestFromRow(
     | 'note'
     | 'deck_url'
     | 'guest_emails'
+    | 'status'
+    | 'decided_by'
   >,
   manageUrl: string | null,
 ): ApprovableRequest {
@@ -123,7 +135,20 @@ export function linkRequestFromRow(
     deck_url: row.deck_url,
     guests: row.guest_emails ?? [],
     manageUrl,
+    // Nobody approved it: booked at once, held then placed, or (before v2)
+    // booked at once and kept as approved by nobody.
+    unattended:
+      !row.decided_by &&
+      (row.status === 'booked' || row.status === 'held' || row.status === 'approved'),
   };
+}
+
+/** Visitor text in a title: one line, at most this long. */
+const TITLE_PART_MAX = 60;
+
+function titlePart(text: string): string {
+  const flat = inert(text.trim()).replace(/\s+/g, ' ');
+  return flat.length <= TITLE_PART_MAX ? flat : `${flat.slice(0, TITLE_PART_MAX - 1).trimEnd()}…`;
 }
 
 /**
@@ -132,8 +157,8 @@ export function linkRequestFromRow(
  * in-person meeting.
  */
 export function bookingTitle(hostName: string, request: ApprovableRequest): string {
-  const company = inert(request.company?.trim() ?? '');
-  const name = inert(request.name.trim());
+  const company = titlePart(request.company ?? '');
+  const name = titlePart(request.name);
   const who = company ? `${name} (${company})` : name;
   const base = `${firstName(hostName) || 'Meeting'} <> ${who}`;
   return request.type === 'in_person' && request.kind
@@ -155,12 +180,19 @@ export function bookingLocation(request: ApprovableRequest, callLink?: string | 
   );
 }
 
+/** The first line of every booking-link event's description: how its own event is known. */
+export const BOOKED_LINE = 'Booked through the booking link.';
+
 export function bookingDescription(request: ApprovableRequest, callLink?: string | null): string {
-  const lines = ['Booked through the booking link.'];
+  const lines = [BOOKED_LINE];
   const video = videoLinkFor(request, callLink);
   if (video) lines.push('', `Join the call: ${video}`);
-  if (request.note?.trim()) lines.push('', request.note.trim());
-  if (request.deck_url?.trim()) lines.push('', `Deck: ${request.deck_url.trim()}`);
+  if (request.unattended) {
+    if (request.note?.trim() || request.deck_url?.trim()) lines.push('', NOTE_IN_COPILOT);
+  } else {
+    if (request.note?.trim()) lines.push('', request.note.trim());
+    if (request.deck_url?.trim()) lines.push('', `Deck: ${request.deck_url.trim()}`);
+  }
   if (request.type === 'in_person' && request.place_map_url) {
     lines.push('', `Map: ${request.place_map_url}`);
   }
@@ -288,6 +320,8 @@ export function declineDraft(
 export interface IcsEvent {
   /** Stable for one booking, so a second download updates the first. */
   uid: string;
+  /** How many times it moved: a calendar app keeps the higher one. */
+  sequence?: number;
   title: string;
   start: string;
   end: string;
@@ -327,6 +361,7 @@ export function icsFile(event: IcsEvent, stamp: Date = new Date()): string {
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
     `UID:${icsText(event.uid)}`,
+    `SEQUENCE:${Math.max(0, Math.floor(event.sequence ?? 0))}`,
     `DTSTAMP:${compact(stamp.toISOString())}`,
     `DTSTART:${compact(event.start)}`,
     `DTEND:${compact(event.end)}`,

@@ -1,4 +1,4 @@
-import type { BookingRequest } from '@/lib/types/domain';
+import type { BookingHoldReason, BookingRequest } from '@/lib/types/domain';
 
 /**
  * The link's bookings as the Booking tab shows them (D-078): one shape for a
@@ -41,6 +41,13 @@ export interface LinkBooking {
    * Google"). Null while it is not cancelled.
    */
   cancelledBy: 'visitor' | 'team' | 'calendar' | null;
+  /**
+   * A held booking (booked at once, not on the calendar yet): why, and when
+   * Copilot tries again by itself (null: on every pass). The tab shows
+   * "Booking…" with the reason and a Try now button; never Approve.
+   */
+  holdReason: BookingHoldReason | null;
+  nextTryAt: string | null;
 }
 
 export const BOOKING_SCOPES = ['upcoming', 'past', 'messages'] as const;
@@ -102,6 +109,8 @@ export function toLinkBooking(row: BookingRequest): LinkBooking {
     eventLink: googleEventLink(row.event_id, row.calendar_id),
     visitorTimeZone: row.visitor_time_zone,
     cancelledBy: row.status === 'cancelled' ? (row.cancelled_by ?? null) : null,
+    holdReason: row.status === 'held' ? (row.hold_reason ?? 'calendar_editing_off') : null,
+    nextTryAt: row.status === 'held' ? (row.hold_next_try_at ?? null) : null,
   };
 }
 

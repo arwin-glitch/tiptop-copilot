@@ -22,6 +22,12 @@
 --     calendar (the event was deleted in Google Calendar).
 --   - rescheduled_count / previous_starts_at: how often the visitor moved it
 --     (at most 5), and the time before the last move.
+--   - hold_reason / hold_attempts / hold_next_try_at: a held booking (booked
+--     at once, but not on the calendar yet) and why: calendar editing off,
+--     no main calendar, Google not answering, or a Google error. Copilot
+--     tries again by itself (at once when editing comes on; after 1, 5, 15
+--     and 60 minutes for a Google fault, then on every pass) until it is
+--     booked, or released if the time was taken. Nobody has to approve it.
 --   - description_cleaned_at / description_cleaned_rev: when Copilot last put
 --     the event's own description back after another scheduling tool (Fyxer,
 --     Vimcal, Calendly) appended its reschedule link, and for which change
@@ -29,8 +35,9 @@
 --     and the other tool never take turns.
 --
 -- Additive and idempotent like every migration here: safe to run again in
--- the SQL editor. Until it is applied the link keeps working the old way
--- (every booking waits as a request) and nothing else changes.
+-- the SQL editor. Until it is applied the link keeps working the old way:
+-- a free time is still booked at once when calendar editing is on (stored
+-- as approved), and otherwise waits as a request; nothing else changes.
 --
 -- The old status check was written inline, so Postgres named it
 -- booking_requests_status_check. It is dropped by that name and the wider
@@ -46,6 +53,9 @@ alter table booking_requests add column if not exists rescheduled_count integer 
 alter table booking_requests add column if not exists previous_starts_at timestamptz;
 alter table booking_requests add column if not exists description_cleaned_at timestamptz;
 alter table booking_requests add column if not exists description_cleaned_rev integer;
+alter table booking_requests add column if not exists hold_reason text;
+alter table booking_requests add column if not exists hold_attempts integer not null default 0;
+alter table booking_requests add column if not exists hold_next_try_at timestamptz;
 
 alter table booking_requests drop constraint if exists booking_requests_status_check;
 alter table booking_requests drop constraint if exists booking_requests_status_allowed;
@@ -78,6 +88,18 @@ alter table booking_requests add constraint booking_requests_reschedules_allowed
   rescheduled_count between 0 and 5
 );
 
+alter table booking_requests drop constraint if exists booking_requests_hold_reason_allowed;
+alter table booking_requests add constraint booking_requests_hold_reason_allowed check (
+  hold_reason is null or hold_reason in (
+    'calendar_editing_off', 'no_main_calendar', 'calendar_unreachable', 'calendar_error'
+  )
+);
+
+alter table booking_requests drop constraint if exists booking_requests_hold_attempts_allowed;
+alter table booking_requests add constraint booking_requests_hold_attempts_allowed check (
+  hold_attempts >= 0
+);
+
 -- One booking per token: the booking page finds its row by the hash alone.
 create unique index if not exists booking_requests_manage_token_idx
   on booking_requests (manage_token_hash)
@@ -85,6 +107,9 @@ create unique index if not exists booking_requests_manage_token_idx
 -- The alerts and the Booking tab read what changed lately.
 create index if not exists booking_requests_updated_idx
   on booking_requests (organization_id, updated_at desc);
+-- Held bookings Copilot tries again (by when each is due).
+create index if not exists booking_requests_held_idx
+  on booking_requests (organization_id, status, hold_next_try_at);
 -- The abuse brakes count an address's upcoming bookings, as booker or guest.
 create index if not exists booking_requests_guests_idx
   on booking_requests using gin (guest_emails);

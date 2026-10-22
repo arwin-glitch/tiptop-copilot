@@ -44,6 +44,16 @@ export interface PublicSlot {
   end: string;
 }
 
+/**
+ * One day on the public calendar card (D-078): open (it has times), booked
+ * (a meeting day with every time taken) or off (not offered). The date is
+ * the host's day; nothing says why a day is off.
+ */
+export interface PublicDay {
+  date: string;
+  state: 'open' | 'booked' | 'off';
+}
+
 export interface PublicSlots {
   state: 'ok' | 'closed' | 'unavailable';
   type: MeetingType;
@@ -51,6 +61,10 @@ export interface PublicSlots {
   hostTimeZone: string;
   slots: PublicSlot[];
   message?: string;
+  /** The calendar card's days: every day of the open months from today on. */
+  days?: PublicDay[];
+  /** The months open on the link (`YYYY-MM`, from this month on): the card's arrows stop there. */
+  months?: string[];
 }
 
 export const CLOSED_MESSAGE = 'This booking link is not taking bookings right now.';
@@ -107,6 +121,10 @@ export interface PublicBookingView {
   reschedulesLeft: number;
   /** Something the calendar changed meanwhile, in plain words, or null. */
   notice: string | null;
+  /** The "Add to calendar" file's UID: the booking's own (hashed), the same after a move. */
+  icsUid: string;
+  /** How many times it moved, for the file's SEQUENCE. */
+  icsSequence: number;
 }
 
 /** The booking's own page: the host's card and the booking, or nothing at all. */
@@ -141,6 +159,8 @@ export interface RememberedBooking {
   startsAt: string;
   type: MeetingType;
   kind: MeetingKind | null;
+  /** Booked (or held, booking itself), or a request waiting for approval. */
+  status: 'booked' | 'held' | 'pending';
 }
 
 /* ------------------------------------------------------------ video calls */

@@ -4,61 +4,51 @@ import * as React from 'react';
 import { UserPlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input, Label } from '@/components/ui/form';
-import { isPlainEmail, LIMITS } from '@/lib/booking/request';
+import { addGuestDraft, LIMITS } from '@/lib/booking/request';
 
 /**
  * "Add guests" on the booking form (D-078, like Calendly's): up to the
  * link's limit of other people's addresses, each invited with the visitor
  * by the calendar invitation. Checked here as they are added (a plain
  * address, once, not the visitor's own) and again on the server, which also
- * refuses the host's and the team's own addresses.
+ * refuses the host's and the team's own addresses. An address typed and not
+ * added yet is added when the box loses focus, and the form adds it too
+ * when it is sent: it is never silently dropped.
  */
 export function GuestList({
   guests,
   max,
   booker,
   onChange,
+  draft,
+  onDraft,
 }: {
   guests: string[];
   max: number;
   /** The visitor's own address, which is never their guest. */
   booker: string;
   onChange: (guests: string[]) => void;
+  /** What is typed in the box, kept by the form so sending it counts it. */
+  draft: string;
+  onDraft: (draft: string) => void;
 }) {
-  const [open, setOpen] = React.useState(guests.length > 0);
-  const [draft, setDraft] = React.useState('');
+  const [open, setOpen] = React.useState(guests.length > 0 || draft.length > 0);
   const [problem, setProblem] = React.useState<string | null>(null);
   const uid = React.useId();
   const focusInput = () => document.getElementById(`${uid}-guest`)?.focus();
   const full = guests.length >= max;
 
-  const add = () => {
-    const entries = draft
-      .split(/[\s,;]+/)
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean);
-    if (!entries.length) return;
-    const next = [...guests];
-    for (const email of entries) {
-      if (!isPlainEmail(email)) {
-        setProblem(`Check ${email}: it does not look like an email address.`);
-        return;
-      }
-      if (email === booker.trim().toLowerCase()) {
-        setProblem('That is your own address: you are invited already.');
-        return;
-      }
-      if (next.includes(email)) continue;
-      if (next.length >= max) {
-        setProblem(`Add at most ${max} guests.`);
-        break;
-      }
-      next.push(email);
+  const add = (refocus = true) => {
+    if (!draft.trim()) return;
+    const added = addGuestDraft(guests, draft, { max, booker });
+    if (!added.ok) {
+      setProblem(added.problem);
+      return;
     }
     setProblem(null);
-    setDraft('');
-    onChange(next);
-    focusInput();
+    onDraft('');
+    onChange(added.guests);
+    if (refocus) focusInput();
   };
 
   if (!open) {
@@ -115,8 +105,9 @@ export function GuestList({
             value={draft}
             onChange={(e) => {
               setProblem(null);
-              setDraft(e.target.value);
+              onDraft(e.target.value);
             }}
+            onBlur={() => add(false)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ',') {
                 e.preventDefault();
@@ -125,7 +116,7 @@ export function GuestList({
             }}
             className="min-w-0 flex-1"
           />
-          <Button type="button" variant="secondary" onClick={add} disabled={!draft.trim()}>
+          <Button type="button" variant="secondary" onClick={() => add()} disabled={!draft.trim()}>
             Add
           </Button>
         </div>

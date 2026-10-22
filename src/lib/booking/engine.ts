@@ -502,6 +502,51 @@ export function openDays(now: Date, hostZone: string, config: BookingConfig): st
   return out;
 }
 
+/**
+ * A day as the public page's calendar card shows it (D-078): open (it has
+ * times), fully booked (a meeting day whose times are all taken: busy, the
+ * day's caps, the back-to-back rule, an earlier booking), or not offered
+ * (anything else: not a meeting day, a closed month or day, inside the
+ * notice, away, in person paused). Only these three words leave the server:
+ * never a title, a guest, a place or why a day is closed.
+ */
+export type PublicDayState = 'open' | 'booked' | 'off';
+
+const FULL_CODES: ReadonlySet<ReasonCode> = new Set<ReasonCode>([
+  'busy',
+  'link_cap',
+  'meeting_cap',
+  'stack',
+  'waiting',
+]);
+
+export interface OpenDayPlan {
+  slots: OpenSlot[];
+  /** Every day of the open months from today on (host-zone keys), with its state. */
+  days: { date: string; state: PublicDayState }[];
+}
+
+/**
+ * The open times and the calendar card's day states in one pass over the
+ * same rules: exactly the times openSlots gives, and for each day of an open
+ * month whether it is open, fully booked or not offered.
+ */
+export function openSlotsAndDays(input: EngineInput, query: SlotQuery): OpenDayPlan {
+  const days = openDays(input.now, input.hostZone, input.config);
+  if (days.length === 0) return { slots: [], days: [] };
+  const open = new Set(days);
+  const plans = dayPlans(input, query, days[0]!, days[days.length - 1]!).filter((p) =>
+    open.has(p.date),
+  );
+  return {
+    slots: plans.flatMap((p) => p.slots),
+    days: plans.map((p) => ({
+      date: p.date,
+      state: p.slots.length ? 'open' : p.code && FULL_CODES.has(p.code) ? 'booked' : 'off',
+    })),
+  };
+}
+
 /** Every start the link may offer for this query, soonest first. */
 export function openSlots(input: EngineInput, query: SlotQuery): OpenSlot[] {
   const prepared = prepare(input, query);
@@ -576,10 +621,12 @@ export const PREVIEW_QUERIES: { key: PreviewKey; label: string; query: SlotQuery
  * one of them. A tie goes to the earliest time's reason.
  */
 function dayReason(problems: readonly Problem[]): Problem {
-  const counts = new Map<string, { n: number; p: Problem }>();
+  // By rule, not by wording: the back-to-back rule and busy time each say
+  // it several ways, and a day mostly closed by one rule is said to be.
+  const counts = new Map<ReasonCode, { n: number; p: Problem }>();
   for (const p of problems) {
-    const seen = counts.get(p.text);
-    counts.set(p.text, { n: (seen?.n ?? 0) + 1, p: seen?.p ?? p });
+    const seen = counts.get(p.code);
+    counts.set(p.code, { n: (seen?.n ?? 0) + 1, p: seen?.p ?? p });
   }
   let best: { n: number; p: Problem } | null = null;
   for (const entry of counts.values()) if (!best || entry.n > best.n) best = entry;

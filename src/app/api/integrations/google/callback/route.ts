@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { after, NextResponse, type NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { authOrError } from '@/lib/auth/session';
 import { env } from '@/lib/config/env';
@@ -7,6 +7,7 @@ import { encryptionAvailable, verifySignedValue } from '@/lib/security/crypto';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
 import { getStore } from '@/lib/runtime';
+import { placeHeldBookings } from '@/lib/services/booking-manage';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import type { Integration } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
@@ -147,6 +148,20 @@ export async function GET(request: NextRequest) {
       account_domain: accountEmail?.split('@')[1] ?? null,
     },
   });
+
+  // Calendar editing may have just come on: booking-link times held until
+  // now go on the calendar at once, each checked again first, after the
+  // redirect is sent (D-078; the pass checks the grant itself).
+  if (integration.kinds.includes('calendar')) {
+    const organizationId = auth.value.organizationId;
+    after(() =>
+      placeHeldBookings(store, organizationId, { force: true }).catch((error: unknown) => {
+        log.warn('Held bookings could not be placed after the grant', {
+          reason: error instanceof Error ? error.message : 'unknown',
+        });
+      }),
+    );
+  }
 
   // "Turn on calendar editing" started on the Calendar tab goes back there.
   if (parsed.returnTo && RETURN_PAGES.has(parsed.returnTo)) {

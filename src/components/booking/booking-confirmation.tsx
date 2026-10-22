@@ -77,7 +77,7 @@ export function BookingConfirmation({
         </div>
       ) : null}
       <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-5">
-        {booking ? (
+        {booking && status === 'booked' ? (
           <AddToCalendarButton booking={booking} hostName={hostName} manageUrl={manageUrl} />
         ) : null}
         {manageUrl ? (

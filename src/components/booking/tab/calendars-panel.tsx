@@ -96,8 +96,9 @@ export function CalendarsPanel({
   return (
     <div className="space-y-4" data-tour="booking-calendars">
       <p className="text-sm text-[var(--fg-muted)]">
-        A meeting on any switched-on calendar makes that time busy on the booking link. Visitors
-        never see titles, guests or calendar names: only free times.
+        A busy entry on any switched-on calendar makes that time busy on the booking link. Entries
+        marked free, like most holidays, do not: close those days in Availability. Visitors never
+        see titles, guests or calendar names: only free times.
       </p>
       {error ? <Notice tone="warn">{error}</Notice> : null}
       {!rows && !error ? (

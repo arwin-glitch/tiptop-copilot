@@ -72,11 +72,14 @@ export function KindLine({
   day,
   zone,
   maxTimes = 6,
+  showReason = false,
 }: {
   kind: PreviewKey;
   day: PreviewDay;
   zone: string;
   maxTimes?: number;
+  /** Write the rule's plain words beside its chip (phones have no hover). */
+  showReason?: boolean;
 }) {
   const plan = day.plans[kind];
   const Icon = KIND_ICON[kind];
@@ -104,7 +107,14 @@ export function KindLine({
           ) : null}
         </>
       ) : plan.code ? (
-        <ReasonChip code={plan.code} reason={plan.reason} />
+        <>
+          <ReasonChip code={plan.code} reason={plan.reason} />
+          {showReason && plan.reason ? (
+            <span className="min-w-0 text-xs text-[var(--fg-muted)]" aria-hidden="true">
+              {plan.reason}
+            </span>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -141,13 +151,16 @@ export function WhyNoTimes({
           >
             <span className="tabular text-sm font-medium">{dateLabel(day.date)}</span>
             {wide ? (
-              <div>
+              <div className="flex flex-wrap items-center gap-1.5">
                 <ReasonChip code={wide.code} reason={wide.reason} />
+                <span className="text-xs text-[var(--fg-muted)]" aria-hidden="true">
+                  {wide.reason}
+                </span>
               </div>
             ) : (
               <div className="grid gap-1">
                 {PREVIEW_KEYS.map((k) => (
-                  <KindLine key={k} kind={k} day={day} zone={zone} maxTimes={4} />
+                  <KindLine key={k} kind={k} day={day} zone={zone} maxTimes={4} showReason />
                 ))}
               </div>
             )}

@@ -68,7 +68,7 @@ async function changeLinkEvent(
   input: { calendarId: string; eventId: string },
   changes: Partial<EventDraft>,
   notify: GuestChoice,
-): Promise<Result<true>> {
+): Promise<Result<{ meetUrl: string | null }>> {
   const changed = await updateCalendarEvent(write(ctx), {
     calendarId: input.calendarId,
     eventId: input.eventId,
@@ -76,14 +76,17 @@ async function changeLinkEvent(
     notify,
     changes,
   });
-  return changed.ok ? ok(true) : changed;
+  return changed.ok ? ok({ meetUrl: changed.value.event?.meetUrl ?? null }) : changed;
 }
 
-/** The same event moved to a new time: Google sends everyone the update. */
+/**
+ * The same event moved to a new time: Google sends everyone the update. Its
+ * video link comes back, so the booking's page keeps showing it.
+ */
 export async function moveLinkEvent(
   ctx: LinkWriteContext,
   input: { calendarId: string; eventId: string; start: string; end: string; timeZone: string },
-): Promise<Result<true>> {
+): Promise<Result<{ meetUrl: string | null }>> {
   return changeLinkEvent(
     ctx,
     input,
@@ -103,7 +106,13 @@ export async function restoreLinkDescription(
   ctx: LinkWriteContext,
   input: { calendarId: string; eventId: string; description: string },
 ): Promise<Result<true>> {
-  return changeLinkEvent(ctx, input, { description: input.description }, 'dont_send');
+  const changed = await changeLinkEvent(
+    ctx,
+    input,
+    { description: input.description },
+    'dont_send',
+  );
+  return changed.ok ? ok(true) : changed;
 }
 
 /** The event deleted: Google sends everyone its cancellation. */

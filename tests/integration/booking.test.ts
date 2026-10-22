@@ -311,16 +311,31 @@ describe('a visitor’s request', () => {
     expect(fourth.ok).toBe(false);
     if (!fourth.ok) {
       expect(fourth.error.code).toBe('rate_limited');
-      expect(fourth.error.message).toMatch(/Too many requests from this email address/);
+      expect(fourth.error.message).toBe(
+        'You already have 3 meetings or messages on this link. Change or cancel one from its own page first.',
+      );
     }
     // A new hour, the same three still waiting: still no.
     resetLimiters();
-    const again = await submit(message);
-    expect(again.ok).toBe(false);
-    if (!again.ok)
-      expect(again.error.message).toBe(
-        'You already have 3 meetings or messages on this link. Change or cancel one from its own page first.',
+    expect((await submit(message)).ok).toBe(false);
+    // Handled, they no longer wait; the hourly brake (three an hour) still holds.
+    const handle = () =>
+      harness.store.updateWhere(
+        'booking_requests',
+        harness.auth.organizationId,
+        { eq: { email: 'pat@acme.example', status: 'pending' } },
+        { status: 'handled' },
       );
+    await handle();
+    resetLimiters();
+    for (let i = 0; i < 3; i += 1) {
+      expect((await submit(message)).ok).toBe(true);
+      await handle();
+    }
+    const hourly = await submit(message);
+    expect(hourly.ok).toBe(false);
+    if (!hourly.ok)
+      expect(hourly.error.message).toMatch(/Too many requests from this email address/);
   });
 
   it('fills a day with at most two link bookings', async () => {

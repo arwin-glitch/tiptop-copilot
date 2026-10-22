@@ -91,7 +91,9 @@ export function bookingAlertItems(
         row.status === 'pending'
           ? 'asked for'
           : row.status === 'held'
-            ? 'held (calendar editing is off)'
+            ? row.hold_reason && row.hold_reason !== 'calendar_editing_off'
+              ? 'booked (going on the calendar as soon as Google answers)'
+              : 'booked (held until calendar editing is on)'
             : 'booked';
       out.push({
         key: `booking:${row.id}:new`,
@@ -172,6 +174,8 @@ export interface BookingTodaySummary {
   waiting: number;
   /** Held times waiting for calendar editing. */
   held: number;
+  /** Held times Copilot keeps trying to put on the calendar (Google did not answer). */
+  retrying: number;
   /** In the last day: booked, moved and cancelled by visitors. */
   booked: number;
   moved: number;
@@ -188,7 +192,7 @@ export async function bookingTodaySummary(
   timeZone: string,
 ): Promise<BookingTodaySummary | null> {
   try {
-    const [messages, meetings, held] = await Promise.all([
+    const [messages, meetings, heldRows] = await Promise.all([
       store.count('booking_requests', organizationId, {
         eq: { status: 'pending', meeting_type: 'message' },
       }),
@@ -197,17 +201,24 @@ export async function bookingTodaySummary(
         neq: { meeting_type: 'message' },
         gte: { starts_at: now.toISOString() },
       }),
-      store.count('booking_requests', organizationId, {
-        eq: { status: 'held' },
-        gte: { starts_at: now.toISOString() },
-      }),
+      store.list(
+        'booking_requests',
+        organizationId,
+        { eq: { status: 'held' }, gte: { starts_at: now.toISOString() } },
+        { limit: 100 },
+      ),
     ]);
+    const waitingForEditing = (r: BookingRequest) =>
+      !r.hold_reason || r.hold_reason === 'calendar_editing_off';
+    const held = heldRows.filter(waitingForEditing).length;
+    const retrying = heldRows.length - held;
     const items = await readBookingAlertItems(store, organizationId, now, timeZone);
     const cancelled = items.filter((i) => i.kind === 'cancelled');
     const note = cancelled.find((i) => i.line.includes(': "'));
     return {
       waiting: messages + meetings,
       held,
+      retrying,
       booked: items.filter((i) => i.kind === 'new').length,
       moved: items.filter((i) => i.kind === 'moved').length,
       cancelled: cancelled.length,

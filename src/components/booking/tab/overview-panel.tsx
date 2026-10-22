@@ -296,7 +296,7 @@ export function OverviewPanel(props: OverviewPanelProps) {
             {preview.data ? (
               <>
                 <p className="text-xs text-[var(--fg-muted)]">
-                  Times in {zoneName(preview.data.hostZone)}. Hover a chip for the full reason.
+                  Times in {zoneName(preview.data.hostZone)}. Each closed day says why.
                 </p>
                 <WhyNoTimes days={preview.data.days} zone={preview.data.hostZone} />
               </>
@@ -378,6 +378,8 @@ function CheckCard({ check }: { check: StatusCheck }) {
     <li
       data-check={check.key}
       data-state={check.state}
+      // The tour's month step lands here (only one subtab shows at a time).
+      data-tour={check.key === 'months' ? 'booking-months' : undefined}
       className={cn(
         'flex items-start gap-2.5 rounded-md border p-3',
         check.state === 'warn'
@@ -398,11 +400,23 @@ function CheckCard({ check }: { check: StatusCheck }) {
       />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{check.title}</p>
-        <p className="text-sm text-[var(--fg-muted)]">{check.detail}</p>
+        {/* On a phone a check that is fine is its title alone: no long scroll. */}
+        <p
+          className={cn('text-sm text-[var(--fg-muted)]', check.state === 'ok' && 'max-sm:hidden')}
+        >
+          {check.detail}
+        </p>
         {href && check.fix ? (
-          <Link href={href} className="link-inline mt-1 inline-block text-sm">
-            {check.fix.label} →
-          </Link>
+          href.startsWith('/api/') ? (
+            // A server round trip (Google's consent screen), not a page.
+            <a href={href} className="link-inline mt-1 inline-block text-sm">
+              {check.fix.label} →
+            </a>
+          ) : (
+            <Link href={href} className="link-inline mt-1 inline-block text-sm">
+              {check.fix.label} →
+            </Link>
+          )
         ) : null}
       </div>
     </li>

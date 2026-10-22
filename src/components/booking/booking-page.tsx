@@ -23,22 +23,31 @@ import {
   type PublicSlots,
   type RememberedBooking,
 } from '@/lib/booking/public';
-import { EMPTY_FORM, LIMITS, patchForm, type BookingFormState } from '@/lib/booking/request';
+import {
+  addGuestDraft,
+  EMPTY_FORM,
+  LIMITS,
+  patchForm,
+  type BookingFormState,
+} from '@/lib/booking/request';
 import { SUPPORTED_TIMEZONES } from '@/lib/util/time';
 import { cn } from '@/lib/util/cn';
+import { Skeleton } from '@/components/ui/feedback';
+import { BookingCalendar, defaultDay, TimeGrid } from './month-calendar';
 import { BookingChat } from './booking-chat';
 import { BookingConfirmation } from './booking-confirmation';
 import { GuestList } from './guest-list';
-import { SlotPicker } from './slot-picker';
 
 /**
- * The public booking page (/meet/<slug>): the host's card, then one form —
- * a call or an in-person coffee, lunch or dinner, a time in the visitor's
- * own zone, a place, who they are and any guests. A free time is booked at
- * once (D-078; the server checks it again first) and the confirmation links
- * the booking's own page, to reschedule or cancel; with approve first on in
- * Settings it waits as a request instead. The chatbot can fill the form; the
- * visitor still presses the button.
+ * The public booking page (/meet/<slug>): the host's card, one form — a call
+ * or an in-person coffee, lunch or dinner, a time in the visitor's own zone,
+ * a place, who they are and any guests — and a calendar card, like
+ * Calendly's, showing the month's open, booked and not-offered days (three
+ * columns on a wide screen; on a phone the calendar sits above the times).
+ * A free time is booked at once (D-078; the server checks it again first)
+ * and the confirmation links the booking's own page, to reschedule or
+ * cancel; with approve first on it waits as a request instead. The chatbot
+ * can fill the form; the visitor still presses the button.
  */
 
 const noSubscribe = () => () => {};
@@ -91,11 +100,21 @@ export function BookingPage({
   );
 }
 
-export function Shell({ firmName, children }: { firmName: string; children: React.ReactNode }) {
+export function Shell({
+  firmName,
+  children,
+  wide = false,
+}: {
+  firmName: string;
+  children: React.ReactNode;
+  /** The booking page's three columns (card, form, calendar) on a wide screen. */
+  wide?: boolean;
+}) {
+  const width = wide ? 'max-w-7xl' : 'max-w-5xl';
   return (
     <div className="flex min-h-dvh flex-col bg-[var(--bg)] text-[var(--fg)]">
       <header className="dark border-b border-[var(--gold-rule)] bg-[var(--bg-band)] text-[var(--fg)]">
-        <div className="mx-auto flex max-w-5xl items-center gap-2.5 px-4 py-3.5 sm:px-6">
+        <div className={cn('mx-auto flex items-center gap-2.5 px-4 py-3.5 sm:px-6', width)}>
           <Mark className="text-[var(--brand-mark)]" size={18} />
           <span className="min-w-0 flex-1 truncate font-serif text-[15px] font-semibold tracking-tight">
             {firmName}
@@ -103,7 +122,7 @@ export function Shell({ firmName, children }: { firmName: string; children: Reac
           <ThemeToggle />
         </div>
       </header>
-      <main id="main" className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-10">
+      <main id="main" className={cn('mx-auto w-full flex-1 px-4 py-6 sm:px-6 sm:py-10', width)}>
         {children}
       </main>
       <footer className="border-t border-[var(--border)] px-4 py-5 text-center text-xs text-[var(--fg-subtle)]">
@@ -218,6 +237,8 @@ function OpenPage({
   const zone = hostClock ? data.hostTimeZone : visitorZone;
   const [slots, setSlots] = React.useState<Record<string, SlotState>>({});
   const [day, setDay] = React.useState<string | null>(null);
+  /** The month the calendar card shows (`YYYY-MM`), or null for the first with times. */
+  const [month, setMonth] = React.useState<string | null>(null);
   const [sending, setSending] = React.useState(false);
   const [problem, setProblem] = React.useState<string | null>(null);
   const [sent, setSent] = React.useState<{
@@ -285,8 +306,52 @@ function OpenPage({
   const update = (patch: Partial<BookingFormState>) => {
     setProblem(null);
     setNextTimes([]);
+    if (patch.type !== undefined || patch.kind !== undefined) {
+      setMonth(null);
+      setDay(null);
+    }
     setForm((f) => patchForm(f, patch));
   };
+
+  // The calendar card and the time list read the same day, in the same zone.
+  const today = React.useMemo(() => dayKeyIn(new Date().toISOString(), zone), [zone]);
+  const shownDay = defaultDay({ slots: list, zone, value: form.start, day, month });
+  const shownMonth = month ?? (shownDay ? shownDay.slice(0, 7) : null);
+  const pickDay = (key: string) => {
+    setDay(key);
+    setMonth(key.slice(0, 7));
+    if (form.start && dayKeyIn(form.start, zone) !== key) update({ start: null });
+  };
+  const pickMonth = (next: string) => {
+    setMonth(next);
+    if (form.start && dayKeyIn(form.start, zone).slice(0, 7) !== next) update({ start: null });
+    setDay(defaultDay({ slots: list, zone, value: null, day: null, month: next }));
+  };
+  const calendarLabel =
+    form.type === 'in_person' && form.kind
+      ? `Open days for ${KIND_LABEL[form.kind].toLowerCase()}`
+      : `Open days for a ${callLabel}`;
+  const calendarFor = (className: string) =>
+    current?.data && !current.loading && list.length > 0 ? (
+      <BookingCalendar
+        className={className}
+        slots={list}
+        days={current.data.days}
+        months={current.data.months}
+        zone={zone}
+        today={today}
+        month={shownMonth}
+        onMonth={pickMonth}
+        selected={shownDay}
+        onSelect={pickDay}
+        yourMeeting={
+          latest && latest.status !== 'pending'
+            ? { startsAt: latest.startsAt, manageUrl: latest.manageUrl }
+            : null
+        }
+        label={calendarLabel}
+      />
+    ) : null;
 
   const send = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -298,6 +363,21 @@ function OpenPage({
     if (form.type !== 'message' && !form.start) {
       setProblem('Pick a time.');
       return;
+    }
+    // A guest typed but not added yet counts, as on Calendly; one that is
+    // not an address stops the booking with the reason.
+    let guests = form.guests;
+    if (form.type !== 'message' && data.guests.allowed && form.guestDraft.trim()) {
+      const added = addGuestDraft(form.guests, form.guestDraft, {
+        max: data.guests.max,
+        booker: form.email,
+      });
+      if (!added.ok) {
+        setProblem(added.problem);
+        return;
+      }
+      guests = added.guests;
+      setForm((f) => ({ ...f, guests: added.guests, guestDraft: '' }));
     }
     setSending(true);
     setProblem(null);
@@ -315,7 +395,7 @@ function OpenPage({
         customPlace: form.type === 'in_person' && form.placeId === 'custom' ? form.customPlace : '',
         note: form.note,
         deckUrl: form.deckUrl,
-        guests: form.type === 'message' || !data.guests.allowed ? [] : form.guests,
+        guests: form.type === 'message' || !data.guests.allowed ? [] : guests,
         timeZone: zone,
         source: 'form',
         website,
@@ -341,6 +421,7 @@ function OpenPage({
           startsAt: booking.startsAt,
           type: booking.type,
           kind: booking.kind,
+          status: status === 'pending' ? 'pending' : status === 'held' ? 'held' : 'booked',
         });
       }
       setSent({ status, booking, manageUrl });
@@ -376,9 +457,15 @@ function OpenPage({
 
   const zones = distinctZones([zone, detectedZone, data.hostTimeZone, ...SUPPORTED_TIMEZONES]);
 
+  const calendarColumn = form.type !== 'message';
   return (
-    <Shell firmName={host.firmName || 'TipTop Ventures'}>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:items-start">
+    <Shell firmName={host.firmName || 'TipTop Ventures'} wide>
+      <div
+        className={cn(
+          'grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:items-start',
+          calendarColumn && 'xl:grid-cols-[minmax(0,17rem)_minmax(0,1fr)_minmax(0,21rem)] xl:gap-5',
+        )}
+      >
         <div className="lg:sticky lg:top-6">
           <HostCard
             host={host}
@@ -390,7 +477,12 @@ function OpenPage({
 
         <div ref={formRef} className="scroll-mt-4">
           {latest ? (
-            <RememberedBanner booking={latest} hostName={host.displayName} zone={visitorZone} />
+            <RememberedBanner
+              booking={latest}
+              hostName={host.displayName}
+              zone={visitorZone}
+              hostZone={data.hostTimeZone}
+            />
           ) : null}
           <form
             onSubmit={send}
@@ -400,7 +492,11 @@ function OpenPage({
           >
             <div>
               <h2 id={`${uid}-title`} className="font-serif text-xl font-semibold">
-                {form.type === 'message' ? 'Leave a message' : 'Ask for a time'}
+                {form.type === 'message'
+                  ? 'Leave a message'
+                  : data.instant
+                    ? 'Pick a time'
+                    : 'Ask for a time'}
               </h2>
               <p className="mt-1 text-sm text-[var(--fg-muted)]">
                 {form.type === 'message'
@@ -500,7 +596,7 @@ function OpenPage({
                           type="button"
                           variant="secondary"
                           onClick={() => {
-                            setDay(dayKeyIn(s.start, zone));
+                            pickDay(dayKeyIn(s.start, zone));
                             update({ start: s.start });
                           }}
                         >
@@ -524,14 +620,17 @@ function OpenPage({
                     message.
                   </Notice>
                 ) : (
-                  <SlotPicker
-                    slots={list}
-                    zone={zone}
-                    value={form.start}
-                    onChange={(start) => update({ start })}
-                    day={day}
-                    onDay={setDay}
-                  />
+                  <div className="space-y-4">
+                    {/* Narrower than three columns: the calendar sits above the times. */}
+                    {calendarFor('xl:hidden')}
+                    <TimeGrid
+                      slots={list}
+                      zone={zone}
+                      day={shownDay}
+                      value={form.start}
+                      onChange={(start) => update({ start })}
+                    />
+                  </div>
                 )}
               </fieldset>
             ) : null}
@@ -657,6 +756,8 @@ function OpenPage({
                   max={data.guests.max}
                   booker={form.email}
                   onChange={(guests) => update({ guests })}
+                  draft={form.guestDraft}
+                  onDraft={(guestDraft) => update({ guestDraft })}
                 />
               ) : null}
               <div className="space-y-1.5">
@@ -713,7 +814,7 @@ function OpenPage({
               </Button>
               {form.type === 'message' ? (
                 <Button type="button" variant="link" onClick={() => update({ type: 'call' })}>
-                  Ask for a time instead
+                  {data.instant ? 'Book a time instead' : 'Ask for a time instead'}
                 </Button>
               ) : (
                 <Button
@@ -728,6 +829,26 @@ function OpenPage({
             </div>
           </form>
         </div>
+
+        {calendarColumn ? (
+          <aside aria-label="Calendar" className="hidden xl:sticky xl:top-6 xl:block">
+            <div className="shadow-raised rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--bg-raised)] p-4">
+              {calendarFor('') ??
+                (current?.loading ? (
+                  <div className="space-y-2" aria-hidden="true">
+                    <Skeleton className="h-6 w-40" />
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                ) : (
+                  <p className="text-sm text-[var(--fg-muted)]">
+                    {form.type === 'in_person' && !form.kind
+                      ? 'Pick coffee, lunch or dinner to see the open days.'
+                      : 'No open days for this right now.'}
+                  </p>
+                ))}
+            </div>
+          </aside>
+        ) : null}
       </div>
 
       {data.chatbot.enabled ? (
@@ -791,21 +912,32 @@ function RememberedBanner({
   booking,
   hostName,
   zone,
+  hostZone,
 }: {
   booking: RememberedBooking;
   hostName: string;
   zone: string;
+  /** In person reads in the host's clock: the visitor will be there. */
+  hostZone: string;
 }) {
-  const shownZone = booking.type === 'in_person' ? null : zone;
+  const z = booking.type === 'in_person' ? hostZone : zone;
+  const when = (
+    <strong className="font-semibold">
+      {slotLabel(booking.startsAt, z)} · {zoneName(z, new Date(booking.startsAt))}
+    </strong>
+  );
   return (
     <Notice tone="info" className="mb-4">
       <span>
-        You have a meeting with {hostName} on{' '}
-        <strong className="font-semibold">
-          {slotLabel(booking.startsAt, shownZone ?? zone)}
-          {shownZone ? ` (${zoneName(shownZone, new Date(booking.startsAt))})` : ''}
-        </strong>
-        .{' '}
+        {booking.status === 'pending' ? (
+          <>
+            Your request to meet {hostName} on {when} is in.
+          </>
+        ) : (
+          <>
+            You have a meeting with {hostName} on {when}.
+          </>
+        )}{' '}
         <a href={booking.manageUrl} className="link-inline whitespace-nowrap">
           See, reschedule or cancel
         </a>

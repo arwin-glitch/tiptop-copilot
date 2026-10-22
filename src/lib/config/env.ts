@@ -188,14 +188,26 @@ export interface AppEnv {
    */
   bookingChatFireUrl: string | undefined;
   bookingChatToken: string | undefined;
-  /** Where the routine posts `BOOKING_ANSWER_V1`: the ask relay channel unless set. */
-  bookingChatRelayChannelId: string;
+  /**
+   * Where the routine posts `BOOKING_ANSWER_V1`: a private channel of its
+   * own that no other relay reads. No default: a stranger's question must
+   * never reach a channel (or an account) the task, briefing or follow-up
+   * readers trust, so AI answers stay off until it is set
+   * (lib/booking/chat-bridge.ts bookingChatConfigured).
+   */
+  bookingChatRelayChannelId: string | undefined;
   /**
    * The Slack user IDs whose `BOOKING_ANSWER_V1` posts are read; everyone
-   * else's are ignored. The task routines' poster list unless set (the
-   * routines post as the same account).
+   * else's are ignored. No default, and none of them may be a task or deal
+   * relay poster: the routine posts as an account no other relay trusts.
    */
   bookingChatPosterIds: readonly string[];
+  /**
+   * Tests only: the end-to-end suite's demo server takes every spec's
+   * visitors on one shared calendar, so the booking link's daily brakes are
+   * loosened there. Honoured only with DEMO_MODE on; production never.
+   */
+  bookingBrakesRelaxed: boolean;
 
   /**
    * The private Slack channel the deal-sorter routine posts deal updates to
@@ -238,6 +250,31 @@ export interface AppEnv {
 
 /** The desktop app's release repository when DESKTOP_RELEASE_REPO is unset or malformed. */
 export const DEFAULT_DESKTOP_RELEASE_REPO = 'arwin-glitch/tiptop-copilot';
+
+/**
+ * Why the routine's Slack relay is not safe to use, in plain words, or null
+ * when it is. A stranger's question reaches the routine, so its answers
+ * must come back through a channel no other relay reads, posted by an
+ * account no other relay trusts: a prompt-injected answer can then never
+ * pass for a task, a briefing or a queued email (D-078).
+ */
+export function bookingChatRelayProblem(e: AppEnv = env()): string | null {
+  const channel = e.bookingChatRelayChannelId;
+  if (!channel) {
+    return 'BOOKING_CHAT_RELAY_CHANNEL_ID is not set: give the routine a private channel of its own.';
+  }
+  if (channel === e.askRelayChannelId || channel === e.dealRelayChannelId) {
+    return 'BOOKING_CHAT_RELAY_CHANNEL_ID is a channel another relay reads: give the routine a private channel of its own.';
+  }
+  if (e.bookingChatPosterIds.length === 0) {
+    return 'BOOKING_CHAT_POSTER_IDS is not set: name the Slack account the routine posts as.';
+  }
+  const trusted = new Set([...e.taskRelayPosterIds, ...e.dealRelayPosterIds]);
+  if (e.bookingChatPosterIds.some((id) => trusted.has(id))) {
+    return 'BOOKING_CHAT_POSTER_IDS names an account another relay trusts: connect the routine to Slack as an account no other relay trusts.';
+  }
+  return null;
+}
 
 /** The account the task routines post as, so nothing has to be set on Render. */
 export const DEFAULT_TASK_RELAY_POSTER_IDS: readonly string[] = ['U0AKEG0Q389'];
@@ -309,15 +346,12 @@ export function env(): AppEnv {
     askRelayChannelId: str('ASK_RELAY_CHANNEL_ID') ?? 'C0C3JPW6PTJ',
     bookingChatFireUrl: str('BOOKING_CHAT_FIRE_URL'),
     bookingChatToken: str('BOOKING_CHAT_TOKEN'),
-    bookingChatRelayChannelId:
-      str('BOOKING_CHAT_RELAY_CHANNEL_ID') ?? str('ASK_RELAY_CHANNEL_ID') ?? 'C0C3JPW6PTJ',
-    bookingChatPosterIds: ((): readonly string[] => {
-      const ids = (str('BOOKING_CHAT_POSTER_IDS') ?? str('TASK_RELAY_POSTER_IDS') ?? '')
-        .split(',')
-        .map((id) => id.trim())
-        .filter(Boolean);
-      return ids.length > 0 ? ids : DEFAULT_TASK_RELAY_POSTER_IDS;
-    })(),
+    bookingChatRelayChannelId: str('BOOKING_CHAT_RELAY_CHANNEL_ID'),
+    bookingChatPosterIds: (str('BOOKING_CHAT_POSTER_IDS') ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean),
+    bookingBrakesRelaxed: bool('DEMO_MODE', false) && str('E2E_BOOKING_BRAKES') === 'relaxed',
     dealRelayChannelId: str('DEAL_RELAY_CHANNEL_ID') ?? 'C0C40TVD4DP',
     dealRelayPosterIds: (str('DEAL_RELAY_POSTER_IDS') ?? '')
       .split(',')
@@ -744,15 +778,19 @@ export function capabilityReport(
     required: false,
   });
 
-  const bookingAssistant =
+  const bookingAssistantKeys =
     has(e.bookingChatFireUrl) && has(e.bookingChatToken) && has(e.askRelaySlackToken);
+  const relayProblem = bookingChatRelayProblem(e);
+  const bookingAssistant = bookingAssistantKeys && relayProblem === null;
   checks.push({
     key: 'booking-assistant',
     label: 'Booking page assistant: AI answers (optional)',
     status: bookingAssistant ? 'ready' : 'optional-missing',
     detail: bookingAssistant
-      ? `Set. A question the written answers do not cover goes to the booking assistant routine on Arwin's Claude plan (no API key), and its answer is read back from Slack (${e.bookingChatRelayChannelId}), from the listed posters only. Turn it on in the Booking tab's assistant panel.`
-      : 'Not set. The booking page assistant answers from the written questions only and books times; nothing else changes. Set it up with docs/BOOKING_CHAT_ROUTINE.md.',
+      ? `Set. A question the written answers do not cover goes to the booking assistant routine on Arwin's Claude plan (no API key), and its answer is read back from its own Slack channel (${e.bookingChatRelayChannelId}), from its own poster only. Turn it on in the Booking tab's assistant panel.`
+      : bookingAssistantKeys && relayProblem
+        ? `Off: ${relayProblem} Until then the assistant answers from the written questions only (docs/BOOKING_CHAT_ROUTINE.md).`
+        : 'Not set. The booking page assistant answers from the written questions only and books times; nothing else changes. Set it up with docs/BOOKING_CHAT_ROUTINE.md.',
     variables: [
       'BOOKING_CHAT_FIRE_URL',
       'BOOKING_CHAT_TOKEN',

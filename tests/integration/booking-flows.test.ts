@@ -290,6 +290,7 @@ describe('the token', () => {
       startsAt: slot!.start,
       type: 'call',
       kind: null,
+      status: 'booked',
     });
     expect(await rememberedBooking(harness.store, SLUG, 'nope', NOW)).toBeNull();
   });
@@ -636,6 +637,8 @@ describe('the Booking tab', () => {
       eventLink: expect.stringMatching(/^https:\/\/www\.google\.com\/calendar\/event\?eid=/),
       visitorTimeZone: 'America/New_York',
       cancelledBy: null,
+      holdReason: null,
+      nextTryAt: null,
     });
     expect(JSON.stringify(upcoming)).not.toMatch(/manage_token|ip_hash|hash-a/);
     expect(upcoming.calendarEditing).toBe(true);
@@ -686,8 +689,8 @@ describe('approve first (the option)', () => {
 });
 
 describe('before the v2 migration is run', () => {
-  it('keeps the booking the old way, as a request that waits, with no page to manage', async () => {
-    const [slot] = await slots();
+  /** The store as it is before 20261022200000_booking_v2.sql: no v2 columns. */
+  function withoutV2Columns() {
     const insert = harness.store.insert.bind(harness.store);
     harness.store.insert = (async (table: string, row: Record<string, unknown>) => {
       if (table === 'booking_requests' && 'manage_token_hash' in row) {
@@ -697,7 +700,30 @@ describe('before the v2 migration is run', () => {
       }
       return insert(table as never, row as never);
     }) as typeof harness.store.insert;
+  }
+
+  it('still books a free time at once (kept as approved), with no page to manage', async () => {
+    const [slot] = await slots();
+    withoutV2Columns();
     const result = await submit({ start: slot!.start });
+    expect(result.ok && result.value.kind === 'saved' && result.value.result.status).toBe('booked');
+    if (result.ok) expect(result.value.result.manageUrl).toBeNull();
+    expect(state.writes).toHaveLength(1);
+    expect(state.writes[0]!.sendUpdates).toBe('all');
+    const rows = await harness.store.list('booking_requests', harness.auth.organizationId, {
+      eq: { email: 'pat@acme.example' },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: 'approved', decided_by: null });
+    expect(rows[0]!.event_id).toBeTruthy();
+    expect('manage_token_hash' in rows[0]!).toBe(false);
+    expect(await audits('booking.v2_missing')).toHaveLength(1);
+  });
+
+  it('without calendar editing it can only wait as a request', async () => {
+    const [slot] = await slots();
+    withoutV2Columns();
+    const result = await submit({ start: slot!.start }, READ_SCOPES);
     expect(result.ok && result.value.kind === 'saved' && result.value.result).toEqual({
       status: 'pending',
       manageUrl: null,
@@ -709,6 +735,23 @@ describe('before the v2 migration is run', () => {
     });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ status: 'pending' });
-    expect('manage_token_hash' in rows[0]!).toBe(false);
+  });
+
+  it('reads only the old status check as not migrated: any other check fails loudly', async () => {
+    const [slot] = await slots();
+    const insert = harness.store.insert.bind(harness.store);
+    harness.store.insert = (async (table: string, row: Record<string, unknown>) => {
+      if (table === 'booking_requests') {
+        throw Object.assign(
+          new Error(
+            'new row for relation "booking_requests" violates check constraint "booking_requests_guests_allowed"',
+          ),
+          { code: '23514' },
+        );
+      }
+      return insert(table as never, row as never);
+    }) as typeof harness.store.insert;
+    await expect(submit({ start: slot!.start })).rejects.toThrow(/booking_requests_guests_allowed/);
+    expect(state.writes).toEqual([]);
   });
 });

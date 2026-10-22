@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { env } from '@/lib/config/env';
+import { pruneBookingQuestionsForAll } from '@/lib/booking/chat-bridge';
 import { getStore } from '@/lib/runtime';
 import { placeHeldBookingsForAll } from '@/lib/services/booking-manage';
 import { recordJobHeartbeatForAll } from '@/lib/services/feed-health';
@@ -47,9 +48,12 @@ export async function GET(request: NextRequest) {
   // Diagnostics > Feeds tells from this whether the sender is still calling;
   // written at most every ten minutes, and never throws.
   await recordJobHeartbeatForAll(getStore(), 'push-sender');
-  // Every half hour: held booking-link times go on the calendar once
-  // calendar editing is on, each checked again first (D-078). Never throws.
-  if (scope === 'all') await placeHeldBookingsForAll(getStore()).catch(() => null);
+  // Every tick (each minute for meetings, each half hour for the rest):
+  // held booking-link times go on the calendar by themselves once they can,
+  // each checked again first, a Google fault on its own backoff (D-078).
+  // Never throws. Visitors' old assistant questions are deleted half-hourly.
+  await placeHeldBookingsForAll(getStore()).catch(() => null);
+  if (scope === 'all') await pruneBookingQuestionsForAll(getStore()).catch(() => null);
   const outbox = await buildOutbox(getStore(), new Date(), scope);
   return NextResponse.json(
     { ok: true, publicKey: vapidPublicKey(), outbox },

@@ -9,8 +9,10 @@ import {
   Coffee,
   ExternalLink,
   FileText,
+  Loader2,
   MapPin,
   MessageSquare,
+  RefreshCw,
   Users,
   Video,
   X,
@@ -21,7 +23,9 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { EmptyState, Notice, Skeleton } from '@/components/ui/feedback';
 import { Label, Textarea } from '@/components/ui/form';
 import { KIND_LABEL, TYPE_LABEL } from '@/lib/booking/config';
+import { HOLD_REASON_TEXT } from '@/lib/booking/holds';
 import { dayKeyIn, slotLabel, timeLabel, zoneName } from '@/lib/booking/public';
+import { CANCEL_NOTE_MAX } from '@/lib/booking/request';
 import { BOOKING_SCOPES, type BookingScope } from '@/lib/booking/tabs';
 import { relativeTime } from '@/lib/util/time';
 import { cn } from '@/lib/util/cn';
@@ -39,8 +43,9 @@ const STATUS: Record<
   { label: string; tone: 'ok' | 'warn' | 'info' | 'neutral' | 'danger' }
 > = {
   booked: { label: 'Booked', tone: 'ok' },
-  held: { label: 'Held', tone: 'warn' },
-  pending: { label: 'Waiting', tone: 'info' },
+  // Booked by the visitor, not on the calendar yet: Copilot books it by itself.
+  held: { label: 'Booking…', tone: 'warn' },
+  pending: { label: 'Waiting for approval', tone: 'info' },
   cancelled: { label: 'Cancelled', tone: 'neutral' },
   declined: { label: 'Declined', tone: 'neutral' },
   message: { label: 'Message', tone: 'neutral' },
@@ -153,6 +158,10 @@ export function BookingsPanel(props: BookingsPanelProps) {
               zone={props.hostZone}
               canCancel={props.canCancel && scope === 'upcoming'}
               onCancel={() => setCancelling(b)}
+              onChanged={() => {
+                setVersion((v) => v + 1);
+                router.refresh();
+              }}
             />
           ))}
         </ul>
@@ -177,11 +186,13 @@ function BookingCard({
   zone,
   canCancel,
   onCancel,
+  onChanged,
 }: {
   booking: TabBooking;
   zone: string;
   canCancel: boolean;
   onCancel: () => void;
+  onChanged: () => void;
 }) {
   const status =
     b.status === 'cancelled' && b.cancelledBy === 'calendar'
@@ -287,14 +298,14 @@ function BookingCard({
           ) : null}
           {b.status === 'cancelled' && b.cancelNote ? (
             <p className="text-sm">
-              <span className="text-[var(--fg-muted)]">Their note: </span>
+              <span className="text-[var(--fg-muted)]">
+                {b.cancelledBy === 'team' ? 'Your note (only in Copilot): ' : 'Their note: '}
+              </span>
               <span className="whitespace-pre-line">{b.cancelNote}</span>
             </p>
           ) : null}
           {b.status === 'held' ? (
-            <p className="text-sm text-[var(--warn)]">
-              Held: it goes on the calendar as soon as calendar editing is on.
-            </p>
+            <HeldLine booking={b} canTry={canCancel} onDone={onChanged} />
           ) : null}
           {deck ? (
             <p className="text-sm">
@@ -341,6 +352,68 @@ function BookingCard({
   );
 }
 
+/**
+ * A held booking (D-078): the visitor booked it, and Copilot puts it on the
+ * calendar by itself as soon as it can. Says what it waits for and when it
+ * tries next, with "Try now". Never Approve or Decline: nobody has to.
+ */
+function HeldLine({
+  booking: b,
+  canTry,
+  onDone,
+}: {
+  booking: TabBooking;
+  canTry: boolean;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const reason = HOLD_REASON_TEXT[b.holdReason ?? 'calendar_editing_off'];
+  const next =
+    b.holdReason !== 'calendar_editing_off' && b.nextTryAt
+      ? ` Next try ${relativeTime(b.nextTryAt)}.`
+      : '';
+  const tryNow = async () => {
+    setBusy(true);
+    const res = await fetch(`/api/booking/bookings/${encodeURIComponent(b.id)}/retry`, {
+      method: 'POST',
+    }).catch(() => null);
+    setBusy(false);
+    const json = (await res?.json().catch(() => null)) as {
+      ok?: boolean;
+      status?: TabBooking['status'];
+      error?: { message?: string };
+    } | null;
+    if (!res?.ok || !json?.ok) {
+      toast.error(json?.error?.message ?? 'It could not be tried. Try again in a minute.');
+      return;
+    }
+    if (json.status === 'booked')
+      toast.success('Booked: it is on the calendar and the invitation went out.');
+    else if (json.status === 'declined')
+      toast.message('That time was taken meanwhile, so it was released.');
+    else toast.message('Still not on the calendar. Copilot keeps trying by itself.');
+    onDone();
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md bg-[var(--warn-soft)] px-3 py-2 text-sm">
+      <Loader2
+        className="size-3.5 shrink-0 animate-spin text-[var(--warn)] motion-reduce:animate-none"
+        aria-hidden="true"
+      />
+      <p className="min-w-0 flex-1" data-testid="held-reason">
+        {reason}
+        {next}
+      </p>
+      {canTry ? (
+        <Button size="sm" variant="secondary" loading={busy} onClick={() => void tryNow()}>
+          <RefreshCw aria-hidden="true" />
+          Try now
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 function CancelDialog({
   booking,
   zone,
@@ -367,13 +440,21 @@ function CancelDialog({
     setBusy(false);
     const json = (await res?.json().catch(() => null)) as {
       ok?: boolean;
+      removedEvent?: boolean;
+      calendarLeft?: boolean;
       error?: { message?: string };
     } | null;
     if (!res?.ok || !json?.ok) {
       setProblem(json?.error?.message ?? 'It was not cancelled. Try again.');
       return;
     }
-    toast.success('Cancelled. Google Calendar tells them.');
+    toast.success(
+      json.calendarLeft
+        ? 'Cancelled here. Remove it from Google Calendar too: calendar editing is off.'
+        : json.removedEvent
+          ? 'Cancelled. Google Calendar tells everyone invited.'
+          : 'Cancelled. Nothing was on the calendar yet.',
+    );
     setNote('');
     onDone();
   };
@@ -393,20 +474,29 @@ function CancelDialog({
           title={`Cancel with ${booking.name}?`}
           description={
             booking.startsAt
-              ? `${slotLabel(booking.startsAt, zone)}. It comes off the calendar and Google Calendar tells everyone invited.`
+              ? booking.status === 'booked'
+                ? `${slotLabel(booking.startsAt, zone)}. It comes off the calendar and Google Calendar tells everyone invited.`
+                : `${slotLabel(booking.startsAt, zone)}. It is not on the calendar yet, so nobody gets a calendar email.`
               : undefined
           }
         >
           <div className="space-y-1.5">
-            <Label htmlFor="cancel-note">Note (optional)</Label>
+            <Label htmlFor="cancel-note">Private note (the visitor does not see it)</Label>
             <Textarea
               id="cancel-note"
               rows={3}
-              maxLength={1000}
+              maxLength={CANCEL_NOTE_MAX}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Sorry, something came up."
+              placeholder="Why it was cancelled, for the team."
             />
+            <p className="text-xs text-[var(--fg-muted)]">
+              Google&apos;s cancellation carries no message. To tell them why, write to{' '}
+              <a href={`mailto:${encodeURIComponent(booking.email)}`} className="link-inline">
+                {booking.email}
+              </a>
+              .
+            </p>
           </div>
           {problem ? (
             <div role="alert" className="mt-3">

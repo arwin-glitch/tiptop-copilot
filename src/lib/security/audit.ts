@@ -112,6 +112,7 @@ export type AuditAction =
   | 'booking.held'
   | 'booking.hold_placed'
   | 'booking.released'
+  | 'booking.v2_missing'
   | 'booking.rescheduled'
   | 'booking.cancelled'
   | 'booking.synced'

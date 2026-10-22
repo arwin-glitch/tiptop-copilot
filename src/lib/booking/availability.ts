@@ -120,10 +120,13 @@ export async function busyPictureFor(
     principalId: string | null;
     config: BookingConfig;
     now: Date;
+    /** Past the calendar cache (every check that books, moves or places a time). */
+    fresh?: boolean;
   },
 ): Promise<Result<BusyRead>> {
   const { source, hostZone, config, now } = options;
-  const list = await readCalendarList(source, organizationId, now.getTime());
+  const fresh = options.fresh === true;
+  const list = await readCalendarList(source, organizationId, now.getTime(), { fresh });
   if (!list.ok) return err('provider_unavailable', 'The host’s calendars could not be read.');
   const prefs = options.principalId
     ? await readCalendarPrefs(store, organizationId, options.principalId)
@@ -159,6 +162,7 @@ export async function busyPictureFor(
       calendarIds: shown,
       source,
       now: now.getTime(),
+      fresh,
     });
     if (range.state !== 'ok' || range.failed.length > 0) {
       return err('provider_unavailable', 'The host’s calendars could not be read in full.');

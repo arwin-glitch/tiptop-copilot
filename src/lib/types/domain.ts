@@ -1421,7 +1421,19 @@ export interface BookingRequest {
    */
   description_cleaned_at?: IsoDateTime | null;
   description_cleaned_rev?: number | null;
+  /**
+   * A held booking (instant, not yet on the calendar): why it is not on it
+   * yet, how many tries Copilot has made, and when it tries again by itself
+   * (lib/services/booking-manage.ts placeHeldBookings). Null once booked.
+   */
+  hold_reason?: BookingHoldReason | null;
+  hold_attempts?: number;
+  hold_next_try_at?: IsoDateTime | null;
 }
+
+/** Why a held booking is not on the calendar yet (D-078). */
+export type BookingHoldReason =
+  'calendar_editing_off' | 'no_main_calendar' | 'calendar_unreachable' | 'calendar_error';
 
 /**
  * A question a visitor asked the booking page assistant that no written

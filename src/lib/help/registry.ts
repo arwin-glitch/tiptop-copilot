@@ -540,8 +540,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'booking-months',
         title: 'Switch months on',
-        body: 'On Availability, tap any month On or Off, up to 12 ahead. Then tap a day to close it.',
-        placement: 'bottom',
+        body: 'The months open on the link. On Availability, tap each month On or Off.',
+        placement: 'top',
       },
     ],
     sketch: [

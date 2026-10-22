@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const name = page?.state === 'open' ? page.host?.displayName : null;
   return {
     title: { absolute: name ? `Meet with ${name}` : 'Booking link' },
-    description: 'Ask for a time to meet.',
+    description: 'Book a time to meet.',
   };
 }
 

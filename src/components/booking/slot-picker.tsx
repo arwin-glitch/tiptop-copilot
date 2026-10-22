@@ -1,14 +1,15 @@
 'use client';
 
 import * as React from 'react';
-import { dayKeyIn, dayLabel, timeLabel, type PublicSlot } from '@/lib/booking/public';
-import { cn } from '@/lib/util/cn';
+import { dayKeyIn, type PublicDay, type PublicSlot } from '@/lib/booking/public';
+import { BookingCalendar, defaultDay, TimeGrid } from './month-calendar';
 
 /**
- * The booking link's time picker (D-074, D-078): the days with open times
- * as chips, then that day's times as buttons, both radio groups ("Day",
- * "Time") in the visitor's zone. The booking page and the booking's own page
- * (to move it) share it, so a visitor sees the same picker in both places.
+ * The booking link's time picker for moving a booking (D-074, D-078): the
+ * same month calendar as the booking page (one month at a time, its arrows
+ * only to months with open times), then the picked day's times as buttons
+ * ("Time"), in the visitor's zone. So a visitor sees the same picker in both
+ * places, and a link open for months is never a wall of day chips.
  */
 export function SlotPicker({
   slots,
@@ -17,6 +18,9 @@ export function SlotPicker({
   onChange,
   day,
   onDay,
+  days,
+  months,
+  label = 'Open days',
 }: {
   slots: readonly PublicSlot[];
   zone: string;
@@ -26,66 +30,43 @@ export function SlotPicker({
   /** The day shown when no time is picked yet (a key in `zone`), or null for the first. */
   day: string | null;
   onDay: (day: string) => void;
+  days?: readonly PublicDay[];
+  months?: readonly string[];
+  label?: string;
 }) {
-  const days = React.useMemo(() => {
-    const groups = new Map<string, PublicSlot[]>();
-    for (const s of slots) {
-      const k = dayKeyIn(s.start, zone);
-      groups.set(k, [...(groups.get(k) ?? []), s]);
-    }
-    return [...groups.entries()];
-  }, [slots, zone]);
-  const pickedDay =
-    (value ? dayKeyIn(value, zone) : null) ??
-    (day && days.some(([k]) => k === day) ? day : null) ??
-    days[0]?.[0] ??
-    null;
-  const dayTimes = days.find(([k]) => k === pickedDay)?.[1] ?? [];
-
+  const [month, setMonth] = React.useState<string | null>(null);
+  const today = React.useMemo(() => dayKeyIn(new Date().toISOString(), zone), [zone]);
+  const shownDay = defaultDay({ slots, zone, value, day, month });
   return (
-    <>
-      <div role="radiogroup" aria-label="Day" className="flex flex-wrap gap-2">
-        {days.map(([k, times]) => (
-          <button
-            key={k}
-            type="button"
-            role="radio"
-            aria-checked={pickedDay === k}
-            onClick={() => {
-              onDay(k);
-              if (value && dayKeyIn(value, zone) !== k) onChange(null);
-            }}
-            className={cn(
-              'min-h-11 rounded-[var(--radius-card)] border px-3 py-1.5 text-left text-sm transition-colors',
-              pickedDay === k
-                ? 'border-[var(--primary)] bg-[var(--accent-soft)] font-medium text-[var(--fg)]'
-                : 'border-[var(--border-strong)] bg-[var(--bg)] hover:bg-[var(--bg-hover)]',
-            )}
-          >
-            <span className="block">{dayLabel(times[0]!.start, zone)}</span>
-            <span className="block text-[11px] text-[var(--fg-subtle)]">{times.length} open</span>
-          </button>
-        ))}
-      </div>
-      <div role="radiogroup" aria-label="Time" className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-        {dayTimes.map((s) => (
-          <button
-            key={s.start}
-            type="button"
-            role="radio"
-            aria-checked={value === s.start}
-            onClick={() => onChange(s.start)}
-            className={cn(
-              'h-11 rounded-md border text-sm font-medium tabular-nums transition-colors',
-              value === s.start
-                ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-fg)]'
-                : 'border-[var(--border-strong)] bg-[var(--bg)] hover:bg-[var(--bg-hover)]',
-            )}
-          >
-            {timeLabel(s.start, zone)}
-          </button>
-        ))}
-      </div>
-    </>
+    <div className="space-y-4">
+      <BookingCalendar
+        slots={slots}
+        days={days}
+        months={months}
+        zone={zone}
+        today={today}
+        month={month ?? (shownDay ? shownDay.slice(0, 7) : null)}
+        onMonth={(next) => {
+          setMonth(next);
+          if (value && dayKeyIn(value, zone).slice(0, 7) !== next) onChange(null);
+          const first = defaultDay({ slots, zone, value: null, day: null, month: next });
+          if (first) onDay(first);
+        }}
+        selected={shownDay}
+        onSelect={(key) => {
+          onDay(key);
+          setMonth(key.slice(0, 7));
+          if (value && dayKeyIn(value, zone) !== key) onChange(null);
+        }}
+        label={label}
+      />
+      <TimeGrid
+        slots={slots}
+        zone={zone}
+        day={shownDay}
+        value={value}
+        onChange={(start) => onChange(start)}
+      />
+    </div>
   );
 }

@@ -124,8 +124,79 @@ export interface GuestRules {
   booker: string;
   /** Addresses that are never a guest: the host's and every teammate's. */
   blocked: readonly string[];
+  /**
+   * The host side's own email domains (never a free mail domain): no guest
+   * at them, so a group address there (team@, all@) cannot fan one booking
+   * out to the whole firm.
+   */
+  blockedDomains?: readonly string[];
   /** Settings' limit (0 when guests are off). */
   max: number;
+}
+
+/**
+ * Mail domains anyone can sign up at: never treated as the host side's own
+ * domain (a host on gmail.com does not block every Gmail guest).
+ */
+export const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'outlook.com',
+  'hotmail.com',
+  'live.com',
+  'msn.com',
+  'yahoo.com',
+  'icloud.com',
+  'me.com',
+  'mac.com',
+  'aol.com',
+  'proton.me',
+  'protonmail.com',
+  'gmx.com',
+  'fastmail.com',
+  'hey.com',
+  'zoho.com',
+  'yandex.com',
+]);
+
+/** The domain part of an address, lower-cased ('' when there is none). */
+export function domainOf(email: string): string {
+  const at = email.lastIndexOf('@');
+  return at < 0
+    ? ''
+    : email
+        .slice(at + 1)
+        .trim()
+        .toLowerCase();
+}
+
+/** The host side's own domains from their addresses: free mail domains left out. */
+export function ownDomains(emails: readonly string[]): string[] {
+  const out = new Set<string>();
+  for (const email of emails) {
+    const domain = domainOf(email);
+    if (domain && !FREE_MAIL_DOMAINS.has(domain)) out.add(domain);
+  }
+  return [...out];
+}
+
+/**
+ * One person's address however it is written, for the abuse brakes:
+ * lower-cased, a "+tag" dropped, and for Gmail the dots dropped too
+ * (pat.lee+1@gmail.com and patlee@googlemail.com are one inbox). Never
+ * stored and never used to send anything: only to count.
+ */
+export function normalizeAddress(email: string): string {
+  const lower = email.trim().toLowerCase();
+  const at = lower.lastIndexOf('@');
+  if (at < 0) return lower;
+  let local = lower.slice(0, at);
+  let domain = lower.slice(at + 1);
+  const plus = local.indexOf('+');
+  if (plus > 0) local = local.slice(0, plus);
+  if (domain === 'googlemail.com') domain = 'gmail.com';
+  if (domain === 'gmail.com') local = local.replace(/\./g, '');
+  return `${local}@${domain}`;
 }
 
 /**
@@ -140,6 +211,7 @@ export function cleanGuests(
 ): { ok: true; guests: string[] } | { ok: false; problem: string } {
   const booker = rules.booker.trim().toLowerCase();
   const blocked = new Set(rules.blocked.map((e) => e.trim().toLowerCase()).filter(Boolean));
+  const blockedDomains = new Set((rules.blockedDomains ?? []).map((d) => d.trim().toLowerCase()));
   const out: string[] = [];
   for (const entry of raw) {
     const email = entry.trim().toLowerCase();
@@ -148,7 +220,7 @@ export function cleanGuests(
     if (email === booker) {
       return { ok: false, problem: 'You are invited already: add other people as guests.' };
     }
-    if (blocked.has(email)) {
+    if (blocked.has(email) || blockedDomains.has(domainOf(email))) {
       return { ok: false, problem: `${email} is on the host's side already. Leave them out.` };
     }
     if (!out.includes(email)) out.push(email);
@@ -202,6 +274,8 @@ export interface BookingFormState {
   deckUrl: string;
   /** Guests to invite with the visitor (D-078). */
   guests: string[];
+  /** A guest typed in the box but not added yet: it counts when the form is sent. */
+  guestDraft: string;
 }
 
 export const EMPTY_FORM: BookingFormState = {
@@ -216,7 +290,38 @@ export const EMPTY_FORM: BookingFormState = {
   note: '',
   deckUrl: '',
   guests: [],
+  guestDraft: '',
 };
+
+/**
+ * What the guest box adds (D-078): one or more addresses typed (split on
+ * spaces, commas or semicolons), lower-cased, each once, never the visitor's
+ * own, at most `max` in all. The reason in plain words when one cannot be
+ * added, so a guest is never dropped without a word.
+ */
+export function addGuestDraft(
+  guests: readonly string[],
+  draft: string,
+  rules: { max: number; booker: string },
+): { ok: true; guests: string[] } | { ok: false; problem: string } {
+  const entries = draft
+    .split(/[\s,;]+/)
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  const next = [...guests];
+  for (const email of entries) {
+    if (!isPlainEmail(email)) {
+      return { ok: false, problem: `Check ${email}: it does not look like an email address.` };
+    }
+    if (email === rules.booker.trim().toLowerCase()) {
+      return { ok: false, problem: 'That is your own address: you are invited already.' };
+    }
+    if (next.includes(email)) continue;
+    if (next.length >= rules.max) return { ok: false, problem: `Add at most ${rules.max} guests.` };
+    next.push(email);
+  }
+  return { ok: true, guests: next };
+}
 
 /**
  * A change to the form, as the page makes one: the fields named are set

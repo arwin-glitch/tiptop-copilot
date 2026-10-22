@@ -125,6 +125,15 @@ describe('sanitiseBookingAnswer', () => {
     expect(clean('Apply at fund.example/apply today.')).toBe('Apply at today.');
   });
 
+  it('catches a link however it is written: capitals, [.] and spelled-out dots', () => {
+    expect(clean('Visit EVIL.COM/login now.')).toBe('Visit now.');
+    expect(clean('Visit Evil.Example today.')).toBe('Visit today.');
+    expect(clean('Visit HTTPS://EVIL.EXAMPLE/x today.')).toBe('Visit today.');
+    expect(clean('Visit evil[.]com or evil(dot)com today.')).toBe('Visit or today.');
+    expect(clean('Visit evil dot com today.')).toBe('Visit today.');
+    expect(clean('We back seed founders.')).toBe('We back seed founders.');
+  });
+
   it('removes markup, code, emails and phone numbers', () => {
     expect(clean('**Seed** and _pre-seed_ `only`. <b>Bold</b> [link](https://x.example)')).toBe(
       'Seed and pre-seed only. Bold link',

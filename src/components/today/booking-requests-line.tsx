@@ -22,7 +22,12 @@ export function hasBookingNews(
 ): summary is BookingTodaySummary {
   return Boolean(
     summary &&
-    (summary.waiting || summary.held || summary.booked || summary.moved || summary.cancelled),
+    (summary.waiting ||
+      summary.held ||
+      summary.retrying ||
+      summary.booked ||
+      summary.moved ||
+      summary.cancelled),
   );
 }
 
@@ -44,6 +49,18 @@ export function BookingRequestsLine({ summary }: { summary: BookingTodaySummary 
           <a href={TURN_ON_EDITING_HREF} className="link-inline font-medium">
             Turn on calendar editing →
           </a>
+        </p>
+      ) : null}
+      {summary.retrying ? (
+        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+          <CalendarPlus className="size-3.5 shrink-0 text-[var(--accent)]" aria-hidden="true" />
+          <span>
+            {plural(summary.retrying, 'booking is', 'bookings are')} going on the calendar: Google
+            did not answer, so Copilot keeps trying by itself.
+          </span>
+          <Link href={`${BOOKING_TAB_PATH}?tab=bookings`} className="link-inline">
+            See in Booking →
+          </Link>
         </p>
       ) : null}
       {news.length ? (

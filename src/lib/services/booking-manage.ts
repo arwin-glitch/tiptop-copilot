@@ -2,19 +2,24 @@ import 'server-only';
 import {
   BOOKING_SCOPES,
   bookingScope,
+  linkStatus,
   sortBookings,
   toLinkBooking,
   type BookingScope,
   type LinkBooking as LinkBookingView,
+  type LinkBookingStatus,
 } from '@/lib/booking/bookings';
 import {
+  inPersonOffered,
   parseBookingConfig,
   SLUG,
   type BookingConfig,
   type MeetingType,
 } from '@/lib/booking/config';
-import { bookingsBefore, openSlots, slotProblem } from '@/lib/booking/engine';
-import { MANAGE_LINE } from '@/lib/booking/event';
+import { bookingsBefore, openSlotsAndDays, slotProblem } from '@/lib/booking/engine';
+import { openMonthsAhead } from '@/lib/booking/months';
+import { BOOKED_LINE } from '@/lib/booking/event';
+import { holdDue, holdNextTryAt, holdReasonForError } from '@/lib/booking/holds';
 import {
   CLOSED_MESSAGE,
   knownZone,
@@ -35,8 +40,14 @@ import type { DataStore } from '@/lib/db/store';
 import { soleOrganizationId } from '@/lib/db/tenancy';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
-import type { BookingRequest, BookingSettingsRow, Organization } from '@/lib/types/domain';
+import type {
+  BookingHoldReason,
+  BookingRequest,
+  BookingSettingsRow,
+  Organization,
+} from '@/lib/types/domain';
 import { sha256 } from '@/lib/util/hash';
+import { localDateKey } from '@/lib/util/time';
 import { processWide } from '@/lib/util/process-state';
 import { err, ok, type Result } from '@/lib/util/result';
 import {
@@ -52,6 +63,7 @@ import {
   publicBookingView,
   readHost,
   resolveOpenLink,
+  scheduleHeldRetry,
   type ActorContext,
   type BookingDeps,
 } from './booking';
@@ -227,6 +239,7 @@ export async function rememberedBooking(
     startsAt: row.starts_at,
     type: row.meeting_type === 'in_person' ? 'in_person' : 'call',
     kind: row.kind,
+    status: row.status === 'pending' ? 'pending' : row.status === 'held' ? 'held' : 'booked',
   };
 }
 
@@ -303,23 +316,53 @@ export async function manageSlots(
   if (!link.open) {
     return { ...base, slots: [], state: 'closed', hostTimeZone: 'UTC', message: CLOSED_MESSAGE };
   }
+  // In person no longer offered (no home city or places): nothing to move to.
+  if (type === 'in_person' && !inPersonOffered(link.link.config)) {
+    const hostTimeZone = await principalTimeZone(store, found.organizationId);
+    return { ...base, slots: [], state: 'ok', hostTimeZone };
+  }
   const prepared = await engineInputFor(store, link.link, {
     ...deps,
-    ignore: { id: row.id, start: Date.parse(startsAt), end: Date.parse(endsAt) },
+    ignore: {
+      id: row.id,
+      start: Date.parse(startsAt),
+      end: Date.parse(endsAt),
+      onCalendar: ownEventOnCalendar(row),
+    },
   }).catch(() => null);
   if (!prepared?.ok) {
     const hostTimeZone = await principalTimeZone(store, found.organizationId);
     return { ...base, slots: [], state: 'unavailable', hostTimeZone, message: UNAVAILABLE_MESSAGE };
   }
+  const plan = openSlotsAndDays(prepared.value.input, { type, kind: row.kind });
+  const today = localDateKey(prepared.value.input.now, prepared.value.hostZone);
   return {
     ...base,
-    slots: openSlots(prepared.value.input, { type, kind: row.kind })
+    slots: plan.slots
       .filter((s) => s.start !== new Date(startsAt).toISOString())
       .map((s) => ({ start: s.start, end: s.end })),
     state: 'ok',
     hostTimeZone: prepared.value.hostZone,
+    days: plan.days.map((d) => ({ date: d.date, state: d.state })),
+    months: openMonthsAhead(link.link.config, today),
   };
 }
+
+/** The booking's own event is on the calendar (so its entry is its own time, not someone else's). */
+function ownEventOnCalendar(row: BookingRequest): boolean {
+  return (row.status === 'booked' || row.status === 'approved') && Boolean(row.event_id);
+}
+
+/** How long an Approve's claim stands (lib/services/booking.ts uses the same two minutes). */
+const CLAIM_TIMEOUT_MS = 2 * 60_000;
+
+/** An approve-first request a person is approving right now (its claim is fresh). */
+function beingApproved(row: BookingRequest, now: Date): boolean {
+  if (row.status !== 'pending' || !row.claimed_at) return false;
+  return now.getTime() - Date.parse(row.claimed_at) < CLAIM_TIMEOUT_MS;
+}
+
+const BEING_BOOKED = 'This request is being booked right now. Try again in two minutes.';
 
 const NOT_YOURS = 'This booking is not here any more.';
 const TOO_LATE = 'This meeting has started, so it cannot be changed here.';
@@ -352,11 +395,13 @@ export async function rescheduleByToken(
   if (!Number.isFinite(startMs)) return err('invalid_input', 'Pick a time.');
   const { organizationId, config } = found;
 
+  let meetUrl: string | null = null;
   const done = await oneAtATime(organizationId, async (): Promise<Result<BookingRequest>> => {
     const row = await store.get('booking_requests', organizationId, found.row.id);
     if (!row || !row.starts_at || !row.ends_at) return err('not_found', NOT_YOURS);
     if (!isLive(row.status)) return err('conflict', `This meeting was ${row.status} already.`);
     if (Date.parse(row.starts_at) <= now.getTime()) return err('conflict', TOO_LATE);
+    if (beingApproved(row, now)) return err('conflict', BEING_BOOKED);
     const moves = row.rescheduled_count ?? 0;
     if (moves >= MAX_RESCHEDULES) {
       return err(
@@ -369,11 +414,22 @@ export async function rescheduleByToken(
       return err('invalid_input', 'That is the time it has now. Pick another.');
     }
     const type = row.meeting_type === 'in_person' ? 'in_person' : 'call';
+    if (type === 'in_person' && !inPersonOffered(link.link.config)) {
+      return err(
+        'conflict',
+        'In-person meetings are not offered any more, so this one cannot be moved here. You can still cancel.',
+      );
+    }
     const prepared = await engineInputFor(store, link.link, {
       ...deps,
       now,
       fresh: true,
-      ignore: { id: row.id, start: Date.parse(row.starts_at), end: Date.parse(row.ends_at) },
+      ignore: {
+        id: row.id,
+        start: Date.parse(row.starts_at),
+        end: Date.parse(row.ends_at),
+        onCalendar: ownEventOnCalendar(row),
+      },
     });
     if (!prepared.ok) return err('provider_unavailable', UNAVAILABLE_MESSAGE);
     const problem = slotProblem(prepared.value.input, { type, kind: row.kind }, iso);
@@ -399,7 +455,9 @@ export async function rescheduleByToken(
       });
       if (!moved.ok) {
         if (moved.error.code === 'not_found') {
-          return err('conflict', 'This meeting is no longer on the calendar.');
+          // Deleted in Google meanwhile: cancelled here too, so its time and cap are free.
+          await markCancelledInGoogle(store, organizationId, row, now).catch(() => null);
+          return err('conflict', 'This meeting was cancelled, so it cannot be moved.');
         }
         return err(
           moved.error.code === 'timeout' ? 'timeout' : 'provider_unavailable',
@@ -407,6 +465,7 @@ export async function rescheduleByToken(
           { retryable: true },
         );
       }
+      meetUrl = moved.value.meetUrl;
       // A move is a change: another tool may add its reschedule link again,
       // so one more look later (once for this move).
       scheduleDescriptionCheck(
@@ -445,7 +504,9 @@ export async function rescheduleByToken(
     metadata: { type: row.meeting_type, kind: row.kind, count: row.rescheduled_count ?? 1 },
   });
   const hostZone = await principalTimeZone(store, organizationId);
-  return ok(publicBookingView(row, { config, hostZone, now, linkOpen: true })!);
+  return ok(
+    publicBookingView(row, { config, hostZone, now, linkOpen: true, meetUrl, withLink: true })!,
+  );
 }
 
 /**
@@ -469,7 +530,7 @@ export async function cancelByToken(
   if (!result.ok) return result;
   const hostZone = await principalTimeZone(store, found.organizationId);
   return ok(
-    publicBookingView(result.value, {
+    publicBookingView(result.value.row, {
       config: found.config,
       hostZone,
       now,
@@ -478,13 +539,18 @@ export async function cancelByToken(
   );
 }
 
-/** Cancel from Copilot's Booking tab (a member): the same, recorded as the team's. */
+/**
+ * Cancel from Copilot's Booking tab (a member): the same, recorded as the
+ * team's. The note stays in Copilot (Google's cancellation carries no
+ * text). Says whether an event came off the calendar (Google told everyone)
+ * or was left there because calendar editing is off.
+ */
 export async function cancelBookingFromCopilot(
   ctx: ActorContext,
   id: string,
   note: string,
   deps: BookingDeps = {},
-): Promise<Result<{ status: 'cancelled' }>> {
+): Promise<Result<{ status: 'cancelled'; removedEvent: boolean; calendarLeft: boolean }>> {
   const now = deps.now ?? new Date();
   let row: BookingRequest | null;
   let settings: BookingSettingsRow | null;
@@ -511,7 +577,13 @@ export async function cancelBookingFromCopilot(
     now,
     deps,
   });
-  return done.ok ? ok({ status: 'cancelled' }) : done;
+  return done.ok
+    ? ok({
+        status: 'cancelled',
+        removedEvent: done.value.removedEvent,
+        calendarLeft: done.value.calendarLeft,
+      })
+    : done;
 }
 
 async function cancelRow(
@@ -524,12 +596,14 @@ async function cancelRow(
     now: Date;
     deps: BookingDeps;
   },
-): Promise<Result<BookingRequest>> {
+): Promise<Result<{ row: BookingRequest; calendarLeft: boolean; removedEvent: boolean }>> {
   const { organizationId } = found;
   const { now, deps } = options;
   const done = await oneAtATime(
     organizationId,
-    async (): Promise<Result<{ row: BookingRequest; calendarLeft: boolean }>> => {
+    async (): Promise<
+      Result<{ row: BookingRequest; calendarLeft: boolean; removedEvent: boolean }>
+    > => {
       const row = await store.get('booking_requests', organizationId, found.row.id);
       if (!row || !row.starts_at) return err('not_found', NOT_YOURS);
       if (!isLive(row.status)) {
@@ -538,9 +612,30 @@ async function cancelRow(
           : err('conflict', `This meeting was ${row.status} already.`);
       }
       if (Date.parse(row.starts_at) <= now.getTime()) return err('conflict', TOO_LATE);
+      if (beingApproved(row, now)) return err('conflict', BEING_BOOKED);
       let calendarLeft = false;
+      let removedEvent = false;
+      // A hold "in doubt", or a booking whose event id was never kept: Google
+      // may have made its event, so look for it and cancel that too.
       if (
-        (row.status === 'booked' || row.status === 'approved') &&
+        !row.event_id &&
+        ((row.status === 'held' && row.claimed_at) ||
+          row.status === 'booked' ||
+          row.status === 'approved')
+      ) {
+        const source = await hostSource(store, organizationId, deps).catch(() => null);
+        if (source && calendarEditAccess(source).allowed) {
+          const list = await readCalendarList(source, organizationId).catch(() => null);
+          const primary = list?.ok ? list.value.calendars.find((c) => c.primary) : null;
+          const existing = primary ? await findLinkEvent(source, primary.id, row) : null;
+          if (primary && existing) {
+            row.calendar_id = primary.id;
+            row.event_id = existing;
+          }
+        }
+      }
+      if (
+        (row.status === 'booked' || row.status === 'approved' || row.status === 'held') &&
         row.event_id &&
         row.calendar_id
       ) {
@@ -560,6 +655,7 @@ async function cancelRow(
               { retryable: true },
             );
           }
+          removedEvent = true;
         } else {
           // Editing was turned off after it was booked: cancelled here, and
           // the alert says the event is still on the calendar to remove.
@@ -583,11 +679,11 @@ async function cancelRow(
       );
       if (changed.length === 0)
         return err('conflict', 'This meeting changed just now. Reload the page.');
-      return ok({ row: { ...row, ...patch }, calendarLeft });
+      return ok({ row: { ...row, ...patch }, calendarLeft, removedEvent });
     },
   );
   if (!done.ok) return done;
-  const { row, calendarLeft } = done.value;
+  const { row, calendarLeft, removedEvent } = done.value;
   await recordAudit(store, {
     organizationId,
     userId: options.actorId,
@@ -603,7 +699,7 @@ async function cancelRow(
       calendar_left: calendarLeft,
     },
   });
-  return ok(row);
+  return ok({ row, calendarLeft, removedEvent });
 }
 
 function writeContext(
@@ -620,36 +716,45 @@ function writeContext(
 /** One placing pass per organization a minute at most, from the page, the tab and the job. */
 const PLACE_EVERY_MS = 60_000;
 const lastPlaced = processWide('booking-place-held', () => new Map<string, number>());
+/** Before the hold columns exist: when each held booking may be tried again, in memory. */
+const nextTryInMemory = processWide('booking-hold-next-try', () => new Map<string, string>());
 
 export interface PlaceOutcome {
   placed: number;
   released: number;
-  /** Held times still waiting (calendar editing is off). */
+  /** Held times still waiting (calendar editing off, Google down, or a backoff not over). */
   waiting: number;
 }
 
 /**
- * Put held times on the calendar once calendar editing is on (D-078): each
+ * Put held times on the calendar (D-078). Nobody approves them: each is
  * checked again against the live calendar and every rule, first come first
  * served (the held time and anything booked before it), and still at least
- * an hour away. A time that was taken meanwhile is released, with a notice
- * draft for someone to send (Copilot sends no email). One held "in doubt"
- * (Google's answer was lost when it was first booked) is looked for on the
- * calendar first, by its own page's link in the description, so it is never
- * made twice.
+ * an hour away, then booked on the host's main calendar with everyone
+ * invited by Google.
+ *
+ * - Waiting for calendar editing: tried on every pass (a pass costs one
+ *   read of the grant), so it books the moment editing is on.
+ * - After a Google fault: tried again after about 1, 5, 15 and 60 minutes,
+ *   then on every pass, until it is booked. `onlyId` with `force` (the tab's
+ *   "Try now", the in-process timer) tries one at once.
+ * - A time that is truly no longer free is released, with a notice draft
+ *   for someone to send (Copilot sends no email).
+ * - One held "in doubt" (Google may have made the event before its answer
+ *   was lost) is looked for on the calendar first, so it is never made twice.
  */
 export async function placeHeldBookings(
   store: DataStore,
   organizationId: string,
-  deps: BookingDeps & { force?: boolean } = {},
+  deps: BookingDeps & { force?: boolean; onlyId?: string } = {},
 ): Promise<PlaceOutcome> {
   const now = deps.now ?? new Date();
   const outcome: PlaceOutcome = { placed: 0, released: 0, waiting: 0 };
   if (!deps.force) {
     const last = lastPlaced.get(organizationId) ?? 0;
     if (Math.abs(now.getTime() - last) < PLACE_EVERY_MS) return outcome;
+    lastPlaced.set(organizationId, now.getTime());
   }
-  lastPlaced.set(organizationId, now.getTime());
 
   let held: BookingRequest[];
   let settings: BookingSettingsRow | null;
@@ -658,7 +763,7 @@ export async function placeHeldBookings(
       store.list(
         'booking_requests',
         organizationId,
-        { eq: { status: 'held' } },
+        { eq: deps.onlyId ? { status: 'held', id: deps.onlyId } : { status: 'held' } },
         { orderBy: [{ field: 'created_at', direction: 'asc' }], limit: 50 },
       ),
       store.findOne('booking_settings', organizationId, {}),
@@ -672,35 +777,42 @@ export async function placeHeldBookings(
   const source = await hostSource(store, organizationId, deps).catch(() => null);
   if (!source || !calendarEditAccess(source).allowed) {
     outcome.waiting = held.length;
+    await noteHoldReason(store, organizationId, held, 'calendar_editing_off');
     return outcome;
   }
-  const list = await readCalendarList(source, organizationId);
-  const primary = list.ok ? list.value.calendars.find((c) => c.primary && c.writable) : null;
+
+  // Due now: a Google fault backs off; waiting for editing never does.
+  const due = deps.onlyId
+    ? held
+    : held.filter(
+        (r) =>
+          r.hold_reason === 'calendar_editing_off' ||
+          holdDue({ hold_next_try_at: r.hold_next_try_at ?? nextTryInMemory.get(r.id) }, now),
+      );
+  outcome.waiting = held.length - due.length;
+  if (!due.length) return outcome;
+
+  const list = await readCalendarList(source, organizationId, now.getTime(), { fresh: true }).catch(
+    () => null,
+  );
+  const primary = list?.ok ? list.value.calendars.find((c) => c.primary && c.writable) : null;
   if (!primary) {
-    outcome.waiting = held.length;
+    const reason: BookingHoldReason = list?.ok ? 'no_main_calendar' : 'calendar_unreachable';
+    for (const row of due) await failedTry(store, organizationId, row, reason, now, false, deps);
+    outcome.waiting += due.length;
     return outcome;
   }
   const host = await readHost(store, organizationId);
   const hostName = hostNameFor(config, host);
 
-  for (const first of held) {
+  for (const first of due) {
     await oneAtATime(organizationId, async () => {
       const row = await store.get('booking_requests', organizationId, first.id);
       if (!row || row.status !== 'held' || !row.starts_at || !row.ends_at) return;
       const type = row.meeting_type === 'in_person' ? 'in_person' : 'call';
-      const prepared = await engineInputFor(
-        store,
-        { organizationId, config },
-        { ...deps, source, now, fresh: true },
-      );
-      if (!prepared.ok) {
-        outcome.waiting += 1;
-        return;
-      }
-      const { input, hostZone } = prepared.value;
 
-      // In doubt: Google may have it already. Look for its page's link.
-      if (row.claimed_at && row.manage_token_hash) {
+      // In doubt: Google may have it already. Look for it before anything else.
+      if (row.claimed_at) {
         const existing = await findLinkEvent(source, primary.id, row);
         if (existing) {
           await markPlaced(store, organizationId, row, primary.id, existing);
@@ -708,6 +820,18 @@ export async function placeHeldBookings(
           return;
         }
       }
+
+      const prepared = await engineInputFor(
+        store,
+        { organizationId, config },
+        { ...deps, source, now, fresh: true },
+      );
+      if (!prepared.ok) {
+        await failedTry(store, organizationId, row, 'calendar_unreachable', now, false, deps);
+        outcome.waiting += 1;
+        return;
+      }
+      const { input, hostZone } = prepared.value;
 
       const problem =
         Date.parse(row.starts_at) < now.getTime()
@@ -733,6 +857,7 @@ export async function placeHeldBookings(
           { status: 'declined', claimed_at: null, decided_by: null, decided_at: now.toISOString() },
         );
         if (changed.length) {
+          nextTryInMemory.delete(row.id);
           outcome.released += 1;
           await recordAudit(store, {
             organizationId,
@@ -745,30 +870,37 @@ export async function placeHeldBookings(
         }
         return;
       }
-      const created = await createLinkEvent(
-        writeContext(store, organizationId, source),
-        primary.id,
-        // The token itself is not kept, so the event made now cannot carry the
-        // booking page's link; the visitor has it from their confirmation.
-        linkEventDraft(hostName, row, hostZone, {
-          manageUrl: null,
-          callLink: config.callLink,
-          hostEmail: hostCalendarEmail(source, host, primary.id),
-        }),
-      );
+      let created: Awaited<ReturnType<typeof createLinkEvent>>;
+      try {
+        created = await createLinkEvent(
+          writeContext(store, organizationId, source),
+          primary.id,
+          // The token itself is not kept, so the event made now cannot carry the
+          // booking page's link; the visitor has it from their confirmation.
+          linkEventDraft(hostName, row, hostZone, {
+            manageUrl: null,
+            callLink: config.callLink,
+            hostEmail: hostCalendarEmail(source, host, primary.id),
+          }),
+        );
+      } catch (error) {
+        log.warn('A held booking’s event could not be confirmed', {
+          reason: error instanceof Error ? error.message : 'unknown',
+        });
+        created = err('timeout', 'The calendar write could not be confirmed.');
+      }
       if (!created.ok) {
         const doubt =
           created.error.code === 'timeout' || created.error.code === 'provider_unavailable';
-        if (doubt) {
-          await store
-            .updateWhere(
-              'booking_requests',
-              organizationId,
-              { eq: { id: row.id, status: 'held' } },
-              { claimed_at: now.toISOString() },
-            )
-            .catch(() => null);
-        }
+        await failedTry(
+          store,
+          organizationId,
+          row,
+          holdReasonForError(created.error.code),
+          now,
+          doubt,
+          deps,
+        );
         outcome.waiting += 1;
         return;
       }
@@ -785,6 +917,93 @@ export async function placeHeldBookings(
   return outcome;
 }
 
+/** Hold columns written when they exist (20261022200000_booking_v2.sql), else skipped. */
+async function patchHold(
+  store: DataStore,
+  organizationId: string,
+  row: BookingRequest,
+  patch: Partial<BookingRequest>,
+): Promise<void> {
+  try {
+    await store.updateWhere(
+      'booking_requests',
+      organizationId,
+      { eq: { id: row.id, status: 'held' } },
+      patch,
+    );
+  } catch (error) {
+    if (!isMissingColumnError(error)) throw error;
+    const { hold_reason: _r, hold_attempts: _a, hold_next_try_at: _n, ...rest } = patch;
+    void _r;
+    void _a;
+    void _n;
+    if (Object.keys(rest).length) {
+      await store.updateWhere(
+        'booking_requests',
+        organizationId,
+        { eq: { id: row.id, status: 'held' } },
+        rest,
+      );
+    }
+  }
+}
+
+/** Every held booking says why it waits: written only when the reason changed. */
+async function noteHoldReason(
+  store: DataStore,
+  organizationId: string,
+  rows: readonly BookingRequest[],
+  reason: BookingHoldReason,
+): Promise<void> {
+  for (const row of rows) {
+    if (row.hold_reason === reason) continue;
+    await patchHold(store, organizationId, row, { hold_reason: reason }).catch(() => null);
+  }
+}
+
+/**
+ * A try that did not book it: the reason, one more try counted, the next
+ * one due after the backoff (and timed in this process). "In doubt" keeps a
+ * claim, so the next try looks for the event first; a later clear failure
+ * never drops a claim an earlier lost answer set.
+ */
+async function failedTry(
+  store: DataStore,
+  organizationId: string,
+  row: BookingRequest,
+  reason: BookingHoldReason,
+  now: Date,
+  doubt: boolean,
+  deps: BookingDeps,
+): Promise<void> {
+  const attempts = (row.hold_attempts ?? 0) + 1;
+  const next = holdNextTryAt(attempts, now);
+  const patch: Partial<BookingRequest> = {
+    hold_reason: reason,
+    hold_attempts: attempts,
+    hold_next_try_at: next,
+    ...(doubt ? { claimed_at: now.toISOString() } : {}),
+  };
+  await patchHold(store, organizationId, row, patch).catch((error: unknown) => {
+    log.warn('A held booking’s next try could not be kept', {
+      reason: error instanceof Error ? error.message : 'unknown',
+    });
+  });
+  if (next) nextTryInMemory.set(row.id, next);
+  else nextTryInMemory.delete(row.id);
+  log.warn('A held booking is still not on the calendar; Copilot tries again', {
+    reason,
+    attempts,
+  });
+  scheduleHeldRetry(
+    store,
+    organizationId,
+    { id: row.id, hold_reason: reason, hold_next_try_at: next },
+    now,
+    deps.schedule,
+  );
+}
+
 async function markPlaced(
   store: DataStore,
   organizationId: string,
@@ -792,12 +1011,30 @@ async function markPlaced(
   calendarId: string,
   eventId: string,
 ): Promise<void> {
-  const changed = await store.updateWhere(
-    'booking_requests',
-    organizationId,
-    { eq: { id: row.id, status: 'held' } },
-    { status: 'booked', claimed_at: null, calendar_id: calendarId, event_id: eventId },
-  );
+  const base = {
+    status: 'booked' as const,
+    claimed_at: null,
+    calendar_id: calendarId,
+    event_id: eventId,
+  };
+  let changed: BookingRequest[];
+  try {
+    changed = await store.updateWhere(
+      'booking_requests',
+      organizationId,
+      { eq: { id: row.id, status: 'held' } },
+      { ...base, hold_reason: null, hold_next_try_at: null },
+    );
+  } catch (error) {
+    if (!isMissingColumnError(error)) throw error;
+    changed = await store.updateWhere(
+      'booking_requests',
+      organizationId,
+      { eq: { id: row.id, status: 'held' } },
+      base,
+    );
+  }
+  nextTryInMemory.delete(row.id);
   if (changed.length) {
     await recordAudit(store, {
       organizationId,
@@ -805,36 +1042,74 @@ async function markPlaced(
       action: 'booking.hold_placed',
       entityType: 'booking_request',
       entityId: row.id,
-      metadata: { type: row.meeting_type, kind: row.kind },
+      metadata: { type: row.meeting_type, kind: row.kind, attempts: row.hold_attempts ?? 0 },
     });
   }
 }
 
 /**
- * The event a held booking already has on the calendar, if Google made it
- * before its answer was lost: an entry at exactly its time whose description
- * carries a booking page link whose token hashes to this booking's.
+ * The event a booking already has on the calendar, if Google made it before
+ * its answer was lost: an entry at exactly its time that is a booking-link
+ * event (its description starts with BOOKED_LINE) and either carries the
+ * booking page link whose token hashes to this booking's, or (an event made
+ * when a hold was placed has no page link) invites the booker.
  */
 async function findLinkEvent(
   source: CalendarSource,
   calendarId: string,
   row: BookingRequest,
 ): Promise<string | null> {
-  if (!row.starts_at || !row.ends_at || !row.manage_token_hash) return null;
+  if (!row.starts_at || !row.ends_at) return null;
   const found = await source.provider
     .listRange(calendarId, { timeMin: row.starts_at, timeMax: row.ends_at })
     .catch(() => null);
   if (!found?.ok) return null;
   const start = new Date(row.starts_at).toISOString();
+  const booker = row.email.trim().toLowerCase();
   for (const event of found.value) {
+    if (event.status === 'cancelled') continue;
     if (!event.start?.dateTime || new Date(event.start.dateTime).toISOString() !== start) continue;
     const description = event.description ?? '';
-    if (!description.includes(MANAGE_LINE)) continue;
-    for (const match of description.matchAll(/\/meet\/[a-z0-9-]+\/b\/([A-Za-z0-9_-]{43})/g)) {
-      if (sha256(match[1]!) === row.manage_token_hash) return event.id ?? null;
+    if (!description.includes(BOOKED_LINE)) continue;
+    if (row.manage_token_hash) {
+      for (const match of description.matchAll(/\/meet\/[a-z0-9-]+\/b\/([A-Za-z0-9_-]{43})/g)) {
+        if (sha256(match[1]!) === row.manage_token_hash) return event.id ?? null;
+      }
+    }
+    if ((event.attendees ?? []).some((a) => a.email?.trim().toLowerCase() === booker)) {
+      return event.id ?? null;
     }
   }
   return null;
+}
+
+/**
+ * "Try now" on the Booking tab (a member): one held booking tried at once,
+ * past its backoff. Says what it came to: booked, still held (and why), or
+ * released because the time was taken.
+ */
+export async function retryHeldBooking(
+  store: DataStore,
+  organizationId: string,
+  id: string,
+  deps: BookingDeps = {},
+): Promise<Result<{ status: LinkBookingStatus; holdReason: BookingHoldReason | null }>> {
+  let row: BookingRequest | null;
+  try {
+    row = await store.get('booking_requests', organizationId, id);
+  } catch (error) {
+    if (isMissingTableError(error)) return err('not_found', NOT_YOURS);
+    throw error;
+  }
+  if (!row || row.meeting_type === 'message') return err('not_found', NOT_YOURS);
+  if (row.status === 'held') {
+    await placeHeldBookings(store, organizationId, { ...deps, force: true, onlyId: id });
+    row = (await store.get('booking_requests', organizationId, id)) ?? row;
+  }
+  return ok({
+    status: linkStatus(row),
+    holdReason: row.status === 'held' ? (row.hold_reason ?? null) : null,
+  });
 }
 
 /** The job's pass: every organization's held times (the push job calls it). */
