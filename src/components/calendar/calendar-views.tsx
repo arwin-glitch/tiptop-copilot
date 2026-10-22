@@ -46,6 +46,7 @@ import {
   stepDate,
   viewRange,
 } from '@/lib/calendar/grid';
+import { legendLabels, passesLabelFilter, UNLABELLED } from '@/lib/calendar/labels';
 import {
   CALENDAR_VIEWS,
   visibleCalendarIds,
@@ -61,10 +62,12 @@ import {
   deleteEvent,
   fetchRange,
   recolorEvent,
+  relabelEvent,
   respondToEvent,
   savePrefs,
   updateEvent,
 } from './calendar-api';
+import { CalendarKey, LabelLegend } from './calendar-key';
 import { useChoice } from './choice-dialog';
 import { EventEditor, type EditorState } from './event-editor';
 import { EventPanel, type CardAnchor } from './event-panel';
@@ -83,11 +86,16 @@ import { TimeGrid, type GridChange } from './time-grid';
  * opens Google Calendar's event card beside it (event-panel.tsx): Edit,
  * Delete, Duplicate, Email guests, its colour, Going? for an invitation, Join.
  *
+ * Above the grid, the calendars' colour labels as filter chips and a Key
+ * that explains how events look (D-070): the fill is the label's colour,
+ * faded once over, outlined with a "?" while unanswered, striped for maybe,
+ * struck through when declined, and a bell on a meeting.
+ *
  * Changes (with calendar editing on) go through lib/calendar/write.ts. Before
  * any change that involves guests, the page asks Google Calendar's question,
  * "Send … emails to guests?", every time; only Send emails anyone. An answer
  * to an invitation asks "Send your response to the organizer?" the same way.
- * A colour change is nobody else's business and is never asked about.
+ * A colour or label change is nobody else's business and is never asked about.
  */
 
 export interface CalendarViewsProps {
@@ -97,6 +105,8 @@ export interface CalendarViewsProps {
   today: string;
   timeZone: string;
   shown: Record<string, boolean>;
+  /** The legend's remembered label filter (label keys). */
+  labelFilter: string[];
   ownEmails: string[];
   mailbox: string | null;
   editing: { allowed: boolean; reason: string | null; demo: boolean };
@@ -149,7 +159,7 @@ const PENDING_PREFIX = 'pending-';
 
 /** The repeating-event question, per kind of change. */
 const SCOPE_QUESTION: Record<
-  'edit' | 'delete' | 'respond' | 'color',
+  'edit' | 'delete' | 'respond' | 'color' | 'label',
   { title: string; description: string }
 > = {
   edit: {
@@ -171,6 +181,10 @@ const SCOPE_QUESTION: Record<
     title: 'Colour a repeating event',
     description: 'Colour this event only, or every event in the series. Nobody is emailed.',
   },
+  label: {
+    title: 'Label a repeating event',
+    description: 'Label this event only, or every event in the series. Nobody is emailed.',
+  },
 };
 
 export function CalendarViews(props: CalendarViewsProps) {
@@ -185,6 +199,7 @@ export function CalendarViews(props: CalendarViewsProps) {
 
   const [current, setCurrent] = React.useState<CalendarRangeData>(props.initial);
   const [shown, setShown] = React.useState<Record<string, boolean>>(props.shown);
+  const [labelFilter, setLabelFilter] = React.useState<string[]>(props.labelFilter);
   const [failure, setFailure] = React.useState<{ key: string; message: string } | null>(null);
   const [reloadToken, setReloadToken] = React.useState(0);
   const cache = React.useRef(new Map<string, CalendarRangeData>());
@@ -309,7 +324,7 @@ export function CalendarViews(props: CalendarViewsProps) {
   /* ------------------------------------------------------- the questions */
 
   const askScope = React.useCallback(
-    (action: 'edit' | 'delete' | 'respond' | 'color') =>
+    (action: 'edit' | 'delete' | 'respond' | 'color' | 'label') =>
       askChoice<RecurringScope>({
         ...SCOPE_QUESTION[action],
         choices: RECURRING_SCOPES.map((s) => ({
@@ -600,6 +615,37 @@ export function CalendarViews(props: CalendarViewsProps) {
     else putEvent(event.key, res.value.event);
   }
 
+  /**
+   * A colour label from the card (or a suggested label, tapped): the label
+   * alone, never a question about guests, never an email. The suggestion is
+   * only ever applied here, by that tap.
+   */
+  async function relabel(event: RangeEvent, labelId: string | null) {
+    if ((event.label ? event.labelId : null) === labelId) return;
+    const calendar = calendarsById.get(event.calendarId);
+    if (!calendar) return;
+    let scope: RecurringScope = 'this';
+    if (event.recurringEventId) {
+      const answer = await askScope('label');
+      if (!answer) return;
+      scope = answer;
+    }
+    putEvent(event.key, optimisticEvent(event, { labelId }, calendar, palette, event.key));
+    const res = await relabelEvent({
+      calendarId: event.calendarId,
+      eventId: event.id,
+      scope,
+      labelId,
+    });
+    if (!res.ok) {
+      putEvent(event.key, event);
+      toast.error(res.message);
+      return;
+    }
+    if (res.value.reload || !res.value.event) reload();
+    else putEvent(event.key, res.value.event);
+  }
+
   /** Google's Duplicate: the editor, prefilled, for a new event on the same calendar. */
   const duplicate = (event: RangeEvent) => {
     const calendarId = calendarsById.get(event.calendarId)?.writable
@@ -607,10 +653,12 @@ export function CalendarViews(props: CalendarViewsProps) {
       : defaultCalendarId;
     if (!canEdit || !calendarId) return;
     setSelected(null);
+    const draft = duplicateDraft(event, timeZone, ownEmails);
     setEditor({
       mode: 'full',
       event: null,
-      draft: duplicateDraft(event, timeZone, ownEmails),
+      // A label belongs to its calendar: a copy on another calendar starts without one.
+      draft: calendarId === event.calendarId ? draft : { ...draft, labelId: null },
       calendarId,
       heading: 'Duplicate event',
     });
@@ -710,14 +758,33 @@ export function CalendarViews(props: CalendarViewsProps) {
     });
   };
 
+  /** The legend's chips: a tap shows only that label's events (several add up); remembered. */
+  const saveLabelFilter = (next: string[]) => {
+    setLabelFilter(next);
+    void savePrefs({ labelFilter: next }).then((res) => {
+      if (!res.ok) toast.error('That label filter could not be remembered.');
+    });
+  };
+  const toggleLabel = (key: string) =>
+    saveLabelFilter(
+      labelFilter.includes(key) ? labelFilter.filter((k) => k !== key) : [...labelFilter, key],
+    );
+
   /* -------------------------------------------------------------- draw */
 
   const visible = new Set(visibleIds);
+  const legend = legendLabels(calendars, visibleIds);
+  // Only keys that still name a label shown (a label renamed in Google drops out of the filter).
+  const legendKeys = new Set([...legend.map((l) => l.key), UNLABELLED]);
+  const activeFilter = legend.length ? labelFilter.filter((k) => legendKeys.has(k)) : [];
   const events = current.events.filter((e) => visible.has(e.calendarId));
-  const inView = events.filter((e) => {
+  const inRange = events.filter((e) => {
     const span = daySpan(e, timeZone);
     return span ? range.days.some((d) => coversDay(span, d)) : false;
   });
+  const inView = inRange.filter((e) => passesLabelFilter(e, activeFilter));
+  const sampleColor = legend[0]?.color ??
+    calendars.find((c) => c.primary)?.color ?? { background: '#4986e7', foreground: '#ffffff' };
   const selectedEvent = selected
     ? (current.events.find((e) => e.key === selected.key) ?? null)
     : null;
@@ -913,7 +980,7 @@ export function CalendarViews(props: CalendarViewsProps) {
         </aside>
 
         <div
-          className="min-w-0"
+          className="min-w-0 space-y-2"
           aria-busy={!loaded}
           onTouchStart={(e) => {
             const t = e.touches[0];
@@ -929,6 +996,15 @@ export function CalendarViews(props: CalendarViewsProps) {
             if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) step(dx < 0 ? 1 : -1);
           }}
         >
+          <div className="flex min-w-0 items-start gap-2">
+            <CalendarKey labels={legend} sample={sampleColor} />
+            <LabelLegend
+              labels={legend}
+              filter={activeFilter}
+              onToggle={toggleLabel}
+              onClear={() => saveLabelFilter([])}
+            />
+          </div>
           {view === 'month' ? (
             <MonthGrid
               weeks={monthWeeks(date)}
@@ -936,6 +1012,7 @@ export function CalendarViews(props: CalendarViewsProps) {
               events={inView}
               timeZone={timeZone}
               today={today}
+              nowMs={nowMs}
               calendars={calendarsById}
               canEdit={canEdit}
               compact={phone}
@@ -965,7 +1042,9 @@ export function CalendarViews(props: CalendarViewsProps) {
           )}
           {loaded && current.state === 'ok' && inView.length === 0 ? (
             <p className="mt-2 text-center text-sm text-[var(--fg-subtle)]">
-              Nothing on the calendar {view === 'day' ? 'this day' : `this ${view}`}.
+              {inRange.length > 0
+                ? `Nothing with ${activeFilter.length === 1 ? 'that label' : 'those labels'} ${view === 'day' ? 'this day' : `this ${view}`}.`
+                : `Nothing on the calendar ${view === 'day' ? 'this day' : `this ${view}`}.`}
             </p>
           ) : null}
         </div>
@@ -979,6 +1058,8 @@ export function CalendarViews(props: CalendarViewsProps) {
         palette={palette}
         options={selectedOptions}
         timeZone={timeZone}
+        nowMs={nowMs}
+        today={today}
         ownEmails={ownEmails}
         mailbox={props.mailbox}
         editing={editing.allowed}
@@ -991,6 +1072,7 @@ export function CalendarViews(props: CalendarViewsProps) {
         }}
         onDuplicate={duplicate}
         onColor={(event, colorId) => void recolor(event, colorId)}
+        onLabel={(event, labelId) => void relabel(event, labelId)}
         onRespond={(event, response) => void respond(event, response)}
         onEmailGuests={emailGuests}
         onEdit={(event) => {

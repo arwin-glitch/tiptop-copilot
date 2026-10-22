@@ -9,8 +9,8 @@ import { CALENDAR_VIEWS, type CalendarViewKind } from '@/lib/calendar/range-type
 
 /**
  * Each person's Calendar tab settings: whether they use the new views (the
- * "New calendar" switch), which view they were last on, and the calendars
- * they turned on or off. No schema change: an `audit_events` row per change
+ * "New calendar" switch), which view they were last on, the calendars they
+ * turned on or off, and the colour labels they filtered the views to. No schema change: an `audit_events` row per change
  * (action `calendar.prefs_set`, newest per person wins), written directly
  * rather than through recordAudit, whose redaction would mangle calendar ids
  * that look like email addresses. A failed read is the defaults, never an
@@ -35,11 +35,19 @@ export interface CalendarPrefs {
   view: CalendarViewKind;
   /** Calendars toggled here: id to shown. Others follow Google's own tick. */
   shown: Record<string, boolean>;
+  /** The legend's label filter (label keys, lib/calendar/labels.ts); empty shows everything. */
+  labelFilter: string[];
 }
 
-export const DEFAULT_CALENDAR_PREFS: CalendarPrefs = { preview: true, view: 'week', shown: {} };
+export const DEFAULT_CALENDAR_PREFS: CalendarPrefs = {
+  preview: true,
+  view: 'week',
+  shown: {},
+  labelFilter: [],
+};
 
 const MAX_TOGGLES = 100;
+const MAX_LABEL_FILTER = 50;
 /** How far back an older "off" is traced to the switch that set it. */
 const LEGACY_LOOKBACK = 50;
 
@@ -49,11 +57,14 @@ const SHOWN = z
   .record(z.string().min(1).max(320), z.boolean())
   .refine((r) => Object.keys(r).length <= MAX_TOGGLES);
 
+const LABEL_FILTER = z.array(z.string().min(1).max(200)).max(MAX_LABEL_FILTER);
+
 const STORED = z.object({
   v: z.number().int().optional().catch(undefined),
   preview: z.boolean().optional().catch(undefined),
   view: VIEW.catch('week'),
   shown: SHOWN.catch({}),
+  labelFilter: LABEL_FILTER.catch([]),
 });
 
 type StoredPrefs = z.infer<typeof STORED>;
@@ -63,6 +74,7 @@ export const CALENDAR_PREFS_PATCH = z
     preview: z.boolean().optional(),
     view: VIEW.optional(),
     shown: z.record(z.string().min(1).max(320), z.boolean()).optional(),
+    labelFilter: LABEL_FILTER.optional(),
   })
   .strict();
 
@@ -115,7 +127,7 @@ export async function readCalendarPrefs(
   try {
     const latest = parseRow((await listRows(store, organizationId, userId, 1))[0]);
     if (!latest) return { ...DEFAULT_CALENDAR_PREFS };
-    const settled = { view: latest.view, shown: latest.shown };
+    const settled = { view: latest.view, shown: latest.shown, labelFilter: latest.labelFilter };
     if (latest.v !== undefined || latest.preview !== false) {
       return { preview: latest.preview ?? true, ...settled };
     }
@@ -147,6 +159,7 @@ export async function saveCalendarPrefs(
     preview: patch.preview ?? current.preview,
     view: patch.view ?? current.view,
     shown: Object.fromEntries(shownEntries.slice(-MAX_TOGGLES)),
+    labelFilter: [...new Set(patch.labelFilter ?? current.labelFilter)].slice(0, MAX_LABEL_FILTER),
   };
   const row: AuditEvent = {
     id: newId(),

@@ -1,5 +1,7 @@
 import type { EventDraft, GuestChoice, RecurringScope } from '@/lib/calendar/edit-rules';
 import type { RsvpResponse } from '@/lib/calendar/event-actions';
+import type { LabelSuggestion } from '@/lib/calendar/label-suggest';
+import type { OriginKind } from '@/lib/calendar/origin';
 import type { GCalDateTime } from '@/lib/calendar/google-types';
 import type { CalendarRangeData, CalendarViewKind, RangeEvent } from '@/lib/calendar/range-types';
 
@@ -94,6 +96,20 @@ export function recolorEvent(input: {
   return call<WriteAnswer>('PATCH', '/api/calendar/events', { kind: 'color', ...input });
 }
 
+/**
+ * A colour label from the card: one of the calendar's labels (null for none),
+ * eventLabelId alone, never an email. The server adds Google's
+ * eventLabelVersion=1, and nothing here can ask it to tell anyone.
+ */
+export function relabelEvent(input: {
+  calendarId: string;
+  eventId: string;
+  scope: RecurringScope;
+  labelId: string | null;
+}) {
+  return call<WriteAnswer>('PATCH', '/api/calendar/events', { kind: 'label', ...input });
+}
+
 /** A repeating event's rule, for the card's "Weekly on Monday". */
 export function fetchSeries(calendarId: string, eventId: string) {
   const params = new URLSearchParams({ calendarId, eventId });
@@ -107,6 +123,8 @@ export function savePrefs(patch: {
   preview?: boolean;
   view?: CalendarViewKind;
   shown?: Record<string, boolean>;
+  /** The legend's label filter: label keys (labels.ts), empty for everything. */
+  labelFilter?: string[];
 }) {
   return call<{ prefs: unknown }>('POST', '/api/calendar/prefs', patch);
 }
@@ -121,12 +139,30 @@ export interface MeetingContext {
   recent: { id: string; subject: string; at: string | null }[];
 }
 
-export function fetchContext(eventId: string, date: string) {
-  const params = new URLSearchParams({ eventId, date });
-  return call<{ found: boolean; context?: MeetingContext }>(
-    'GET',
-    `/api/calendar/context?${params}`,
-  );
+/** Where an event came from, when its guests say nothing (lib/services/calendar-origin.ts). */
+export interface EventOriginView {
+  lines: {
+    kind: OriginKind;
+    text: string;
+    subject: string | null;
+    threadId: string | null;
+    href: string | null;
+  }[];
+  checked: string;
+  search: { query: string; href: string };
+}
+
+export interface CardContext {
+  found: boolean;
+  context?: MeetingContext;
+  origin?: EventOriginView | null;
+  suggestion?: LabelSuggestion | null;
+}
+
+/** What an event's card loads once open: context, where it came from, a suggested label. */
+export function fetchContext(calendarId: string, eventId: string, date: string) {
+  const params = new URLSearchParams({ calendarId, eventId, date });
+  return call<CardContext>('GET', `/api/calendar/context?${params}`);
 }
 
 export function fetchGuests(q: string) {

@@ -44,6 +44,8 @@ export const DEMO_IDS = {
   threadNewsletter: id(306),
   threadCoInvestor: id(307),
   threadPlumbline: id(308),
+  // A ticket for an event: what put a guest-less entry on the calendar.
+  threadMixerTicket: id(309),
 
   // Email messages
   msgVetrixIntro: id(400),
@@ -56,6 +58,7 @@ export const DEMO_IDS = {
   msgNewsletter: id(407),
   msgCoInvestor: id(408),
   msgPlumblineIntro: id(409),
+  msgMixerTicket: id(410),
 
   // Attachments
   attVetrixDeck: id(500),

@@ -20,7 +20,10 @@ import type { RangeEvent } from './range-types';
  * - Going? Yes / No / Maybe changes Nick's own answer on an event he is a
  *   guest on, and nothing else on it. Google tells the organizer only when
  *   he chose Send in the question asked every time; nothing defaults to it.
- * - A colour change sends Google's colorId alone and never emails anyone.
+ * - A colour change sends Google's colorId alone and never emails anyone. On
+ *   a calendar with colour labels, a label change sends Google's eventLabelId
+ *   alone, with eventLabelVersion=1 (Google ignores the label without it),
+ *   under the same rules: never an email, never a question about guests.
  * - Duplicate is a new event with the same details, made through the editor
  *   and saved like any new one (the invitations question if it has guests).
  */
@@ -153,10 +156,27 @@ export function colorRequest(colorId: string | null): {
   return { body: { colorId }, sendUpdates: 'none', conferenceDataVersion: 0 };
 }
 
-/** A change that only recolours the event: no guest is asked about or told. */
+/**
+ * A label from the card: Google's eventLabelId alone (empty for none), with
+ * eventLabelVersion=1 so Google applies it, and never an email. A colour
+ * write (colorRequest) never carries the version: with it Google would
+ * ignore the colorId.
+ */
+export function labelRequest(labelId: string | null): {
+  body: GCalEventWrite;
+  sendUpdates: SendUpdates;
+  eventLabelVersion: 1;
+} {
+  return { body: { eventLabelId: labelId ?? '' }, sendUpdates: 'none', eventLabelVersion: 1 };
+}
+
+/**
+ * A change that only recolours the event, by colour or by label: no guest
+ * is asked about or told.
+ */
 export function isColorOnly(changes: Partial<EventDraft>): boolean {
   const keys = Object.keys(changes).filter((k) => changes[k as keyof EventDraft] !== undefined);
-  return keys.length === 1 && keys[0] === 'colorId';
+  return keys.length > 0 && keys.every((k) => k === 'colorId' || k === 'labelId');
 }
 
 /* ------------------------------------------------------------ duplicate */

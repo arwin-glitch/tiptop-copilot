@@ -65,6 +65,8 @@ function rangeEvent(over: Partial<RangeEvent> = {}): RangeEvent {
     meetUrl: 'https://meet.google.com/abc-defg-hij',
     meetPending: false,
     colorId: '5',
+    labelId: null,
+    label: null,
     color: { background: '#fbd75b', foreground: '#1d1d1d' },
     organizer: { email: 'cal', name: null, self: true },
     attendees: [
@@ -220,6 +222,7 @@ describe('duplicate', () => {
       guests: ['pat@example.org'],
       meet: true,
       colorId: '5',
+      labelId: null,
     });
     expect(duplicateDraft(rangeEvent({ meetUrl: null }), 'UTC', OWN).meet).toBe(false);
   });

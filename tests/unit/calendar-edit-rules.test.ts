@@ -308,6 +308,8 @@ describe('the editor’s draft', () => {
     meetUrl: null,
     meetPending: false,
     colorId: null,
+    labelId: null,
+    label: null,
     color: { background: '#16a765', foreground: '#1d1d1d' },
     organizer: { email: 'cal', name: null, self: true },
     attendees: [

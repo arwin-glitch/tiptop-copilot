@@ -19,6 +19,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ErrorState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
 import { ParityForm, ParityResult } from '@/components/calendar/parity-report';
+import { LabelReportView } from '@/components/calendar/label-report';
+import { labelReport } from '@/lib/services/calendar-labels';
 import { localDateKey } from '@/lib/util/time';
 import { TOOL_NAMES } from '@/lib/ai/tools/registry';
 import { PROMPT_VERSIONS } from '@/lib/ai/prompts';
@@ -62,6 +64,10 @@ export default async function DiagnosticsPage({
           from={typeof params.from === 'string' ? params.from : null}
           days={typeof params.days === 'string' ? params.days : null}
         />
+      ) : tab === 'labels' ? (
+        <Suspense fallback={<SkeletonText lines={8} />}>
+          <LabelsTab />
+        </Suspense>
       ) : (
         <SetupTab />
       )}
@@ -155,6 +161,25 @@ async function ParityRun({ from, days }: { from: string; days: number }) {
     ownEmail: auth.profile.email,
   });
   return <ParityResult report={report} />;
+}
+
+/**
+ * Each calendar's colour labels as Google has them right now, and how many
+ * events in the next week carry each one: to check the live labels (names,
+ * colours, which events have them) without changing anything (D-070).
+ */
+async function LabelsTab() {
+  const auth = await requireAuth();
+  // One Google read per calendar: a few looks a minute is plenty.
+  const limited = rateLimit(`calendar-labels:${auth.userId}`, 6, 60_000);
+  if (!limited.ok) {
+    return <Notice tone="warn">That is a lot of checks in a minute. Try again shortly.</Notice>;
+  }
+  const report = await labelReport(getStore(), auth.organizationId, {
+    timeZone: auth.profile.timezone,
+    ownEmail: auth.profile.email,
+  });
+  return <LabelReportView report={report} />;
 }
 
 async function SetupTab() {

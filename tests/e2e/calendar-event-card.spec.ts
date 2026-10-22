@@ -100,12 +100,20 @@ function beside(card: { x: number; width: number }, target: { x: number; width: 
   return card.x >= target.x + target.width - 2 || card.x + card.width <= target.x + 2;
 }
 
-async function newEvent(page: Page, day: string, fromHour: number, title: string) {
+/** A new event from a drag; on `calendar` (its name) rather than the main one, if given. */
+async function newEvent(
+  page: Page,
+  day: string,
+  fromHour: number,
+  title: string,
+  calendar?: string,
+) {
   await page.goto(`/calendar?view=day&date=${day}`);
   await expect(grid(page, 'day')).toBeVisible();
   await dragOnColumn(page, 'day', day, fromHour, fromHour + 1);
   const quick = page.getByRole('dialog', { name: 'New event' });
   await quick.getByLabel('Title').fill(title);
+  if (calendar) await quick.getByLabel('Calendar').selectOption({ label: calendar });
   await quick.getByRole('button', { name: 'Save' }).click();
   await expect(chip(page, title)).toBeVisible();
   // Saved: it has the id Google gave it.
@@ -202,7 +210,8 @@ test('titles wrap over whole words where a chip has room, and take one line wher
 test('a colour from the card changes it at once, asks nothing, and stays', async ({ page }) => {
   const day = dayFromToday(6);
   const title = `Colour check ${Date.now()}`;
-  await newEvent(page, day, 8, title);
+  // The team calendar has no colour labels, so its events take Google's eleven colours.
+  await newEvent(page, day, 8, title, 'TipTop team');
   const writes = recordWrites(page);
   await chip(page, title).click();
   const card = page.getByRole('dialog', { name: title });

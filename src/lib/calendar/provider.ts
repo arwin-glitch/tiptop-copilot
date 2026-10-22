@@ -7,6 +7,7 @@ import type { Integration } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { err, ok, type Result } from '@/lib/util/result';
 import type {
+  GCalCalendar,
   GCalColors,
   GCalEvent,
   GCalEventWrite,
@@ -29,13 +30,17 @@ import {
  * Calendar provider seam.
  *
  * Reads: `listEvents` (the Today sync, primary calendar only) and the new
- * views' reads: the calendar list, Google's colours, a range of single events
- * on any calendar, one event.
+ * views' reads: the calendar list, Google's colours, one calendar (for its
+ * colour labels), a range of single events on any calendar, one event. The
+ * views' reads ask for Google's colour labels (eventLabelVersion=1), so each
+ * event comes back with its eventLabelId.
  *
  * Writes: insert, patch, move, delete. They exist only for the Calendar tab's
  * edit routes, through lib/calendar/write.ts, which refuses unless calendar
  * editing is turned on, the calendar is writable and the event is one this
  * account may change. Every write names its sendUpdates; there is no default.
+ * A label write also names eventLabelVersion=1 (Google ignores eventLabelId
+ * without it, and colorId with it, so a colour write never sends it).
  * The mock answers them in memory and records each one; tests never reach the
  * Google implementation's write endpoints.
  */
@@ -77,6 +82,8 @@ export interface CalendarProvider {
   listCalendars(): Promise<Result<GCalListEntry[]>>;
   /** Google's colour palettes: calendar colours and the event colorId palette. */
   getColors(): Promise<Result<GCalColors>>;
+  /** One calendar (calendars.get), with its colour labels. */
+  getCalendar(calendarId: string): Promise<Result<GCalCalendar>>;
   /** Every single event overlapping the range on one calendar, all pages, series expanded. */
   listRange(calendarId: string, range: RangeOptions): Promise<Result<GCalEvent[]>>;
   getEvent(calendarId: string, eventId: string): Promise<Result<GCalEvent>>;
@@ -110,6 +117,12 @@ const CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3';
 /** Pages of 250: enough for a busy month on one calendar without looping for ever. */
 const RANGE_PAGE_SIZE = 250;
 const RANGE_MAX_PAGES = 8;
+/**
+ * Google's switch for colour labels: with it, reads carry each event's
+ * eventLabelId and a write's eventLabelId is applied (and its colorId
+ * ignored). Sent on every read the views make, and on label writes only.
+ */
+export const EVENT_LABEL_VERSION = '1';
 
 interface GoogleEvent {
   id: string;
@@ -262,6 +275,16 @@ export class GoogleCalendarProvider implements CalendarProvider {
     return res.ok ? ok(res.value ?? {}) : res;
   }
 
+  async getCalendar(calendarId: string): Promise<Result<GCalCalendar>> {
+    const path = `/calendars/${enc(calendarId)}`;
+    const labelled = new URLSearchParams({ eventLabelVersion: EVENT_LABEL_VERSION });
+    let res = await this.request<GCalCalendar>(`${path}?${labelled.toString()}`);
+    // Should calendars.get ever refuse the label switch as unknown, ask once without it.
+    if (!res.ok && res.error.code === 'invalid_input') res = await this.request<GCalCalendar>(path);
+    if (!res.ok) return res;
+    return res.value ? ok(res.value) : err('not_found', 'That calendar is not on the list.');
+  }
+
   async listRange(calendarId: string, range: RangeOptions): Promise<Result<GCalEvent[]>> {
     const out: GCalEvent[] = [];
     let pageToken: string | null = null;
@@ -272,6 +295,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
         maxResults: String(RANGE_PAGE_SIZE),
         timeMin: range.timeMin,
         timeMax: range.timeMax,
+        eventLabelVersion: EVENT_LABEL_VERSION,
       });
       if (pageToken) params.set('pageToken', pageToken);
       const res = await this.request<{ items?: GCalEvent[]; nextPageToken?: string }>(
@@ -286,8 +310,9 @@ export class GoogleCalendarProvider implements CalendarProvider {
   }
 
   async getEvent(calendarId: string, eventId: string): Promise<Result<GCalEvent>> {
+    const labelled = new URLSearchParams({ eventLabelVersion: EVENT_LABEL_VERSION });
     const res = await this.request<GCalEvent>(
-      `/calendars/${enc(calendarId)}/events/${enc(eventId)}`,
+      `/calendars/${enc(calendarId)}/events/${enc(eventId)}?${labelled.toString()}`,
     );
     if (!res.ok) return res;
     return res.value ? ok(res.value) : err('not_found', 'That event is no longer on the calendar.');
@@ -354,10 +379,14 @@ export class GoogleCalendarProvider implements CalendarProvider {
   }
 }
 
-/** sendUpdates always, conferenceDataVersion only when a Meet link is asked for. */
-function writeParams(options: GCalWriteOptions): string {
+/**
+ * sendUpdates always, conferenceDataVersion only when a Meet link is asked
+ * for, eventLabelVersion only on a label write (it would turn a colorId off).
+ */
+export function writeParams(options: GCalWriteOptions): string {
   const params = new URLSearchParams({ sendUpdates: options.sendUpdates });
   if (options.conferenceDataVersion === 1) params.set('conferenceDataVersion', '1');
+  if (options.eventLabelVersion === 1) params.set('eventLabelVersion', EVENT_LABEL_VERSION);
   return params.toString();
 }
 
@@ -439,6 +468,20 @@ export class MockCalendarProvider implements CalendarProvider {
     return ok(structuredClone(this.state.colors));
   }
 
+  async getCalendar(calendarId: string): Promise<Result<GCalCalendar>> {
+    const id = resolveCalendarId(this.state, calendarId);
+    this.state.reads.push({ op: 'calendar', calendarId: id ?? calendarId });
+    const entry = id ? this.state.calendars.find((c) => c.id === id) : null;
+    if (!id || !entry) return err('not_found', 'That calendar is not on the list.');
+    const labels = this.state.labels.get(id);
+    return ok({
+      id,
+      summary: entry.summary,
+      timeZone: entry.timeZone,
+      ...(labels ? { labelProperties: { eventLabels: structuredClone(labels) } } : {}),
+    });
+  }
+
   async listRange(calendarId: string, range: RangeOptions): Promise<Result<GCalEvent[]>> {
     const id = resolveCalendarId(this.state, calendarId);
     this.state.reads.push({ op: 'range', calendarId: id ?? calendarId });
@@ -459,7 +502,7 @@ export class MockCalendarProvider implements CalendarProvider {
     op: 'insert' | 'patch' | 'move' | 'delete',
     calendarId: string,
     eventId: string | null,
-    options: { sendUpdates: SendUpdates; conferenceDataVersion?: 0 | 1 },
+    options: { sendUpdates: SendUpdates; conferenceDataVersion?: 0 | 1; eventLabelVersion?: 0 | 1 },
     body: GCalEventWrite | null,
     destinationId?: string,
   ) {
@@ -470,6 +513,7 @@ export class MockCalendarProvider implements CalendarProvider {
       ...(destinationId ? { destinationId } : {}),
       sendUpdates: options.sendUpdates,
       conferenceDataVersion: options.conferenceDataVersion ?? 0,
+      eventLabelVersion: options.eventLabelVersion ?? 0,
       body: body ? structuredClone(body) : null,
       at: new Date().toISOString(),
     });
@@ -493,7 +537,7 @@ export class MockCalendarProvider implements CalendarProvider {
         organizer: { email: id, self: true },
         creator: { email: id, self: true },
       },
-      body,
+      asGoogleTakesIt(body, options),
     );
     if (options.conferenceDataVersion !== 1) delete event.conferenceData;
     else event = fulfilConference(event, this.state);
@@ -513,9 +557,7 @@ export class MockCalendarProvider implements CalendarProvider {
     const found = id ? locate(this.state, id, eventId) : null;
     if (!id || !found) return err('not_found', 'That event is no longer on the calendar.');
     this.record('patch', id, eventId, options, body);
-    const effective: GCalEventWrite =
-      options.conferenceDataVersion === 1 ? body : { ...body, conferenceData: undefined };
-    let next = applyPatch(found.event, effective);
+    let next = applyPatch(found.event, asGoogleTakesIt(body, options));
     if (options.conferenceDataVersion === 1 && body.conferenceData) {
       next = fulfilConference(next, this.state);
     }
@@ -575,6 +617,19 @@ export class MockCalendarProvider implements CalendarProvider {
     else found.series.exceptions.set(eventId, 'cancelled');
     return ok(true);
   }
+}
+
+/**
+ * What Google applies of a write: conference data only with
+ * conferenceDataVersion=1; eventLabelId only with eventLabelVersion=1, which
+ * makes it ignore colorId instead.
+ */
+function asGoogleTakesIt(body: GCalEventWrite, options: GCalWriteOptions): GCalEventWrite {
+  const out: GCalEventWrite = { ...body };
+  if (options.conferenceDataVersion !== 1) out.conferenceData = undefined;
+  if (options.eventLabelVersion === 1) out.colorId = undefined;
+  else out.eventLabelId = undefined;
+  return out;
 }
 
 /** A Meet request id: unique per create, as Google asks. */

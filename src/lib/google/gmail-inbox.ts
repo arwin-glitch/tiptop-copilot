@@ -64,6 +64,8 @@ export interface InboxThreadMeta {
   latestAt: string | null;
   /** True when the newest real message is from the mailbox itself (already answered). */
   lastFromUs: boolean;
+  /** The address the thread's first message came from (who started it). */
+  firstFromAddress?: string | null;
 }
 
 interface Msg {
@@ -107,6 +109,8 @@ export async function readThreadMeta(
     labelIds: labels,
     latestAt: latest.internalDate ? new Date(Number(latest.internalDate)).toISOString() : null,
     lastFromUs: Boolean(own) && from.toLowerCase().includes(own),
+    firstFromAddress:
+      /<?([^<>\s"]+@[^<>\s"]+)>?/.exec(header(real[0], 'From'))?.[1]?.toLowerCase() ?? null,
   };
 }
 

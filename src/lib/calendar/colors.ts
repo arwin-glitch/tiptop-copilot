@@ -1,10 +1,11 @@
 import type { GCalColor, GCalColors, GCalListEntry } from './google-types';
-import type { CalendarColor, EventPaletteEntry } from './range-types';
+import type { CalendarColor, EventLabel, EventPaletteEntry } from './range-types';
 
 /**
  * Colours come from Google, never from Copilot: each calendar's colour from
- * the calendar list, each event's from its own colorId in Google's event
- * palette, and an event without one takes its calendar's. That is the rule
+ * the calendar list, each event's from its label (the calendar's named colour
+ * labels, lib/calendar/labels.ts), else its own colorId in Google's event
+ * palette, and an event with neither takes its calendar's. That is the rule
  * Google Calendar itself follows, so an event looks the same in both.
  */
 
@@ -90,13 +91,22 @@ export function calendarColor(entry: GCalListEntry, colors: GCalColors | null): 
   );
 }
 
-/** An event's colour: its colorId's in Google's event palette, else its calendar's. */
+/**
+ * An event's colour: its label's when it has one its calendar defines, else
+ * its colorId's in Google's event palette, else its calendar's.
+ */
 export function eventColor(
   colorId: string | null | undefined,
   calendar: CalendarColor,
   colors: GCalColors | null,
+  label: Pick<EventLabel, 'color'> | null = null,
 ): CalendarColor {
-  return (colorId ? clean(colors?.event?.[colorId]) : null) ?? calendar;
+  return label?.color ?? (colorId ? clean(colors?.event?.[colorId]) : null) ?? calendar;
+}
+
+/** A label's `#rrggbb` as a colour with readable text on it; null if it is not one. */
+export function labelColor(backgroundColor: string | null | undefined): CalendarColor | null {
+  return clean(backgroundColor ? { background: backgroundColor } : undefined);
 }
 
 /** Google's event palette in its own order (1 to 11), with the picker's names. */

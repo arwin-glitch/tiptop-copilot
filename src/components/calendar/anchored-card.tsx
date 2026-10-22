@@ -18,6 +18,19 @@ import { cn } from '@/lib/util/cn';
 
 type Side = 'right' | 'left' | 'bottom' | 'top';
 
+/**
+ * Where the card goes next to: the element itself, or in Day and Week the
+ * whole width of its day at its height, so the card never covers the other
+ * events that day (side by side with it), which stay in view and clickable.
+ */
+function besideItsDay(el: HTMLElement): DOMRect {
+  const rect = el.getBoundingClientRect();
+  const day = el.closest<HTMLElement>('[data-day-column]');
+  if (!day) return rect;
+  const column = day.getBoundingClientRect();
+  return new DOMRect(column.left, rect.top, column.width, rect.height);
+}
+
 /** The side with room for a card this wide: right, then left, then below or above. */
 function pickSide(rect: DOMRect, width: number): Side {
   const room = width + 24;
@@ -60,7 +73,7 @@ export function AnchoredCard({
       current: {
         getBoundingClientRect(): DOMRect {
           const el = anchorRef.current();
-          if (el?.isConnected) lastRect.current = el.getBoundingClientRect();
+          if (el?.isConnected) lastRect.current = besideItsDay(el);
           return (
             lastRect.current ?? new DOMRect(window.innerWidth / 2, window.innerHeight / 3, 0, 0)
           );

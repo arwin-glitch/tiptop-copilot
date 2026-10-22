@@ -43,6 +43,11 @@ export interface GCalEvent {
   description?: string;
   location?: string;
   colorId?: string;
+  /**
+   * The event's colour label: one of its calendar's labelProperties.eventLabels
+   * ids. Google processes it only on requests that carry eventLabelVersion=1.
+   */
+  eventLabelId?: string;
   eventType?: string;
   transparency?: string;
   visibility?: string;
@@ -99,6 +104,26 @@ export interface GCalListEntry {
   accessRole?: GCalAccessRole | string;
 }
 
+/**
+ * One of a calendar's named colour labels ("Travel", "Hiring"...), as
+ * calendars.get returns them under labelProperties.eventLabels. Only the
+ * calendar's owner can change them; the Calendar tab only reads them.
+ */
+export interface GCalEventLabel {
+  id: string;
+  /** `#rrggbb`. */
+  backgroundColor?: string;
+  name?: string;
+}
+
+/** The Calendars resource (calendars.get): the fields the Calendar tab reads. */
+export interface GCalCalendar {
+  id: string;
+  summary?: string;
+  timeZone?: string;
+  labelProperties?: { eventLabels?: GCalEventLabel[] };
+}
+
 export interface GCalColor {
   background: string;
   foreground: string;
@@ -123,6 +148,8 @@ export interface GCalEventWrite {
   description?: string;
   location?: string;
   colorId?: string | null;
+  /** A label of the event's calendar; `''` clears it. Needs eventLabelVersion=1. */
+  eventLabelId?: string;
   start?: GCalDateTimeWrite;
   end?: GCalDateTimeWrite;
   attendees?: GCalAttendee[];
@@ -146,4 +173,9 @@ export interface GCalWriteOptions {
   sendUpdates: SendUpdates;
   /** 1 when the body creates (or carries) a Google Meet conference. */
   conferenceDataVersion?: 0 | 1;
+  /**
+   * 1 when the body sets eventLabelId: Google ignores the label without it,
+   * and ignores colorId with it, so a colour (colorId) write never sends it.
+   */
+  eventLabelVersion?: 0 | 1;
 }

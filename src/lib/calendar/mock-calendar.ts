@@ -5,6 +5,7 @@ import { addDaysToKey, localDateKey, wallTimeToUtc } from '@/lib/util/time';
 import type {
   GCalColors,
   GCalEvent,
+  GCalEventLabel,
   GCalEventWrite,
   GCalListEntry,
   SendUpdates,
@@ -24,6 +25,13 @@ import type {
  * need to show off: overlaps, a recurring series, holds, a busy day, a
  * conference day of long overlapping blocks under short meetings, an event
  * only its organizer can change, and calendars this account can only read.
+ *
+ * Google's colour labels too (D-070): the main calendar and Personal define
+ * fictional ones (generic VC words), some events carry one, and the team
+ * calendar has none, so it keeps Google's eleven event colours. Invitations
+ * Nick has not answered, said maybe to, and declined, an event that already
+ * happened, and a guest-less registration whose ticket email is in the demo
+ * mailbox, for the event looks and "How you got here".
  */
 
 export const MOCK_TIME_ZONE = 'America/Chicago';
@@ -39,6 +47,37 @@ export const MOCK_HIDDEN_CALENDAR = 'c_old-project@group.calendar.google.com';
  * runs past midnight into the morning after.
  */
 export const BUSY_DAY_OFFSET = 12;
+
+/** The demo's colour labels: fictional names, ids shaped like Google's. */
+export const MOCK_LABELS = {
+  portfolio: { id: '5d0c1a7e-3b6f-4a21-9c84-0d2e6f1a0001', name: 'Portfolio', color: '#33b679' },
+  lps: { id: '5d0c1a7e-3b6f-4a21-9c84-0d2e6f1a0002', name: 'LPs', color: '#8e24aa' },
+  founders: { id: '5d0c1a7e-3b6f-4a21-9c84-0d2e6f1a0003', name: 'Founders', color: '#f4511e' },
+  diligence: { id: '5d0c1a7e-3b6f-4a21-9c84-0d2e6f1a0004', name: 'Diligence', color: '#e67c73' },
+  vcs: { id: '5d0c1a7e-3b6f-4a21-9c84-0d2e6f1a0005', name: 'VCs', color: '#039be5' },
+  internal: { id: '5d0c1a7e-3b6f-4a21-9c84-0d2e6f1a0006', name: 'Internal', color: '#616161' },
+  travel: { id: '5d0c1a7e-3b6f-4a21-9c84-0d2e6f1a0007', name: 'Travel', color: '#0b8043' },
+  event: { id: '5d0c1a7e-3b6f-4a21-9c84-0d2e6f1a0008', name: 'Event', color: '#f6bf26' },
+  personal: { id: '5d0c1a7e-3b6f-4a21-9c84-0d2e6f1a0009', name: 'Personal', color: '#d50000' },
+  // Personal's own: the same names, its own ids, as two calendars in Google would have.
+  personalTravel: {
+    id: '7a3e9b2c-1d4f-4e60-8b17-5c9d0e2f0101',
+    name: 'Travel',
+    color: '#0b8043',
+  },
+  personalEvent: { id: '7a3e9b2c-1d4f-4e60-8b17-5c9d0e2f0102', name: 'Event', color: '#f6bf26' },
+  personalFamily: {
+    id: '7a3e9b2c-1d4f-4e60-8b17-5c9d0e2f0103',
+    name: 'Personal',
+    color: '#d50000',
+  },
+} as const;
+
+const asGoogleLabel = (l: { id: string; name: string; color: string }): GCalEventLabel => ({
+  id: l.id,
+  name: l.name,
+  backgroundColor: l.color,
+});
 
 /** Google's colour palettes as its colors endpoint returns them. */
 export const MOCK_COLORS: GCalColors = {
@@ -96,6 +135,8 @@ export interface MockWrite {
   destinationId?: string;
   sendUpdates: SendUpdates;
   conferenceDataVersion: 0 | 1;
+  /** 1 on a label write: Google applies eventLabelId only then (and ignores colorId). */
+  eventLabelVersion: 0 | 1;
   body: GCalEventWrite | null;
   at: string;
 }
@@ -109,6 +150,8 @@ interface Series {
 export interface MockCalendarState {
   calendars: GCalListEntry[];
   colors: GCalColors;
+  /** Each calendar's colour labels (labelProperties.eventLabels), where it has any. */
+  labels: Map<string, GCalEventLabel[]>;
   /** One-off events, per calendar. */
   events: Map<string, GCalEvent[]>;
   /** Recurring series, per calendar. */
@@ -116,7 +159,7 @@ export interface MockCalendarState {
   /** Every write, oldest first. */
   writes: MockWrite[];
   /** Every read, so a test can check how often Google would be asked. */
-  reads: { op: 'calendars' | 'colors' | 'range' | 'get'; calendarId?: string }[];
+  reads: { op: 'calendars' | 'colors' | 'calendar' | 'range' | 'get'; calendarId?: string }[];
   nextId: number;
   timeZone: string;
 }
@@ -248,6 +291,8 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
       ...(a.email === MOCK_OWN_EMAIL ? { self: true } : {}),
     })),
     htmlLink: `https://calendar.google.com/calendar/event?eid=${e.provider_event_id}`,
+    // Two of today's carry a label; the others are left for a suggested one.
+    ...(PRIMARY_LABEL_BY_TITLE[e.title] ? { eventLabelId: PRIMARY_LABEL_BY_TITLE[e.title] } : {}),
   }));
 
   const team: GCalEvent[] = [
@@ -290,6 +335,30 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
       ],
     },
     {
+      // Already happened: drawn faded in every view.
+      id: 'demoteamrecap',
+      summary: 'Pipeline recap with Jordan',
+      ...timed(day(-1), [15, 0], [15, 30]),
+      ...ownedBy(MOCK_TEAM_CALENDAR),
+      attendees: [me(), guest('jordan@tiptop.demo', 'Jordan Lee')],
+    },
+    {
+      // Nick said maybe: stripes.
+      id: 'demoteamlplunch',
+      summary: 'LP lunch: Alder Endowment',
+      ...timed(day(1), [11, 30], [12, 30]),
+      organizer: { email: 'lena@alder-endowment.demo', displayName: 'Lena Fischer', self: false },
+      attendees: [me('tentative'), guest('lena@alder-endowment.demo', 'Lena Fischer')],
+    },
+    {
+      // Nick declined: struck through, and a block (the pings' own rule).
+      id: 'demoteamvendor',
+      summary: 'Vendor demo: Quillstack',
+      ...timed(day(1), [15, 30], [16, 0]),
+      organizer: { email: 'rowan@quillstack.demo', displayName: 'Rowan Hale', self: false },
+      attendees: [me('declined'), guest('rowan@quillstack.demo', 'Rowan Hale')],
+    },
+    {
       id: 'demoteamdemoday',
       summary: 'Accelerator demo day',
       start: { date: day(3) },
@@ -326,6 +395,18 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
       ...ownedBy(MOCK_PERSONAL_CALENDAR),
     },
     {
+      // A registration: no other guests, put there by the ticket email in
+      // the demo mailbox (a robot organizer, so a block, never pinged).
+      id: 'demopersonalmixer',
+      summary: 'Harborlight Founders Mixer',
+      ...timed(day(2), [18, 0], [20, 0]),
+      organizer: { email: 'events@harborlight-mixer.demo', displayName: 'Harborlight Events' },
+      creator: { email: 'events@harborlight-mixer.demo' },
+      attendees: [me()],
+      location: 'The Lantern Room, 210 Example St, Austin',
+      description: 'Your ticket: https://tickets.harborlight-mixer.demo/order/demo-1234',
+    },
+    {
       id: 'demopersonaltrip',
       summary: 'Family trip',
       start: { date: day(8) },
@@ -350,6 +431,7 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
     summary: summary as string,
     ...timed(busy, from as [number, number], to as [number, number]),
     ...ownedBy(MOCK_PERSONAL_CALENDAR),
+    ...personalLabel(id as string),
   }));
   const busyMeetings: GCalEvent[] = [
     ['demobusycoffee', 'Coffee with Avery Brooks', [9, 0], [9, 30]],
@@ -382,6 +464,7 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
     summary: summary as string,
     ...timed(busyNext, from as [number, number], to as [number, number]),
     ...ownedBy(MOCK_PERSONAL_CALENDAR),
+    ...personalLabel(id as string),
   }));
   busyNextBlocks.push(
     {
@@ -390,6 +473,7 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
       start: { dateTime: at(busyNext, 22, 0), timeZone: MOCK_TIME_ZONE },
       end: { dateTime: at(busyAfter, 6, 30), timeZone: MOCK_TIME_ZONE },
       ...ownedBy(MOCK_PERSONAL_CALENDAR),
+      ...personalLabel('demobusyredeye'),
     },
     {
       id: 'demobusyrecover',
@@ -463,6 +547,28 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
   return {
     calendars,
     colors: MOCK_COLORS,
+    labels: new Map([
+      [
+        MOCK_OWN_EMAIL,
+        [
+          MOCK_LABELS.portfolio,
+          MOCK_LABELS.lps,
+          MOCK_LABELS.founders,
+          MOCK_LABELS.diligence,
+          MOCK_LABELS.vcs,
+          MOCK_LABELS.internal,
+          MOCK_LABELS.travel,
+          MOCK_LABELS.event,
+          MOCK_LABELS.personal,
+        ].map(asGoogleLabel),
+      ],
+      [
+        MOCK_PERSONAL_CALENDAR,
+        [MOCK_LABELS.personalTravel, MOCK_LABELS.personalEvent, MOCK_LABELS.personalFamily].map(
+          asGoogleLabel,
+        ),
+      ],
+    ]),
     events: new Map([
       [MOCK_OWN_EMAIL, all(primary, MOCK_OWN_EMAIL)],
       [
@@ -493,6 +599,21 @@ export function createMockCalendarState(now: Date = new Date()): MockCalendarSta
     nextId: 1,
     timeZone: MOCK_TIME_ZONE,
   };
+}
+
+/** Today's synced events that carry a label on the main calendar, by title. */
+const PRIMARY_LABEL_BY_TITLE: Readonly<Record<string, string>> = {
+  'TipTop internal — pipeline review': MOCK_LABELS.internal.id,
+  'Ledgerly board prep': MOCK_LABELS.portfolio.id,
+};
+
+/** The busy days' blocks on Personal: its own labels, holds left without one. */
+function personalLabel(id: string): { eventLabelId?: string } {
+  const travel = ['demobusytravel', 'demobusyhotel', 'demobusycheckout', 'demobusyredeye'];
+  const event = ['demobusysummit', 'demobusyday2'];
+  if (travel.includes(id)) return { eventLabelId: MOCK_LABELS.personalTravel.id };
+  if (event.includes(id)) return { eventLabelId: MOCK_LABELS.personalEvent.id };
+  return {};
 }
 
 /** The demo's one shared mock calendar, per server process. */
@@ -659,7 +780,8 @@ export function applyPatch(event: GCalEvent, body: GCalEventWrite): GCalEvent {
   for (const [field, value] of Object.entries(body)) {
     if (value === undefined || field === 'attendeesOmitted') continue;
     if (answerOnly && field === 'attendees') continue;
-    if (value === null) {
+    // Google's way to clear a label is an empty eventLabelId.
+    if (value === null || (field === 'eventLabelId' && value === '')) {
       delete next[field];
       continue;
     }

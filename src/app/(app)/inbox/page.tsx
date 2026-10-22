@@ -32,10 +32,16 @@ export default async function InboxPage({ searchParams }: { searchParams: Search
         subtitle="Nick's Gmail, live: read, reply, archive and star right here. Replies send from his inbox only when someone taps Send, with 8 seconds to undo."
       />
       <Suspense fallback={<SkeletonText lines={10} />}>
-        <InboxContent wanted={wanted} />
+        <InboxContent wanted={wanted} query={searchQuery(params.q)} />
       </Suspense>
     </PageShell>
   );
+}
+
+/** `?q=` opens the Inbox on that search (the Calendar card's "Search the Inbox for …"). */
+function searchQuery(value: string | string[] | undefined): string {
+  const q = typeof value === 'string' ? value.trim() : '';
+  return q.slice(0, 200);
 }
 
 /**
@@ -45,19 +51,20 @@ export default async function InboxPage({ searchParams }: { searchParams: Search
  * filed, alongside the Primary list. Opening it changes nothing in Gmail; a
  * bad or unknown id says it couldn't open the email.
  */
-async function InboxContent({ wanted }: { wanted: string | null }) {
+async function InboxContent({ wanted, query }: { wanted: string | null; query: string }) {
   const auth = await requireAuth();
   const store = getStore();
   const [initial, opened] = await Promise.all([
-    listLiveThreads(store, auth.organizationId, { tab: 'primary' }),
+    listLiveThreads(store, auth.organizationId, { tab: 'primary', q: query || undefined }),
     wanted ? openFromLink(store, auth.organizationId, wanted) : null,
   ]);
   return (
     <LiveInbox
-      key={wanted ?? 'inbox'}
+      key={`${wanted ?? 'inbox'}|${query}`}
       initial={initial}
       timeZone={auth.profile.timezone}
       opened={opened}
+      initialQuery={query}
     />
   );
 }

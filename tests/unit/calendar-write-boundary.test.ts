@@ -57,6 +57,14 @@ describe('calendar writes', () => {
       'app/api/calendar/context/route.ts',
       'app/api/calendar/series/route.ts',
       'lib/calendar/event-text.ts',
+      // Colour labels: read, suggested, filtered, reported; only a tap writes one.
+      'lib/calendar/labels.ts',
+      'lib/calendar/label-suggest.ts',
+      'lib/calendar/origin.ts',
+      'lib/calendar/event-look.ts',
+      'lib/services/calendar-labels.ts',
+      'lib/services/calendar-origin.ts',
+      'components/calendar/label-report.tsx',
     ]) {
       const text = SOURCES.find((s) => s.rel === rel)?.text ?? '';
       expect(text, rel).not.toBe('');
@@ -111,6 +119,24 @@ describe('calendar writes', () => {
     expect(actions).toMatch(
       /return \{ body: \{ colorId \}, sendUpdates: 'none', conferenceDataVersion: 0 \};/,
     );
+  });
+
+  it('a label from the event card can never carry a request to email anyone', () => {
+    // The route's label body has no `notify`, the request built for it is
+    // sendUpdates 'none', and only it (and the editor's label) names the
+    // label switch Google needs; a colour never does.
+    const route = SOURCES.find((s) => s.rel === 'app/api/calendar/events/route.ts')!.text;
+    const label = /const LABEL = z[\s\S]*?\.strict\(\);/.exec(route)?.[0] ?? '';
+    expect(label).toMatch(/kind: z\.literal\('label'\)/);
+    expect(label).not.toMatch(/notify/);
+    const actions = SOURCES.find((s) => s.rel === 'lib/calendar/event-actions.ts')!.text;
+    expect(actions).toMatch(
+      /return \{ body: \{ eventLabelId: labelId \?\? '' \}, sendUpdates: 'none', eventLabelVersion: 1 \};/,
+    );
+    const setters = SOURCES.filter((s) =>
+      /eventLabelVersion:\s*(1|request\.|labelVersion)/.test(s.text),
+    ).map((s) => s.rel);
+    expect(setters.sort()).toEqual(['lib/calendar/event-actions.ts', 'lib/calendar/write.ts']);
   });
 
   it('every API route that writes checks where the request came from', () => {

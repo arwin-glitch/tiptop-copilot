@@ -17,12 +17,17 @@ import {
   Paperclip,
   Pencil,
   Repeat,
+  Search,
+  Sparkles,
+  Tag,
   Trash2,
   Users,
   Video,
   X,
 } from 'lucide-react';
 import { RSVP_CHOICES, type EventOptions, type RsvpResponse } from '@/lib/calendar/event-actions';
+import { eventLook, lookWords } from '@/lib/calendar/event-look';
+import { labelText } from '@/lib/calendar/labels';
 import {
   descriptionParts,
   mapsUrl,
@@ -39,7 +44,7 @@ import { Button } from '@/components/ui/button';
 import { SkeletonText } from '@/components/ui/feedback';
 import { ThreadLinks } from '@/components/email/thread-links';
 import { AnchoredCard } from './anchored-card';
-import { fetchContext, fetchSeries, type MeetingContext } from './calendar-api';
+import { fetchContext, fetchSeries, type CardContext } from './calendar-api';
 import { swatchStyle, tickStyle } from './event-style';
 
 /**
@@ -54,7 +59,13 @@ import { swatchStyle, tickStyle } from './event-style';
  * - What Google shows (the time and its zone, how it repeats, the calendar,
  *   the guests and their answers, the organizer, the description with its
  *   links, attachments), plus Copilot's Meeting or Block verdict and why, the
- *   ping, and for a meeting on the main calendar the day list's context box.
+ *   ping, its look in words (Ended, Not answered yet, Maybe, Declined), its
+ *   colour label, and the context box: for a meeting on the main calendar the
+ *   day list's, and for any event "How you got here" (the email that put it
+ *   on the calendar when its guests say nothing).
+ * - On a calendar with colour labels, Google's label picker instead of the
+ *   eleven colours, a suggested label when Copilot's own data is clear (used
+ *   only on a tap), and a link to edit the labels in Google Calendar.
  *
  * Without calendar editing, or on an event this account cannot change, only
  * what writes nothing is offered, with the reason (and how to turn editing on).
@@ -118,6 +129,8 @@ export function EventPanel({
   palette,
   options,
   timeZone,
+  nowMs,
+  today,
   ownEmails,
   mailbox,
   editing,
@@ -128,6 +141,7 @@ export function EventPanel({
   onDelete,
   onDuplicate,
   onColor,
+  onLabel,
   onRespond,
   onEmailGuests,
 }: {
@@ -138,6 +152,9 @@ export function EventPanel({
   palette: EventPaletteEntry[];
   options: EventOptions | null;
   timeZone: string;
+  /** The clock, for "Ended" (null until the page is in the browser). */
+  nowMs: number | null;
+  today: string;
   /** Nick's own addresses: he is never listed among the guests, as in the day list. */
   ownEmails: readonly string[];
   /** The mailbox the "latest emails" links open in. */
@@ -151,6 +168,7 @@ export function EventPanel({
   onDelete: (event: RangeEvent) => void;
   onDuplicate: (event: RangeEvent) => void;
   onColor: (event: RangeEvent, colorId: string | null) => void;
+  onLabel: (event: RangeEvent, labelId: string | null) => void;
   onRespond: (event: RangeEvent, response: RsvpResponse) => void;
   onEmailGuests: (event: RangeEvent) => void;
 }) {
@@ -179,6 +197,8 @@ export function EventPanel({
           palette={palette}
           options={options}
           timeZone={timeZone}
+          nowMs={nowMs}
+          today={today}
           ownEmails={ownEmails}
           mailbox={mailbox}
           editing={editing}
@@ -189,6 +209,7 @@ export function EventPanel({
           onDelete={onDelete}
           onDuplicate={onDuplicate}
           onColor={onColor}
+          onLabel={onLabel}
           onRespond={onRespond}
           onEmailGuests={onEmailGuests}
         />
@@ -243,6 +264,8 @@ function EventCardBody({
   palette,
   options,
   timeZone,
+  nowMs,
+  today,
   ownEmails,
   mailbox,
   editing,
@@ -253,6 +276,7 @@ function EventCardBody({
   onDelete,
   onDuplicate,
   onColor,
+  onLabel,
   onRespond,
   onEmailGuests,
 }: {
@@ -261,6 +285,8 @@ function EventCardBody({
   palette: EventPaletteEntry[];
   options: EventOptions;
   timeZone: string;
+  nowMs: number | null;
+  today: string;
   ownEmails: readonly string[];
   mailbox: string | null;
   editing: boolean;
@@ -271,10 +297,16 @@ function EventCardBody({
   onDelete: (event: RangeEvent) => void;
   onDuplicate: (event: RangeEvent) => void;
   onColor: (event: RangeEvent, colorId: string | null) => void;
+  onLabel: (event: RangeEvent, labelId: string | null) => void;
   onRespond: (event: RangeEvent, response: RsvpResponse) => void;
   onEmailGuests: (event: RangeEvent) => void;
 }) {
   const own = new Set(ownEmails.map((e) => e.toLowerCase()));
+  const look = lookWords(eventLook(event, { nowMs, today }));
+  const labels = calendar?.labels ?? [];
+  const loaded = useCardContext(event, timeZone);
+  const suggestion =
+    loaded.status === 'ready' && !event.labelId ? (loaded.value?.suggestion ?? null) : null;
   const people = event.attendees.filter((a) => !a.resource && !a.self && !own.has(a.email));
   const counts = responseSummary(responseCounts(people));
   const link = event.meetUrl ?? event.joinUrl;
@@ -373,6 +405,15 @@ function EventCardBody({
                 seriesId={event.recurringEventId}
                 timeZone={timeZone}
               />
+            ) : null}
+            {look.length ? (
+              <p data-event-look="" className="mt-1 flex flex-wrap gap-1.5">
+                {look.map((w) => (
+                  <Badge key={w} tone={w === 'Ended' ? 'neutral' : 'outline'}>
+                    {w}
+                  </Badge>
+                ))}
+              </p>
             ) : null}
           </div>
         </div>
@@ -515,11 +556,39 @@ function EventCardBody({
           </span>
         </Row>
 
-        {event.verdict.meeting && calendar?.primary ? (
-          <ContextBox event={event} timeZone={timeZone} mailbox={mailbox} />
+        {event.label || labels.length > 0 ? (
+          <Row icon={Tag}>
+            <span data-event-label="" className="inline-flex flex-wrap items-center gap-1.5">
+              {event.label ? (
+                <>
+                  <span
+                    aria-hidden
+                    className="size-2.5 shrink-0 rounded-full border"
+                    style={swatchStyle(event.label.color.background)}
+                  />
+                  <span>Label: {labelText(event.label)}</span>
+                </>
+              ) : (
+                <span className="text-[var(--fg-muted)]">No label</span>
+              )}
+            </span>
+          </Row>
         ) : null}
 
-        {options.color && palette.length > 0 ? (
+        {suggestion ? (
+          <SuggestedLabel
+            suggestion={suggestion}
+            color={labels.find((l) => l.id === suggestion.labelId)?.color.background ?? null}
+            canUse={options.color}
+            onUse={() => onLabel(event, suggestion.labelId)}
+          />
+        ) : null}
+
+        <ContextBox loaded={loaded} timeZone={timeZone} mailbox={mailbox} />
+
+        {options.color && labels.length > 0 ? (
+          <LabelRow event={event} calendar={calendar!} onLabel={onLabel} />
+        ) : options.color && palette.length > 0 ? (
           <ColorRow event={event} calendar={calendar} palette={palette} onColor={onColor} />
         ) : null}
 
@@ -568,7 +637,9 @@ function EventCardBody({
             <span>
               {event.canRespond ? '' : 'View only: '}
               {event.readOnlyReason ?? 'this event cannot be changed here.'}
-              {event.canRespond ? ' You can still answer it and pick your colour.' : ''}
+              {event.canRespond
+                ? ` You can still answer it and pick your ${labels.length ? 'label' : 'colour'}.`
+                : ''}
             </span>
           </p>
         ) : null}
@@ -727,62 +798,250 @@ function ColorRow({
   );
 }
 
-/** The day list's context box, for one meeting, read when it is opened. */
-function ContextBox({
+/** Google's label picker on the card: one tap relabels it, and nobody is emailed. */
+function LabelRow({
   event,
-  timeZone,
-  mailbox,
+  calendar,
+  onLabel,
 }: {
   event: RangeEvent;
-  timeZone: string;
-  mailbox: string | null;
+  calendar: CalendarInfo;
+  onLabel: (event: RangeEvent, labelId: string | null) => void;
 }) {
-  const [state, setState] = React.useState<
-    { status: 'loading' } | { status: 'ready'; context: MeetingContext | null }
-  >({ status: 'loading' });
-  const date = daySpan(event, timeZone)?.startKey ?? null;
+  const choices = [
+    ...calendar.labels.map((l) => ({
+      id: l.id as string | null,
+      name: labelText(l),
+      background: l.color.background as string | null,
+    })),
+    { id: null as string | null, name: 'No label', background: null as string | null },
+  ];
+  const current = event.label ? event.labelId : null;
+  return (
+    <div className="space-y-1.5 border-t border-[var(--border)] pt-3">
+      <div role="radiogroup" aria-label="Event label" className="flex flex-wrap gap-1.5">
+        {choices.map((c) => {
+          const on = current === c.id;
+          return (
+            <button
+              key={c.id ?? 'none'}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => (on ? undefined : onLabel(event, c.id))}
+              className={cn(
+                'inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-[var(--focus)]',
+                on
+                  ? 'border-[var(--fg)] bg-[var(--bg-hover)] text-[var(--fg)]'
+                  : 'border-[var(--border-strong)] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]',
+              )}
+            >
+              {c.background ? (
+                <span
+                  aria-hidden
+                  className="flex size-3.5 shrink-0 items-center justify-center rounded-full border"
+                  style={swatchStyle(c.background)}
+                >
+                  {on ? <Check className="size-2.5" style={tickStyle(c.background)} /> : null}
+                </span>
+              ) : on ? (
+                <Check className="size-3.5 shrink-0" aria-hidden />
+              ) : null}
+              <span className="min-w-0 truncate">{c.name}</span>
+            </button>
+          );
+        })}
+      </div>
+      <a
+        href={event.htmlLink ?? 'https://calendar.google.com/calendar/r'}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="link-inline inline-flex items-center gap-1 text-xs"
+      >
+        Edit labels in Google Calendar <ExternalLink className="size-3" aria-hidden />
+      </a>
+    </div>
+  );
+}
 
+/**
+ * The label Copilot would give it, from its own data: a suggestion until
+ * "Use it" is tapped (that tap is the same label write as the picker's).
+ * Without calendar editing it is shown, with no button.
+ */
+function SuggestedLabel({
+  suggestion,
+  color,
+  canUse,
+  onUse,
+}: {
+  suggestion: { labelId: string; name: string; reason: string };
+  color: string | null;
+  canUse: boolean;
+  onUse: () => void;
+}) {
+  return (
+    <Row icon={Sparkles}>
+      <div data-suggested-label="" className="space-y-0.5">
+        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+          <span>Suggested label:</span>
+          <span className="inline-flex items-center gap-1 font-medium">
+            {color ? (
+              <span
+                aria-hidden
+                className="size-2.5 shrink-0 rounded-full border"
+                style={swatchStyle(color)}
+              />
+            ) : null}
+            {suggestion.name}
+          </span>
+          {canUse ? (
+            <>
+              <span aria-hidden className="text-[var(--fg-subtle)]">
+                ·
+              </span>
+              <button
+                type="button"
+                onClick={onUse}
+                aria-label={`Use the suggested label ${suggestion.name}`}
+                className="font-medium text-[var(--accent)] underline decoration-[color:var(--link-underline)] underline-offset-2 hover:decoration-current"
+              >
+                Use it
+              </button>
+            </>
+          ) : null}
+        </p>
+        <p className="text-xs text-[var(--fg-muted)]">
+          {suggestion.reason}
+          {canUse ? '' : ' Labels can be set here once calendar editing is on.'}
+        </p>
+      </div>
+    </Row>
+  );
+}
+
+type Loaded = { status: 'loading' } | { status: 'ready'; value: CardContext | null };
+
+/**
+ * What the card loads once open, kept for the page view (a card opened
+ * again shows at once): the context box, where it came from, a suggested
+ * label. Never read for the grid.
+ */
+const cardContextCache = new Map<string, CardContext | null>();
+
+function useCardContext(event: RangeEvent, timeZone: string): Loaded {
+  const date = daySpan(event, timeZone)?.startKey ?? null;
+  const pending = event.key.startsWith('pending-');
+  const key = `${event.key}|${date ?? ''}`;
+  const [state, setState] = React.useState<Loaded>(() =>
+    cardContextCache.has(key)
+      ? { status: 'ready', value: cardContextCache.get(key) ?? null }
+      : { status: 'loading' },
+  );
   React.useEffect(() => {
-    if (!date) return;
+    if (!date || pending || cardContextCache.has(key)) return;
     let live = true;
-    void fetchContext(event.id, date).then((res) => {
-      if (!live) return;
-      setState({
-        status: 'ready',
-        context: res.ok && res.value.found ? (res.value.context ?? null) : null,
-      });
+    void fetchContext(event.calendarId, event.id, date).then((res) => {
+      const value = res.ok && res.value.found ? res.value : null;
+      if (res.ok) cardContextCache.set(key, value);
+      if (cardContextCache.size > 200)
+        cardContextCache.delete(cardContextCache.keys().next().value!);
+      if (live) setState({ status: 'ready', value });
     });
     return () => {
       live = false;
     };
-  }, [event.id, date]);
+  }, [event.calendarId, event.id, date, key, pending]);
+  return pending ? { status: 'ready', value: null } : state;
+}
 
-  if (state.status === 'loading') {
+/**
+ * The context box: for a meeting on the main calendar the day list's (the
+ * dossier's note, the prep note, the latest emails with the guests), and for
+ * any event "How you got here", which falls back to the email that put it on
+ * the calendar, or what was checked and the Inbox search.
+ */
+function ContextBox({
+  loaded,
+  timeZone,
+  mailbox,
+}: {
+  loaded: Loaded;
+  timeZone: string;
+  mailbox: string | null;
+}) {
+  if (loaded.status === 'loading') {
     return (
       <div className="rounded-md bg-[var(--bg-hover)] p-3" aria-busy="true">
         <SkeletonText lines={3} />
       </div>
     );
   }
-  const { context } = state;
+  const context = loaded.value?.context ?? null;
+  const origin = loaded.value?.origin ?? null;
   const dossier = context?.dossier ?? null;
   const recent = context?.recent ?? [];
+  const told = dossier?.howYouGotHere ?? context?.prep ?? null;
   return (
-    <div className="space-y-1.5 rounded-md bg-[var(--bg-hover)] p-3 text-sm">
+    <div data-context-box="" className="space-y-1.5 rounded-md bg-[var(--bg-hover)] p-3 text-sm">
       {dossier?.oneThing ? (
         <p>
           <span className="font-medium">The one thing to know: </span>
           {dossier.oneThing}
         </p>
       ) : null}
-      <p>
-        <span className="font-medium">How you got here: </span>
-        {dossier?.howYouGotHere ??
-          context?.prep ??
-          (recent.length
-            ? 'No dossier note for this one yet. The latest emails with them are below.'
-            : 'No dossier note and no recent email with them.')}
-      </p>
+      {told || recent.length ? (
+        <p>
+          <span className="font-medium">How you got here: </span>
+          {told ?? 'No dossier note for this one yet. The latest emails with them are below.'}
+        </p>
+      ) : origin && origin.lines.length > 0 ? (
+        <div data-origin="">
+          <p className="font-medium">How you got here</p>
+          <ul className="mt-0.5 space-y-1">
+            {origin.lines.map((line, i) => (
+              <li key={`${line.kind}-${i}`} className="flex flex-wrap items-center gap-x-2 text-xs">
+                <span className="min-w-0 break-words">
+                  {line.text}
+                  {line.subject && line.kind !== 'email' ? (
+                    <span className="text-[var(--fg-subtle)]"> · “{line.subject}”</span>
+                  ) : null}
+                </span>
+                {line.threadId ? (
+                  <ThreadLinks
+                    id={line.threadId}
+                    mailbox={mailbox}
+                    label={line.subject ?? line.text}
+                    variant="text"
+                  />
+                ) : line.href ? (
+                  <a href={line.href} className="link-inline">
+                    Open
+                  </a>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : origin ? (
+        <div data-origin="">
+          <p>
+            <span className="font-medium">How you got here: </span>
+            {origin.checked}
+          </p>
+          <a
+            href={origin.search.href}
+            className="link-inline mt-0.5 inline-flex items-center gap-1 text-xs font-medium"
+          >
+            <Search className="size-3" aria-hidden /> Search the Inbox for ‘{origin.search.query}’
+          </a>
+        </div>
+      ) : (
+        <p>
+          <span className="font-medium">How you got here: </span>
+          No dossier note and no recent email with them.
+        </p>
+      )}
       {dossier && dossier.worthAsking.length > 0 ? (
         <div>
           <p className="font-medium">Worth asking</p>

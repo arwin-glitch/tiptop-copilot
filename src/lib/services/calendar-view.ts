@@ -126,7 +126,12 @@ const recentCache = processWide(
 );
 const RECENT_TTL_MS = 30 * 60_000;
 
-async function recentThreads(
+/**
+ * The last few email threads with these people (calendar notices left out),
+ * read-only, cached for half an hour. The day list's "latest emails with
+ * them", and the event card's for an event on any calendar.
+ */
+export async function recentThreads(
   store: DataStore,
   integration: Integration,
   emails: string[],

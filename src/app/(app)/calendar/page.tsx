@@ -1,16 +1,19 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { Bell, BellOff, MapPin, Video } from 'lucide-react';
+import { Bell, BellOff, MapPin, Search, Video } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
+import { isDemoMode } from '@/lib/config/env';
 import { isDateKey, viewRange } from '@/lib/calendar/grid';
-import { physicalLocation } from '@/lib/calendar/meetings';
+import { NICK_ALIASES, physicalLocation, type MeetingEvent } from '@/lib/calendar/meetings';
 import { calendarSource, readCalendarRange } from '@/lib/calendar/range-reader';
 import { CALENDAR_VIEWS, type CalendarViewKind } from '@/lib/calendar/range-types';
 import { calendarEditAccess } from '@/lib/calendar/edit-access';
 import { getStore } from '@/lib/runtime';
 import { readCalendarDay, type CalendarEntry } from '@/lib/services/calendar-view';
+import { findEventOrigin } from '@/lib/services/calendar-origin';
 import { readCalendarPrefs } from '@/lib/services/calendar-prefs';
+import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { mailboxCanSend } from '@/lib/services/docsend-follow-up';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
@@ -80,17 +83,26 @@ async function CalendarBody({
   if (!useViews) {
     return <CalendarContent day={day} previewView={prefs.view} viewsDefault={prefs.preview} />;
   }
-  return <NewCalendar view={named ?? prefs.view} date={date} shown={prefs.shown} />;
+  return (
+    <NewCalendar
+      view={named ?? prefs.view}
+      date={date}
+      shown={prefs.shown}
+      labelFilter={prefs.labelFilter}
+    />
+  );
 }
 
 async function NewCalendar({
   view,
   date,
   shown,
+  labelFilter,
 }: {
   view: CalendarViewKind;
   date: string | null;
   shown: Record<string, boolean>;
+  labelFilter: string[];
 }) {
   const auth = await requireAuth();
   const tz = auth.profile.timezone;
@@ -120,6 +132,7 @@ async function NewCalendar({
       today={today}
       timeZone={tz}
       shown={shown}
+      labelFilter={labelFilter}
       ownEmails={found.ok ? found.source.ownEmails : [auth.profile.email]}
       mailbox={DEFAULT_MAILBOX}
       editing={access}
@@ -247,11 +260,16 @@ function EntryCard({
   const people = event.attendees.filter(
     (a) => !a.resource && !a.self && a.email !== ownEmail.toLowerCase(),
   );
+  const guestsSayNothing = !dossier?.howYouGotHere && !prep && recent.length === 0;
 
   if (!verdict.meeting) {
+    // A registration, a group invite, a booking or a hold: someone else put it there.
+    const fromElsewhere =
+      Boolean(event.organizer && !event.organizer.self && event.organizer.email !== ownEmail) ||
+      /hold/i.test(verdict.reason);
     return (
       <li>
-        <div className="flex items-start gap-3 rounded-md border border-dashed border-[var(--border)] px-3 py-2 text-sm">
+        <div className="flex items-start gap-3 rounded-md border border-[var(--border)] px-3 py-2 text-sm">
           <span className="w-40 shrink-0 whitespace-nowrap text-[var(--fg-muted)] tabular-nums">
             {time}
           </span>
@@ -263,6 +281,11 @@ function EntryCard({
             <p className="mt-0.5 flex items-center gap-1 text-xs text-[var(--fg-subtle)]">
               <BellOff className="size-3" aria-hidden /> {verdict.reason}. No ping.
             </p>
+            {fromElsewhere ? (
+              <Suspense fallback={null}>
+                <EntryOrigin event={event} tz={tz} ownEmail={ownEmail} quiet />
+              </Suspense>
+            ) : null}
           </div>
         </div>
       </li>
@@ -331,14 +354,25 @@ function EntryCard({
                 {dossier.oneThing}
               </p>
             ) : null}
-            <p>
-              <span className="font-medium">How you got here: </span>
-              {dossier?.howYouGotHere ??
-                prep ??
-                (recent.length
-                  ? 'No dossier note for this one yet. The latest emails with them are below.'
-                  : 'No dossier note and no recent email with them.')}
-            </p>
+            {guestsSayNothing ? (
+              <Suspense
+                fallback={
+                  <p>
+                    <span className="font-medium">How you got here: </span>
+                    <span className="text-[var(--fg-muted)]">Looking…</span>
+                  </p>
+                }
+              >
+                <EntryOrigin event={event} tz={tz} ownEmail={ownEmail} />
+              </Suspense>
+            ) : (
+              <p>
+                <span className="font-medium">How you got here: </span>
+                {dossier?.howYouGotHere ??
+                  prep ??
+                  'No dossier note for this one yet. The latest emails with them are below.'}
+              </p>
+            )}
             {dossier && dossier.worthAsking.length > 0 ? (
               <div>
                 <p className="font-medium">Worth asking</p>
@@ -379,5 +413,96 @@ function EntryCard({
         </CardContent>
       </Card>
     </li>
+  );
+}
+
+/**
+ * "How you got here" for an entry its guests say nothing about: the email
+ * that put it on the calendar (lib/services/calendar-origin.ts, read-only,
+ * the same finder the event card uses), streamed in after the list. `quiet`
+ * (a block): only what was found, never the "nothing found" words.
+ */
+async function EntryOrigin({
+  event,
+  tz,
+  ownEmail,
+  quiet = false,
+}: {
+  event: MeetingEvent;
+  tz: string;
+  ownEmail: string;
+  quiet?: boolean;
+}) {
+  const auth = await requireAuth();
+  const store = getStore();
+  const integration = isDemoMode()
+    ? null
+    : await getPrimaryIntegration(store, auth.organizationId).catch(() => null);
+  const own = [integration?.account_email ?? ownEmail].filter(Boolean);
+  const ownSet = new Set([...own, ...NICK_ALIASES].map((e) => e.toLowerCase()));
+  const origin = await findEventOrigin(store, auth.organizationId, {
+    event: {
+      calendarId: 'primary',
+      id: event.id,
+      title: event.title,
+      organizer: event.organizer,
+      description: event.description,
+      location: event.location,
+      startsAt: event.startsAt,
+      guests: event.attendees.filter((a) => !a.resource && !a.self && !ownSet.has(a.email)).length,
+    },
+    integration: integration && integration.status !== 'disconnected' ? integration : null,
+    ownEmails: own,
+    timeZone: tz,
+  }).catch(() => null);
+  if (!origin) return null;
+  if (origin.lines.length === 0) {
+    if (quiet) return null;
+    return (
+      <div>
+        <p>
+          <span className="font-medium">How you got here: </span>
+          {origin.checked}
+        </p>
+        <Link
+          href={origin.search.href}
+          prefetch={false}
+          className="link-inline mt-0.5 inline-flex items-center gap-1 text-xs font-medium"
+        >
+          <Search className="size-3" aria-hidden /> Search the Inbox for ‘{origin.search.query}’
+        </Link>
+      </div>
+    );
+  }
+  return (
+    <div className={quiet ? 'mt-1' : undefined}>
+      <p className={quiet ? 'text-xs font-medium text-[var(--fg-muted)]' : 'font-medium'}>
+        {quiet ? 'How it got here' : 'How you got here'}
+      </p>
+      <ul className="mt-0.5 space-y-0.5">
+        {origin.lines.map((line, i) => (
+          <li key={`${line.kind}-${i}`} className="flex flex-wrap items-center gap-x-2 text-xs">
+            <span className="min-w-0 break-words">
+              {line.text}
+              {line.subject && line.kind !== 'email' ? (
+                <span className="text-[var(--fg-subtle)]"> · “{line.subject}”</span>
+              ) : null}
+            </span>
+            {line.threadId ? (
+              <ThreadLinks
+                id={line.threadId}
+                mailbox={DEFAULT_MAILBOX}
+                label={line.subject ?? line.text}
+                variant="text"
+              />
+            ) : line.href ? (
+              <Link href={line.href} prefetch={false} className="link-inline">
+                Open
+              </Link>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

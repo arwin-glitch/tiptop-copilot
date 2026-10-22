@@ -1,5 +1,6 @@
 import { addDaysToKey, localClock, wallTimeToUtc } from '@/lib/util/time';
 import { cleanGuestList, guestEmails, type EventDraft } from './edit-rules';
+import { findLabel } from './labels';
 import type { CalendarInfo, EventPaletteEntry, RangeEvent } from './range-types';
 
 /**
@@ -26,6 +27,7 @@ export function draftFromEvent(
     guests: guestEmails(event.attendees, ownEmails),
     meet: Boolean(event.meetUrl),
     colorId: event.colorId,
+    labelId: event.labelId,
   };
 }
 
@@ -74,6 +76,7 @@ export function changedFields(before: EventDraft, after: EventDraft): Partial<Ev
   if ((after.location ?? '').trim() !== (before.location ?? '').trim())
     out.location = after.location;
   if ((after.colorId ?? null) !== (before.colorId ?? null)) out.colorId = after.colorId ?? null;
+  if ((after.labelId ?? null) !== (before.labelId ?? null)) out.labelId = after.labelId ?? null;
   if (after.meet && !before.meet) out.meet = true;
   const was = cleanGuestList(before.guests ?? []);
   const now = cleanGuestList(after.guests ?? []);
@@ -120,7 +123,7 @@ export function inclusiveLastDay(exclusiveEnd: string): string {
 export function optimisticEvent(
   base: RangeEvent | null,
   draft: Partial<EventDraft>,
-  calendar: CalendarInfo,
+  calendar: Pick<CalendarInfo, 'id' | 'color'> & Partial<Pick<CalendarInfo, 'labels'>>,
   palette: readonly EventPaletteEntry[],
   key: string,
 ): RangeEvent {
@@ -145,6 +148,8 @@ export function optimisticEvent(
         meetUrl: null,
         meetPending: false,
         colorId: null,
+        labelId: null,
+        label: null,
         color: calendar.color,
         organizer: null,
         attendees: [],
@@ -164,9 +169,15 @@ export function optimisticEvent(
   if (draft.title !== undefined) event.title = draft.title.trim() || '(no title)';
   if (draft.location !== undefined) event.location = draft.location.trim() || null;
   if (draft.description !== undefined) event.description = draft.description || null;
-  if (draft.colorId !== undefined) {
-    event.colorId = draft.colorId;
-    event.color = palette.find((p) => p.id === draft.colorId) ?? calendar.color;
+  if (draft.colorId !== undefined) event.colorId = draft.colorId;
+  if (draft.labelId !== undefined) {
+    event.labelId = draft.labelId;
+    event.label = findLabel(calendar.labels, draft.labelId);
+  }
+  if (draft.colorId !== undefined || draft.labelId !== undefined) {
+    // Google's order: the label's colour, else the event's own, else its calendar's.
+    const own = palette.find((p) => p.id === event.colorId);
+    event.color = event.label?.color ?? (own ? { ...own } : null) ?? calendar.color;
   }
   if (draft.allDay !== undefined && draft.start !== undefined && draft.end !== undefined) {
     event.allDay = draft.allDay;

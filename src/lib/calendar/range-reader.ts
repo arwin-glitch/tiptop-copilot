@@ -11,6 +11,7 @@ import { calendarColor, eventColor, eventPalette } from './colors';
 import { isWritableRole, meetLinkOf, modifyRule } from './edit-rules';
 import { ownAttendeeIndex, respondRule } from './event-actions';
 import type { GCalColors, GCalEvent, GCalListEntry } from './google-types';
+import { findLabel, toEventLabels } from './labels';
 import {
   classifyMeeting,
   HOLD_TITLE,
@@ -24,6 +25,7 @@ import {
   visibleCalendarIds,
   type CalendarInfo,
   type CalendarRangeData,
+  type EventLabel,
   type RangeEvent,
 } from './range-types';
 
@@ -39,6 +41,13 @@ import {
  * colours are cached for minutes, a range for a minute, per organization, and
  * a write from the Calendar tab drops what it changed (invalidateCalendarCache).
  *
+ * Google's colour labels (D-070): each calendar read also reads that
+ * calendar's labels (calendars.get, eventLabelVersion=1), cached for under a
+ * minute so a label renamed or added in Google shows here within a minute,
+ * and never stored. Events are read with eventLabelVersion=1 too, so each
+ * carries its eventLabelId; its colour is then its label's. A calendar whose
+ * labels cannot be read just shows none: the range still draws.
+ *
  * It never writes. The day list (calendar-view.ts) and the pings
  * (listMeetingEvents) keep their own reads; the parity check compares the two.
  */
@@ -46,6 +55,8 @@ import {
 const CALENDARS_TTL_MS = 5 * 60_000;
 const COLORS_TTL_MS = 6 * 60 * 60_000;
 const RANGE_TTL_MS = 60_000;
+/** Under a minute: a label renamed or added in Google shows here within one. */
+export const LABELS_TTL_MS = 45_000;
 const MAX_RANGE_DAYS = 62;
 
 interface Cached<T> {
@@ -57,6 +68,7 @@ const cache = processWide('calendar-range-cache', () => ({
   calendars: new Map<string, Cached<GCalListEntry[]>>(),
   colors: new Map<string, Cached<GCalColors>>(),
   ranges: new Map<string, Cached<GCalEvent[]>>(),
+  labels: new Map<string, Cached<EventLabel[]>>(),
 }));
 
 /** Test hook. */
@@ -64,11 +76,13 @@ export function resetCalendarRangeCache(): void {
   cache.calendars.clear();
   cache.colors.clear();
   cache.ranges.clear();
+  cache.labels.clear();
 }
 
 /** After a write: the calendar list and every range of the calendars it touched. */
 export function invalidateCalendarCache(organizationId: string, calendarIds?: string[]): void {
   cache.calendars.delete(organizationId);
+  // Labels are not changed by any write here; they expire on their own within a minute.
   for (const key of [...cache.ranges.keys()]) {
     const [org, calendarId] = key.split('|');
     if (org !== organizationId) continue;
@@ -110,6 +124,8 @@ export function toCalendarInfos(
       color: calendarColor(e, colors),
       selectedInGoogle: Boolean(e.selected) || Boolean(e.primary && e.selected !== false),
       timeZone: e.timeZone ?? null,
+      // Read with a range, for the calendars shown (readCalendarLabels).
+      labels: [],
     }))
     .sort((a, b) => group(a) - group(b) || a.name.localeCompare(b.name));
 }
@@ -117,10 +133,13 @@ export function toCalendarInfos(
 /** One Google event as the views draw it, with Copilot's verdict on it. */
 export function toRangeEvent(
   google: GCalEvent,
-  calendar: Pick<CalendarInfo, 'id' | 'accessRole' | 'color'>,
+  calendar: Pick<CalendarInfo, 'id' | 'accessRole' | 'color'> &
+    Partial<Pick<CalendarInfo, 'labels'>>,
   colors: GCalColors | null,
   ownEmails: readonly string[],
 ): RangeEvent {
+  const labelId = google.eventLabelId?.trim() || null;
+  const label = findLabel(calendar.labels, labelId);
   const meeting = toMeetingEvent(google);
   const verdict = classifyMeeting(meeting, ownEmails);
   const busyOnly = calendar.accessRole === 'freeBusyReader' && !google.summary;
@@ -149,7 +168,9 @@ export function toRangeEvent(
     meetUrl: httpsOnly(meetLinkOf(google)),
     meetPending: google.conferenceData?.createRequest?.status?.statusCode === 'pending',
     colorId: google.colorId ?? null,
-    color: eventColor(google.colorId, calendar.color, colors),
+    labelId,
+    label,
+    color: eventColor(google.colorId, calendar.color, colors, label),
     organizer: meeting.organizer
       ? {
           email: meeting.organizer.email,
@@ -266,6 +287,40 @@ export async function readCalendarList(
   return ok({ calendars: toCalendarInfos(list.value, palette), colors: palette });
 }
 
+/**
+ * One calendar's colour labels, through a cache of under a minute (never
+ * stored). A failed read is no labels: the calendar still draws, in Google's
+ * colours.
+ */
+export async function readCalendarLabels(
+  source: CalendarSource,
+  organizationId: string,
+  calendarId: string,
+  now = Date.now(),
+): Promise<EventLabel[]> {
+  const use = source.provider.kind === 'google';
+  const read = await cached(
+    cache.labels,
+    `${organizationId}|${calendarId}`,
+    LABELS_TTL_MS,
+    use,
+    async () => {
+      const calendar = await source.provider.getCalendar(calendarId);
+      return calendar.ok ? ok(toEventLabels(calendar.value)) : calendar;
+    },
+    now,
+  ).catch(() => null);
+  return read?.ok ? read.value : [];
+}
+
+/** The calendars with the labels read for the ones named. */
+export function withLabels(
+  calendars: readonly CalendarInfo[],
+  labels: ReadonlyMap<string, EventLabel[]>,
+): CalendarInfo[] {
+  return calendars.map((c) => (labels.has(c.id) ? { ...c, labels: labels.get(c.id)! } : c));
+}
+
 /** One calendar's events in a range, through the cache. */
 export async function readRangeEvents(
   source: CalendarSource,
@@ -344,13 +399,20 @@ export async function readCalendarRange(
 
   const timeMin = startOfDayUtc(from, timeZone).toISOString();
   const timeMax = startOfDayUtc(to, timeZone).toISOString();
-  const byId = new Map(calendars.map((c) => [c.id, c]));
   const reads = await Promise.all(
-    ids.map(async (calendarId) => ({
-      calendarId,
-      read: await readRangeEvents(source, organizationId, calendarId, timeMin, timeMax, now),
-    })),
+    ids.map(async (calendarId) => {
+      const [read, labels] = await Promise.all([
+        readRangeEvents(source, organizationId, calendarId, timeMin, timeMax, now),
+        readCalendarLabels(source, organizationId, calendarId, now),
+      ]);
+      return { calendarId, read, labels };
+    }),
   );
+  const labelled = withLabels(
+    calendars,
+    new Map(reads.map((r) => [r.calendarId, r.labels] as const)),
+  );
+  const byId = new Map(labelled.map((c) => [c.id, c]));
 
   const events: RangeEvent[] = [];
   const failed: CalendarRangeData['failed'] = [];
@@ -377,7 +439,7 @@ export async function readCalendarRange(
     from,
     to,
     timeZone,
-    calendars,
+    calendars: labelled,
     loaded: reads.filter((r) => r.read.ok).map((r) => r.calendarId),
     failed,
     palette: eventPalette(colors),
