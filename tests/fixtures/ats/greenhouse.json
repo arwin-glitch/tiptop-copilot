@@ -1,0 +1,33 @@
+{
+  "jobs": [
+    {
+      "id": 7000001,
+      "internal_job_id": 9000001,
+      "title": "Senior Platform Engineer",
+      "updated_at": "2026-10-15T14:00:00-04:00",
+      "first_published": "2026-10-01T09:00:00-04:00",
+      "requisition_id": "ENG-12",
+      "location": { "name": "Remote - US" },
+      "absolute_url": "https://job-boards.greenhouse.io/examplerobotics/jobs/7000001",
+      "metadata": [
+        { "id": 1, "name": "Employment Type", "value": "Full-time", "value_type": "single_select" }
+      ],
+      "content": "&lt;p&gt;Example Robotics builds warehouse robots.&lt;/p&gt;&lt;h3&gt;What you will do&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;Own the fleet API&lt;/li&gt;&lt;li&gt;Ship weekly &amp;amp; often&lt;/li&gt;&lt;/ul&gt;&lt;script&gt;alert('x')&lt;/script&gt;&lt;img src=&quot;https://tracker.example/pixel.gif&quot;&gt;",
+      "departments": [{ "id": 3, "name": "Engineering" }],
+      "offices": [{ "id": 4, "name": "Remote" }]
+    },
+    {
+      "id": 7000002,
+      "title": "Account Executive, Mid-Market",
+      "updated_at": "2026-10-12T10:00:00Z",
+      "location": { "name": "Austin, TX; Denver, CO" },
+      "absolute_url": "https://job-boards.greenhouse.io/examplerobotics/jobs/7000002",
+      "metadata": null,
+      "content": "&lt;p&gt;Sell robots.&lt;/p&gt;",
+      "departments": [{ "id": 5, "name": "Sales" }]
+    },
+    { "id": 7000003, "title": "", "location": { "name": "Nowhere" } },
+    { "title": "No id at all" }
+  ],
+  "meta": { "total": 4 }
+}

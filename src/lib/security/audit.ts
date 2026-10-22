@@ -122,7 +122,15 @@ export type AuditAction =
   | 'thesis.updated'
   | 'account.data_deleted'
   | 'security.injection_flagged'
-  | 'security.citation_rejected';
+  | 'security.citation_rejected'
+  // The public job board (D-077).
+  | 'jobs.board_updated'
+  | 'jobs.company_updated'
+  | 'jobs.role_published'
+  | 'jobs.role_hidden'
+  | 'jobs.role_featured'
+  | 'jobs.role_saved'
+  | 'jobs.synced';
 
 export interface AuditInput {
   organizationId: string;

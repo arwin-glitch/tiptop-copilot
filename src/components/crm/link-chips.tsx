@@ -7,6 +7,8 @@ export interface LinkChip {
   count?: number;
   href: string;
   active: boolean;
+  /** Something here waits for a person: the count shows in the warning colour. */
+  attention?: boolean;
 }
 
 /**
@@ -38,7 +40,13 @@ export function LinkChips({
         >
           {chip.label}
           {chip.count !== undefined ? (
-            <span className="tabular ml-1.5 text-[var(--fg-subtle)]">
+            <span
+              className={
+                chip.attention
+                  ? 'tabular ml-1.5 font-semibold text-[var(--warn)]'
+                  : 'tabular ml-1.5 text-[var(--fg-subtle)]'
+              }
+            >
               {chip.count.toLocaleString('en-US')}
             </span>
           ) : null}
