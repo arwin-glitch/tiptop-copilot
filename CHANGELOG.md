@@ -10,6 +10,27 @@ throughout.
 
 ## [Unreleased]
 
+- **Events Studio and outside editors (D-075).** Each event page now has an
+  editor, Studio, that opens full screen from the event: the page outline on
+  the left (drag sections to reorder, hide, duplicate, delete, add from a
+  gallery), the real page in the middle on a desktop, tablet or phone frame,
+  and the selected section's words, layout, motion and who-sees-it on the
+  right, plus panels for the theme, brand colours and fonts (with contrast
+  checks), effects and media. It saves by itself, keeps working offline,
+  has undo and redo, shows who else is in the page and which section they
+  are on, and when two people change the same thing it asks which to keep
+  rather than overwriting. Publish shows what changed since the last
+  publish and who changed it, with a checklist (missing alt text blocks
+  publishing; the rest warn). Partners can now be invited to work on a
+  page without a Copilot account: each person gets their own link, shown
+  once, that opens only that event's draft design, within what the owner
+  allowed (words, design, chosen sections; TipTop's logo, colours and fonts
+  stay locked). They can never publish or see guests, messages or
+  settings. Links can be extended, changed, regenerated, revoked, revoked
+  all at once, and editing can be paused; owners are told when a link is
+  first used, used from a new device, or marked ready for review. Nothing is
+  emailed: "Draft an email" opens a draft in your own mail app.
+
 - **Events, groundwork (D-075).** The foundation for Luma-style event pages
   inside Copilot is in place, ahead of the screens: the database tables for
   events, sessions, guests and their RSVPs, outside-editor and staff links,
