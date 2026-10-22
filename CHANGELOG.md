@@ -20,10 +20,11 @@ throughout.
   starts later is drawn over the earlier one, shifted right and nearly full
   width, with a thin outline, so long blocks (travel, a conference day,
   holds) never squeeze a meeting into a sliver. No event is drawn narrower
-  than 36px on a computer; what does not fit folds into a "+N" that lists
-  it. Titles never break inside a word: they wrap over whole words where
-  there is room, and a narrow event shows the start of its title with an
-  ellipsis. The views go to any date (back, ahead, Today, a date picker),
+  than 36px on a computer (on a laptop under 1280px the month and the
+  calendars move behind the Calendars button to make the room); what does
+  not fit folds into a "+N" that lists it. Titles never break inside a
+  word: they wrap over whole words where there is room, and a narrow event
+  shows the start of its title with an ellipsis. The views go to any date (back, ahead, Today, a date picker),
   show all of Nick's calendars in Google's own names and colours with a
   toggle each, and keep the Meeting/Block verdict (a hold stays a block,
   tagged Hold).

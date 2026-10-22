@@ -2001,8 +2001,8 @@ whole series (the copy is one event), notifications per event, and the
 ### D-069 — Calendar: Google's overlap layout, and the new views as the default
 
 **Context.** The new Day, Week and Month views went live behind their switch,
-and a read-only parity check against Nick's real calendar matched 141 of 141
-events over 31 days. A look at Week on his real calendar showed the one real
+and a read-only parity check against Nick's real calendar matched it event
+for event over a month. A look at Week on his real calendar showed the one real
 problem: on busy days several long blocks overlap (travel, conference days,
 holds), the layout split the day into strict side-by-side lanes of 15-25px,
 and titles wrapped one letter per line. Arwin wanted it "like Google
@@ -2022,7 +2022,11 @@ Calendar", and the new views to be what the tab opens on.
   a meeting: the meeting sits over it, nearly full width.
 - **A hard minimum width.** No chip is drawn narrower than 36px on a
   computer (`MIN_CHIP_PX`; half a column on a phone's seven narrow columns).
-  A cascade too deep moves back left instead; a row with more side-by-side
+  For that room the month and the calendars sit beside the grid only from
+  1280px; on a narrower laptop they would squeeze Week's columns to about
+  60px, so they move behind the Calendars button and the date picker, and
+  the columns stay at 95px or more from 640px up. A cascade too deep moves
+  back left instead; a row with more side-by-side
   events than fit shows what fits and folds the rest into a "+N" in the last
   slot, as tall as the time it covers, which lists them (each opens its own
   card; a press elsewhere on the grid only closes the list, as in Google).
@@ -2030,12 +2034,21 @@ Calendar", and the new views to be what the tab opens on.
 - **No word is ever broken.** Titles are `word-break: normal` and
   `overflow-wrap: normal` (no `break-words`/`anywhere`). Where a chip is wide
   and tall enough, the title wraps over whole words, each word kept whole and
-  ended with an ellipsis if it alone is too long; a chip under 52px shows one
-  line, the start of its title and an ellipsis (no time, Hold tag or bell);
-  under 16px only its colour. Chip content now sits at the top, as in Google
-  (a button centred it). Everything else is kept: colours, the dashed edge of
-  a block, the Hold tag, the ping bell, click for the card, drag and resize,
-  keyboard focus (a focused chip rises above the stack).
+  ended with an ellipsis if it alone is too long, but only with room for
+  about six letters beside the Hold tag and bell (44px): with less, one cut
+  word would sit under another ("D… S… c…"), so the title takes one line. A
+  chip under 52px shows one line, the start of its title and an ellipsis (no
+  time, Hold tag or bell); under 16px only its colour. Chip content now sits
+  at the top, as in Google (a button centred it). Everything else is kept:
+  colours, the dashed edge of a block, the Hold tag, the ping bell, click for
+  the card, drag and resize, keyboard focus.
+- **Focus and drags leave the stack alone.** A focused chip keeps its place
+  in the stack (its outline shows where it is in view): raised, a long block
+  given focus back by Esc from its card would cover every meeting drawn over
+  it. While an event is dragged, the others keep the places they had, and it
+  is drawn on top, a column wide (resized, where it was), so it never folds
+  into a "+N" mid-drag. An event opened from a "+N" list opens its card
+  beside the "+N", which gets focus back when the card closes.
 - **The new views are the default.** A plain `/calendar` opens them for
   anyone who has not chosen: their saved view, else Week (a phone opens on
   Day, in the browser, as the switch already did). The switch stays, as
@@ -2052,8 +2065,9 @@ Calendar", and the new views to be what the tab opens on.
   migration: the next save writes a `v: 2` row with the resolved value.
 - **A busy demo day** (twelve days out in the mock calendar: a flight, a
   conference day and holds under short meetings, three at noon, a one-word
-  title too long for its chip) is what the layout is tested and
-  screenshotted on.
+  title too long for its chip; and the day after, blocks of 6 to 12 hours
+  with a red-eye past midnight into the next morning) is what the layout is
+  tested and screenshotted on.
 
 **Known limits.**
 
@@ -2061,3 +2075,5 @@ Calendar", and the new views to be what the tab opens on.
   tenth of the column are close to what it draws, not a copy of it.
 - The column width is measured in the browser; the server draws with a
   typical width, so a very busy day can shift once as the page loads.
+- Between 640 and about 655px Week's columns are a little short of two
+  36px chips side by side, so those are drawn 34-35px wide.

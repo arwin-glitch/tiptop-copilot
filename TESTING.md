@@ -146,8 +146,13 @@ and on brings the views back; `?view=list` and old `?day=` links are the day
 list. On the demo's conference day (long overlapping blocks under short
 meetings) every chip is at least 36px wide at 1440 and 1280, no title can break
 inside a word, a word too long for its chip ends in an ellipsis, a "+N" lists
-what does not fit and opens its card, and a phone's week fits without
-scrolling sideways.
+what does not fit and opens its card (which gives the "+N" focus back), and a
+phone's week fits without scrolling sideways. At 1024px, over the conference
+day and the day after it, the calendars panel moves behind its button, every
+chip is still at least 36px, a title that wraps has room for whole words, and
+no chip is wholly covered. Esc on a long block's card leaves the meetings drawn
+over it on top and clickable, and a meeting dragged into a crowded row stays
+drawn, on top, with nothing else moving and nothing saved on Esc.
 
 **`calendar-event-card.spec.ts`** covers the new calendar's event card over the
 demo's mock calendar: a click opens it beside the event (not a centred dialog)
