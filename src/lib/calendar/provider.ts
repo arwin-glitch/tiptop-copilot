@@ -287,6 +287,21 @@ export class GoogleCalendarProvider implements CalendarProvider {
   }
 
   async listRange(calendarId: string, range: RangeOptions): Promise<Result<GCalEvent[]>> {
+    const labelled = await this.listRangeOnce(calendarId, range, true);
+    // Google documents the label switch on writes only: should events.list
+    // ever refuse it as unknown, read once more without it (no labels, but
+    // the calendar still draws).
+    if (!labelled.ok && labelled.error.code === 'invalid_input') {
+      return this.listRangeOnce(calendarId, range, false);
+    }
+    return labelled;
+  }
+
+  private async listRangeOnce(
+    calendarId: string,
+    range: RangeOptions,
+    labelled: boolean,
+  ): Promise<Result<GCalEvent[]>> {
     const out: GCalEvent[] = [];
     let pageToken: string | null = null;
     for (let page = 0; page < RANGE_MAX_PAGES; page++) {
@@ -296,8 +311,8 @@ export class GoogleCalendarProvider implements CalendarProvider {
         maxResults: String(RANGE_PAGE_SIZE),
         timeMin: range.timeMin,
         timeMax: range.timeMax,
-        eventLabelVersion: EVENT_LABEL_VERSION,
       });
+      if (labelled) params.set('eventLabelVersion', EVENT_LABEL_VERSION);
       if (pageToken) params.set('pageToken', pageToken);
       const res = await this.request<{ items?: GCalEvent[]; nextPageToken?: string }>(
         `/calendars/${enc(calendarId)}/events?${params.toString()}`,
@@ -311,10 +326,11 @@ export class GoogleCalendarProvider implements CalendarProvider {
   }
 
   async getEvent(calendarId: string, eventId: string): Promise<Result<GCalEvent>> {
+    const path = `/calendars/${enc(calendarId)}/events/${enc(eventId)}`;
     const labelled = new URLSearchParams({ eventLabelVersion: EVENT_LABEL_VERSION });
-    const res = await this.request<GCalEvent>(
-      `/calendars/${enc(calendarId)}/events/${enc(eventId)}?${labelled.toString()}`,
-    );
+    let res = await this.request<GCalEvent>(`${path}?${labelled.toString()}`);
+    // As for a range: refused as unknown, ask once without it (the card and every write read here).
+    if (!res.ok && res.error.code === 'invalid_input') res = await this.request<GCalEvent>(path);
     if (!res.ok) return res;
     return res.value ? ok(res.value) : err('not_found', 'That event is no longer on the calendar.');
   }

@@ -2284,9 +2284,11 @@ time."
 
 **Known limits** (only a real read can settle these):
 
-- Google's guide shows `eventLabelVersion=1` on event requests; it does not
-  say whether `calendars.get` needs or accepts it. It is sent there too, and
-  a 400 is retried once without it.
+- Google documents `eventLabelVersion=1` on event writes (insert, import,
+  update, patch); it does not say whether `calendars.get`, `events.list` or
+  `events.get` need or accept it. It is sent on those reads too, and a 400
+  is retried once without it, so a refusal costs the labels, never the
+  calendar or a write (every write reads the event first).
 - The guide does not say whether `colorId` still comes back on reads made
   with the version, or whether `eventLabelId` comes back without it. Both
   are handled: a label wins when present, else `colorId` as before.

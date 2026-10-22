@@ -294,6 +294,34 @@ describe('Google’s endpoints (fetch stubbed)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('a range and an event are read once more without the switch if Google refuses it', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      const u = new URL(url);
+      if (u.searchParams.has('eventLabelVersion')) return new Response('{}', { status: 400 });
+      return new Response(
+        JSON.stringify(
+          u.pathname.endsWith('/events')
+            ? { items: [{ id: 'e1', status: 'confirmed' }] }
+            : { id: 'e1', status: 'confirmed' },
+        ),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = await google();
+    const range = await provider.listRange('cal', {
+      timeMin: '2026-10-19T05:00:00.000Z',
+      timeMax: '2026-10-26T05:00:00.000Z',
+    });
+    expect(range.ok && range.value.map((e) => e.id)).toEqual(['e1']);
+    const event = await provider.getEvent('cal', 'e1');
+    expect(event.ok && event.value.id).toBe('e1');
+    const asked = fetchMock.mock.calls.map((c) =>
+      new URL(String(c[0])).searchParams.has('eventLabelVersion'),
+    );
+    expect(asked).toEqual([true, false, true, false]);
+  });
+
   it('sends eventLabelVersion=1 on a label write, never on a colour write', async () => {
     const fetchMock = vi.fn(
       async () => new Response(JSON.stringify({ id: 'e1' }), { status: 200 }),
