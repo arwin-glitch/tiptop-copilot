@@ -923,27 +923,33 @@ function SuggestedLabel({
 type Loaded = { status: 'loading' } | { status: 'ready'; value: CardContext | null };
 
 /**
- * What the card loads once open, kept for the page view (a card opened
- * again shows at once): the context box, where it came from, a suggested
- * label. Never read for the grid.
+ * What the card loads once open, kept for a few minutes (a card opened
+ * again shows at once, and a page left open all day still picks up a
+ * dossier or prep note written since): the context box, where it came
+ * from, a suggested label. Never read for the grid.
  */
-const cardContextCache = new Map<string, CardContext | null>();
+const cardContextCache = new Map<string, { at: number; value: CardContext | null }>();
+const CARD_CONTEXT_TTL_MS = 5 * 60_000;
+
+function cachedCardContext(key: string): { value: CardContext | null } | null {
+  const hit = cardContextCache.get(key);
+  return hit && Date.now() - hit.at < CARD_CONTEXT_TTL_MS ? hit : null;
+}
 
 function useCardContext(event: RangeEvent, timeZone: string): Loaded {
   const date = daySpan(event, timeZone)?.startKey ?? null;
   const pending = event.key.startsWith('pending-');
   const key = `${event.key}|${date ?? ''}`;
-  const [state, setState] = React.useState<Loaded>(() =>
-    cardContextCache.has(key)
-      ? { status: 'ready', value: cardContextCache.get(key) ?? null }
-      : { status: 'loading' },
-  );
+  const [state, setState] = React.useState<Loaded>(() => {
+    const hit = cachedCardContext(key);
+    return hit ? { status: 'ready', value: hit.value } : { status: 'loading' };
+  });
   React.useEffect(() => {
-    if (!date || pending || cardContextCache.has(key)) return;
+    if (!date || pending || cachedCardContext(key)) return;
     let live = true;
     void fetchContext(event.calendarId, event.id, date).then((res) => {
       const value = res.ok && res.value.found ? res.value : null;
-      if (res.ok) cardContextCache.set(key, value);
+      if (res.ok) cardContextCache.set(key, { at: Date.now(), value });
       if (cardContextCache.size > 200)
         cardContextCache.delete(cardContextCache.keys().next().value!);
       if (live) setState({ status: 'ready', value });
