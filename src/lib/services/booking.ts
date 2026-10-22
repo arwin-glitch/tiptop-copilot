@@ -559,7 +559,7 @@ export type SubmitOutcome =
   | { kind: 'ignored'; result: PublicBookingResult };
 
 /** The answer when the time was taken a moment ago: the route adds the next open times. */
-export const TAKEN_MESSAGE = 'That time was just taken. Pick another time.';
+export const TAKEN_MESSAGE = 'That time is no longer open. Pick another time.';
 
 /* ------------------------------------------------------ the booking's page */
 
