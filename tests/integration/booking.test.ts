@@ -147,6 +147,13 @@ beforeEach(async () => {
   resetCalendarRangeCache();
   resetLimiters();
   state = createMockCalendarState(NOW);
+  // These tests pin the approve-first flow (D-074), an option since D-078;
+  // instant booking, holds and the booking's own page are booking-flows.test.ts.
+  const org = harness.auth.organizationId;
+  const row = await harness.store.get('booking_settings', org, DEMO_BOOKING_SETTINGS_ID);
+  await harness.store.update('booking_settings', org, DEMO_BOOKING_SETTINGS_ID, {
+    settings: { ...(row!.settings as Record<string, unknown>), approveFirst: true },
+  });
 });
 
 afterEach(async () => {
@@ -285,7 +292,11 @@ describe('a visitor’s request', () => {
   it('answers the honeypot as if all went well, and keeps nothing', async () => {
     const [slot] = await slots('call');
     const result = await submit({ start: slot!.start, website: 'http://spam.example' });
-    expect(result).toEqual({ ok: true, value: { kind: 'ignored' } });
+    // The answer a person would get for a request that waits, and no page to manage.
+    expect(result).toEqual({
+      ok: true,
+      value: { kind: 'ignored', result: { status: 'pending', manageUrl: null, booking: null } },
+    });
     expect(
       await harness.store.count('booking_requests', harness.auth.organizationId, {
         eq: { email: 'pat@acme.example' },
@@ -308,7 +319,7 @@ describe('a visitor’s request', () => {
     expect(again.ok).toBe(false);
     if (!again.ok)
       expect(again.error.message).toBe(
-        'You already have 3 requests waiting. Send another once those are answered.',
+        'You already have 3 meetings or messages on this link. Change or cancel one from its own page first.',
       );
   });
 
@@ -800,7 +811,7 @@ describe('review fixes', () => {
     if (!fourth.ok) {
       expect(fourth.error.code).toBe('rate_limited');
       expect(fourth.error.message).toBe(
-        'You already have requests waiting. Send another once those are answered.',
+        'You already have several meetings or messages on this link. Change or cancel one from its own page first.',
       );
     }
     // Kept in the table, so a restart (fresh limiters) changes nothing.

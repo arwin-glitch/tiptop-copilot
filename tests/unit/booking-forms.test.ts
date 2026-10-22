@@ -72,6 +72,8 @@ describe('Settings > Booking link', () => {
       maxLinkBookingsPerDay: 2,
       maxMeetingsPerDay: 5,
       approveFirst: false,
+      allowGuests: true,
+      maxGuests: 5,
       chatbotEnabled: true,
       chatbot: { enabled: true, faqItems: [], aiAnswers: false },
       photo: null,

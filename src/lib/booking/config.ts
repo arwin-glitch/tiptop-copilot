@@ -217,6 +217,9 @@ export const CALENDAR_CHOICE = z.object({
 });
 export type CalendarChoice = z.infer<typeof CALENDAR_CHOICE>;
 
+/** The most guests a booking may ever bring (Settings may allow fewer). */
+export const MAX_GUESTS = 10;
+
 /** Everything Settings > Booking link edits, apart from on/off and the slug. */
 export interface BookingConfig {
   displayName: string;
@@ -296,6 +299,10 @@ export interface BookingConfig {
    */
   chatbot: ChatbotConfig;
   /** @deprecated Kept so an older row still reads: `chatbot.enabled` is the setting now. */
+  /** Visitors may add guests to a booking (Calendly's "Add guests"), invited with them. */
+  allowGuests: boolean;
+  /** At most this many guests a booking (0 to 10). */
+  maxGuests: number;
   chatbotEnabled: boolean;
   /** @deprecated Kept so an older row still reads: `chatbot.faqItems` is the setting now. */
   faq: string;
@@ -345,6 +352,8 @@ export const DEFAULT_BOOKING_CONFIG: BookingConfig = {
   maxMeetingsPerDay: 5,
   approveFirst: false,
   chatbot: readChatbotConfig({}),
+  allowGuests: true,
+  maxGuests: 5,
   chatbotEnabled: true,
   faq: '',
   photo: null,
@@ -444,6 +453,8 @@ export const BOOKING_CONFIG_SCHEMA = z
     approveFirst: z.boolean(),
     // Read leniently by its own module: the chatbot's route is what checks it on save.
     chatbot: z.unknown().transform((value): ChatbotConfig => readChatbotConfig({ chatbot: value })),
+    allowGuests: z.boolean(),
+    maxGuests: int(0, MAX_GUESTS),
     chatbotEnabled: z.boolean(),
     faq: z.string().max(4000),
     photo: PHOTO_REF.nullable(),

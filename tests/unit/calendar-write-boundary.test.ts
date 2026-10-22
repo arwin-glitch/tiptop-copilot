@@ -4,11 +4,14 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * Where calendar writes can come from, read from the source. Changing an
- * event is a person's tap on the Calendar tab and nothing else: no routine,
- * cron job, AI tool, relay reader, the pings or the parity check can reach a
- * write, and nothing anywhere defaults to emailing guests. The one other
- * caller is the booking link's Approve (D-074), a person's tap in the
- * Calendar tab's panel; the public booking page and its chatbot never reach it.
+ * event is a person's tap on the Calendar tab, or the booking link's own
+ * module (lib/services/booking-calendar.ts, D-074 and D-078): a person's
+ * Approve, a visitor's instant booking, a held time placed once editing is
+ * on, and the booking's own page moving or cancelling it, each after the time
+ * was checked again. No routine, AI tool, relay reader, the pings or the
+ * parity check can reach a write; the push job only places held times; and
+ * nothing anywhere defaults to emailing guests. The public pages and the
+ * chatbot name no write themselves.
  */
 
 const SRC = join(process.cwd(), 'src');
@@ -27,23 +30,40 @@ const SOURCES = files(SRC).map((file) => ({
 }));
 
 describe('calendar writes', () => {
-  it('only the Calendar tab’s edit route and the booking approval import the write module', () => {
+  it('only the Calendar tab’s edit route and the booking link’s write module import it', () => {
     const importers = SOURCES.filter((s) => /from ['"][^'"]*calendar\/write['"]/.test(s.text)).map(
       (s) => s.rel,
     );
     expect(importers.sort()).toEqual([
       'app/api/calendar/events/route.ts',
-      'lib/services/booking.ts',
+      'lib/services/booking-calendar.ts',
     ]);
-    // In the booking service, only Approve calls it, and with the person's Send.
+    // The booking link's writes (D-078): one create, one move, one delete, each
+    // telling the guests through Google (sendUpdates 'all' via notify 'send').
+    const writes = SOURCES.find((s) => s.rel === 'lib/services/booking-calendar.ts')!.text;
+    expect(writes.match(/createCalendarEvent\(/g)).toHaveLength(1);
+    expect(writes.match(/updateCalendarEvent\(/g)).toHaveLength(1);
+    expect(writes.match(/deleteCalendarEvent\(/g)).toHaveLength(1);
+    expect(writes.match(/notify: 'send'/g)).toHaveLength(3);
+    expect(writes).not.toMatch(/recolorCalendarEvent|relabelCalendarEvent|respondToCalendarEvent/);
+    // Reached from the booking service (Approve, an instant booking) and the
+    // booking's own page and held times (booking-manage) alone.
+    const users = SOURCES.filter((s) => /from ['"]\.\/booking-calendar['"]/.test(s.text)).map(
+      (s) => s.rel,
+    );
+    expect(users.sort()).toEqual(['lib/services/booking-manage.ts', 'lib/services/booking.ts']);
     const booking = SOURCES.find((s) => s.rel === 'lib/services/booking.ts')!.text;
-    expect(booking.match(/createCalendarEvent\(/g)).toHaveLength(1);
-    expect(booking).not.toMatch(/updateCalendarEvent|deleteCalendarEvent|recolorCalendarEvent/);
+    expect(booking.match(/createLinkEvent\(/g)).toHaveLength(2);
+    expect(booking).not.toMatch(/moveLinkEvent|deleteLinkEvent/);
     const approve =
       /export async function approveBookingRequest[\s\S]*?\n}\n/.exec(booking)?.[0] ?? '';
-    expect(approve).toMatch(/createCalendarEvent\(/);
-    expect(approve).toMatch(/notify: 'send'/);
-    // And the service is reached for Approve from the signed-in panel route alone.
+    expect(approve).toMatch(/createLinkEvent\(/);
+    // Every write there comes after the time was checked again, fresh.
+    const submit =
+      /export async function submitBookingRequest[\s\S]*?\n}\n/.exec(booking)?.[0] ?? '';
+    expect(submit.indexOf('fresh: true')).toBeGreaterThan(0);
+    expect(submit.indexOf('slotProblem(')).toBeLessThan(submit.indexOf('createLinkEvent('));
+    // Approve is reached from the signed-in panel route alone.
     const approvers = SOURCES.filter((s) => /\bapproveBookingRequest\(/.test(s.text)).map(
       (s) => s.rel,
     );
@@ -51,6 +71,10 @@ describe('calendar writes', () => {
       'app/api/booking/requests/[id]/route.ts',
       'lib/services/booking.ts',
     ]);
+    // The job reaches a write only by placing held times, each checked again.
+    const cron = SOURCES.find((s) => s.rel === 'app/api/cron/push/route.ts')!.text;
+    expect(cron).toMatch(/placeHeldBookingsForAll\(/);
+    expect(cron).not.toMatch(/createLinkEvent|moveLinkEvent|deleteLinkEvent|calendar\/write/);
   });
 
   it('the public booking page, its routes and its chatbot name no write at all', () => {
@@ -60,7 +84,12 @@ describe('calendar writes', () => {
         s.rel.startsWith('app/api/meet/') ||
         s.rel.startsWith('lib/booking/') ||
         s.rel.startsWith('components/booking/booking-page') ||
-        s.rel.startsWith('components/booking/booking-chat'),
+        s.rel.startsWith('components/booking/booking-chat') ||
+        s.rel.startsWith('components/booking/booking-manage') ||
+        s.rel.startsWith('components/booking/booking-confirmation') ||
+        s.rel.startsWith('components/booking/booking-details') ||
+        s.rel.startsWith('components/booking/slot-picker') ||
+        s.rel.startsWith('components/booking/guest-list'),
     );
     expect(publicSide.length).toBeGreaterThan(8);
     for (const { rel, text } of publicSide) {
@@ -140,8 +169,8 @@ describe('calendar writes', () => {
     const start = SOURCES.find((s) => s.rel === 'app/api/integrations/google/start/route.ts')!;
     expect(start.text).toMatch(/searchParams\.get\('calendar'\) === '1'/);
     // The "Turn on calendar editing" links: Settings, the Calendar tab's
-    // view-only note, and the Booking tab's banner (D-078: bookings are held
-    // until it is on).
+    // view-only note, the Booking tab's banner and Today's line about held
+    // booking times (D-078: bookings are held until it is on).
     const linkers = SOURCES.filter((s) => /google\/start\?calendar=1/.test(s.text)).map(
       (s) => s.rel,
     );
@@ -149,6 +178,7 @@ describe('calendar writes', () => {
       'app/(app)/booking/page.tsx',
       'app/(app)/calendar/page.tsx',
       'app/(app)/settings/page.tsx',
+      'components/today/booking-requests-line.tsx',
     ]);
   });
 

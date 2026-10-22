@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
+import { placeHeldBookingsForAll } from '@/lib/services/booking-manage';
 import { recordJobHeartbeatForAll } from '@/lib/services/feed-health';
 import { buildOutbox, recordDelivery, vapidPublicKey } from '@/lib/services/push-alerts';
 
@@ -46,6 +47,9 @@ export async function GET(request: NextRequest) {
   // Diagnostics > Feeds tells from this whether the sender is still calling;
   // written at most every ten minutes, and never throws.
   await recordJobHeartbeatForAll(getStore(), 'push-sender');
+  // Every half hour: held booking-link times go on the calendar once
+  // calendar editing is on, each checked again first (D-078). Never throws.
+  if (scope === 'all') await placeHeldBookingsForAll(getStore()).catch(() => null);
   const outbox = await buildOutbox(getStore(), new Date(), scope);
   return NextResponse.json(
     { ok: true, publicKey: vapidPublicKey(), outbox },

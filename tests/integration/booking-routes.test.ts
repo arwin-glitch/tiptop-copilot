@@ -161,14 +161,30 @@ describe('a saved video link (hotfix)', () => {
   });
 });
 
-describe('what the page says happens next (hotfix)', () => {
+describe('what the page says happens next (hotfix, D-078)', () => {
   it('names no person who confirms, reviews or approves', async () => {
+    // Booked at once, the default (D-078).
     const page = await loadMeetPage(harness.store, 'nick', 'visitor-key');
     const markup = renderToStaticMarkup(createElement(BookingPage, { data: page }));
     expect(markup).toContain('30-min Google Meet');
-    expect(markup).toContain('A calendar invitation once your time is booked');
-    expect(markup).toContain('You&#x27;ll get a calendar invitation once the time is booked.');
+    expect(markup).toContain('Booked straight onto the calendar');
+    expect(markup).toContain('It goes straight onto the calendar');
+    expect(markup).toContain('Book meeting');
     expect(markup).not.toMatch(/confirm|review|approv|Arwin will|the team/i);
+
+    // Approve first, the option: a request that waits, still no person named.
+    resetLimiters();
+    const org = harness.auth.organizationId;
+    const row = await harness.store.get('booking_settings', org, DEMO_BOOKING_SETTINGS_ID);
+    await harness.store.update('booking_settings', org, DEMO_BOOKING_SETTINGS_ID, {
+      settings: { ...(row!.settings as Record<string, unknown>), approveFirst: true },
+    });
+    const waiting = await loadMeetPage(harness.store, 'nick', 'visitor-key-2');
+    const later = renderToStaticMarkup(createElement(BookingPage, { data: waiting }));
+    expect(later).toContain('A calendar invitation once your time is booked');
+    expect(later).toContain('You&#x27;ll get a calendar invitation once the time is booked.');
+    expect(later).toContain('Send request');
+    expect(later).not.toMatch(/confirm|review|approv|Arwin will|the team/i);
     expect(SENT_MESSAGE).toBe(
       "Request sent. You'll get a calendar invitation once the time is booked.",
     );
@@ -212,11 +228,25 @@ describe('sending a request', () => {
       params(),
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, message: SENT_MESSAGE });
+    // Booked at once (D-078): the status, the booking's own page, the booking.
+    const json = (await res.json()) as Record<string, unknown> & { manageUrl: string };
+    expect(json).toMatchObject({
+      ok: true,
+      status: 'booked',
+      message: 'Booked.',
+      booking: { status: 'booked', type: 'call', startsAt: start, guests: [] },
+    });
+    expect(json.manageUrl).toMatch(/^\/meet\/nick\/b\/[A-Za-z0-9_-]{43}$/);
+    // This device remembers it: an httpOnly cookie sent to the link's own pages only.
+    const cookie = res.headers.get('set-cookie') ?? '';
+    expect(cookie).toContain(`tiptop_booking_nick=${json.manageUrl.split('/').pop()}`);
+    expect(cookie).toMatch(/HttpOnly/i);
+    expect(cookie).toMatch(/Path=\/meet\/nick/i);
     const rows = await harness.store.list('booking_requests', harness.auth.organizationId, {
       eq: { email: 'pat@acme.example' },
     });
     expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe('booked');
     expect(rows[0]!.ip_hash).toMatch(/^[0-9a-f]{16,}$/);
     expect(rows[0]!.ip_hash).not.toContain('203.0.113.7');
   });
@@ -274,7 +304,8 @@ describe('sending a request', () => {
     expect(fourth.status).toBe(429);
     expect(await fourth.json()).toMatchObject({
       error: {
-        message: 'You already have requests waiting. Send another once those are answered.',
+        message:
+          'You already have several meetings or messages on this link. Change or cancel one from its own page first.',
       },
     });
     await requestRoute(post('/api/meet/nick/request', message('p4@a.example')), params());

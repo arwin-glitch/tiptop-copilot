@@ -71,7 +71,8 @@ import type { CalendarInfo, EventLabel, RangeEvent } from './range-types';
 export interface WriteContext {
   store: DataStore;
   organizationId: string;
-  userId: string;
+  /** Who pressed it; null for a visitor on the booking link (D-078), who has no account. */
+  userId: string | null;
   source: CalendarSource;
 }
 

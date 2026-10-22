@@ -1360,7 +1360,15 @@ export interface BookingSettingsRow {
   updated_at: IsoDateTime;
 }
 
-export type BookingRequestStatus = 'pending' | 'approved' | 'declined' | 'handled';
+/**
+ * pending: waiting for a person (approve first). approved: on the calendar
+ * after someone approved it (or added it by hand). declined: turned down, or a
+ * held time released. handled: a message, read. booked: on the calendar at
+ * once from the link (D-078). held: kept until calendar editing is on.
+ * cancelled: cancelled, the event deleted with Google's cancellation.
+ */
+export type BookingRequestStatus =
+  'pending' | 'approved' | 'declined' | 'handled' | 'booked' | 'held' | 'cancelled';
 
 /** A meeting request (or a message) sent from the public booking page. */
 export interface BookingRequest {
@@ -1391,6 +1399,21 @@ export interface BookingRequest {
   decided_at: IsoDateTime | null;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
+  /*
+   * D-078 (20261022200000_booking_v2.sql). Optional: a row read before that
+   * migration has none of them, and the code treats a missing one as empty.
+   */
+  /** Guests the visitor added, invited with them. */
+  guest_emails?: string[];
+  /** SHA-256 (hex) of the booking page's token; the token is never stored. */
+  manage_token_hash?: string | null;
+  /** The visitor's note to the host when they cancelled. */
+  cancel_note?: string | null;
+  cancelled_at?: IsoDateTime | null;
+  /** Who cancelled: the visitor (its page), the team (Copilot) or the calendar (deleted in Google). */
+  cancelled_by?: 'visitor' | 'team' | 'calendar' | null;
+  rescheduled_count?: number;
+  previous_starts_at?: IsoDateTime | null;
 }
 
 /**

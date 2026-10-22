@@ -38,8 +38,8 @@ import { BriefingWatcher } from '@/components/today/briefing-watcher';
 import { WelcomeBack } from '@/components/today/welcome-back';
 import { TodayGlance } from '@/components/today/today-glance';
 import { AffinityExitLine } from '@/components/today/affinity-exit-line';
-import { BookingRequestsLine } from '@/components/today/booking-requests-line';
-import { countPendingBookingRequests } from '@/lib/services/booking';
+import { BookingRequestsLine, hasBookingNews } from '@/components/today/booking-requests-line';
+import { bookingTodaySummary } from '@/lib/services/booking-alerts';
 import { CompanyChip } from '@/components/tasks/company-chip';
 import { ThreadLinks } from '@/components/email/thread-links';
 import { NotSeenSentCard, type NotSeenSentItem } from '@/components/tasks/proof-check';
@@ -161,8 +161,9 @@ async function TodayContent({
     readTaskPeople(auth.organizationId),
     // Ticked tasks whose deliverable was never seen sent. Never throws.
     readFlaggedProofTasks(getStore(), auth.organizationId, now),
-    // Booking-link requests waiting. Never throws: a fault is no line.
-    countPendingBookingRequests(getStore(), auth.organizationId),
+    // The booking link's last day, requests waiting and held times (D-078).
+    // Never throws: a fault is no line.
+    bookingTodaySummary(getStore(), auth.organizationId, now, auth.profile.timezone),
   ]);
   // Never throws: a fault only leaves the rows without company chips.
   const companies = await readTaskCompanies(getStore(), auth.organizationId, [
@@ -248,7 +249,7 @@ async function TodayContent({
 
       {affinityExit ? <AffinityExitLine countdown={affinityExit} /> : null}
 
-      {bookingRequests ? <BookingRequestsLine count={bookingRequests} /> : null}
+      {hasBookingNews(bookingRequests) ? <BookingRequestsLine summary={bookingRequests} /> : null}
 
       <NotSeenSentCard items={notSeenSent} />
 

@@ -7,21 +7,21 @@ import { ThemeToggle } from '@/components/shell/theme-toggle';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/feedback';
 import { Input, Label, Select, Textarea } from '@/components/ui/form';
-import { KIND_LABEL, type MeetingKind } from '@/lib/booking/config';
+import { KIND_LABEL } from '@/lib/booking/config';
 import {
   CLOSED_MESSAGE,
-  SENT_MESSAGE,
   callOptionLabel,
   dayKeyIn,
-  dayLabel,
   distinctZones,
   knownZone,
   slotLabel,
-  timeLabel,
   zoneName,
+  type BookingOutcomeStatus,
   type PublicBookingPage,
+  type PublicBookingView,
   type PublicSlot,
   type PublicSlots,
+  type RememberedBooking,
 } from '@/lib/booking/public';
 import {
   applyFill,
@@ -34,13 +34,18 @@ import {
 import { SUPPORTED_TIMEZONES } from '@/lib/util/time';
 import { cn } from '@/lib/util/cn';
 import { BookingChat } from './booking-chat';
+import { BookingConfirmation } from './booking-confirmation';
+import { GuestList } from './guest-list';
+import { SlotPicker } from './slot-picker';
 
 /**
  * The public booking page (/meet/<slug>): the host's card, then one form —
  * a call or an in-person coffee, lunch or dinner, a time in the visitor's
- * own zone, a place, and who they are. Sending keeps a request; nothing is
- * booked from here, and the calendar invitation follows once the time is
- * booked. The chatbot can fill the form; the visitor still presses Send.
+ * own zone, a place, who they are and any guests. A free time is booked at
+ * once (D-078; the server checks it again first) and the confirmation links
+ * the booking's own page, to reschedule or cancel; with approve first on in
+ * Settings it waits as a request instead. The chatbot can fill the form; the
+ * visitor still presses the button.
  */
 
 const noSubscribe = () => () => {};
@@ -58,7 +63,14 @@ function initials(name: string): string {
   );
 }
 
-export function BookingPage({ data }: { data: PublicBookingPage }) {
+export function BookingPage({
+  data,
+  remembered = null,
+}: {
+  data: PublicBookingPage;
+  /** The latest booking this device made on the link, while it is ahead (D-078). */
+  remembered?: RememberedBooking | null;
+}) {
   const detected = React.useSyncExternalStore(noSubscribe, browserZone, serverNull);
   const [chosenZone, setChosenZone] = React.useState<string | null>(null);
   const zone = chosenZone ?? (knownZone(detected) ? detected : data.hostTimeZone);
@@ -77,6 +89,7 @@ export function BookingPage({ data }: { data: PublicBookingPage }) {
   return (
     <OpenPage
       data={data}
+      remembered={remembered}
       visitorZone={zone}
       zonePicked={chosenZone !== null}
       onZone={setChosenZone}
@@ -85,7 +98,7 @@ export function BookingPage({ data }: { data: PublicBookingPage }) {
   );
 }
 
-function Shell({ firmName, children }: { firmName: string; children: React.ReactNode }) {
+export function Shell({ firmName, children }: { firmName: string; children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col bg-[var(--bg)] text-[var(--fg)]">
       <header className="dark border-b border-[var(--gold-rule)] bg-[var(--bg-band)] text-[var(--fg)]">
@@ -107,15 +120,18 @@ function Shell({ firmName, children }: { firmName: string; children: React.React
   );
 }
 
-function HostCard({
+export function HostCard({
   host,
   inPerson,
   callLabel,
+  instant,
 }: {
   host: NonNullable<PublicBookingPage['host']>;
   inPerson: boolean;
   /** "30-min Zoom call": what a call is on, never its link. */
   callLabel: string;
+  /** Booked at once (D-078), or a request that waits. */
+  instant: boolean;
 }) {
   return (
     <section
@@ -165,8 +181,10 @@ function HostCard({
           </li>
         ) : null}
         <li className="flex items-center gap-2">
-          <CalendarCheck2 className="size-4 text-[var(--accent)]" aria-hidden="true" />A calendar
-          invitation once your time is booked
+          <CalendarCheck2 className="size-4 text-[var(--accent)]" aria-hidden="true" />
+          {instant
+            ? 'Booked straight onto the calendar'
+            : 'A calendar invitation once your time is booked'}
         </li>
       </ul>
     </section>
@@ -183,12 +201,14 @@ function slotKey(form: Pick<BookingFormState, 'type' | 'kind'>): string | null {
 
 function OpenPage({
   data,
+  remembered,
   visitorZone,
   zonePicked,
   onZone,
   detectedZone,
 }: {
   data: PublicBookingPage;
+  remembered: RememberedBooking | null;
   visitorZone: string;
   /** The visitor chose a zone in the picker: it wins everywhere. */
   zonePicked: boolean;
@@ -207,7 +227,17 @@ function OpenPage({
   const [day, setDay] = React.useState<string | null>(null);
   const [sending, setSending] = React.useState(false);
   const [problem, setProblem] = React.useState<string | null>(null);
-  const [sent, setSent] = React.useState<BookingFormState | null>(null);
+  const [sent, setSent] = React.useState<{
+    status: BookingOutcomeStatus;
+    booking: PublicBookingView | null;
+    manageUrl: string | null;
+  } | null>(null);
+  /** The next open times, offered when the time picked was taken a moment ago. */
+  const [nextTimes, setNextTimes] = React.useState<PublicSlot[]>([]);
+  /** The latest booking on this device: the server's, then one just made here. */
+  const [latest, setLatest] = React.useState<RememberedBooking | null>(remembered);
+  const submitLabel =
+    form.type === 'message' ? 'Send message' : data.instant ? 'Book meeting' : 'Send request';
   const [filledByChat, setFilledByChat] = React.useState(false);
   const [website, setWebsite] = React.useState('');
   const [reload, setReload] = React.useState(0);
@@ -259,23 +289,10 @@ function OpenPage({
     : null;
   const loaded = current?.data?.slots;
   const list: PublicSlot[] = React.useMemo(() => loaded ?? [], [loaded]);
-  const days = React.useMemo(() => {
-    const groups = new Map<string, PublicSlot[]>();
-    for (const s of list) {
-      const k = dayKeyIn(s.start, zone);
-      groups.set(k, [...(groups.get(k) ?? []), s]);
-    }
-    return [...groups.entries()];
-  }, [list, zone]);
-  const pickedDay =
-    (form.start ? dayKeyIn(form.start, zone) : null) ??
-    (day && days.some(([k]) => k === day) ? day : null) ??
-    days[0]?.[0] ??
-    null;
-  const dayTimes = days.find(([k]) => k === pickedDay)?.[1] ?? [];
 
   const update = (patch: Partial<BookingFormState>) => {
     setProblem(null);
+    setNextTimes([]);
     setForm((f) => patchForm(f, patch));
   };
 
@@ -314,6 +331,7 @@ function OpenPage({
         customPlace: form.type === 'in_person' && form.placeId === 'custom' ? form.customPlace : '',
         note: form.note,
         deckUrl: form.deckUrl,
+        guests: form.type === 'message' || !data.guests.allowed ? [] : form.guests,
         timeZone: zone,
         source: filledByChat ? 'chatbot' : 'form',
         website,
@@ -322,55 +340,53 @@ function OpenPage({
     setSending(false);
     const json = (await res?.json().catch(() => null)) as {
       ok?: boolean;
+      status?: BookingOutcomeStatus;
+      manageUrl?: string;
+      booking?: PublicBookingView;
+      next?: PublicSlot[];
       error?: { code?: string; message?: string };
     } | null;
     if (res?.ok && json?.ok) {
-      setSent(form);
+      const status: BookingOutcomeStatus =
+        json.status ?? (form.type === 'message' ? 'message' : data.instant ? 'booked' : 'pending');
+      const manageUrl = json.manageUrl ?? null;
+      const booking = json.booking ?? null;
+      if (manageUrl && booking) {
+        setLatest({
+          manageUrl,
+          startsAt: booking.startsAt,
+          type: booking.type,
+          kind: booking.kind,
+        });
+      }
+      setSent({ status, booking, manageUrl });
+      window.scrollTo({ top: 0 });
       return;
     }
-    setProblem(json?.error?.message ?? 'The request did not go through. Try again.');
+    setProblem(json?.error?.message ?? 'That did not go through. Try again.');
     if (json?.error?.code === 'conflict') {
       setForm((f) => ({ ...f, start: null }));
+      setNextTimes(Array.isArray(json.next) ? json.next.slice(0, 3) : []);
       setReload((n) => n + 1);
     }
   };
 
   if (sent) {
-    const place =
-      sent.type === 'in_person'
-        ? sent.placeId === 'custom'
-          ? sent.customPlace
-          : data.places.find((p) => p.id === sent.placeId)?.name
-        : null;
     return (
       <Shell firmName={host.firmName || 'TipTop Ventures'}>
-        <section
-          className="shadow-raised mx-auto max-w-lg rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--bg-raised)] p-6 text-center"
-          aria-live="polite"
-        >
-          <CalendarCheck2 className="mx-auto size-9 text-[var(--accent)]" aria-hidden="true" />
-          <h1 className="mt-3 font-serif text-2xl font-semibold">{SENT_MESSAGE}</h1>
-          <p className="mt-2 text-sm text-[var(--fg-muted)]">
-            {sent.type === 'message'
-              ? `Your message for ${host.displayName} was sent.`
-              : `${sent.type === 'call' ? callLabel : `${KIND_LABEL[sent.kind as MeetingKind]}, 1 hour`} · ${slotLabel(sent.start!, zone)} (${zoneName(zone, new Date(sent.start!))})${place ? ` · ${place}` : ''}`}
-          </p>
-          <p className="mt-4 text-xs text-[var(--fg-subtle)]">
-            Nothing is on the calendar yet. Watch your inbox for the invitation.
-          </p>
-          <Button
-            className="mt-5"
-            variant="secondary"
-            onClick={() => {
-              setSent(null);
-              setForm(EMPTY_FORM);
-              setFilledByChat(false);
-              setReload((n) => n + 1);
-            }}
-          >
-            Send another request
-          </Button>
-        </section>
+        <BookingConfirmation
+          status={sent.status}
+          booking={sent.booking}
+          manageUrl={sent.manageUrl}
+          hostName={host.displayName}
+          visitorZone={sent.booking?.type === 'in_person' ? data.hostTimeZone : zone}
+          onAnother={() => {
+            setSent(null);
+            setForm(EMPTY_FORM);
+            setFilledByChat(false);
+            setReload((n) => n + 1);
+          }}
+        />
       </Shell>
     );
   }
@@ -381,10 +397,18 @@ function OpenPage({
     <Shell firmName={host.firmName || 'TipTop Ventures'}>
       <div className="grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:items-start">
         <div className="lg:sticky lg:top-6">
-          <HostCard host={host} inPerson={data.offers.inPerson} callLabel={callLabel} />
+          <HostCard
+            host={host}
+            inPerson={data.offers.inPerson}
+            callLabel={callLabel}
+            instant={data.instant}
+          />
         </div>
 
         <div ref={formRef} className="scroll-mt-4">
+          {latest ? (
+            <RememberedBanner booking={latest} hostName={host.displayName} zone={visitorZone} />
+          ) : null}
           <form
             onSubmit={send}
             noValidate
@@ -398,11 +422,13 @@ function OpenPage({
               <p className="mt-1 text-sm text-[var(--fg-muted)]">
                 {form.type === 'message'
                   ? `Your message goes to ${host.displayName}.`
-                  : "Pick what suits you. You'll get a calendar invitation once the time is booked."}
+                  : data.instant
+                    ? 'Pick what suits you. It goes straight onto the calendar, and the invitation comes by email.'
+                    : "Pick what suits you. You'll get a calendar invitation once the time is booked."}
               </p>
               {filledByChat ? (
                 <Notice className="mt-3">
-                  Arwin filled in the form for you. Check it, then press Send request.
+                  Arwin filled in the form for you. Check it, then press {submitLabel}.
                 </Notice>
               ) : null}
             </div>
@@ -486,6 +512,26 @@ function OpenPage({
                     In-person times are local time where you will meet.
                   </p>
                 ) : null}
+                {nextTimes.length ? (
+                  <div className="space-y-2" aria-live="polite">
+                    <p className="text-sm font-medium">The next open times:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {nextTimes.map((s) => (
+                        <Button
+                          key={s.start}
+                          type="button"
+                          variant="secondary"
+                          onClick={() => {
+                            setDay(dayKeyIn(s.start, zone));
+                            update({ start: s.start });
+                          }}
+                        >
+                          {slotLabel(s.start, zone)}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {current?.loading ? (
                   <p className="text-sm text-[var(--fg-muted)]" aria-live="polite">
                     Finding open times…
@@ -500,57 +546,14 @@ function OpenPage({
                     leave a message.
                   </Notice>
                 ) : (
-                  <>
-                    <div role="radiogroup" aria-label="Day" className="flex flex-wrap gap-2">
-                      {days.map(([k, times]) => (
-                        <button
-                          key={k}
-                          type="button"
-                          role="radio"
-                          aria-checked={pickedDay === k}
-                          onClick={() => {
-                            setDay(k);
-                            if (form.start && dayKeyIn(form.start, zone) !== k)
-                              update({ start: null });
-                          }}
-                          className={cn(
-                            'min-h-11 rounded-[var(--radius-card)] border px-3 py-1.5 text-left text-sm transition-colors',
-                            pickedDay === k
-                              ? 'border-[var(--primary)] bg-[var(--accent-soft)] font-medium text-[var(--fg)]'
-                              : 'border-[var(--border-strong)] bg-[var(--bg)] hover:bg-[var(--bg-hover)]',
-                          )}
-                        >
-                          <span className="block">{dayLabel(times[0]!.start, zone)}</span>
-                          <span className="block text-[11px] text-[var(--fg-subtle)]">
-                            {times.length} open
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                    <div
-                      role="radiogroup"
-                      aria-label="Time"
-                      className="grid grid-cols-3 gap-2 sm:grid-cols-4"
-                    >
-                      {dayTimes.map((s) => (
-                        <button
-                          key={s.start}
-                          type="button"
-                          role="radio"
-                          aria-checked={form.start === s.start}
-                          onClick={() => update({ start: s.start })}
-                          className={cn(
-                            'h-11 rounded-md border text-sm font-medium tabular-nums transition-colors',
-                            form.start === s.start
-                              ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-fg)]'
-                              : 'border-[var(--border-strong)] bg-[var(--bg)] hover:bg-[var(--bg-hover)]',
-                          )}
-                        >
-                          {timeLabel(s.start, zone)}
-                        </button>
-                      ))}
-                    </div>
-                  </>
+                  <SlotPicker
+                    slots={list}
+                    zone={zone}
+                    value={form.start}
+                    onChange={(start) => update({ start })}
+                    day={day}
+                    onDay={setDay}
+                  />
                 )}
               </fieldset>
             ) : null}
@@ -670,6 +673,14 @@ function OpenPage({
                   onChange={(e) => update({ company: e.target.value })}
                 />
               </div>
+              {form.type !== 'message' && data.guests.allowed ? (
+                <GuestList
+                  guests={form.guests}
+                  max={data.guests.max}
+                  booker={form.email}
+                  onChange={(guests) => update({ guests })}
+                />
+              ) : null}
               <div className="space-y-1.5">
                 <Label htmlFor={`${uid}-note`}>
                   {form.type === 'message' ? 'Your message' : 'What would you like to talk about?'}
@@ -720,7 +731,7 @@ function OpenPage({
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-5">
               <Button type="submit" variant="primary" size="lg" loading={sending}>
-                {form.type === 'message' ? 'Send message' : 'Send request'}
+                {submitLabel}
               </Button>
               {form.type === 'message' ? (
                 <Button type="button" variant="link" onClick={() => update({ type: 'call' })}>
@@ -797,5 +808,32 @@ function TypeOption({
         <span className="block text-xs text-[var(--fg-muted)]">{body}</span>
       </span>
     </button>
+  );
+}
+
+function RememberedBanner({
+  booking,
+  hostName,
+  zone,
+}: {
+  booking: RememberedBooking;
+  hostName: string;
+  zone: string;
+}) {
+  const shownZone = booking.type === 'in_person' ? null : zone;
+  return (
+    <Notice tone="info" className="mb-4">
+      <span>
+        You have a meeting with {hostName} on{' '}
+        <strong className="font-semibold">
+          {slotLabel(booking.startsAt, shownZone ?? zone)}
+          {shownZone ? ` (${zoneName(shownZone, new Date(booking.startsAt))})` : ''}
+        </strong>
+        .{' '}
+        <a href={booking.manageUrl} className="link-inline whitespace-nowrap">
+          See, reschedule or cancel
+        </a>
+      </span>
+    </Notice>
   );
 }
