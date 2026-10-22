@@ -76,7 +76,7 @@ create table if not exists booking_requests (
     (meeting_type = 'message' and starts_at is null and ends_at is null)
     or (meeting_type <> 'message' and starts_at is not null and ends_at > starts_at)
   ),
-  constraint booking_requests_kind_check check (
+  constraint booking_requests_kind_matches_type check (
     (meeting_type = 'in_person') = (kind is not null)
   )
 );
