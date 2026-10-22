@@ -474,9 +474,15 @@ export const HELP_PAGES: readonly HelpPage[] = [
         body: 'Turn each calendar on or off. Names and colors come straight from Google Calendar.',
         placement: 'right',
       },
+      {
+        target: 'calendar-bookings',
+        title: 'Booking requests',
+        body: 'Requests from the booking link open here. Approve checks the time again, then invites them.',
+        placement: 'left',
+      },
     ],
     sketch: [
-      ...header(),
+      ...header('calendar-bookings'),
       { x: 1, y: 3.8, w: 9, h: 1, tone: 'tabs', pin: 'calendar-views' },
       { x: 18, y: 3.8, w: 5, h: 1, tone: 'action' },
       { x: 1, y: 5.8, w: 4.2, h: 9.6, tone: 'pane', pin: 'calendar-list' },
@@ -696,7 +702,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'settings',
     name: 'Settings',
     href: '/settings',
-    purpose: 'Your thesis, integrations, phone alerts, limits and privacy.',
+    purpose: 'Your thesis, integrations, phone alerts, booking link, limits and privacy.',
     subtabs: [
       {
         key: 'thesis',
@@ -709,7 +715,13 @@ export const HELP_PAGES: readonly HelpPage[] = [
         label: 'Preferences',
         blurb: 'Time zone, phone alerts and the desktop app.',
       },
-      { key: 'limits', label: 'Limits & cost', blurb: 'Usage ceilings and spend.' },
+      {
+        key: 'booking',
+        label: 'Booking link',
+        blurb: 'The public page people book time on, its rules and its chatbot.',
+        href: '/settings?tab=booking',
+      },
+      { key: 'limits', label: 'Limits', blurb: 'Usage ceilings. AI runs on the Claude plan: $0.' },
       { key: 'data', label: 'Data & privacy', blurb: 'What is stored, and deleting it.' },
     ],
     steps: [
@@ -727,9 +739,15 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'settings-tabs',
         title: 'One tab per topic',
-        body: 'Thesis, integrations, preferences, limits and privacy. Phone alerts live in Preferences.',
+        body: 'Thesis, integrations, preferences, booking link, limits and privacy. Phone alerts live in Preferences.',
         placement: 'bottom',
         grand: true,
+      },
+      {
+        target: 'settings-booking',
+        title: 'Your booking link',
+        body: 'Turn the public page on, set places, hours and rules, and write the chatbot’s FAQ.',
+        placement: 'top',
       },
     ],
     sketch: [
@@ -737,7 +755,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       { x: 1, y: 3.8, w: 22, h: 1.6, tone: 'card', pin: 'settings-help' },
       { x: 18.5, y: 4.1, w: 4, h: 1, tone: 'action' },
       { x: 1, y: 6.2, w: 16, h: 1, tone: 'tabs', pin: 'settings-tabs' },
-      { x: 1, y: 8, w: 22, h: 7.2, tone: 'card' },
+      { x: 1, y: 8, w: 22, h: 7.2, tone: 'card', pin: 'settings-booking' },
       ...lines(2, 9, 15, 4),
     ],
   },

@@ -101,6 +101,14 @@ export type AuditAction =
   | 'calendar.event_created'
   | 'calendar.event_updated'
   | 'calendar.event_deleted'
+  | 'booking.settings_updated'
+  | 'booking.photo_updated'
+  | 'booking.requested'
+  | 'booking.approved'
+  | 'booking.auto_approved'
+  | 'booking.approve_refused'
+  | 'booking.declined'
+  | 'booking.handled'
   | 'draft.created'
   | 'chat.question_asked'
   | 'brief.generated'
@@ -162,7 +170,15 @@ export type AuditAction =
   | 'voice.consent'
   | 'voice.revoke'
   | 'voice.enrolled'
-  | 'voice.expired';
+  | 'voice.expired'
+  // The public job board (D-077).
+  | 'jobs.board_updated'
+  | 'jobs.company_updated'
+  | 'jobs.role_published'
+  | 'jobs.role_hidden'
+  | 'jobs.role_featured'
+  | 'jobs.role_saved'
+  | 'jobs.synced';
 
 export interface AuditInput {
   organizationId: string;

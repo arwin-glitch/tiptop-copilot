@@ -1,6 +1,8 @@
 import type {
   AiUsageRecord,
   AuditEvent,
+  BookingRequest,
+  BookingSettingsRow,
   CalendarEvent,
   Campaign,
   CampaignEvent,
@@ -29,6 +31,9 @@ import type {
   EncryptedProviderToken,
   GeneratedDraft,
   Integration,
+  JobBoardSettings,
+  JobCompany,
+  JobPosting,
   KnowledgeChunk,
   KnowledgeDocument,
   McpToken,
@@ -122,6 +127,11 @@ export interface TableMap {
   desktop_handoffs: DesktopHandoff;
   user_feedback: UserFeedback;
   sync_runs: SyncRun;
+  booking_settings: BookingSettingsRow;
+  booking_requests: BookingRequest;
+  job_board_settings: JobBoardSettings;
+  job_companies: JobCompany;
+  job_postings: JobPosting;
   // Copilot Notes (D-076; supabase/migrations/20261024000000_copilot_notes.sql).
   meetings: Meeting;
   meeting_participants: MeetingParticipant;

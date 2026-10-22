@@ -1,0 +1,23 @@
+{
+  "name": "Fixture Foods",
+  "description": null,
+  "jobs": [
+    {
+      "title": "Operations Manager",
+      "shortcode": "ABC123DEF",
+      "code": "",
+      "employment_type": "Full-time",
+      "telecommuting": false,
+      "department": "Operations",
+      "url": "https://apply.workable.com/j/ABC123DEF",
+      "shortlink": "https://apply.workable.com/j/ABC123DEF",
+      "application_url": "https://apply.workable.com/j/ABC123DEF/apply",
+      "published_on": "2026-10-05",
+      "created_at": "2026-10-04",
+      "country": "United States",
+      "city": "Chicago",
+      "state": "Illinois",
+      "description": "<p>Run our kitchens.</p>"
+    }
+  ]
+}

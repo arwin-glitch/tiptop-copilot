@@ -45,6 +45,10 @@ export default defineConfig({
       TASK_BRIDGE_TOKEN: 'e2e-task-bridge-token-not-a-production-value',
       // Copilot Notes (D-076) is off by default; the e2e server turns it on.
       NOTES_ENABLED: 'on',
+      // jobs-board.spec.ts reaches the board's own host (jobs.tiptop.vc) with
+      // an X-Forwarded-Host header, as there is no DNS for it here. Never set
+      // in a real deployment (lib/jobs-board/host.ts).
+      JOBS_BOARD_TRUST_FORWARDED_HOST: 'true',
     },
   },
 });

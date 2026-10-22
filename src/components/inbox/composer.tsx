@@ -24,6 +24,8 @@ export interface ComposeDraft {
   links?: boolean;
   /** Plain sentences to read before sending: a missing address, an unlinked name. */
   hints?: string[];
+  /** Whose signature it opens with (Nick's unless the draft is written as Arwin). */
+  signature?: Signature;
 }
 
 const UNDO_SECONDS = 8;
@@ -64,7 +66,7 @@ export function Composer({
   const [showCc, setShowCc] = React.useState(Boolean(initial.cc));
   const [subject, setSubject] = React.useState(initial.subject);
   const [body, setBody] = React.useState(initial.body);
-  const [signature, setSignature] = React.useState<Signature>('nick');
+  const [signature, setSignature] = React.useState<Signature>(initial.signature ?? 'nick');
   const [countdown, setCountdown] = React.useState(0);
   const [pending, setPending] = React.useState(false);
   const [sending, setSending] = React.useState(false);

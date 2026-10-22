@@ -525,6 +525,34 @@ reads them from; it is sent to the routine with each request. Defaults to
 meeting notes stay out of a channel every member can read; the Slack app then
 needs `groups:history` and to be a member there.
 
+## Public job board
+
+The board at `/jobs` needs no variable: it is off until switched on in
+Portfolio › Jobs, and `jobs.tiptop.vc` is already served at its root once
+DNS points at the app. See [docs/JOBS_BOARD.md](docs/JOBS_BOARD.md) and
+[DECISIONS.md](DECISIONS.md) D-077.
+
+### `JOBS_BOARD_URL`
+
+Optional. The board's public address once its own host is live, e.g.
+`https://jobs.tiptop.vc`. Canonical links, the sitemap, link previews and
+Copilot's "View public board" button use it, and its host is served the
+board at its root. Unset: the board's address is `APP_URL` + `/jobs`.
+
+### `JOBS_BOARD_HOSTS`
+
+Optional. More hosts that serve the board at their root, comma separated
+(`jobs.tiptop.vc` always does). Every address on such a host is the board's;
+Copilot itself is never reachable there.
+
+### `JOBS_BOARD_TRUST_FORWARDED_HOST`
+
+Test only; never set in a deployment. `true` lets an `X-Forwarded-Host`
+header pick the board's host, which the e2e server needs (it has no DNS for
+`jobs.tiptop.vc`; `playwright.config.ts` sets it). Unset, only the `Host`
+header counts: Render routes by it and passes it on, while `X-Forwarded-Host`
+is a header any client can write.
+
 ---
 
 ## Ceilings
