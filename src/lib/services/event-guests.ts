@@ -684,6 +684,8 @@ export interface BulkRequest {
   action: BulkAction;
   guestIds: string[];
   sessionId?: string | null;
+  /** Only rows in these statuses change (Decline from the Pending tab: pending only). */
+  from?: EventGuestStatus[] | null;
   note?: string | null;
   tag?: string | null;
   force?: boolean;
@@ -757,7 +759,7 @@ export async function bulkGuests(
             guestIds: ids,
             sessionIds: request.sessionId ? [request.sessionId] : null,
             to: move.to,
-            from: move.from,
+            from: request.from?.length ? request.from : move.from,
             note,
             by: owner.userId,
             force: request.force,
@@ -906,7 +908,15 @@ export async function bulkGuests(
       return ok({ changed, full: 0, promoted: 0 });
     }
     if (request.action === 'rotate_links') {
-      for (const g of guests) {
+      // Their plus-ones' QR codes stop working too, as the confirmation says.
+      const children = await store.list('event_guests', owner.organizationId, {
+        eq: { event_id: eventId },
+        in: { parent_guest_id: guests.map((g) => g.id) },
+      });
+      const rotated = new Set<string>();
+      for (const g of [...guests, ...children]) {
+        if (rotated.has(g.id)) continue;
+        rotated.add(g.id);
         await store.update('event_guests', owner.organizationId, g.id, {
           token_version: g.token_version + 1,
         });

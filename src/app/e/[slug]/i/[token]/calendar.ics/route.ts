@@ -57,6 +57,7 @@ export async function GET(_request: Request, context: Context) {
           startsAt: (s.starts_at ?? event.starts_at)!,
           endsAt: s.ends_at ?? (s.starts_at ? null : event.ends_at),
           location: venue.revealed ? locationLine(venue) : venue.name,
+          tentative: guest.rows.some((r) => r.session_id === s.id && r.status === 'maybe'),
         };
       }),
   });

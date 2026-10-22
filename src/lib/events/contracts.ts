@@ -87,6 +87,7 @@ import type {
   EventMediaKind,
   EventQuestionType,
   EventRecord,
+  EventRegistrationSettings,
   EventSession,
   EventResponseSet,
   EventStatus,
@@ -563,6 +564,18 @@ export interface StarterSession {
   capacity: number | null;
 }
 
+/** A starter's registration question: ids, positions and session ids come at create time. */
+export interface StarterQuestion {
+  type: EventQuestionType;
+  label: string;
+  help: string | null;
+  required: boolean;
+  options: string[];
+  /** Index into the starter's sessions; null asks it for the whole event. */
+  sessionIndex: number | null;
+  ask_plus_ones: boolean;
+}
+
 /** A starter page (WS2, lib/events/starters): fictional copy only. */
 export interface StarterDoc {
   id: string;
@@ -574,6 +587,21 @@ export interface StarterDoc {
   /** Integration (additive): the local start the new-event dialog suggests, "HH:MM". */
   startTime?: string;
   sessions: StarterSession[];
+  /**
+   * Registration defaults over the standard ones (plus-ones merged key by key):
+   * what the starter's description promises (the AGM's "plus-ones for the
+   * evening") is set up, not left for the host to find.
+   */
+  registration?: Partial<Omit<EventRegistrationSettings, 'plus_ones'>> & {
+    plus_ones?: Partial<EventRegistrationSettings['plus_ones']>;
+  };
+  /** Questions the form starts with; `sessionIndex` ties one to a starter session. */
+  questions?: StarterQuestion[];
+  /**
+   * Agenda columns tied to a starter session (column id → session index), so
+   * a Reception-only guest never sees the Meeting's run of show.
+   */
+  agendaSessions?: Record<string, number>;
   /** In order; ids and positions are assigned when the event is created. */
   sections: Omit<EventSection, 'id' | 'position' | 'rev' | 'keyRevs'>[];
 }

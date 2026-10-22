@@ -523,12 +523,20 @@ export async function draftEventMessage(
     meta.notify = meta.notify.map((i) => ({ ...i, email: emailOf.get(i.guestId) ?? null }));
   }
 
+  // A notice about one session of a multi-session event says which one (a
+  // waitlisted Reception guest may well be Going to the Meeting).
+  const noticeSessionIds = new Set((meta.notify ?? []).map((i) => i.sessionId));
+  const noticeSession =
+    req.kind === 'notice' && sessions.length > 1 && noticeSessionIds.size === 1
+      ? (sessions.find((s) => noticeSessionIds.has(s.id)) ?? null)
+      : null;
+  const copySession = session ?? noticeSession;
   const copy = messageCopy(req.kind, messageContext(event, sessions), {
     notifyKind: req.notifyKind,
-    session: session
+    session: copySession
       ? {
-          name: session.name,
-          when: formatWhen(session.starts_at, session.ends_at, event.time_zone),
+          name: copySession.name,
+          when: formatWhen(copySession.starts_at, copySession.ends_at, event.time_zone),
         }
       : null,
     offsetMinutes: req.offsetMinutes,
@@ -744,7 +752,10 @@ function pendingUpdate(
   campaigns: readonly CampaignSummary[],
   snapshot: GuestSnapshot,
 ): number | null {
-  if (event.status !== 'published' || event.schedule_version <= 0) return null;
+  // Only changes after the first publish: edits made while it was a draft
+  // reached nobody (guests review: a false "Draft an update" prompt).
+  const baseline = event.published_schedule_version ?? 0;
+  if (event.status !== 'published' || event.schedule_version <= baseline) return null;
   const announced = campaigns.some(
     (c) =>
       (c.event_kind === 'update' || c.event_kind === 'cancellation') &&

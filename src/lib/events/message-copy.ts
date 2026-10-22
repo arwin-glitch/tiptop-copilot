@@ -128,10 +128,15 @@ export function messageCopy(
     case 'notice': {
       const notifyKind = options.notifyKind ?? 'confirmed';
       const notice = NOTICE[notifyKind];
+      // About one session: its name and its time, not the whole event's.
+      const s = options.session;
+      const about = s
+        ? { ...context, title: `${context.title}: ${s.name}`, when: s.when }
+        : context;
       return {
-        name: `${title} · Notice: ${NOTIFY_LABELS[notifyKind].title}`,
-        subject: notice.subject(title),
-        body: `${GREETING}\n\n${notice.body(context)}`,
+        name: `${title} · Notice: ${NOTIFY_LABELS[notifyKind].title}${s ? ` (${literal(s.name)})` : ''}`,
+        subject: notice.subject(literal(about.title)),
+        body: `${GREETING}\n\n${notice.body(about)}`,
       };
     }
     case 'update':

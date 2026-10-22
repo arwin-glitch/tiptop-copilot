@@ -19,6 +19,34 @@ export const agmStarter: StarterDoc = {
     { name: 'Annual Meeting', offsetMinutes: 0, durationMinutes: 240, capacity: 80 },
     { name: 'Evening Reception', offsetMinutes: 300, durationMinutes: 180, capacity: 125 },
   ],
+  // What the description promises: a plus-one (chosen per session, so it can
+  // be the evening only), a dietary question for the Reception (plus-ones
+  // answer it too) and who they would like to meet.
+  registration: {
+    plus_ones: { max: 1, per_session: true, ask_questions: true },
+  },
+  questions: [
+    {
+      type: 'dietary',
+      label: 'Any dietary needs for the reception?',
+      help: null,
+      required: false,
+      options: [],
+      sessionIndex: 1,
+      ask_plus_ones: true,
+    },
+    {
+      type: 'long_text',
+      label: 'Who would you like to meet?',
+      help: 'A founder, a fellow LP, a sector. We will try to make the introduction.',
+      required: false,
+      options: [],
+      sessionIndex: null,
+      ask_plus_ones: false,
+    },
+  ],
+  // Column a is the Meeting's run of show, b the Reception's.
+  agendaSessions: { a: 0, b: 1 },
   sections: [
     sectionTemplate(
       'hero',

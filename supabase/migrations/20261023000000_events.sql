@@ -87,6 +87,10 @@ create table if not exists events (
   published_by uuid references auth.users(id) on delete set null,
   -- The ICS SEQUENCE: bumped on any time or venue change.
   schedule_version integer not null default 0 check (schedule_version >= 0),
+  -- schedule_version at the first Publish: schedule edits before anyone could
+  -- RSVP never prompt an "update" message to Going guests.
+  published_schedule_version integer not null default 0
+    check (published_schedule_version >= 0),
   -- event-media/og/<event>/v<n>.png, rendered at Publish.
   og_image_path text check (og_image_path is null or char_length(og_image_path) <= 300),
   -- Read-only mode for every outside editor (reversible).

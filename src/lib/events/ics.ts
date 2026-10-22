@@ -25,6 +25,8 @@ export interface IcsSession {
   endsAt: string | null;
   /** Already filtered by the reveal rule: null when the viewer may not see it. */
   location: string | null;
+  /** A personal file's Maybe sessions are TENTATIVE in the guest's calendar. */
+  tentative?: boolean;
 }
 
 export interface IcsInput {
@@ -134,7 +136,7 @@ export function buildIcs(input: IcsInput): string {
     );
     if (s.location) lines.push(`LOCATION:${escapeIcsText(s.location)}`);
     lines.push(
-      `STATUS:${input.cancelled ? 'CANCELLED' : 'CONFIRMED'}`,
+      `STATUS:${input.cancelled ? 'CANCELLED' : s.tentative ? 'TENTATIVE' : 'CONFIRMED'}`,
       'TRANSP:OPAQUE',
       'END:VEVENT',
     );

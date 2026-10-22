@@ -3,7 +3,9 @@ import { NextRequest } from 'next/server';
 import type { AuthContext } from '@/lib/auth/session';
 import { DEMO_EVENT_IDS, DEMO_EVENT_SLUGS } from '@/lib/demo/events-fixtures';
 import { PUBLIC_VIEWER, type EventViewer } from '@/lib/events/contracts';
+import { headcounts } from '@/lib/events/csv';
 import { inTab, statusAudienceMatch, tabCounts } from '@/lib/events/guest-list';
+import { buildIcs } from '@/lib/events/ics';
 import { formToken } from '@/lib/events/public-gate';
 import type { RegistrationQuestion } from '@/lib/events/questions';
 import { parseEventDoc } from '@/lib/events/schema';
@@ -12,12 +14,21 @@ import { inviteToken } from '@/lib/events/tokens';
 import { filterDocForViewer } from '@/lib/events/visibility';
 import { scrubMp4, scrubWebm } from '@/lib/events/video-meta';
 import { createEditorLink } from '@/lib/services/event-editors';
+import { messageCopy } from '@/lib/events/message-copy';
+import { reviewCampaign, reviewIssues } from '@/lib/services/campaigns';
+import { eventLinkCheck } from '@/lib/services/event-campaign-links';
+import { draftEventMessage, eventMessagesView } from '@/lib/services/event-comms';
 import { buildTicket } from '@/lib/services/event-public';
-import { guestCounts, toListItems } from '@/lib/services/event-guests';
-import { removeSession } from '@/lib/services/event-registration';
+import { bulkGuests, guestCounts, toListItems } from '@/lib/services/event-guests';
+import { removeSession, updateSession } from '@/lib/services/event-registration';
 import { SELF_REGISTRATIONS_PER_HOUR } from '@/lib/services/event-rsvp';
-import { duplicateEvent, type EventOwner } from '@/lib/services/events';
-import type { EventGuest, EventGuestSession } from '@/lib/types/domain';
+import { createEvent, duplicateEvent, type EventOwner } from '@/lib/services/events';
+import type {
+  Campaign,
+  CampaignRecipient,
+  EventGuest,
+  EventGuestSession,
+} from '@/lib/types/domain';
 import { ok, type Result } from '@/lib/util/result';
 import { createHarness, type Harness } from '../helpers/harness';
 
@@ -503,5 +514,276 @@ describe('uploaded videos lose their location metadata (security medium)', () =>
     expect(out.bytes.length).toBe(file.length);
     expect(has(out.bytes, text('LOCATION'))).toBe(false);
     expect(has(out.bytes, text('frame-data'))).toBe(true);
+  });
+});
+
+describe('an event message never sends dead personal links (guests medium)', () => {
+  it('rotated links and an unpublished page stop the review and the send', async () => {
+    const drafted = await draftEventMessage(
+      h.store,
+      owner,
+      EVENT,
+      { kind: 'invite', audience: { kind: 'status', statuses: ['invited'] } },
+      { appUrl: 'https://copilot.example' },
+    );
+    if (!drafted.ok) throw new Error(drafted.error.message);
+    const clean = await reviewCampaign(h.store, h.auth.organizationId, drafted.value.campaignId, {
+      appUrl: 'https://copilot.example',
+    });
+    expect(clean.ok && clean.value.issues).toEqual([]);
+
+    const recipients = await h.store.list('campaign_recipients', h.auth.organizationId, {
+      eq: { campaign_id: drafted.value.campaignId },
+    });
+    const one = await guestByEmail(recipients[0]!.email);
+    await bulkGuests(h.store, owner, EVENT, { action: 'rotate_links', guestIds: [one.id] });
+    const stale = await reviewCampaign(h.store, h.auth.organizationId, drafted.value.campaignId, {
+      appUrl: 'https://copilot.example',
+    });
+    expect(stale.ok && stale.value.issues.join(' ')).toMatch(/1 personal link is out of date/);
+
+    await h.store.update('events', h.auth.organizationId, EVENT, { status: 'draft' });
+    const offline = await reviewCampaign(h.store, h.auth.organizationId, drafted.value.campaignId, {
+      appUrl: 'https://copilot.example',
+    });
+    expect(offline.ok && offline.value.issues.join(' ')).toMatch(/Publish the event page/);
+  });
+});
+
+describe('no false "Draft an update" after pre-publish schedule edits (guests medium)', () => {
+  it('counts only schedule changes after the first publish', async () => {
+    const sessions = await h.store.list('event_sessions', h.auth.organizationId, {
+      eq: { event_id: EVENT },
+    });
+    const view = async () =>
+      eventMessagesView(
+        h.store,
+        h.auth.organizationId,
+        (await h.store.get('events', h.auth.organizationId, EVENT))!,
+        sessions,
+      );
+    await h.store.update('events', h.auth.organizationId, EVENT, {
+      schedule_version: 2,
+      published_schedule_version: 2,
+    });
+    expect((await view()).updateFor).toBeNull();
+    await h.store.update('events', h.auth.organizationId, EVENT, { schedule_version: 3 });
+    expect((await view()).updateFor).toBeGreaterThan(0);
+  });
+});
+
+describe('status notices name their session and never go stale (guests medium)', () => {
+  it('a notice about one session of a multi-session event says which one, and its time', () => {
+    const copy = messageCopy(
+      'notice',
+      {
+        title: 'Harborview Annual Meeting',
+        when: 'Wed, Nov 25 · 1:00 PM – 9:00 PM CST',
+        venueName: null,
+        sessions: [
+          { name: 'Annual Meeting', when: 'Wed, Nov 25 · 1:00 PM – 5:00 PM CST' },
+          { name: 'Evening Reception', when: 'Wed, Nov 25 · 6:00 PM – 9:00 PM CST' },
+        ],
+        cancelMessage: null,
+      },
+      {
+        notifyKind: 'waitlisted',
+        session: { name: 'Evening Reception', when: 'Wed, Nov 25 · 6:00 PM – 9:00 PM CST' },
+      },
+    );
+    expect(copy.subject).toContain('Evening Reception');
+    expect(copy.body).toContain('Harborview Annual Meeting: Evening Reception');
+  });
+
+  it('a notice whose people changed status since the draft is refused at review', async () => {
+    const avery = (await h.store.get(
+      'event_guests',
+      h.auth.organizationId,
+      DEMO_EVENT_IDS.guestAvery,
+    ))!;
+    const campaign = {
+      event_id: EVENT,
+      event_kind: 'notice' as const,
+      // Drafted when Avery was waitlisted for the Reception; she is Going now.
+      event_meta: { notify: [{ guestId: avery.id, sessionId: RECEPTION, status: 'waitlist' }] },
+    };
+    const recipients = [
+      { email: avery.email!, status: 'pending', merge: {} },
+    ] as unknown as CampaignRecipient[];
+    const check = await eventLinkCheck(h.store, h.auth.organizationId, campaign, recipients);
+    expect(check).toMatchObject({ changedStatus: 1 });
+    const review = reviewIssues(
+      {
+        ...(campaign as object),
+        subject: 'About the reception',
+        body_template: 'Hi {{first_name|there}}, about the reception.',
+        attachments: [],
+      } as unknown as Campaign,
+      recipients,
+      { eventLinks: check },
+    );
+    expect(review.issues.join(' ')).toMatch(/different status now/);
+  });
+});
+
+describe('the AGM starter sets up what it promises (guests medium)', () => {
+  it('plus-ones per session, a Reception dietary question, and an agenda tied to its sessions', async () => {
+    const created = await createEvent(h.store, owner, {
+      title: 'Lakeview Annual Meeting',
+      timeZone: 'America/Chicago',
+      starterId: 'agm-day-evening',
+      startsAt: '2031-05-15T18:00:00.000Z',
+      endsAt: '2031-05-16T02:00:00.000Z',
+    });
+    if (!created.ok) throw new Error(created.error.message);
+    const ev = created.value;
+    expect(ev.registration.plus_ones).toMatchObject({ max: 1, per_session: true });
+    const sessions = await h.store.list('event_sessions', h.auth.organizationId, {
+      eq: { event_id: ev.id },
+    });
+    const meeting = sessions.find((s) => s.name === 'Annual Meeting')!;
+    const reception = sessions.find((s) => s.name === 'Evening Reception')!;
+    const questions = ev.questions as RegistrationQuestion[];
+    const dietary = questions.find((q) => q.type === 'dietary')!;
+    expect(dietary).toMatchObject({ session_id: reception.id, ask_plus_ones: true });
+    expect(questions.find((q) => q.label === 'Who would you like to meet?')?.session_id).toBeNull();
+    const doc = parseEventDoc(ev.draft_doc);
+    if (!doc.ok) throw new Error('draft unreadable');
+    const items = (
+      doc.value.sections.find((s) => s.type === 'agenda')!.props as {
+        items: { column?: string; sessionId?: string }[];
+      }
+    ).items;
+    expect(items.filter((i) => i.column === 'a').every((i) => i.sessionId === meeting.id)).toBe(
+      true,
+    );
+    expect(items.filter((i) => i.column === 'b').every((i) => i.sessionId === reception.id)).toBe(
+      true,
+    );
+  });
+});
+
+describe('small guest-flow corrections (guests low)', () => {
+  it('a Maybe session is TENTATIVE in a personal calendar file', () => {
+    const ics = buildIcs({
+      eventTitle: 'Harborview Annual Meeting',
+      sequence: 0,
+      url: 'https://copilot.example/e/x/i/y',
+      guestId: 'g1',
+      cancelled: false,
+      now: new Date('2030-01-01T00:00:00.000Z'),
+      sessions: [
+        {
+          id: 's1',
+          name: 'Meeting',
+          description: null,
+          startsAt: '2030-02-01T19:00:00.000Z',
+          endsAt: '2030-02-01T23:00:00.000Z',
+          location: null,
+        },
+        {
+          id: 's2',
+          name: 'Reception',
+          description: null,
+          startsAt: '2030-02-02T00:00:00.000Z',
+          endsAt: '2030-02-02T03:00:00.000Z',
+          location: null,
+          tentative: true,
+        },
+      ],
+    });
+    expect(ics.match(/STATUS:CONFIRMED/g)).toHaveLength(1);
+    expect(ics.match(/STATUS:TENTATIVE/g)).toHaveLength(1);
+  });
+
+  it('a Reception-only dietary answer is not counted in the Meeting’s caterer numbers', () => {
+    const g = { ...(avery0 as EventGuest), answers: { q1: ['Vegan'] } };
+    const counts = headcounts({
+      guests: [g],
+      rows: [
+        { guest_id: g.id, session_id: MEETING, status: 'going', checked_in_at: null },
+        { guest_id: g.id, session_id: RECEPTION, status: 'going', checked_in_at: null },
+      ] as unknown as EventGuestSession[],
+      sessions: [
+        { id: MEETING, name: 'Meeting', position: 0, capacity: null },
+        { id: RECEPTION, name: 'Reception', position: 1, capacity: null },
+      ] as never,
+      questions: [
+        {
+          id: 'q1',
+          type: 'dietary',
+          label: 'Dinner',
+          help: null,
+          required: false,
+          options: [],
+          session_id: RECEPTION,
+          ask_plus_ones: true,
+          position: 0,
+          removed_at: null,
+        },
+      ],
+    } as never);
+    expect(counts.find((c) => c.sessionId === MEETING)!.dietary).toEqual({});
+    expect(counts.find((c) => c.sessionId === RECEPTION)!.dietary).toEqual({ Vegan: 1 });
+  });
+
+  it('rotating a guest’s links also retires their plus-ones’ QR codes', async () => {
+    const before = (await h.store.get(
+      'event_guests',
+      h.auth.organizationId,
+      DEMO_EVENT_IDS.guestEliPlusOne,
+    ))!;
+    await bulkGuests(h.store, owner, EVENT, {
+      action: 'rotate_links',
+      guestIds: [DEMO_EVENT_IDS.guestEli],
+    });
+    const after = (await h.store.get(
+      'event_guests',
+      h.auth.organizationId,
+      DEMO_EVENT_IDS.guestEliPlusOne,
+    ))!;
+    expect(after.token_version).toBe(before.token_version + 1);
+  });
+
+  it('raising a session’s capacity with auto-promote on seats the waitlist', async () => {
+    const ev = (await h.store.get('events', h.auth.organizationId, EVENT))!;
+    await h.store.update('events', h.auth.organizationId, EVENT, {
+      registration: { ...ev.registration, auto_promote: true },
+    });
+    const going = await h.store.count('event_guest_sessions', h.auth.organizationId, {
+      eq: { session_id: MEETING, status: 'going' },
+    });
+    await h.store.update('event_sessions', h.auth.organizationId, MEETING, { capacity: going });
+    const stamp = new Date().toISOString();
+    const waiter = { guest_id: '00000000-0000-4000-8000-000000000a17' };
+    await h.store.insert('event_guests', {
+      ...(avery0 as EventGuest),
+      id: waiter.guest_id,
+      email: 'waiting.guest@example.com',
+      created_at: stamp,
+      updated_at: stamp,
+    });
+    await h.store.insert('event_guest_sessions', {
+      guest_id: waiter.guest_id,
+      session_id: MEETING,
+      organization_id: h.auth.organizationId,
+      event_id: EVENT,
+      status: 'waitlist',
+      requested_at: stamp,
+      decided_by: null,
+      decided_at: null,
+      decision_note: null,
+      claim_expires_at: null,
+      checked_in_at: null,
+      checked_in_by: null,
+      created_at: stamp,
+      updated_at: stamp,
+    });
+    const raised = await updateSession(h.store, owner, EVENT, MEETING, { capacity: going + 5 });
+    expect(raised.ok && raised.value.promoted).toBe(1);
+    const now = await h.store.findOne('event_guest_sessions', h.auth.organizationId, {
+      eq: { guest_id: waiter.guest_id, session_id: MEETING },
+    });
+    expect(now?.status).toBe('going');
   });
 });

@@ -160,13 +160,18 @@ export interface SessionHeadcount {
 /** The caterer's summary: Going per session (plus-ones included) and dietary counts. */
 export function headcounts(input: ExportInput): SessionHeadcount[] {
   const guests = new Map(input.guests.map((g) => [g.id, g]));
-  const dietaryIds = input.questions.filter((q) => q.type === 'dietary').map((q) => q.id);
+  const dietaryQuestions = input.questions.filter((q) => q.type === 'dietary');
   return [...input.sessions]
     .sort((a, b) => a.position - b.position)
     .map((s) => {
       const rows = input.rows.filter((r) => r.session_id === s.id);
       const going = rows.filter((r) => r.status === 'going');
       const dietary: Record<string, number> = {};
+      // A dietary question asked for one session (the Reception's dinner)
+      // counts only in that session's numbers.
+      const dietaryIds = dietaryQuestions
+        .filter((q) => !q.session_id || q.session_id === s.id)
+        .map((q) => q.id);
       for (const r of going) {
         const g = guests.get(r.guest_id);
         if (!g) continue;

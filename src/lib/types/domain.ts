@@ -1589,6 +1589,11 @@ export interface EventRecord {
   published_by: Uuid | null;
   /** The ICS SEQUENCE: bumped on any time or venue change. */
   schedule_version: number;
+  /**
+   * schedule_version at the FIRST publish: changes made before anyone could
+   * RSVP never call for an "update" message to Going guests.
+   */
+  published_schedule_version: number;
   og_image_path: string | null;
   editing_paused: boolean;
   cancel_message: string | null;

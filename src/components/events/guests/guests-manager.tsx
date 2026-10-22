@@ -34,7 +34,7 @@ import {
   type GuestSort,
 } from '@/lib/events/guest-list';
 import { answerText, type RegistrationQuestion } from '@/lib/events/questions';
-import type { EventGuestSource } from '@/lib/types/domain';
+import type { EventGuestSource, EventGuestStatus } from '@/lib/types/domain';
 import { AddGuestsDialog } from './add-guests-dialog';
 import { GuestDrawer } from './guest-drawer';
 import { api, plural, shortStamp, SOURCE_LABEL, STATUS_LABEL, STATUS_TONE } from './guest-ui';
@@ -194,7 +194,13 @@ export function GuestsManager({
 
   async function runBulk(
     action: BulkAction,
-    extra: { sessionId?: string; tag?: string; note?: string; force?: boolean } = {},
+    extra: {
+      sessionId?: string;
+      tag?: string;
+      note?: string;
+      force?: boolean;
+      from?: EventGuestStatus[];
+    } = {},
   ) {
     setBusy(true);
     const res = await api<{ changed: number; full: number; promoted: number; removed?: number }>(
@@ -208,6 +214,7 @@ export function GuestsManager({
           tag: extra.tag || null,
           note: extra.note || null,
           force: extra.force,
+          ...(extra.from?.length ? { from: extra.from } : {}),
         },
       },
     );
@@ -238,7 +245,12 @@ export function GuestsManager({
     ) {
       setPending({
         action,
-        sessionId: filter.sessionId ?? sessions[0]?.id ?? '',
+        // Decline defaults to every session (only the rows the tab shows, below):
+        // declining a pending Reception request must not decline the Meeting.
+        sessionId:
+          action === 'decline'
+            ? (filter.sessionId ?? '')
+            : (filter.sessionId ?? sessions[0]?.id ?? ''),
         tag: '',
         note: '',
       });
@@ -704,6 +716,12 @@ export function GuestsManager({
                     sessionId: pending.sessionId || undefined,
                     tag: pending.tag.trim() || undefined,
                     note: pending.note.trim() || undefined,
+                    // From the Pending or Waitlist tab, only those rows change.
+                    from:
+                      pending.action === 'decline' &&
+                      (filter.tab === 'pending' || filter.tab === 'waitlist')
+                        ? [filter.tab]
+                        : undefined,
                   })
                 }
               >

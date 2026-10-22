@@ -93,6 +93,7 @@ import type { DataStore, Filter, Row, TableName } from '@/lib/db/store';
 import { recordAudit, type AuditAction } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
 import { updatePersonContact, type PersonContactField } from '@/lib/services/crm';
+import { eventLinkCheck, type EventLinkCheck } from '@/lib/services/event-campaign-links';
 import { BUCKET_HEIC_MIGRATION_FILE } from '@/lib/storage/allowed-types';
 import type { StorageProvider } from '@/lib/storage/provider';
 import type {
@@ -2558,6 +2559,12 @@ export interface ReviewOptions {
    * Undefined skips that check.
    */
   appUrl?: string | null;
+  /**
+   * An event message's personal links as they stand now (filled by the
+   * review and the confirmation themselves): an unpublished page or links
+   * rotated since the draft stop the send. Undefined skips the check.
+   */
+  eventLinks?: EventLinkCheck;
 }
 
 /**
@@ -2601,6 +2608,24 @@ export function reviewIssues(
       );
     }
     if (options.appUrl === null) issues.push(RSVP_LOCAL_ORIGIN_MESSAGE);
+    if (campaign.event_id && options.eventLinks) {
+      if (!options.eventLinks.live) {
+        issues.push(
+          'Publish the event page before sending: its personal links would not open until then.',
+        );
+      } else if (options.eventLinks.stale) {
+        const n = options.eventLinks.stale;
+        issues.push(
+          `${n} personal ${n === 1 ? 'link is' : 'links are'} out of date (links rotated or the guest removed since this draft). Draft the message again from the event.`,
+        );
+      }
+    }
+  }
+  if (campaign.event_id && options.eventLinks?.changedStatus) {
+    const n = options.eventLinks.changedStatus;
+    issues.push(
+      `${n} ${n === 1 ? 'person in this notice has' : 'people in this notice have'} a different status now. Draft the notice again from the event’s queue.`,
+    );
   }
   const used = mergeFieldsUsed(campaign.subject, campaign.body_template);
   const fallbacks = used
@@ -2625,6 +2650,23 @@ export function reviewIssues(
   };
 }
 
+/** The event-link check for a campaign that uses {{rsvp_link}}; undefined otherwise. */
+async function eventLinksFor(
+  store: DataStore,
+  organizationId: string,
+  campaign: Campaign,
+  recipients: readonly CampaignRecipient[],
+): Promise<EventLinkCheck | undefined> {
+  if (!campaign.event_id) return undefined;
+  if (!rsvpLinkUsed(campaign.body_template) && campaign.event_kind !== 'notice') return undefined;
+  try {
+    return await eventLinkCheck(store, organizationId, campaign, recipients);
+  } catch (error) {
+    if (isMissingTableError(error)) return undefined;
+    throw error;
+  }
+}
+
 export async function reviewCampaign(
   store: DataStore,
   organizationId: string,
@@ -2636,10 +2678,11 @@ export async function reviewCampaign(
     if (!campaign) return NOT_FOUND();
     const recipients = await recipientsOf(store, organizationId, campaign.id);
     const extras = await extrasContext(store, organizationId, campaign, recipients);
+    const eventLinks = await eventLinksFor(store, organizationId, campaign, recipients);
     return ok({
       campaign,
       version: campaign.updated_at,
-      ...reviewIssues(campaign, recipients, options, extras),
+      ...reviewIssues(campaign, recipients, { ...options, eventLinks }, extras),
       missing: await missingPeople(store, organizationId, campaign, recipients),
     });
   });
@@ -2836,7 +2879,8 @@ export async function confirmCampaign(
     // The same photo and copy checks the review made: a photo that went
     // missing or an address that unsubscribed since refuses the tap too.
     const extras = await extrasContext(store, organizationId, campaign, recipients);
-    const review = reviewIssues(campaign, recipients, options, extras);
+    const eventLinks = await eventLinksFor(store, organizationId, campaign, recipients);
+    const review = reviewIssues(campaign, recipients, { ...options, eventLinks }, extras);
     if (review.issues.length) return err('invalid_input', review.issues[0] as string);
     const stale = () =>
       err('conflict', 'The campaign changed since this review. Look it over again before sending.');

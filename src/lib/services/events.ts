@@ -22,6 +22,7 @@ import {
   type PresenceEntry,
   type PublishPreview,
   type PublishResult,
+  type StarterDoc,
 } from '@/lib/events/contracts';
 import { shiftDays } from '@/lib/events/dates';
 import { describeDiff, diffDocs } from '@/lib/events/diff';
@@ -186,6 +187,49 @@ export function defaultRegistration(): EventRegistrationSettings {
     claim_window_hours: null,
     request_invite: false,
     guest_wall: 'hidden',
+  };
+}
+
+/** The standard registration with a starter's defaults over it (plus-ones key by key). */
+function starterRegistration(over: StarterDoc['registration']): EventRegistrationSettings {
+  const base = defaultRegistration();
+  if (!over) return base;
+  const { plus_ones: plusOnes, ...rest } = over;
+  return { ...base, ...rest, plus_ones: { ...base.plus_ones, ...(plusOnes ?? {}) } };
+}
+
+/**
+ * A starter's agenda items tied to its sessions by column (AGM: column a is
+ * the Meeting, b the Reception), so the visibility filter follows the
+ * sessions a guest can see.
+ */
+function tieAgendaToSessions(
+  doc: EventDoc,
+  columns: Record<string, number> | undefined,
+  sessionIds: readonly string[],
+): EventDoc {
+  if (!columns) return doc;
+  return {
+    ...doc,
+    sections: doc.sections.map((s) => {
+      if (s.type !== 'agenda') return s;
+      const props = s.props as Record<string, unknown>;
+      const items = Array.isArray(props.items) ? props.items : null;
+      if (!items) return s;
+      return {
+        ...s,
+        props: {
+          ...props,
+          items: items.map((item) => {
+            if (!item || typeof item !== 'object') return item;
+            const column = (item as { column?: unknown }).column;
+            const index = typeof column === 'string' ? columns[column] : undefined;
+            const sessionId = index === undefined ? undefined : sessionIds[index];
+            return sessionId ? { ...(item as object), [ITEM_SESSION_KEY]: sessionId } : item;
+          }),
+        },
+      } as typeof s;
+    }),
   };
 }
 
@@ -403,6 +447,26 @@ export async function createEvent(
           }))
         : [];
 
+    // Ids first: the starter's agenda columns and questions tie to them.
+    const sessionIds = (plannedSessions.length ? plannedSessions : [null]).map(() => newId());
+    const tiedDoc = fromStarter
+      ? tieAgendaToSessions(checked.value, starter.agendaSessions, sessionIds)
+      : checked.value;
+    const starterQuestions: RegistrationQuestion[] = (starter.questions ?? []).map((q, i) => ({
+      id: newId(),
+      type: q.type,
+      label: q.label,
+      help: q.help,
+      required: q.required,
+      options: [...q.options],
+      session_id:
+        q.sessionIndex === null || !fromStarter ? null : (sessionIds[q.sessionIndex] ?? null),
+      ask_plus_ones: q.ask_plus_ones,
+      position: i,
+      removed_at: null,
+      show_if: null,
+    }));
+
     const sessionTimes = plannedSessions
       .flatMap((s) => [s.startsAt, s.endsAt])
       .filter((t): t is string => !!t)
@@ -431,10 +495,10 @@ export async function createEvent(
       ends_at: endsAt,
       venue: { ...defaultVenue(), ...(input.venue ?? {}) },
       capacity: null,
-      registration: defaultRegistration(),
-      questions: [],
+      registration: starterRegistration(starter.registration),
+      questions: starterQuestions,
       comms: defaultComms(),
-      draft_doc: checked.value as unknown as Record<string, unknown>,
+      draft_doc: tiedDoc as unknown as Record<string, unknown>,
       draft_version: 0,
       published_doc: null,
       published_version: 0,
@@ -442,6 +506,7 @@ export async function createEvent(
       published_at: null,
       published_by: null,
       schedule_version: 0,
+      published_schedule_version: 0,
       og_image_path: null,
       editing_paused: false,
       cancel_message: null,
@@ -460,7 +525,7 @@ export async function createEvent(
         ? plannedSessions
         : [{ name: title.slice(0, 120), startsAt, endsAt, capacity: null }]
     ).map((s, position): EventSession => ({
-      id: newId(),
+      id: sessionIds[position] ?? newId(),
       organization_id: owner.organizationId,
       event_id: id,
       name: s.name.trim().slice(0, 120),
@@ -1408,6 +1473,8 @@ export async function publishEvent(
         published_draft_version: expectedDraftVersion,
         published_at: now,
         published_by: owner.userId,
+        // First publish: schedule edits so far were before anyone could RSVP.
+        ...(event.published_at ? {} : { published_schedule_version: event.schedule_version }),
         status: event.status === 'cancelled' ? 'cancelled' : 'published',
         og_image_path: ogPath,
         updated_at: now,
@@ -1805,6 +1872,7 @@ export async function duplicateEvent(
       published_at: null,
       published_by: null,
       schedule_version: 0,
+      published_schedule_version: 0,
       og_image_path: null,
       editing_paused: false,
       cancel_message: null,

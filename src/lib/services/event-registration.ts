@@ -8,9 +8,11 @@ import {
   type RegistrationQuestion,
   type SessionInput,
 } from '@/lib/events/registration';
+import { Draft, promoteWaitlist } from '@/lib/events/capacity';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
 import type { EventOwner } from '@/lib/services/events';
+import { runPlanned } from './event-register';
 import type {
   EventAccess,
   EventRecord,
@@ -208,6 +210,8 @@ export interface SessionChange {
   scheduleChanged: boolean;
   /** Going guests in the session (an update notice's reach). */
   goingCount: number;
+  /** Waitlisted parties seated because the capacity went up (auto-promote on). */
+  promoted?: number;
 }
 
 function validTimes(input: Pick<SessionInput, 'starts_at' | 'ends_at'>): string | null {
@@ -348,6 +352,33 @@ export async function updateSession(
         schedule_version: event.schedule_version + 1,
       });
     }
+    // More room with auto-promote on: the waitlist moves up, first in first out.
+    const raised =
+      next.capacity !== undefined &&
+      session.capacity !== null &&
+      (next.capacity === null || next.capacity > session.capacity);
+    let promoted = 0;
+    if (raised && event.registration.auto_promote) {
+      const result = await runPlanned<number>(
+        store,
+        owner.organizationId,
+        eventId,
+        (loaded, now) => {
+          const draft = new Draft({
+            event: loaded.event,
+            sessions: loaded.sessions,
+            guests: loaded.guests,
+            rows: loaded.rows,
+            now: now.toISOString(),
+            newId,
+          });
+          const seated = promoteWaitlist(draft, [sessionId]);
+          if (!seated.length) return { kind: 'stop', result: ok(0) };
+          return { kind: 'plan', plan: draft.plan(), value: seated.length };
+        },
+      );
+      if (result.ok) promoted = result.value;
+    }
     const goingCount = await store.count('event_guest_sessions', owner.organizationId, {
       eq: { session_id: sessionId, status: 'going' },
     });
@@ -361,9 +392,10 @@ export async function updateSession(
         session: sessionId,
         fields: Object.keys(next),
         schedule_changed: scheduleChanged,
+        promoted,
       },
     });
-    return ok({ session: updated, scheduleChanged, goingCount });
+    return ok({ session: updated, scheduleChanged, goingCount, promoted });
   });
 }
 

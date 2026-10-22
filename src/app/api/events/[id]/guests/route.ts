@@ -76,6 +76,11 @@ const bulkBody = z.strictObject({
   note: z.string().max(1000).nullable().optional(),
   tag: z.string().max(40).nullable().optional(),
   force: z.boolean().optional(),
+  from: z
+    .array(z.enum(['invited', 'pending', 'going', 'maybe', 'waitlist', 'declined', 'not_going']))
+    .max(7)
+    .nullable()
+    .optional(),
 });
 
 export async function GET(_request: NextRequest, context: Context) {
