@@ -1378,7 +1378,15 @@ export interface BookingSettingsRow {
   updated_at: IsoDateTime;
 }
 
-export type BookingRequestStatus = 'pending' | 'approved' | 'declined' | 'handled';
+/**
+ * pending: waiting for a person (approve first). approved: on the calendar
+ * after someone approved it (or added it by hand). declined: turned down, or a
+ * held time released. handled: a message, read. booked: on the calendar at
+ * once from the link (D-078). held: kept until calendar editing is on.
+ * cancelled: cancelled, the event deleted with Google's cancellation.
+ */
+export type BookingRequestStatus =
+  'pending' | 'approved' | 'declined' | 'handled' | 'booked' | 'held' | 'cancelled';
 
 /** A meeting request (or a message) sent from the public booking page. */
 export interface BookingRequest {
@@ -1409,6 +1417,59 @@ export interface BookingRequest {
   decided_at: IsoDateTime | null;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
+  /*
+   * D-078 (20261022200000_booking_v2.sql). Optional: a row read before that
+   * migration has none of them, and the code treats a missing one as empty.
+   */
+  /** Guests the visitor added, invited with them. */
+  guest_emails?: string[];
+  /** SHA-256 (hex) of the booking page's token; the token is never stored. */
+  manage_token_hash?: string | null;
+  /** The visitor's note to the host when they cancelled. */
+  cancel_note?: string | null;
+  cancelled_at?: IsoDateTime | null;
+  /** Who cancelled: the visitor (its page), the team (Copilot) or the calendar (deleted in Google). */
+  cancelled_by?: 'visitor' | 'team' | 'calendar' | null;
+  rescheduled_count?: number;
+  previous_starts_at?: IsoDateTime | null;
+  /**
+   * When Copilot last put the event's own description back after another
+   * scheduling tool (Fyxer, Vimcal, Calendly) added its reschedule link, and
+   * for which change (the move count then): once per event per change.
+   */
+  description_cleaned_at?: IsoDateTime | null;
+  description_cleaned_rev?: number | null;
+  /**
+   * A held booking (instant, not yet on the calendar): why it is not on it
+   * yet, how many tries Copilot has made, and when it tries again by itself
+   * (lib/services/booking-manage.ts placeHeldBookings). Null once booked.
+   */
+  hold_reason?: BookingHoldReason | null;
+  hold_attempts?: number;
+  hold_next_try_at?: IsoDateTime | null;
+}
+
+/** Why a held booking is not on the calendar yet (D-078). */
+export type BookingHoldReason =
+  'calendar_editing_off' | 'no_main_calendar' | 'calendar_unreachable' | 'calendar_error';
+
+/**
+ * A question a visitor asked the booking page assistant that no written
+ * answer matched, sent to the booking assistant routine (D-078,
+ * supabase/migrations/20261022200100_booking_chat.sql). Written only by the
+ * server; `answer` is the routine's reply after lib/booking/chat-bridge.ts
+ * made it plain.
+ */
+export interface BookingChatQuestion {
+  id: Uuid;
+  organization_id: Uuid;
+  question: string;
+  answer: string | null;
+  status: 'pending' | 'answered' | 'expired';
+  /** A keyed hash of the visitor's address, for the per-address cap; never the address. */
+  ip_hash: string | null;
+  created_at: IsoDateTime;
+  answered_at: IsoDateTime | null;
 }
 
 /**

@@ -212,12 +212,13 @@ describe('migrations apply in filename order', () => {
     expect(files.length).toBeGreaterThan(0);
     // Pinned so an accidentally-deleted migration is caught. Bump it when a
     // migration legitimately adds a table — most recently the twelve event
-    // tables (20261023000000_events.sql), after the public job board's three
+    // tables (20261023000000_events.sql), after booking_chat_questions (the
+    // booking assistant's AI answers), the public job board's three
     // (job_board_settings, job_companies, job_postings), booking_settings and
     // booking_requests (the booking link), campaign_photos,
     // crm_entry_tombstones, desktop_handoffs, the four campaign tables and
     // mcp_tokens.
-    expect(tables.size).toBe(65);
+    expect(tables.size).toBe(66);
   });
 
   it('declares no SQL function before a table it reads', () => {

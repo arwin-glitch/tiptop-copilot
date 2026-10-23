@@ -283,7 +283,7 @@ async function SetupTab() {
                 value={
                   paidAi
                     ? `$${usage.spendTodayUsd.toFixed(4)} / $${limits.dailyAiBudgetUsd.toFixed(2)}`
-                    : '$0 (no paid AI key)'
+                    : '$0: AI runs on the Claude plan'
                 }
               />
             </dl>

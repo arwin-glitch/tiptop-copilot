@@ -1,4 +1,4 @@
-import { firstName, type MeetingKind, type MeetingType, type Place } from './config';
+import type { MeetingKind, MeetingType, Place } from './config';
 
 /**
  * Exactly what the public booking page and its chatbot are given: the host's
@@ -31,14 +31,27 @@ export interface PublicBookingPage {
    * saved video link itself, which only goes in the invite (videoProviderLabel).
    */
   callProvider: string;
-  chatbot: { enabled: boolean; mode: 'live' | 'guided' };
-  /** The public FAQ text, for the guided helper's "About TipTop". */
-  faq: string;
+  /** The page's assistant (Booking tab > Chatbot): free, no paid AI (D-078). */
+  chatbot: { enabled: boolean };
+  /** A free time is booked at once (D-078); false when each waits for approval. */
+  instant: boolean;
+  /** "Add guests": whether a visitor may, and how many. */
+  guests: { allowed: boolean; max: number };
 }
 
 export interface PublicSlot {
   start: string;
   end: string;
+}
+
+/**
+ * One day on the public calendar card (D-078): open (it has times), booked
+ * (a meeting day with every time taken) or off (not offered). The date is
+ * the host's day; nothing says why a day is off.
+ */
+export interface PublicDay {
+  date: string;
+  state: 'open' | 'booked' | 'off';
 }
 
 export interface PublicSlots {
@@ -48,6 +61,10 @@ export interface PublicSlots {
   hostTimeZone: string;
   slots: PublicSlot[];
   message?: string;
+  /** The calendar card's days: every day of the open months from today on. */
+  days?: PublicDay[];
+  /** The months open on the link (`YYYY-MM`, from this month on): the card's arrows stop there. */
+  months?: string[];
 }
 
 export const CLOSED_MESSAGE = 'This booking link is not taking bookings right now.';
@@ -63,21 +80,87 @@ export const UNAVAILABLE_MESSAGE =
 export const SENT_MESSAGE =
   "Request sent. You'll get a calendar invitation once the time is booked.";
 
-/**
- * What the request route says when Instant booking put the time on the
- * host's calendar. The page says it in full: bookedHeading and inviteOnItsWay.
- */
-export const BOOKED_MESSAGE = "You're booked. The calendar invitation is on its way.";
+/** A message left on the link. */
+export const MESSAGE_SENT = 'Message sent.';
 
-/** "You're booked with Nick": the host's first name, else their whole name. */
-export function bookedHeading(hostName: string): string {
-  const name = firstName(hostName) || hostName.trim();
-  return name ? `You're booked with ${name}` : "You're booked";
+/** A booking made at once while calendar editing is off (D-078): the time is kept. */
+export const HELD_MESSAGE = 'Your time is held. The calendar invitation is on its way.';
+
+/** "You're booked with Nick". */
+export function bookedTitle(hostName: string): string {
+  const first = hostName.trim().split(/\s+/)[0];
+  return first ? `You're booked with ${first}` : "You're booked";
 }
 
-/** "The calendar invitation is on its way to pat@example.com." */
-export function inviteOnItsWay(email: string): string {
-  return `The calendar invitation is on its way to ${email.trim()}.`;
+/** What a visitor's booking came to (POST /api/meet/<slug>/request). */
+export type BookingOutcomeStatus = 'booked' | 'held' | 'pending' | 'message';
+
+/**
+ * One booking as the visitor sees it, on the confirmation and on the
+ * booking's own page (/meet/<slug>/b/<token>): what, when, where and who.
+ * Only what the visitor typed or picked, the place, and the video link they
+ * are invited to; never the host's calendar.
+ */
+export interface PublicBookingView {
+  status: 'booked' | 'held' | 'pending' | 'cancelled' | 'declined';
+  type: MeetingType;
+  kind: MeetingKind | null;
+  startsAt: string;
+  endsAt: string;
+  hostTimeZone: string;
+  /** The zone the visitor booked in, when it named a real one. */
+  visitorTimeZone: string | null;
+  name: string;
+  email: string;
+  guests: string[];
+  place: { name: string; area: string | null; mapUrl: string | null } | null;
+  /** A call: how it is held ("Google Meet", "Zoom") and its link once there is one. */
+  video: { label: string; url: string | null } | null;
+  canReschedule: boolean;
+  canCancel: boolean;
+  reschedulesLeft: number;
+  /** Something the calendar changed meanwhile, in plain words, or null. */
+  notice: string | null;
+  /** The "Add to calendar" file's UID: the booking's own (hashed), the same after a move. */
+  icsUid: string;
+  /** How many times it moved, for the file's SEQUENCE. */
+  icsSequence: number;
+}
+
+/** The booking's own page: the host's card and the booking, or nothing at all. */
+export interface PublicManagePage {
+  state: 'ok' | 'not_found';
+  slug: string;
+  host: PublicHost | null;
+  booking: PublicBookingView | null;
+}
+
+/** The answer to a booking: its status, and the booking's own page for a meeting. */
+export interface PublicBookingResult {
+  status: BookingOutcomeStatus;
+  /** The booking's own page, a path on this site (`/meet/<slug>/b/<token>`). */
+  manageUrl: string | null;
+  booking: PublicBookingView | null;
+}
+
+/**
+ * The cookie a visitor's device keeps its latest booking on a link in
+ * (D-078): the booking page's token, httpOnly, sent only to that link's own
+ * pages, so revisiting /meet/<slug> can say "You have a meeting with Nick".
+ * Page scripts never read it.
+ */
+export function rememberCookieName(slug: string): string {
+  return `tiptop_booking_${slug.replace(/[^a-z0-9]/g, '_')}`;
+}
+
+/** What the booking page shows for a remembered booking: when, and its own page. */
+export interface RememberedBooking {
+  manageUrl: string;
+  startsAt: string;
+  type: MeetingType;
+  kind: MeetingKind | null;
+  /** Booked (or held, booking itself), or a request waiting for approval. */
+  status: 'booked' | 'held' | 'pending';
 }
 
 /* ------------------------------------------------------------ video calls */

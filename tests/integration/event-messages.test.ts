@@ -390,7 +390,14 @@ describe('Overview and Today', () => {
   });
 
   it('gives Today one line per event that wants something', async () => {
-    const lines = await todayEventLines(h.store, org);
+    // A fixed clock, after 14:00 UTC: the demo's registration "yesterday at
+    // 14:00 UTC" is within a day of the real clock before then, and would
+    // read as a new registration.
+    const now = new Date('2026-11-04T20:00:00Z');
+    await h.dispose();
+    h = await createHarness({ now });
+    org = h.auth.organizationId;
+    const lines = await todayEventLines(h.store, org, now);
     expect(lines).toEqual([
       {
         eventId: EVENT,

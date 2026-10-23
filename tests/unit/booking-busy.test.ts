@@ -361,7 +361,11 @@ describe('the in-person pause, per trip (hotfix)', () => {
       {
         now: NOW,
         hostZone: TZ,
-        config: { ...structuredClone(DEFAULT_BOOKING_CONFIG), homeCity: HOME.city },
+        config: {
+          ...structuredClone(DEFAULT_BOOKING_CONFIG),
+          openMonths: ['2026-10', '2026-11'],
+          homeCity: HOME.city,
+        },
         busy: p.busy,
         travelDays: p.travelDays,
         inPersonPausedThrough: pause(events, calendars),
@@ -458,7 +462,11 @@ describe('a journey marked free (review fix)', () => {
       {
         now: NOW,
         hostZone: TZ,
-        config: { ...structuredClone(DEFAULT_BOOKING_CONFIG), homeCity: HOME.city },
+        config: {
+          ...structuredClone(DEFAULT_BOOKING_CONFIG),
+          openMonths: ['2026-10', '2026-11'],
+          homeCity: HOME.city,
+        },
         busy: p.busy,
         travelDays: p.travelDays,
         linkBookings: [],

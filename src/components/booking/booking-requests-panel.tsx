@@ -35,9 +35,10 @@ import { relativeTime } from '@/lib/util/time';
  * typed: nobody checked it), and a request whose time has passed can only be
  * declined.
  *
- * A button at the top right of the page's header (over the band, out of the
- * flow, so the calendar below does not move by a pixel) opens the list in a
- * drawer. Today's line links to /calendar#booking-requests, which opens it.
+ * A button on the Booking tab's Bookings subtab opens the list in a drawer
+ * (D-078: requests wait only while Approve first is on). Today's line links
+ * to /calendar#booking-requests, which the Calendar tab sends on to
+ * /booking?tab=bookings#booking-requests, which opens it.
  */
 
 const HASH = '#booking-requests';
@@ -81,7 +82,6 @@ export function BookingRequestsPanel({
   hostName,
   bookingUrl,
   enabled,
-  instant,
   turnOnHref,
   canSend,
 }: {
@@ -90,7 +90,6 @@ export function BookingRequestsPanel({
   hostName: string;
   bookingUrl: string | null;
   enabled: boolean;
-  instant: boolean;
   turnOnHref: string | null;
   canSend: boolean;
 }) {
@@ -187,15 +186,13 @@ export function BookingRequestsPanel({
       <button
         type="button"
         id="booking-requests"
-        data-tour="calendar-bookings"
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(true)}
-        className="dark shadow-raised absolute top-0 right-0 z-10 inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--gold-rule)] bg-[var(--bg-raised)] px-3 text-[13px] font-medium text-[var(--fg)] hover:bg-[var(--bg-hover)]"
+        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--border-strong)] bg-[var(--bg-raised)] px-3 text-[13px] font-medium text-[var(--fg)] hover:bg-[var(--bg-hover)]"
       >
         <CalendarPlus className="size-3.5 text-[var(--accent)]" aria-hidden="true" />
-        <span className="max-sm:hidden">Booking requests</span>
-        <span className="sm:hidden">Requests</span>
+        <span>Booking requests</span>
         {waiting ? (
           <span className="tabular rounded-full bg-[var(--primary)] px-1.5 text-[11px] leading-[18px] font-semibold text-[var(--primary-fg)]">
             {waiting}
@@ -222,7 +219,7 @@ export function BookingRequestsPanel({
                 Copy link
               </Button>
               <Button asChild size="sm" variant="ghost">
-                <Link href="/settings?tab=booking">Settings</Link>
+                <Link href="/booking">Booking tab</Link>
               </Button>
             </div>
           ) : null}
@@ -335,13 +332,6 @@ export function BookingRequestsPanel({
                           </Badge>
                           {r.source === 'chatbot' ? (
                             <Badge tone="neutral">Filled with the chatbot</Badge>
-                          ) : null}
-                          {instant && r.type !== 'message' ? (
-                            <Badge tone="info">
-                              <span title="Instant booking is on, but this one could not be booked on its own. Approve checks the time again.">
-                                Instant
-                              </span>
-                            </Badge>
                           ) : null}
                         </div>
                       </div>

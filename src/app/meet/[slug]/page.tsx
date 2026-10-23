@@ -1,7 +1,10 @@
 import type { Metadata } from 'next';
-import { headers } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { meetPageFor } from '@/lib/booking/page-data';
+import { rememberCookieName } from '@/lib/booking/public';
+import { getStore } from '@/lib/runtime';
 import { addressKey } from '@/lib/security/client-address';
+import { rememberedBooking } from '@/lib/services/booking-manage';
 import { BookingPage } from '@/components/booking/booking-page';
 
 export const dynamic = 'force-dynamic';
@@ -25,10 +28,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const name = page?.state === 'open' ? page.host?.displayName : null;
   return {
     title: { absolute: name ? `Meet with ${name}` : 'Booking link' },
-    description: 'Ask for a time to meet.',
+    description: 'Book a time to meet.',
   };
 }
 
 export default async function MeetPage({ params }: Props) {
-  return <BookingPage data={await pageData(params)} />;
+  const data = await pageData(params);
+  // "You have a meeting with ...": the booking this device made, while ahead (D-078).
+  const token = data.state === 'open' ? (await cookies()).get(rememberCookieName(data.slug)) : null;
+  const remembered = token?.value
+    ? await rememberedBooking(getStore(), data.slug, token.value).catch(() => null)
+    : null;
+  return <BookingPage data={data} remembered={remembered} />;
 }

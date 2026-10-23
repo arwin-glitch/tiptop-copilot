@@ -71,7 +71,7 @@ import type { CalendarInfo, EventLabel, RangeEvent } from './range-types';
 export interface WriteContext {
   store: DataStore;
   organizationId: string;
-  /** The person writing; null only for the booking link's Instant booking (a system decision, D-074). */
+  /** Who pressed it; null for a visitor on the booking link (D-078), who has no account. */
   userId: string | null;
   source: CalendarSource;
 }

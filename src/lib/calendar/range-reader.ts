@@ -70,7 +70,14 @@ const cache = processWide('calendar-range-cache', () => ({
   colors: new Map<string, Cached<GCalColors>>(),
   ranges: new Map<string, Cached<GCalEvent[]>>(),
   labels: new Map<string, Cached<EventLabel[]>>(),
+  /**
+   * Per organization, bumped by every invalidation: a read that started
+   * before one never stores its (older) answer after it.
+   */
+  generations: new Map<string, number>(),
 }));
+
+const generationOf = (key: string) => cache.generations.get(key.split('|')[0] ?? '') ?? 0;
 
 /** Test hook. */
 export function resetCalendarRangeCache(): void {
@@ -78,10 +85,12 @@ export function resetCalendarRangeCache(): void {
   cache.colors.clear();
   cache.ranges.clear();
   cache.labels.clear();
+  cache.generations.clear();
 }
 
 /** After a write: the calendar list and every range of the calendars it touched. */
 export function invalidateCalendarCache(organizationId: string, calendarIds?: string[]): void {
+  cache.generations.set(organizationId, (cache.generations.get(organizationId) ?? 0) + 1);
   cache.calendars.delete(organizationId);
   // Labels are not changed by any write here; they expire on their own within a minute.
   for (const key of [...cache.ranges.keys()]) {
@@ -91,6 +100,12 @@ export function invalidateCalendarCache(organizationId: string, calendarIds?: st
   }
 }
 
+/**
+ * A read through the cache. `fresh` skips a cached answer (the booking
+ * link's check before it books, D-078) but still stores the new one. An
+ * answer is never stored once the organization's cache was invalidated
+ * after the read began: it may predate the write that invalidated it.
+ */
 async function cached<T>(
   map: Map<string, Cached<T>>,
   key: string,
@@ -98,13 +113,17 @@ async function cached<T>(
   use: boolean,
   load: () => Promise<Result<T>>,
   now: number,
+  fresh = false,
 ): Promise<Result<T>> {
-  if (use) {
+  if (use && !fresh) {
     const hit = map.get(key);
     if (hit && now - hit.at < ttl) return ok(hit.value);
   }
+  const generation = generationOf(key);
   const loaded = await load();
-  if (loaded.ok && use) map.set(key, { at: now, value: loaded.value });
+  if (loaded.ok && use && generationOf(key) === generation) {
+    map.set(key, { at: now, value: loaded.value });
+  }
   return loaded;
 }
 
@@ -263,6 +282,7 @@ export async function readCalendarList(
   source: CalendarSource,
   organizationId: string,
   now = Date.now(),
+  options: { fresh?: boolean } = {},
 ): Promise<Result<{ calendars: CalendarInfo[]; colors: GCalColors | null }>> {
   const use = source.provider.kind === 'google';
   const [list, colors] = await Promise.all([
@@ -273,6 +293,7 @@ export async function readCalendarList(
       use,
       () => source.provider.listCalendars(),
       now,
+      options.fresh,
     ),
     cached(
       cache.colors,
@@ -330,6 +351,7 @@ export async function readRangeEvents(
   timeMin: string,
   timeMax: string,
   now = Date.now(),
+  options: { fresh?: boolean } = {},
 ): Promise<Result<GCalEvent[]>> {
   const use = source.provider.kind === 'google';
   return cached(
@@ -339,6 +361,7 @@ export async function readRangeEvents(
     use,
     () => source.provider.listRange(calendarId, { timeMin, timeMax }),
     now,
+    options.fresh,
   );
 }
 
@@ -356,6 +379,8 @@ export interface ReadRangeOptions {
   /** Tests: read from this source instead of the runtime's. */
   source?: CalendarSource;
   now?: number;
+  /** Past the cache: Google is asked again (the booking link's check before it books). */
+  fresh?: boolean;
 }
 
 export async function readCalendarRange(
@@ -389,7 +414,8 @@ export async function readCalendarRange(
   }
 
   const now = options.now ?? Date.now();
-  const list = await readCalendarList(source, organizationId, now);
+  const fresh = { fresh: options.fresh === true };
+  const list = await readCalendarList(source, organizationId, now, fresh);
   if (!list.ok) return empty('error', list.error.message);
   const { calendars, colors } = list.value;
 
@@ -403,7 +429,7 @@ export async function readCalendarRange(
   const reads = await Promise.all(
     ids.map(async (calendarId) => {
       const [read, labels] = await Promise.all([
-        readRangeEvents(source, organizationId, calendarId, timeMin, timeMax, now),
+        readRangeEvents(source, organizationId, calendarId, timeMin, timeMax, now, fresh),
         readCalendarLabels(source, organizationId, calendarId, now),
       ]);
       return { calendarId, read, labels };

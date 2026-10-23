@@ -21,7 +21,9 @@ import {
   meetingFromStoredEvent,
   type MeetingEvent,
 } from '@/lib/calendar/meetings';
+import { BOOKING_TAB_PATH } from '@/lib/booking/bookings';
 import { receiptLine } from '@/lib/campaigns/receipt';
+import { readBookingAlertItems, type BookingAlertItem } from './booking-alerts';
 import { finishedCampaignsSince, type FinishedCampaign } from './campaigns';
 import { buildReaders, readDocSendViews, type DocSendReader } from './docsend';
 import { listEditorNotices, noticeSentence, type EditorNotice } from './event-editors';
@@ -375,6 +377,40 @@ export function computeCampaignAlerts(
   ];
 }
 
+const BOOKING_TITLE: Record<BookingAlertItem['kind'], string> = {
+  new: 'New booking',
+  moved: 'Booking moved',
+  cancelled: 'Booking cancelled',
+  released: 'Held time released',
+};
+
+/**
+ * The booking link's changes (D-078, booking-alerts.ts): a new booking, a
+ * move, a cancellation with the visitor's note, a held time released. Pure,
+ * for tests. One notification for the kind, like the others, inside
+ * 8am-8pm (the night's arrive in the morning); a tap opens the Booking tab.
+ */
+export function computeBookingAlerts(
+  items: readonly BookingAlertItem[],
+  alreadySent: ReadonlySet<string>,
+  now: Date,
+  timeZone: string,
+): PushAlert[] {
+  if (quietHours(now, timeZone)) return [];
+  const due = items.filter((i) => !alreadySent.has(i.key));
+  if (!due.length) return [];
+  const only = due.length === 1 ? due[0] : null;
+  return [
+    {
+      keys: due.map((d) => d.key),
+      title: only ? BOOKING_TITLE[only.kind] : `${due.length} booking updates`,
+      body: listBody(due.map((d) => d.line)),
+      url: BOOKING_TAB_PATH,
+      tag: 'booking',
+    },
+  ];
+}
+
 /**
  * Outside edit links (D-075): a first open, use from a new device or
  * network, or "ready for review", as one notification for the kind. Each
@@ -550,6 +586,8 @@ export interface AlertInputs {
   followUps: FollowUpsSnapshot | null;
   readers: DocSendReader[];
   finished: FinishedCampaign[];
+  /** The booking link's changes in the last day (booking-alerts.ts). */
+  bookings?: BookingAlertItem[];
   /** Events (D-075): outside-link first opens, new devices, "ready for review". */
   editorNotices?: EditorNotice[];
   /** Event reminders due now (event-comms.ts, D-075). Absent reads as none. */
@@ -619,6 +657,7 @@ export async function readAlertInputs(
     editorNotices: notices?.ok ? notices.value : [],
     // Never throws: a fault (or no events tables yet) reads as none due.
     eventReminders: await dueEventReminders(store, organizationId, now),
+    bookings: await readBookingAlertItems(store, organizationId, now, timeZone),
   };
   const followUps = await readFollowUps(store, organizationId, { now, force });
   if (followUps.state === 'ok') {
@@ -647,6 +686,7 @@ export function alertsFromInputs(
     ...computeCampaignAlerts(inputs.finished, sent, now, timeZone),
     ...computeEditorAlerts(inputs.editorNotices ?? [], sent, now, timeZone),
     ...computeEventReminderAlerts(inputs.eventReminders ?? [], sent, now, timeZone),
+    ...computeBookingAlerts(inputs.bookings ?? [], sent, now, timeZone),
     ...(inputs.followUps
       ? computeDueAlerts(inputs.followUps, sent, now, timeZone, inputs.readers)
       : []),

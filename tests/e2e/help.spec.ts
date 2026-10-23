@@ -48,6 +48,7 @@ const PAGES = [
   'Inbox',
   'Calendar',
   'Events',
+  'Booking',
   'Portfolio',
   'Fund II',
   'Meetings',

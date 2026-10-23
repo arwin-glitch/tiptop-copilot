@@ -369,6 +369,26 @@ runs on its own hourly timer and the GitHub relay carries data both ways.
 All three are best-effort. If any is missing or a call fails, the question is
 still saved and the older path answers it later.
 
+### `BOOKING_CHAT_FIRE_URL`, `BOOKING_CHAT_TOKEN`, `BOOKING_CHAT_RELAY_CHANNEL_ID`, `BOOKING_CHAT_POSTER_IDS`
+
+Optional, and free: the booking page assistant's AI answers run on Arwin's own
+Claude plan, never on an API key (D-078). Without them the assistant still
+books times and answers from the questions written in the Booking tab.
+
+- `BOOKING_CHAT_FIRE_URL` and `BOOKING_CHAT_TOKEN` — the **booking assistant
+  routine's** API trigger address and bearer token (a separate routine from
+  Ask, with no data connectors; its prompt and setup are in
+  `docs/BOOKING_CHAT_ROUTINE.md`). Both unset, or either one: the feature is off.
+- The answer comes back through the same Slack relay the app already reads
+  (`ASK_RELAY_SLACK_TOKEN`), posted to `BOOKING_CHAT_RELAY_CHANNEL_ID`
+  (default: the ask relay channel) as `BOOKING_ANSWER_V1`. Only posts from
+  `BOOKING_CHAT_POSTER_IDS` are read (default: `TASK_RELAY_POSTER_IDS`, the
+  account the routines post as).
+
+Caps hold whatever is set: 3 questions per visitor session, 5 per visitor
+address a day, and the daily total set in the Booking tab (15 by default,
+30 at most). Past a cap the assistant answers from the written questions only.
+
 ### `DEAL_RELAY_CHANNEL_ID`, `DEAL_RELAY_POSTER_IDS`
 
 Optional. The deal-sorter cloud routine posts every deal it finds in Nick's
