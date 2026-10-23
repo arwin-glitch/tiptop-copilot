@@ -122,7 +122,10 @@ Default `claude-haiku-4-5`. Classification, extraction and portfolio
 classification.
 
 ### `AI_MODEL_DEEP`
-Default `claude-opus-5`. Analysis, daily outlook, chat, drafts and comparison.
+Default `claude-opus-5-5` (Claude Opus 5.5, $4/$20 per million tokens; it was
+`claude-opus-5` at $5/$25 before D-076). Analysis, daily outlook, chat, drafts
+and comparison. Copilot Notes never uses it: its notes and meeting chat are
+written by Arwin's Claude routine through the Ask bridge, at no cost (D-076).
 
 Model ids come from here and nowhere else — never hard-coded at a call site. To
 change a model, change the variable.
@@ -495,6 +498,98 @@ and replace it before then: an expired token is refused, and downloads and
 in-app updates can stop until a new one is set.
 
 ---
+
+## Copilot Notes
+
+Meeting transcripts and notes recorded by Copilot itself (D-076). Off until
+`NOTES_ENABLED` is set; apply `20261024000000_copilot_notes.sql` first. Every
+value here is set by a person on Render, never by an agent and never in the
+repository. Speech-to-text needs no key and costs nothing: the recorder's
+browser runs Whisper itself (models from huggingface.co, cached in the
+browser). Demo mode needs none of these and runs no model.
+
+### `NOTES_ENABLED`
+
+`off` (unset: the feature is hidden and its routes answer 404), `beta` (on for
+whoever turns on "Copilot Notes (beta)" in Settings) or `on` (everyone).
+Before it is anything but `off`, set `NOTES_NEVER_RECORD` and
+`NOTES_RELAY_CHANNEL_ID` below: without the first nothing records, without
+the second Arwin never writes the notes.
+
+### `NOTES_NEVER_RECORD`
+
+Required before the first recording (outside demo mode). The team's own
+never-record list, comma separated, kept on the server because the repository is
+public: a domain (`acme.example`) blocks any meeting with a guest from it, an
+address (`someone@acme.example`) any meeting with that guest, and anything
+else any meeting with those words in its title (`Acme Capital`). Put the
+sister fund and every company a recording must never touch here, by domain
+and by name. Each entry is labelled "portfolio-sensitive" and checked on the
+server when the meeting is made and again before recording starts, after the
+team's own rules (Notes settings › Never record) and before the built-in
+legal and family words. Until this list or a rule in Notes settings exists,
+Start answers "Recording is not set up yet" and nothing records. Only the
+number of entries is ever shown in the app.
+
+### `NOTES_SHARE_PEPPER`
+
+32 or more random characters. Every share link's token is stored only as an
+HMAC under it. Unset, notes cannot be shared by link. Changing it breaks every
+existing link.
+
+### `VOICEPRINT_ENC_KEY`
+
+32 random bytes, base64, like `APP_ENCRYPTION_KEY` but a different value.
+Seals voiceprints (speaker embeddings made in the recorder's browser;
+biometric data) at rest. Unset, nobody can be enrolled; names come from the
+mic, the on-device voice clustering, the calendar and taps.
+
+### `MEETING_FOLLOWUP_FIRE_URL` · `MEETING_FOLLOWUP_FIRE_TOKEN`
+
+The meeting-follow-up routine's API trigger, so the recap starts as soon as a
+meeting's notes are ready. Unset, the routine's own schedule picks the meeting
+up instead. Copilot POSTs `{"text":"copilot_meeting_id=<uuid>"}` with the token
+as a Bearer header, once per meeting, for meetings the team can see only (the
+routine reads them through the MCP meeting tools, docs/MCP.md). Never called in
+demo mode.
+
+### Arwin's notes and the meeting chat
+
+No key of their own, and nothing paid: they use the Ask bridge's settings
+above. `ASK_ROUTINE_FIRE_URL` and `ASK_ROUTINE_TOKEN` start the
+`ask-bridge-answerer` routine with a meeting's notes request; `ASK_RELAY_SLACK_TOKEN`
+reads its answer back; `ASK_BRIDGE_TOKEN` sends the meeting chat to it as an
+Ask question. Without the trigger the request waits and the meeting keeps its
+Quick notes; without the bridge the chat quotes the matching lines instead.
+The routine's prompt sections are in [docs/NOTES_ROUTINE.md](docs/NOTES_ROUTINE.md).
+
+### `NOTES_FIRE_MAX_CHARS`
+
+Optional, default `60000` (kept between 8,000 and 400,000). The most characters
+of a notes request sent to the routine. A longer meeting is condensed to fit:
+a speaker's consecutive lines merged, fillers dropped, then the middle trimmed
+with a marker saying how many lines were left out.
+
+### `NOTES_RELAY_CHANNEL_ID`
+
+Required for Arwin's notes. A private Slack channel of its own, where the
+routine posts Arwin's notes and the app reads them; it is sent to the routine
+with each request. There is no default: unset, or set to the Ask relay
+channel, no meeting is sent to the routine at all and meetings keep their
+Quick notes (the meeting page says the routine is not connected). The Slack
+app needs `groups:history` and to be a member there, and the account the
+routine posts as must be able to post there. Set that channel's message
+retention to one day (Slack: channel settings › Edit message retention), so
+the notes do not outlive a meeting deleted in Copilot: Copilot's token is
+read-only and cannot delete them.
+
+### `NOTES_RELAY_POSTER_IDS`
+
+Optional. The Slack user IDs whose `NOTES_RESULT_V1` posts are read, comma
+separated; everyone else's are ignored, because a result writes a meeting's
+notes and files tasks. Defaults to `TASK_RELAY_POSTER_IDS` (the account the
+routines post as). Set it only if the `ask-bridge-answerer` routine posts as
+another account.
 
 ## Public job board
 

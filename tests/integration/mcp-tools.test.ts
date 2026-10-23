@@ -57,7 +57,7 @@ function expectNoLpAmounts(out: McpToolOutput) {
 }
 
 describe('tools/list', () => {
-  it('describes nine read-only tools with plain object schemas', () => {
+  it('describes fourteen read-only tools with plain object schemas', () => {
     expect(MCP_TOOLS.map((t) => t.name)).toEqual([
       'search',
       'get_record',
@@ -68,6 +68,12 @@ describe('tools/list', () => {
       'lp_pipeline',
       'portfolio',
       'tasks',
+      // Copilot Notes' meeting tools (D-076), tested in notes-mcp.test.ts.
+      'list_meetings',
+      'get_meetings',
+      'get_meeting_transcript',
+      'query_meetings',
+      'list_meeting_folders',
     ]);
     for (const tool of MCP_TOOLS) {
       expect(tool.inputSchema.type).toBe('object');

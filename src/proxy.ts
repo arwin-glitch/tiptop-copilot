@@ -103,6 +103,12 @@ const PUBLIC_PATHS = [
   // a pending request, brake per address and check where a write came from.
   '/meet',
   '/api/meet',
+  // Copilot Notes share links (D-076): /n/<token> is the read-only page a
+  // shared summary opens on. The page checks the token's hash itself, shows
+  // nothing for a revoked or expired one, and brakes per address; only this
+  // prefix, so nothing else under /n is public by accident. The API routes
+  // that make and revoke links stay signed in.
+  '/n',
   // Campaign tracking: the open pixel, tracked links and unsubscribe, loaded
   // by recipients' mail clients with no session. Each route authenticates by
   // its signed per-recipient token, and the click route redirects only to a
@@ -258,10 +264,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
           { ok: false, error: { code: 'unauthenticated', message: 'Sign in to continue.' } },
           { status: 401 },
         ),
+        { pathname },
       );
     }
     const target = new URL('/login', request.url);
-    return withSecurityHeaders(NextResponse.redirect(target));
+    return withSecurityHeaders(NextResponse.redirect(target), { pathname });
   }
 
   // Only when a Supabase session is actually present. Demo sessions are signed
@@ -319,12 +326,13 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       referrer: 'no-referrer',
       noindex: isPrivateEventPath(pathname),
       camera: allowsCamera(pathname),
+      pathname,
     });
   }
   if (isEventPublicPath(pathname)) {
-    return withSecurityHeaders(response, { referrer: 'no-referrer' });
+    return withSecurityHeaders(response, { referrer: 'no-referrer', pathname });
   }
-  return withSecurityHeaders(response);
+  return withSecurityHeaders(response, { pathname });
 }
 
 interface SurfaceExtras {
@@ -399,10 +407,43 @@ function tooManyRequests(): NextResponse {
 /** Routes that set their own Content-Security-Policy. */
 const OWN_CSP_PATH = /^\/api\/briefings\/[a-z]+\/view$/;
 
+/**
+ * Pages people outside the team open: a shared note, the booking page, campaign
+ * tracking, event pages (D-075). They never record, so the microphone and
+ * screen capture stay off there even though Copilot's own pages may ask for
+ * them.
+ */
+const OUTSIDER_PAGE = /^\/(n|meet|t|e)(\/|$)/;
+
+/** A shared note's page: never indexed, never cached, and no referrer leaves it. */
+const SHARED_NOTE_PAGE = /^\/n(\/|$)/;
+
+/**
+ * Permissions-Policy. Copilot Notes records in the browser (D-076): the
+ * microphone, and the meeting's audio through screen or tab sharing. Both are
+ * allowed for Copilot's own origin only (`self`), never for a frame from
+ * anywhere else, and the browser still asks the person before either starts.
+ *
+ * Allowed on every signed-in page rather than only the meeting page because
+ * the policy belongs to the document, and Copilot moves between pages without
+ * loading a new one: opened from Today or the Calendar, the meeting page runs
+ * in the document Today or the Calendar loaded, under that page's policy. A
+ * policy scoped to /meetings alone would block the microphone exactly when
+ * someone clicks "Take notes".
+ */
+function permissionsPolicyFor(pathname: string, camera: boolean): string {
+  const capture = OUTSIDER_PAGE.test(pathname)
+    ? 'microphone=(), display-capture=()'
+    : 'microphone=(self), display-capture=(self)';
+  // The camera only for the event door list's QR scanner (/e/checkin).
+  return `camera=${camera ? '(self)' : '()'}, ${capture}, geolocation=(), payment=(), usb=()`;
+}
+
 function withSecurityHeaders(
   response: NextResponse,
   options: {
     ownCsp?: boolean;
+    pathname?: string;
     /** A route-specific policy in place of Copilot's (event pages). */
     csp?: string;
     referrer?: 'no-referrer';
@@ -416,11 +457,18 @@ function withSecurityHeaders(
   // XSS surface this would normally widen does not exist here.
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    // 'wasm-unsafe-eval': the meeting recorder's speech worker runs Whisper as
+    // WebAssembly (D-076); ONNX Runtime's binary is Copilot's own static file.
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    "connect-src 'self' https://*.supabase.co https://*.supabase.in",
+    // The free, open speech models download once from huggingface.co (which
+    // redirects to its *.hf.co storage) and are cached by the browser. Only
+    // downloads: no audio or text ever goes there (D-076).
+    "connect-src 'self' https://*.supabase.co https://*.supabase.in https://huggingface.co https://*.huggingface.co https://*.hf.co",
+    // The speech worker: Copilot's own script (the bundler may start it from a blob).
+    "worker-src 'self' blob:",
     "frame-ancestors 'none'",
     "form-action 'self'",
     "base-uri 'self'",
@@ -432,11 +480,20 @@ function withSecurityHeaders(
   response.headers.set('X-Frame-Options', 'DENY');
   response.headers.set('Referrer-Policy', options.referrer ?? 'strict-origin-when-cross-origin');
   response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  const pathname = options.pathname ?? '';
+  // A briefing view (ownCsp) is an API route and records nothing.
   response.headers.set(
     'Permissions-Policy',
-    `camera=${options.camera ? '(self)' : '()'}, microphone=(), geolocation=(), payment=(), usb=()`,
+    options.ownCsp
+      ? 'camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=()'
+      : permissionsPolicyFor(pathname, options.camera ?? false),
   );
   if (options.noindex) response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  if (SHARED_NOTE_PAGE.test(pathname)) {
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    response.headers.set('Referrer-Policy', 'no-referrer');
+    response.headers.set('Cache-Control', 'no-store');
+  }
   return response;
 }
 

@@ -1,4 +1,6 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
+import { purgeNotes } from '@/lib/services/notes-purge';
+import { settleNotesFromRelay } from '@/lib/services/notes-bridge';
 import { timingSafeEqual } from 'node:crypto';
 import { env } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
@@ -96,6 +98,7 @@ export async function POST(request: NextRequest) {
     numbers: string;
     asks: string;
     campaigns: string;
+    notes?: string;
     jobs: string;
   }[] = [];
 
@@ -334,6 +337,19 @@ export async function POST(request: NextRequest) {
       log.error('Cron campaign reply check failed', { organizationId: organization.id });
     }
 
+    // Copilot Notes (D-076): meetings out of the 7-day trash, and voice
+    // identifiers a year past their last use; and Arwin's notes that came
+    // back through the relay while no meeting page was open. Counts only.
+    let notesStatus: string;
+    try {
+      const purged = await purgeNotes(store, organization.id);
+      const settled = await settleNotesFromRelay(store, organization.id, { force: true });
+      notesStatus = `ok: ${purged.meetings} meetings and ${purged.voices} voice identifiers purged; ${settled.settled} notes stored, ${settled.expired} requests expired`;
+    } catch {
+      notesStatus = 'failed';
+      log.error('Cron Copilot Notes purge failed', { organizationId: organization.id });
+    }
+
     // The public job board: each company's own public job board read again
     // (new roles added, vanished ones closed; nothing is published unless a
     // person allowed it), and the jobs scan's emailed roles brought in as
@@ -391,6 +407,7 @@ export async function POST(request: NextRequest) {
       numbers: numbersStatus,
       asks: asksStatus,
       campaigns: campaignsStatus,
+      notes: notesStatus,
       jobs: jobsStatus,
     });
   }

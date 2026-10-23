@@ -4,6 +4,9 @@ import type { DataStore } from '@/lib/db/store';
 import { scanForInjection } from '@/lib/security/injection';
 import { err, ok, type Result } from '@/lib/util/result';
 import type { CalendarEvent, Deal, MeetingNote, PortfolioCompany } from '@/lib/types/domain';
+import { isTeamVisibleNote } from '@/lib/notes/visibility';
+import type { Meeting } from '@/lib/types/notes';
+import { pairGranolaNote } from './notes-pairing';
 
 /**
  * Meeting notes from Granola.
@@ -183,6 +186,9 @@ export async function ingestGranolaNote(
   };
 
   await store.insert('meeting_notes', note);
+  // While both tools run, a meeting recorded in Copilot Notes may be this
+  // note's twin: pair them so every list shows the conversation once (D-076).
+  await pairGranolaNote(store, organizationId, note);
   return ok({ id: note.id, created: true, flagged: scan.flagged });
 }
 
@@ -190,13 +196,58 @@ export async function ingestGranolaNote(
 
 const NOTE_LIMIT = 200;
 
+/**
+ * Notes as a shared page shows them (D-076): private Copilot notes left out
+ * (or kept for their own recorder, when the viewer is known), a Copilot note
+ * whose meeting is in the trash left out (its page would not open), and a
+ * Granola note whose Copilot twin is shown left out too, so a conversation
+ * recorded by both tools appears once. Before the Copilot Notes migration
+ * there are no twins and every row passes.
+ */
+export async function visibleNotes(
+  store: DataStore,
+  organizationId: string,
+  rows: readonly MeetingNote[],
+  viewerId?: string | null,
+): Promise<MeetingNote[]> {
+  const visible = rows.filter((note) => isTeamVisibleNote(note, viewerId));
+  const copilot = visible
+    .filter((n) => n.provider === 'copilot')
+    .map((n) => n.meeting_id ?? n.external_id);
+  if (copilot.length === 0) return visible;
+  let twins: Set<string>;
+  let trashed: Set<string>;
+  try {
+    const meetings = (await store.list('meetings', organizationId, {
+      in: { id: copilot },
+    })) as Meeting[];
+    trashed = new Set(meetings.filter((m) => m.deleted_at).map((m) => m.id));
+    // A trashed Copilot meeting no longer hides its Granola twin.
+    twins = new Set(
+      meetings
+        .filter((m) => !m.deleted_at)
+        .map((m) => m.granola_external_id)
+        .filter((x): x is string => Boolean(x)),
+    );
+  } catch {
+    return visible;
+  }
+  return visible.filter((n) =>
+    n.provider === 'copilot'
+      ? !trashed.has(n.meeting_id ?? n.external_id)
+      : !(n.provider === 'granola' && twins.has(n.external_id)),
+  );
+}
+
 async function recentNotes(store: DataStore, organizationId: string): Promise<MeetingNote[]> {
-  return (await store.list(
+  const rows = (await store.list(
     'meeting_notes',
     organizationId,
     {},
     { orderBy: [{ field: 'occurred_at', direction: 'desc' }], limit: NOTE_LIMIT },
   )) as MeetingNote[];
+  // A private Copilot note stays off the shared deal, company and network pages.
+  return visibleNotes(store, organizationId, rows);
 }
 
 function attendeeDomains(note: MeetingNote): Set<string> {
@@ -244,6 +295,28 @@ export async function notesForCompany(
   return notes.filter((note) => {
     if (domain && attendeeDomains(note).has(domain)) return true;
     return note.attendees.some((a) => contacts.has(a.email.toLowerCase()));
+  });
+}
+
+/**
+ * Notes for one CRM profile (D-076): a person by any of their addresses, a
+ * company by its domain or the addresses of its people. Granola's notes and
+ * Copilot's own (shared with the team) alike, with the same twin rule as the
+ * deal and company pages, so a meeting recorded by both tools shows once.
+ */
+export async function notesForRecord(
+  store: DataStore,
+  organizationId: string,
+  record: { kind: 'company' | 'person'; domain: string | null; emails: readonly string[] },
+  relatedEmails: readonly string[] = [],
+): Promise<MeetingNote[]> {
+  const domain = record.kind === 'company' ? (record.domain?.toLowerCase() ?? null) : null;
+  const people = new Set([...record.emails, ...relatedEmails].map((e) => e.toLowerCase()));
+  if (!domain && people.size === 0) return [];
+  const notes = await recentNotes(store, organizationId);
+  return notes.filter((note) => {
+    if (domain && attendeeDomains(note).has(domain)) return true;
+    return note.attendees.some((a) => people.has(a.email.toLowerCase()));
   });
 }
 
@@ -369,10 +442,12 @@ export async function catchUpSince(
   organizationId: string,
   now: Date = new Date(),
 ): Promise<string | null> {
+  // Granola's own notes only: a Copilot note (D-076) says nothing about what
+  // Granola has delivered, and must not move this window past its notes.
   const newest = (await store.list(
     'meeting_notes',
     organizationId,
-    {},
+    { eq: { provider: 'granola' } },
     { orderBy: [{ field: 'occurred_at', direction: 'desc' }], limit: 1 },
   )) as MeetingNote[];
 
@@ -430,6 +505,10 @@ export function isNoteUnchanged(ourUpdatedAt: string | undefined, theirUpdatedAt
 export interface MeetingListOptions {
   search?: string;
   limit?: number;
+  /** Granola's notes, Copilot's, or both (the default) with twins shown once. */
+  source?: 'granola' | 'copilot' | 'all';
+  /** Who is looking: their own private Copilot notes are listed too. */
+  viewerId?: string | null;
 }
 
 /**
@@ -471,10 +550,50 @@ export async function listMeetingNotes(
     ? { textSearch: { columns: ['title', 'content'], query: search } }
     : undefined;
 
-  const notes = (await store.list('meeting_notes', organizationId, filter, {
-    orderBy: [{ field: 'occurred_at', direction: 'desc' }],
-    limit: options.limit ?? 500,
-  })) as MeetingNote[];
+  const source = options.source ?? 'all';
+  const notes = (await store.list(
+    'meeting_notes',
+    organizationId,
+    source === 'all' ? filter : { ...filter, eq: { provider: source } },
+    {
+      orderBy: [{ field: 'occurred_at', direction: 'desc' }],
+      limit: options.limit ?? 500,
+    },
+  )) as MeetingNote[];
 
-  return notes;
+  return visibleNotes(store, organizationId, notes, options.viewerId);
+}
+
+/**
+ * How many notes each tool holds, for the Notes tab's "Granola | Copilot"
+ * switch (D-076): Granola's rows, the Copilot notes this viewer may see, and
+ * the conversations in all, a pair counted once.
+ */
+export async function countMeetingNotes(
+  store: DataStore,
+  organizationId: string,
+  viewerId?: string | null,
+): Promise<{ granola: number; copilot: number; total: number }> {
+  const granola = await store.count('meeting_notes', organizationId, {
+    eq: { provider: 'granola' },
+  });
+  let copilot = 0;
+  let paired = 0;
+  try {
+    const rows = (await store.list('meeting_notes', organizationId, {
+      eq: { provider: 'copilot' },
+    })) as MeetingNote[];
+    const visible = rows.filter((n) => isTeamVisibleNote(n, viewerId));
+    copilot = visible.length;
+    if (visible.length) {
+      const meetings = (await store.list('meetings', organizationId, {
+        in: { id: visible.map((n) => n.meeting_id ?? n.external_id) },
+        notNull: ['granola_external_id'],
+      })) as Meeting[];
+      paired = meetings.length;
+    }
+  } catch {
+    // No Copilot Notes tables yet: Granola's count is the whole count.
+  }
+  return { granola, copilot, total: granola + copilot - paired };
 }

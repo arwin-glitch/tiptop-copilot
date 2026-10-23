@@ -677,13 +677,14 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'meetings',
     name: 'Meetings',
     href: '/meetings',
-    purpose: 'The week ahead, and every Granola meeting note, searchable.',
+    purpose:
+      "The week ahead, and every meeting note: Granola's, and Copilot's own, written by Arwin.",
     subtabs: recordsSubtabs(MEETINGS_TABS),
     steps: [
       navStep(
         '/meetings',
         'Meetings and notes',
-        'Meetings shows the week ahead and every Granola note.',
+        'Meetings shows the week ahead and every meeting note, Granola and Copilot.',
       ),
       subtabStep(MEETINGS_TABS),
       {

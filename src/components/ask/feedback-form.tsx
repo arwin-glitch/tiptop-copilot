@@ -20,8 +20,8 @@ import { cn } from '@/lib/util/cn';
  * The feedback box: what to change in Copilot, in a person's own words.
  *
  * Typed, or dictated with the keyboard's own microphone (a phone's, or the
- * computer's dictation): the page never records audio itself, so the
- * Permissions-Policy that keeps the microphone off (proxy.ts) stays as it is.
+ * computer's dictation): the page never records audio itself. (Only Copilot
+ * Notes' meeting recorder asks for the microphone; see proxy.ts, D-076.)
  *
  * In the Ask Arwin panel (`fromPage`) a note carries the page under the panel
  * (its path and name, read when the panel opened, which it shows) so whoever

@@ -33,6 +33,8 @@ import { McpConnectCard } from '@/components/settings/mcp-connect';
 import { readBookingSettings } from '@/lib/services/booking';
 import { log } from '@/lib/security/redact';
 import { formatDateTime } from '@/lib/util/time';
+import { notesAccess } from '@/lib/notes/flag';
+import { NotesBetaSwitch } from '@/components/notes/notes-settings';
 
 export const metadata: Metadata = { title: 'Settings' };
 export const dynamic = 'force-dynamic';
@@ -44,6 +46,7 @@ const SETTINGS_TABS = [
   'booking',
   'limits',
   'data',
+  'notes',
 ] as const;
 
 export default async function SettingsPage({
@@ -95,6 +98,9 @@ export default async function SettingsPage({
     });
     return null;
   });
+  // Copilot Notes (D-076): its tab shows only once the server switch is not off.
+  const notes = await notesAccess(store, auth).catch(() => null);
+  const notesTab = Boolean(notes && notes.mode !== 'off');
 
   return (
     <PageShell>
@@ -124,7 +130,7 @@ export default async function SettingsPage({
         </CardContent>
       </Card>
 
-      <Tabs defaultValue={tab}>
+      <Tabs defaultValue={tab === 'notes' && !notesTab ? 'thesis' : tab}>
         <TabsList data-tour="settings-tabs">
           <TabsTrigger value="thesis">Thesis &amp; scoring</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
@@ -132,6 +138,9 @@ export default async function SettingsPage({
           <TabsTrigger value="booking">Booking link</TabsTrigger>
           <TabsTrigger value="limits">Limits</TabsTrigger>
           <TabsTrigger value="data">Data &amp; privacy</TabsTrigger>
+          {notes && notes.mode !== 'off' ? (
+            <TabsTrigger value="notes">Copilot Notes</TabsTrigger>
+          ) : null}
         </TabsList>
 
         <TabsContent value="thesis">
@@ -486,6 +495,22 @@ export default async function SettingsPage({
             </CardContent>
           </Card>
         </TabsContent>
+        {notes && notes.mode !== 'off' ? (
+          <TabsContent value="notes">
+            <Card>
+              <CardContent className="space-y-4 pt-4">
+                <NotesBetaSwitch initial={notes} />
+                <p className="text-sm text-[var(--fg-muted)]">
+                  Templates, never-record rules and voice consent are in{' '}
+                  <Link href="/meetings/settings" className="link-inline font-medium">
+                    Notes settings
+                  </Link>
+                  .
+                </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ) : null}
       </Tabs>
     </PageShell>
   );

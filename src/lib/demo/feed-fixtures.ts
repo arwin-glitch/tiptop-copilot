@@ -52,5 +52,7 @@ export function demoFeedInputs(now: Date): FeedInputs {
     affinity: { configured: true, lastRunAt: hoursAgo(3) },
     notes: { configured: true, lastAt: hoursAgo(5) },
     ask: { configured: true, waitingSince: null },
+    // Copilot Notes (D-076): the demo meeting was recorded nine days ago.
+    capture: { configured: true, lastAt: hoursAgo(9 * 24), stuck: 0 },
   };
 }

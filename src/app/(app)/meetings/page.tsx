@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Suspense } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import { requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
 import { readFollowUps, readFollowUpsWithin } from '@/lib/services/follow-ups';
@@ -8,7 +8,7 @@ import {
   snapshotUnavailable,
   upcomingWeekEvents,
 } from '@/components/followups/relay-cards';
-import { listMeetingNotes } from '@/lib/services/meetings';
+import { countMeetingNotes, listMeetingNotes } from '@/lib/services/meetings';
 import { MEETINGS_TABS, SNAPSHOT_WAIT_MS, landsOnSnapshot, openingTab } from '@/lib/records-tabs';
 import {
   PAGE_PARAM,
@@ -31,6 +31,15 @@ import {
   affinityNoteCount,
   type NotesSource,
 } from '@/components/meetings/affinity-notes';
+import {
+  CopilotNotes,
+  NotesActions,
+  type CopilotNotesFilters,
+} from '@/components/meetings/copilot-notes';
+import type { AuthContext } from '@/lib/auth/session';
+import { withinOrAfter } from '@/lib/notes/background';
+import { notesAccess } from '@/lib/notes/flag';
+import { settleNotesFromRelay } from '@/lib/services/notes-bridge';
 
 export const metadata: Metadata = { title: 'Meetings' };
 export const dynamic = 'force-dynamic';
@@ -65,7 +74,19 @@ export default async function MeetingsPage({
   }
   const { tab, home } = openingTab(MEETINGS_TABS, params, weekShows);
   const shown = shownCount(params[SHOW_PARAM], NOTES_STEP, NOTES_MAX);
-  const source: NotesSource = single(params.source) === 'affinity' ? 'affinity' : 'granola';
+  const sourceParam = single(params.source);
+  const source: NotesSource =
+    sourceParam === 'affinity' || sourceParam === 'copilot' || sourceParam === 'all'
+      ? sourceParam
+      : 'granola';
+  const filters: CopilotNotesFilters = {
+    q,
+    person: single(params.person) ?? null,
+    company: single(params.company) ?? null,
+    folder: single(params.folder) ?? null,
+    actions: single(params.actions) === 'true',
+    cursor: single(params.cursor) ?? null,
+  };
 
   return (
     <PageShell>
@@ -84,6 +105,8 @@ export default async function MeetingsPage({
         {tab === 'notes' ? (
           source === 'affinity' ? (
             <AffinityNotesTab q={q} page={params[PAGE_PARAM]} />
+          ) : source === 'copilot' || source === 'all' ? (
+            <CopilotNotesTab source={source} filters={filters} q={q} shown={shown} />
           ) : (
             <NotesTab q={q} shown={shown} />
           )
@@ -123,24 +146,100 @@ async function WeekTab() {
   );
 }
 
+/** Whether Copilot Notes (D-076) is on for this person; off on any error. */
+async function copilotNotesOn(auth: AuthContext): Promise<boolean> {
+  return notesAccess(getStore(), auth)
+    .then((a) => a.enabled)
+    .catch(() => false);
+}
+
+/** The Copilot notes this person may see, for the source chip; null when unknown. */
+async function copilotCount(auth: AuthContext, notesOn: boolean): Promise<number | null> {
+  if (!notesOn) return null;
+  return countMeetingNotes(getStore(), auth.organizationId, auth.userId)
+    .then((c) => c.copilot)
+    .catch(() => null);
+}
+
+/** The source chips, with New note and Notes settings beside them while Copilot Notes is on. */
+function SourceRow({ notesOn, children }: { notesOn: boolean; children: ReactNode }) {
+  if (!notesOn) return <>{children}</>;
+  return (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+      {children}
+      <NotesActions />
+    </div>
+  );
+}
+
 /** Affinity's notes, newest first, behind the same tab as Granola's. */
 async function AffinityNotesTab({ q, page }: { q: string; page: string | string[] | undefined }) {
   const auth = await requireAuth();
-  const [granolaCount, affinityCount] = await Promise.all([
+  const [granolaCount, affinityCount, notesOn] = await Promise.all([
     getStore()
       .count('meeting_notes', auth.organizationId, { eq: { provider: 'granola' } })
       .catch(() => null),
     affinityNoteCount(auth),
+    copilotNotesOn(auth),
+  ]);
+  const copilotNotes = await copilotCount(auth, notesOn);
+  return (
+    <>
+      <SourceRow notesOn={notesOn}>
+        <NotesSourceSwitch
+          source="affinity"
+          q={q}
+          granolaCount={granolaCount}
+          affinityCount={affinityCount}
+          copilot={notesOn ? { count: copilotNotes } : null}
+        />
+      </SourceRow>
+      <AffinityNotes auth={auth} q={q} page={page} />
+    </>
+  );
+}
+
+/** Copilot's own notes, or every note from both tools (D-076); Granola's list while Notes is off. */
+async function CopilotNotesTab({
+  source,
+  filters,
+  q,
+  shown,
+}: {
+  source: 'copilot' | 'all';
+  filters: CopilotNotesFilters;
+  q: string;
+  shown: number;
+}) {
+  const auth = await requireAuth();
+  const notesOn = await copilotNotesOn(auth);
+  if (!notesOn) return <NotesTab q={q} shown={shown} />;
+  // Arwin's notes that came back while no meeting page was open: a short
+  // wait, then the rest finishes after the page is sent (throttled).
+  await withinOrAfter(
+    'settle Arwin’s notes',
+    settleNotesFromRelay(getStore(), auth.organizationId),
+    1_500,
+  );
+  const [granolaCount, affinityCount, copilotNotes] = await Promise.all([
+    getStore()
+      .count('meeting_notes', auth.organizationId, { eq: { provider: 'granola' } })
+      .catch(() => null),
+    affinityNoteCount(auth),
+    copilotCount(auth, true),
   ]);
   return (
     <>
-      <NotesSourceSwitch
-        source="affinity"
-        q={q}
-        granolaCount={granolaCount}
-        affinityCount={affinityCount}
-      />
-      <AffinityNotes auth={auth} q={q} page={page} />
+      <SourceRow notesOn>
+        <NotesSourceSwitch
+          source={source}
+          q={q}
+          granolaCount={granolaCount}
+          affinityCount={affinityCount}
+          copilot={{ count: copilotNotes }}
+        />
+      </SourceRow>
+      <CopilotNotes auth={auth} source={source} filters={filters} />
     </>
   );
 }
@@ -151,13 +250,19 @@ async function NotesTab({ q, shown }: { q: string; shown: number }) {
   // meeting count showed a flat "500" — the cap, presented as a fact — while
   // the real figure was 922. A stat that reports a limit is worse than no stat.
   const [notes, total] = await Promise.all([
+    // Granola's list stays Granola's: Copilot's notes have their own chip.
     listMeetingNotes(getStore(), auth.organizationId, {
       search: q || undefined,
       limit: NOTES_MAX,
+      source: 'granola',
     }),
     getStore().count('meeting_notes', auth.organizationId, { eq: { provider: 'granola' } }),
   ]);
-  const affinityCount = await affinityNoteCount(auth);
+  const [affinityCount, notesOn] = await Promise.all([
+    affinityNoteCount(auth),
+    copilotNotesOn(auth),
+  ]);
+  const copilotNotes = await copilotCount(auth, notesOn);
 
   const people = new Set<string>();
   const companies = new Set<string>();
@@ -172,12 +277,15 @@ async function NotesTab({ q, shown }: { q: string; shown: number }) {
 
   return (
     <>
-      <NotesSourceSwitch
-        source="granola"
-        q={q}
-        granolaCount={total}
-        affinityCount={affinityCount}
-      />
+      <SourceRow notesOn={notesOn}>
+        <NotesSourceSwitch
+          source="granola"
+          q={q}
+          granolaCount={total}
+          affinityCount={affinityCount}
+          copilot={notesOn ? { count: copilotNotes } : null}
+        />
+      </SourceRow>
       <StatGroup className="mb-5" columns={3}>
         <Stat
           size="sm"

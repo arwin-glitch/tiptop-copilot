@@ -246,6 +246,70 @@ export interface AppEnv {
    * enough.
    */
   desktopReleaseToken: string | undefined;
+
+  /**
+   * Copilot Notes (D-076), off by default. 'off' hides the feature and its
+   * routes answer 404; 'beta' shows it to whoever turns on the "Copilot Notes
+   * (beta)" switch in Settings; 'on' shows it to everyone.
+   */
+  notesEnabled: NotesMode;
+  /**
+   * 32 random bytes, base64: seals voice identifiers (biometric data) at rest.
+   * Unset means nobody can be enrolled; consent can still be recorded.
+   */
+  voiceprintEncKey: string | undefined;
+  /**
+   * Mixed into every share-link token's hash, so a leaked table of hashes
+   * cannot be checked against guesses without it. Unset means share links
+   * cannot be made outside demo mode.
+   */
+  notesSharePepper: string | undefined;
+  /**
+   * The meeting-follow-up routine's API trigger (its /fire URL and token), so
+   * the recap starts as soon as a meeting's notes are ready. Unset: the
+   * routine's own schedule picks the meeting up instead.
+   */
+  meetingFollowupFireUrl: string | undefined;
+  meetingFollowupFireToken: string | undefined;
+  /**
+   * The most characters of a NOTES_REQUEST_V1 sent to Arwin's routine (the
+   * Ask bridge's trigger). A longer meeting is condensed to fit: consecutive
+   * lines merged, fillers dropped, then the middle trimmed with a marker.
+   */
+  notesFireMaxChars: number;
+  /**
+   * The private Slack channel the routine posts NOTES_RESULT_V1 to, and the
+   * app reads it from (NOTES_RELAY_CHANNEL_ID). No default: until one is set,
+   * apart from the Ask relay channel, no meeting is sent to the routine and
+   * meetings keep their Quick notes (see notesRelayChannel in lib/notes/relay).
+   */
+  notesRelayChannelId: string | undefined;
+  /**
+   * The Slack user IDs whose NOTES_RESULT_V1 posts are read; everyone else's
+   * are ignored, because a result writes a meeting's notes and files tasks.
+   * NOTES_RELAY_POSTER_IDS, comma separated; defaults to taskRelayPosterIds
+   * (the account the routines post as). Never empty.
+   */
+  notesRelayPosterIds: readonly string[];
+  /**
+   * The team's own never-record list (NOTES_NEVER_RECORD), comma separated:
+   * a domain ("acme.example") never records a meeting with a guest from it,
+   * an address one with that guest, anything else one with those words in
+   * its title. Kept out of the repository, which is public. Outside demo
+   * mode a recording does not start until this list, or a rule in Settings,
+   * exists.
+   */
+  notesNeverRecord: readonly string[];
+}
+
+export type NotesMode = 'off' | 'beta' | 'on';
+
+/** NOTES_ENABLED: 'on' (or true/1/yes), 'beta', anything else off. */
+function notesMode(value: string | undefined): NotesMode {
+  const v = (value ?? '').trim().toLowerCase();
+  if (v === 'beta') return 'beta';
+  if (['on', 'true', '1', 'yes'].includes(v)) return 'on';
+  return 'off';
 }
 
 /** The desktop app's release repository when DESKTOP_RELEASE_REPO is unset or malformed. */
@@ -304,7 +368,7 @@ export function env(): AppEnv {
 
     anthropicApiKey: str('ANTHROPIC_API_KEY'),
     modelFast: str('AI_MODEL_FAST') ?? 'claude-haiku-4-5',
-    modelDeep: str('AI_MODEL_DEEP') ?? 'claude-opus-5',
+    modelDeep: str('AI_MODEL_DEEP') ?? 'claude-opus-5-5',
     aiEffortDeep: (['low', 'medium', 'high', 'xhigh', 'max'] as const).includes(
       effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max',
     )
@@ -371,6 +435,30 @@ export function env(): AppEnv {
       return repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? repo : DEFAULT_DESKTOP_RELEASE_REPO;
     })(),
     desktopReleaseToken: str('DESKTOP_RELEASE_TOKEN'),
+    notesEnabled: notesMode(str('NOTES_ENABLED')),
+    voiceprintEncKey: str('VOICEPRINT_ENC_KEY'),
+    notesSharePepper: str('NOTES_SHARE_PEPPER'),
+    meetingFollowupFireUrl: str('MEETING_FOLLOWUP_FIRE_URL'),
+    meetingFollowupFireToken: str('MEETING_FOLLOWUP_FIRE_TOKEN'),
+    notesFireMaxChars: Math.min(Math.max(int('NOTES_FIRE_MAX_CHARS', 60_000), 8_000), 400_000),
+    notesRelayChannelId: str('NOTES_RELAY_CHANNEL_ID'),
+    notesRelayPosterIds: ((): readonly string[] => {
+      const ids = (str('NOTES_RELAY_POSTER_IDS') ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
+      if (ids.length > 0) return ids;
+      const task = (str('TASK_RELAY_POSTER_IDS') ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
+      return task.length > 0 ? task : DEFAULT_TASK_RELAY_POSTER_IDS;
+    })(),
+    notesNeverRecord: (str('NOTES_NEVER_RECORD') ?? '')
+      .split(',')
+      .map((entry) => entry.trim().slice(0, 200))
+      .filter(Boolean)
+      .slice(0, 100),
   };
   return cached;
 }
@@ -818,6 +906,109 @@ export function capabilityReport(
           ? 'Set. The Updates tab reads the dealflow and digest channels live. Each private channel also needs the groups:history scope and the bot invited; /updates shows the status per channel.'
           : 'Not set. The Updates tab shows setup steps instead of reports; nothing else is affected.',
     variables: ['ASK_RELAY_SLACK_TOKEN', 'AUTH_ALLOWED_EMAIL_DOMAINS'],
+    required: false,
+  });
+
+  // Copilot Notes (D-076). Off by default; each row reports presence only.
+  // Speech-to-text needs no key: Whisper runs in the recorder's own browser.
+  checks.push({
+    key: 'notes',
+    label: 'Copilot Notes (meeting transcripts)',
+    status: e.notesEnabled === 'off' ? 'optional-missing' : e.demoMode ? 'demo' : 'ready',
+    detail:
+      e.notesEnabled === 'off'
+        ? 'Off (NOTES_ENABLED is not set). Meetings are not recorded; Granola notes are unaffected.'
+        : e.demoMode
+          ? 'Demo mode: recording plays a scripted, fictional call and runs no speech model.'
+          : `${e.notesEnabled === 'beta' ? 'Beta: on for whoever turns on the Settings switch.' : 'On for everyone.'} Speech-to-text runs free in the recorder's browser (Whisper); audio never leaves that computer.`,
+    variables: ['NOTES_ENABLED'],
+    required: false,
+  });
+
+  // Both refuse rather than fall back (D-076): with no never-record list a
+  // recording does not start, and with no private relay channel apart from
+  // the Ask one no meeting is sent to Arwin's routine.
+  const notesOn = e.notesEnabled !== 'off' && !e.demoMode;
+  checks.push({
+    key: 'notes-never-record',
+    label: 'Copilot Notes never-record list',
+    status:
+      e.notesNeverRecord.length > 0
+        ? 'ready'
+        : e.demoMode
+          ? 'demo'
+          : notesOn
+            ? 'missing'
+            : 'optional-missing',
+    detail:
+      e.notesNeverRecord.length > 0
+        ? `Set: ${e.notesNeverRecord.length} entr${e.notesNeverRecord.length === 1 ? 'y' : 'ies'}, checked on the server before every recording, with the legal and family words built in.`
+        : 'Not set. Recording does not start until it is set, or until a rule is added in Notes settings › Never record.',
+    variables: ['NOTES_NEVER_RECORD'],
+    required: false,
+  });
+
+  const notesRelayOk = has(e.notesRelayChannelId) && e.notesRelayChannelId !== e.askRelayChannelId;
+  checks.push({
+    key: 'notes-relay',
+    label: "Copilot Notes: Arwin's notes channel",
+    status: notesRelayOk ? 'ready' : e.demoMode ? 'demo' : notesOn ? 'missing' : 'optional-missing',
+    detail: notesRelayOk
+      ? `Set (${e.notesRelayChannelId}), apart from the Ask relay channel. Results are read from ${e.notesRelayPosterIds.length} poster${e.notesRelayPosterIds.length === 1 ? '' : 's'} only.`
+      : has(e.notesRelayChannelId)
+        ? "Set to the Ask relay channel, which every member can read. No meeting is sent to Arwin's routine until a private channel of its own is set; meetings keep their Quick notes."
+        : "Not set. No meeting is sent to Arwin's routine until a private channel is set; meetings keep their Quick notes.",
+    variables: ['NOTES_RELAY_CHANNEL_ID', 'NOTES_RELAY_POSTER_IDS'],
+    required: false,
+  });
+
+  checks.push({
+    key: 'notes-share',
+    label: 'Copilot Notes share links',
+    status: has(e.notesSharePepper)
+      ? (e.notesSharePepper?.length ?? 0) >= 32
+        ? 'ready'
+        : 'missing'
+      : e.demoMode
+        ? 'demo'
+        : 'optional-missing',
+    detail: has(e.notesSharePepper)
+      ? (e.notesSharePepper?.length ?? 0) >= 32
+        ? 'Present. Only a peppered hash of each link is stored.'
+        : 'Present but shorter than 32 characters; share links stay off until it is longer.'
+      : 'Not set. Notes cannot be shared by link; everything else works.',
+    variables: ['NOTES_SHARE_PEPPER'],
+    required: false,
+  });
+
+  const voiceKeyOk = (() => {
+    if (!e.voiceprintEncKey) return false;
+    try {
+      return Buffer.from(e.voiceprintEncKey, 'base64').length === 32;
+    } catch {
+      return false;
+    }
+  })();
+  checks.push({
+    key: 'notes-voice',
+    label: 'Copilot Notes voice profiles (opt-in)',
+    status: voiceKeyOk ? 'ready' : 'optional-missing',
+    detail: voiceKeyOk
+      ? 'Present and decodes to 32 bytes. Voice identifiers are sealed with it, for people who consented only.'
+      : 'Not set (or not 32 bytes, base64). Nobody can be enrolled; names come from the calendar and from taps instead.',
+    variables: ['VOICEPRINT_ENC_KEY'],
+    required: false,
+  });
+
+  const followUp = has(e.meetingFollowupFireUrl) && has(e.meetingFollowupFireToken);
+  checks.push({
+    key: 'meeting-followup',
+    label: 'Meeting recap trigger',
+    status: followUp ? 'ready' : 'optional-missing',
+    detail: followUp
+      ? "Set. The meeting-follow-up routine starts as soon as a meeting's notes are ready."
+      : 'Not set. The meeting-follow-up routine picks new notes up on its own schedule.',
+    variables: ['MEETING_FOLLOWUP_FIRE_URL', 'MEETING_FOLLOWUP_FIRE_TOKEN'],
     required: false,
   });
 

@@ -150,7 +150,17 @@ export interface FeedInputs {
   notes: { configured: boolean; lastAt: string | null } | null;
   /** null when the questions could not be read. */
   ask: { configured: boolean; waitingSince: string | null } | null;
+  /**
+   * Copilot Notes' recorder (D-076): when a transcript line last arrived, and
+   * how many meetings are marked as recording with no line for
+   * CAPTURE_QUIET_MINUTES. Absent where nothing reads it; null when it could
+   * not be read.
+   */
+  capture?: { configured: boolean; lastAt: string | null; stuck: number } | null;
 }
+
+/** A meeting marked as recording with no new line for this long has a recorder that went quiet. */
+export const CAPTURE_QUIET_MINUTES = 20;
 
 /* ------------------------------------------------------------ the report */
 
@@ -236,6 +246,26 @@ function rowFor(def: FeedDef, inputs: FeedInputs, now: Date, tz: string): FeedRo
       }
       const at = inputs.affinity.lastRunAt;
       return plain(cadenceStatus(def.cadence, at, now, tz), at);
+    }
+    case 'meeting-capture': {
+      const capture = inputs.capture;
+      if (capture === null)
+        return plain('unknown', null, 'The recordings could not be read just now.');
+      if (!capture || !capture.configured) {
+        return plain(
+          'off',
+          capture?.lastAt ?? null,
+          'Copilot Notes is off (NOTES_ENABLED is not set).',
+        );
+      }
+      if (capture.stuck > 0) {
+        return plain(
+          'stopped',
+          capture.lastAt,
+          `${capture.stuck === 1 ? 'A meeting is' : `${capture.stuck} meetings are`} still marked as recording, but no transcript line has arrived for over ${CAPTURE_QUIET_MINUTES} minutes: the recorder's tab may have closed.`,
+        );
+      }
+      return plain(cadenceStatus(def.cadence, capture.lastAt, now, tz), capture.lastAt);
     }
     case 'meeting-notes': {
       if (!inputs.notes) return plain('unknown', null, 'The notes could not be read just now.');
@@ -594,13 +624,49 @@ export async function readNotesArrival(
   store: DataStore,
   organizationId: string,
 ): Promise<string | null> {
+  // Granola's deliveries only: a Copilot Notes write (D-076) is not this feed.
   const rows = (await store.list(
     'meeting_notes',
     organizationId,
-    {},
+    { eq: { provider: 'granola' } },
     { orderBy: [{ field: 'updated_at', direction: 'desc' }], limit: 1 },
   )) as MeetingNote[];
   return rows[0]?.updated_at ?? null;
+}
+
+/**
+ * Copilot Notes' recorder (D-076): when the newest transcript line arrived,
+ * and how many meetings marked as recording have had no line for
+ * CAPTURE_QUIET_MINUTES (their recorder went quiet: a closed tab, a dropped
+ * connection). Paused meetings are quiet on purpose and are not counted.
+ */
+export async function readCaptureState(
+  store: DataStore,
+  organizationId: string,
+  now: Date,
+): Promise<{ lastAt: string | null; stuck: number }> {
+  const [newest, live] = await Promise.all([
+    store.list(
+      'transcript_segments',
+      organizationId,
+      {},
+      { orderBy: [{ field: 'created_at', direction: 'desc' }], limit: 1 },
+    ),
+    store.list('meetings', organizationId, { eq: { status: 'recording' }, isNull: ['deleted_at'] }),
+  ]);
+  const quietSince = now.getTime() - CAPTURE_QUIET_MINUTES * 60_000;
+  let stuck = 0;
+  for (const meeting of live) {
+    const last = await store.list(
+      'transcript_segments',
+      organizationId,
+      { eq: { meeting_id: meeting.id } },
+      { orderBy: [{ field: 'created_at', direction: 'desc' }], limit: 1 },
+    );
+    const at = last[0]?.created_at ?? meeting.started_at ?? meeting.updated_at;
+    if (Date.parse(at) < quietSince) stuck += 1;
+  }
+  return { lastAt: newest[0]?.created_at ?? null, stuck };
 }
 
 /**
@@ -658,27 +724,36 @@ export async function readFeedInputs(
   const { now = new Date(), fetchImpl = fetch, e = env() } = options;
   if (e.demoMode) return demoFeedInputs(now);
   const unknown = (reason: string): RelayRead => ({ state: 'unknown', reason });
-  const [dealRelay, askRelay, reports, jobs, affinity, notesAt, waiting] = await Promise.all([
-    settled(async () => {
-      if (e.askRelaySlackToken && !(await isRelayOrganization(store, organizationId))) {
-        return {
-          state: 'off',
-          reason: 'Read only on a deployment with one workspace.',
-        } satisfies RelayRead;
-      }
-      return readRelay(e.dealRelayChannelId, dealRelayRules(e), e, now, fetchImpl);
-    }, 'deal relay'),
-    settled(() => readRelay(e.askRelayChannelId, askRelayRules(e), e, now, fetchImpl), 'ask relay'),
-    settled(() => readReports(now), 'reports'),
-    settled(() => readJobHeartbeats(store, organizationId), 'heartbeats'),
-    settled(async () => {
-      const status = await getAffinitySyncStatus(store, organizationId, now);
-      return { configured: status.configured, lastRunAt: status.lastRun?.finishedAt ?? null };
-    }, 'affinity sync'),
-    // Wrapped so a read that worked but found nothing is not the null of a failed one.
-    settled(async () => ({ at: await readNotesArrival(store, organizationId) }), 'meeting notes'),
-    settled(() => readAskWaiting(store, organizationId, now), 'ask questions'),
-  ]);
+  const [dealRelay, askRelay, reports, jobs, affinity, notesAt, waiting, capture] =
+    await Promise.all([
+      settled(async () => {
+        if (e.askRelaySlackToken && !(await isRelayOrganization(store, organizationId))) {
+          return {
+            state: 'off',
+            reason: 'Read only on a deployment with one workspace.',
+          } satisfies RelayRead;
+        }
+        return readRelay(e.dealRelayChannelId, dealRelayRules(e), e, now, fetchImpl);
+      }, 'deal relay'),
+      settled(
+        () => readRelay(e.askRelayChannelId, askRelayRules(e), e, now, fetchImpl),
+        'ask relay',
+      ),
+      settled(() => readReports(now), 'reports'),
+      settled(() => readJobHeartbeats(store, organizationId), 'heartbeats'),
+      settled(async () => {
+        const status = await getAffinitySyncStatus(store, organizationId, now);
+        return { configured: status.configured, lastRunAt: status.lastRun?.finishedAt ?? null };
+      }, 'affinity sync'),
+      // Wrapped so a read that worked but found nothing is not the null of a failed one.
+      settled(async () => ({ at: await readNotesArrival(store, organizationId) }), 'meeting notes'),
+      settled(() => readAskWaiting(store, organizationId, now), 'ask questions'),
+      // Before the Copilot Notes migration there is nothing to read, and the
+      // feature is off anyway: that is not a failed read.
+      e.notesEnabled === 'off'
+        ? Promise.resolve({ lastAt: null, stuck: 0 })
+        : settled(() => readCaptureState(store, organizationId, now), 'meeting recorder'),
+    ]);
   return {
     readAt: now.toISOString(),
     dealRelay: dealRelay ?? unknown('The relay channel could not be read just now.'),
@@ -696,6 +771,7 @@ export async function readFeedInputs(
     ask: waiting
       ? { configured: Boolean(e.askRelaySlackToken), waitingSince: waiting.waitingSince }
       : null,
+    capture: capture ? { configured: e.notesEnabled !== 'off', ...capture } : null,
   };
 }
 

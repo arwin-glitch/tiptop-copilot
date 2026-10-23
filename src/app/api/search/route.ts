@@ -16,6 +16,6 @@ export async function GET(request: NextRequest) {
     );
   }
   const q = request.nextUrl.searchParams.get('q') ?? '';
-  const results = await searchEverything(getStore(), auth.value.organizationId, q);
+  const results = await searchEverything(getStore(), auth.value.organizationId, q, auth.value);
   return NextResponse.json({ results }, { headers: { 'Cache-Control': 'no-store' } });
 }

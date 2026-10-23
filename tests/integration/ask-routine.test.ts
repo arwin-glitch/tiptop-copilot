@@ -6,6 +6,7 @@ import {
   fireAskRoutine,
   fireText,
   parseAnswerMessage,
+  queueBridgeQuestion,
   resetSettleThrottle,
   settleAnswersFromSlack,
 } from '@/lib/services/ask-routine';
@@ -122,6 +123,55 @@ describe('asking a question', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.assistantMessage.status).toBe('pending');
+  });
+});
+
+describe('the payload, with and without a Copilot Notes context', () => {
+  it('a question without context fires exactly as before', () => {
+    expect(fireText(QUESTION)).toBe(
+      [
+        'ASK_QUESTION_V1',
+        '`{"message_id":"11111111-1111-4111-8111-111111111111","thread_id":"22222222-2222-4222-8222-222222222222","deal_id":null,"question":"What needs my attention today?","history":[]}`',
+      ].join('\n'),
+    );
+  });
+
+  it('a meeting chat question adds its context last, and nothing else changes', () => {
+    const context = {
+      scope: 'meeting' as const,
+      meeting_titles: ['M1: Acme Robotics intro (2026-10-20)'],
+      notes_text: '',
+      excerpts: [['M1.3', 'Dana Reyes', '0:15', 'Net revenue retention is 130 percent.']] as [
+        string,
+        string,
+        string,
+        string,
+      ][],
+    };
+    const text = fireText({ ...QUESTION, context });
+    expect(text.startsWith(fireText(QUESTION).slice(0, -2))).toBe(true);
+    const body = JSON.parse(text.slice(text.indexOf('`') + 1, text.lastIndexOf('`')));
+    expect(body.context).toEqual(context);
+  });
+
+  it('queues a bridge question like ask() does, and never without the bridge', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }) as Response);
+    const queued = await queueBridgeQuestion(
+      harness.store,
+      harness.auth,
+      { question: 'What did Dana say about retention?' },
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    );
+    expect(queued.ok).toBe(true);
+    if (!queued.ok) return;
+    expect(queued.value.assistantMessage.status).toBe('pending');
+    expect(queued.value.fired).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    delete process.env.ASK_BRIDGE_TOKEN;
+    resetEnvCache();
+    const refused = await queueBridgeQuestion(harness.store, harness.auth, { question: 'Again?' });
+    expect(refused.ok).toBe(false);
   });
 });
 

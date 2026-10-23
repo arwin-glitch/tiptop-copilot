@@ -309,4 +309,6 @@ export class DemoStore implements DataStore {
   }
 }
 
-export const DEMO_STORE_VERSION = 16;
+// Bumped for Copilot Notes' demo tables (D-076), after the booking link and the job board,
+// and again past booking v2's fixture changes (D-078), which kept 15; 18 adds Events (D-075).
+export const DEMO_STORE_VERSION = 18;

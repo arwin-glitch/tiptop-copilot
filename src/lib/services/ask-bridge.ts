@@ -28,6 +28,26 @@ export interface PendingBridgeQuestion {
    * cannot be answered.
    */
   history: BridgeTurn[];
+  /**
+   * Optional material for the answer, sent only in the routine's /fire text
+   * (never listed by the webhook): a Copilot Notes chat question carries the
+   * transcript lines and notes it is about, because the routine cannot read
+   * them from the app. Questions asked on the Ask page have none.
+   */
+  context?: AskBridgeContext;
+}
+
+/**
+ * What a meeting chat question adds (D-076): the scope it was asked in, the
+ * meetings in that scope, their notes, and the transcript lines picked for
+ * it as [line_id, speaker, "m:ss", text]. The answer cites line ids in
+ * square brackets ("[M1.152]"), which Copilot Notes turns into links.
+ */
+export interface AskBridgeContext {
+  scope: 'meeting' | 'person' | 'company' | 'all';
+  meeting_titles: string[];
+  notes_text: string;
+  excerpts: [string, string, string, string][];
 }
 
 export interface BridgeTurn {

@@ -2,10 +2,19 @@ import 'server-only';
 import { env } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import { log } from '@/lib/security/redact';
-import { answerBridgeQuestion, listPendingBridgeQuestions } from './ask-bridge';
-import type { PendingBridgeQuestion } from './ask-bridge';
+import {
+  answerBridgeQuestion,
+  listPendingBridgeQuestions,
+  threadHistoryBefore,
+} from './ask-bridge';
+import type { AskBridgeContext, PendingBridgeQuestion } from './ask-bridge';
+import { recordAudit } from '@/lib/security/audit';
+import type { ChatMessage, ChatThread } from '@/lib/types/domain';
+import { newId } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
+import { err, ok, type Result } from '@/lib/util/result';
 import { unwrapSlackText } from '@/lib/util/slack-text';
+import { truncate } from '@/lib/util/text';
 
 /**
  * The event-driven half of the Ask bridge.
@@ -50,6 +59,8 @@ export function fireText(question: PendingBridgeQuestion): string {
       deal_id: question.deal_id,
       question: question.question,
       history: question.history,
+      // Only a Copilot Notes chat question has one; every other payload is unchanged.
+      ...(question.context ? { context: question.context } : {}),
     })}\``,
   ].join('\n');
 }
@@ -58,19 +69,41 @@ export async function fireAskRoutine(
   question: PendingBridgeQuestion,
   fetchImpl: typeof fetch = fetch,
 ): Promise<boolean> {
+  return fireRoutineText(fireText(question), fetchImpl);
+}
+
+/**
+ * The headers a cloud routine's /fire address takes: the routine's own
+ * trigger token and the routines protocol version. No API key: a routine
+ * runs on Arwin's Claude plan. Shared with the meeting follow-up routine.
+ */
+export function routineFireHeaders(token: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    'anthropic-version': '2023-06-01',
+    'anthropic-beta': 'experimental-cc-routine-2026-04-01',
+    'Content-Type': 'application/json',
+  };
+}
+
+/**
+ * Start the answering routine with any relay-shaped text: an Ask question
+ * (fireText) or a Copilot Notes job (NOTES_REQUEST_V1, lib/notes/
+ * bridge-protocol.ts). The routine runs on Arwin's Claude plan, so nothing
+ * is billed per call. Best-effort, like fireAskRoutine.
+ */
+export async function fireRoutineText(
+  text: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
   const e = env();
   if (!e.askRoutineFireUrl || !e.askRoutineToken) return false;
 
   try {
     const response = await fetchImpl(e.askRoutineFireUrl, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${e.askRoutineToken}`,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'experimental-cc-routine-2026-04-01',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ text: fireText(question) }),
+      headers: routineFireHeaders(e.askRoutineToken),
+      body: JSON.stringify({ text }),
       signal: AbortSignal.timeout(FIRE_TIMEOUT_MS),
     });
     if (!response.ok) {
@@ -84,6 +117,107 @@ export async function fireAskRoutine(
     });
     return false;
   }
+}
+
+export interface QueuedBridgeQuestion {
+  thread: ChatThread;
+  userMessage: ChatMessage;
+  assistantMessage: ChatMessage;
+  /** The routine's trigger accepted it; false means the routine's own run picks it up. */
+  fired: boolean;
+}
+
+/**
+ * Ask a question through the bridge from somewhere other than the Ask page
+ * (Copilot Notes' chat, D-076): the rows `ask()` writes on its bridge path
+ * (the question, then a pending answer), the same audit and the same fire,
+ * plus optional `context` for the routine. It never falls back to an in-app
+ * model call, so it costs nothing: without ASK_BRIDGE_TOKEN it is refused
+ * (unless `force`, demo mode's stand-in) and the caller answers another way.
+ */
+export async function queueBridgeQuestion(
+  store: DataStore,
+  auth: { organizationId: string; userId: string },
+  input: { question: string; threadId?: string | null; context?: AskBridgeContext },
+  options: { force?: boolean; fetchImpl?: typeof fetch } = {},
+): Promise<Result<QueuedBridgeQuestion>> {
+  const question = input.question.trim();
+  if (!question) return err('invalid_input', 'Ask a question first.');
+  if (question.length > 4_000) {
+    return err('invalid_input', 'That question is too long. Trim it to under 4,000 characters.');
+  }
+  if (!env().askBridgeToken && !options.force) {
+    return err('not_configured', 'The Ask bridge is not set up (ASK_BRIDGE_TOKEN).');
+  }
+
+  let thread = input.threadId
+    ? ((await store.get('chat_threads', auth.organizationId, input.threadId)) as ChatThread | null)
+    : null;
+  // Only the asker's own conversation, as ask() does.
+  if (input.threadId && (!thread || thread.user_id !== auth.userId)) {
+    return err('not_found', 'That conversation does not exist.');
+  }
+  const now = () => new Date().toISOString();
+  if (!thread) {
+    thread = {
+      id: newId(),
+      organization_id: auth.organizationId,
+      user_id: auth.userId,
+      title: truncate(question, 70),
+      deal_id: null,
+      created_at: now(),
+      updated_at: now(),
+    };
+    await store.insert('chat_threads', thread);
+  }
+  const base = {
+    organization_id: auth.organizationId,
+    thread_id: thread.id,
+    citations: [],
+    tool_calls: [],
+    model: null,
+    prompt_version: null,
+  };
+  const userMessage: ChatMessage = {
+    ...base,
+    id: newId(),
+    role: 'user',
+    content: question,
+    status: 'answered',
+    created_at: now(),
+  };
+  await store.insert('chat_messages', userMessage);
+  const assistantMessage: ChatMessage = {
+    ...base,
+    id: newId(),
+    role: 'assistant',
+    content: '',
+    status: 'pending',
+    created_at: now(),
+  };
+  await store.insert('chat_messages', assistantMessage);
+  await store.update('chat_threads', auth.organizationId, thread.id, { updated_at: now() });
+  await recordAudit(store, {
+    organizationId: auth.organizationId,
+    userId: auth.userId,
+    action: 'chat.question_asked',
+    entityType: 'chat_thread',
+    entityId: thread.id,
+    metadata: { routed_to: 'ask_bridge', from: 'copilot_notes', scoped_to_deal: false },
+  });
+  const fired = await fireAskRoutine(
+    {
+      message_id: assistantMessage.id,
+      thread_id: thread.id,
+      deal_id: thread.deal_id,
+      question,
+      created_at: assistantMessage.created_at,
+      history: await threadHistoryBefore(store, auth.organizationId, thread.id, userMessage.id),
+      ...(input.context ? { context: input.context } : {}),
+    },
+    options.fetchImpl,
+  );
+  return ok({ thread, userMessage, assistantMessage, fired });
 }
 
 export interface RelayedAnswer {

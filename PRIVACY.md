@@ -57,6 +57,45 @@ marks every request "Email not checked" and asks once more before approving.
   dropped at once if the app loses access to the channel), and never written
   to the database, disk, logs or the browser. The tab reads nothing while
   sign-in is open to every Google account.
+- Meeting audio (Copilot Notes, D-076). The recorder's own browser turns it
+  into text, with the free Whisper model running on that computer: the audio
+  never leaves the computer, never reaches Copilot's server, database or any
+  speech service, and the schema refuses a meeting marked as keeping audio.
+  Only finished lines of text are sent to Copilot. If the speech engine has to
+  restart, it replays at most 30 seconds held in the browser's memory, never
+  on disk. The models themselves download once from huggingface.co (nothing is
+  sent there but the request for the file) and stay in the browser's cache. Transcripts are kept, private to the person who
+  recorded them unless they share them with the team; recording cannot start
+  until they confirm everyone was told, and never on a meeting that matches a
+  never-record rule. Voice identifiers are kept only for people who consented,
+  encrypted, deleted within a year of last use, and at once on withdrawal.
+  A voiceprint is a speaker embedding made on the recorder's computer; it is
+  sent only to that recorder's browser, for recordings with that person on
+  the invite (or a teammate), labelled with an id, never a name. Everyone
+  else's voice is told apart on the computer and never leaves it. Meeting
+  notes and answers about meetings are written by Arwin's own Claude routine
+  (the one behind Ask Arwin), never by a paid API: the transcript text (names
+  and roles, never an address) goes to that routine in its start request, and
+  the notes come back through a private Slack channel of their own
+  (`NOTES_RELAY_CHANNEL_ID`; nothing is sent to the routine until it is set),
+  read only from the routine's own Slack account. Those copies are outside
+  Copilot: the transcript text stays in the routine's run history in Arwin's
+  Claude account, and the notes (summary and action items, private meetings
+  included) stay in that Slack channel, until they are deleted there or the
+  channel's retention removes them (one day is recommended). Deleting a
+  meeting in Copilot, or the seven-day purge, does not remove them. A question
+  on a meeting's Chat tab is an Ask question, so its answer is in the Ask
+  relay channel like every Ask answer. Nothing records until the team's
+  never-record list exists (`NOTES_NEVER_RECORD` or a rule in Notes
+  settings), and the server checks it before every recording. The cloud routines can read only
+  meetings their recorder shared with the team, never a private one or a
+  private folder (Coaching). A meeting deleted to the trash is gone for good,
+  with its transcript and notes, after seven days.
+  The Sound check page tests the microphone and the shared meeting audio on
+  your computer alone and sends nothing. The optional Google Meet extension
+  passes participant names from the Meet tab to the Copilot tab on the same
+  computer, only while a recording with confirmed consent runs and only if
+  its switch is on; it sends nothing to any server.
 
 ---
 

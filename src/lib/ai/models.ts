@@ -20,13 +20,25 @@ export function modelFor(tier: ModelTier): string {
  * budget is conservative, never permissive: unknown models fall back to the
  * most expensive entry.
  */
-const PRICE_TABLE: Record<string, { input: number; output: number }> = {
+export const PRICE_TABLE: Readonly<Record<string, { input: number; output: number }>> = {
+  // Anthropic list prices per million tokens, October 2026, for the in-app
+  // calls that still use ANTHROPIC_API_KEY. Copilot Notes spends nothing here:
+  // its notes and chat go to Arwin's Claude routine (D-076). A model missing
+  // here falls back to the most expensive rate, which overstates spend and
+  // trips the daily budget early: add new models when they ship.
+  'claude-fable-5-1': { input: 10, output: 50 },
+  'claude-fable-5': { input: 10, output: 50 },
+  'claude-opus-5-5': { input: 4, output: 20 },
   'claude-opus-5': { input: 5, output: 25 },
   'claude-opus-4-8': { input: 5, output: 25 },
   'claude-opus-4-7': { input: 5, output: 25 },
-  'claude-fable-5': { input: 10, output: 50 },
-  'claude-sonnet-5': { input: 3, output: 15 },
+  'claude-opus-4-6': { input: 5, output: 25 },
+  'claude-sonnet-5-5': { input: 2, output: 10 },
+  'claude-sonnet-5': { input: 2, output: 10 },
   'claude-sonnet-4-6': { input: 3, output: 15 },
+  // Haiku 5.5's rate for prompts up to 100K tokens; longer ones bill at
+  // $0.50/$2.50, which no fast-tier call here comes near.
+  'claude-haiku-5-5': { input: 0.1, output: 0.5 },
   'claude-haiku-4-5': { input: 1, output: 5 },
 };
 

@@ -240,7 +240,7 @@ describe('env()', () => {
     delete process.env.AI_MODEL_DEEP;
     resetEnvCache();
     expect(env().modelFast).toBe('claude-haiku-4-5');
-    expect(env().modelDeep).toBe('claude-opus-5');
+    expect(env().modelDeep).toBe('claude-opus-5-5');
 
     process.env.AI_MODEL_DEEP = 'claude-sonnet-5';
     resetEnvCache();

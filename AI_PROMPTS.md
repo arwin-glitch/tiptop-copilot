@@ -115,7 +115,7 @@ prompt is guidance and a constraint is a guarantee.
 
 ---
 
-## 4. The eleven prompts
+## 4. The prompts
 
 | Prompt | Tier | Schema | Job |
 | --- | --- | --- | --- |
@@ -130,6 +130,13 @@ prompt is guidance and a constraint is a guarantee.
 | `schedulingReply` | deep | `draftReplySchema` | Meeting logistics drafted in the EA's voice (introduction + signature), checked against a supplied snapshot of the synced calendar: no overlaps, 8am–6pm CT, hour + travel buffers for in-person, reschedules free the moving slot, cancellations get a warm rebook offer, never initiates moving Nick's commitments. |
 | `injectionDetection` | fast | `injectionDetectionSchema` | Second opinion on suspicious spans. Advisory: it can add to the deterministic flag, never clear it. |
 | `dealComparison` | deep | `dealComparisonSchema` | Compares 2â€“4 deals on the dimensions that would change a decision. |
+Copilot Notes has no prompt here (D-076, zero spend). A meeting's notes and
+the meeting chat are written by Arwin's Claude routine (`ask-bridge-answerer`)
+through the Ask bridge; the prompt sections it carries, and the
+`NOTES_REQUEST_V1` / `NOTES_RESULT_V1` formats, are in
+[docs/NOTES_ROUTINE.md](docs/NOTES_ROUTINE.md). What comes back is checked by
+`lib/notes/bridge-protocol.ts` (plain text, cited line ids that were sent,
+typed lines put back word for word) before it is stored.
 
 Tiers come from `AI_MODEL_FAST` and `AI_MODEL_DEEP`. Model ids are never
 hard-coded at a call site.
@@ -168,7 +175,7 @@ null means unscored, which is not zero.
 | Setting | Default | Note |
 | --- | --- | --- |
 | `AI_MODEL_FAST` | `claude-haiku-4-5` | Classification, extraction, portfolio |
-| `AI_MODEL_DEEP` | `claude-opus-5` | Analysis, outlook, chat, drafts, comparison |
+| `AI_MODEL_DEEP` | `claude-opus-5-5` | Analysis, outlook, chat, drafts, comparison (not Copilot Notes: see above) |
 | `AI_EFFORT_DEEP` | `high` | Only sent to models that support it |
 
 `claude-haiku-4-5` does not support adaptive thinking or `effort`.

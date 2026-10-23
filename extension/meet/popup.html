@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>TipTop Copilot: Meet names</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>Meet names for Copilot</h1>
+    <p class="status" id="status">Checking…</p>
+    <label>
+      <input type="checkbox" id="enabled" />
+      <span>Send Meet names to Copilot while it records with consent</span>
+    </label>
+    <p class="muted">
+      Names stay on this computer: they go from the Meet tab to your Copilot tab, which suggests
+      them for transcript voices. Nothing is sent while Copilot is not recording.
+    </p>
+    <p><button type="button" id="notice">Post the notice in the Meet chat</button></p>
+    <p class="muted" id="noticeResult" aria-live="polite"></p>
+    <script src="popup.js"></script>
+  </body>
+</html>

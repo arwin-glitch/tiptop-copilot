@@ -3285,6 +3285,506 @@ part of D-075).*
   refused. Outside uploads are charged by the bytes that arrived; refused
   originals and uploads whose ticket expired are deleted.
 
+### D-076 — Copilot Notes: bot-free meeting notes, and the contract the recorder and the screens build on
+
+**Context.** Granola takes Nick's meeting notes today. Its transcripts label
+people "Me" and "Them" on the desktop, it cannot name people in person, its
+transparency features are off by default (and a class action filed on 30 Jul
+2026 targets silent capture), and the routines can only read its summaries.
+Copilot already holds the calendar, the CRM and Tasks, so it can name people
+from the invite, file notes against the right deal and company, and turn
+promises into tasks. Three workstreams build it in parallel (the core, the
+screens, the web recorder; native desktop capture is deferred, as there is no
+Rust toolchain to build it), so the core lands a contract first.
+
+**Decision.**
+
+- **Behind a flag, off by default.** `NOTES_ENABLED` is `off` (routes answer
+  404), `beta` (each person's "Copilot Notes (beta)" switch, kept as
+  `notes.beta_set` audit rows like the Calendar's settings) or `on`. The
+  migration (`20261024000000_copilot_notes.sql`) is applied by hand before the
+  flag is turned on; until then every read answers "not set up yet".
+- **The contract is `lib/types/notes.ts`**: every row shape, the speech
+  session and event shapes, and each route's body and answer, with the zod
+  schemas in `lib/notes/schemas.ts` checked against them (`satisfies`) and
+  the paths in `lib/notes/api.ts`. Client-safe throughout.
+- **No audio, ever, in v1.** The browser transcribes on the device (see
+  "Zero spend" below; the first design streamed to a paid vendor); only
+  finished text lines come back (`/segments`, at most 200 per post, upserted
+  on a per-meeting `seq`). `meetings.audio_retained` is pinned false by a
+  check.
+- **One seam for speech-to-text** (`lib/transcribe`): Whisper in the
+  recorder's browser (`browser-whisper`), and a mock in demo mode that plays a
+  scripted, fictional three-person call and runs no model. No key anywhere.
+- **Lines are stored by voice, never by name.** `cluster_key` is `mic`,
+  `sys:<label>` or `mix:<label>` (`#n` after a split), and the name lives on
+  `meeting_speakers` alone, so renaming a voice is one update and every line
+  follows. The naming ladder, strongest first: the mic is the recorder;
+  a person's pick (locked); a consented voiceprint; the meeting app's roster;
+  calendar elimination; transcript cues (suggestions only). Spellings come
+  from the invite or the CRM.
+- **Consent is a hard gate.** Start needs `consent.confirmed: true` and a
+  method, logged in `meeting_consent_log` with the wording; a meeting matching
+  a never-record rule is refused. Default rules cover legal and family words
+  in a title; anything specific to the firm is a `recording_rules` row added
+  in Settings, never a name in this public repository.
+- **Private by default.** A meeting is the recorder's, plus `shared_with`,
+  unless marked `team`; a private folder keeps its meetings private. A meeting
+  someone may not see is "not found". Policies use `can_read_meeting()`.
+- **Copilot's notes are `meeting_notes` rows** (`provider = 'copilot'`,
+  `external_id` = the meeting id) with new nullable columns, so the deal,
+  company and network pages read them unchanged. The first notes are a draft
+  made by rules (typed notes verbatim, lines with numbers or decisions,
+  "I'll / we'll / let's" as action items, each with its source lines; `model`
+  `none`); Arwin's notes, written by his Claude routine through the Ask
+  bridge, replace the draft behind the same shapes (the zero-spend section
+  below).
+- **Share links store a hash only** (HMAC under `NOTES_SHARE_PEPPER`), share
+  the summary unless the transcript is switched on, expire in 7, 30 or 90 days
+  (90 at most, by a check), revoke at once, and show no email address.
+- **Voiceprints are opt-in biometric data.** Consent (oneself by checkbox,
+  anyone else with evidence) in `voice_profiles`; the identifier itself in
+  `voice_identifiers`, sealed with `VOICEPRINT_ENC_KEY`, readable by no browser
+  role, never returned, deleted at once on withdrawal.
+- **The microphone and screen capture are allowed for Copilot's own origin on
+  its signed-in pages** (Permissions-Policy `self`), not on the pages
+  outsiders open. Scoping it to the meeting page alone would block "Take
+  notes" opened from another page, because the policy belongs to the document
+  and Copilot navigates without loading a new one.
+
+**Consequences.** The screens and the web recorder build against the types
+and the demo data (a finished meeting nine days back, one scheduled two hours
+ahead). Still to come on the core: the AI notes, transcript-cue and calendar
+elimination passes, MCP meeting tools, firing the follow-up routine, the
+Granola pairing in existing readers, and a purge job for the trash and
+expired voice identifiers. A person must add the pepper and the voiceprint
+key on Render (speech needs no key), and apply the migration before turning
+the flag on.
+
+**Addendum: the core, part 2.** What landed on top of the contract, and the
+calls made while building it. Everything is additive to the contract: new
+routes, and optional fields on existing answers.
+
+- **Notes written for Nick, checked by code.** First built on an in-app model
+  call (`generateStructured`, Opus 5.5); replaced before shipping by Arwin's
+  Claude routine through the Ask bridge, at zero spend (the zero-spend
+  section below). What stayed: typed lines are put back by the app word for
+  word, every point must cite transcript lines that were sent, action-item
+  owners take their spelling from the voices, the principal's own promises
+  are flagged, a due date is a real date or nothing, and the rules draft
+  (now "Quick notes") is there the moment Stop is pressed.
+- **Templates pick themselves** on the first generation when nobody chose one:
+  a custom template's rule (a guest's domain, then a title word, then the
+  meeting type), else the type from the CRM (a portfolio company's domain:
+  check-in; someone on an LP list: LP call; a company in the pipeline: founder
+  pitch; only teammates: 1:1), else the title's words, else general notes.
+- **The naming ladder, completed** (`lib/speakers/naming.ts`). Transcript cues
+  ("I'm Dana", "Priya, how does…", "Thanks, Priya") are found by rules, and
+  only match people on the invite (the after-Stop AI pass was removed: zero
+  spend).
+  Calendar elimination names a voice in two cases only: one guest and one
+  voice left (0.9), or as many guests as voices with the cues singling out a
+  pair in both directions (0.8), repeated until the last pair falls to the
+  first case. With more voices than guests (someone uninvited is talking)
+  nothing is named and every voice gets ranked chips. Names are sticky: a
+  voice named while two people talked keeps its name when a third joins; it
+  is cleared only when a stronger rung or a person gives that guest to another
+  voice. The pass runs on every batch that brings an unnamed voice (rules
+  only), after every rename, split and merge (so naming one voice can name the
+  last), and after Stop. A voice the vendor matched to a
+  consented profile (`sys:<profile id>`) is named by the voiceprint rung; the
+  meeting app's roster (`POST /roster`, the Meet extension's speaking timeline)
+  names a voice whose talk time falls mostly in one person's turns.
+- **A rename rewrites the notes.** Action-item owners are re-read from the
+  voices at once; Quick notes are written again; Arwin's notes take the new
+  names in place (every "Guest 2" now named, every renamed owner), with no new
+  request to the routine, so a run of taps costs no routine runs. Stop waits
+  up to 20 seconds for the notes job and finishes the rest after answering;
+  the meeting reads `processing` until the Quick notes are written.
+- **Voice enrolment** is a speech session for one consented person's solo clip
+  (diarized, recognising nobody) or "Remember this voice" during a live
+  meeting (the recorder asks the vendor for that one label's identifiers);
+  either way the identifiers reach `/voice-profiles/enroll`, which refuses
+  without consent, seals them (AES-256-GCM, the profile id as additional
+  data) and never returns them. Recording sessions recognise consented,
+  enrolled people on the invite plus the team, by profile id, at most 50;
+  using a voice moves its expiry a year out; the daily job deletes expired
+  ones.
+- **Granola-shaped MCP meeting tools** (`list_meetings`, `get_meetings`,
+  `get_meeting_transcript`, `query_meetings`, `list_meeting_folders`) read
+  Copilot meetings and the Granola notes already held, with source-qualified
+  ids. MCP tokens carry no scopes, so they show team meetings only: never a
+  private meeting, a private folder (Coaching) or the trash. LP amounts are
+  masked; voice data is unreachable.
+- **The follow-up routine is fired** once per team meeting when its notes are
+  ready (`MEETING_FOLLOWUP_FIRE_URL`), with the meeting's id and nothing else.
+- **Granola twins.** A Copilot meeting and a Granola note are the same
+  conversation when they are within three hours and their titles match (case
+  and punctuation aside) or an outside guest is on both, and exactly one
+  candidate matches. Paired at Stop and when a Granola note arrives; the deal,
+  company and network pages, the meetings list, the counts and the MCP tools
+  show the pair once, as the Copilot note.
+- **Settings without a table.** Each person's default visibility (Nick picks
+  "team" so Arwin and the routines can read his meetings) is kept like the
+  beta switch, as `notes.preferences_set` audit rows. Never-record rules get
+  routes: any member may add one; turning one off, changing what it matches or
+  deleting it takes an admin; the built-in words are listed and fixed.
+- **Housekeeping.** The daily job purges meetings a week in the trash (with
+  their lines, voices, notes, links and consent log) and expired voice
+  identifiers. A `meeting-capture` feed on Diagnostics reads "stopped" when a
+  meeting has been marked as recording for 20 minutes with no new line (a
+  closed tab).
+- **Prices.** The AI price table carries the current list prices (Opus 5.5
+  $4/$20, Sonnet 5.5, Haiku 5.5, Sonnet 5 at $2/$10) for the in-app calls that
+  still use `ANTHROPIC_API_KEY`; `AI_MODEL_DEEP` defaults to
+  `claude-opus-5-5`. Copilot Notes no longer uses either.
+
+**The screens (notes-ui), on top of the contract.**
+
+- **Subtabs, not a long page.** `/meetings/[id]` is Notes | Transcript |
+  Chat | People | Share (`?tab=`, with `&t=<ms>` landing on a line), the
+  consent step a modal before any capture (opened at once from "Take notes"
+  and "Start notes", `?start=1`). `/meetings/new` makes a note for a call off
+  the calendar, or prefilled from an event (`?event=`, where `/go/meeting?…
+  &notes=1` and the meeting alert's "Start notes" button land).
+  `/meetings/settings` holds templates, never-record rules, voice consent,
+  folders and recipes; the beta switch is also on Settings.
+- **The recorder seam** is `components/notes/use-recorder.ts`: the contract's
+  order (start with consent → stt-token → segments with a rising seq → pause
+  → stop after the last lines and the notepad are saved). In demo mode it
+  plays the mock call; `LIVE_CAPTURE_AVAILABLE` stays false until the web
+  recorder (`lib/capture`) is mounted behind it, and until then Start is
+  offered only where the provider is the mock.
+- **Names come from the voices, always.** Lines carry a cluster key; the
+  chip, bubble side and colour come from `SpeakerView`, so a relabel's answer
+  (`speakers`) renames every line without refetching the transcript. A
+  rename, split or merge with notes already written regenerates them.
+- **Granola stays the default list** during the parallel run; Copilot and
+  All are extra source chips beside it while Notes is on.
+- **The calendar card gets one slot** (`MeetingNotesSlot`), which renders
+  nothing while Notes is off; "Notes ready" reads the list filtered by the
+  event's id (`eventId`, added to `ListMeetingsQuery`).
+- **Never-record rules get their screen.** Both branches wrote the routes
+  (`/api/notes/recording-rules`); the integration kept the core's
+  (`notes-settings.ts`), which also lets a rule be renamed and asks for an
+  admin to switch a rule off, change what it matches or delete it. The
+  team's rows can be added, switched off and deleted from Notes settings;
+  the built-in defaults are listed read only. Patterns stay out of the audit
+  trail (they can name a person).
+- **The public page** `/n/[token]` is server-rendered from
+  `resolveSharedNote`, with no app chrome; anything that is not a live link
+  is `notFound()`.
+
+**The web recorder (workstream 3), `lib/capture`.**
+
+- **Nothing is heard before consent.** `start()` refuses without
+  `consent.confirmed`; from the click it asks for the share and the
+  microphone (the browser shows the share picker only for a click), then
+  calls `/start`, and only after the server logs consent and clears the
+  never-record list does any audio flow. A refusal releases the devices; no
+  audio left the page.
+- **Two tracks, two sockets.** The mic (`echoCancellation: 'all'`) and the
+  shared tab or screen (taken raw; its video is stopped at once) each run
+  through an AudioWorklet (`public/worklets/pcm16.js`) at 16 kHz into its own
+  vendor socket. "Mic only" is one diarized `mixed` track (in person, phones,
+  Zoom desktop on a Mac).
+- **The recording has its own clock** (16 kHz samples, pauses excluded). A
+  socket's times are moved onto it by where its audio started. A new socket
+  replays the 30-second in-memory buffer from the end of the vendor's last
+  finished line (or from where a graceful close left off), and a finished
+  line that ends at or before the last one delivered is dropped: reconnects
+  have no gap and no repeat, and a drop that outlasts the buffer is reported
+  only if speech was lost.
+- **Seqs are given at first send and never change**, in the order lines were
+  said within a batch, so a retried batch is stored once (`/segments` upserts
+  on seq). Lines wait in memory while offline.
+- **Pause closes the sockets** (AssemblyAI bills idle time) and disables the
+  tracks; resume mints fresh keys. Silence auto-stop after 15 minutes on
+  every track; "call ended" 2 minutes after the share ends with a quiet mic.
+  Leaving the page pauses and releases the devices (a re-render does not).
+- **The mock vendor hears by audio, not the wall clock**, so demo mode and
+  the end-to-end tests exercise pause, drops and replay the way a real vendor
+  would. Chromium's fake devices drive it in `tests/e2e/capture-recorder.spec.ts`.
+- **The Meet names extension** (`extension/meet`, MV3, `storage` only) passes
+  roster snapshots tab to tab, only with its switch on and a consented
+  recording running; the page lines them up with voices as suggestions and
+  sends nothing to the server (a roster route is a core follow-up). Its
+  selectors were written without a live Meet call and need checking in one.
+
+**Integration: one meeting page, two engines, and the loose ends tied.**
+
+- **The browser recorder is the meeting page's engine.** `use-recorder.ts`
+  mounts `lib/capture`'s recorder as the `live` engine everywhere; the
+  scripted mock call stays as the `scripted` engine in demo mode only, so a
+  demo needs no microphone and the screen tests no fake devices
+  (`?capture=live` runs the recorder against the mock vendor in demo mode,
+  and `tests/e2e/notes-live-capture.spec.ts` drives it with Chromium's fake
+  devices). The page keeps its own consent window, pill, Pause and Stop; the
+  recorder's meters and warnings sit under the pill and its errors show in
+  the consent window. The share picker is still asked for straight from the
+  Start click.
+- **A paused recording picks up after a reload.** Start on a meeting that is
+  `paused`, by the person recording it, resumes it (logged as `resumed`):
+  consent was given for that meeting already. Anything else that is not
+  `scheduled` is still refused.
+- **The server rewrites the notes, the page follows.** After a rename,
+  split or merge the core rewrites the notes itself; the page follows the
+  stale flag instead of calling `/generate` a second time. After Stop the
+  page follows the notes until Arwin's have landed.
+- **The Meet roster reaches the ladder.** While recording, and once more
+  before Stop, the extension's speaking timeline goes to
+  `POST /api/notes/meetings/[id]/roster` (names and times only, never
+  stored), so the roster rung names voices on the server.
+- **"Remember this voice" on a live call.** When the relabel answers
+  `requested`, the page asks the open session for that one voice
+  (`GetSpeakers`, not final), keeps only that label's identifiers and posts
+  them to `/voice-profiles/enroll`, which checks consent again and seals
+  them. The model version stored is `<provider>:realtime` (informational:
+  nothing compares it yet). Enrolling your own voice from a solo clip is
+  still not built: the mic is not diarized, so the owner cannot be
+  remembered from a meeting.
+- **Never-record rules: the core's routes won.** Both branches wrote them;
+  the core's version (admins to weaken a rule, renames allowed) is kept and
+  the duplicate types folded into its superset.
+- **Settings close the core's open screens:** the per-person default for who
+  sees new meetings, and Edit / Remove on the team's own templates.
+- **Lists and cards use the core's readers:** the calendar card reads the
+  `by-event` lookup in one call (series included), the Notes tab shows the
+  viewer's Copilot count, and the Granola chip lists Granola's notes only.
+
+**Zero spend: speech on the device (notes-speech).** Arwin, on the first
+build: "there shouldnt be any spending here". Speech-to-text now costs
+nothing and needs no key: the recorder's own browser transcribes, and the
+paid design above (Speechmatics, AssemblyAI, the 60-second keys) is gone from
+the code. This supersedes the speech parts of the contract, the core and the
+web recorder above.
+
+- **Whisper in a Web Worker, per track.** `src/workers/speech.worker.ts` runs
+  transformers.js (`@huggingface/transformers` 4.3.1, ONNX Runtime Web) in the
+  browser: WebGPU when there is one (a full-precision encoder and a 4-bit
+  decoder), WebAssembly otherwise (8-bit). The mic and the meeting audio each
+  get a worker, so on a processor they use two cores; Best shares one, its
+  model being too big to load twice. A worker stays warm two minutes after a
+  pause, so Resume starts at once. The provider is `browser-whisper`; demo
+  mode keeps the scripted `mock`.
+- **Free, pinned, cached.** Fast is Whisper Base (about 210 MB on WebGPU, 81 MB
+  on the processor), Better is Whisper Small (590 / 253 MB), Best is Large v3
+  Turbo (about 1.6 GB, WebGPU with 16-bit support only); English meetings get
+  the English-only weights. Every model is pinned to an exact revision on
+  huggingface.co and cached by the browser after its first download
+  (`lib/transcribe/models.ts`). ONNX Runtime's WebAssembly binary is the
+  bundler's copy of the installed package in `/_next/static/media/`, never a
+  CDN. The choice is kept in the browser (Settings, Notes, Speech), because
+  the model is cached there and what keeps up depends on the computer.
+- **Chunked where people pause, never dropped.** An energy voice-activity
+  detector against a learned noise floor (`lib/capture/vad.ts`) cuts speech
+  into 5 to 25 second stretches at pauses; silence is never sent (it is where
+  Whisper invents "Thank you."); a stretch cut without a pause overlaps the
+  next by a second and the repeated words go once (`text-dedupe.ts`). When the
+  model is slower than speech, stretches queue in the worker; Stop transcribes
+  everything queued before telling the server ("Finishing transcript… 0:42 of
+  audio left"), and finish waits as long as the work keeps moving (two
+  minutes without progress gives up). The first download never loses words:
+  the worker takes audio before its model is ready. Live partials run only
+  where they are cheap (WebGPU, queue empty).
+- **Who's talking, free.** The mic is the recorder, always. On the meeting
+  audio (and the in-person track) pyannote's segmentation model finds speaker
+  turns in each stretch and WavLM's speaker-verification head turns each
+  speaker's audio into an embedding; `lib/speakers/online-clusterer.ts`
+  clusters them online (cosine similarity, a threshold that adapts to the
+  meeting within 0.80 to 0.92, short turns never starting a voice, small
+  voices merged into a near one, eight at most) into `sys:A`, `sys:B`… Both
+  models run on the processor beside Whisper (108 MB once). Lines already
+  sent keep their label when a small voice merges; Merge joins them in one
+  tap. The naming ladder above is unchanged.
+- **Voiceprints are embeddings.** A consented person's voiceprint is their
+  voice's centroid (base64 Float32, `lib/transcribe/voiceprint.ts`), made in
+  the browser on "Remember this voice" (or a solo clip) and sealed by the
+  server as before; the model version stored is the embedding model's, and a
+  voiceprint from another version never matches. A recording's speech setup
+  carries the consented, enrolled voices on the invite plus the team, to that
+  browser's worker only, where they seed the clustering, so a match is named
+  `sys:<profile id>` from its first turn. Everyone else's voice is clustered
+  on the device and never leaves it: guests' embeddings are not uploaded, not
+  even for matching. `voice_profiles.provider` is `on_device`.
+- **The server hands out settings, not keys.** `POST /speech-setup` replaces
+  `/stt-token`: per track, the language, the invite's and the CRM's names to
+  spell right (capitals fixed on finished lines only, never a word swapped)
+  and the known voices; 60 an hour per person, recorder only, while
+  recording. The recorder asks once and keeps the answer for restarts and
+  resumes. `/voice-profiles/enroll-session` stays as the consent check before
+  a solo clip is captured. Audit `notes.stt_token_minted` is
+  `notes.speech_setup`.
+- **Restarts, not reconnects.** Going offline no longer touches speech, only
+  saving lines; the 30-second in-memory buffer now replays into a speech
+  engine that had to restart (a lost graphics chip, a crashed worker).
+- **Policies.** `connect-src` drops the vendors' sockets and adds
+  huggingface.co and `*.hf.co` (downloads only); `worker-src 'self' blob:`;
+  `script-src` adds `'wasm-unsafe-eval'`. The vendor environment variables
+  are gone; nothing for speech needs setting on Render.
+- **Checked with a real model once, locally.** A fictional two-voice clip
+  (Windows' built-in voices) through Chromium's fake microphone, in-person
+  mode, Whisper Fast on WebAssembly: models ready 14 s after Start on a first
+  run, the first line 4 s later, every sentence transcribed (8 of 9 checked
+  words; "twelve thousand" came out as "$12,000"), the two voices told apart
+  correctly through two and a half loops, and the transcript finished 4 s
+  after Stop. The tests use a fake model (`lib/capture/fake-adapter.ts`), in
+  Node and in a real Chromium (`tests/e2e/capture-whisper.spec.ts`).
+- **Still open.** The smoke test ran on the processor (WebAssembly, forced),
+  so the graphics-chip path, and Better and Best, need checking on Nick's
+  computer; the voice
+  thresholds were tuned on synthetic and built-in voices, not real calls; the
+  Tauri desktop app can use the same web recorder (its webview is Chromium on
+  Windows) until native capture is built.
+
+**Zero spend: Arwin writes the notes and answers the chat (the Ask bridge).**
+Arwin asked that Copilot Notes spend nothing and connect only to his own
+Claude, the way Ask Arwin already does: the point is to save money, not to
+move the bill. So no meeting prompt, model call or API key is left in the
+notes code (`lib/ai/prompts/meeting-notes.ts`, the offline model's meeting
+answers, the AI cue pass and their `ai_usage` rows are gone).
+
+- **Arwin's notes come from the `ask-bridge-answerer` routine**, the cloud
+  routine that answers Ask on Arwin's plan. On Stop, Regenerate or a template
+  change the app writes a `notes_requests` row (pending) and fires the routine
+  (`ASK_ROUTINE_FIRE_URL`, the same trigger as Ask) with `NOTES_REQUEST_V1`:
+  the title, time and time zone, attendees as names and roles only, the
+  template's sections and instructions, the typed notes, and the transcript
+  as `[line_id, speaker, "m:ss", text]`. The routine cannot reach the app, so
+  everything it needs is in that text, condensed to `NOTES_FIRE_MAX_CHARS`
+  (default 60,000): fillers and back-channels dropped, a speaker's consecutive
+  lines merged, then the middle trimmed evenly with a `[... N lines omitted
+  ...]` marker. Every line kept keeps its id (`lib/notes/bridge-protocol.ts`).
+- **The routine posts `NOTES_RESULT_V1` to the Slack relay**, in parts of at
+  most 3,500 characters; the app reads them while the meeting page is open
+  (its poll asks the server to check, `?settle=1`) and in the daily job,
+  puts the parts together by request id, validates them with zod, makes every
+  string plain and capped, drops cited ids it never sent, puts the typed lines
+  back word for word, stores the notes (`model` `arwin-routine`), and files
+  the action items as tasks through the tasks service (add-only, to the
+  principal, a title already known never added twice, the principal's own
+  promises marked "Your promise"). A result is stored once; answers for a
+  replaced request are ignored. The follow-up routine is fired when Arwin's
+  notes are stored.
+- **There is always something to read.** Quick notes (the typed notes, the
+  key lines by a simple score, the promises as action items, each with its
+  source) are written the moment Stop is pressed, and the page says "Arwin is
+  writing your notes - usually 1-3 minutes" over them while the transcript and
+  the notepad stay usable. When notes are being rewritten, the old ones stay
+  until the new ones land.
+- **When the trigger is missing or fails** the request stays pending: the app
+  has no posting path to the relay, so it posts nothing there, and a poll by
+  someone who can see the meeting fires it again after a back-off (six tries).
+  A request with no answer within a day expires and the page offers "Ask
+  Arwin again". The routine can answer with an error, which fails the request
+  in plain words.
+- **Chat goes through Ask.** A question on the meeting page becomes an
+  ordinary Ask question (it shows in Ask Arwin's history) with an optional
+  `context`: the scope, the meetings in it, their notes, and the transcript
+  lines a small BM25 ranking picked for the question, within 12,000
+  characters (`lib/notes/chat-retrieval.ts`). The routine cites line ids
+  (`[M1.152]`), which the app turns into "[12:31 Dana Reyes]" links and drops
+  when they were not sent. Ask payloads without a context are unchanged, the
+  webhook never lists contexts, and without `ASK_BRIDGE_TOKEN` the chat quotes
+  the matching lines at once instead.
+- **Privacy.** Transcript text leaves the app only in the routine's fire text
+  (Arwin's Claude account) and comes back as notes in the relay channel.
+  `NOTES_RELAY_CHANNEL_ID` points both at a private channel; it defaults to
+  the Ask relay channel. Audio never leaves the device. The demo relay
+  (`POST /api/notes/demo/relay`) exists in demo mode only.
+- **The routine's side** is `docs/NOTES_ROUTINE.md`: the exact prompt sections
+  for `NOTES_REQUEST_V1` and for the `context` field, added after the
+  routine's persona block, which stays untouched.
+
+**Zero spend, put together (integration).** The speech and the routine
+halves were merged into one branch with the booking link and the job board.
+What changed in joining them:
+
+- **The whole chain is one test.** `tests/e2e/notes-zero-spend-flow.spec.ts`
+  walks it at 1440 and 390 pixels in demo mode: Calendar, Take notes, the
+  consent step (the server refuses a start without it), the scripted speech
+  engine behind the same interface as Whisper, the mic named as the recorder,
+  a guest voice named by the calendar (the phone run) and one by a tap, the
+  whole meeting relabelled, typed notes, Stop, Quick notes with "Arwin is
+  writing your notes", a template, Arwin's `NOTES_RESULT_V1` through the demo
+  relay, his notes with sources in the template's sections, the action item
+  in Tasks, a chat answer through the Ask bridge citing a line, a
+  summary-only share link revoked, the deal, company and person pages,
+  search, and the MCP meeting tools. A second test walks the five-picture
+  tour.
+- **Person pages list meetings.** A CRM profile (`/lists/records/[id]`) now
+  has a Meetings section: Granola's notes and Copilot's own (shared with the
+  team), matched by the person's addresses, or for a company by its domain
+  and its people's addresses (`notesForRecord`). A person's own domain is
+  never used, so a colleague's meeting is not theirs.
+- **The trash means gone from shared pages.** A meeting moved to the trash
+  kept showing on the deal and company pages (from its notes row) until the
+  seven-day purge, with a link that no longer opened; search and the MCP
+  tools already hid it. `visibleNotes` now drops it and lets its Granola twin
+  show again.
+- **Specs leave the demo as they found it.** In a full run the notes specs'
+  tasks leaked into Today's counts (an "Intro …" action item joined Intros
+  owed; a "today" promise is due at 5 PM Central and went overdue in a late
+  run), so each notes spec deletes the tasks its meeting filed, and the
+  zero-spend spec trashes its meeting so the event offers "Take notes" again.
+- **Small joins.** The share page drops Arwin's own "Summary" heading under
+  its "Summary"; Settings opens on the Copilot Notes tab from
+  `?tab=notes` when the feature is on; the meeting follow-up routine's fire
+  shares the Ask routine's headers (`routineFireHeaders`), so no notes file
+  carries a routines protocol header of its own. The demo store version is
+  16, past both sides' 15. Nothing in the notes paths names a speech vendor
+  or reads an API key.
+- **Still open.** The routine prompt sections still have to be added to
+  `ask-bridge-answerer`; until then Arwin's notes never arrive and the Quick
+  notes stay. The meeting follow-up routine still reads notes through the MCP
+  tools. WebGPU and the Better and Best models need a run on Nick's computer.
+
+**Privacy review fixes (fix-up pass).** A privacy review of the joined branch
+found two high and three medium issues; all five are fixed, each with a test
+that fails without it.
+- **The never-record list lives on the server, and is required.** The
+  built-in rules only knew legal and family words, so a sister-company call
+  was recordable unless someone added a rule. `NOTES_NEVER_RECORD` (comma
+  separated: a domain, an address, or title words; label
+  "portfolio-sensitive") is merged into the rules when a meeting is made and
+  again before a recording starts, so the public repository never names the
+  firm. Outside demo mode a recording does not start until that list or a
+  rule in Notes settings exists ("Recording is not set up yet"); Notes
+  settings says so, and Diagnostics shows the list's size, never its entries.
+- **Only the routine's account is read.** Any member of the relay channel
+  could post a `NOTES_RESULT_V1` for a request id (visible once part 1 lands),
+  overwriting the notes and filing tasks, or fail it with an error part.
+  `readRelay` now returns the poster, and only `NOTES_RELAY_POSTER_IDS`
+  (default `TASK_RELAY_POSTER_IDS`, as the task relay does) is read; demo
+  mode's stand-in channel is trusted in demo mode only.
+- **Notes need a private channel of their own.** `NOTES_RELAY_CHANNEL_ID` no
+  longer falls back to the Ask relay channel: until it names another channel,
+  nothing is sent to the routine (Quick notes stay, the page says the routine
+  is not connected) and nothing is read. That keeps meeting notes out of a
+  channel every member reads, and out of the Ask settle's last-100 window.
+  PRIVACY.md now says plainly that the routine's run history and the Slack
+  channel keep their copies past a Copilot delete, and recommends a one-day
+  retention on the channel.
+- **Notes land within minutes, and an answer is never thrown away.** Settling
+  ran only on the meeting page and the daily job, so notes and their tasks
+  could wait about twelve hours; and a request past its day was expired before
+  the relay was read, dropping an answer that came on time. The relay is now
+  read first (complete answers stored, then only the unanswered expire), and
+  the phone-alert job's minute call (`settleNotesForAll`, after its answer)
+  and the Notes list (a 1.5-second wait, then after the page) settle too.
+- **Chunk edges.** A forced 25-second cut re-sends a second of audio; a
+  single short repeated word ("the deal") stayed doubled, and the comparison
+  used only the last line, so a short last line hid a longer repeat. A stream
+  now keeps a rolling tail of its last 12 words, and a first word heard
+  inside the overlap counts even when short.
+- **Small.** `refireWaiting` uses the shared `canSeeMeeting`.
+- **Not changed, on purpose.** Private meetings still go to the routine like
+  team ones (only the owner's opt-out would change that, Nick's call). Two
+  speech tracks plus speaker separation on WASM is still unmeasured: the
+  backlog warning stays, and a step-down needs a timing run on Nick's
+  computer first. The Ask page's own answer settle does not check the poster
+  (an Ask answer files nothing); unchanged here.
+
 ### D-077 — A public job board: published by a person, read from companies' own boards, off until switched on
 
 **Context.** Nick saw Portfolio › Jobs (the roles founders email him, from the

@@ -325,6 +325,39 @@ a preset with fictional content for owners: it checks the Copilot session
 itself and answers 404 to anyone else, and its segment name cannot be an
 event slug.
 
+`Permissions-Policy` keeps the camera off everywhere but the event door list
+(`/e/checkin`, its QR scanner). The microphone and
+screen capture are allowed for Copilot's own origin (`self`) on its signed-in
+pages, for the Copilot Notes recorder (D-076); the browser still asks before
+either starts. They stay off on the pages outsiders open (`/n`, `/meet`,
+`/t`, `/e`). Allowing them only on the meeting page would not work: the policy
+belongs to the document, and Copilot moves between pages without loading a
+new one. Speech is transcribed in the recorder's browser (D-076), so the
+policy adds no speech service: `connect-src` adds huggingface.co and its
+`*.hf.co` storage (the free models download once, nothing is sent there),
+`worker-src` allows Copilot's own speech worker (`'self' blob:`), and
+`script-src` adds `'wasm-unsafe-eval'` for the model runtime, whose WebAssembly
+file Copilot serves itself (no CDN). A shared note's
+page (`/n/<token>`) is also sent `X-Robots-Tag: noindex, nofollow`,
+`Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
+
+Copilot Notes' other surfaces (D-076): no model is called for a meeting. The
+notes and the meeting chat are written by Arwin's Claude routine through the
+Ask bridge, which is told the transcript is data, never instructions; what
+comes back through the relay is validated and checked before it is stored
+(plain text, cited line ids that were sent, voices that exist, typed notes put
+back verbatim, sizes capped), so a sentence said on a call cannot plant a
+point, an owner or an instruction. Backticks are stripped from what is sent,
+so a transcript cannot break out of the relay's JSON. The demo relay route
+exists in demo mode only.
+Voice identifiers are sealed with AES-256-GCM under `VOICEPRINT_ENC_KEY`, the
+profile id bound in as additional data, and no route, MCP tool or log ever
+returns one; enrolment refuses anyone without consent on file. The MCP
+meeting tools show team meetings only (tokens carry no scopes), mask LP
+amounts, and fence notes and transcripts. The follow-up routine is told a
+meeting id and nothing else. Turning a never-record rule off, changing what it
+matches or deleting it takes an admin; adding one takes any member.
+
 ---
 
 ## 9. Auditing

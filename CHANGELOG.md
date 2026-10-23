@@ -198,6 +198,172 @@ throughout.
   with the next part). Two demo events with invented guests show it in demo
   mode.
 
+- **Copilot Notes, safer before it is switched on (still off by default).**
+  Nothing records until the team's never-record list exists: the companies
+  that must never be recorded go in a list kept on the server (or a rule in
+  Notes settings), and the server checks it before every recording, with the
+  legal and family words built in. Arwin's notes are only read when Arwin's
+  own account posted them, so nobody else in the channel can change notes or
+  add tasks. Notes go through a private Slack channel of their own, and none
+  are sent until it is set. Arwin's notes and their tasks now arrive within
+  minutes even if nobody opens the meeting, and notes that came back are no
+  longer dropped when they are read a day late. A word repeated where the
+  speech is cut every 25 seconds ("the the deal") now shows once. (D-076)
+
+- **Copilot Notes, joined up (still off by default).** The free speech on
+  your computer and Arwin writing the notes now work together from start to
+  finish: a calendar event, Take notes, the consent step, the live
+  transcript with names, Stop, Quick notes, Arwin's notes with their
+  sources, the action items in Tasks, the chat, a share link, and the notes
+  on the deal, company and person pages, in search and in the tools the
+  routines use. A person's or company's page in Lists now has a Meetings
+  section with every meeting note with them (Granola's, and Copilot's once
+  shared with the team). A meeting moved to the trash now leaves the deal,
+  company and person pages at once instead of after a week. A shared link
+  no longer says "Summary" twice, the
+  Notes tour has five pictures, and Settings can open straight on the
+  Copilot Notes tab. (D-076)
+
+- **Copilot Notes costs nothing to run: Arwin writes the notes (still off by
+  default).** When a recording stops you get Quick notes straight away (what
+  you typed, word for word, plus the key lines and the promises, each linked
+  to where it was said), and a banner says "Arwin is writing your notes -
+  usually 1-3 minutes". Arwin's notes are written by his own Claude, the same
+  one that answers Ask Arwin, not by a paid service: Copilot sends it the
+  meeting and reads the notes back, then swaps them in, with every point
+  linked to the transcript and the action items added to Tasks once (yours
+  marked as your promises). The transcript and your notepad work while you
+  wait. Regenerate and switching the template ask Arwin again; renaming a
+  voice just updates the names. If the notes do not come back, the Quick notes
+  stay and "Ask Arwin again" tries once more. Questions on a meeting's Chat
+  tab go to Arwin the same way, with the lines they are about, and the answer
+  points at those lines (it also shows in Ask Arwin). No meeting ever uses
+  the paid AI key. (D-076; the routine's instructions are in
+  docs/NOTES_ROUTINE.md)
+
+- **Copilot Notes hears meetings for free, on your own computer (still off by
+  default).** No paid speech service any more: your browser turns speech into
+  text itself, with the free Whisper model, and the audio never leaves your
+  computer; only the finished lines are saved. The model downloads once (Fast
+  is about 80 to 210 MB, depending on your computer) and stays in the browser.
+  Notes settings has a new Speech tab: pick Fast, Better or Best, see what each
+  downloads, and "Test my setup" records five seconds and shows how fast this
+  computer keeps up. While recording, the recorder says when speech is getting
+  ready the first time, and after Stop it finishes the transcript before the
+  notes ("Finishing transcript…"), so a slow computer never loses words.
+  Copilot also tells the other voices apart on your computer (Speaker A, B…),
+  and a voice someone agreed to have remembered is named from its first word.
+  Going offline no longer stops the transcript, only saving it. (D-076)
+
+- **Copilot Notes, put together (still off by default).** The meeting page now
+  records for real in Chrome and Edge: your microphone and the meeting tab you
+  share, or one microphone for everyone "in the room" (the way an iPhone
+  records), each turned into text on your computer. Level bars and plain
+  warnings ("no meeting audio") sit under the red recording pill, and a page
+  reloaded mid-meeting offers Resume. A recording that stops by itself (a long
+  silence, the call ending) writes the notes just as Stop does, and a rename no
+  longer pays for the notes twice. "Remember this voice" works during a live
+  call for a guest who agreed to it. Notes settings let you share every meeting
+  you record with the team by default (which is what lets the cloud routines
+  read them) and edit or remove your own templates. The calendar card shows
+  earlier notes with the same people in one quick read; the Notes tab counts
+  your Copilot notes; deal and company pages link a Copilot note straight to
+  its chat. (D-076)
+
+- **Copilot Notes now writes real notes, names people, and talks to the
+  routines (still off by default).** When a recording stops, notes are written
+  from the transcript and the notes you typed (kept word for word), with every
+  point linked to the lines it came from (now by Arwin's own Claude, at no
+  cost: see the entry above). A template is
+  picked for you (founder pitch, LP call, portfolio check-in, intro, 1:1) from
+  who is on the call. People are named as they talk: the invite and what is
+  said ("Priya, how does…") name the guests when that is certain, everyone
+  else gets ranked suggestions, and naming one voice by hand can name the
+  last one too; renaming a voice updates the action items and rewrites the
+  notes. Chat answers about a meeting, a person, a company or every meeting,
+  as Arwin, with "[12:31 Dana Reyes]" links. Search (Ctrl+K too) finds words
+  said in a meeting and opens the transcript at that moment. Voices can be
+  remembered for people who agreed to it, kept encrypted and deleted after a
+  year unused or the moment consent is withdrawn. The cloud routines can read
+  team meetings through five new Copilot tools shaped like Granola's, and the
+  meeting-follow-up routine starts as soon as a meeting's notes are ready. A
+  meeting recorded in both Copilot and Granola shows once. You can share every
+  meeting you record with the team by default, manage the never-record list,
+  and edit or remove your own templates. Meetings left in the trash for a week
+  are deleted for good. Diagnostics notices a recorder that went quiet. The
+  AI spend estimate for the rest of Copilot uses the current prices, so the
+  daily budget no longer trips early. (D-076)
+
+- **Copilot Notes, the screens (off by default).** With Copilot Notes on,
+  a calendar event's card has a gold **Take notes**: it opens the meeting
+  with its guests already attached and asks you first to tell everyone it
+  is being transcribed (Start stays greyed out until you tick "I've told
+  everyone / posted the notice", and a meeting on the never-record list
+  says so instead of offering Start). While it records, a red pill shows the
+  time with Pause and Stop; your own notes sit beside the live transcript
+  (one or the other on a phone), your lines in gold on the right and
+  everyone else's under a name. Tap "Guest 2 · Who is this?" and pick the
+  person (the invite's guests first, then a search of your network, or any
+  name typed) and every line from that voice changes at once; a voice can be
+  split or two merged, and a line can be fixed in place. After Stop, the
+  notes keep your typed lines in full ink and mark what Copilot wrote, each
+  point with a little quote mark that shows the lines it came from; the
+  template can be switched (Founder pitch, LP call, and more), action items
+  go to Tasks with one tap, and Nick's own promises are flagged. Chat asks
+  about this meeting, a person, a company or every meeting, with answers
+  that jump to the line they quote. Share makes a read-only link (the
+  summary unless you add the transcript) that expires in 7, 30 or 90 days,
+  shows how often it was opened, and can be revoked at once. Meetings >
+  Notes gains Copilot and All (both tools in one list), filters by person,
+  company, folder and "Has action items", a search that reaches into
+  transcripts and opens the meeting at the moment it was said, and "+ New
+  note" for calls that are not on the calendar. Notes settings hold the
+  templates, the never-record rules, voice consent and folders; the
+  "Copilot Notes (beta)" switch is on the Settings page. A meeting alert can
+  carry a **Start notes** button. A three-picture tour explains consent,
+  fixing a name and sharing. (D-076)
+
+- **Copilot Notes can record in Chrome (off by default).** The recorder
+  behind the coming meeting page: it listens to two things at once, your
+  microphone (you) and the meeting tab or screen you share (everyone else),
+  and sends the sound straight to the speech service, never through Copilot.
+  Nothing is heard until the consent box is ticked and Copilot has logged it
+  and checked the never-record list. Finished lines are saved every couple of
+  seconds and are safe to send twice. If the connection drops, Copilot keeps
+  the last 30 seconds in memory and catches up when it is back, with no
+  missing or repeated lines; if a drop lasts longer it says how much was
+  missed. Each sound has its own level bar, and Copilot warns "No meeting
+  audio detected" after 20 quiet seconds (usually "Share tab audio" was left
+  unticked). Pause closes the connection so it costs nothing; recording stops
+  by itself after 15 minutes of silence, or 2 minutes after the shared call
+  window closes. Leaving the meeting page pauses the recording and lets go of
+  the microphone. On an iPhone it records in-person meetings from the
+  microphone, keeps the screen awake and says what was missed if the screen
+  went off. A new **Sound check** page tests the microphone and the meeting
+  audio on your computer before a call (nothing is sent), and in demo mode
+  records the made-up demo call end to end. Also new, optional: a Chrome
+  extension for Google Meet that suggests participants' names for voices,
+  only while a recording with consent runs and only if you switch it on, and
+  posts the consent notice in the Meet chat when you press its button. No
+  audio is stored anywhere. (D-076)
+
+- **Copilot Notes, the groundwork (off by default).** Copilot can now keep
+  its own meetings, transcripts and notes, ready for the recorder and the
+  Notes screens that come next: a meeting made from a calendar event (or "+
+  New note"), a consent step that has to be ticked before recording starts,
+  a never-record list (legal and family meetings by default), transcript
+  lines saved as they arrive and safe to send twice, voices named the moment
+  the person recording speaks and "Guest 1", "Guest 2" for everyone else
+  until someone picks a name, one tap to rename a voice everywhere, split a
+  voice or merge two, draft notes and action items with a link back to the
+  lines they came from, "Add to Tasks", share links that expire and can be
+  revoked, and opt-in voice consent. No audio is ever stored. It all stays
+  hidden until `NOTES_ENABLED` is set, after the new database migration has
+  been applied. Pages may now ask for the microphone and screen sharing (only
+  Copilot itself, and the browser still asks first); pages people outside
+  the team open still cannot. Demo mode plays a made-up three-person call
+  instead of calling any speech service. (D-076)
+
 - **A booking never waits for a person.** If Copilot cannot put a booking on
   Nick's calendar right away (calendar editing is off, or Google is down or
   says no), the time is held so nobody else can take it, and Copilot puts it
