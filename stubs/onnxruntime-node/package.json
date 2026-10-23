@@ -1,0 +1,8 @@
+{
+  "name": "onnxruntime-node",
+  "version": "1.30.0",
+  "private": true,
+  "description": "Empty stand-in. Copilot runs speech models only in the browser (onnxruntime-web, inside a Web Worker); the native Node runtime and its install-time binary download are never used, so they are kept out of the server install.",
+  "main": "index.js",
+  "license": "MIT"
+}

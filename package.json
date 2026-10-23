@@ -47,6 +47,8 @@
     "lucide-react": "^1.28.0",
     "mammoth": "^1.12.0",
     "next": "16.3.0",
+    "onnxruntime-common": "1.30.0",
+    "onnxruntime-node": "file:stubs/onnxruntime-node",
     "papaparse": "^5.5.3",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.149",
@@ -76,5 +78,8 @@
   },
   "allowScripts": {
     "unrs-resolver@1.12.2": true
+  },
+  "overrides": {
+    "onnxruntime-node": "$onnxruntime-node"
   }
 }
