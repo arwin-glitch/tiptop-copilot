@@ -5,6 +5,13 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // pdfjs-dist and mammoth are Node-only and must not be bundled for the browser.
   serverExternalPackages: ['pdfjs-dist', 'mammoth'],
+  // Render's free plan builds with little memory, and `next build`'s own
+  // TypeScript pass plus parallel page workers pushed it over the limit (the
+  // deploy failed ~2 minutes in). Types are checked before every push
+  // (`npx tsc --noEmit` is a required gate), so the build skips that pass and
+  // collects pages with one worker.
+  typescript: { ignoreBuildErrors: true },
+  experimental: { cpus: 1 },
   async headers() {
     return [
       {
