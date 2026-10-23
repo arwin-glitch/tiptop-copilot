@@ -53,6 +53,11 @@ export default defineConfig({
       // cancelled bookings included, so the link's daily brakes are loosened
       // here. Honoured only with DEMO_MODE on (lib/config/env.ts).
       E2E_BOOKING_BRAKES: 'relaxed',
+      // The booking and job board specs give each visitor its own invented
+      // address in CF-Connecting-IP, which the brakes believe only behind
+      // Cloudflare (lib/security/client-address.ts, D-075); this server
+      // stands in for that edge.
+      TRUST_CF_CONNECTING_IP: 'true',
     },
   },
 });
