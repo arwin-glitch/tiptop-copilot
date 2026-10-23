@@ -60,6 +60,9 @@ const PAGES = [
   'Ask Arwin',
 ];
 
+/** The tabs with a tour of their own, carded after the pages. */
+const TAB_TOURS = ['Jobs & job board', 'Students & interns', 'Booking assistant'];
+
 test.describe('help page', () => {
   test('Help sits in the System group and shows a card for every page', async ({ page }) => {
     await page.goto('/today');
@@ -84,7 +87,12 @@ test.describe('help page', () => {
         await entry.getByRole('list', { name: 'Where to click' }).locator('li').count(),
       ).toBeGreaterThanOrEqual(3);
     }
-    await expect(main.getByRole('group')).toHaveCount(PAGES.length);
+    for (const name of TAB_TOURS) {
+      const entry = main.getByRole('group', { name, exact: true });
+      await expect(entry, name).toBeVisible();
+      await expect(entry.getByRole('link', { name: `Show me ${name}` })).toBeVisible();
+    }
+    await expect(main.getByRole('group')).toHaveCount(PAGES.length + TAB_TOURS.length);
 
     // Records pages carry their subtab bar's own labels, linked to the tab.
     const portfolio = main.getByRole('group', { name: 'Portfolio', exact: true });
@@ -95,6 +103,32 @@ test.describe('help page', () => {
     await expect(main.getByRole('link', { name: 'Take the 2-minute tour' })).toHaveAttribute(
       'href',
       '/today?tour=all',
+    );
+  });
+
+  test("What's new opens Help, newest first, each line opening its page", async ({ page }) => {
+    await page.goto('/help');
+    const main = page.getByRole('main');
+    const heading = main.getByRole('heading', { level: 2, name: /What.s new/ });
+    await expect(heading).toBeVisible();
+    // Above the 2-minute tour, so the latest changes are the first thing read.
+    const tour = main.getByRole('heading', { name: 'New here? See it all in one go' });
+    const [newBox, tourBox] = await Promise.all([heading.boundingBox(), tour.boundingBox()]);
+    expect(newBox && tourBox && newBox.y < tourBox.y).toBe(true);
+
+    const days = main.getByRole('list', { name: /^New on / });
+    await expect(days.first()).toHaveAccessibleName('New on Thursday, Oct 22');
+    await expect(days.nth(1)).toHaveAccessibleName('New on Wednesday, Oct 21');
+    await expect(days.first().getByRole('link', { name: /^Events: event pages/ })).toHaveAttribute(
+      'href',
+      '/events',
+    );
+    await expect(
+      days.first().getByRole('link', { name: 'Take the Jobs & job board tour' }),
+    ).toHaveAttribute('href', '/portfolio?tab=jobs&tour=jobs');
+    // Copilot Notes is built but off: it says so.
+    await expect(days.first().getByRole('link', { name: /^Copilot Notes/ })).toContainText(
+      'Coming soon',
     );
   });
 
@@ -160,11 +194,13 @@ test.describe('guided tours', () => {
 
   test('a tour survives a reload in the middle', async ({ page }) => {
     await page.goto('/calendar?tour=calendar');
-    await expectStep(page, /Calendar · 1 of 5/i, 'Your calendar, live');
+    await expectStep(page, /Calendar · 1 of 6/i, 'Your calendar, live');
     await next(page).click();
-    await expectStep(page, /2 of 5/, 'Day, week or month');
+    await expectStep(page, /2 of 6/, 'Day, week or month');
     await page.reload();
-    await expectStep(page, /2 of 5/, 'Day, week or month');
+    await expectStep(page, /2 of 6/, 'Day, week or month');
+    await next(page).click();
+    await expectStep(page, /3 of 6/, 'The Key, and the bell');
     await card(page).getByRole('button', { name: 'End tour' }).click();
     await expect(card(page)).toHaveCount(0);
   });
@@ -178,6 +214,27 @@ test.describe('guided tours', () => {
     await page.goto('/help');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Tour this page' })).toHaveCount(0);
+  });
+
+  test("a tab's own tour opens the tab and walks it", async ({ page }) => {
+    await page.goto('/help');
+    await page.getByRole('link', { name: 'Show me Jobs & job board' }).click();
+    await page.waitForURL(/\/portfolio\?tab=jobs$/);
+    await expectStep(page, /Jobs & job board · 1 of 4/i, 'Jobs, on Portfolio');
+    await next(page).click();
+    await expectStep(page, /2 of 4/, 'The public job board');
+    await expect(page.locator('[data-tour="jobs-board"]')).toContainText('View public board');
+    await page.keyboard.press('Escape');
+    await expect(card(page)).toHaveCount(0);
+
+    // On a tab with a tour of its own, the page's ? button starts that one.
+    await page.goto('/network?tab=students');
+    await page.getByRole('button', { name: 'Tour this page' }).click();
+    await expectStep(page, /Students & interns · 1 of 4/i, 'Students, on Network');
+    await next(page).click();
+    await expectStep(page, /2 of 4/, 'Read twice a week');
+    await page.keyboard.press('Escape');
+    await expect(card(page)).toHaveCount(0);
   });
 
   test('the 2-minute tour moves from page to page', async ({ page }) => {

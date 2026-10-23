@@ -10,6 +10,18 @@ throughout.
 
 ## [Unreleased]
 
+- **Help catches up with Oct 21-22.** Help opens with **What's new**: the
+  latest changes, one line each, by day, newest first, each opening its page
+  or tab, with Show me where a tour covers it and "Coming soon" on Copilot
+  Notes (built, still off). Three new areas get a short tour of their own,
+  carded under "Tabs with their own tour": Portfolio › Jobs and the public job
+  board, Network › Students & interns, and the booking assistant on Booking ›
+  Chatbot; Show me opens the tab and walks it, and a page's "?" on one of
+  those tabs starts its tour. The Calendar tour gains the Key step, and the
+  Tasks, Inbox, Events, Meetings and Settings entries say what changed (tasks
+  are yours first, "Seen sent", Copilot or Gmail links, outside editors in
+  Studio, "AI cost: $0", Copilot Notes coming). No data change.
+
 - **Events, fixed before anyone sees them (D-075).** Three reviews (security,
   design, and how guests and hosts actually use it) found problems; these are
   fixed:

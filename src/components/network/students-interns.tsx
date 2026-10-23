@@ -183,7 +183,7 @@ export function StudentsInternsView({
   return (
     <section aria-label="Students and interns">
       <SectionHeading count={visible.length}>Students &amp; interns</SectionHeading>
-      <p className="-mt-1 mb-3 text-sm text-[var(--fg-muted)]">
+      <p className="-mt-1 mb-3 text-sm text-[var(--fg-muted)]" data-tour="students-scan">
         Students Nick mentors, schools and programs inviting TipTop in, and people asking to intern
         or for advice, read by a scan of the mailbox {STUDENTS_CADENCE_LABEL}. Scanned{' '}
         {relativeTime(snapshot.runAt, now)}
@@ -193,7 +193,7 @@ export function StudentsInternsView({
         {snapshot.scannedSince ? ` since ${formatDate(snapshot.scannedSince, timeZone)}` : ''}.
       </p>
 
-      <div className="mb-4 space-y-3">
+      <div className="mb-4 space-y-3" data-tour="students-filters">
         {freshness.stale ? (
           <Notice tone="warn">
             <span className="font-medium">Overdue:</span> the scan last ran{' '}
@@ -258,7 +258,7 @@ export function StudentsInternsView({
         />
       ) : (
         <>
-          <ul className="space-y-3" aria-label="Students and programs">
+          <ul className="space-y-3" aria-label="Students and programs" data-tour="students-list">
             {page.map((item) => (
               <li key={item.id}>
                 <StudentCard item={item} mailbox={mailbox} now={now} timeZone={timeZone} />

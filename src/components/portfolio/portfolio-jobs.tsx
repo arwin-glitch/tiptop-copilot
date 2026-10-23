@@ -161,7 +161,7 @@ export function PortfolioJobsView({
     filters.status !== 'active' || filters.company !== null || filters.fn !== null || filters.q;
 
   return (
-    <section aria-label="Open roles at portfolio companies">
+    <section aria-label="Open roles at portfolio companies" data-tour="jobs-roles">
       <SectionHeading count={visible.length}>Open roles</SectionHeading>
       <p className="-mt-1 mb-3 text-sm text-[var(--fg-muted)]">
         Roles founders list in their investor updates and hiring emails, read by a weekly scan of

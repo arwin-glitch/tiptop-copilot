@@ -1,5 +1,11 @@
 import * as React from 'react';
-import { HELP_PAGES, pinNumber, type HelpPage, type SketchBlock } from '@/lib/help/registry';
+import {
+  HELP_PAGES,
+  pinNumber,
+  type HelpPage,
+  type HelpSection,
+  type SketchBlock,
+} from '@/lib/help/registry';
 import { navTourId } from '@/lib/help/tour-ids';
 import { cn } from '@/lib/util/cn';
 
@@ -56,6 +62,8 @@ export function SketchPin({
 
 export function PageSketch({ page, className }: { page: HelpPage; className?: string }) {
   const navPin = page.href ? pinNumber(page, navTourId(page.href)) : 0;
+  // A tab with its own tour lights the menu entry of the page it sits on.
+  const lit = (page as Partial<HelpSection>).parent ?? page.id;
   return (
     <div
       aria-hidden="true"
@@ -69,7 +77,7 @@ export function PageSketch({ page, className }: { page: HelpPage; className?: st
       <div className="dark absolute inset-y-0 left-0 flex w-[15%] flex-col gap-[2.4%] border-r border-[var(--gold-rule)] bg-[var(--bg-sidebar)] px-[2.5%] py-[5%]">
         <span className="mb-[8%] h-[4%] w-3/4 shrink-0 rounded-full bg-[var(--brand-mark)]" />
         {RAIL.map((p) => {
-          const current = p.id === page.id;
+          const current = p.id === lit;
           return (
             <span
               key={p.id}

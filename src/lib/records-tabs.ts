@@ -212,7 +212,7 @@ export const FUND_II_TABS = define({
       key: 'campaigns',
       label: 'Campaigns',
       blurb:
-        'LP updates and offerings sent one email per person from your mailbox, with who opened, clicked and replied.',
+        'LP updates and offerings sent one email per person from your mailbox, with a photo per person, CC or BCC, and who opened, clicked and replied.',
     },
   ],
 });
@@ -232,7 +232,7 @@ export const MEETINGS_TABS = define({
       key: 'notes',
       label: 'Notes',
       blurb:
-        'Every Granola note, and every note carried over from Affinity, searchable by title, person, company or what was said.',
+        "Every meeting note: Granola's, Affinity's, and Copilot's own once Copilot Notes is on. Search by title, person, company or what was said.",
     },
   ],
   // A search (from the box or the command palette) is a search of the notes.

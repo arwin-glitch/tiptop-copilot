@@ -124,7 +124,7 @@ export function JobsBoardHeader({ data, view }: { data: JobsBoardTab; view: Jobs
                 </p>
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2" data-tour="jobs-board">
               {previewFirst ? (
                 // While the board is off the public page only says "coming
                 // soon", so the first button shows the board as it will look.
@@ -162,7 +162,11 @@ export function JobsBoardHeader({ data, view }: { data: JobsBoardTab; view: Jobs
           ) : null}
         </CardContent>
       </Card>
-      {data.available ? <LinkChips label="Jobs views" chips={chips} className="mt-3" /> : null}
+      {data.available ? (
+        <div data-tour="jobs-views">
+          <LinkChips label="Jobs views" chips={chips} className="mt-3" />
+        </div>
+      ) : null}
     </section>
   );
 }

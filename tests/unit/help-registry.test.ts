@@ -3,14 +3,20 @@ import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   HELP_PAGES,
+  HELP_SECTIONS,
   helpPage,
   helpPageForPath,
+  helpSection,
+  helpSectionFor,
   isTourId,
   pinNumber,
+  tourHref,
   tourSteps,
 } from '@/lib/help/registry';
 import { CARD_GAP, EDGE_MARGIN, placeCard, visiblePart } from '@/lib/help/placement';
 import { GRAND_TOUR_ID, navTourId } from '@/lib/help/tour-ids';
+import { WHATS_NEW } from '@/lib/help/whats-new';
+import { BOOKING_PATH, BOOKING_TABS } from '@/lib/booking/tabs';
 import { ASK_TABS, DEALS_TABS, RECORDS_TABS } from '@/lib/records-tabs';
 
 /**
@@ -55,8 +61,11 @@ const LITERAL_TARGETS = new Set(
 
 const words = (text: string) => text.trim().split(/\s+/).length;
 
+/** The pages and the tabs with their own tour: everything Help draws a card for. */
+const ENTRIES = [...HELP_PAGES, ...HELP_SECTIONS];
+
 const allSteps = () => [
-  ...HELP_PAGES.flatMap((page) => page.steps.map((step) => ({ page: page.id, step }))),
+  ...ENTRIES.flatMap((page) => page.steps.map((step) => ({ page: page.id, step }))),
   ...tourSteps(GRAND_TOUR_ID).map((step) => ({ page: GRAND_TOUR_ID, step })),
 ];
 
@@ -126,8 +135,8 @@ describe('every tour step points at something real', () => {
 });
 
 describe('the copy stays short', () => {
-  it('gives each page three to six steps', () => {
-    for (const page of HELP_PAGES) {
+  it('gives each page and each tab tour three to six steps', () => {
+    for (const page of ENTRIES) {
       expect(page.steps.length, page.id).toBeGreaterThanOrEqual(3);
       expect(page.steps.length, page.id).toBeLessThanOrEqual(6);
     }
@@ -142,7 +151,7 @@ describe('the copy stays short', () => {
   });
 
   it('keeps every page purpose to one short line', () => {
-    for (const page of HELP_PAGES) {
+    for (const page of ENTRIES) {
       expect(words(page.purpose), page.id).toBeLessThanOrEqual(16);
     }
   });
@@ -210,7 +219,7 @@ describe('subtabs', () => {
 
 describe('the sketches', () => {
   it('stay on their grid and pin only steps of their own tour', () => {
-    for (const page of HELP_PAGES) {
+    for (const page of ENTRIES) {
       for (const block of page.sketch) {
         expect(block.x + block.w, page.id).toBeLessThanOrEqual(24.01);
         expect(block.y + block.h, page.id).toBeLessThanOrEqual(16.01);
@@ -221,7 +230,7 @@ describe('the sketches', () => {
   });
 
   it('pin every step that is drawn on the page (all but the menu entry)', () => {
-    for (const page of HELP_PAGES) {
+    for (const page of ENTRIES) {
       const pinned = new Set(page.sketch.flatMap((b) => (b.pin ? [b.pin] : [])));
       for (const step of page.steps) {
         if (step.target.startsWith('nav-')) continue;
@@ -288,6 +297,82 @@ describe('tours', () => {
     expect(helpPageForPath('/updates')?.id).toBe('reports');
     expect(helpPageForPath('/deals/123')).toBeUndefined();
     expect(helpPageForPath('/help')).toBeUndefined();
+  });
+});
+
+describe('tabs with their own tour', () => {
+  const TAB_KEYS: Record<string, readonly string[]> = Object.fromEntries([
+    ...RECORDS_TABS.map((c) => [c.path, c.tabs.map((t) => t.key)] as const),
+    [BOOKING_PATH, BOOKING_TABS.map((t) => t.key)] as const,
+  ]);
+
+  it('sit on a page in the menu, on a tab that page really has', () => {
+    for (const tab of HELP_SECTIONS) {
+      const parent = helpPage(tab.parent);
+      expect(parent?.href, tab.id).toBe(tab.path);
+      expect(TAB_KEYS[tab.path], tab.id).toContain(tab.tab);
+      expect(tab.href, tab.id).toBe(`${tab.path}?tab=${tab.tab}`);
+      // Its tour starts on the tab's own bar, which every tabbed page has.
+      expect(tab.steps[0]?.target, tab.id).toBe('subtabs');
+    }
+    const ids = ENTRIES.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('cover the new areas: Jobs, Students & interns, the booking assistant', () => {
+    expect(HELP_SECTIONS.map((s) => s.id)).toEqual(['jobs', 'students', 'booking-chatbot']);
+  });
+
+  it('run their steps on the page itself and start from the tab', () => {
+    const jobs = tourSteps('jobs');
+    expect(jobs).toHaveLength(helpSection('jobs')?.steps.length ?? -1);
+    expect(jobs.every((s) => s.path === '/portfolio' && s.pageName === 'Jobs & job board')).toBe(
+      true,
+    );
+    expect(isTourId('students')).toBe(true);
+    expect(tourHref(helpSection('jobs')!)).toBe('/portfolio?tab=jobs&tour=jobs');
+    expect(tourHref(helpPage('deals')!)).toBe('/deals?tour=deals');
+    expect(tourHref(helpPage('ask')!)).toBe('/help?tour=ask');
+  });
+
+  it("are what the page's ? button starts on that tab, and only there", () => {
+    expect(helpSectionFor('/network', 'students')?.id).toBe('students');
+    expect(helpSectionFor('/booking', 'chatbot')?.id).toBe('booking-chatbot');
+    expect(helpSectionFor('/portfolio', null)).toBeUndefined();
+    expect(helpSectionFor('/portfolio', 'numbers')).toBeUndefined();
+    expect(helpSectionFor('/network', 'jobs')).toBeUndefined();
+  });
+
+  it('stay off the 2-minute tour', () => {
+    const grand = tourSteps(GRAND_TOUR_ID).map((s) => s.pageName);
+    for (const tab of HELP_SECTIONS) expect(grand).not.toContain(tab.name);
+  });
+});
+
+describe("what's new", () => {
+  it('lists the latest changes newest first, one short line each', () => {
+    expect(WHATS_NEW.length).toBeGreaterThan(0);
+    const dates = WHATS_NEW.map((i) => i.date);
+    for (const date of dates) expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect([...dates].sort().reverse()).toEqual(dates);
+    for (const item of WHATS_NEW) {
+      expect(words(item.text), item.text).toBeLessThanOrEqual(18);
+      expect(new Set(WHATS_NEW.map((i) => i.text)).size).toBe(WHATS_NEW.length);
+    }
+  });
+
+  it('links each line to its own page, and to a tour that exists', () => {
+    for (const item of WHATS_NEW) {
+      const page = helpPage(item.page);
+      expect(page?.href, item.text).toBeTruthy();
+      if (item.href) expect(item.href.split('?')[0], item.text).toBe(page?.href);
+      if (item.tour) expect(isTourId(item.tour), item.text).toBe(true);
+    }
+  });
+
+  it('says a switched-off feature is coming, not live', () => {
+    const notes = WHATS_NEW.find((i) => i.text.startsWith('Copilot Notes'));
+    expect(notes?.soon).toBe(true);
   });
 });
 

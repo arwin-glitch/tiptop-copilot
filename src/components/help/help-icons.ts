@@ -1,11 +1,14 @@
 import {
   BookOpen,
+  Bot,
   Briefcase,
+  BriefcaseBusiness,
   CalendarCheck,
   CalendarClock,
   CalendarDays,
   CheckSquare,
   Download,
+  GraduationCap,
   Inbox,
   Landmark,
   ListChecks,
@@ -24,7 +27,8 @@ import {
  * The icon of each help entry: the same one the navigation shows for the page
  * (components/shell/nav.tsx), and the launcher's for Ask Arwin. A plain map
  * rather than a read of NAV_ITEMS, which lives in a client module and so
- * cannot be read from the server-rendered help page.
+ * cannot be read from the server-rendered help page. The tabs with their own
+ * tour (HELP_SECTIONS) have icons of their own.
  */
 export const HELP_ICONS: Record<string, LucideIcon> = {
   today: Sun,
@@ -45,4 +49,7 @@ export const HELP_ICONS: Record<string, LucideIcon> = {
   settings: Settings,
   download: Download,
   ask: MessageCircleMore,
+  jobs: BriefcaseBusiness,
+  students: GraduationCap,
+  'booking-chatbot': Bot,
 };

@@ -207,7 +207,7 @@ export function ChatbotPanel({ initial, canEdit }: ChatbotPanelProps) {
             Books times, answers from your list, passes on messages. Free: no API key.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" data-tour="booking-assistant-on">
           <Label htmlFor={`${uid}-on`} className="text-sm">
             {enabled ? 'On' : 'Off'}
           </Label>
@@ -227,6 +227,7 @@ export function ChatbotPanel({ initial, canEdit }: ChatbotPanelProps) {
       <div
         role="tablist"
         aria-label="Assistant settings"
+        data-tour="booking-ai"
         className="flex gap-1 border-b border-[var(--border)]"
       >
         <TabButton
@@ -259,7 +260,7 @@ export function ChatbotPanel({ initial, canEdit }: ChatbotPanelProps) {
           aria-labelledby={`${uid}-tab-answers`}
           className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]"
         >
-          <div className="space-y-2.5">
+          <div className="space-y-2.5" data-tour="booking-answers">
             {rows.length === 0 ? (
               <p className="rounded-md border border-dashed border-[var(--border-strong)] p-3 text-sm text-[var(--fg-muted)]">
                 No answers yet. Add the questions founders ask most: stage, check size, how to
@@ -362,6 +363,7 @@ export function ChatbotPanel({ initial, canEdit }: ChatbotPanelProps) {
           <aside
             className="space-y-2 rounded-md border border-[var(--border)] bg-[var(--note-soft)] p-3"
             aria-label="Test a question"
+            data-tour="booking-test"
           >
             <Label htmlFor={`${uid}-test`} className="flex items-center gap-1.5">
               <Search className="size-4" aria-hidden="true" />

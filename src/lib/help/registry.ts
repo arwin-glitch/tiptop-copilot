@@ -12,7 +12,7 @@ import {
 import { BOOKING_DEFAULT_TAB, BOOKING_PATH, BOOKING_TABS } from '@/lib/booking/tabs';
 import { EVENTS_LIBRARY_TABS } from '@/lib/events/library-tabs';
 import { tabHref } from '@/lib/util/page-tabs';
-import { GRAND_TOUR_ID, navTourId } from '@/lib/help/tour-ids';
+import { GRAND_TOUR_ID, TOUR_PARAM, navTourId } from '@/lib/help/tour-ids';
 
 /**
  * The help centre and the guided tours, as data: one entry per page in the
@@ -83,6 +83,22 @@ export interface HelpPage {
   subtabs: readonly HelpSubtab[];
   steps: readonly TourStep[];
   sketch: readonly SketchBlock[];
+}
+
+/**
+ * A tab with its own short tour (a new area inside a page): Portfolio › Jobs,
+ * Network › Students & interns, Booking › Chatbot. `href` opens the tab, and
+ * the tour starts there; its steps run on `path`, the page itself, because
+ * the tour engine follows paths, not tabs. Never on the 2-minute tour.
+ */
+export interface HelpSection extends HelpPage {
+  href: string;
+  /** The page the tab sits on (its id): the sketch lights its menu entry. */
+  parent: string;
+  /** The page's path, which every step runs on. */
+  path: string;
+  /** The tab's `?tab=` key, which the page's "?" button matches. */
+  tab: string;
 }
 
 /* ------------------------------------------------------------- helpers */
@@ -278,7 +294,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         key: 'completed',
         label: 'Completed',
-        blurb: 'What got done, by day, with Reopen.',
+        blurb: 'What got done, by day, with Reopen. "Seen sent" means the email was found.',
         href: '/tasks?view=completed',
       },
       {
@@ -305,7 +321,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'tasks-list',
         title: 'What you owe',
-        body: 'Overdue first, then due today, then upcoming. Tap a title to open its deal or company.',
+        body: 'Overdue first, then today, then upcoming. Your tasks by default; the person filter lists you first.',
         placement: 'top',
         grand: true,
       },
@@ -427,7 +443,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'inbox-reading',
         title: 'Read and reply',
-        body: 'The open email shows here. A reply sends only when you tap Send.',
+        body: 'The open email shows here, also from any "Copilot" email link. Nothing sends until you tap Send.',
         placement: 'left',
       },
       {
@@ -464,9 +480,15 @@ export const HELP_PAGES: readonly HelpPage[] = [
         placement: 'bottom',
       },
       {
+        target: 'calendar-key',
+        title: 'The Key, and the bell',
+        body: "The Key explains each look: faded is over, '?' unanswered, striped maybe. A bell pings 5 minutes before.",
+        placement: 'bottom',
+      },
+      {
         target: 'calendar-entries',
-        title: 'Labels, looks and the bell',
-        body: "Colours are Google's labels; tap one to filter. Key explains each look. A bell pings 5 minutes before.",
+        title: 'Labels and event cards',
+        body: "Colours are Google's labels; tap a chip to filter. Tap an event: its card says how you got there.",
         placement: 'top',
         grand: true,
       },
@@ -486,7 +508,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
     sketch: [
       ...header('calendar-bookings'),
       { x: 1, y: 3.8, w: 9, h: 1, tone: 'tabs', pin: 'calendar-views' },
-      { x: 18, y: 3.8, w: 5, h: 1, tone: 'action' },
+      { x: 18, y: 3.8, w: 5, h: 1, tone: 'action', pin: 'calendar-key' },
       { x: 1, y: 5.8, w: 4.2, h: 9.6, tone: 'pane', pin: 'calendar-list' },
       { x: 5.8, y: 5.8, w: 17.2, h: 9.6, tone: 'card', pin: 'calendar-entries' },
       { x: 7, y: 7, w: 2, h: 3, tone: 'gold' },
@@ -519,13 +541,13 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'events-new',
         title: 'Pick a theme',
-        body: 'Choose the look next. Colours, fonts and effects stay yours to change.',
+        body: 'Choose the look next. In Studio, a special link lets an outside designer edit the design only.',
         placement: 'bottom',
       },
       {
         target: 'events-library',
         title: 'Publish and share',
-        body: 'Open an event to publish its page, invite guests and copy its link.',
+        body: 'Open an event: Studio, guests, RSVPs, check-in and messages. Every email waits for your Send.',
         placement: 'top',
         grand: true,
       },
@@ -612,7 +634,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'portfolio',
     name: 'Portfolio',
     href: '/portfolio',
-    purpose: 'How each company is doing, what they asked for, and their numbers.',
+    purpose: 'How each company is doing, its asks, open roles and numbers.',
     subtabs: recordsSubtabs(PORTFOLIO_TABS),
     steps: [
       navStep(
@@ -677,14 +699,13 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'meetings',
     name: 'Meetings',
     href: '/meetings',
-    purpose:
-      "The week ahead, and every meeting note: Granola's, and Copilot's own, written by Arwin.",
+    purpose: "The week ahead and every meeting note. Copilot's own notes are coming (beta).",
     subtabs: recordsSubtabs(MEETINGS_TABS),
     steps: [
       navStep(
         '/meetings',
         'Meetings and notes',
-        'Meetings shows the week ahead and every meeting note, Granola and Copilot.',
+        'Meetings shows the week ahead and your meeting notes. Copilot Notes is coming soon.',
       ),
       subtabStep(MEETINGS_TABS),
       {
@@ -836,8 +857,13 @@ export const HELP_PAGES: readonly HelpPage[] = [
         blurb: 'Moved to its own Booking tab; this links there.',
         href: '/booking',
       },
-      { key: 'limits', label: 'Limits', blurb: 'Usage ceilings. AI runs on the Claude plan: $0.' },
+      { key: 'limits', label: 'Limits', blurb: 'Usage ceilings. AI cost: $0, on the Claude plan.' },
       { key: 'data', label: 'Data & privacy', blurb: 'What is stored, and deleting it.' },
+      {
+        key: 'notes',
+        label: 'Copilot Notes',
+        blurb: 'Coming soon (beta). This tab shows once Copilot Notes is switched on.',
+      },
     ],
     steps: [
       navStep(
@@ -957,6 +983,169 @@ export const HELP_PAGES: readonly HelpPage[] = [
   },
 ];
 
+/* ------------------------------------------------------------ sections */
+
+function section(
+  parent: string,
+  path: string,
+  tab: string,
+  defaultTab: string,
+  entry: Omit<HelpSection, 'parent' | 'path' | 'tab' | 'href' | 'subtabs'>,
+): HelpSection {
+  return { ...entry, parent, path, tab, href: tabHref(path, tab, defaultTab), subtabs: [] };
+}
+
+/** A sketch's subtab bar with one tab lit, the one the section is about. */
+function tabsWithLit(x: number): SketchBlock[] {
+  return [TABS_BAR, { x, y: 3.8, w: 3, h: 1, tone: 'gold' }];
+}
+
+export const HELP_SECTIONS: readonly HelpSection[] = [
+  section('portfolio', PORTFOLIO_TABS.path, 'jobs', PORTFOLIO_TABS.defaultKey, {
+    id: 'jobs',
+    name: 'Jobs & job board',
+    purpose: 'Open roles at portfolio companies, and the public job board. On Portfolio › Jobs.',
+    steps: [
+      {
+        target: 'subtabs',
+        title: 'Jobs, on Portfolio',
+        body: 'Open roles founders mention, and the public job board, live on the Jobs tab.',
+        placement: 'bottom',
+      },
+      {
+        target: 'jobs-board',
+        title: 'The public job board',
+        body: 'View public board opens it, logos and all. Copy link shares it. The switch turns it on.',
+        placement: 'bottom',
+      },
+      {
+        target: 'jobs-views',
+        title: 'Approve before it shows',
+        body: 'Emailed roles wait in Approvals. Nothing goes public until someone approves it.',
+        placement: 'bottom',
+      },
+      {
+        target: 'jobs-roles',
+        title: 'Roles from email',
+        body: 'Each role founders emailed about, who gets candidates, and a blurb to copy.',
+        placement: 'top',
+      },
+    ],
+    sketch: [
+      ...header(),
+      ...tabsWithLit(5.5),
+      { x: 1, y: 5.6, w: 22, h: 2.6, tone: 'card', pin: 'jobs-board' },
+      ...lines(2, 6.3, 9, 2),
+      { x: 14, y: 6.2, w: 4, h: 1.2, tone: 'action' },
+      { x: 18.5, y: 6.2, w: 3.5, h: 1.2, tone: 'gold' },
+      { x: 1, y: 8.8, w: 3.5, h: 0.9, tone: 'chip', pin: 'jobs-views' },
+      { x: 5, y: 8.8, w: 3.5, h: 0.9, tone: 'chip' },
+      { x: 9, y: 8.8, w: 3.5, h: 0.9, tone: 'chip' },
+      { x: 13, y: 8.8, w: 3.5, h: 0.9, tone: 'chip' },
+      { x: 1, y: 10.4, w: 22, h: 4.8, tone: 'card', pin: 'jobs-roles' },
+      ...lines(2, 11.2, 15, 3),
+    ],
+  }),
+  section('network', NETWORK_TABS.path, 'students', NETWORK_TABS.defaultKey, {
+    id: 'students',
+    name: 'Students & interns',
+    purpose: 'Students you mentor, programs inviting TipTop in, and intern asks. On Network.',
+    steps: [
+      {
+        target: 'subtabs',
+        title: 'Students, on Network',
+        body: 'Students & interns sits after Keep in touch on Network.',
+        placement: 'bottom',
+      },
+      {
+        target: 'students-scan',
+        title: 'Read twice a week',
+        body: 'A scan reads the mailbox Monday and Thursday. It says when it is overdue.',
+        placement: 'bottom',
+      },
+      {
+        target: 'students-filters',
+        title: 'Filter and search',
+        body: 'Filter by kind, status and whose next step it is. Gold marks the items on Arwin.',
+        placement: 'bottom',
+      },
+      {
+        target: 'students-list',
+        title: 'Each ask, with emails',
+        body: 'Deadlines in the next two weeks are flagged. Copilot or Gmail opens the emails.',
+        placement: 'top',
+      },
+    ],
+    sketch: [
+      ...header(),
+      ...tabsWithLit(9.5),
+      { x: 1, y: 5.8, w: 16, h: 0.8, tone: 'line', pin: 'students-scan' },
+      { x: 1, y: 7.8, w: 3, h: 0.9, tone: 'chip', pin: 'students-filters' },
+      { x: 4.5, y: 7.8, w: 3, h: 0.9, tone: 'chip' },
+      { x: 8, y: 7.8, w: 3, h: 0.9, tone: 'gold' },
+      { x: 11.5, y: 7.8, w: 6, h: 0.9, tone: 'card' },
+      { x: 1, y: 10, w: 22, h: 5.2, tone: 'card', pin: 'students-list' },
+      ...lines(2, 10.8, 15, 3),
+    ],
+  }),
+  section('booking', BOOKING_PATH, 'chatbot', BOOKING_DEFAULT_TAB, {
+    id: 'booking-chatbot',
+    name: 'Booking assistant',
+    purpose: 'Arwin on the booking page: books times and answers from your list. Free.',
+    steps: [
+      {
+        target: 'subtabs',
+        title: 'Chatbot, on Booking',
+        body: "The booking page's Arwin is set up on Booking's Chatbot tab.",
+        placement: 'bottom',
+      },
+      {
+        target: 'booking-assistant-on',
+        title: 'Arwin on or off',
+        body: 'Arwin books times and passes on messages for visitors. It never says a person will confirm.',
+        placement: 'bottom',
+      },
+      {
+        target: 'booking-answers',
+        title: 'Your answers list',
+        body: 'Write up to 30 questions and answers. Arwin matches them, even worded differently.',
+        placement: 'top',
+      },
+      {
+        target: 'booking-test',
+        title: 'Test a question',
+        body: 'Type a question to see which answer Arwin picks.',
+        placement: 'left',
+      },
+      {
+        target: 'booking-ai',
+        title: 'Optional AI answers',
+        body: 'Other questions can go to your Claude plan. Off until set up. AI cost: $0.',
+        placement: 'bottom',
+      },
+    ],
+    sketch: [
+      ...header(),
+      ...tabsWithLit(12.5),
+      { x: 1, y: 5.6, w: 22, h: 1.8, tone: 'card' },
+      { x: 2, y: 6.1, w: 1.6, h: 0.9, tone: 'gold' },
+      ...lines(4.2, 6.2, 8, 1),
+      { x: 19.5, y: 6.1, w: 2.6, h: 0.9, tone: 'chip', pin: 'booking-assistant-on' },
+      { x: 1, y: 8, w: 7, h: 1, tone: 'tabs', pin: 'booking-ai' },
+      { x: 1, y: 9.6, w: 14, h: 5.6, tone: 'card', pin: 'booking-answers' },
+      ...lines(2, 10.4, 10, 4),
+      { x: 15.8, y: 9.6, w: 7.2, h: 5.6, tone: 'pane', pin: 'booking-test' },
+      ...lines(16.6, 10.6, 5, 2),
+    ],
+  }),
+];
+
+/** The link that opens a page (or a tab) and starts its tour there. */
+export function tourHref(page: HelpPage): string {
+  const href = page.href ?? '/help';
+  return `${href}${href.includes('?') ? '&' : '?'}${TOUR_PARAM}=${encodeURIComponent(page.id)}`;
+}
+
 /* --------------------------------------------------------------- tours */
 
 /** A tour step with the page it runs on (null: whatever page is open). */
@@ -992,6 +1181,15 @@ export function helpPage(id: string): HelpPage | undefined {
   return HELP_PAGES.find((p) => p.id === id);
 }
 
+export function helpSection(id: string): HelpSection | undefined {
+  return HELP_SECTIONS.find((s) => s.id === id);
+}
+
+/** The tab with its own tour that is open, for the page's "?" button. */
+export function helpSectionFor(pathname: string, tab: string | null): HelpSection | undefined {
+  return tab ? HELP_SECTIONS.find((s) => s.path === pathname && s.tab === tab) : undefined;
+}
+
 /** The page whose tour the "?" button on a page starts: an exact path match. */
 export function helpPageForPath(pathname: string): HelpPage | undefined {
   return HELP_PAGES.find((p) => p.href !== null && p.href === pathname);
@@ -1016,6 +1214,8 @@ export function tourSteps(id: string): ResolvedStep[] {
       GRAND_OUTRO,
     ];
   }
+  const tab = helpSection(id);
+  if (tab) return tab.steps.map((step) => ({ ...step, path: tab.path, pageName: tab.name }));
   const page = helpPage(id);
   if (!page) return [];
   return page.steps.map((step) => ({ ...step, path: page.href, pageName: page.name }));
