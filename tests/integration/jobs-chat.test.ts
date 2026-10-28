@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
@@ -20,7 +21,9 @@ import {
   buildJobsQuestionFacts,
   JOBS_EXPIRE_AFTER_MS,
   JOBS_QUESTION_RETENTION_DAYS,
+  jobsAnswerKeyMatches,
   jobsChatConfigured,
+  newJobsAnswerKey,
   parseJobsAnswer,
   pruneJobsQuestions,
   resetJobsSettleThrottle,
@@ -163,6 +166,8 @@ function slackFetch(messages: Record<string, unknown>[]) {
   return { urls, impl: impl as unknown as typeof fetch };
 }
 
+const sha256Hex = (text: string) => createHash('sha256').update(text).digest('hex');
+
 const questionRows = () =>
   harness.store.list('jobs_chat_questions', harness.auth.organizationId, {}) as Promise<
     JobsChatQuestion[]
@@ -266,32 +271,47 @@ describe('the per-address AI cap key', () => {
 });
 
 describe('the relay safety check', () => {
-  it('refuses the notes relay channel and the accounts the notes reader trusts', () => {
-    const safe = {
-      ...env(),
-      jobsChatRelayChannelId: RELAY,
-      jobsChatPosterIds: [POSTER],
-      bookingChatRelayChannelId: RELAY,
-      bookingChatPosterIds: [POSTER],
-      notesRelayChannelId: 'C0NOTESRELAY',
-      notesRelayPosterIds: ['U0NOTESPOSTER'],
+  const safe = () => ({
+    ...env(),
+    jobsChatRelayChannelId: RELAY,
+    jobsChatPosterIds: [POSTER],
+    bookingChatRelayChannelId: 'C0BOOKINGRELAY',
+    bookingChatPosterIds: ['U0BOOKINGPOSTER'],
+    notesRelayChannelId: 'C0NOTESRELAY',
+    notesRelayPosterIds: ['U0NOTESPOSTER'],
+  });
+
+  it('refuses every other relay channel, the booking relay too', () => {
+    expect(jobsChatRelayProblem(safe())).toBeNull();
+    expect(bookingChatRelayProblem(safe())).toBeNull();
+    for (const channel of [
+      'C0NOTESRELAY',
+      'C0BOOKINGRELAY',
+      safe().askRelayChannelId,
+      safe().dealRelayChannelId,
+    ]) {
+      expect(jobsChatRelayProblem({ ...safe(), jobsChatRelayChannelId: channel }), channel).toMatch(
+        /another relay reads/,
+      );
+    }
+    expect(
+      bookingChatRelayProblem({ ...safe(), bookingChatRelayChannelId: 'C0NOTESRELAY' }),
+    ).toMatch(/another relay reads/);
+  });
+
+  it("allows the jobs routine to post as the other routines' account; the booking check is unchanged", () => {
+    const shared = {
+      ...safe(),
+      jobsChatPosterIds: [
+        'U0NOTESPOSTER',
+        safe().taskRelayPosterIds[0]!,
+        ...safe().dealRelayPosterIds,
+      ],
     };
-    expect(jobsChatRelayProblem(safe)).toBeNull();
-    expect(bookingChatRelayProblem(safe)).toBeNull();
-    const onNotes = {
-      ...safe,
-      jobsChatRelayChannelId: 'C0NOTESRELAY',
-      bookingChatRelayChannelId: 'C0NOTESRELAY',
-    };
-    expect(jobsChatRelayProblem(onNotes)).toMatch(/another relay reads/);
-    expect(bookingChatRelayProblem(onNotes)).toMatch(/another relay reads/);
-    const asNotes = {
-      ...safe,
-      jobsChatPosterIds: ['U0NOTESPOSTER'],
-      bookingChatPosterIds: ['U0NOTESPOSTER'],
-    };
-    expect(jobsChatRelayProblem(asNotes)).toMatch(/another relay trusts/);
-    expect(bookingChatRelayProblem(asNotes)).toMatch(/another relay trusts/);
+    expect(jobsChatRelayProblem(shared)).toBeNull();
+    expect(bookingChatRelayProblem({ ...safe(), bookingChatPosterIds: ['U0NOTESPOSTER'] })).toMatch(
+      /another relay trusts/,
+    );
   });
 });
 
@@ -309,9 +329,11 @@ describe('AI answers through the jobs assistant routine', () => {
     expect(jobsChatRelayProblem()).toMatch(/another relay reads/);
     expect(jobsChatConfigured()).toBe(false);
     process.env.JOBS_CHAT_RELAY_CHANNEL_ID = RELAY;
+    // Posting as the task routines' account is allowed: answers are key-bound.
     process.env.JOBS_CHAT_POSTER_IDS = env().taskRelayPosterIds[0]!;
     resetEnvCache();
-    expect(jobsChatRelayProblem()).toMatch(/another relay trusts/);
+    expect(jobsChatRelayProblem()).toBeNull();
+    expect(jobsChatConfigured()).toBe(true);
     delete process.env.JOBS_CHAT_POSTER_IDS;
     resetEnvCache();
     expect(jobsChatRelayProblem()).toMatch(/JOBS_CHAT_POSTER_IDS is not set/);
@@ -338,7 +360,8 @@ describe('AI answers through the jobs assistant routine', () => {
     expect(fire.calls[0]!.url).toBe(FIRE_URL);
     const { marker, payload } = firedPayload(fire.calls);
     expect(marker).toBe('JOBS_QUESTION_V1');
-    expect(Object.keys(payload).sort()).toEqual(['facts', 'question', 'question_id']);
+    expect(Object.keys(payload).sort()).toEqual(['answer_key', 'facts', 'question', 'question_id']);
+    expect(payload.answer_key).toMatch(/^[A-Za-z0-9_-]{32}$/);
     expect(payload.question).toBe('Do they sponsor visas for engineers?');
     const facts = payload.facts as Record<string, unknown>;
     expect(Object.keys(facts).sort()).toEqual([
@@ -364,6 +387,9 @@ describe('AI answers through the jobs assistant routine', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ status: 'pending', ip_hash: 'hash-visitor-a' });
     expect(rows[0]!.id).toBe(payload.question_id);
+    // Only the key's hash is kept, never the key.
+    expect(rows[0]!.answer_key_hash).toBe(sha256Hex(String(payload.answer_key)));
+    expect(JSON.stringify(rows[0])).not.toContain(String(payload.answer_key));
   });
 
   it('builds facts from named public fields, whatever else a role holds', () => {
@@ -451,13 +477,21 @@ describe('AI answers through the jobs assistant routine', () => {
     const pending = await ask('Do they sponsor visas?', undefined, { fetchImpl: fire.impl });
     if (pending.kind !== 'pending') throw new Error('expected pending');
     const id = pending.questionId;
-    const post = (marker: string, answer: string, user = POSTER) => ({
+    const key = String(firedPayload(fire.calls).payload.answer_key);
+    const post = (
+      marker: string,
+      answer: string,
+      user = POSTER,
+      answerKey: string | null = key,
+    ) => ({
       user,
-      text: `${marker}\n\`${JSON.stringify({ question_id: id, answer })}\``,
+      text: `${marker}\n\`${JSON.stringify({ question_id: id, ...(answerKey === null ? {} : { answer_key: answerKey }), answer })}\``,
     });
     const slack = slackFetch([
       post('JOBS_ANSWER_V1', 'Forged answer from someone else.', 'U0STRANGER'),
       post('BOOKING_ANSWER_V1', 'A booking answer, not a jobs one.'),
+      post('JOBS_ANSWER_V1', 'Forged answer with no key.', POSTER, null),
+      post('JOBS_ANSWER_V1', 'Forged answer with a wrong key.', POSTER, newJobsAnswerKey().key),
       post(
         'JOBS_ANSWER_V1',
         "**The listings don't say.** Email pat@acme.example or see https://evil.example/x. Someone will get back to you soon.",
@@ -472,6 +506,120 @@ describe('AI answers through the jobs assistant routine', () => {
     expect(view?.status).toBe('answered');
     expect(view?.answer).toBe("The listings don't say. Email or see.");
     expect(view?.answer).not.toMatch(/evil|@|get back/);
+    expect((await questionRows())[0]!.answer_key_hash).toBeNull();
+  });
+
+  it('ignores answers with a missing or wrong key, and settles a correct key once', async () => {
+    routineOn();
+    const fire = fireRecorder();
+    const pending = await ask('Do they sponsor visas?', undefined, { fetchImpl: fire.impl });
+    if (pending.kind !== 'pending') throw new Error('expected pending');
+    const id = pending.questionId;
+    const key = String(firedPayload(fire.calls).payload.answer_key);
+    const post = (answer: string, extra: Record<string, unknown>, questionId = id) => ({
+      user: POSTER,
+      text: `JOBS_ANSWER_V1\n\`${JSON.stringify({ question_id: questionId, ...extra, answer })}\``,
+    });
+    const read = (messages: Record<string, unknown>[], questionId = id) => {
+      resetJobsSettleThrottle();
+      return readJobsChatAnswer(harness.store, harness.auth.organizationId, questionId, {
+        boardUrl: BOARD_URL,
+        now: NOW,
+        fetchImpl: slackFetch(messages).impl,
+      });
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // No key, a wrong key, the right key's hash, an empty key: all ignored.
+    expect(
+      await read([
+        post('No key at all.', {}),
+        post('A wrong key.', { answer_key: newJobsAnswerKey().key }),
+        post('The hash, not the key.', { answer_key: sha256Hex(key) }),
+        post('An empty key.', { answer_key: '' }),
+      ]),
+    ).toEqual({ status: 'pending', answer: null });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(key);
+    warn.mockRestore();
+    // The right key settles it.
+    expect(await read([post('The listings do not say.', { answer_key: key })])).toEqual({
+      status: 'answered',
+      answer: 'The listings do not say.',
+    });
+    // The same post again (and a different answer with the same key) changes nothing.
+    expect(
+      await read([
+        post('The listings do not say.', { answer_key: key }),
+        post('A replayed, different answer.', { answer_key: key }),
+      ]),
+    ).toEqual({ status: 'answered', answer: 'The listings do not say.' });
+    // While another question waits (so the channel is read again), the
+    // replayed post settles nothing, and the first key cannot settle the
+    // second question.
+    const second = await ask('Do they offer relocation?', undefined, { fetchImpl: fire.impl });
+    if (second.kind !== 'pending') throw new Error('expected pending');
+    const secondKey = String(firedPayload([fire.calls[1]!]).payload.answer_key);
+    expect(secondKey).not.toBe(key);
+    expect(
+      await read(
+        [
+          post('A replayed, different answer.', { answer_key: key }),
+          post('The first key on the second question.', { answer_key: key }, second.questionId),
+        ],
+        second.questionId,
+      ),
+    ).toEqual({ status: 'pending', answer: null });
+    expect(
+      await read(
+        [post('Relocation is not listed.', { answer_key: secondKey }, second.questionId)],
+        second.questionId,
+      ),
+    ).toEqual({ status: 'answered', answer: 'Relocation is not listed.' });
+    const rows = await questionRows();
+    const first = rows.find((r) => r.id === id)!;
+    expect(first).toMatchObject({
+      status: 'answered',
+      answer: 'The listings do not say.',
+      answer_key_hash: null,
+    });
+  });
+
+  it('settles nothing for a key once its question has expired', async () => {
+    routineOn();
+    const fire = fireRecorder();
+    const pending = await ask('Visa?', undefined, { fetchImpl: fire.impl });
+    if (pending.kind !== 'pending') throw new Error('expected pending');
+    const key = String(firedPayload(fire.calls).payload.answer_key);
+    const later = new Date(NOW.getTime() + JOBS_EXPIRE_AFTER_MS + 1_000);
+    const view = await readJobsChatAnswer(
+      harness.store,
+      harness.auth.organizationId,
+      pending.questionId,
+      {
+        boardUrl: BOARD_URL,
+        now: later,
+        fetchImpl: slackFetch([
+          {
+            user: POSTER,
+            text: `JOBS_ANSWER_V1\n\`${JSON.stringify({ question_id: pending.questionId, answer_key: key, answer: 'Too late.' })}\``,
+          },
+        ]).impl,
+      },
+    );
+    expect(view).toEqual({ status: 'expired', answer: null });
+  });
+
+  it('makes one-time keys of 24 random bytes and compares them by hash', () => {
+    const a = newJobsAnswerKey();
+    const b = newJobsAnswerKey();
+    expect(a.key).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(Buffer.from(a.key, 'base64url')).toHaveLength(24);
+    expect(a.hash).toBe(sha256Hex(a.key));
+    expect(a.key).not.toBe(b.key);
+    expect(jobsAnswerKeyMatches(a.key, a.hash)).toBe(true);
+    expect(jobsAnswerKeyMatches(b.key, a.hash)).toBe(false);
+    expect(jobsAnswerKeyMatches(null, a.hash)).toBe(false);
+    expect(jobsAnswerKeyMatches(a.key, null)).toBe(false);
+    expect(jobsAnswerKeyMatches(a.hash, a.hash)).toBe(false);
   });
 
   it('expires a question nobody answered, and deletes old ones', async () => {
@@ -502,8 +650,14 @@ describe('AI answers through the jobs assistant routine', () => {
     const id = '3f2b8c1e-5d4a-4b6c-9e8f-1a2b3c4d5e6f';
     expect(parseJobsAnswer(`JOBS_ANSWER_V1\n\`{"question_id":"${id}","answer":"Hi"}\``)).toEqual({
       question_id: id,
+      answer_key: null,
       answer: 'Hi',
     });
+    expect(
+      parseJobsAnswer(
+        `JOBS_ANSWER_V1\n\`{"question_id":"${id}","answer_key":"abc_DEF-123","answer":"Hi"}\``,
+      ),
+    ).toEqual({ question_id: id, answer_key: 'abc_DEF-123', answer: 'Hi' });
     expect(
       parseJobsAnswer(`BOOKING_ANSWER_V1\n\`{"question_id":"${id}","answer":"Hi"}\``),
     ).toBeNull();
@@ -635,11 +789,14 @@ describe('the migration', () => {
   it('is additive and re-runnable, with explicit constraint names and member-only reads', () => {
     expect(SQL).toMatch(/create table if not exists jobs_chat_questions/);
     expect(SQL).toMatch(/add column if not exists assistant jsonb/);
+    expect(SQL).toMatch(/add column if not exists answer_key_hash text/);
+    expect(SQL).toMatch(/answer_key_hash ~ '\^\[0-9a-f\]\{64\}\$'/);
     expect(SQL).not.toMatch(/\bdrop table\b|\bdrop column\b/i);
     expect(SQL).not.toMatch(/constraint \w+_check\b/);
     for (const name of [
       'jobs_chat_questions_status_allowed',
       'jobs_chat_questions_question_length',
+      'jobs_chat_questions_answer_key_shape',
       'job_board_settings_assistant_shape',
     ]) {
       const drop = SQL.indexOf(`drop constraint if exists ${name}`);

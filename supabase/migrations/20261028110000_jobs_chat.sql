@@ -16,6 +16,10 @@
 --         or the routine could not be started).
 --       - ip_hash: a keyed hash of the visitor's address, for the per-address
 --         daily cap; never the address itself.
+--       - answer_key_hash: the SHA-256 hex of the one-time key fired with the
+--         question. The routine must echo the key with its answer, and only
+--         a matching key settles the question; it is cleared then, so a key
+--         works once. Never the key itself.
 --     The caps are counted from these rows, so they hold across restarts: at
 --     most 5 questions per address a day, and the daily total set in
 --     Portfolio > Jobs (15 by default, 30 at most). Rows are deleted after 30
@@ -65,6 +69,12 @@ alter table jobs_chat_questions drop constraint if exists jobs_chat_questions_ip
 alter table jobs_chat_questions add constraint jobs_chat_questions_ip_hash_length
   check (ip_hash is null or char_length(ip_hash) <= 64);
 
+-- Added separately so a table made by an earlier draft of this file gains it.
+alter table jobs_chat_questions add column if not exists answer_key_hash text;
+alter table jobs_chat_questions drop constraint if exists jobs_chat_questions_answer_key_shape;
+alter table jobs_chat_questions add constraint jobs_chat_questions_answer_key_shape
+  check (answer_key_hash is null or answer_key_hash ~ '^[0-9a-f]{64}$');
+
 create index if not exists jobs_chat_questions_created_idx
   on jobs_chat_questions (organization_id, created_at desc);
 create index if not exists jobs_chat_questions_ip_idx
@@ -91,6 +101,8 @@ comment on table jobs_chat_questions is
   'Job board assistant questions sent to the jobs assistant routine (Arwin''s Claude plan, no API key) and their plain-text answers.';
 comment on column jobs_chat_questions.ip_hash is
   'A keyed hash of the visitor address, for the per-address daily cap; never the address.';
+comment on column jobs_chat_questions.answer_key_hash is
+  'SHA-256 hex of the one-time answer key fired with the question; cleared once an answer settles it. Never the key.';
 
 -- No explicit grants: service_role inherits via the default privileges set in
 -- 20260101000600, and browser roles deliberately query nothing directly.

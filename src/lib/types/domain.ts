@@ -1480,6 +1480,12 @@ export interface JobsChatQuestion {
   status: 'pending' | 'answered' | 'expired';
   /** A keyed hash of the visitor's address, for the per-address cap; never the address. */
   ip_hash: string | null;
+  /**
+   * SHA-256 hex of the one-time key fired with the question; the routine must
+   * echo the key with its answer. Cleared when an answer settles it, so a key
+   * works once. Never the key itself.
+   */
+  answer_key_hash: string | null;
   created_at: IsoDateTime;
   answered_at: IsoDateTime | null;
 }

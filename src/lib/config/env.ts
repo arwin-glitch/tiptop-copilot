@@ -373,27 +373,27 @@ export function bookingChatRelayProblem(e: AppEnv = env()): string | null {
 }
 
 /**
- * The same check for the job board assistant's relay (JOBS_CHAT_*): a
- * stranger's question reaches that routine too, so its answers must come
- * back through a channel no trusted relay reads, from an account no trusted
- * relay trusts. Sharing the booking assistant's channel and account is
- * allowed: both carry only public assistants' answers, matched by question
- * id and marker.
+ * The same kind of check for the job board assistant's relay (JOBS_CHAT_*).
+ * A stranger's question reaches that routine, so its answers come back
+ * through a private channel of its own: never one the Ask, deal, notes or
+ * booking readers use. The routine may post as the same Slack account the
+ * other routines use: every answer must carry the one-time key fired with
+ * its question (only its hash is kept), so a post without it settles
+ * nothing, and the other readers never read this channel.
  */
 export function jobsChatRelayProblem(e: AppEnv = env()): string | null {
   const channel = e.jobsChatRelayChannelId;
   if (!channel) {
     return 'JOBS_CHAT_RELAY_CHANNEL_ID is not set: give the routine a private channel of its own.';
   }
-  if (trustedRelayChannels(e).includes(channel)) {
+  const others = [...trustedRelayChannels(e), e.bookingChatRelayChannelId].filter(
+    (c): c is string => Boolean(c),
+  );
+  if (others.includes(channel)) {
     return 'JOBS_CHAT_RELAY_CHANNEL_ID is a channel another relay reads: give the routine a private channel of its own.';
   }
   if (e.jobsChatPosterIds.length === 0) {
     return 'JOBS_CHAT_POSTER_IDS is not set: name the Slack account the routine posts as.';
-  }
-  const trusted = trustedRelayPosters(e);
-  if (e.jobsChatPosterIds.some((id) => trusted.has(id))) {
-    return 'JOBS_CHAT_POSTER_IDS names an account another relay trusts: connect the routine to Slack as an account no other relay trusts.';
   }
   return null;
 }
@@ -963,7 +963,7 @@ export function capabilityReport(
     label: 'Job board assistant: AI answers (optional)',
     status: jobsAssistant ? 'ready' : 'optional-missing',
     detail: jobsAssistant
-      ? `Set. A question the board and the written answers do not cover goes to the jobs assistant routine on Arwin's Claude plan (no API key), and its answer is read back from its own Slack channel (${e.jobsChatRelayChannelId}), from its own poster only. Turn it on in Portfolio > Jobs, Ask Arwin.`
+      ? `Set. A question the board and the written answers do not cover goes to the jobs assistant routine on Arwin's Claude plan (no API key), and its answer is read back from its own private Slack channel (${e.jobsChatRelayChannelId}), only from the listed posters and only with the one-time key sent with that question. The posters may be the account the other routines use. Turn it on in Portfolio > Jobs, Ask Arwin.`
       : jobsAssistantKeys && jobsRelayProblem
         ? `Off: ${jobsRelayProblem} Until then the board assistant answers from the board and the written answers only (docs/JOBS_CHAT_ROUTINE.md).`
         : 'Not set. The job board assistant answers from the board and the written answers only; nothing else changes. Set it up with docs/JOBS_CHAT_ROUTINE.md.',

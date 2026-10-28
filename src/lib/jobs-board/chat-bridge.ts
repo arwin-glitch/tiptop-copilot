@@ -1,4 +1,5 @@
 import 'server-only';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { env, jobsChatRelayProblem } from '@/lib/config/env';
 import { isMissingTableError } from '@/lib/db/missing-table';
 import type { DataStore, Filter } from '@/lib/db/store';
@@ -8,7 +9,7 @@ import { rateLimit, rateLimitHasRoom } from '@/lib/security/limits';
 import { log } from '@/lib/security/redact';
 import { fireRoutineWithText, readRelayChannel } from '@/lib/services/ask-routine';
 import type { JobsChatQuestion } from '@/lib/types/domain';
-import { newId } from '@/lib/util/hash';
+import { newId, sha256 } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
 import { unwrapSlackText } from '@/lib/util/slack-text';
 import type { JobsAssistantConfig } from './assistant-config';
@@ -32,12 +33,15 @@ import type { PublicCompany, PublicJob } from './public';
  * kept in `jobs_chat_questions` and sent to the jobs assistant routine (a
  * Claude Code routine with no data connectors, docs/JOBS_CHAT_ROUTINE.md)
  * through its API trigger, as `JOBS_QUESTION_V1` and one backticked JSON
- * object: the question and the board's public facts, nothing else (no
- * candidate, no note, no source email, no unpublished role). The routine
- * posts `JOBS_ANSWER_V1` and `{question_id, answer}` to its Slack relay;
- * while the visitor's widget waits, the app reads that channel, takes only
- * posts from the configured posters, matches the question id, and makes the
- * answer plain before anyone sees it.
+ * object: the question, a one-time answer key and the board's public facts,
+ * nothing else (no candidate, no note, no source email, no unpublished
+ * role). Only the key's SHA-256 is kept on the row. The routine posts
+ * `JOBS_ANSWER_V1` and `{question_id, answer_key, answer}` to its own
+ * private Slack channel; while the visitor's widget waits, the app reads
+ * that channel, takes only posts from the configured posters (which may be
+ * the account the other routines post as), matches the question id and,
+ * timing-safely, the key's hash, clears the hash so the key works once, and
+ * makes the answer plain before anyone sees it.
  *
  * Off unless JOBS_CHAT_FIRE_URL, JOBS_CHAT_TOKEN and the relay's read token
  * are set, the relay is safe (jobsChatRelayProblem), and Portfolio > Jobs
@@ -104,6 +108,8 @@ export interface JobsQuestionFacts {
 
 export interface JobsQuestionPayload {
   question_id: string;
+  /** The question's one-time answer key, which the routine must echo. */
+  answer_key: string;
   question: string;
   facts: JobsQuestionFacts;
 }
@@ -170,16 +176,37 @@ export function jobsQuestionText(payload: JobsQuestionPayload): string {
     JOBS_QUESTION_MARKER,
     `\`${JSON.stringify({
       question_id: payload.question_id,
+      answer_key: payload.answer_key,
       question: cleanJobsQuestion(payload.question),
       facts: payload.facts,
     })}\``,
   ].join('\n');
 }
 
+/* ------------------------------------------------------------- answer key */
+
+/** 24 random bytes as base64url: 32 characters. */
+const ANSWER_KEY = /^[A-Za-z0-9_-]{32}$/;
+const KEY_HASH = /^[0-9a-f]{64}$/;
+
+/** A new one-time answer key and the SHA-256 hex kept in its place. */
+export function newJobsAnswerKey(): { key: string; hash: string } {
+  const key = randomBytes(24).toString('base64url');
+  return { key, hash: sha256(key) };
+}
+
+/** Whether a relayed key is the one whose hash was kept, compared in constant time. */
+export function jobsAnswerKeyMatches(key: string | null, storedHash: string | null): boolean {
+  if (!key || !ANSWER_KEY.test(key) || !storedHash || !KEY_HASH.test(storedHash)) return false;
+  return timingSafeEqual(Buffer.from(sha256(key), 'hex'), Buffer.from(storedHash, 'hex'));
+}
+
 /* ----------------------------------------------------------------- answer */
 
 export interface RelayedJobsAnswer {
   question_id: string;
+  /** The one-time key the routine echoed, or null when it sent none. */
+  answer_key: string | null;
   answer: string;
 }
 
@@ -205,6 +232,7 @@ export function parseJobsAnswer(rawText: unknown): RelayedJobsAnswer | null {
     }
     return {
       question_id: payload.question_id.toLowerCase(),
+      answer_key: typeof payload.answer_key === 'string' ? payload.answer_key.slice(0, 64) : null,
       answer: payload.answer.slice(0, 4000),
     };
   } catch {
@@ -301,6 +329,7 @@ export async function askJobsRoutine(
       ]);
       if (fromAddress >= JOBS_PER_ADDRESS_PER_DAY) return unavailable('address_cap');
       if (today >= input.assistant.dailyAiCap) return unavailable('daily_cap');
+      const answerKey = newJobsAnswerKey();
       const row: JobsChatQuestion = {
         id: newId(),
         organization_id: input.organizationId,
@@ -308,11 +337,12 @@ export async function askJobsRoutine(
         answer: null,
         status: 'pending',
         ip_hash: input.ipHash,
+        answer_key_hash: answerKey.hash,
         created_at: now.toISOString(),
         answered_at: null,
       };
       await store.insert(TABLE, row);
-      return row;
+      return { row, key: answerKey.key };
     } catch (error) {
       if (!isMissingTableError(error)) {
         log.warn('Jobs question could not be kept', {
@@ -323,11 +353,12 @@ export async function askJobsRoutine(
     }
   });
   if ('kind' in kept) return kept;
+  const { row, key } = kept;
 
   rateLimit(sessionKey, JOBS_PER_SESSION, SESSION_WINDOW_MS);
   const fired = await fireRoutineWithText(
     { url: e.jobsChatFireUrl, token: e.jobsChatToken },
-    jobsQuestionText({ question_id: kept.id, question, facts: input.facts }),
+    jobsQuestionText({ question_id: row.id, answer_key: key, question, facts: input.facts }),
     input.fetchImpl,
     'Jobs assistant routine',
   );
@@ -336,15 +367,13 @@ export async function askJobsRoutine(
       .updateWhere(
         TABLE,
         input.organizationId,
-        { eq: { id: kept.id, status: 'pending' } },
-        {
-          status: 'expired',
-        },
+        { eq: { id: row.id, status: 'pending' } },
+        { status: 'expired', answer_key_hash: null },
       )
       .catch(() => []);
     return unavailable('fire_failed');
   }
-  return { kind: 'pending', id: kept.id };
+  return { kind: 'pending', id: row.id };
 }
 
 /* ----------------------------------------------------------------- settle */
@@ -400,8 +429,12 @@ export async function pruneJobsQuestionsForAll(
 
 /**
  * If a question is waiting, read the relay channel and complete every one
- * whose answer is there, from the configured posters only, made plain
- * first. Returns how many were settled. Throttled: the widget polls.
+ * whose answer is there: posted in JOBS_CHAT_RELAY_CHANNEL_ID by one of
+ * JOBS_CHAT_POSTER_IDS, for a question still pending and not past its
+ * expiry, carrying the one-time key whose hash the row keeps. Settling
+ * clears the hash in the same conditional update, so a key settles once; a
+ * missing or wrong key is ignored. Made plain first. Returns how many were
+ * settled. Throttled: the widget polls.
  */
 export async function settleJobsAnswers(
   store: DataStore,
@@ -430,22 +463,41 @@ export async function settleJobsAnswers(
       const messages = await readRelayChannel(e.jobsChatRelayChannelId, options.fetchImpl);
       if (!messages) return 0;
       const posters = e.jobsChatPosterIds;
-      const waiting = new Set(pending.map((p) => p.id.toLowerCase()));
+      const fresh = now.getTime() - JOBS_EXPIRE_AFTER_MS;
+      const waiting = new Map(
+        pending
+          .filter((p) => Date.parse(p.created_at) >= fresh)
+          .map((p) => [p.id.toLowerCase(), p] as const),
+      );
       let settled = 0;
       for (const message of messages) {
         if (message.subtype !== undefined && message.subtype !== null) continue;
         if (!(typeof message.user === 'string' && posters.includes(message.user))) continue;
         const relayed = parseJobsAnswer(message.text);
-        if (!relayed || !waiting.has(relayed.question_id)) continue;
+        if (!relayed) continue;
+        const question = waiting.get(relayed.question_id);
+        if (!question) continue;
+        const storedHash = question.answer_key_hash ?? null;
+        if (!storedHash || !jobsAnswerKeyMatches(relayed.answer_key, storedHash)) {
+          log.warn('Jobs answer without its one-time key ignored', {
+            question: relayed.question_id.slice(0, 8),
+            key: relayed.answer_key ? 'wrong' : 'missing',
+          });
+          continue;
+        }
         const answer = sanitiseJobsAnswer(relayed.answer, { boardUrl: options.boardUrl });
-        const id = pending.find((p) => p.id.toLowerCase() === relayed.question_id)!.id;
         const changed = await store.updateWhere(
           TABLE,
           organizationId,
-          { eq: { id, status: 'pending' } },
+          { eq: { id: question.id, status: 'pending', answer_key_hash: storedHash } },
           answer
-            ? { status: 'answered', answer, answered_at: now.toISOString() }
-            : { status: 'expired', answered_at: now.toISOString() },
+            ? {
+                status: 'answered',
+                answer,
+                answer_key_hash: null,
+                answered_at: now.toISOString(),
+              }
+            : { status: 'expired', answer_key_hash: null, answered_at: now.toISOString() },
         );
         waiting.delete(relayed.question_id);
         if (changed.length > 0) settled++;
