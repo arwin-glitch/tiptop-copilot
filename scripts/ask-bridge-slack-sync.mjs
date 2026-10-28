@@ -45,9 +45,9 @@
  * the webhook already delivered just gets back {"skipped":"not_pending"}.
  *
  * Env:
- *   SLACK_BOT_TOKEN            xoxb- token with channels:history for the
- *                              relay channel (already granted — same token
- *                              the Granola relay uses)
+ *   SLACK_BOT_TOKEN            xoxb- token with channels:history (to read
+ *                              the relay channel) and chat:write (Phase A
+ *                              posts questions there)
  *   ASK_BRIDGE_WEBHOOK_URL     the Copilot ask-bridge webhook, including
  *                              ?token=…
  */
@@ -168,9 +168,20 @@ async function main() {
   const { pending } = await fetchJson(webhookUrl, { method: 'GET' });
   const newQuestions = (pending ?? []).filter((p) => !alreadyPostedQuestionIds.has(p.message_id));
 
+  // A failed question post must not stop Phase B: answers already sitting in
+  // Slack would otherwise never reach the app (from Oct 26, one stuck question
+  // plus a token without chat:write failed every run before Phase B).
   for (const question of newQuestions) {
-    await slackPost(token, channel, toQuestionMessageText(question));
-    console.log(`posted question: ${question.message_id} — ${question.question}`);
+    try {
+      await slackPost(token, channel, toQuestionMessageText(question));
+      console.log(`posted question: ${question.message_id} — ${question.question}`);
+    } catch (error) {
+      const hint = error.message.includes('missing_scope')
+        ? ' (the Slack bot token needs the chat:write scope)'
+        : '';
+      console.error(`failed to post question ${question.message_id}: ${error.message}${hint}`);
+      process.exitCode = 1;
+    }
   }
   if (newQuestions.length === 0) {
     console.log(`${pending?.length ?? 0} pending, all already relayed to Slack.`);
