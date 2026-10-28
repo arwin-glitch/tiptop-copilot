@@ -108,7 +108,7 @@ export interface AffinityIntroductionsRequest {
 /** What /api/crm/import answers for one introductions request. `row` indexes its introductions. */
 export interface AffinityIntroductionsImportResult {
   introductions: AffinityCounts;
-  /** Introductions naming at least one company or person already in Copilot. */
+  /** Introductions naming at least one company or person already in Kraken. */
   linked: number;
   problems: { row: number; message: string }[];
 }
@@ -422,9 +422,9 @@ export function readAffinityIntroductions(
 
     const layout = header ? readLayout(header) : null;
     if (!summary.section) {
-      summary.unrecognised = `“${title}” is not a section Copilot knows how to read.`;
+      summary.unrecognised = `“${title}” is not a section Kraken knows how to read.`;
     } else if (!layout || missingFor(summary.section, layout)) {
-      summary.unrecognised = `The columns under “${title}” are not the ones Copilot knows how to read.`;
+      summary.unrecognised = `The columns under “${title}” are not the ones Kraken knows how to read.`;
     }
     for (let r = firstRow; r < end; r++) {
       const row = grid[r] as string[];
@@ -457,7 +457,7 @@ export function readAffinityIntroductions(
       .map((s) => s.unrecognised)
       .filter((r): r is string => Boolean(r));
     mapping.unrecognised = reasons.length
-      ? `This looks like an Affinity introductions export, but Copilot does not recognise its layout, so nothing will be imported from it. ${reasons.slice(0, 4).join(' ')}`
+      ? `This looks like an Affinity introductions export, but Kraken does not recognise its layout, so nothing will be imported from it. ${reasons.slice(0, 4).join(' ')}`
       : 'This introductions export has no introductions in it.';
   }
 

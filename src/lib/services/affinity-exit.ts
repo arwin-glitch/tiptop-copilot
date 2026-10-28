@@ -28,7 +28,7 @@ import { err, ok, type Result } from '@/lib/util/result';
 /**
  * The Affinity exit checklist's data: the settings the workspace typed in
  * (notice date, cancelled, outside tools) and the status rows worked out from
- * what Copilot already holds.
+ * what Kraken already holds.
  *
  * Where the settings live: like the daily sync's progress, the newest
  * `audit_events` row with `action = 'crm.affinity_exit'` holds them whole in
@@ -231,7 +231,7 @@ async function introductionCounts(
 }
 
 /**
- * The checklist's status, from what Copilot already holds. Never throws and
+ * The checklist's status, from what Kraken already holds. Never throws and
  * never fails: each number that cannot be read is shown as unknown, alone.
  */
 export async function getAffinityExitStatus(

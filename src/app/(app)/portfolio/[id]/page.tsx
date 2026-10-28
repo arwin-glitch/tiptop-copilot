@@ -171,7 +171,7 @@ export default async function PortfolioCompanyPage({
                         {m.subject ?? '(no subject)'}
                       </span>
                       <span className="flex flex-wrap items-center gap-2">
-                        {/* The email in Copilot's Inbox, or in Gmail. */}
+                        {/* The email in Kraken's Inbox, or in Gmail. */}
                         <ThreadLinks
                           id={emailLinkId(m)}
                           mailbox={DEFAULT_MAILBOX}

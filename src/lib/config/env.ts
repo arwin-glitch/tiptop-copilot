@@ -248,8 +248,8 @@ export interface AppEnv {
   desktopReleaseToken: string | undefined;
 
   /**
-   * Copilot Notes (D-076), off by default. 'off' hides the feature and its
-   * routes answer 404; 'beta' shows it to whoever turns on the "Copilot Notes
+   * Kraken Notes (D-076), off by default. 'off' hides the feature and its
+   * routes answer 404; 'beta' shows it to whoever turns on the "Kraken Notes
    * (beta)" switch in Settings; 'on' shows it to everyone.
    */
   notesEnabled: NotesMode;
@@ -909,11 +909,11 @@ export function capabilityReport(
     required: false,
   });
 
-  // Copilot Notes (D-076). Off by default; each row reports presence only.
+  // Kraken Notes (D-076). Off by default; each row reports presence only.
   // Speech-to-text needs no key: Whisper runs in the recorder's own browser.
   checks.push({
     key: 'notes',
-    label: 'Copilot Notes (meeting transcripts)',
+    label: 'Kraken Notes (meeting transcripts)',
     status: e.notesEnabled === 'off' ? 'optional-missing' : e.demoMode ? 'demo' : 'ready',
     detail:
       e.notesEnabled === 'off'
@@ -931,7 +931,7 @@ export function capabilityReport(
   const notesOn = e.notesEnabled !== 'off' && !e.demoMode;
   checks.push({
     key: 'notes-never-record',
-    label: 'Copilot Notes never-record list',
+    label: 'Kraken Notes never-record list',
     status:
       e.notesNeverRecord.length > 0
         ? 'ready'
@@ -951,7 +951,7 @@ export function capabilityReport(
   const notesRelayOk = has(e.notesRelayChannelId) && e.notesRelayChannelId !== e.askRelayChannelId;
   checks.push({
     key: 'notes-relay',
-    label: "Copilot Notes: Arwin's notes channel",
+    label: "Kraken Notes: Arwin's notes channel",
     status: notesRelayOk ? 'ready' : e.demoMode ? 'demo' : notesOn ? 'missing' : 'optional-missing',
     detail: notesRelayOk
       ? `Set (${e.notesRelayChannelId}), apart from the Ask relay channel. Results are read from ${e.notesRelayPosterIds.length} poster${e.notesRelayPosterIds.length === 1 ? '' : 's'} only.`
@@ -964,7 +964,7 @@ export function capabilityReport(
 
   checks.push({
     key: 'notes-share',
-    label: 'Copilot Notes share links',
+    label: 'Kraken Notes share links',
     status: has(e.notesSharePepper)
       ? (e.notesSharePepper?.length ?? 0) >= 32
         ? 'ready'
@@ -991,7 +991,7 @@ export function capabilityReport(
   })();
   checks.push({
     key: 'notes-voice',
-    label: 'Copilot Notes voice profiles (opt-in)',
+    label: 'Kraken Notes voice profiles (opt-in)',
     status: voiceKeyOk ? 'ready' : 'optional-missing',
     detail: voiceKeyOk
       ? 'Present and decodes to 32 bytes. Voice identifiers are sealed with it, for people who consented only.'

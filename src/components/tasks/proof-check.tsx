@@ -30,7 +30,7 @@ export function ProofCheckNote({ view }: { view: ProofCheckView | null | undefin
     return (
       <p className="mt-1 flex items-start gap-1.5 text-xs text-[var(--fg-subtle)]">
         <MailCheck className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-        {/* The sent email, in Copilot or in Gmail. */}
+        {/* The sent email, in Kraken or in Gmail. */}
         <ThreadLinksForHref
           href={view.href}
           text={view.label}

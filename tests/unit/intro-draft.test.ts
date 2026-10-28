@@ -207,7 +207,7 @@ describe('recipients and hints', () => {
       people: [person('Ola Brightwater', { founder: true })],
     };
     expect(introHints(firm, founders)).toEqual([
-      "Copilot doesn't know who at Halyard Ventures this goes to. Add their name in the email and their address in To.",
+      "Kraken doesn't know who at Halyard Ventures this goes to. Add their name in the email and their address in To.",
       'No email on file for Ola Brightwater. Add it to To before sending.',
       'No LinkedIn on file for Ola Brightwater, so that name stays unlinked.',
     ]);

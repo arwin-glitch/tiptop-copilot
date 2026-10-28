@@ -31,7 +31,7 @@ import { err, ok, type Result } from '@/lib/util/result';
  * record's Location, or to one list's members — reading at most
  * CRM_FINDER_SCAN_MAX records; the rest is matched in memory on what was
  * read, because a record's fields are keyed by whatever label the export used
- * and "in touch since" is the later of Affinity's dates and Copilot's own
+ * and "in touch since" is the later of Affinity's dates and Kraken's own
  * mail and calendar, which the database does not hold.
  */
 
@@ -58,7 +58,7 @@ export interface CrmFinderResult {
   /** The read stopped at CRM_FINDER_SCAN_MAX: narrow the search to see the rest. */
   truncated: boolean;
   /**
-   * Copilot's mail and calendar: used, could not be read (Affinity's dates
+   * Kraken's mail and calendar: used, could not be read (Affinity's dates
    * only), or not asked for (no scope).
    */
   mail: 'used' | 'unavailable' | 'unused';
@@ -135,7 +135,7 @@ async function candidates(
 /**
  * Companies or people matching the criteria, newest contact first: at most
  * `limit` rows (CRM_FINDER_SHOW), and every match's id. With `scope`, last
- * contact also counts Copilot's own mail and calendar (the relationship
+ * contact also counts Kraken's own mail and calendar (the relationship
  * index, cached for minutes); without it, or when that cannot be read,
  * Affinity's dates alone, and the result says so.
  */

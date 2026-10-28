@@ -62,7 +62,7 @@ const MAX_RULES = 500;
 /**
  * Whether a rule matches a path: `*` any run of characters, a closing `$`
  * the end. Linear in the path, never a regular expression: the rules come
- * from hosts Copilot does not control, and `/****Z` as a regex backtracks
+ * from hosts Kraken does not control, and `/****Z` as a regex backtracks
  * for seconds to hours, freezing the whole app.
  */
 export function robotsRuleMatches(pattern: string, path: string): boolean {

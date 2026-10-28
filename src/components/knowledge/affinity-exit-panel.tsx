@@ -45,7 +45,7 @@ import { relativeTime } from '@/lib/util/time';
  *
  *   - the countdown to the day Affinity needs notice by (a date someone sets
  *     here; nothing is assumed), and "Cancelled", which ends it;
- *   - what Copilot already has, counted from its own records, and what the
+ *   - what Kraken already has, counted from its own records, and what the
  *     daily sync does not copy — each copy that can be made is one button;
  *   - the outside tools that still read from Affinity, as a checklist anyone
  *     in the workspace can add to and tick;
@@ -341,7 +341,7 @@ function CountdownCard({
 type Tone = 'ok' | 'no' | 'unknown' | 'warn';
 
 const TONE_ICON: Record<Tone, { icon: LucideIcon; className: string; label: string }> = {
-  ok: { icon: CheckCircle2, className: 'text-[var(--ok)]', label: 'In Copilot' },
+  ok: { icon: CheckCircle2, className: 'text-[var(--ok)]', label: 'In Kraken' },
   no: { icon: CircleDashed, className: 'text-[var(--fg-subtle)]', label: 'Not copied' },
   unknown: { icon: CircleHelp, className: 'text-[var(--fg-subtle)]', label: 'Unknown' },
   warn: { icon: AlertTriangle, className: 'text-[var(--warn)]', label: 'Needs a look' },
@@ -389,11 +389,11 @@ function StatusCard({
   return (
     <Card>
       <CardContent className="pt-4">
-        <h3 className="text-sm font-semibold">What Copilot has</h3>
+        <h3 className="text-sm font-semibold">What Kraken has</h3>
         <p className="mt-0.5 text-xs text-[var(--fg-subtle)]">
-          Counted from Copilot&apos;s own records.
+          Counted from Kraken&apos;s own records.
         </p>
-        <ul className="mt-2" aria-label="What Copilot has from Affinity">
+        <ul className="mt-2" aria-label="What Kraken has from Affinity">
           <StatusRow
             tone={sync.state === 'stopped' ? 'warn' : sync.state === 'key_missing' ? 'no' : 'ok'}
             label="Daily sync"
@@ -479,8 +479,8 @@ function StatusCard({
             onCopied={onCopied}
           />
           <StatusRow tone="unknown" label="Files">
-            Not copied, count unknown: the Affinity API Copilot reads cannot list files. Download
-            any you need from Affinity by hand before it is cancelled.
+            Not copied, count unknown: the Affinity API Kraken reads cannot list files. Download any
+            you need from Affinity by hand before it is cancelled.
           </StatusRow>
         </ul>
       </CardContent>
@@ -504,7 +504,7 @@ const COPY_TEXT: Record<
       'Not copied, count unknown: the daily sync reads lists, not every contact Affinity ever made from the mailbox, and the API gives no total.',
     confirm: () => ({
       title: 'Copy the contacts on no list?',
-      description: `Every company and person in Affinity that Copilot does not have yet: name, domain and email addresses only. One press copies up to ${n(UNLISTED_PER_RUN)} (about ${estimateMegabytes(UNLISTED_PER_RUN)} MB); press again to carry on. Anything already in Copilot is left as it is.`,
+      description: `Every company and person in Affinity that Kraken does not have yet: name, domain and email addresses only. One press copies up to ${n(UNLISTED_PER_RUN)} (about ${estimateMegabytes(UNLISTED_PER_RUN)} MB); press again to carry on. Anything already in Kraken is left as it is.`,
     }),
   },
   reminders: {
@@ -521,7 +521,7 @@ const COPY_TEXT: Record<
 function copySummary(kind: CopyKind, view: AffinityExitImportView): string {
   if (view.state === 'never') return COPY_TEXT[kind].never;
   if (kind === 'contacts') {
-    const base = `${n(view.copied)} copied; ${n(view.existing)} were already in Copilot`;
+    const base = `${n(view.copied)} copied; ${n(view.existing)} were already in Kraken`;
     return view.state === 'done'
       ? `${base}. Every company and person was read.`
       : `${base}, so far. Press again to carry on.`;
@@ -579,7 +579,7 @@ function CopyRow({
           setMessage({
             tone: 'ok',
             text: d.done
-              ? `Done: ${n(d.runCopied)} copied${d.existing ? `, ${n(d.existing)} already in Copilot` : ''}.`
+              ? `Done: ${n(d.runCopied)} copied${d.existing ? `, ${n(d.existing)} already in Kraken` : ''}.`
               : `${n(d.runCopied)} copied, the most one press copies. Press again to carry on.`,
           });
           onCopied();
@@ -784,7 +784,7 @@ function ArchiveCard({ canArchive }: { canArchive: boolean }) {
       <CardContent className="pt-4">
         <h3 className="text-sm font-semibold">Final archive</h3>
         <p className="mt-0.5 text-sm text-[var(--fg-muted)]">
-          Every list, row, company, person and note in Copilot as one ZIP of CSVs, to keep before
+          Every list, row, company, person and note in Kraken as one ZIP of CSVs, to keep before
           Affinity is gone.
         </p>
         {canArchive ? (

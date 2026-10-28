@@ -82,9 +82,9 @@ function isPagedKind(kind: Citation['kind']): boolean {
 }
 
 /**
- * The email a citation points at, for its two links (Copilot and Gmail):
+ * The email a citation points at, for its two links (Kraken and Gmail):
  * the Gmail thread in its own link when it carries one, else its id (Gmail's,
- * or Copilot's for the synced copy, which the Inbox looks up). Null for any
+ * or Kraken's for the synced copy, which the Inbox looks up). Null for any
  * other kind, and for an email citation with no id a link can carry.
  */
 export function citationEmail(citation: Citation): { id: string; mailbox: string | null } | null {

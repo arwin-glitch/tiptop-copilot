@@ -256,7 +256,7 @@ describe('importing a list export', () => {
     expect(first?.values).not.toHaveProperty('fund');
   });
 
-  it('keeps a status changed in Copilot when the same file is imported again', async () => {
+  it('keeps a status changed in Kraken when the same file is imported again', async () => {
     await importListCsv('Startup Deal Pipeline.csv', DEALS);
     const list = await listNamed('Startup Deal Pipeline');
     const [seed] = await entriesOf(list.id);
@@ -271,7 +271,7 @@ describe('importing a list export', () => {
       {
         row: 0,
         message:
-          'Kept Status as set in Copilot (“5. Due Diligence”) rather than the file’s “3. First Meeting”.',
+          'Kept Status as set in Kraken (“5. Due Diligence”) rather than the file’s “3. First Meeting”.',
       },
     ]);
     expect((await entriesOf(list.id))[0]?.values.status).toBe('5. Due Diligence');

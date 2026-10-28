@@ -93,7 +93,7 @@ describe('plainToStructuredText and parseStructuredText', () => {
 
 describe('hostile descriptions cost linear time', () => {
   // Companies write these (their job boards and careers pages), and the daily
-  // sync reads up to 500 per board on the one process that serves Copilot: a
+  // sync reads up to 500 per board on the one process that serves Kraken: a
   // pattern that rescans to the end for each tag would stall everything.
   const timed = (work: () => unknown) => {
     const started = performance.now();

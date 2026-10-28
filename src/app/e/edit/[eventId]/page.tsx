@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 
 /**
- * Studio for an outside editor or viewer link. No Copilot session: the
+ * Studio for an outside editor or viewer link. No Kraken session: the
  * path-scoped tiptop_ev_grant cookie is re-checked against the link on this
  * request (revoked, expired, regenerated, paused, wrong event: a generic
  * 404), and every API call it makes is re-checked again.

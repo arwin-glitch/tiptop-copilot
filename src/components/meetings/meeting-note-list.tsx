@@ -16,9 +16,9 @@ import { formatDate, relativeTime } from '@/lib/util/time';
  * because a note that quietly disappeared would be worse than one that is
  * visibly suspect.
  *
- * Copilot's own notes (D-076) arrive in the same table with provider
+ * Kraken's own notes (D-076) arrive in the same table with provider
  * 'copilot', so these pages list them too (the readers already leave out a
- * private one): their provenance says Copilot, and they open the meeting.
+ * private one): their provenance says Kraken, and they open the meeting.
  */
 export function MeetingNoteList({
   notes,
@@ -57,7 +57,7 @@ export function MeetingNoteList({
             {note.attendees.length > 0
               ? note.attendees.map((a) => a.name ?? a.email).join(', ')
               : 'No attendees recorded'}
-            {' · '}from {note.provider === 'copilot' ? 'Copilot' : 'Granola'}
+            {' · '}from {note.provider === 'copilot' ? 'Kraken' : 'Granola'}
           </p>
 
           {note.injection_flagged ? (

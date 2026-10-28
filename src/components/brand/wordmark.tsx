@@ -11,7 +11,7 @@ import * as React from 'react';
  * keep in sync. It is always green: gold is the accent, never the brand.
  *
  * Only the mark is here, not the "TipTop Ventures" wordmark: this product is
- * TipTop Copilot, and the lockup's own wordmark would say otherwise.
+ * TipTop Kraken, and the lockup's own wordmark would say otherwise.
  */
 
 /** The artwork's intrinsic proportions — 138.686 × 83.8148. */
@@ -26,7 +26,7 @@ export function Mark({ className, size = 24 }: { className?: string; size?: numb
       fill="none"
       className={className}
       role="img"
-      aria-label="TipTop Copilot"
+      aria-label="TipTop Kraken"
     >
       <path
         d="M66.2955 26.3643L42.7802 83.8142L20.8093 83.8148L47.122 19.2074H6.98452L0 0H54.6497L66.2955 26.3643Z"
@@ -52,10 +52,10 @@ export function Wordmark({
       {/* TipTop green on every ground: --brand-mark carries the pair. */}
       <Mark className="text-[var(--brand-mark)]" size={22} />
       <span className="flex flex-col leading-none">
-        <span className="font-serif text-[15px] font-semibold tracking-tight">TipTop Copilot</span>
+        <span className="font-serif text-[15px] font-semibold tracking-tight">TipTop Kraken</span>
         {showSubtitle ? (
           <span className="mt-0.5 text-[10px] tracking-[0.2em] text-[var(--label-gold)] uppercase">
-            Investment cockpit
+            Eight arms. One app.
           </span>
         ) : null}
       </span>

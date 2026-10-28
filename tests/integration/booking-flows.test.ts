@@ -652,7 +652,7 @@ describe('the Booking tab', () => {
     expect(messages.bookings.length).toBeGreaterThan(0);
   });
 
-  it('cancels from Copilot as the team: the event deleted, no visitor alert', async () => {
+  it('cancels from Kraken as the team: the event deleted, no visitor alert', async () => {
     const [slot] = await slots();
     const { row } = await book({ start: slot!.start });
     const done = await cancelBookingFromCopilot(actor(), row.id, 'Travel came up.', deps());

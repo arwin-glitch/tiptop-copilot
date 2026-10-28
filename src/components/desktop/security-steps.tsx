@@ -13,8 +13,8 @@ const STEPS: Record<InstallerPlatform, { title: string; steps: string[]; note: s
   mac: {
     title: 'First time on a Mac',
     steps: [
-      'Open the downloaded file and drag TipTop Copilot into Applications.',
-      'Open TipTop Copilot from your Applications folder. Your Mac says “TipTop Copilot” Not Opened: Apple could not verify it is free of malware. That’s expected for an app from outside the App Store. Click Done (or Cancel), never Move to Trash.',
+      'Open the downloaded file and drag TipTop Kraken into Applications.',
+      'Open TipTop Kraken from your Applications folder. Your Mac says “TipTop Kraken” Not Opened: Apple could not verify it is free of malware. That’s expected for an app from outside the App Store. Click Done (or Cancel), never Move to Trash.',
       'Within an hour, open System Settings, then Privacy & Security. Scroll down, click Open Anyway, and enter your Mac password.',
     ],
     note: ONCE,
@@ -22,7 +22,7 @@ const STEPS: Record<InstallerPlatform, { title: string; steps: string[]; note: s
   windows: {
     title: 'First time on Windows',
     steps: [
-      'Open TipTop-Copilot-windows-setup.exe. If your browser asks, choose Keep (in Edge: Keep, then Show more, then Keep anyway).',
+      'Open TipTop-Kraken-windows-setup.exe. If your browser asks, choose Keep (in Edge: Keep, then Show more, then Keep anyway).',
       'If a blue box says Windows protected your PC, click More info, then Run anyway.',
       'It installs in a few seconds and opens. Find it later in the Start menu.',
     ],
@@ -46,9 +46,9 @@ function MacWarning() {
       aria-hidden="true"
       className="rounded-md border border-[var(--border-strong)] bg-[var(--bg-raised)] px-3 py-2.5 text-center text-xs"
     >
-      <p className="font-semibold text-[var(--fg)]">“TipTop Copilot” Not Opened</p>
+      <p className="font-semibold text-[var(--fg)]">“TipTop Kraken” Not Opened</p>
       <p className="mt-1 text-[var(--fg-muted)]">
-        Apple could not verify “TipTop Copilot” is free of malware that may harm your Mac or
+        Apple could not verify “TipTop Kraken” is free of malware that may harm your Mac or
         compromise your privacy.
       </p>
       <div className="mt-2 flex justify-center gap-2">
@@ -77,7 +77,7 @@ function MacSettings() {
         <span className="ml-2 font-medium text-[var(--fg-muted)]">Privacy &amp; Security</span>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
-        <span className="text-[var(--fg)]">“TipTop Copilot” was blocked to protect your Mac.</span>
+        <span className="text-[var(--fg)]">“TipTop Kraken” was blocked to protect your Mac.</span>
         <span className="rounded-md bg-[var(--bg-sunken)] px-2.5 py-1 font-medium text-[var(--fg)] ring-2 ring-[var(--gold)]">
           Open Anyway
         </span>

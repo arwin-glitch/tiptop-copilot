@@ -8,7 +8,7 @@ import { newId } from '@/lib/util/hash';
 import { err, ok, type Result } from '@/lib/util/result';
 
 /**
- * Each person's Copilot Notes settings (D-076), kept the way the beta switch
+ * Each person's Kraken Notes settings (D-076), kept the way the beta switch
  * is (flag.ts): audit_events rows, action `notes.preferences_set`, newest
  * wins, so they need no table and read as the defaults on any error.
  *
@@ -41,7 +41,7 @@ export async function readNotesPreferences(
     )) as AuditEvent[];
     return rows[0] ? fromMetadata(rows[0].metadata) : { ...DEFAULT_NOTES_PREFERENCES };
   } catch (error) {
-    log.warn('Copilot Notes settings could not be read', {
+    log.warn('Kraken Notes settings could not be read', {
       reason: error instanceof Error ? error.message : String(error),
     });
     return { ...DEFAULT_NOTES_PREFERENCES };
@@ -70,7 +70,7 @@ export async function setNotesPreferences(
   try {
     await store.insert('audit_events', row);
   } catch (error) {
-    log.error('Copilot Notes settings could not be saved', {
+    log.error('Kraken Notes settings could not be saved', {
       reason: error instanceof Error ? error.message : String(error),
     });
     return err('internal', 'That setting could not be saved. Try again.', { retryable: true });

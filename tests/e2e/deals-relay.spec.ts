@@ -198,7 +198,7 @@ test('Clear filters brings the list back in place and keeps keyboard focus', asy
   ).toBeFocused();
 });
 
-test('the deal page shows the Deal-sorter card and links the thread in Copilot and Gmail', async ({
+test('the deal page shows the Deal-sorter card and links the thread in Kraken and Gmail', async ({
   page,
 }) => {
   await page.goto(`/deals/${DEMO.tidewell}`);
@@ -216,7 +216,7 @@ test('the deal page shows the Deal-sorter card and links the thread in Copilot a
   expect(href).toContain('#all/18f3a2b4c5d6e7f1');
   expect(href).toContain('authuser=nick%40tiptop.demo');
   await expect(
-    page.getByRole('link', { name: /^Open in Copilot: Intro: Tidewell and TipTop/ }),
+    page.getByRole('link', { name: /^Open in Kraken: Intro: Tidewell and TipTop/ }),
   ).toHaveAttribute('href', '/inbox?thread=18f3a2b4c5d6e7f1');
 });
 

@@ -89,7 +89,7 @@ import {
  *
  * Tables come from 20261023000000_events.sql, a hand-applied migration.
  * Until it runs every function returns `not_configured` with the fix, never
- * a throw, and the rest of Copilot is untouched.
+ * a throw, and the rest of Kraken is untouched.
  */
 
 export { EVENTS_MIGRATION_FILE };

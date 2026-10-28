@@ -1,12 +1,12 @@
-# TipTop Copilot desktop app
+# TipTop Kraken desktop app
 
-Copilot in its own window, with an icon in the Dock (Mac) or the taskbar and
+Kraken in its own window, with an icon in the Dock (Mac) or the taskbar and
 system tray (Windows). It is built with [Tauri](https://tauri.app) 2.
 
 ## What it is
 
 The app is a window onto the live site, https://copilot.tiptop.vc. It ships one
-small page of its own (`fallback/`), which shows "Opening TipTop Copilot…"
+small page of its own (`fallback/`), which shows "Releasing the Kraken…"
 and hands over to the live site as soon as the site answers. Everything after
 that is the web app, so every web update reaches the desktop app with no new
 build.
@@ -50,7 +50,7 @@ does is in Rust (`src-tauri/src/`):
   bar and no menu bar on Windows. The web app draws one bar across the top in
   the emerald of the sidebar and page header under it, Slack style: ☰ (File,
   Edit and View as a native menu; Alt or F10 opens it too), Back and Forward,
-  a Search Copilot field (Ctrl K) and minimise, maximise and close. The menu
+  a Search Kraken field (Ctrl K) and minimise, maximise and close. The menu
   opens only for a click on ☰ whose press Windows saw, or a tap of Alt or F10
   on its own, so no script on the page can open it while someone types. Drag
   the bar to move the window, double-click it to maximise, right-click it for
@@ -79,8 +79,8 @@ does is in Rust (`src-tauri/src/`):
   - **File:** Settings… (opens Settings in the main window), Check for
     Updates… (see "How updates work"; on Windows under ☰ only, not in second
     windows), Close Window (hides the main window, closes any other), Quit
-    TipTop Copilot. On a Mac, Check for Updates…,
-    Settings… ⌘, and Quit ⌘Q sit in the TipTop Copilot menu with About,
+    TipTop Kraken. On a Mac, Check for Updates…,
+    Settings… ⌘, and Quit ⌘Q sit in the TipTop Kraken menu with About,
     Hide, Hide Others and Show All, and File holds Close Window ⌘W.
   - **Edit:** Undo, Redo, Cut, Copy, Paste, Paste and Match Style, Delete,
     Select All. They act on the focused field in the page, the same as the
@@ -118,12 +118,12 @@ both installers on GitHub's Mac and Windows runners:
   release.
 - **A tag `desktop-vX.Y.Z`** builds the same way, signs the update files
   (the `sign` job) and then publishes a release with the versioned
-  installers plus files with fixed names: `TipTop-Copilot-mac.dmg` and
-  `TipTop-Copilot-windows-setup.exe`, which the web app's `/download` page
+  installers plus files with fixed names: `TipTop-Kraken-mac.dmg` and
+  `TipTop-Kraken-windows-setup.exe`, which the web app's `/download` page
   serves through our own domain, so people never visit GitHub; and the
-  update files (`TipTop-Copilot-mac.app.tar.gz`, a `.sig` for it and for
+  update files (`TipTop-Kraken-mac.app.tar.gz`, a `.sig` for it and for
   the Windows installer, and `latest.json`), which installed apps fetch
-  through Copilot's update routes. Never rename any of them.
+  through Kraken's update routes. Never rename any of them.
 
 Every build signs its update files with a throwaway key made for that run,
 which no installed app trusts, so a branch build can never be installed as
@@ -133,7 +133,7 @@ signing key").
 The icons are generated during the build from `public/icon.svg`, so none are
 committed. The Mac build runs `cargo test` on the navigation rules, the zoom
 steps, the update timing, the top bar commands' input checks, the desktop
-alerts rules (tokens, alert pages, timing, Copilot's answers, the saved
+alerts rules (tokens, alert pages, timing, Kraken's answers, the saved
 file) and the capability files first. Windows-only code is checked by the
 Windows build compiling it, not by tests.
 
@@ -193,9 +193,9 @@ the app with none of these steps.
 
 **Mac** (macOS 13 or newer):
 
-1. Open the downloaded `.dmg` and drag TipTop Copilot into Applications.
-2. Open TipTop Copilot from the Applications folder. The Mac says
-   '"TipTop Copilot" Not Opened' and that Apple could not verify it is free of
+1. Open the downloaded `.dmg` and drag TipTop Kraken into Applications.
+2. Open TipTop Kraken from the Applications folder. The Mac says
+   '"TipTop Kraken" Not Opened' and that Apple could not verify it is free of
    malware. That is expected for an app from outside the App Store: click
    **Done** (or **Cancel**), never Move to Trash.
 3. Within an hour, open **System Settings → Privacy & Security**, scroll down,
@@ -205,12 +205,12 @@ If the Mac instead says the app "is damaged", run this once in Terminal, then
 open the app again:
 
 ```sh
-xattr -dr com.apple.quarantine "/Applications/TipTop Copilot.app"
+xattr -dr com.apple.quarantine "/Applications/TipTop Kraken.app"
 ```
 
 **Windows** (10 or 11):
 
-1. Open `TipTop-Copilot-windows-setup.exe`. If the browser warns about the
+1. Open `TipTop-Kraken-windows-setup.exe`. If the browser warns about the
    download, keep it (in Edge: **Keep**, then **Show more**, **Keep anyway**).
 2. If a blue box says "Windows protected your PC", click **More info**, then
    **Run anyway**.
@@ -222,7 +222,7 @@ that it stays signed in.
 
 ## How updates work
 
-The app always shows the latest Copilot, so most changes need no new app
+The app always shows the latest Kraken, so most changes need no new app
 version at all. When `desktop/` changes and a new version is released, apps
 from 0.2.0 on install it themselves:
 
@@ -232,11 +232,11 @@ from 0.2.0 on install it themselves:
   minutes, and after a check that failed, again in about 30 minutes. Later
   keeps that version quiet for 4 hours (0.2.x and 0.3.0 looked every 6
   hours). Check for Updates… (☰,
-  then File, on Windows; TipTop Copilot menu on a Mac, after About) looks at
+  then File, on Windows; TipTop Kraken menu on a Mac, after About) looks at
   once; the item reads "Checking for Updates…" while it does. A development build
   never looks by itself.
 - **What it asks.** `https://copilot.tiptop.vc/api/desktop/update/<os>/<arch>/<version>`.
-  Copilot answers from the newest release's `latest.json`: nothing (204)
+  Kraken answers from the newest release's `latest.json`: nothing (204)
   when the app is up to date, else the new version, its signature and a link
   to `/api/desktop/update-file/<platform>/<version>`, which streams that
   file from the release. The link carries the version and answers only
@@ -247,7 +247,7 @@ from 0.2.0 on install it themselves:
   `tauri.conf.json`), and against the version it was signed for, before
   anything is installed. A file that fails is thrown away.
 - **What the person sees.** Nothing while it downloads. Then one question:
-  "TipTop Copilot X.Y.Z is ready", with **Later** (the default, so Enter
+  "TipTop Kraken X.Y.Z is ready", with **Later** (the default, so Enter
   never restarts by accident) and **Restart now**. Later asks again at the
   next check. Restart now takes about 10 to 20 seconds: Windows shows the
   installer's progress bar and reopens the app; a Mac swaps the app in
@@ -274,7 +274,7 @@ relies on in-app updates.
 
 ## How desktop alerts work
 
-From 0.4.0 the app shows Copilot's alerts on the computer, as Windows toasts
+From 0.4.0 the app shows Kraken's alerts on the computer, as Windows toasts
 and Mac notifications (`src-tauri/src/alerts.rs`).
 
 - **What they are.** The same alerts as phone alerts, with the same rules:
@@ -293,7 +293,7 @@ and Mac notifications (`src-tauri/src/alerts.rs`).
   plain text; a click opens that conversation (`/ask?thread=…`) in the
   widget, or on the Ask page if you were there. Not while you are looking at
   the app (main window shown, not minimised, in front, on the live site),
-  where the page's own pop-up says so: Copilot marks these alerts
+  where the page's own pop-up says so: Kraken marks these alerts
   `quietWhenFocused`, and the shell then counts the alert as shown, so it
   never comes later, and tells the page (a `tiptop-desktop-replied` event
   with the alert's path), which shows its pop-up also for a question asked
@@ -313,25 +313,25 @@ and Mac notifications (`src-tauri/src/alerts.rs`).
   slows a hidden page's timers to once a minute after five minutes; and the
   window may be showing the bundled page, the offline page or sign-in. The
   shell keeps
-  running while the window is hidden, so it asks Copilot itself:
+  running while the window is hidden, so it asks Kraken itself:
   `GET https://copilot.tiptop.vc/api/desktop/alerts` with this computer's
   token, then a `POST` saying which alerts it has. It follows no redirects
   and talks to no other host.
 - **When.** About once a minute from 6am to 9pm in the owner's time zone.
-  Copilot's answer says when to ask next, so at night the app asks nothing
+  Kraken's answer says when to ask next, so at night the app asks nothing
   until 6am and the web service can sleep, unless a question waits. Meetings
   follow the same window, which is when phones get them too. While a
-  question you asked in the last 30 minutes waits for its answer, Copilot
+  question you asked in the last 30 minutes waits for its answer, Kraken
   asks the app to come back every 30 seconds, day or night, so the answer
   pings about 30 seconds after it lands (up to 45). Asking in the app also
   has it ask within about 30 seconds (`alerts_poll_soon`), so a question
   asked at night still pings that computer. After a failed poll it waits 1,
-  2, then 5 minutes, and 15 minutes once Copilot has failed for about 20
+  2, then 5 minutes, and 15 minutes once Kraken has failed for about 20
   minutes. A laptop that slept asks within 15 seconds of waking. On a Mac,
   App Nap is held off from the first poll with alerts on until the app
   quits, because a meeting's alert has six and a half minutes to arrive.
 - **The token.** Enable asks the system for permission first (a Mac shows
-  its Allow question; Windows asks nothing). Copilot then issues a token for
+  its Allow question; Windows asks nothing). Kraken then issues a token for
   this computer to the signed-in page, which hands it straight to the shell.
   The shell keeps it in `desktop-alerts.json` in the app's local data
   (`%LOCALAPPDATA%\vc.tiptop.copilot`, which does not roam to other PCs;
@@ -340,17 +340,17 @@ and Mac notifications (`src-tauri/src/alerts.rs`).
   read it back. It reads alert summaries (the same text phones show), from
   0.4.1 the first line of its owner's own new Ask Arwin answers and whether
   one of their questions waits, and says which were shown on this computer;
-  nothing else: no Gmail, CRM, drafts or sending. Copilot keeps only its
+  nothing else: no Gmail, CRM, drafts or sending. Kraken keeps only its
   hash, and it never expires, like a phone's subscription.
 - **Turning them off.** Turn off in Settings; signing out in the app (which,
   unlike on a phone, also turns them off on this computer); the "Computers
   with desktop alerts" list in Settings on any device, for a lost computer;
   or removal from the organization. The app finds out at its next poll from
-  Copilot's own 401, which names `realm="tiptop-copilot"`. Any other 401,
+  Kraken's own 401, which names `realm="tiptop-copilot"`. Any other 401,
   for example from a proxy, counts as a passing failure, so the app never
   forgets its token by mistake. Turning alerts back on keeps this computer's
   id, so nothing already shown here comes again.
-- **No duplicates.** Copilot records which alerts each computer has, and the
+- **No duplicates.** Kraken records which alerts each computer has, and the
   app remembers what it showed for three days, so a lost acknowledgement
   never shows one twice. An alert the system refused is offered again at the
   next poll, and counted as shown after three refusals. At most 8 come from
@@ -383,11 +383,11 @@ and Mac notifications (`src-tauri/src/alerts.rs`).
   test notification, "Alerts work on this computer.", and ask for the next
   poll within 30 seconds (`alerts_poll_soon`; at most one poll per 30
   seconds however often it is called, and nothing while alerts are off,
-  failed polls back off or Copilot asked the app to wait). It cannot read
+  failed polls back off or Kraken asked the app to wait). It cannot read
   the token, write a notification's text through the shell, mark an alert
   quiet, change where the app asks, or use these commands from the bundled
   page or a second window. A token issued for another computer is refused.
-  What a notification says comes only from Copilot, over the token's own
+  What a notification says comes only from Kraken, over the token's own
   requests. But the shell takes any token for its own id, so such a script
   could hand over one from an organization of its own: this computer would
   then show that organization's alerts until Turn off (D-057 accepts this;
@@ -397,7 +397,7 @@ and Mac notifications (`src-tauri/src/alerts.rs`).
   `Cargo.lock`. Otherwise 0.3.x shows "Update the app to get desktop alerts"
   while Check for Updates… still finds nothing newer. 0.4.0 with the old web
   side is harmless: the old Settings page never calls these commands.
-  0.4.1 and its web side can ship in either order: Copilot sends Ask answers
+  0.4.1 and its web side can ship in either order: Kraken sends Ask answers
   only to 0.4.1 and newer, by the app's User-Agent, an older app quietly
   refuses `alerts_poll_soon`, and 0.4.1 with the old web side never gets a
   quiet alert or a call to it.
@@ -457,7 +457,7 @@ job strips stray line breaks and spaces anyway.
   once (polls are up to 45 seconds apart), and after a toast the page's own
   pop-up may show as well when you come back within 10 minutes; it can also
   name an answer you read on a phone or in a browser in the last 10
-  minutes. A browser tab of Copilot on the same computer can pop up beside
+  minutes. A browser tab of Kraken on the same computer can pop up beside
   a toast: the app cannot see the browser.
 - An Ask Arwin answer more than 2 hours after its question never pings,
   even by day. A conversation touched for another reason (a deal deleted
@@ -473,7 +473,7 @@ job strips stray line breaks and spaces anyway.
   missing from Action Center, and a click there may only bring the app
   forward. Toasts need the Start menu shortcut: install again if it was
   deleted or the installer ran with `/NS`.
-- Focus Assist and Do Not Disturb hide alerts, and Copilot cannot tell: they
+- Focus Assist and Do Not Disturb hide alerts, and Kraken cannot tell: they
   count as shown.
 - A copy restored from a backup, or moved with Migration Assistant, brings
   this computer's id and token along, so the two computers share one entry.
@@ -551,10 +551,10 @@ job strips stray line breaks and spaces anyway.
    - Windows: a second window's menu bar is dark in Windows dark mode,
      light otherwise; the ☰ menu is dark either way.
    - Mac: About, Hide, Hide Others and Show All.
-9. Starting offline shows "Can't reach TipTop Copilot", then recovers when
+9. Starting offline shows "Can't reach TipTop Kraken", then recovers when
    the connection returns.
 10. Links that redirect on the server stay in the app when they lead to
-    Copilot, and open the browser when they lead elsewhere (a meeting link).
+    Kraken, and open the browser when they lead elsewhere (a meeting link).
 11. Campaign Cancel, Pause and Delete still ask for confirmation on a Mac.
 12. The briefing's Save as PDF button works on a Mac (the Mac webview may
     ignore print requests).
@@ -566,7 +566,7 @@ job strips stray line breaks and spaces anyway.
     - Restart now on Windows: a progress bar, then the app reopens on 0.2.1
       with the window in the same place and one tray icon.
     - Restart now on a Mac: it reopens on 0.2.1 with no Open Anyway step,
-      and `xattr -l "/Applications/TipTop Copilot.app"` lists no
+      and `xattr -l "/Applications/TipTop Kraken.app"` lists no
       `com.apple.quarantine`. Note any "prevented from modifying apps"
       notice (allow it under Privacy & Security → App Management) and any
       Downloads-folder prompt.
@@ -613,8 +613,8 @@ job strips stray line breaks and spaces anyway.
       such as Search is open. In full screen the maximise button leaves full
       screen and the bar does not drag. Hover colours clear when the pointer
       moves from a button onto the empty bar.
-    - Back, Forward and Search Copilot (opens search, hanging just under
-      the field) work; the bar follows Copilot's light and dark theme at
+    - Back, Forward and Search Kraken (opens search, hanging just under
+      the field) work; the bar follows Kraken's light and dark theme at
       once and keeps its size at every zoom.
     - Scrolling a page in a wide window, its column's top corners round off
       under the bar; in a narrow window the bar and the phone header stay
@@ -647,7 +647,7 @@ job strips stray line breaks and spaces anyway.
     fictional calendar events.
     - Windows (NSIS install):
       - Enable shows "On for this computer."; Send a test shows a toast with
-        the TipTop Copilot name and icon and the default sound, and a click
+        the TipTop Kraken name and icon and the default sound, and a click
         on it opens Settings. If Windows refuses it, Settings says "Could not
         send a test. Try again." (reinstall from the Download page to restore
         the Start menu shortcut); note it if that happens on a normal
@@ -659,7 +659,7 @@ job strips stray line breaks and spaces anyway.
       - After a popup times out, is the toast listed in Action Center? Click
         it there and note what happens (at best the app comes forward). If
         it is not listed, see "If Windows drops toasts from Action Center".
-      - Turning TipTop Copilot off in Windows Settings > System >
+      - Turning TipTop Kraken off in Windows Settings > System >
         Notifications (Notifications & actions on Windows 10) shows the
         blocked text when you come back to Settings; turning it on again
         shows "On".

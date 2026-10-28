@@ -14,7 +14,7 @@ import { z } from 'zod';
  *
  * Pure and client-safe: the panel, the public widget and the server all
  * read the same shape. Nothing here names a real person or fact; the
- * answers are typed in Copilot and live only in the database.
+ * answers are typed in Kraken and live only in the database.
  */
 
 export const FAQ_LIMITS = { items: 30, question: 200, answer: 800 } as const;

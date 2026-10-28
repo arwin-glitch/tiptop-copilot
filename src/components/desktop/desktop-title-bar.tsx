@@ -30,7 +30,7 @@ import {
  * runs across the top in the emerald of what is under it (the rail, the
  * page-header band), so it reads as their top edge. On Windows it holds the
  * menu button (File, Edit and View, opened as a native menu by the shell),
- * Back and Forward, a "Search Copilot" field and the window controls; on a
+ * Back and Forward, a "Search Kraken" field and the window controls; on a
  * Mac the traffic lights sit at its left, the menu stays in the menu bar at
  * the top of the screen, and the rest is the same.
  *
@@ -539,7 +539,7 @@ export function DesktopTitleBar() {
         <button
           type="button"
           {...itemProps('search')}
-          aria-label="Search Copilot"
+          aria-label="Search Kraken"
           aria-keyshortcuts={frame === 'mac' ? 'Meta+K' : 'Control+K'}
           aria-haspopup="dialog"
           aria-expanded={searchOpen}
@@ -547,7 +547,7 @@ export function DesktopTitleBar() {
           className="text-note absolute top-1/2 left-1/2 hidden h-7 w-[min(36rem,40%)] -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--bg-hover)]/60 px-2.5 text-left text-[var(--fg-muted)] transition-colors duration-[var(--motion-instant)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] aria-expanded:bg-[var(--bg-hover)] aria-expanded:text-[var(--fg)] [:root:has([data-app-shell])_&]:flex"
         >
           <Search className="size-3.5 shrink-0 text-[var(--fg-subtle)]" aria-hidden="true" />
-          <span className="truncate">Search Copilot</span>
+          <span className="truncate">Search Kraken</span>
           <kbd
             aria-hidden="true"
             className="ml-auto hidden font-sans text-[11px] text-[var(--fg-subtle)] [:root[data-desktop-frame=windows]_&]:inline"

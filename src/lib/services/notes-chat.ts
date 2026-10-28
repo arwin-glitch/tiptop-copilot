@@ -79,7 +79,7 @@ function inScope(request: NotesChatRequest, email: string | null): boolean {
   return true;
 }
 
-/** The Copilot meetings a question covers, newest first, only the ones this person may see. */
+/** The Kraken meetings a question covers, newest first, only the ones this person may see. */
 async function meetingsInScope(
   ctx: NotesContext,
   meeting: Meeting,

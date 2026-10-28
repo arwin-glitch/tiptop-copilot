@@ -151,7 +151,7 @@ export interface FeedInputs {
   /** null when the questions could not be read. */
   ask: { configured: boolean; waitingSince: string | null } | null;
   /**
-   * Copilot Notes' recorder (D-076): when a transcript line last arrived, and
+   * Kraken Notes' recorder (D-076): when a transcript line last arrived, and
    * how many meetings are marked as recording with no line for
    * CAPTURE_QUIET_MINUTES. Absent where nothing reads it; null when it could
    * not be read.
@@ -255,7 +255,7 @@ function rowFor(def: FeedDef, inputs: FeedInputs, now: Date, tz: string): FeedRo
         return plain(
           'off',
           capture?.lastAt ?? null,
-          'Copilot Notes is off (NOTES_ENABLED is not set).',
+          'Kraken Notes is off (NOTES_ENABLED is not set).',
         );
       }
       if (capture.stuck > 0) {
@@ -624,7 +624,7 @@ export async function readNotesArrival(
   store: DataStore,
   organizationId: string,
 ): Promise<string | null> {
-  // Granola's deliveries only: a Copilot Notes write (D-076) is not this feed.
+  // Granola's deliveries only: a Kraken Notes write (D-076) is not this feed.
   const rows = (await store.list(
     'meeting_notes',
     organizationId,
@@ -635,7 +635,7 @@ export async function readNotesArrival(
 }
 
 /**
- * Copilot Notes' recorder (D-076): when the newest transcript line arrived,
+ * Kraken Notes' recorder (D-076): when the newest transcript line arrived,
  * and how many meetings marked as recording have had no line for
  * CAPTURE_QUIET_MINUTES (their recorder went quiet: a closed tab, a dropped
  * connection). Paused meetings are quiet on purpose and are not counted.
@@ -748,7 +748,7 @@ export async function readFeedInputs(
       // Wrapped so a read that worked but found nothing is not the null of a failed one.
       settled(async () => ({ at: await readNotesArrival(store, organizationId) }), 'meeting notes'),
       settled(() => readAskWaiting(store, organizationId, now), 'ask questions'),
-      // Before the Copilot Notes migration there is nothing to read, and the
+      // Before the Kraken Notes migration there is nothing to read, and the
       // feature is off anyway: that is not a failed read.
       e.notesEnabled === 'off'
         ? Promise.resolve({ lastAt: null, stuck: 0 })

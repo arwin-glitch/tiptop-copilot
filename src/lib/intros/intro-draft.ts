@@ -3,7 +3,7 @@ import { SIGN_OFF_NAME } from '@/lib/email/signatures';
 
 /**
  * "Write the intro" on an owed intro: the email the partner reviews in the
- * compose window, built from the intro tracker's row and what Copilot
+ * compose window, built from the intro tracker's row and what Kraken
  * verifiably knows about the people in it. Pure, no server imports, for tests.
  *
  * The format is the fund's intro rule, not a model's prose:
@@ -198,7 +198,7 @@ export function introHints(target: IntroSide, founders: IntroSide): string[] {
   for (const side of [target, founders]) {
     if (side.people.length === 0) {
       hints.push(
-        `Copilot doesn't know who at ${side.org ?? side.label} this goes to. Add their name in the email and their address in To.`,
+        `Kraken doesn't know who at ${side.org ?? side.label} this goes to. Add their name in the email and their address in To.`,
       );
     }
   }

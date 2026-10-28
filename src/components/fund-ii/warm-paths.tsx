@@ -264,7 +264,7 @@ function PersonLine({ person: p, withThem }: { person: WarmPerson; withThem: boo
           {p.lastAt ? ` · last ${relativeTime(p.lastAt)}` : ''}
         </span>
       </p>
-      {/* Their newest shared thread, in Copilot's Inbox or in Gmail. */}
+      {/* Their newest shared thread, in Kraken's Inbox or in Gmail. */}
       {p.href ? (
         <p className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs">
           <span className="min-w-0 truncate text-[var(--fg-muted)]">{p.subject}</span>

@@ -40,7 +40,7 @@ const TABS = [
 type SettingsTab = (typeof TABS)[number]['key'];
 
 /**
- * Copilot Notes settings (D-076), one section per subtab: templates, speech
+ * Kraken Notes settings (D-076), one section per subtab: templates, speech
  * (the on-device Whisper model), never-record rules, voice consent, folders
  * and recipes. The beta switch
  * sits above them (and on the main Settings page).
@@ -75,7 +75,7 @@ export default async function NotesSettingsPage({
     <PageShell>
       {back}
       <PageHeader
-        eyebrow="Copilot Notes"
+        eyebrow="Kraken Notes"
         title="Notes settings"
         subtitle="Templates for the notes, speech on this computer, meetings that are never recorded, voice consent, and folders."
       />
@@ -85,7 +85,7 @@ export default async function NotesSettingsPage({
         </CardContent>
       </Card>
       {!access.enabled ? (
-        <p className="text-sm text-[var(--fg-muted)]">Turn Copilot Notes on above to set it up.</p>
+        <p className="text-sm text-[var(--fg-muted)]">Turn Kraken Notes on above to set it up.</p>
       ) : (
         <>
           <Card className="mb-6">

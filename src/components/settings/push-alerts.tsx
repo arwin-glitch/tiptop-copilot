@@ -138,7 +138,7 @@ export function PushAlertsSetting({
 
   const test = async () => {
     const reg = await registration();
-    await reg?.showNotification('TipTop Copilot', {
+    await reg?.showNotification('TipTop Kraken', {
       body: 'Alerts work on this device.',
       icon: '/icon-192.png',
       data: { url: '/today' },
@@ -173,7 +173,7 @@ export function PushAlertsSetting({
         ) : null}
         {state === 'install' ? (
           <span className="text-sm text-[var(--fg-muted)]">
-            On iPhone, first add the Copilot to your Home Screen (Share, then Add to Home Screen),
+            On iPhone, first add the Kraken to your Home Screen (Share, then Add to Home Screen),
             open it from there, and come back to this page.
           </span>
         ) : null}

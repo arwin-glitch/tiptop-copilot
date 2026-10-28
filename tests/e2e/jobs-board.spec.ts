@@ -2,7 +2,7 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * The public job board over the invented demo workspace (D-077): Copilot's
+ * The public job board over the invented demo workspace (D-077): Kraken's
  * Portfolio > Jobs controls (the "View public board" button, approvals,
  * publish / hide / feature, the switch, Refresh now) and the public pages
  * (search, filters, a role, apply out, a company, the board host, a phone).
@@ -310,7 +310,7 @@ test.describe('the public board, as a visitor', () => {
     );
   });
 
-  test('the sitemap and robots.txt list the board, and nothing else of Copilot', async ({
+  test('the sitemap and robots.txt list the board, and nothing else of Kraken', async ({
     request,
   }) => {
     const sitemap = await (await request.get('/jobs/sitemap.xml')).text();
@@ -322,7 +322,7 @@ test.describe('the public board, as a visitor', () => {
     expect(robots).toContain('Allow: /jobs/');
   });
 
-  test('the board host serves the board at its root, and never Copilot', async ({ request }) => {
+  test('the board host serves the board at its root, and never Kraken', async ({ request }) => {
     const headers = { 'x-forwarded-host': 'jobs.tiptop.vc' };
     const home = await request.get('/', { headers });
     expect(home.status()).toBe(200);
@@ -414,7 +414,7 @@ test.describe('the public board, as a link scraper sees it (no JavaScript)', () 
     expect(none.status()).toBe(404);
   });
 
-  test('closed roles and unknown addresses unfurl as the board, never as Copilot', async ({
+  test('closed roles and unknown addresses unfurl as the board, never as Kraken', async ({
     request,
   }) => {
     for (const [path, headers] of [
@@ -426,7 +426,7 @@ test.describe('the public board, as a link scraper sees it (no JavaScript)', () 
       const html = await (await request.get(path, { headers })).text();
       const title = /<title>([^<]*)<\/title>/.exec(html)?.[1] ?? '';
       expect(title, path).toContain('TipTop VC Jobs');
-      expect(title, path).not.toContain('Copilot');
+      expect(title, path).not.toContain('Kraken');
       expect(html, path).not.toContain('investment cockpit');
       expect(html, path).toMatch(/<meta name="robots" content="noindex/);
     }

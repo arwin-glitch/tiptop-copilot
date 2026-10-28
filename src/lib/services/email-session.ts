@@ -31,7 +31,7 @@ import {
  * EMAIL_QUEUE_V1 posts in #deal-relay, re-judging only new or changed
  * threads; an email it has not judged yet is sorted by Nick's triage
  * @-labels until it does. The app adds what only it knows: what each person is
- * in the Copilot (a deal, a portfolio company, a Fund II LP) and what Nick
+ * in the Kraken (a deal, a portfolio company, a Fund II LP) and what Nick
  * already answered. Without a Gmail connection (demo) the judged list is used
  * as is.
  *

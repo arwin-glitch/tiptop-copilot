@@ -740,7 +740,7 @@ export class MeetingRecorder {
       this.warn({
         code: 'meeting_audio_ended',
         track,
-        message: 'Sharing stopped, so Copilot no longer hears the meeting. Share again, or stop.',
+        message: 'Sharing stopped, so Kraken no longer hears the meeting. Share again, or stop.',
         action: 'share_again',
       });
     } else {
@@ -1058,11 +1058,11 @@ export class MeetingRecorder {
       return;
     }
     if (result.error.retryable) {
-      // Copilot did not hear the stop (offline, restarting): keep telling it.
+      // Kraken did not hear the stop (offline, restarting): keep telling it.
       this.status = 'stopped';
       this.warn({
         code: 'upload_retrying',
-        message: 'Stopped here; telling Copilot as soon as it can be reached.',
+        message: 'Stopped here; telling Kraken as soon as it can be reached.',
       });
       this.stopRetry = setTimeout(() => {
         this.stopRetry = null;
@@ -1163,7 +1163,7 @@ export class MeetingRecorder {
         if (this.capabilities.mobile && this.status === 'recording' && awayMs > 3000) {
           this.warn({
             code: 'screen_was_off',
-            message: `The screen was off or Copilot was in the background for ${clock(awayMs)}; nothing was heard then.`,
+            message: `The screen was off or Kraken was in the background for ${clock(awayMs)}; nothing was heard then.`,
           });
         }
       },
@@ -1239,7 +1239,7 @@ export class MeetingRecorder {
     } else if (this.upload.retrying && this.upload.pending > 0) {
       this.warn({
         code: 'upload_retrying',
-        message: 'Saving lines is retrying; they wait on this page until Copilot answers.',
+        message: 'Saving lines is retrying; they wait on this page until Kraken answers.',
       });
     } else {
       this.clearWarning('upload_retrying');

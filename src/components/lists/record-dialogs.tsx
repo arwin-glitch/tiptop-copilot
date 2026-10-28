@@ -23,7 +23,7 @@ import type { CrmRecordKind } from '@/lib/types/domain';
  */
 
 /**
- * "New company" or "New person": made in Copilot, keyed on its website or
+ * "New company" or "New person": made in Kraken, keyed on its website or
  * email so the daily Affinity sync adopts it rather than copying it. One the
  * CRM already has opens instead of being made twice.
  */
@@ -253,7 +253,7 @@ export function ListPickerDialog({
                   <option value="">Choose a list</option>
                   {lists.map((l) => (
                     <option key={l.id} value={l.id}>
-                      {`${l.name} (${l.entryCount.toLocaleString('en-US')})${l.source === 'copilot' ? ' · made in Copilot' : ''}`}
+                      {`${l.name} (${l.entryCount.toLocaleString('en-US')})${l.source === 'copilot' ? ' · made in Kraken' : ''}`}
                     </option>
                   ))}
                 </Select>

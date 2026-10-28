@@ -16,7 +16,7 @@ export async function campaignCall<T>(
     }
     return { ok: true, data: json };
   } catch {
-    return { ok: false, message: 'Could not reach Copilot. Check the connection and try again.' };
+    return { ok: false, message: 'Could not reach Kraken. Check the connection and try again.' };
   }
 }
 

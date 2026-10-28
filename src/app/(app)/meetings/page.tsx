@@ -146,14 +146,14 @@ async function WeekTab() {
   );
 }
 
-/** Whether Copilot Notes (D-076) is on for this person; off on any error. */
+/** Whether Kraken Notes (D-076) is on for this person; off on any error. */
 async function copilotNotesOn(auth: AuthContext): Promise<boolean> {
   return notesAccess(getStore(), auth)
     .then((a) => a.enabled)
     .catch(() => false);
 }
 
-/** The Copilot notes this person may see, for the source chip; null when unknown. */
+/** The Kraken notes this person may see, for the source chip; null when unknown. */
 async function copilotCount(auth: AuthContext, notesOn: boolean): Promise<number | null> {
   if (!notesOn) return null;
   return countMeetingNotes(getStore(), auth.organizationId, auth.userId)
@@ -161,7 +161,7 @@ async function copilotCount(auth: AuthContext, notesOn: boolean): Promise<number
     .catch(() => null);
 }
 
-/** The source chips, with New note and Notes settings beside them while Copilot Notes is on. */
+/** The source chips, with New note and Notes settings beside them while Kraken Notes is on. */
 function SourceRow({ notesOn, children }: { notesOn: boolean; children: ReactNode }) {
   if (!notesOn) return <>{children}</>;
   return (
@@ -199,7 +199,7 @@ async function AffinityNotesTab({ q, page }: { q: string; page: string | string[
   );
 }
 
-/** Copilot's own notes, or every note from both tools (D-076); Granola's list while Notes is off. */
+/** Kraken's own notes, or every note from both tools (D-076); Granola's list while Notes is off. */
 async function CopilotNotesTab({
   source,
   filters,
@@ -250,7 +250,7 @@ async function NotesTab({ q, shown }: { q: string; shown: number }) {
   // meeting count showed a flat "500" — the cap, presented as a fact — while
   // the real figure was 922. A stat that reports a limit is worse than no stat.
   const [notes, total] = await Promise.all([
-    // Granola's list stays Granola's: Copilot's notes have their own chip.
+    // Granola's list stays Granola's: Kraken's notes have their own chip.
     listMeetingNotes(getStore(), auth.organizationId, {
       search: q || undefined,
       limit: NOTES_MAX,

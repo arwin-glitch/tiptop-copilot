@@ -285,7 +285,7 @@ async function IntrosTab() {
 /**
  * Students Nick mentors, schools and programs inviting TipTop in, and intern
  * or advice requests, from the twice-weekly students routine's snapshot in
- * #deal-relay. Each source links to its email in Copilot's Inbox or in Gmail;
+ * #deal-relay. Each source links to its email in Kraken's Inbox or in Gmail;
  * no email text is shown here.
  */
 async function StudentsTab({ params }: { params: Record<string, string | string[] | undefined> }) {
@@ -324,7 +324,7 @@ async function StudentsTab({ params }: { params: Record<string, string | string[
   );
 }
 
-/** The relationship radar's "going cold" list, with Copilot's own from mail and calendar. */
+/** The relationship radar's "going cold" list, with Kraken's own from mail and calendar. */
 async function ColdTab({ days }: { days: number }) {
   const auth = await requireAuth();
   const store = getStore();
@@ -343,10 +343,10 @@ async function ColdTab({ days }: { days: number }) {
   );
   const snapshot = followUps?.state === 'ok' ? followUps.snapshot.relationships : null;
   const relationships = withGoingCold(snapshot, derived.ok ? derived.value : []);
-  // Copilot's own check failing is never an all-clear: say it did not run.
+  // Kraken's own check failing is never an all-clear: say it did not run.
   const unchecked = derived.ok
     ? null
-    : `Copilot could not check mail and calendar for relationships going quiet: ${derived.error.message}`;
+    : `Kraken could not check mail and calendar for relationships going quiet: ${derived.error.message}`;
   const allClear = unchecked
     ? empty('Not checked just now', unchecked)
     : empty(

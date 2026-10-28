@@ -1,9 +1,9 @@
 /**
- * TipTop Copilot: Meet names (D-076). The extension's service worker.
+ * TipTop Kraken: Meet names (D-076). The extension's service worker.
  *
- * Passes Meet roster snapshots to the Copilot tab, and only when all three
- * hold: the person switched "Send Meet names to Copilot" on in the popup (off
- * until then), a Copilot tab said a recording is running, and that its
+ * Passes Meet roster snapshots to the Kraken tab, and only when all three
+ * hold: the person switched "Send Meet names to Kraken" on in the popup (off
+ * until then), a Kraken tab said a recording is running, and that its
  * consent step was confirmed. Names go from one tab to the other on this
  * computer; the extension itself sends nothing to any server.
  *

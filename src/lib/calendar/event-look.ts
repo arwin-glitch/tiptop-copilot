@@ -11,7 +11,7 @@ import type { RangeEvent } from './range-types';
  *   colour inside a border in the event's colour, and a "?".
  * - Maybe (tentative): diagonal stripes in the event's colour.
  * - Declined: the title struck through, faded.
- * - Copilot's verdict is the bell: a meeting pings, a block does not. A block
+ * - Kraken's verdict is the bell: a meeting pings, a block does not. A block
  *   is drawn like any other event (no dashed edge, no muting).
  *
  * Pure, for the grid, the card, the key and the tests.

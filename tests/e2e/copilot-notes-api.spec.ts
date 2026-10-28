@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * Copilot Notes' core API (D-076) against the demo server, the way the
+ * Kraken Notes' core API (D-076) against the demo server, the way the
  * screens and the recorder will call it: make a meeting from an event, refuse
  * to start before consent, start, get a speech session (the mock in demo
  * mode), post lines, stop (Quick notes, and a request to Arwin), rename a

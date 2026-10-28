@@ -17,7 +17,7 @@ const BODY = z
  * Approve (re-check, then the event on the host's calendar with the
  * requester invited), Decline, mark a message handled, or record that it was
  * added in Google Calendar by hand. Signed in, a member or above, from
- * Copilot's own pages, within a rate limit. Every answer is audited.
+ * Kraken's own pages, within a rate limit. Every answer is audited.
  */
 export async function POST(request: NextRequest, context: Context) {
   const gate = await calendarAuth(request, { bucket: 'booking', max: 30, write: true });

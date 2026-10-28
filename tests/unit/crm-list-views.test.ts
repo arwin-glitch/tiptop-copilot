@@ -186,7 +186,7 @@ describe('list activity', () => {
   });
 });
 
-describe('links into Copilot’s own Deals and Portfolio', () => {
+describe('links into Kraken’s own Deals and Portfolio', () => {
   it('finds a portfolio company with the same domain', async () => {
     const record = (await store.get('crm_records', org, LEDGERLY))!;
     const links = value(await findCopilotLinks(store, org, record));

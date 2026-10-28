@@ -101,7 +101,7 @@ export function buildIcs(input: IcsInput): string {
   const lines: string[] = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//TipTop//Copilot Events//EN',
+    'PRODID:-//TipTop//Kraken Events//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     `X-WR-CALNAME:${escapeIcsText(input.eventTitle)}`,

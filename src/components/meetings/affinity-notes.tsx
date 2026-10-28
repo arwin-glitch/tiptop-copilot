@@ -17,7 +17,7 @@ const DEFAULT_TAB = MEETINGS_TABS.defaultKey;
 export const AFFINITY_NOTES_PER_PAGE = 25;
 const AFFINITY_VIEW = { tab: 'notes', source: 'affinity' } as const;
 
-/** Granola stays the default list during the parallel run; Copilot and All appear once Notes is on. */
+/** Granola stays the default list during the parallel run; Kraken and All appear once Notes is on. */
 export type NotesSource = 'granola' | 'affinity' | 'copilot' | 'all';
 
 /** How many notes came across from Affinity; null when the CRM cannot say. */
@@ -28,7 +28,7 @@ export async function affinityNoteCount(auth: AuthContext): Promise<number | nul
 
 /**
  * The notes' sources, one click apart: Granola (as before) and Affinity, and
- * while Copilot Notes is on (D-076) Copilot's own notes and All (both tools
+ * while Kraken Notes is on (D-076) Kraken's own notes and All (both tools
  * in one list, each row with its source) beside them.
  */
 export function NotesSourceSwitch({
@@ -42,7 +42,7 @@ export function NotesSourceSwitch({
   q: string;
   granolaCount: number | null;
   affinityCount: number | null;
-  /** Set while Copilot Notes is on for this person: its count, when known. */
+  /** Set while Kraken Notes is on for this person: its count, when known. */
   copilot?: { count: number | null } | null;
 }) {
   const query = q || null;
@@ -62,7 +62,7 @@ export function NotesSourceSwitch({
           ? [
               {
                 key: 'copilot',
-                label: 'Copilot',
+                label: 'Kraken',
                 count: copilot.count ?? undefined,
                 href: pageHref(PATH, { tab: 'notes', source: 'copilot', q: query }, DEFAULT_TAB),
                 active: source === 'copilot',

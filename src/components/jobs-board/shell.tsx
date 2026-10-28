@@ -26,7 +26,7 @@ export function BoardShell({
     <div className={`jb-root ${boardFontClasses}`} style={style}>
       {preview ? (
         <p className="jb-banner" role="status">
-          Preview: only people signed in to Copilot see this. The public board is switched off, so
+          Preview: only people signed in to Kraken see this. The public board is switched off, so
           visitors see &ldquo;coming soon&rdquo;.
         </p>
       ) : null}

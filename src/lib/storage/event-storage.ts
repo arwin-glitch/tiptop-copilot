@@ -28,7 +28,7 @@ import { eventMediaPublicUrl } from './provider';
  *   private  `event-originals`: the uploads as they arrived and every GATED
  *            derivative. Read only through short-lived signed URLs.
  *
- * Uploads never pass through Copilot: the browser PUTs the file straight to
+ * Uploads never pass through Kraken: the browser PUTs the file straight to
  * a server-minted signed upload URL for the private bucket, then asks the
  * server to process it (lib/services/event-media.ts).
  *

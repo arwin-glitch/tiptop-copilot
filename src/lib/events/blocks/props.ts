@@ -137,7 +137,7 @@ export const person = z
     photo: media,
     href,
     bio: plainText(400),
-    /** The Copilot record this card was picked from (Network/CRM/portfolio). */
+    /** The Kraken record this card was picked from (Network/CRM/portfolio). */
     recordId: entityId.nullable(),
     /** leaderboard: a score or stat ("−3", "Seed"). */
     stat: plainText(24),

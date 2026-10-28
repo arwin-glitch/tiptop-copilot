@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
  * Network > Students & interns over the invented demo workspace: the
  * twice-weekly students scan's snapshot. Open items show by default, what is
  * on Arwin stands out and filters to itself, a close deadline is flagged,
- * filters live in the URL, and every source is only its two links (Copilot
+ * filters live in the URL, and every source is only its two links (Kraken
  * or Gmail), never the email's text. The tab started on Portfolio, so an old
  * Portfolio link lands here with its filters.
  */
@@ -133,7 +133,7 @@ test('kind, status and search filters live in the URL', async ({ page }) => {
   expect(new URL(page.url()).searchParams.get('status')).toBe('all');
 });
 
-test("a source is only its two links, and Copilot opens the thread in the Inbox's reading pane", async ({
+test("a source is only its two links, and Kraken opens the thread in the Inbox's reading pane", async ({
   page,
 }) => {
   await page.goto('/network?tab=students');
@@ -153,7 +153,7 @@ test("a source is only its two links, and Copilot opens the thread in the Inbox'
   await expect(students).not.toContainText('Happy to. Two 30-minute calls works.');
 
   await tessa
-    .getByRole('link', { name: 'Open in Copilot: Mentoring this fall (Tessa Marlow)' })
+    .getByRole('link', { name: 'Open in Kraken: Mentoring this fall (Tessa Marlow)' })
     .click();
   await page.waitForURL(/\/inbox\?thread=0f00000000005102$/);
   const pane = page.getByRole('region', { name: 'Reading pane' });

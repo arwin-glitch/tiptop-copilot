@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: 'Desktop app' };
 export const dynamic = 'force-dynamic';
 
 /**
- * Download the desktop app: Copilot in its own window. The installers come
+ * Download the desktop app: Kraken in its own window. The installers come
  * through /api/desktop/download, never a link to where they are published.
  * In the navigation under System, and linked from Settings > Preferences.
  */
@@ -30,7 +30,7 @@ export default async function DownloadPage({
     <PageShell>
       <PageHeader
         title="Desktop app"
-        subtitle="TipTop Copilot in its own window, with an icon in your Dock or taskbar."
+        subtitle="TipTop Kraken in its own window, with an icon in your Dock or taskbar."
       />
       <DownloadCards
         release={release}

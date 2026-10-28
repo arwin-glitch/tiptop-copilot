@@ -588,7 +588,7 @@ describe('Decline', () => {
   });
 });
 
-describe('the Copilot side', () => {
+describe('the Kraken side', () => {
   it('lists what waits, soonest first and messages last, and counts it for Today', async () => {
     const list = await listPendingBookingRequests(harness.store, harness.auth.organizationId);
     expect(list.available).toBe(true);

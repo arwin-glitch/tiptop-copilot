@@ -135,7 +135,7 @@ export function htmlToStructuredText(
   // Every tag pattern below stops at the next "<" ([^<>] rather than [^>]),
   // so a tag that never closes costs one short scan, not one to the end of
   // the input: the descriptions are written by companies, and a quadratic
-  // pattern here would stall all of Copilot.
+  // pattern here would stall all of Kraken.
   // A paragraph that is only bold words reads as a heading ("<p><b>About you</b></p>").
   html = html.replace(
     /<p\b[^<>]*>\s*<(strong|b)\b[^<>]*>([^<]{1,90})<\/\1>\s*:?\s*(?:<br\s*\/?>\s*)?<\/p>/gi,

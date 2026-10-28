@@ -2,7 +2,7 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * CRM write parity: the CRM keeps growing in Copilot once Affinity is gone.
+ * CRM write parity: the CRM keeps growing in Kraken once Affinity is gone.
  *
  * Demo mode, against the invented CRM in lib/demo/fixtures.ts (people 37–39
  * carry a place and an Affinity last contact for Find & save). What is
@@ -71,7 +71,7 @@ test('a list is made, filled from Find & save, and given a column of its own', a
   // Every match onto the list made a moment ago.
   await page.getByRole('button', { name: 'Add to list' }).click();
   const pick = page.getByRole('dialog', { name: 'Add these people to a list' });
-  await pick.getByLabel('List').selectOption({ label: 'Demo Picnic Guests (0) · made in Copilot' });
+  await pick.getByLabel('List').selectOption({ label: 'Demo Picnic Guests (0) · made in Kraken' });
   await pick.getByRole('button', { name: 'Add them' }).click();
   await expect(page.getByText('Added 1 to Demo Picnic Guests')).toBeVisible();
 
@@ -107,7 +107,7 @@ test('a list is made, filled from Find & save, and given a column of its own', a
   await expect(page.getByRole('table').locator('tbody tr').first()).toContainText('7');
 });
 
-test('notes written in Copilot are edited and deleted; Affinity’s say why they cannot be', async ({
+test('notes written in Kraken are edited and deleted; Affinity’s say why they cannot be', async ({
   page,
 }) => {
   await page.goto('/knowledge?tab=lists');
@@ -204,12 +204,12 @@ test('a new person is opened, not copied, when the CRM already has them', async 
   await dialog.getByRole('button', { name: 'Add person' }).click();
   await page.waitForURL(/\/lists\/records\//);
   await expect(page.getByRole('heading', { level: 1, name: 'Pat Rivers' })).toBeVisible();
-  await expect(page.getByText('Person · added in Copilot')).toBeVisible();
+  await expect(page.getByText('Person · added in Kraken')).toBeVisible();
 
   // Onto a list from the profile, and a note of their own.
   await page.getByRole('button', { name: 'Add to list' }).click();
   const pick = page.getByRole('dialog', { name: 'Add Pat Rivers to a list' });
-  await pick.getByLabel('List').selectOption({ label: 'Demo Picnic Guests (1) · made in Copilot' });
+  await pick.getByLabel('List').selectOption({ label: 'Demo Picnic Guests (1) · made in Kraken' });
   await pick.getByRole('button', { name: 'Add to list' }).click();
   await expect(page.getByText('Added Pat Rivers to Demo Picnic Guests')).toBeVisible();
   await expect(
@@ -256,7 +256,7 @@ test('a filtered view saves as a list, and a saved list is offered to a campaign
     )
     .toEqual(titles);
 
-  // A campaign can take its recipients from a list made in Copilot.
+  // A campaign can take its recipients from a list made in Kraken.
   await page.goto('/fund-ii?tab=campaigns');
   await page.getByRole('button', { name: 'New campaign' }).first().click();
   await page.waitForURL(/\/fund-ii\/campaigns\/[0-9a-f-]{36}$/);

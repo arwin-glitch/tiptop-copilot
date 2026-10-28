@@ -49,7 +49,7 @@ describe('routeBoardHost', () => {
     });
   });
 
-  it('never exposes Copilot on the board host: its pages become board addresses or a 404', () => {
+  it('never exposes Kraken on the board host: its pages become board addresses or a 404', () => {
     expect(routeBoardHost('/today', ['jobs.tiptop.vc'], HOSTS)).toEqual({
       kind: 'rewrite',
       pathname: '/jobs-host/today',
@@ -187,7 +187,7 @@ describe('board paths', () => {
     }
   });
 
-  it("judges Copilot's own /jobs addresses, and leaves the rest alone", () => {
+  it("judges Kraken's own /jobs addresses, and leaves the rest alone", () => {
     expect(isCopilotBoardPath('/jobs')).toBe(true);
     expect(isCopilotBoardPath('/jobs/acme/vp-sales-1a2b3c')).toBe(true);
     expect(isCopilotBoardPath('/jobs/sitemap.xml')).toBe(true);
@@ -237,7 +237,7 @@ describe('the board brake', () => {
 });
 
 describe('board addresses', () => {
-  it('uses JOBS_BOARD_URL when set, else Copilot /jobs', () => {
+  it('uses JOBS_BOARD_URL when set, else Kraken /jobs', () => {
     expect(boardPublicUrl({ APP_URL: 'https://copilot.example' })).toBe(
       'https://copilot.example/jobs',
     );

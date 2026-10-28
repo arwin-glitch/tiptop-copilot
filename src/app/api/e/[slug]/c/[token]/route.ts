@@ -10,7 +10,7 @@ import { resolveCheckinToken, resolvePublicEvent } from '@/lib/services/event-pu
 
 /**
  * POST /api/e/<slug>/c/<token> — check in the person a ticket's QR names
- * (D-075). Owners (a Copilot session in this organization) and staff links
+ * (D-075). Owners (a Kraken session in this organization) and staff links
  * (the grant cookie, role 'checkin') only; anyone else gets a 403 (or, for
  * the landing page's status probe, an empty answer) and keeps seeing the
  * ticket. A GET of the QR URL never checks

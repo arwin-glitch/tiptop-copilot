@@ -25,7 +25,7 @@ const OTHERS = (Object.keys(PROMPTS) as PromptName[]).filter((k) => k !== 'conve
 describe('the Ask prompt speaks as Arwin', () => {
   it('opens with the persona, not the default identity', () => {
     expect(ASK.startsWith(`${ASK_ARWIN_PERSONA}\n\n`)).toBe(true);
-    expect(ASK).not.toContain('You are TipTop Copilot');
+    expect(ASK).not.toContain('You are TipTop Kraken');
     expect(ASK).not.toContain(CORE_IDENTITY);
   });
 
@@ -105,7 +105,7 @@ describe('every other prompt is unchanged', () => {
   it('keeps the default identity at the start of the core rules', () => {
     expect(CORE_RULES).toBe(`${CORE_IDENTITY}\n\n${CORE_RULES_BODY}`);
     expect(CORE_IDENTITY).toBe(
-      'You are TipTop Copilot, an internal analyst for TipTop VC, an early-stage venture fund investing in vertical AI.',
+      'You are TipTop Kraken, an internal analyst for TipTop VC, an early-stage venture fund investing in vertical AI.',
     );
   });
 

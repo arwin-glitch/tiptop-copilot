@@ -298,7 +298,7 @@ export function readinessChecklist(input: ReadinessInput): ReadyItem[] {
     detail: invitesFirst
       ? input.guests > 0
         ? `${input.guests} on the list.`
-        : 'Add guests from Copilot, a CSV or pasted emails.'
+        : 'Add guests from Kraken, a CSV or pasted emails.'
       : input.registrationOpen
         ? 'Anyone with the link can RSVP.'
         : 'Registration is closed.',

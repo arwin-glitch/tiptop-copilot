@@ -371,7 +371,7 @@ describe("what's new", () => {
   });
 
   it('says a switched-off feature is coming, not live', () => {
-    const notes = WHATS_NEW.find((i) => i.text.startsWith('Copilot Notes'));
+    const notes = WHATS_NEW.find((i) => i.text.startsWith('Kraken Notes'));
     expect(notes?.soon).toBe(true);
   });
 });

@@ -4,7 +4,7 @@ export const dynamic = 'force-static';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'TipTop Copilot',
+    name: 'TipTop Kraken',
     short_name: 'TipTop',
     description:
       'An internal investment cockpit for TipTop VC: daily outlook, inbox intelligence, deal triage and decision support.',

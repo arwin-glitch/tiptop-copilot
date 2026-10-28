@@ -61,7 +61,7 @@ function assertSafe(markup: string): void {
   // cannot open a tag, so only real attributes can match.
   expect(markup).not.toMatch(/<[a-z][^>]*\son[a-z]+\s*=/i);
   for (const anchor of markup.match(/<a\s[^>]*>/g) ?? []) {
-    // A "Copilot" link to one email stays in the app, rebuilt from a validated Gmail id.
+    // A "Kraken" link to one email stays in the app, rebuilt from a validated Gmail id.
     if (/^<a [^>]*href="\/inbox\?thread=[0-9a-f]{10,24}"[^>]*>$/.test(anchor)) {
       expect(anchor).not.toContain('target=');
       continue;
@@ -131,7 +131,7 @@ describe('every demo card', () => {
             }),
           );
           assertSafe(markup);
-          // A post's link to one Gmail email offers Copilot's Inbox beside Gmail.
+          // A post's link to one Gmail email offers Kraken's Inbox beside Gmail.
           for (const id of markup.matchAll(
             /mail\.google\.com\/mail\/[^"]*#all\/([0-9a-f]{10,24})"/g,
           )) {

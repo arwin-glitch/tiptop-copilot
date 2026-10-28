@@ -6,7 +6,7 @@ import { LAUNCH_PRESETS, THEME_PRESETS } from '../../src/lib/events/themes';
 /**
  * The event guest renderer (D-075, WS2), through the owner-only full-page
  * theme preview (/e/theme_preview/<preset>), which renders the real
- * EventPage on the real /e surface (nonce CSP, no Copilot chrome).
+ * EventPage on the real /e surface (nonce CSP, no Kraken chrome).
  *
  * Budgets and guarantees checked here:
  *   - guest-page JavaScript: what Events adds to the framework floor stays
@@ -92,7 +92,7 @@ test.describe('theme preview route', () => {
     await context.close();
   });
 
-  test('renders on the event surface with a nonce CSP and no Copilot chrome', async ({ page }) => {
+  test('renders on the event surface with a nonce CSP and no Kraken chrome', async ({ page }) => {
     const res = await page.goto('/e/theme_preview/tiptop-signature');
     expect(res?.status()).toBe(200);
     const csp = res?.headers()['content-security-policy'] ?? '';

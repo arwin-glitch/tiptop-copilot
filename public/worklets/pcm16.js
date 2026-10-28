@@ -1,6 +1,6 @@
 /* global registerProcessor, AudioWorkletProcessor, sampleRate, currentFrame */
 /**
- * Copilot Notes web recorder (D-076): one track's audio as 16 kHz PCM16.
+ * Kraken Notes web recorder (D-076): one track's audio as 16 kHz PCM16.
  *
  * Runs on the audio thread. Each instance takes one track (the microphone, or
  * the meeting audio from a shared tab or screen), mixes it to mono,

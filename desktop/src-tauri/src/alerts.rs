@@ -3,21 +3,21 @@
 //! notifications, while the app runs, also with its window hidden in the
 //! tray (Windows), closed (a Mac keeps running) or minimised.
 //!
-//! The shell asks Copilot for them itself, with a token for this computer
+//! The shell asks Kraken for them itself, with a token for this computer
 //! alone: about once a minute from 6am to 9pm in the owner's time zone, as
-//! Copilot's answers say, and every 30 seconds while a question to Ask
+//! Kraken's answers say, and every 30 seconds while a question to Ask
 //! Arwin from whoever turned alerts on here waits for its answer (from
 //! 0.4.1; nobody else's question). The page could not: WebKit suspends a
 //! hidden window's page on a Mac, WebView2 slows a hidden page's timers to
 //! once a minute, and the window may show the bundled page or sign-in. The
-//! token comes once, from Copilot through the signed-in page, which hands it
+//! token comes once, from Kraken through the signed-in page, which hands it
 //! straight to `alerts_turn_on`. It is kept in this computer's app data and
 //! never given back to a page, and it can only read alert summaries (with
 //! the start of its owner's own new Ask answers) and say which were shown
 //! here.
 //!
 //! From 0.4.1 an alert may ask to stay quiet while the person is looking at
-//! Copilot (`quietWhenFocused`: Ask Arwin's answers, which the page announces
+//! Kraken (`quietWhenFocused`: Ask Arwin's answers, which the page announces
 //! itself). With the main window shown, not minimised, in front and on the
 //! live site, it counts as shown without a notification, so it never shows
 //! later either, and the page is told which page it opens
@@ -28,7 +28,7 @@
 //!
 //! The page gets six commands (capabilities/desktop-alerts.json): the main
 //! window, on the live site only. None shows text a page chooses: what a
-//! notification says comes only from Copilot, over the token's own requests.
+//! notification says comes only from Kraken, over the token's own requests.
 //! Any token for this computer's id is taken, though, so a script on the live
 //! page could hand over one from an organization of its own, whose alerts
 //! the shell would then show until Turn off (D-057's threat model).
@@ -67,14 +67,14 @@ const FILE_MAX: u64 = 256 * 1024;
 const TICK: Duration = Duration::from_secs(15);
 /// The first poll after launch, when alerts are on.
 const FIRST_POLL: Duration = Duration::from_secs(10);
-/// Copilot says when to ask next (once a minute in the day, at 6am at
+/// Kraken says when to ask next (once a minute in the day, at 6am at
 /// night); this when it says nothing, and never sooner or later than these.
 const POLL_EVERY: Duration = Duration::from_secs(60);
 const POLL_SOONEST: Duration = Duration::from_secs(30);
 const POLL_LATEST: Duration = Duration::from_secs(10 * 60 * 60);
 /// While the system does not allow notifications, nothing is fetched.
 const NOT_ALLOWED_WAIT: Duration = Duration::from_secs(5 * 60);
-/// Copilot asked the app to slow down (429, or 503 with Retry-After).
+/// Kraken asked the app to slow down (429, or 503 with Retry-After).
 const WAIT_DEFAULT: Duration = Duration::from_secs(5 * 60);
 const WAIT_SOONEST: Duration = Duration::from_secs(30);
 const WAIT_LATEST: Duration = Duration::from_secs(60 * 60);
@@ -87,7 +87,7 @@ const BODY_MAX: usize = 64 * 1024;
 /// At most this many alerts from one answer, meetings first; the rest come
 /// with the next one.
 const SHOWN_MAX: usize = 8;
-/// What Copilot's acknowledgement route takes.
+/// What Kraken's acknowledgement route takes.
 const KEYS_MAX: usize = 50;
 const KEY_MAX: usize = 200;
 const ACK_MAX: usize = 200;
@@ -99,20 +99,20 @@ const FALLBACK_PATH: &str = "/today";
 /// An alert the system refused this many times counts as shown, so a
 /// notification that can never show does not come back every minute.
 const TRIES_MAX: u32 = 3;
-/// How long, and how many, shown alerts are remembered here. Copilot keeps
+/// How long, and how many, shown alerts are remembered here. Kraken keeps
 /// its own record per computer; this one covers a lost acknowledgement.
 const SEEN_FOR: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 const SEEN_MAX: usize = 300;
 /// Send a test is refused more often than this.
 const TEST_EVERY: Duration = Duration::from_secs(3);
 /// How long a poll waits for the main thread to say whether the person is
-/// looking at Copilot; past it, the alert shows.
+/// looking at Kraken; past it, the alert shows.
 const FOCUS_WAIT: Duration = Duration::from_secs(2);
 
 /// What the page is told this computer is.
 const PLATFORM: &str = if cfg!(target_os = "macos") { "mac" } else { "windows" };
 const USER_AGENT: &str = concat!("TipTopCopilot/", env!("CARGO_PKG_VERSION"), " desktop-alerts");
-/// Copilot's own 401 for a token it no longer knows names this realm. Any
+/// Kraken's own 401 for a token it no longer knows names this realm. Any
 /// other 401 (a proxy, a deploy that lost the route) is a passing failure:
 /// forgetting the token on one would turn alerts off on every computer.
 const REALM: &str = "realm=\"tiptop-copilot\"";
@@ -174,7 +174,7 @@ struct State {
     next_due: Option<SystemTime>,
     /// Failed polls in a row.
     failures: u32,
-    /// The next poll waits as Copilot asked (Retry-After) or while the
+    /// The next poll waits as Kraken asked (Retry-After) or while the
     /// system does not allow notifications; `alerts_poll_soon` leaves it.
     held: bool,
     /// The page asked for a poll soon since the last poll started.
@@ -187,7 +187,7 @@ struct State {
 impl State {
     /// The page asked for a poll soon (`alerts_poll_soon`): the next comes
     /// within `POLL_SOONEST`, never later than one already due. Nothing
-    /// changes while alerts are off, failed polls back off or Copilot asked
+    /// changes while alerts are off, failed polls back off or Kraken asked
     /// the app to wait.
     fn poll_soon(&mut self, now: SystemTime) {
         if self.token.is_some() && self.failures == 0 && !self.held {
@@ -196,7 +196,7 @@ impl State {
         }
     }
 
-    /// Copilot answered a poll: the next comes when it said, or within
+    /// Kraken answered a poll: the next comes when it said, or within
     /// `POLL_SOONEST` when the page asked for one while this poll was under
     /// way, since the answer may predate that question.
     fn answered(&mut self, poll_after: Duration, now: SystemTime) {
@@ -283,11 +283,11 @@ impl Alerts {
         state.failures = state.failures.saturating_add(1);
         state.next_due = Some(SystemTime::now() + backoff(state.failures));
         if state.failures == 1 {
-            eprintln!("could not reach Copilot for desktop alerts; trying again later");
+            eprintln!("could not reach Kraken for desktop alerts; trying again later");
         }
     }
 
-    /// Copilot no longer knows the token (turned off elsewhere, signed out,
+    /// Kraken no longer knows the token (turned off elsewhere, signed out,
     /// or removed from the organization): alerts are off here. The device id
     /// stays.
     fn revoked(&self, generation: u64) {
@@ -301,7 +301,7 @@ impl Alerts {
             current
         };
         if cleared {
-            eprintln!("desktop alerts were turned off for this computer from Copilot");
+            eprintln!("desktop alerts were turned off for this computer from Kraken");
             self.persist();
         }
     }
@@ -425,7 +425,7 @@ pub async fn alerts_request_permission<R: Runtime>(
     shared.status(ask_permission(shared).await)
 }
 
-/// Turns alerts on with the token Copilot just issued for this computer.
+/// Turns alerts on with the token Kraken just issued for this computer.
 /// Refused unless it is a desktop alerts token for this computer's id. Keeps
 /// nothing, and answers off, unless the system allows notifications.
 #[tauri::command]
@@ -458,7 +458,7 @@ pub async fn alerts_turn_on<R: Runtime>(
 }
 
 /// Turns alerts off for this computer: forgets the token (keeping the id)
-/// and tells Copilot, best effort; the page tells it too.
+/// and tells Kraken, best effort; the page tells it too.
 #[tauri::command]
 pub async fn alerts_turn_off<R: Runtime>(window: WebviewWindow<R>) -> Result<Status, String> {
     let app = from_main(&window)?;
@@ -505,7 +505,7 @@ pub async fn alerts_test<R: Runtime>(window: WebviewWindow<R>) -> Result<Status,
     if ready {
         let test = Alert {
             keys: Vec::new(),
-            title: "TipTop Copilot".to_owned(),
+            title: "TipTop Kraken".to_owned(),
             body: "Alerts work on this computer.".to_owned(),
             path: "/settings".to_owned(),
             urgent: false,
@@ -528,11 +528,11 @@ fn due_soon(next_due: Option<SystemTime>, now: SystemTime) -> Option<SystemTime>
 
 /// Looks for this computer's alerts within half a minute: the page calls it
 /// when a question to Ask Arwin starts waiting, so the answer can ping at
-/// night too, when Copilot otherwise has the app wait until 6am. Never
+/// night too, when Kraken otherwise has the app wait until 6am. Never
 /// sooner than that however often it is called, never later than a poll
 /// already due, and nothing while alerts are off, failed polls back off or
-/// Copilot asked the app to wait. Shows nothing itself: what comes is up to
-/// Copilot.
+/// Kraken asked the app to wait. Shows nothing itself: what comes is up to
+/// Kraken.
 #[tauri::command]
 pub async fn alerts_poll_soon<R: Runtime>(window: WebviewWindow<R>) -> Result<(), String> {
     let app = from_main(&window)?;
@@ -545,7 +545,7 @@ async fn revoke<R: Runtime>(app: &AppHandle<R>, token: &str) {
         return;
     };
     if client.delete(alerts_url()).bearer_auth(token).send().await.is_err() {
-        eprintln!("could not tell Copilot that desktop alerts are off here");
+        eprintln!("could not tell Kraken that desktop alerts are off here");
     }
 }
 
@@ -582,7 +582,7 @@ async fn poll_once<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Shows what is new in `batch`, saves, then tells Copilot which alerts this
+/// Shows what is new in `batch`, saves, then tells Kraken which alerts this
 /// computer has: those shown now, and any shown before in case that earlier
 /// acknowledgement was lost. An alert the system refused is neither, so the
 /// next poll offers it again, until it has failed `TRIES_MAX` times.
@@ -614,7 +614,7 @@ async fn deliver<R: Runtime>(
         };
         if fresh {
             // What the page announces itself (an Ask Arwin answer) counts as
-            // shown while the person is looking at Copilot: remembered and
+            // shown while the person is looking at Kraken: remembered and
             // reported like any other, so it never shows later.
             let shown = (alert.quiet_when_focused && quiet_here(app, &alert.path))
                 || show(app, shared, alert).await;
@@ -681,7 +681,7 @@ async fn deliver<R: Runtime>(
         Ok(response) if answer_of(&response) == Answer::Revoked => shared.revoked(generation),
         Ok(_) => {}
         // Shown alerts stay remembered here, and the next poll says so again.
-        Err(_) => eprintln!("could not tell Copilot which alerts were shown"),
+        Err(_) => eprintln!("could not tell Kraken which alerts were shown"),
     }
 }
 
@@ -736,11 +736,11 @@ async fn read_body(mut response: reqwest::Response) -> Option<Vec<u8>> {
     Some(body)
 }
 
-/// What an answer from Copilot means.
+/// What an answer from Kraken means.
 #[derive(Debug, PartialEq, Eq)]
 enum Answer {
     Ok,
-    /// Copilot itself no longer knows the token.
+    /// Kraken itself no longer knows the token.
     Revoked,
     Wait(Duration),
     Failed,
@@ -766,7 +766,7 @@ fn retry_wait(retry_after: Option<&str>) -> Duration {
         })
 }
 
-/// Copilot's hint for the next poll, in seconds, kept between 30 seconds and
+/// Kraken's hint for the next poll, in seconds, kept between 30 seconds and
 /// 10 hours; a minute without one.
 fn poll_after(hint: Option<f64>) -> Duration {
     let seconds = hint
@@ -776,7 +776,7 @@ fn poll_after(hint: Option<f64>) -> Duration {
 }
 
 /// After the `failures`th failed poll in a row: a minute, two, then five,
-/// and a quarter of an hour once Copilot has failed for about 20 minutes, so
+/// and a quarter of an hour once Kraken has failed for about 20 minutes, so
 /// a broken deploy is not woken every few minutes all night.
 fn backoff(failures: u32) -> Duration {
     Duration::from_secs(match failures {
@@ -796,7 +796,7 @@ fn is_due(next_due: Option<SystemTime>, now: SystemTime) -> bool {
     })
 }
 
-/// An alert from Copilot, checked.
+/// An alert from Kraken, checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Alert {
     keys: Vec<String>,
@@ -806,7 +806,7 @@ struct Alert {
     path: String,
     /// A meeting: shown first and for longer.
     urgent: bool,
-    /// Shown only while the person is not looking at Copilot (an Ask Arwin
+    /// Shown only while the person is not looking at Kraken (an Ask Arwin
     /// answer, which the page announces itself); otherwise counted as shown.
     quiet_when_focused: bool,
 }
@@ -842,7 +842,7 @@ struct RawAlert {
     quiet_when_focused: bool,
 }
 
-/// Copilot's answer: other fields are ignored, an alert that does not fit is
+/// Kraken's answer: other fields are ignored, an alert that does not fit is
 /// skipped (the rest still show), and at most `SHOWN_MAX`, meetings first.
 fn parse_batch(body: &[u8]) -> Option<Batch> {
     let raw: RawBatch = serde_json::from_slice(body).ok()?;
@@ -853,7 +853,7 @@ fn parse_batch(body: &[u8]) -> Option<Batch> {
         .filter_map(|value| serde_json::from_value::<RawAlert>(value).ok())
         .filter_map(alert_from)
         .collect();
-    // Stable, so the rest keep Copilot's order.
+    // Stable, so the rest keep Kraken's order.
     alerts.sort_by_key(|alert| !alert.urgent);
     alerts.truncate(SHOWN_MAX);
     Some(Batch {
@@ -981,7 +981,7 @@ fn token_fits(token: &str, device: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
 }
 
-/// The same rule Copilot and the page apply: a path on the live site, up to
+/// The same rule Kraken and the page apply: a path on the live site, up to
 /// 300 characters of `A-Za-z0-9/_.~?=&%+,-`, starting with one slash, with
 /// no `%` before any `?` (so no escape can spell a path the app blocks).
 fn path_fits(path: &str) -> bool {
@@ -1061,7 +1061,7 @@ fn replied_script(path: &str) -> String {
 }
 
 /// Whether an alert marked `quiet_when_focused` stays quiet: true while the
-/// person is looking at Copilot (`main_in_front`), and the page is then told
+/// person is looking at Kraken (`main_in_front`), and the page is then told
 /// (`replied_script`). Asked on the main thread, which owns the window;
 /// false when it does not answer within `FOCUS_WAIT`, so the alert shows.
 fn quiet_here<R: Runtime>(app: &AppHandle<R>, path: &str) -> bool {
@@ -1085,7 +1085,7 @@ fn quiet_here<R: Runtime>(app: &AppHandle<R>, path: &str) -> bool {
     posted.is_ok() && told.recv_timeout(FOCUS_WAIT).unwrap_or(false)
 }
 
-/// Whether the person is looking at Copilot: the main window shown, not
+/// Whether the person is looking at Kraken: the main window shown, not
 /// minimised, in front and on the live site, where the page shows its own
 /// pop-up. Call it on the main thread: off it, each getter waits on the
 /// main thread with no time limit.
@@ -1436,7 +1436,7 @@ mod mac {
 
     /// True once macOS accepted the notification. Banners show even while the
     /// app is in front (the crate's delegate asks for them); an alert marked
-    /// quiet while the person looks at Copilot never gets here then
+    /// quiet while the person looks at Kraken never gets here then
     /// (`quiet_here`).
     pub async fn show<R: Runtime>(app: &AppHandle<R>, alert: &Alert) -> bool {
         let note = Notification::new()
@@ -1637,7 +1637,7 @@ mod tests {
         assert!(!off.soon);
 
         // A failed poll backs off, and a Retry-After (or notifications not
-        // allowed) holds the next poll where Copilot put it.
+        // allowed) holds the next poll where Kraken put it.
         let mut failing = State { failures: 1, next_due: Some(at(60)), ..on_at_night() };
         failing.poll_soon(at(0));
         assert_eq!(failing.next_due, Some(at(60)));
@@ -1649,7 +1649,7 @@ mod tests {
 
     #[test]
     fn an_ask_during_a_poll_is_not_lost_to_its_answer() {
-        // Copilot's answer predates the question: wait until 6am.
+        // Kraken's answer predates the question: wait until 6am.
         let mut asked = State { soon: true, ..on_at_night() };
         asked.answered(Duration::from_secs(7 * 3600), at(100));
         assert_eq!(asked.next_due, Some(at(130)));

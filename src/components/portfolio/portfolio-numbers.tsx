@@ -198,7 +198,7 @@ function MetricCell({
         </span>
         <span className="flex flex-wrap items-center gap-x-2 text-xs text-[var(--fg-subtle)]">
           <span>as of {formatDate(sourced.asOf, timeZone)}</span>
-          {/* The source email, in Copilot's Inbox or in Gmail. */}
+          {/* The source email, in Kraken's Inbox or in Gmail. */}
           <ThreadLinks
             id={sourced.threadId}
             mailbox={DEFAULT_MAILBOX}

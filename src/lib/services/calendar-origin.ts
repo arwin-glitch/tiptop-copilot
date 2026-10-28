@@ -22,10 +22,10 @@ import { isTeamVisibleNote } from '@/lib/notes/visibility';
 /**
  * "How you got here" for an event the guests say nothing about (no other
  * guests, a list or group invite, a registration, a hold): the email that
- * put it on the calendar, found read-only in what Copilot already syncs (the
+ * put it on the calendar, found read-only in what Kraken already syncs (the
  * stored mail, meeting notes, earlier events) and, with Gmail connected, one
  * read-only Gmail search. Ranked by lib/calendar/origin.ts; the best one to
- * three are shown as short lines, each with the thread's Copilot and Gmail
+ * three are shown as short lines, each with the thread's Kraken and Gmail
  * links. When nothing turns up, it says what was checked and offers the
  * Inbox search. Used by the event card (the retired day list used it too).
  *
@@ -38,7 +38,7 @@ export interface OriginLine {
   text: string;
   /** An email's subject, shown beside the line. */
   subject: string | null;
-  /** An email's link id, for the two-option links (Copilot and Gmail). */
+  /** An email's link id, for the two-option links (Kraken and Gmail). */
   threadId: string | null;
   /** A meeting note's page, or the day an earlier event was on. */
   href: string | null;

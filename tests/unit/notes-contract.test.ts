@@ -18,7 +18,7 @@ import { CLUSTER_KEY_RE } from '@/lib/transcribe/cluster';
 import { BUILTIN_TEMPLATES, NOTES_LIMITS, isBuiltinTemplateId } from '@/lib/types/notes';
 
 /**
- * The Copilot Notes contract (D-076): the request schemas say what the routes
+ * The Kraken Notes contract (D-076): the request schemas say what the routes
  * accept, the migration has every column the row types name, and the rules
  * that are privacy promises (no audio, voice identifiers server-only, consent
  * before recording) are written into the schema itself.
@@ -69,7 +69,7 @@ describe('the migration matches the row types', () => {
     });
   }
 
-  it('declares every Copilot field of a meeting_notes row', () => {
+  it('declares every Kraken field of a meeting_notes row', () => {
     const note = seed.meeting_notes[0] as unknown as Record<string, unknown>;
     const added = [
       ...SQL.matchAll(/alter table meeting_notes add column if not exists ([a-z_]+)/g),

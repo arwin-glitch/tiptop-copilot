@@ -8,7 +8,7 @@ const base = '/api/notes';
 const m = (id: string) => `${base}/meetings/${encodeURIComponent(id)}`;
 
 export const NOTES_API = {
-  /** GET/POST: this person's "Copilot Notes (beta)" switch and the feature's mode. */
+  /** GET/POST: this person's "Kraken Notes (beta)" switch and the feature's mode. */
   beta: `${base}/beta`,
   /** GET (list and search, see ListMeetingsQuery) / POST (create). */
   meetings: `${base}/meetings`,

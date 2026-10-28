@@ -45,7 +45,7 @@ export async function SharingPanel({ event, viewer }: EventPanelProps) {
             <CardDescription>
               Personal links for partners to work on the page design and words, with no account.
               They edit the draft only; changes go live when you publish. No link reaches guests,
-              messages, settings or anything else in Copilot.
+              messages, settings or anything else in Kraken.
             </CardDescription>
           </div>
           <a

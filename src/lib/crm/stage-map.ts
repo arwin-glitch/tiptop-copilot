@@ -2,13 +2,13 @@ import type { CrmField, DealStage } from '@/lib/types/domain';
 import type { LpStage } from '@/lib/services/follow-ups';
 
 /**
- * Reading Affinity's stage labels in Copilot's own terms.
+ * Reading Affinity's stage labels in Kraken's own terms.
  *
  * Affinity's pipelines are numbered free text ("2. First Call",
  * "7.1 Passed - After Call", "0. Identified / Vetted"), different on every
- * list. The pages that show them next to Copilot's own records need to know
- * which of Copilot's stages each one means, so a deal Affinity has at "5. Due
- * Diligence" sits with Copilot's Diligence deals and an LP at "4. Soft Commit"
+ * list. The pages that show them next to Kraken's own records need to know
+ * which of Kraken's stages each one means, so a deal Affinity has at "5. Due
+ * Diligence" sits with Kraken's Diligence deals and an LP at "4. Soft Commit"
  * with the soft commits. The original label is always shown as well: this is
  * a reading for grouping, never a rewrite of either side.
  *
@@ -70,7 +70,7 @@ const DEAL_RULES: readonly StageRule<string>[] = [
 ];
 
 /**
- * Copilot's deal stage for an Affinity pipeline label, or null when the label
+ * Kraken's deal stage for an Affinity pipeline label, or null when the label
  * reads as none of them. With `stages`, only a key the workspace actually has
  * (its thesis may have renamed or dropped some) is returned.
  */

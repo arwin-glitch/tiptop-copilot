@@ -292,7 +292,7 @@ export function checkedWords(terms: OriginTerms, guests: number): string {
   ].filter((p): p is string => p !== null);
   const list =
     parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]!;
-  return `Copilot looked for ${list}, and found nothing that explains it.`;
+  return `Kraken looked for ${list}, and found nothing that explains it.`;
 }
 
 /** The Inbox search for an event: its distinctive words, else its title. */

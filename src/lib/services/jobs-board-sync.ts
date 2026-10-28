@@ -618,7 +618,7 @@ async function readAndApply(
     case 'backoff':
       return skip('The job board asked for a pause; the next run tries again.');
     case 'too_large':
-      return fail('The job board sent more than Copilot reads at once.');
+      return fail('The job board sent more than Kraken reads at once.');
     case 'network':
       return fail('The job board did not answer in time; the next run tries again.');
   }
@@ -631,7 +631,7 @@ async function readAndApply(
     }
   })();
   if (finalHost && finalHost !== new URL(atsApiUrl(board)).hostname) {
-    return fail('The job board sent Copilot somewhere else, so nothing was read.');
+    return fail('The job board sent Kraken somewhere else, so nothing was read.');
   }
   if (answer.status >= 300 && answer.status < 400) {
     return fail('The job board moved; check the careers address.');
@@ -647,10 +647,10 @@ async function readAndApply(
   try {
     body = JSON.parse(answer.text);
   } catch {
-    return fail('The job board sent an answer Copilot cannot read.');
+    return fail('The job board sent an answer Kraken cannot read.');
   }
   const parsed = parseAtsJobs(board.ats, body);
-  if (!parsed) return fail('The job board sent an answer Copilot cannot read.');
+  if (!parsed) return fail('The job board sent an answer Kraken cannot read.');
   const counts = await applyBoardPostings(
     store,
     organizationId,

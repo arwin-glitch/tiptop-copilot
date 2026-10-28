@@ -53,7 +53,7 @@ const has = (params: Params, ...names: string[]) => names.some((n) => Boolean(si
 
 /**
  * Deals is a working page, not a Records page, but its Affinity views sit
- * behind the same kind of bar: Copilot's own screening list first (the bare
+ * behind the same kind of bar: Kraken's own screening list first (the bare
  * URL, unchanged), then the one pipeline merged with Affinity's, then the
  * companies Affinity was only watching.
  */
@@ -67,13 +67,13 @@ export const DEALS_TABS = define({
       key: 'screening',
       label: 'Screening',
       blurb:
-        'Every deal Copilot tracks, with its recommendation and how much of it rests on real evidence.',
+        'Every deal Kraken tracks, with its recommendation and how much of it rests on real evidence.',
     },
     {
       key: 'pipeline',
       label: 'Pipeline',
       blurb:
-        "One pipeline: Copilot's deals and Affinity's deal lists matched by company, each with its stage, Affinity's own label kept.",
+        "One pipeline: Kraken's deals and Affinity's deal lists matched by company, each with its stage, Affinity's own label kept.",
     },
     {
       key: 'sourcing',
@@ -232,7 +232,7 @@ export const MEETINGS_TABS = define({
       key: 'notes',
       label: 'Notes',
       blurb:
-        "Every meeting note: Granola's, Affinity's, and Copilot's own once Copilot Notes is on. Search by title, person, company or what was said.",
+        "Every meeting note: Granola's, Affinity's, and Kraken's own once Kraken Notes is on. Search by title, person, company or what was said.",
     },
   ],
   // A search (from the box or the command palette) is a search of the notes.
@@ -381,7 +381,7 @@ export const ASK_TABS = define({
       key: 'feedback',
       label: 'Feedback',
       blurb:
-        'What to change in Copilot, sent from the Feedback tab of the chat with the page it was about. Open notes first; mark each done.',
+        'What to change in Kraken, sent from the Feedback tab of the chat with the page it was about. Open notes first; mark each done.',
     },
   ],
 });

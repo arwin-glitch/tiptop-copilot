@@ -13,7 +13,7 @@ import {
  * workspace, with the shell simulated (tests/helpers/desktop-alerts.ts): the
  * phone card in a browser, the update line in an older app, turning this
  * computer on and off (also across a tab switch before the page refreshed),
- * a computer Copilot no longer has, the blocked copy, a click on an alert
+ * a computer Kraken no longer has, the blocked copy, a click on an alert
  * opening its page, signing out turning the computer off, and from 0.4.1 Ask
  * Arwin answers: the line in Settings, the widget's own pop-up for an alert
  * the shell held back (each answer it groups, never one read on the full Ask
@@ -142,7 +142,7 @@ test('an app before 0.4.0 is told to update, and nothing asks its shell', async 
   await preferences(page, { version: '0.3.0' });
   await expect(page.getByText('Update the app to get desktop alerts.')).toBeVisible();
   await expect(
-    page.getByText('Phone alerts are separate: turn them on from Copilot on your phone.'),
+    page.getByText('Phone alerts are separate: turn them on from Kraken on your phone.'),
   ).toBeVisible();
   await expect(page.getByText('Phone alerts', { exact: true })).toHaveCount(0);
   expect(await alertCalls(page)).toEqual([]);
@@ -186,7 +186,7 @@ test('turn this computer on, test it, and turn it off', async ({ page, playwrigh
   await expect(page.getByText('Desktop alerts are on for this computer.')).toBeVisible();
 
   // Leaving the tab and coming back unmounts and remounts the card with
-  // that old list: it asks Copilot, which still has the computer on.
+  // that old list: it asks Kraken, which still has the computer on.
   const checked = page.waitForRequest((request) =>
     request.url().includes(`/api/push/desktop?device=${FAKE_DEVICE}`),
   );
@@ -236,7 +236,7 @@ test('turn this computer on, test it, and turn it off', async ({ page, playwrigh
   await shell.dispose();
 });
 
-test('a computer Copilot no longer has on is turned off here when Settings opens', async ({
+test('a computer Kraken no longer has on is turned off here when Settings opens', async ({
   page,
 }) => {
   await preferences(page, {
@@ -255,7 +255,7 @@ test('blocked notifications say where to allow them, on a Mac and on Windows', a
   });
   await expect(
     page.getByText(
-      'Notifications are blocked for TipTop Copilot. Allow them in System Settings > Notifications > TipTop Copilot, then come back to this page.',
+      'Notifications are blocked for TipTop Kraken. Allow them in System Settings > Notifications > TipTop Kraken, then come back to this page.',
     ),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Enable alerts on this computer' })).toHaveCount(0);
@@ -268,7 +268,7 @@ test('Windows says where too, and a second window sends you to the main one', as
   await preferences(windows, { state: { on: false, permission: 'denied', platform: 'windows' } });
   await expect(
     windows.getByText(
-      'Notifications are off for TipTop Copilot. Turn them on in Windows Settings > System > Notifications (Notifications & actions on Windows 10), then come back to this page.',
+      'Notifications are off for TipTop Kraken. Turn them on in Windows Settings > System > Notifications (Notifications & actions on Windows 10), then come back to this page.',
     ),
   ).toBeVisible();
   await windows.close();

@@ -21,7 +21,7 @@ const RESULTS: Record<string, { title: string; detail: string }> = {
   expired: {
     title: 'This sign-in link has expired',
     detail:
-      'Go back to the TipTop Copilot app and click Sign in with Google again. You can close this tab.',
+      'Go back to the TipTop Kraken app and click Sign in with Google again. You can close this tab.',
   },
   busy: { title: 'Too many tries', detail: 'Wait a minute, then try again from the app.' },
   unavailable: {

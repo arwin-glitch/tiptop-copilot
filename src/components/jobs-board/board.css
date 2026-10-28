@@ -2,7 +2,7 @@
    TipTop public job board: the Perks directory's look
    (perks.tiptop.vc): near-black with a cool undertone, off-white
    ink, TipTop green used sparingly, Mona Sans + Fragment Mono.
-   Every class starts with `jb-`, so nothing here touches Copilot.
+   Every class starts with `jb-`, so nothing here touches Kraken.
    Mobile first; motion respects prefers-reduced-motion.
    ============================================================ */
 
@@ -52,7 +52,7 @@ html:has(.jb-root) body {
   color: inherit;
 }
 
-/* Copilot's base styles make every svg a block; the board's icons sit in text. */
+/* Kraken's base styles make every svg a block; the board's icons sit in text. */
 .jb-root svg {
   display: inline-block;
   vertical-align: middle;

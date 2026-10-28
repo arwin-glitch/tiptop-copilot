@@ -25,7 +25,7 @@ import {
 import { DEMO_IDS } from './ids';
 
 /**
- * Copilot Notes demo data (D-076). Fictional throughout: Acme Robotics, Dana
+ * Kraken Notes demo data (D-076). Fictional throughout: Acme Robotics, Dana
  * Reyes and Priya Shah exist nowhere, and every address is on .example.
  *
  * Two meetings with the demo user as recorder:

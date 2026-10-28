@@ -49,7 +49,7 @@ export async function guard<T>(
   } catch (error) {
     if (isMissingTableError(error) || isMissingColumnError(error)) {
       return err('not_configured', NOT_SET_UP, {
-        stillUsable: 'Everything else in Copilot works as before.',
+        stillUsable: 'Everything else in Kraken works as before.',
         details: { operation },
       });
     }

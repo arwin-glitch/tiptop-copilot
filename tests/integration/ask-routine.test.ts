@@ -126,7 +126,7 @@ describe('asking a question', () => {
   });
 });
 
-describe('the payload, with and without a Copilot Notes context', () => {
+describe('the payload, with and without a Kraken Notes context', () => {
   it('a question without context fires exactly as before', () => {
     expect(fireText(QUESTION)).toBe(
       [

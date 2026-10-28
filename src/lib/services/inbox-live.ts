@@ -453,7 +453,7 @@ export function liveRowFromThread(thread: LiveThread): LiveThreadRow {
 }
 
 /**
- * The Gmail id behind Copilot's own id for a synced email or thread (what
+ * The Gmail id behind Kraken's own id for a synced email or thread (what
  * Today, a deal's sources and citations hold): the message's own Gmail id,
  * else its thread's. In the demo, the demo Inbox's id for that conversation.
  * Null when nothing synced has that id in this workspace. Never throws.

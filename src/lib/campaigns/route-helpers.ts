@@ -33,9 +33,9 @@ export async function campaignAuth(
 /**
  * The origin the tracking links point at (APP_URL), or null while it is a
  * local address outside demo mode. The campaign service then refuses to start
- * or go on with any campaign whose emails carry Copilot links (tracking or the
+ * or go on with any campaign whose emails carry Kraken links (tracking or the
  * unsubscribe line): every pixel, link and unsubscribe would be broken for the
- * people receiving them. A campaign with both off carries no Copilot link and
+ * people receiving them. A campaign with both off carries no Kraken link and
  * needs no public origin.
  */
 export function trackingOrigin(): string | null {

@@ -7,7 +7,7 @@
  *   WS2 Design        themes, effects, blocks, the guest renderer, OG card
  *   WS3 Studio        the editor, outside edit links, presence, history UI
  *   WS4 Guests        registration, guest list, check-in, the public routes
- *   WS5 Events tab    library, overview, settings, messages, Copilot wiring
+ *   WS5 Events tab    library, overview, settings, messages, Kraken wiring
  *
  * Every interface one workstream calls on another is declared HERE (types)
  * and, where code must exist on day 0, STUBBED at its owner's path so the
@@ -49,11 +49,11 @@
  *      text renders as React text nodes; rich text through lib/events/richtext.ts
  *      (WS2) into React nodes. No dangerouslySetInnerHTML outside the root
  *      layout's two static constants.
- *   2. /e/* pages are same-origin with Copilot: they get a strict nonce CSP
+ *   2. /e/* pages are same-origin with Kraken: they get a strict nonce CSP
  *      (lib/events/surface.ts via proxy.ts), must be dynamically rendered, and
  *      load no third-party script (Turnstile only when enabled). Embeds are
  *      allowlisted ids, loaded on click.
- *   3. Public routes expose nothing else in Copilot: they call only the narrow
+ *   3. Public routes expose nothing else in Kraken: they call only the narrow
  *      event services with (organizationId, eventId, actor) and return
  *      whitelisted fields. Guest emails never appear on a public page.
  *   4. Nothing sends email on its own. Every guest email is a campaign draft
@@ -62,7 +62,7 @@
  *      not qualify (filterDocForViewer, signed URLs), never hidden with CSS.
  *   6. Fictional data only in tests, fixtures, starters and docs (the repo
  *      is public).
- *   7. Link from Copilot pages to /e/* with a plain <a> (new tab), never
+ *   7. Link from Kraken pages to /e/* with a plain <a> (new tab), never
  *      next/link: a full document load is what gives the guest page its own
  *      CSP and chrome-free layout.
  */
@@ -152,7 +152,7 @@ export function isPageLive(event: Pick<EventRecord, 'status' | 'published_doc'>)
 
 /**
  * Who is acting on an event, as every service takes it. Owners come from the
- * Copilot session (getAuthContext + has_org_role member); grants from WS3's
+ * Kraken session (getAuthContext + has_org_role member); grants from WS3's
  * resolveGrant (the tiptop_ev_grant cookie, re-checked on every request).
  */
 export type EventActor =

@@ -1,7 +1,7 @@
 /**
- * TipTop Copilot: Meet names (D-076). Runs on Copilot's own pages.
+ * TipTop Kraken: Meet names (D-076). Runs on Kraken's own pages.
  *
- * The bridge between the Copilot page and the extension: the page says when a
+ * The bridge between the Kraken page and the extension: the page says when a
  * recording with a confirmed consent step is running ('recording-state'), and
  * names from Meet come back to the page as window messages on this origin
  * only. The page checks every message itself (src/lib/capture/meet-roster.ts).

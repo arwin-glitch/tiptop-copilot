@@ -95,7 +95,7 @@ export default async function NewNotePage({
         <ArrowLeft className="size-3.5" aria-hidden /> All notes
       </Link>
       <PageHeader
-        eyebrow="Copilot Notes"
+        eyebrow="Kraken Notes"
         title={prefill.source === 'calendar' ? 'Start notes' : 'New note'}
         subtitle="Open the notes, then tell everyone it is being transcribed before you start."
       />

@@ -103,7 +103,7 @@ const PUBLIC_PATHS = [
   // a pending request, brake per address and check where a write came from.
   '/meet',
   '/api/meet',
-  // Copilot Notes share links (D-076): /n/<token> is the read-only page a
+  // Kraken Notes share links (D-076): /n/<token> is the read-only page a
   // shared summary opens on. The page checks the token's hash itself, shows
   // nothing for a revoked or expired one, and brakes per address; only this
   // prefix, so nothing else under /n is public by accident. The API routes
@@ -116,7 +116,7 @@ const PUBLIC_PATHS = [
   '/t',
   // Event pages (D-075): /e/<slug>, personal invites and tickets, check-in
   // QR landings, and the outside-editor and staff entries. Guests and
-  // outsiders have no Copilot session by design. Every page reads only the
+  // outsiders have no Kraken session by design. Every page reads only the
   // PUBLISHED snapshot through lib/services/event-public.ts, filtered for the
   // viewer on the server; editor and staff pages re-check their link's
   // cookie on every request (lib/events/editor-auth.ts). /events (the
@@ -126,7 +126,7 @@ const PUBLIC_PATHS = [
   // outside editor's scoped draft/ops/sync/media proxies. Each handler works
   // out its actor (grant cookie, guest token, or nobody) and calls narrow
   // services that take (eventId, actor) and return whitelisted fields only;
-  // nothing here reaches any other Copilot data. /api/events stays signed in.
+  // nothing here reaches any other Kraken data. /api/events stays signed in.
   '/api/e',
   // DEMO MODE ONLY: the stand-in for the two event storage buckets — the
   // public bucket's public URLs, and signed upload/download URLs that carry
@@ -210,7 +210,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const board = routeBoardHost(pathname, requestHosts(request.headers), boardHosts(process.env));
   if (board.kind === 'not_found') return notFound();
   if (board.kind === 'serve') {
-    // The board host's own files: public, never through Copilot's sign-in.
+    // The board host's own files: public, never through Kraken's sign-in.
     if (pathname.endsWith('/opengraph-image') && !boardRequestAllowed(request.headers, pathname)) {
       return tooManyRequests();
     }
@@ -234,7 +234,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // The board at Copilot's own /jobs: public, braked like the board host, and
+  // The board at Kraken's own /jobs: public, braked like the board host, and
   // never through the session refresh below, so a rotated session cookie can
   // never ride on a public page. A /jobs address the board does not serve is
   // a 404 before any page renders.
@@ -281,7 +281,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // then clears every PKCE verifier in the request too: the very verifier the
   // sign-in is about to use, which would burn Google's single-use code.
   // The public surface (lib/events/surface.ts): event pages and booking get
-  // a request header the root layout reads to leave Copilot's chrome off,
+  // a request header the root layout reads to leave Kraken's chrome off,
   // and /e/* pages a fresh nonce and their own strict CSP, which Next.js
   // reads off the request to stamp its scripts. A client cannot fake either
   // header onto another page: both are stripped from every request that
@@ -366,7 +366,7 @@ function hasSurfaceHeaders(request: NextRequest): boolean {
   return request.headers.has(SURFACE_HEADER) || request.headers.has(NONCE_HEADER);
 }
 
-/** The request's headers marked as Copilot's own surface, with any forged nonce or CSP gone. */
+/** The request's headers marked as Kraken's own surface, with any forged nonce or CSP gone. */
 function appSurfaceHeaders(request: NextRequest): Headers {
   const headers = new Headers(request.headers);
   headers.delete(NONCE_HEADER);
@@ -410,7 +410,7 @@ const OWN_CSP_PATH = /^\/api\/briefings\/[a-z]+\/view$/;
 /**
  * Pages people outside the team open: a shared note, the booking page, campaign
  * tracking, event pages (D-075). They never record, so the microphone and
- * screen capture stay off there even though Copilot's own pages may ask for
+ * screen capture stay off there even though Kraken's own pages may ask for
  * them.
  */
 const OUTSIDER_PAGE = /^\/(n|meet|t|e)(\/|$)/;
@@ -419,13 +419,13 @@ const OUTSIDER_PAGE = /^\/(n|meet|t|e)(\/|$)/;
 const SHARED_NOTE_PAGE = /^\/n(\/|$)/;
 
 /**
- * Permissions-Policy. Copilot Notes records in the browser (D-076): the
+ * Permissions-Policy. Kraken Notes records in the browser (D-076): the
  * microphone, and the meeting's audio through screen or tab sharing. Both are
- * allowed for Copilot's own origin only (`self`), never for a frame from
+ * allowed for Kraken's own origin only (`self`), never for a frame from
  * anywhere else, and the browser still asks the person before either starts.
  *
  * Allowed on every signed-in page rather than only the meeting page because
- * the policy belongs to the document, and Copilot moves between pages without
+ * the policy belongs to the document, and Kraken moves between pages without
  * loading a new one: opened from Today or the Calendar, the meeting page runs
  * in the document Today or the Calendar loaded, under that page's policy. A
  * policy scoped to /meetings alone would block the microphone exactly when
@@ -444,7 +444,7 @@ function withSecurityHeaders(
   options: {
     ownCsp?: boolean;
     pathname?: string;
-    /** A route-specific policy in place of Copilot's (event pages). */
+    /** A route-specific policy in place of Kraken's (event pages). */
     csp?: string;
     referrer?: 'no-referrer';
     noindex?: boolean;
@@ -458,7 +458,7 @@ function withSecurityHeaders(
   const csp = [
     "default-src 'self'",
     // 'wasm-unsafe-eval': the meeting recorder's speech worker runs Whisper as
-    // WebAssembly (D-076); ONNX Runtime's binary is Copilot's own static file.
+    // WebAssembly (D-076); ONNX Runtime's binary is Kraken's own static file.
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
@@ -467,7 +467,7 @@ function withSecurityHeaders(
     // redirects to its *.hf.co storage) and are cached by the browser. Only
     // downloads: no audio or text ever goes there (D-076).
     "connect-src 'self' https://*.supabase.co https://*.supabase.in https://huggingface.co https://*.huggingface.co https://*.hf.co",
-    // The speech worker: Copilot's own script (the bundler may start it from a blob).
+    // The speech worker: Kraken's own script (the bundler may start it from a blob).
     "worker-src 'self' blob:",
     "frame-ancestors 'none'",
     "form-action 'self'",

@@ -220,7 +220,7 @@ export function ProofLine({
     <div className="mt-1 text-xs text-[var(--fg-muted)]">
       <p className="flex items-start gap-1.5">
         <Icon className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-        {/* A proof that is one Gmail email reads in Copilot or Gmail; any other link stays as it is. */}
+        {/* A proof that is one Gmail email reads in Kraken or Gmail; any other link stays as it is. */}
         <ThreadLinksForHref
           href={proof.href}
           text={proof.label}

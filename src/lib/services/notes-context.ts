@@ -19,12 +19,12 @@ import type { Meeting, MeetingParticipant, NoteTemplate } from '@/lib/types/note
 import type { NotesContext } from './notes';
 
 /**
- * What Copilot already knows about the people in a meeting (D-076): the
+ * What Kraken already knows about the people in a meeting (D-076): the
  * team (and whose promises are the principal's), the guests' companies in
  * the deal pipeline and the portfolio, who is on an LP list (stages only,
  * never amounts), the guests in the network, and earlier meetings with them.
  *
- * It feeds the notes (Granola's notes know only the meeting; Copilot's know
+ * It feeds the notes (Granola's notes know only the meeting; Kraken's know
  * the deal stage), the template auto-pick and the chat. Every read is caught
  * on its own: a CRM table that is not there yet makes that part empty, never
  * the notes fail.
@@ -55,7 +55,7 @@ export async function readTeamInfo(store: DataStore, organizationId: string): Pr
       emails,
     };
   } catch (error) {
-    log.warn('Copilot Notes: the team could not be read', {
+    log.warn('Kraken Notes: the team could not be read', {
       reason: error instanceof Error ? error.message : String(error),
     });
     return {
@@ -87,7 +87,7 @@ async function settle<T>(what: string, fallback: T, run: () => Promise<T>): Prom
   try {
     return await run();
   } catch (error) {
-    log.warn('Copilot Notes: a context read failed', {
+    log.warn('Kraken Notes: a context read failed', {
       what,
       reason: error instanceof Error ? error.message : String(error),
     });
@@ -240,7 +240,7 @@ async function lpKeysFor(
 
 /**
  * Up to three earlier meetings with any of these guests, newest first:
- * Granola notes (team-visible) and Copilot notes the reader may see.
+ * Granola notes (team-visible) and Kraken notes the reader may see.
  */
 async function earlierMeetings(
   ctx: NotesContext,

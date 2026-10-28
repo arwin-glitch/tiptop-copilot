@@ -1,7 +1,7 @@
 //! Where a URL may open: in the app, in the system browser, or nowhere.
 //!
 //! The window has no address bar, so anything that loads in it looks like
-//! Copilot. Only the live site (over https), the bundled fallback page and
+//! Kraken. Only the live site (over https), the bundled fallback page and
 //! the blank page a new window starts on may load there.
 use tauri::Url;
 
@@ -128,7 +128,7 @@ mod tests {
         assert_routes(
             &[
                 "http://copilot.tiptop.vc/today",
-                "data:text/html,<h1>Copilot</h1>",
+                "data:text/html,<h1>Kraken</h1>",
                 "about:settings",
                 "blob:null/0b1c",
                 "blob:https://evil.example/0b1c",

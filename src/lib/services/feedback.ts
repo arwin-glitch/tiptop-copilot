@@ -15,7 +15,7 @@ import { err, ok, type Result } from '@/lib/util/result';
 import { snippet } from '@/lib/util/text';
 
 /**
- * In-app feedback: what someone wants changed in Copilot, typed (or dictated
+ * In-app feedback: what someone wants changed in Kraken, typed (or dictated
  * with the phone's or computer's own dictation, so the page never asks for
  * the microphone) in the Ask Arwin panel's Feedback tab, with the page it was
  * sent from. The full Ask page's Feedback tab lists every note, open ones

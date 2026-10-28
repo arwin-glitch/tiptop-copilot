@@ -66,7 +66,7 @@ export const WHATS_NEW: readonly WhatsNewItem[] = [
   {
     date: '2026-10-22',
     page: 'meetings',
-    text: 'Copilot Notes: meeting notes Arwin writes for free. Beta, off for now.',
+    text: 'Kraken Notes: meeting notes Arwin writes for free. Beta, off for now.',
     href: '/meetings?tab=notes',
     soon: true,
   },
@@ -102,7 +102,7 @@ export const WHATS_NEW: readonly WhatsNewItem[] = [
   {
     date: '2026-10-21',
     page: 'inbox',
-    text: 'Every email link offers two places to read it: Copilot or Gmail.',
+    text: 'Every email link offers two places to read it: Kraken or Gmail.',
   },
   {
     date: '2026-10-21',

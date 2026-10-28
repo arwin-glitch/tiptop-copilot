@@ -2,13 +2,13 @@ import { BUILTIN_TEMPLATES, type NoteTemplate, type TemplateMeetingType } from '
 
 /**
  * Which template a meeting's notes use when nobody picked one (D-076).
- * Granola can only default to "Auto"; Copilot knows the CRM, so it can tell
+ * Granola can only default to "Auto"; Kraken knows the CRM, so it can tell
  * a founder pitch from an LP call before anyone types a word.
  *
  * In order:
  *   1. A custom template whose rule matches: a guest's domain first, then a
  *      word in the title, then the meeting type.
- *   2. The meeting type, from what Copilot knows about the guests:
+ *   2. The meeting type, from what Kraken knows about the guests:
  *      nobody from outside the team → internal; a portfolio company's domain
  *      → portfolio; someone on an LP list → LP call; a company in the deal
  *      pipeline → founder pitch.

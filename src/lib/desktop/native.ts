@@ -121,7 +121,7 @@ export async function turnOnDesktopAlerts(token: string): Promise<DesktopAlertsS
   return alertsStatus(await call('alerts_turn_on', { token }));
 }
 
-/** The shell forgets its token and tells Copilot to turn this computer off. */
+/** The shell forgets its token and tells Kraken to turn this computer off. */
 export async function turnOffDesktopAlerts(): Promise<DesktopAlertsStatus | null> {
   return alertsStatus(await call('alerts_turn_off', {}));
 }

@@ -16,7 +16,7 @@ import { err, ok, type Result } from '@/lib/util/result';
  * the guests through Google itself (sendUpdates 'all'): the invitation when
  * a booking is made, the update when it moves, the cancellation when it
  * goes. Putting its description back tells nobody.
- * Copilot sends no email of its own.
+ * Kraken sends no email of its own.
  *
  * Reached from these places only, each time-changing write after the time
  * was checked again against the live calendar and every rule
@@ -33,7 +33,7 @@ export interface LinkWriteContext {
   store: DataStore;
   organizationId: string;
   source: CalendarSource;
-  /** The person who pressed it in Copilot; null for a visitor on the link. */
+  /** The person who pressed it in Kraken; null for a visitor on the link. */
   actorId: string | null;
 }
 

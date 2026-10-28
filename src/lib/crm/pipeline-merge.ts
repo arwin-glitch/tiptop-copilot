@@ -3,10 +3,10 @@ import { normalizeCompanyName, normalizeDomain } from '@/lib/util/text';
 import { affinityDealStageKey } from './stage-map';
 
 /**
- * One deal pipeline out of two: Copilot's own deals and the rows of
+ * One deal pipeline out of two: Kraken's own deals and the rows of
  * Affinity's deal lists, matched company by company.
  *
- * A row is a company. Copilot's deal and Affinity's entries for the same
+ * A row is a company. Kraken's deal and Affinity's entries for the same
  * company (same domain, else the same normalized name) share a row, so Nick
  * sees one line per company with both stages on it. Read-only by design:
  * nothing here writes a stage or a decision on either side. Where the two
@@ -41,7 +41,7 @@ export interface PipelineEntryInput {
 }
 
 export interface PipelineAffinityEntry extends PipelineEntryInput {
-  /** Copilot's stage key for `status`, or null when it reads as none. */
+  /** Kraken's stage key for `status`, or null when it reads as none. */
   mappedKey: string | null;
 }
 
@@ -53,7 +53,7 @@ export interface PipelineRow {
   deal: { id: string; stageKey: string } | null;
   /** Newest first. */
   affinity: PipelineAffinityEntry[];
-  /** The stage the row is grouped by: Copilot's when it has the deal, else Affinity's reading. */
+  /** The stage the row is grouped by: Kraken's when it has the deal, else Affinity's reading. */
   stageKey: string | null;
   stageSource: 'copilot' | 'affinity' | null;
   /** Both sides have a stage for the company and they read differently. */
@@ -66,7 +66,7 @@ function latest(a: string, b: string): string {
   return a > b ? a : b;
 }
 
-/** Merge Copilot's deals and Affinity's deal-list entries into one row per company. */
+/** Merge Kraken's deals and Affinity's deal-list entries into one row per company. */
 export function mergePipeline(
   deals: readonly PipelineDealInput[],
   entries: readonly PipelineEntryInput[],
@@ -163,7 +163,7 @@ export type PipelineStageFilter = 'open' | 'any' | 'other' | string;
 export interface PipelineCounts {
   total: number;
   open: number;
-  /** Rows whose Affinity stage reads as none of Copilot's. */
+  /** Rows whose Affinity stage reads as none of Kraken's. */
   other: number;
   byStage: Record<string, number>;
   copilot: number;

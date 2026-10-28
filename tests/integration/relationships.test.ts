@@ -133,7 +133,7 @@ describe('a company’s profile', () => {
     expect(r.introducers.map((p) => p.email)).toEqual(['hana@riverlight.example']);
   });
 
-  it('falls back to the Affinity value, marked, when Copilot has no evidence', async () => {
+  it('falls back to the Affinity value, marked, when Kraken has no evidence', async () => {
     const r = await profileOf(GULLWING);
     // It has a domain, so this is "nothing on record", not "nothing to match on".
     expect(r.matched).toMatchObject({ by: 'none', matchable: true });

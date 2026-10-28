@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 /**
- * Copilot's MCP server with the token in the path, for claude.ai custom
+ * Kraken's MCP server with the token in the path, for claude.ai custom
  * connectors, which take a URL and nothing else. The URL is the secret: it is
  * shown once in Settings, never logged by the app, and revoking the token
  * there kills it. The path token is used even if the client also sends an

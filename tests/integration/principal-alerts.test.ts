@@ -11,7 +11,7 @@ import { POST as dailyJob } from '@/app/api/cron/daily/route';
 import { addSecondOrganization, createHarness, type Harness } from '../helpers/harness';
 
 /**
- * Alerts follow the principal (D-071): the member whose mailbox Copilot
+ * Alerts follow the principal (D-071): the member whose mailbox Kraken
  * reads, not the organization's owner role, who may be an assistant in
  * another time zone. On the invented demo team, reshaped so the two differ
  * the way a real team does: the teammate set the organization up and is its

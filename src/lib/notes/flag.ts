@@ -9,11 +9,11 @@ import { newId } from '@/lib/util/hash';
 import { err, ok, type Result } from '@/lib/util/result';
 
 /**
- * Whether Copilot Notes is on for this person (D-076). Off by default.
+ * Whether Kraken Notes is on for this person (D-076). Off by default.
  *
  * Two switches, both needed. NOTES_ENABLED on the server: 'off' (unset) hides
  * the feature everywhere and every /api/notes route answers 404; 'on' shows
- * it to everyone; 'beta' shows it to whoever turns on the "Copilot Notes
+ * it to everyone; 'beta' shows it to whoever turns on the "Kraken Notes
  * (beta)" switch in Settings. That per-person switch is kept the way the
  * Calendar's settings are, as audit_events rows (action `notes.beta_set`,
  * newest wins), so it needs no table of its own and reads as off on any error.
@@ -37,7 +37,7 @@ export async function readNotesBeta(
     )) as AuditEvent[];
     return rows[0]?.metadata?.enabled === true;
   } catch (error) {
-    log.warn('Copilot Notes switch could not be read', {
+    log.warn('Kraken Notes switch could not be read', {
       reason: error instanceof Error ? error.message : String(error),
     });
     return false;
@@ -59,7 +59,7 @@ export async function setNotesBeta(
   now: Date = new Date(),
 ): Promise<Result<NotesAccess>> {
   if (env().notesEnabled === 'off') {
-    return err('not_found', 'Copilot Notes is not available on this Copilot yet.');
+    return err('not_found', 'Kraken Notes is not available on this Kraken yet.');
   }
   const row: AuditEvent = {
     id: newId(),
@@ -75,7 +75,7 @@ export async function setNotesBeta(
   try {
     await store.insert('audit_events', row);
   } catch (error) {
-    log.error('Copilot Notes switch could not be saved', {
+    log.error('Kraken Notes switch could not be saved', {
       reason: error instanceof Error ? error.message : String(error),
     });
     return err('internal', 'That setting could not be saved. Try again.', { retryable: true });

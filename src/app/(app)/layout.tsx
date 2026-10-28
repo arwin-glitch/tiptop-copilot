@@ -131,11 +131,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               just below it, at --app-header-h. */}
           <header className="dark sticky top-[var(--titlebar-h)] z-[var(--z-header)] flex h-[var(--app-header-h)] items-center justify-between gap-3 bg-[var(--bg-sidebar)]/95 px-4 text-[var(--fg)] backdrop-blur after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-[linear-gradient(90deg,rgb(212_175_55/0.3),var(--gold)_30%,var(--gold)_70%,rgb(212_175_55/0.3))] lg:hidden">
             <div className="flex min-w-0 items-center gap-2">
-              {/* Named just "TipTop Copilot", not "… — Today": Playwright
+              {/* Named just "TipTop Kraken", not "… — Today": Playwright
                   matches accessible names by substring unless told otherwise,
                   so a label mentioning a nav destination would shadow the real
                   nav link in any `getByRole('link', { name: 'Today' })`. */}
-              <Link href="/today" aria-label="TipTop Copilot" className="shrink-0">
+              <Link href="/today" aria-label="TipTop Kraken" className="shrink-0">
                 <Mark className="text-[var(--brand-mark)]" size={20} />
               </Link>
               <MobileSectionLabel />

@@ -22,17 +22,17 @@ export function respond<T>(result: Result<T>, shape: (value: T) => Record<string
   return result.ok ? done(shape(result.value)) : fail(result.error);
 }
 
-/** What a route sees when Copilot Notes is off for this person: as if it did not exist. */
+/** What a route sees when Kraken Notes is off for this person: as if it did not exist. */
 export const NOTES_OFF: AppError = {
   code: 'not_found',
-  message: 'Copilot Notes is not turned on.',
+  message: 'Kraken Notes is not turned on.',
 };
 
 export type NotesGate = { ok: true; auth: AuthContext } | { ok: false; response: NextResponse };
 
 /**
- * Signed in, Copilot Notes on for this person, within a rate limit; for a
- * change also a member or above and a request from Copilot's own pages (the
+ * Signed in, Kraken Notes on for this person, within a rate limit; for a
+ * change also a member or above and a request from Kraken's own pages (the
  * Origin check Next applies to Server Actions, applied here by hand).
  */
 export async function notesGate(
@@ -42,7 +42,7 @@ export async function notesGate(
   if (options.write && !isSameOrigin(request)) {
     return {
       ok: false,
-      response: fail({ code: 'forbidden', message: 'That request did not come from Copilot.' }),
+      response: fail({ code: 'forbidden', message: 'That request did not come from Kraken.' }),
     };
   }
   const auth = await authOrError();

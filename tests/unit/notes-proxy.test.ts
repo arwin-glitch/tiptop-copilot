@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { proxy } from '@/proxy';
 
 /**
- * The proxy's part in Copilot Notes (D-076): the recorder may ask for the
- * microphone and the meeting's audio on Copilot's own pages (and only from
- * Copilot's own origin), never on the pages outsiders open; the vendors'
+ * The proxy's part in Kraken Notes (D-076): the recorder may ask for the
+ * microphone and the meeting's audio on Kraken's own pages (and only from
+ * Kraken's own origin), never on the pages outsiders open; the vendors'
  * sockets are allowed; and a shared note's page is public, unindexed and
  * uncached.
  */
@@ -21,7 +21,7 @@ async function headersFor(path: string, signedIn = true) {
 }
 
 describe('microphone and screen capture', () => {
-  it("are allowed for Copilot's own origin on its pages", async () => {
+  it("are allowed for Kraken's own origin on its pages", async () => {
     for (const path of ['/meetings/abc', '/today', '/calendar']) {
       const policy = (await headersFor(path)).headers.get('permissions-policy') ?? '';
       expect(policy, path).toContain('microphone=(self)');

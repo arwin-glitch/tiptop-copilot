@@ -122,7 +122,7 @@ describe('the extension package', () => {
     );
   });
 
-  it('posts the same notice Copilot copies, and speaks the bridge’s protocol', () => {
+  it('posts the same notice Kraken copies, and speaks the bridge’s protocol', () => {
     const core = loadCore();
     expect(core.CONSENT_NOTICE_TEXT).toBe(CONSENT_NOTICE_TEXT);
     expect(core.EXTENSION_SOURCE).toBe(EXTENSION_SOURCE);

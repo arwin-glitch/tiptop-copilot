@@ -191,7 +191,7 @@ export interface TravelInput {
   ownEntry: boolean;
   /** When it starts, for the time-zone check. */
   startsAt: string | null;
-  /** Copilot's Meeting verdict: a meeting with other people. */
+  /** Kraken's Meeting verdict: a meeting with other people. */
   meeting: boolean;
 }
 

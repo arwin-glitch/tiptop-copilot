@@ -45,7 +45,7 @@ function fail(error: AppError, status = statusForError(error.code)): NextRespons
  */
 export async function POST(request: NextRequest) {
   if (!isSameOrigin(request)) {
-    return fail(err('forbidden', 'This request must come from Copilot itself.').error);
+    return fail(err('forbidden', 'This request must come from Kraken itself.').error);
   }
 
   const allowed =

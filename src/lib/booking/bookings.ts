@@ -31,19 +31,19 @@ export interface LinkBooking {
   source: 'form' | 'chatbot';
   createdAt: string;
   rescheduledCount: number;
-  /** The event in Google Calendar, when Copilot made it. */
+  /** The event in Google Calendar, when Kraken made it. */
   eventLink: string | null;
   /** The visitor's own zone, when it names a real one (both clocks on the tab). */
   visitorTimeZone: string | null;
   /**
-   * Who cancelled: the visitor (on its page), the team (in Copilot) or the
+   * Who cancelled: the visitor (on its page), the team (in Kraken) or the
    * calendar (the event was deleted or cancelled in Google: "Cancelled in
    * Google"). Null while it is not cancelled.
    */
   cancelledBy: 'visitor' | 'team' | 'calendar' | null;
   /**
    * A held booking (booked at once, not on the calendar yet): why, and when
-   * Copilot tries again by itself (null: on every pass). The tab shows
+   * Kraken tries again by itself (null: on every pass). The tab shows
    * "Booking…" with the reason and a Try now button; never Approve.
    */
   holdReason: BookingHoldReason | null;

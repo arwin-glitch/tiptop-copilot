@@ -61,7 +61,7 @@ import { MeetingNotesSlot } from '@/components/notes/meeting-notes-slot';
  *   place as a Maps link; Open in Google Calendar for the rest.
  * - What Google shows (the time and its zone, how it repeats, the calendar,
  *   the guests and their answers, the organizer, the description with its
- *   links, attachments), plus Copilot's Meeting or Block verdict and why, the
+ *   links, attachments), plus Kraken's Meeting or Block verdict and why, the
  *   ping, its look in words (Ended, Not answered yet, Maybe, Declined), its
  *   colour label, and the context box: for a meeting on the main calendar the
  *   meeting context (the dossier, the prep note, the latest emails), and for
@@ -70,7 +70,7 @@ import { MeetingNotesSlot } from '@/components/notes/meeting-notes-slot';
  *   card is the one place for all of it.
  * - On a calendar with colour labels, Google's label picker instead of the
  *   eleven colours (label-picker.tsx: the named labels, then the unnamed
- *   colours as plain dots), a suggested label when Copilot's own data is
+ *   colours as plain dots), a suggested label when Kraken's own data is
  *   clear (used only on a tap), and a link to edit the labels in Google
  *   Calendar.
  *
@@ -425,7 +425,7 @@ function EventCardBody({
           </div>
         </div>
 
-        {/* Copilot's verdict, in the words Today and the pings use. */}
+        {/* Kraken's verdict, in the words Today and the pings use. */}
         {event.verdict.meeting ? (
           <Row icon={Bell}>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -818,7 +818,7 @@ function ColorRow({
 }
 
 /**
- * The label Copilot would give it, from its own data: a suggestion until
+ * The label Kraken would give it, from its own data: a suggestion until
  * "Use it" is tapped (that tap is the same label write as the picker's).
  * Without calendar editing it is shown, with no button.
  */
@@ -1023,7 +1023,7 @@ function ContextBox({
                     <span className="text-[var(--fg-subtle)]"> · {formatDate(t.at, timeZone)}</span>
                   ) : null}
                 </span>
-                {/* The thread in Copilot's Inbox, or in Gmail. */}
+                {/* The thread in Kraken's Inbox, or in Gmail. */}
                 <ThreadLinks id={t.id} mailbox={mailbox} label={t.subject} variant="text" />
               </li>
             ))}

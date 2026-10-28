@@ -11,7 +11,7 @@ import { createHarness, type Harness } from '../helpers/harness';
  * The WS4 routes end to end on the demo store (D-075): the public RSVP and
  * personal-link endpoints with their brakes, the QR check-in's staff check,
  * the staff claim, the calendar files, and the host's guest routes behind
- * the Copilot session. Fictional data; no network.
+ * the Kraken session. Fictional data; no network.
  */
 
 let h: Harness;
@@ -309,7 +309,7 @@ describe('calendar files', () => {
 describe('host routes', () => {
   const idParams = { params: Promise.resolve({ id: EVENT }) };
 
-  it('need a Copilot session', async () => {
+  it('need a Kraken session', async () => {
     signedIn = () => err('unauthenticated', 'Sign in to continue.');
     const res = await guestsRoute.GET(
       new NextRequest(`${ORIGIN}/api/events/${EVENT}/guests`),

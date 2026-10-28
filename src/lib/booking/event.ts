@@ -5,7 +5,7 @@ import { slotLabel, zoneName } from './public';
 
 /**
  * What an approved booking request becomes on the host's calendar, and the
- * two fallbacks around it: a prefilled Google Calendar link when Copilot may
+ * two fallbacks around it: a prefilled Google Calendar link when Kraken may
  * not write to the calendar, and a decline email for the person to read,
  * change and send themselves. Pure: the same request always gives the same
  * event, which the tests pin field by field.
@@ -62,13 +62,13 @@ export interface ApprovableRequest {
    * Booked with no person in between (instant, or a held time placed
    * later): the visitor's own words (note, deck link) stay out of the event,
    * which Google emails to every guest and the assistant routines read. They
-   * are on the Booking tab in Copilot instead.
+   * are on the Booking tab in Kraken instead.
    */
   unattended?: boolean;
 }
 
 /** What an unattended booking's event says instead of the visitor's note and deck link. */
-export const NOTE_IN_COPILOT = 'Their note and deck link are on the Booking tab in Copilot.';
+export const NOTE_IN_COPILOT = 'Their note and deck link are on the Booking tab in Kraken.';
 
 /**
  * The line every booked event's description ends with, before the booking's
@@ -253,7 +253,7 @@ const compact = (iso: string) =>
 
 /**
  * Google Calendar's "create event" page, filled in: what to open when
- * Copilot may not write to the calendar itself. Nothing is saved until the
+ * Kraken may not write to the calendar itself. Nothing is saved until the
  * person saves it there.
  */
 export function googleCalendarTemplateUrl(
@@ -356,7 +356,7 @@ export function icsFile(event: IcsEvent, stamp: Date = new Date()): string {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//TipTop Copilot//Booking link//EN',
+    'PRODID:-//TipTop Kraken//Booking link//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',

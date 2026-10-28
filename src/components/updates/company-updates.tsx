@@ -146,7 +146,7 @@ function UpdateRow({
               {u.bcc ? ' · you were bcc’d' : ''}
             </p>
           </div>
-          {/* The update email, in Copilot's Inbox or in Gmail. */}
+          {/* The update email, in Kraken's Inbox or in Gmail. */}
           <ThreadLinks
             id={u.threadId}
             mailbox={DEFAULT_MAILBOX}

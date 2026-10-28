@@ -4,7 +4,7 @@ import { getStore } from '@/lib/runtime';
 import { log } from '@/lib/security/redact';
 
 /**
- * GET /api/events/[id]/guests/sources — what "Add guests from Copilot" can
+ * GET /api/events/[id]/guests/sources — what "Add guests from Kraken" can
  * pick from (D-075, signed in): ?kind=lists (CRM lists of people), or
  * ?kind=people&q= (CRM people and Network contacts with an email, by name,
  * email or company). Names and emails only; the add itself is POST …/guests.

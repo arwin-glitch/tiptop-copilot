@@ -258,7 +258,7 @@ export const BLOCK_DEFINITIONS: Record<BlockType, BlockDefinition> = {
         kind: 'list',
         maxItems: 48,
         itemFields: [
-          { key: 'recordId', label: 'Pick from Copilot', kind: 'person' },
+          { key: 'recordId', label: 'Pick from Kraken', kind: 'person' },
           t('name', 'Name', 80),
           t('title', 'Title', 80),
           t('company', 'Company', 80),

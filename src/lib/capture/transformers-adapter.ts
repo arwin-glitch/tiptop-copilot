@@ -37,7 +37,7 @@ import {
  *
  * Free and on the device: models download once from huggingface.co at a
  * pinned revision and are cached by the browser. ONNX Runtime's WebAssembly
- * binary comes from Copilot itself: the bundler copies the installed
+ * binary comes from Kraken itself: the bundler copies the installed
  * onnxruntime-web's file into /_next/static/media/ with a content hash (so it
  * is cached for good and can never drift from the code that loads it), and
  * nothing is fetched from a third-party CDN. No audio and no text leave this
@@ -123,7 +123,7 @@ export class TransformersAdapter implements ModelAdapter {
       // transformers.js points ONNX Runtime at a CDN by default; an empty
       // setting sends it back to its own file, which the bundler ships.
       onnx.wasm.wasmPaths = {};
-      // No cross-origin isolation on Copilot's pages, so one thread.
+      // No cross-origin isolation on Kraken's pages, so one thread.
       onnx.wasm.numThreads = 1;
     }
   }
@@ -165,7 +165,7 @@ export class TransformersAdapter implements ModelAdapter {
           device: attempt.device,
           model: attempt.choice,
           message: fellBack
-            ? `${WHISPER_CHOICES[config.choice].label} could not run here, so Copilot uses ${WHISPER_CHOICES[attempt.choice].label} on ${attempt.device === 'webgpu' ? 'the graphics chip' : 'the processor'}.`
+            ? `${WHISPER_CHOICES[config.choice].label} could not run here, so Kraken uses ${WHISPER_CHOICES[attempt.choice].label} on ${attempt.device === 'webgpu' ? 'the graphics chip' : 'the processor'}.`
             : null,
         };
       } catch (error) {
@@ -174,7 +174,7 @@ export class TransformersAdapter implements ModelAdapter {
     }
     if (looksOffline(lastError)) {
       throw new ModelLoadError(
-        'The speech model could not download. Check the connection; Copilot tries again.',
+        'The speech model could not download. Check the connection; Kraken tries again.',
         true,
       );
     }
@@ -216,7 +216,7 @@ export class TransformersAdapter implements ModelAdapter {
     } catch (error) {
       throw new ModelLoadError(
         looksOffline(error)
-          ? 'The voice models could not download. Check the connection; Copilot tries again.'
+          ? 'The voice models could not download. Check the connection; Kraken tries again.'
           : 'This browser could not run the voice models.',
         looksOffline(error),
       );

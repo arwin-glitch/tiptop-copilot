@@ -30,11 +30,11 @@ const PATH = DEALS_TABS.path;
 const TAB = 'pipeline';
 
 /**
- * Deals → Pipeline: Copilot's deals and Affinity's deal lists as one
+ * Deals → Pipeline: Kraken's deals and Affinity's deal lists as one
  * pipeline, a row per company.
  *
- * Grouped by Copilot's stages so it reads like the rest of Deals: a deal
- * Copilot tracks keeps its own stage, and a company only Affinity has sits at
+ * Grouped by Kraken's stages so it reads like the rest of Deals: a deal
+ * Kraken tracks keeps its own stage, and a company only Affinity has sits at
  * the stage its Affinity label reads as (`affinityDealStageKey`), with that
  * label shown beside it. Where both have the company and disagree, the row
  * says so. Read-only: nothing here changes a deal's stage or decision.
@@ -100,7 +100,7 @@ export async function AffinityPipeline({
         {[
           `${counts.total.toLocaleString('en-US')} companies`,
           `${counts.both} in both`,
-          `${counts.copilot} only in Copilot`,
+          `${counts.copilot} only in Kraken`,
           `${counts.affinity} only in Affinity`,
         ].join(' · ')}
         . Read-only: never changes a deal.
@@ -111,7 +111,7 @@ export async function AffinityPipeline({
           variant="inline"
           className="mb-3"
           title="Affinity data is not set up yet"
-          description={`Showing Copilot's deals only. Run ${CRM_MIGRATION_FILE} in the Supabase SQL editor to bring in Affinity's pipeline.`}
+          description={`Showing Kraken's deals only. Run ${CRM_MIGRATION_FILE} in the Supabase SQL editor to bring in Affinity's pipeline.`}
         />
       ) : null}
       {failed ? (
@@ -119,7 +119,7 @@ export async function AffinityPipeline({
           className="mb-3"
           title="Affinity's pipeline could not be loaded"
           message={failed}
-          stillUsable="Copilot's own deals are listed below."
+          stillUsable="Kraken's own deals are listed below."
         />
       ) : null}
       <div className="mb-4 space-y-3">
@@ -223,7 +223,7 @@ function PipelineRowView({
         </Link>
         <p className="text-mini flex flex-wrap items-center gap-1.5 text-[var(--fg-subtle)]">
           {row.domain ? <span>{row.domain}</span> : null}
-          {row.deal ? <Badge tone="outline">Copilot</Badge> : null}
+          {row.deal ? <Badge tone="outline">Kraken</Badge> : null}
           {row.affinity.length ? <Badge tone="outline">Affinity</Badge> : null}
         </p>
       </td>
@@ -250,7 +250,7 @@ function PipelineRowView({
               {more > 0 ? ` · +${more} more` : ''}
             </p>
             {row.differs ? (
-              <p className="text-mini mt-0.5 text-[var(--warn)]">Differs from Copilot</p>
+              <p className="text-mini mt-0.5 text-[var(--warn)]">Differs from Kraken</p>
             ) : null}
           </>
         ) : (

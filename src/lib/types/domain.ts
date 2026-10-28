@@ -11,7 +11,7 @@ import type { CopilotNoteFields } from './notes';
 export type Uuid = string;
 export type IsoDateTime = string;
 
-// Copilot Notes' shapes (meetings, speakers, transcript lines, the API) live
+// Kraken Notes' shapes (meetings, speakers, transcript lines, the API) live
 // in notes.ts and are re-exported here, so either import path works.
 export type * from './notes';
 
@@ -630,12 +630,12 @@ export interface KnowledgeChunk {
   created_at: IsoDateTime;
 }
 
-/** Where a meeting note came from: Granola's export, or Copilot's own recorder. */
+/** Where a meeting note came from: Granola's export, or Kraken's own recorder. */
 export type MeetingNoteProvider = 'granola' | 'copilot';
 
 /**
  * A meeting note ingested from an external note-taker (Granola), or written by
- * Copilot Notes (provider 'copilot', with the CopilotNoteFields filled).
+ * Kraken Notes (provider 'copilot', with the CopilotNoteFields filled).
  *
  * `content` is untrusted third-party text: it is scanned on ingestion and
  * `injection_flagged` annotates anything instruction-shaped, but the text is
@@ -646,7 +646,7 @@ export type MeetingNoteProvider = 'granola' | 'copilot';
 export interface MeetingNote extends CopilotNoteFields {
   id: Uuid;
   organization_id: Uuid;
-  /** 'granola' (ingested) or 'copilot' (Copilot Notes, D-076; extra fields in CopilotNoteFields). */
+  /** 'granola' (ingested) or 'copilot' (Kraken Notes, D-076; extra fields in CopilotNoteFields). */
   provider: MeetingNoteProvider;
   /** The note's identity in the source system; ingestion upserts on this. */
   external_id: string;
@@ -662,13 +662,13 @@ export interface MeetingNote extends CopilotNoteFields {
 
 /* ------------------------------------------------------------------ crm */
 //
-// Copilot's CRM, shaped like Affinity's so an Affinity export maps onto it
+// Kraken's CRM, shaped like Affinity's so an Affinity export maps onto it
 // one-to-one: lists of one entity type with their own custom fields, companies
 // and people as records that can sit on many lists, list entries carrying that
 // list's field values, and notes attached to records and entries. Service:
 // lib/services/crm.ts. Field helpers (keys, coercion): lib/crm/fields.ts.
 
-/** Where a CRM row came from: an Affinity export, or made in Copilot. */
+/** Where a CRM row came from: an Affinity export, or made in Kraken. */
 export type CrmSource = 'affinity' | 'copilot';
 
 /** Affinity's organization, person and opportunity lists. */
@@ -703,7 +703,7 @@ export interface CrmField {
   type: CrmFieldType;
   options?: string[];
   /**
-   * 'copilot' for a column someone added in Copilot. The Affinity sync and
+   * 'copilot' for a column someone added in Kraken. The Affinity sync and
    * CSV re-imports never take one over by its label, so its values stay the
    * team's own. Absent on imported columns.
    */
@@ -745,7 +745,7 @@ export interface CrmRecord {
   organization_id: Uuid;
   kind: CrmRecordKind;
   source: CrmSource;
-  /** Affinity's Organization ID / Person ID; null when made in Copilot or known by name only. */
+  /** Affinity's Organization ID / Person ID; null when made in Kraken or known by name only. */
   external_id: string | null;
   name: string;
   /** `lower(trim(name))`, maintained by the service; what case-insensitive matching uses. */
@@ -774,14 +774,14 @@ export interface CrmListEntry {
    * What makes an imported row the same row on the next import: Affinity's
    * row id, `entity:<id>` (the organization/person/opportunity id) or
    * `name:<name>` (a deal list exported without ids). Null for rows made in
-   * Copilot.
+   * Kraken.
    */
   external_id: string | null;
   /** Keyed by the list's `fields[].key`. */
   values: Record<string, CrmValue>;
   /**
    * The values as the last import left them (what the file said), so the next
-   * import can tell a value someone changed in Copilot since — which it keeps
+   * import can tell a value someone changed in Kraken since — which it keeps
    * — from one only Affinity has touched. Null for a row no import has written.
    */
   imported_values: Record<string, CrmValue> | null;
@@ -791,7 +791,7 @@ export interface CrmListEntry {
 }
 
 /**
- * A row taken off a list in Copilot (20261021000300_crm_writes.sql). The
+ * A row taken off a list in Kraken (20261021000300_crm_writes.sql). The
  * daily Affinity sync and CSV re-imports skip incoming rows that match it, so
  * the row stays off; Undo re-inserts `entry` and deletes the tombstone.
  */
@@ -873,7 +873,7 @@ export interface CampaignAttachment {
 export interface Campaign {
   id: Uuid;
   organization_id: Uuid;
-  /** What it is called in Copilot. Recipients never see it. */
+  /** What it is called in Kraken. Recipients never see it. */
   name: string;
   subject: string;
   /** Plain text with light Markdown and merge fields (lib/campaigns/template.ts). */
@@ -888,7 +888,7 @@ export interface Campaign {
   /** The last email it sent, which paces the next. */
   last_sent_at: IsoDateTime | null;
   /**
-   * Open pixel and click-tracked links. Off: the email carries no Copilot
+   * Open pixel and click-tracked links. Off: the email carries no Kraken
    * link at all and only replies and bounces are tracked.
    */
   track_activity: boolean;
@@ -1439,12 +1439,12 @@ export interface BookingRequest {
   /** The visitor's note to the host when they cancelled. */
   cancel_note?: string | null;
   cancelled_at?: IsoDateTime | null;
-  /** Who cancelled: the visitor (its page), the team (Copilot) or the calendar (deleted in Google). */
+  /** Who cancelled: the visitor (its page), the team (Kraken) or the calendar (deleted in Google). */
   cancelled_by?: 'visitor' | 'team' | 'calendar' | null;
   rescheduled_count?: number;
   previous_starts_at?: IsoDateTime | null;
   /**
-   * When Copilot last put the event's own description back after another
+   * When Kraken last put the event's own description back after another
    * scheduling tool (Fyxer, Vimcal, Calendly) added its reschedule link, and
    * for which change (the move count then): once per event per change.
    */
@@ -1452,7 +1452,7 @@ export interface BookingRequest {
   description_cleaned_rev?: number | null;
   /**
    * A held booking (instant, not yet on the calendar): why it is not on it
-   * yet, how many tries Copilot has made, and when it tries again by itself
+   * yet, how many tries Kraken has made, and when it tries again by itself
    * (lib/services/booking-manage.ts placeHeldBookings). Null once booked.
    */
   hold_reason?: BookingHoldReason | null;

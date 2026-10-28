@@ -64,7 +64,7 @@ async function guard<T>(operation: string, run: () => Promise<Result<T>>): Promi
   } catch (error) {
     if (isMissingTableError(error) || isMissingColumnError(error)) {
       return err('not_configured', NOT_SET_UP, {
-        stillUsable: 'Everything else in Copilot works as before.',
+        stillUsable: 'Everything else in Kraken works as before.',
         details: { operation },
       });
     }
@@ -227,7 +227,7 @@ export async function authenticateMcpToken(
   token: string,
   now: Date = new Date(),
 ): Promise<Result<McpCaller>> {
-  const invalid = () => err('unauthenticated', 'That token is not valid for this Copilot.');
+  const invalid = () => err('unauthenticated', 'That token is not valid for this Kraken.');
   const parsed = parseMcpToken(token ?? '');
   if (!parsed) return invalid();
   return guard('authenticate an MCP token', async () => {

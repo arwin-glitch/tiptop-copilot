@@ -1,6 +1,6 @@
 //! The main window's frame. On Windows it has no native title bar or menu
 //! bar: the web app draws one bar across the top (the ☰ menu, Back and
-//! Forward, Search Copilot, and minimise, maximise and close). On a Mac the
+//! Forward, Search Kraken, and minimise, maximise and close). On a Mac the
 //! title bar is transparent and the traffic lights sit in that same bar.
 //!
 //! Here: the flag that tells the page to draw the bar, the safety-net bar for

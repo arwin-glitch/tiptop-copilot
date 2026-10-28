@@ -155,7 +155,7 @@ export type PublicBoardRead =
  * The public board for the public pages: only roles that pass the gate, only
  * public fields. `off` when the board is switched off or its tables are not
  * there; `unavailable` when the database cannot be read (a build without
- * one, an outage). `preview` reads it while it is off, for Copilot's own
+ * one, an outage). `preview` reads it while it is off, for Kraken's own
  * signed-in preview, never for a public page.
  */
 export async function readPublicBoard(
@@ -209,7 +209,7 @@ const cachedRead = unstable_cache(
 /**
  * The public board for the public pages, through one shared cache entry
  * (two: with and without descriptions) that expires every ten minutes or the
- * moment Copilot changes the board. The pages that take an address
+ * moment Kraken changes the board. The pages that take an address
  * (/<company>, /<company>/<role>) render per request from this entry instead
  * of keeping a cached page per address, so made-up addresses can never fill
  * the server's disk. Public reads only: never the preview.
@@ -486,7 +486,7 @@ export async function saveCompanyJobs(
         if (!detected) {
           patch.sync_enabled = false;
           note =
-            'Copilot could not find a job board it can read on that page (Greenhouse, Lever, Ashby, Workable or Recruitee). Roles can still be added by hand.';
+            'Kraken could not find a job board it can read on that page (Greenhouse, Lever, Ashby, Workable or Recruitee). Roles can still be added by hand.';
         }
       }
     }

@@ -89,7 +89,7 @@ async function call(
   );
 }
 
-/** A browser with no Copilot session: a guest, an outside editor, door staff. */
+/** A browser with no Kraken session: a guest, an outside editor, door staff. */
 async function freshPage(
   browser: Browser,
   baseURL: string | undefined,
@@ -539,7 +539,7 @@ test('7. check-in: the host scans a ticket, and door staff work from a staff lin
     .getByRole('button', { name: /^Check in Riley/ })
     .click();
   await expect(staff.locator('[data-checkin-answer="ok"]')).toContainText('Checked in');
-  // ...and reaches nothing else in Copilot.
+  // ...and reaches nothing else in Kraken.
   expect((await call(staff, 'GET', `/api/events/${state.eventId}/guests`)).status).toBe(401);
   await staff.context().close();
 

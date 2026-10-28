@@ -19,7 +19,7 @@ import { getThemePreset, THEME_PRESETS } from '@/lib/events/themes';
 
 /**
  * The EventDoc schema (D-075): the one document outsiders write into and
- * guests' browsers render on Copilot's own origin. Every rule that keeps
+ * guests' browsers render on Kraken's own origin. Every rule that keeps
  * script, CSS, raw URLs and surprise keys out is pinned here.
  */
 

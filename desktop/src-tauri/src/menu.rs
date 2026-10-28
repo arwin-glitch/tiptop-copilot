@@ -111,7 +111,7 @@ fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     // The first menu is the app menu; macOS titles it with the app's name.
     let app_menu = Submenu::with_items(
         app,
-        "TipTop Copilot",
+        "TipTop Kraken",
         true,
         &[
             &PredefinedMenuItem::about(app, None, Some(about))?,
@@ -186,7 +186,7 @@ fn windows_menu<R: Runtime>(app: &AppHandle<R>, with_updates: bool) -> tauri::Re
     let separator = PredefinedMenuItem::separator(app)?;
     // Closes the window whose menu was used (Alt+F4); the main one hides.
     let close = PredefinedMenuItem::close_window(app, Some("&Close Window"))?;
-    let quit = MenuItem::with_id(app, QUIT, "&Quit TipTop Copilot", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, QUIT, "&Quit TipTop Kraken", true, None::<&str>)?;
     let file = if with_updates {
         Submenu::with_items(
             app,

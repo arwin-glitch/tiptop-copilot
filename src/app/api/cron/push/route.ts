@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
   await placeHeldBookingsForAll(getStore()).catch(() => null);
   if (scope === 'all') await pruneBookingQuestionsForAll(getStore()).catch(() => null);
   const outbox = await buildOutbox(getStore(), new Date(), scope);
-  // Copilot Notes (D-076): this job calls every minute through the day, so
+  // Kraken Notes (D-076): this job calls every minute through the day, so
   // Arwin's notes (and the tasks from them) land within minutes even when no
   // meeting page is open. After the answer; a no-op while Notes is off.
   await afterResponse('settle Arwin’s notes', () => settleNotesForAll(getStore()));

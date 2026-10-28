@@ -305,7 +305,7 @@ export function Canvas({
               studio.device !== 'fit' && 'shadow-overlay',
             )}
             // The page paints its own theme; these are only the frame's
-            // fallback, so nothing of Copilot's colour scheme leaks in.
+            // fallback, so nothing of Kraken's colour scheme leaks in.
             style={{
               containerType: 'inline-size',
               contain: 'paint',

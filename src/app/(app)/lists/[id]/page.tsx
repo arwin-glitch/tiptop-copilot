@@ -88,7 +88,7 @@ export default async function ListPage({
         <NotConfigured
           title="Affinity lists are not set up yet"
           description={`The CRM tables have not been created in the database. Run ${CRM_MIGRATION_FILE} in the Supabase SQL editor, then reload this page.`}
-          stillWorks="Everything else in Copilot works as before."
+          stillWorks="Everything else in Kraken works as before."
           action={null}
         />
       </PageShell>
@@ -103,7 +103,7 @@ export default async function ListPage({
         <ErrorState
           title="This list could not be loaded"
           message={found.error.message}
-          stillUsable="The other Affinity lists, and everything else in Copilot."
+          stillUsable="The other Affinity lists, and everything else in Kraken."
         />
       </PageShell>
     );
@@ -199,7 +199,7 @@ export default async function ListPage({
     <PageShell className="max-w-7xl">
       <CrmBreadcrumb />
       <PageHeader
-        eyebrow={`${KIND_LABEL[list.entity_type]} · ${list.source === 'affinity' ? 'from Affinity' : 'made in Copilot'}${list.archived ? ' · archived' : ''}`}
+        eyebrow={`${KIND_LABEL[list.entity_type]} · ${list.source === 'affinity' ? 'from Affinity' : 'made in Kraken'}${list.archived ? ' · archived' : ''}`}
         title={list.name}
         subtitle={`${list.entry_count.toLocaleString('en-US')} ${list.entry_count === 1 ? 'entry' : 'entries'}${
           list.fields.length
@@ -219,7 +219,7 @@ export default async function ListPage({
           className="mb-4"
           title="The entries could not be loaded"
           message={problem.error.message}
-          stillUsable="The other Affinity lists, and everything else in Copilot."
+          stillUsable="The other Affinity lists, and everything else in Kraken."
         />
       ) : null}
 

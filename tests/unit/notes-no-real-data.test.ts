@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * The repository is public. Copilot Notes' fixtures, scripted call and tests
+ * The repository is public. Kraken Notes' fixtures, scripted call and tests
  * use invented people and companies only, on addresses that cannot belong to
  * anyone: every email address in them is on a reserved or demo domain.
  */
@@ -15,7 +15,7 @@ const FILES = [
   'src/lib/types/notes.ts',
   'src/lib/mcp/meeting-tools.ts',
   'docs/NOTES_ROUTINE.md',
-  // Everything Copilot Notes owns under lib/ (never-record.ts among them).
+  // Everything Kraken Notes owns under lib/ (never-record.ts among them).
   ...['src/lib/notes', 'src/lib/speakers', 'src/lib/transcribe'].flatMap((dir) =>
     readdirSync(path.join(ROOT, dir))
       .filter((f) => f.endsWith('.ts'))
@@ -31,7 +31,7 @@ const FILES = [
 
 const ALLOWED_DOMAIN = /\.(example|demo|test|invalid)$/i;
 
-describe('Copilot Notes has no real data in the repository', () => {
+describe('Kraken Notes has no real data in the repository', () => {
   it('uses only reserved or demo email domains', () => {
     const offenders: string[] = [];
     for (const file of FILES) {

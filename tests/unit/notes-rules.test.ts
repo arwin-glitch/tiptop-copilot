@@ -8,7 +8,7 @@ import { reownActionItems, type AssemblySpeaker } from '@/lib/notes/voices';
 import type { ActionItem } from '@/lib/types/notes';
 
 /**
- * Copilot Notes' rules (D-076), with no model anywhere: Quick notes (the key
+ * Kraken Notes' rules (D-076), with no model anywhere: Quick notes (the key
  * lines by a simple score, promises as action items), owners re-read after a
  * rename, the template auto-pick and the Granola pairing rule. Arwin's notes
  * are written by his Claude routine through the Ask bridge (tested in

@@ -302,7 +302,7 @@ function TotalsRow({
 /** How an entry's time in its stage is known, in words. */
 export function timeInStatusNote(timer: CrmTimeInStatus | undefined, timezone: string): string {
   if (!timer || timer.source === 'unknown') {
-    return 'Not known yet: no stage change has been made in Copilot since the import. Changing the stage here starts the clock.';
+    return 'Not known yet: no stage change has been made in Kraken since the import. Changing the stage here starts the clock.';
   }
   if (timer.source === 'affinity') {
     const at = timer.importedAt ? ` on ${formatDate(timer.importedAt, timezone)}` : '';
@@ -313,7 +313,7 @@ export function timeInStatusNote(timer: CrmTimeInStatus | undefined, timezone: s
   const since = timer.since ? formatDate(timer.since, timezone) : null;
   if (timer.source === 'added')
     return `In this stage since it was added${since ? `, ${since}` : ''}.`;
-  return `In this stage since ${since ?? 'a change made in Copilot'}.`;
+  return `In this stage since ${since ?? 'a change made in Kraken'}.`;
 }
 
 /**

@@ -13,7 +13,7 @@ const PATTERNS: { name: string; re: RegExp }[] = [
   { name: 'jwt', re: /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g },
   { name: 'supabase_service_key', re: /sbp_[A-Za-z0-9]{20,}/g },
   { name: 'bearer', re: /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gi },
-  // Copilot's own MCP connector tokens (lib/services/mcp-tokens.ts), which
+  // Kraken's own MCP connector tokens (lib/services/mcp-tokens.ts), which
   // also travel in a URL path and so can end up in a logged URL.
   { name: 'mcp_token', re: /\btcmcp_[A-Za-z0-9_-]{16,}/g },
   // The desktop app's per-computer alert tokens (lib/services/desktop-alerts.ts).

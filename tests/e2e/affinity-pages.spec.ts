@@ -44,10 +44,10 @@ test('Deals keeps its screening list first and adds the pipeline and sourcing', 
   await page.waitForURL((url) => url.searchParams.get('tab') === 'pipeline');
   const pipeline = page.getByRole('table', { name: 'Pipeline' });
   await expect(pipeline).toBeVisible();
-  // Vetrix is a Copilot deal and on an Affinity deal list: one row, both badges.
+  // Vetrix is a Kraken deal and on an Affinity deal list: one row, both badges.
   const vetrix = pipeline.getByRole('row').filter({ hasText: 'Vetrix' });
   await expect(vetrix).toHaveCount(1);
-  await expect(vetrix).toContainText('Copilot');
+  await expect(vetrix).toContainText('Kraken');
   await expect(vetrix).toContainText('Affinity');
   await expect(vetrix).toContainText('1. New Lead');
   // A company only Affinity has sits at the stage its label reads as.
@@ -63,7 +63,7 @@ test('Deals keeps its screening list first and adds the pipeline and sourcing', 
   await page.waitForURL((url) => url.searchParams.get('stage') === 'any');
   const loomstack = pipeline.getByRole('row').filter({ hasText: 'Loomstack' });
   await expect(loomstack).toContainText('5. Due Diligence');
-  await expect(loomstack).toContainText('Differs from Copilot');
+  await expect(loomstack).toContainText('Differs from Kraken');
 
   // The search stays on the tab and the stage.
   await page.getByRole('searchbox', { name: 'Search the pipeline' }).fill('thornbury');
@@ -71,7 +71,7 @@ test('Deals keeps its screening list first and adds the pipeline and sourcing', 
   await expect(pipeline.locator('tbody tr')).toHaveCount(1);
   expect(new URL(page.url()).searchParams.get('tab')).toBe('pipeline');
 
-  // A Copilot deal's profile shows Affinity's side under its notes.
+  // A Kraken deal's profile shows Affinity's side under its notes.
   await page.goto('/deals?tab=pipeline');
   await pipeline.getByRole('link', { name: 'Vetrix' }).click();
   await page.waitForURL(/\/deals\/[0-9a-f-]+$/);
@@ -162,7 +162,7 @@ test("Portfolio keeps Nick's angel investments apart and shows founders", async 
   );
   const founders = page.getByRole('table', { name: 'Founders from Affinity' });
   await expect(founders).toContainText('Maya Chen');
-  // Neither is a Copilot portfolio company, so no company card shows them.
+  // Neither is a Kraken portfolio company, so no company card shows them.
   await expect(founders).toContainText('Sven Malmberg');
   await expect(founders).toContainText('Lanternfish Bio');
   await page
@@ -248,7 +248,7 @@ test('Meetings lists Affinity notes beside Granola, newest first', async ({ page
   await expect(notes.locator(':scope > li').nth(0)).toContainText('Diligence call');
   await expect(notes.locator(':scope > li').nth(1)).toContainText('Founder check-in');
   await expect(notes.getByRole('link', { name: 'Maya Chen' })).toBeVisible();
-  // Only Affinity's notes: the one added in Copilot is not in this stream.
+  // Only Affinity's notes: the one added in Kraken is not in this stream.
   await expect(notes).not.toContainText('Warm intro from a portfolio founder');
 
   await page.getByRole('searchbox', { name: 'Search Affinity notes' }).fill('retention');

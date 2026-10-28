@@ -15,7 +15,7 @@ import { INTRODUCTION_ACTION } from '@/lib/services/introductions';
 /**
  * The Affinity exit checklist's server side: its settings are data the
  * workspace types in, kept as audit rows (newest wins, nothing assumed), its
- * status is counted from Copilot's own records, and every read degrades to
+ * status is counted from Kraken's own records, and every read degrades to
  * "unknown" or "nothing set" rather than failing the page. Invented data only.
  */
 
@@ -163,7 +163,7 @@ describe("Today's line", () => {
 });
 
 describe('the checklist status', () => {
-  it('counts what Copilot holds from Affinity, and what the copies did', async () => {
+  it('counts what Kraken holds from Affinity, and what the copies did', async () => {
     const now = new Date('2030-03-05T15:00:00Z');
     await changeAffinityExitSettings(store, org, { op: 'date', date: '2030-03-15' }, actor(), now);
     const status = await getAffinityExitStatus(store, org, { now, timeZone: TZ });

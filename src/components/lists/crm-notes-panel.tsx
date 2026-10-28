@@ -15,7 +15,7 @@ const NOTE_MAX = 500_000;
 
 /**
  * The notes on a row or a profile, with a box to add one and, on each note
- * written in Copilot, Edit and Delete. A note from Affinity says why it is
+ * written in Kraken, Edit and Delete. A note from Affinity says why it is
  * read-only while the daily sync runs (crmNoteLockReason) instead of offering
  * controls that would be refused.
  *

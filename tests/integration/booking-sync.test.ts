@@ -240,7 +240,7 @@ describe('another tool’s reschedule link never stays on a booking event', () =
     expect(await rowOf(row.id)).toMatchObject({ description_cleaned_rev: 0 });
     expect((await rowOf(row.id)).description_cleaned_at).toBeTruthy();
 
-    // It adds it again: Copilot does not take turns with it for the same change.
+    // It adds it again: Kraken does not take turns with it for the same change.
     thirdPartyEdits(row.event_id!);
     await scheduled[0]!();
     await slots(LATER);

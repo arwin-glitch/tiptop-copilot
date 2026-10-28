@@ -42,7 +42,7 @@ const TURN_ON = z.object({
 });
 
 /**
- * Whether Copilot still has this computer turned on. Settings in the app
+ * Whether Kraken still has this computer turned on. Settings in the app
  * asks when the shell says on but the page's list does not have it, before
  * turning the shell off: the list may be from before Enable (the Preferences
  * tab left and opened again before the page refreshed).

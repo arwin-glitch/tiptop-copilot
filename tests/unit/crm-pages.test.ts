@@ -34,7 +34,7 @@ import { DEFAULT_DEAL_STAGES } from '@/lib/types/domain';
 
 /**
  * Affinity's data on the pages that use it: its stage labels read as
- * Copilot's stages, its deal lists merged with Copilot's deals, founders
+ * Kraken's stages, its deal lists merged with Kraken's deals, founders
  * matched to portfolio companies, and the services those pages read. Every
  * name, domain and label below is invented.
  */
@@ -195,7 +195,7 @@ describe('merging the pipeline', () => {
     deal('d2', 'Brightloom', null, 'diligence', 3),
   ];
 
-  it('puts a Copilot deal and its Affinity entries on one row, by domain then name', () => {
+  it('puts a Kraken deal and its Affinity entries on one row, by domain then name', () => {
     const rows = mergePipeline(
       deals,
       [
@@ -407,7 +407,7 @@ describe('the page services', () => {
     expect(capped.truncated).toBe(true);
   });
 
-  it("gives Affinity's deal rows that merge with Copilot's deals", async () => {
+  it("gives Affinity's deal rows that merge with Kraken's deals", async () => {
     const rows = value(await affinityDealRows(store, org));
     const vetrix = rows.entries.find((e) => e.title === 'Vetrix');
     expect(vetrix).toMatchObject({
@@ -431,7 +431,7 @@ describe('the page services', () => {
     expect(byName.get('Loomstack')?.affinity[0]?.status).toBe('5. Due Diligence');
   });
 
-  it("finds Affinity founders for Copilot's portfolio companies", async () => {
+  it("finds Affinity founders for Kraken's portfolio companies", async () => {
     const founders = await portfolioFounders(store, org, [
       { id: DEMO_IDS.pcLedgerly, name: 'Ledgerly', domain: 'ledgerly.demo' },
       { id: DEMO_IDS.pcStonebridge, name: 'Stonebridge Ops', domain: 'stonebridgeops.demo' },
@@ -444,7 +444,7 @@ describe('the page services', () => {
     ]);
   });
 
-  it("counts Affinity's LPs at Copilot's LP stages across lists", async () => {
+  it("counts Affinity's LPs at Kraken's LP stages across lists", async () => {
     const lists = (await entriesFor(store, org, 'lps', { limit: 1 })).ok
       ? [{ id: DEMO_IDS.crmListLps }, { id: DEMO_IDS.crmListHnwi }]
       : [];

@@ -13,8 +13,8 @@ import type { CrmField } from '@/lib/types/domain';
 type CopilotFieldType = (typeof CRM_COPILOT_FIELD_TYPES)[number];
 
 /**
- * "Add column": a custom field of the list's own, made in Copilot. Its values
- * are set from a row's side panel. The Affinity sync never takes a Copilot
+ * "Add column": a custom field of the list's own, made in Kraken. Its values
+ * are set from a row's side panel. The Affinity sync never takes a Kraken
  * column over, even when an Affinity field has the same name.
  */
 export function AddColumnDialog({

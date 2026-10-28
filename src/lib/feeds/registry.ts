@@ -1,7 +1,7 @@
 /**
  * Every feed the app is filled by, and how often each is expected.
  *
- * Copilot's cards are written by cloud routines and scheduled jobs that the
+ * Kraken's cards are written by cloud routines and scheduled jobs that the
  * app cannot see run: the routines post to the private Slack relay channels
  * (the app reads them back), and the jobs call the app's /api/cron routes. A
  * routine that stops posting leaves its card showing the last good copy with
@@ -312,7 +312,7 @@ export const FEEDS: readonly FeedDef[] = [
     id: 'meeting-capture',
     name: 'Meeting recorder',
     source: 'webhook',
-    fills: ['Meetings: live transcripts', 'Copilot Notes'],
+    fills: ['Meetings: live transcripts', 'Kraken Notes'],
     schedule: 'While a meeting is recorded: a batch of transcript lines every few seconds',
     // Quiet between meetings is normal. A meeting still marked as recording
     // with no line for 20 minutes (a closed tab, a lost connection) reads as

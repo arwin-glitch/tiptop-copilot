@@ -7,7 +7,7 @@ import type { Meeting, TranscriptSegment } from '@/lib/types/notes';
 import { createHarness, type Harness } from '../helpers/harness';
 
 /**
- * Copilot Notes' Granola-shaped MCP tools (D-076) against the demo store:
+ * Kraken Notes' Granola-shaped MCP tools (D-076) against the demo store:
  * the finished Acme Robotics meeting (team-visible, nine days ago), the
  * Granola demo notes, and the private Coaching folder. What must hold in
  * every answer: no private meeting, nothing from a private folder, content
@@ -74,7 +74,7 @@ describe('tools/list', () => {
 });
 
 describe('list_meetings', () => {
-  it('lists Copilot and Granola meetings with source-qualified ids, newest first', async () => {
+  it('lists Kraken and Granola meetings with source-qualified ids, newest first', async () => {
     const out = await run('list_meetings', { time_range: 'last_30_days' });
     const meetings = out.structured.meetings as {
       id: string;

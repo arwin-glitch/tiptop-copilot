@@ -172,7 +172,7 @@ export function AddGuestsDialog({
               [
                 ['manual', 'One person'],
                 ['emails', 'Paste emails'],
-                ['list', 'A Copilot list'],
+                ['list', 'A Kraken list'],
                 ['search', 'Find people'],
               ] as [Mode, string][]
             ).map(([value, label]) => (

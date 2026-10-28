@@ -81,7 +81,7 @@ const PAGES = [
   // Diagnostics, and its feeds with their long schedule lines.
   '/diagnostics',
   '/diagnostics?tab=feeds',
-  // Rows whose email links offer Copilot and Gmail side by side, and the
+  // Rows whose email links offer Kraken and Gmail side by side, and the
   // calendar's views: the default, the retired day list's address (Day now,
   // D-072) and each one by address.
   '/calendar',
@@ -184,7 +184,7 @@ test.describe('mobile layout', () => {
       students.getByRole('list', { name: 'Earlier emails about Tessa Marlow' }),
     ).toBeVisible();
     // The two links stay thumb-sized beside each subject.
-    const copilot = students.getByRole('link', { name: /^Open in Copilot/ }).first();
+    const copilot = students.getByRole('link', { name: /^Open in Kraken/ }).first();
     expect((await copilot.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(32);
     await expectNoSidewaysScroll(page);
   });
@@ -294,9 +294,9 @@ test.describe('mobile layout', () => {
     );
     expect(overflow).toBeLessThanOrEqual(2);
 
-    // Its source emails, each with Copilot and Gmail, still fit the phone.
+    // Its source emails, each with Kraken and Gmail, still fit the phone.
     await page.getByRole('tab', { name: 'Sources' }).click();
-    const copilot = page.getByRole('link', { name: /^Open in Copilot: Intro: Vetrix/ }).first();
+    const copilot = page.getByRole('link', { name: /^Open in Kraken: Intro: Vetrix/ }).first();
     await expect(copilot).toBeVisible();
     await expectNoSidewaysScroll(page);
     const box = (await copilot.boundingBox())!;

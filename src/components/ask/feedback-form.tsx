@@ -17,10 +17,10 @@ import {
 import { cn } from '@/lib/util/cn';
 
 /**
- * The feedback box: what to change in Copilot, in a person's own words.
+ * The feedback box: what to change in Kraken, in a person's own words.
  *
  * Typed, or dictated with the keyboard's own microphone (a phone's, or the
- * computer's dictation): the page never records audio itself. (Only Copilot
+ * computer's dictation): the page never records audio itself. (Only Kraken
  * Notes' meeting recorder asks for the microphone; see proxy.ts, D-076.)
  *
  * In the Ask Arwin panel (`fromPage`) a note carries the page under the panel
@@ -138,7 +138,7 @@ export function FeedbackForm({
           What should change?
         </p>
         <p id={hintId} className="text-mini mt-0.5 text-[var(--fg-muted)]">
-          Say what to fix or add in Copilot. Type it, or tap the microphone on your keyboard to
+          Say what to fix or add in Kraken. Type it, or tap the microphone on your keyboard to
           dictate.
         </p>
       </div>

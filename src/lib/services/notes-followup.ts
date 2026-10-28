@@ -12,7 +12,7 @@ import type { Meeting } from '@/lib/types/notes';
  * are stored (D-076), instead of waiting for its two-hourly schedule. The app POSTs the
  * routine's /fire address (MEETING_FOLLOWUP_FIRE_URL, with its token) the
  * way the Ask routine is fired (ask-routine.ts): the text names the meeting
- * and nothing else, and the routine reads the notes through Copilot's MCP
+ * and nothing else, and the routine reads the notes through Kraken's MCP
  * tools, so no content leaves here.
  *
  * Only a meeting the team can see is announced (the routine could not read a

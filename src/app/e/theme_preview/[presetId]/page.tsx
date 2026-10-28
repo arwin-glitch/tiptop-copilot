@@ -10,7 +10,7 @@ import { isThemePresetId } from '@/lib/events/themes';
 
 /**
  * Full-page theme preview (D-075, WS2): a preset rendered by the real guest
- * renderer, on the real /e surface (nonce CSP, no Copilot chrome), with a
+ * renderer, on the real /e surface (nonce CSP, no Kraken chrome), with a
  * fictional starter and abstract artwork. Signed-in owners only: anyone else
  * gets a 404, so the route exposes nothing publicly. The segment name has an
  * underscore, which no event slug can contain, so it never shadows an event.

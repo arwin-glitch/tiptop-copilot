@@ -10,7 +10,7 @@ import { FONT_IDS, type FontId } from '@/lib/events/schema';
  * and the @font-face rules in event-fonts.css to each other.
  *
  * Every family is OFL-1.1 or Apache-2.0; each folder carries its LICENSE.
- * The CSS family name is `ev-<id>` so nothing collides with Copilot's fonts.
+ * The CSS family name is `ev-<id>` so nothing collides with Kraken's fonts.
  */
 
 export type FontCategory = 'serif' | 'sans' | 'mono' | 'display' | 'script';

@@ -37,7 +37,7 @@ import { err, ok } from '@/lib/util/result';
 import { createHarness, type Harness } from '../helpers/harness';
 
 /**
- * Copilot Notes' intelligence (D-076), end to end in demo mode with the
+ * Kraken Notes' intelligence (D-076), end to end in demo mode with the
  * offline model: notes written through generateStructured (and the rules
  * draft when no model can), the naming ladder live and after a tap, voice
  * consent and enrolment, chat citations, the follow-up routine trigger,

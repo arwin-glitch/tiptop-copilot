@@ -56,7 +56,7 @@ export function BookingRequestsLine({ summary }: { summary: BookingTodaySummary 
           <CalendarPlus className="size-3.5 shrink-0 text-[var(--accent)]" aria-hidden="true" />
           <span>
             {plural(summary.retrying, 'booking is', 'bookings are')} going on the calendar: Google
-            did not answer, so Copilot keeps trying by itself.
+            did not answer, so Kraken keeps trying by itself.
           </span>
           <Link href={`${BOOKING_TAB_PATH}?tab=bookings`} className="link-inline">
             See in Booking →

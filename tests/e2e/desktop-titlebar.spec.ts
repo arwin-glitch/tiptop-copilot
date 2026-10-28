@@ -152,7 +152,7 @@ test.describe('the Windows app (0.3.0)', () => {
     await expect(page.locator('aside')).toHaveCSS('height', '760px');
 
     // Search moves into the bar; the sidebar's button steps aside.
-    await expect(toolbar(page).getByRole('button', { name: 'Search Copilot' })).toBeVisible();
+    await expect(toolbar(page).getByRole('button', { name: 'Search Kraken' })).toBeVisible();
     await expect(page.locator('aside').getByRole('button', { name: /^Search/ })).toBeHidden();
     await expect(toolbar(page).getByRole('button', { name: 'Menu' })).toBeVisible();
     await expect(controls(page).getByRole('button', { name: 'Minimise' })).toBeVisible();
@@ -354,9 +354,9 @@ test.describe('the Windows app (0.3.0)', () => {
     });
   });
 
-  test('Search Copilot opens search, and the bar still works over it', async ({ page }) => {
+  test('Search Kraken opens search, and the bar still works over it', async ({ page }) => {
     await openInApp(page, '/today');
-    const field = toolbar(page).getByRole('button', { name: 'Search Copilot' });
+    const field = toolbar(page).getByRole('button', { name: 'Search Kraken' });
     const pill = await box(field);
     await field.click();
     const dialog = page.getByRole('dialog', { name: 'Search' });
@@ -364,7 +364,7 @@ test.describe('the Windows app (0.3.0)', () => {
     await expect(page.getByLabel('Search everything')).toBeFocused();
     // The field looks pressed while its search is open (the bar is hidden
     // from the accessibility tree meanwhile, so found by its attribute).
-    await expect(barButton(page, 'Search Copilot')).toHaveAttribute('aria-expanded', 'true');
+    await expect(barButton(page, 'Search Kraken')).toHaveAttribute('aria-expanded', 'true');
 
     // It hangs just under the field, centred on it, like Slack's.
     const d = await box(dialog);
@@ -454,7 +454,7 @@ test.describe('the Windows app (0.3.0)', () => {
 
     test('the phone layout sits under the bar', async ({ page }) => {
       await openInApp(page, '/updates');
-      await expect(toolbar(page).getByRole('button', { name: 'Search Copilot' })).toBeVisible();
+      await expect(toolbar(page).getByRole('button', { name: 'Search Kraken' })).toBeVisible();
       const header = page.locator('header').first();
       await expect(header.getByRole('button', { name: /^Search/ })).toBeHidden();
       await expect(header).toHaveCSS('top', '40px');
@@ -509,7 +509,7 @@ test.describe('the Windows app (0.3.0)', () => {
       await page.keyboard.press('Escape');
       await expect(card).toHaveCount(0);
 
-      await toolbar(page).getByRole('button', { name: 'Search Copilot' }).click();
+      await toolbar(page).getByRole('button', { name: 'Search Kraken' }).click();
       const dialog = page.getByRole('dialog', { name: 'Search' });
       await expect(dialog).toBeVisible();
       const d = await box(dialog);
@@ -532,11 +532,11 @@ test.describe('the Windows app (0.3.0)', () => {
     await expect(back).toBeFocused();
     // Forward is disabled at the end of the history: the arrow skips it.
     await page.keyboard.press('ArrowRight');
-    await expect(toolbar(page).getByRole('button', { name: 'Search Copilot' })).toBeFocused();
+    await expect(toolbar(page).getByRole('button', { name: 'Search Kraken' })).toBeFocused();
     await page.keyboard.press('ArrowRight');
     await expect(back).toBeFocused();
     await page.keyboard.press('End');
-    await expect(toolbar(page).getByRole('button', { name: 'Search Copilot' })).toBeFocused();
+    await expect(toolbar(page).getByRole('button', { name: 'Search Kraken' })).toBeFocused();
     // Tab leaves the bar (the window controls are not tab stops).
     await page.keyboard.press('Tab');
     expect(
@@ -544,7 +544,7 @@ test.describe('the Windows app (0.3.0)', () => {
     ).toBeNull();
     // Shift+Tab comes back to the item last used.
     await page.keyboard.press('Shift+Tab');
-    await expect(toolbar(page).getByRole('button', { name: 'Search Copilot' })).toBeFocused();
+    await expect(toolbar(page).getByRole('button', { name: 'Search Kraken' })).toBeFocused();
   });
 
   test.describe('signed out', () => {
@@ -554,7 +554,7 @@ test.describe('the Windows app (0.3.0)', () => {
       await openInApp(page, '/login');
       await expect(page.getByRole('button', { name: 'Enter demo workspace' })).toBeVisible();
       await expect(toolbar(page).getByRole('button', { name: 'Menu' })).toBeVisible();
-      await expect(toolbar(page).getByRole('button', { name: 'Search Copilot' })).toBeHidden();
+      await expect(toolbar(page).getByRole('button', { name: 'Search Kraken' })).toBeHidden();
       await expect(controls(page).getByRole('button', { name: 'Close window' })).toBeVisible();
       expect(
         await page.evaluate(

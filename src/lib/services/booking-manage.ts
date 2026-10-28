@@ -84,7 +84,7 @@ import { principalTimeZone } from './push-alerts';
  * organization, exactly as a new booking is (lib/services/booking.ts), and
  * reaches the calendar only through lib/services/booking-calendar.ts, so
  * Google tells everyone invited (the update, or the cancellation). The note
- * a visitor leaves when they cancel reaches the host as a Copilot alert, never
+ * a visitor leaves when they cancel reaches the host as a Kraken alert, never
  * as an email.
  *
  * The page is found by its token's SHA-256 alone: the token is in the
@@ -512,7 +512,7 @@ export async function rescheduleByToken(
 /**
  * Cancel a booking from its own page: the Google event deleted (Google sends
  * every guest its cancellation), the booking marked cancelled with the
- * visitor's optional note, which reaches the host as a Copilot alert, on the
+ * visitor's optional note, which reaches the host as a Kraken alert, on the
  * Booking tab and in a Today line. A held time or a waiting request is
  * released. Allowed until the start time.
  */
@@ -540,8 +540,8 @@ export async function cancelByToken(
 }
 
 /**
- * Cancel from Copilot's Booking tab (a member): the same, recorded as the
- * team's. The note stays in Copilot (Google's cancellation carries no
+ * Cancel from Kraken's Booking tab (a member): the same, recorded as the
+ * team's. The note stays in Kraken (Google's cancellation carries no
  * text). Says whether an event came off the calendar (Google told everyone)
  * or was left there because calendar editing is off.
  */
@@ -739,7 +739,7 @@ export interface PlaceOutcome {
  *   then on every pass, until it is booked. `onlyId` with `force` (the tab's
  *   "Try now", the in-process timer) tries one at once.
  * - A time that is truly no longer free is released, with a notice draft
- *   for someone to send (Copilot sends no email).
+ *   for someone to send (Kraken sends no email).
  * - One held "in doubt" (Google may have made the event before its answer
  *   was lost) is looked for on the calendar first, so it is never made twice.
  */
@@ -991,7 +991,7 @@ async function failedTry(
   });
   if (next) nextTryInMemory.set(row.id, next);
   else nextTryInMemory.delete(row.id);
-  log.warn('A held booking is still not on the calendar; Copilot tries again', {
+  log.warn('A held booking is still not on the calendar; Kraken tries again', {
     reason,
     attempts,
   });
@@ -1136,7 +1136,7 @@ export async function placeHeldBookingsForAll(
 
 /**
  * A short notice for a released held time, for someone to read and send
- * from the compose window (Copilot sends nothing itself). It names no person
+ * from the compose window (Kraken sends nothing itself). It names no person
  * as deciding, and the time is in the visitor's zone.
  */
 export function releaseNoticeDraft(

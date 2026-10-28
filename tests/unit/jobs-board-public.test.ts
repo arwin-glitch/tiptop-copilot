@@ -215,7 +215,7 @@ describe('buildPublicBoard', () => {
     expect(board.jobs[0]!.description).toBeNull();
     const text = JSON.stringify(board);
     expect(text).not.toMatch(/internal|4%|Runway/);
-    // Copilot's own portfolio description and sector are internal: never public.
+    // Kraken's own portfolio description and sector are internal: never public.
     expect(text).not.toMatch(/makes things|Robotics/);
     expect(board.companies[0]).toEqual({
       slug: 'acme-fixture',

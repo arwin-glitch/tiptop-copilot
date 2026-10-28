@@ -6,7 +6,7 @@ import { demoStudentEmail } from './students-fixtures';
 
 /**
  * Demo mode only: the emails behind the routine snapshots' sources (Jobs and
- * Students), so every "Copilot" link on those tabs opens a thread in the
+ * Students), so every "Kraken" link on those tabs opens a thread in the
  * Inbox rather than "couldn't open that email". Students has its own short
  * threads (`students-fixtures.ts`); a Jobs source is a founder's note built
  * from the roles that cite it. Every name, company and address is fictional

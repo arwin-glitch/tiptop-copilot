@@ -322,7 +322,7 @@ test('Ctrl+K finds CRM records under Lists and a profile links across to Portfol
   // The portfolio company shares its domain. (Earlier specs open /deals,
   // which mirrors the portfolio into Invested deals, so a deal may be listed
   // beside it; both are right.)
-  const copilot = page.getByRole('region', { name: 'In Copilot' });
+  const copilot = page.getByRole('region', { name: 'In Kraken' });
   const link = copilot.getByRole('link', { name: /^Ledgerly Portfolio/ });
   await expect(link).toHaveAttribute('href', /^\/portfolio\//);
   await expect(link).toContainText('same domain');

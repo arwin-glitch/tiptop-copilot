@@ -130,7 +130,7 @@ function labelOf(nodes: Inline[]): string {
 /**
  * Whether a link's visible text is itself an address: a bare URL, or link
  * text like "docsend.com/view/abc". Such a link always goes exactly where it
- * says, untracked. Rewriting it through Copilot would show one address and
+ * says, untracked. Rewriting it through Kraken would show one address and
  * open another, which mail filters treat as a phishing sign.
  */
 export function showsAddress(link: { href: string; c: Inline[] }): boolean {

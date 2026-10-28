@@ -30,7 +30,7 @@ export type { DesktopRelease, InstallerAsset } from './shared';
  *
  * Pages never link to where they are hosted. /download shows what this finds,
  * and /api/desktop/download/<platform> streams the file through this server,
- * so a person only ever sees Copilot's own address. The app's updater is
+ * so a person only ever sees Kraken's own address. The app's updater is
  * served the same way, by /api/desktop/update and /api/desktop/update-file.
  *
  * Finding the newest release uses the releases API, which allows 60

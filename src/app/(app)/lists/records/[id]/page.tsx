@@ -54,10 +54,10 @@ export async function generateMetadata({
 
 /**
  * A company's or person's profile: who they are, every list they are on and
- * where they stand on each, every note, and — for a company Copilot already
+ * where they stand on each, every note, and — for a company Kraken already
  * tracks as a deal or a portfolio company — a link across to it. A member can
  * put the record on a list ("Add to list") and add notes here; notes written
- * in Copilot can be edited and deleted, Affinity's say why they cannot while
+ * in Kraken can be edited and deleted, Affinity's say why they cannot while
  * the sync runs. A list's own values are changed on the list.
  */
 export default async function RecordProfilePage({ params }: { params: Promise<{ id: string }> }) {
@@ -76,7 +76,7 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
         <NotConfigured
           title="Affinity lists are not set up yet"
           description={`The CRM tables have not been created in the database. Run ${CRM_MIGRATION_FILE} in the Supabase SQL editor, then reload this page.`}
-          stillWorks="Everything else in Copilot works as before."
+          stillWorks="Everything else in Kraken works as before."
           action={null}
         />
       </PageShell>
@@ -91,7 +91,7 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
         <ErrorState
           title="This profile could not be loaded"
           message={found.error.message}
-          stillUsable="The Affinity lists, and everything else in Copilot."
+          stillUsable="The Affinity lists, and everything else in Kraken."
         />
       </PageShell>
     );
@@ -145,7 +145,7 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
     <PageShell>
       <CrmBreadcrumb />
       <PageHeader
-        eyebrow={`${isCompany ? 'Company' : 'Person'} · ${record.source === 'affinity' ? 'from Affinity' : 'added in Copilot'}`}
+        eyebrow={`${isCompany ? 'Company' : 'Person'} · ${record.source === 'affinity' ? 'from Affinity' : 'added in Kraken'}`}
         title={record.name}
         actions={
           canWrite ? (
@@ -320,7 +320,7 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
           {isCompany ? (
             <section aria-labelledby="profile-copilot">
               <SectionHeading>
-                <span id="profile-copilot">In Copilot</span>
+                <span id="profile-copilot">In Kraken</span>
               </SectionHeading>
               {copilot.length === 0 ? (
                 <p className="text-sm text-[var(--fg-subtle)]">
@@ -398,7 +398,7 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
 }
 
 /**
- * Meetings with this person or company (D-076): Granola's notes and Copilot's
+ * Meetings with this person or company (D-076): Granola's notes and Kraken's
  * own (once shared with the team), matched by address, or for a company by
  * its domain and its people's addresses. Streams in after the profile.
  */
@@ -427,7 +427,7 @@ async function RecordMeetings({
         <MeetingNoteList
           notes={notes}
           timezone={timezone}
-          empty="No meeting notes with them yet. Granola's notes and meetings recorded in Copilot (shared with the team) show here."
+          empty="No meeting notes with them yet. Granola's notes and meetings recorded in Kraken (shared with the team) show here."
         />
       )}
     </section>

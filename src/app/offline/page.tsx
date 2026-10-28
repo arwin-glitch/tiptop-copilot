@@ -17,8 +17,8 @@ export default function OfflinePage() {
         </div>
         <h1 className="font-serif text-xl font-semibold">You are offline</h1>
         <p className="mt-2 text-sm text-[var(--fg-muted)]">
-          TipTop Copilot works against live data and does not cache your deals, email or documents
-          on the device. Reconnect and the page will load.
+          TipTop Kraken works against live data and does not cache your deals, email or documents on
+          the device. Reconnect and the page will load.
         </p>
       </div>
     </main>

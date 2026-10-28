@@ -63,7 +63,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * Sending a confirmed campaign: this page asks the server for one short batch
  * after another while it stays open, and shows how far it got. Sending runs
  * only while the page is open, so leaving it — closing the tab, or a link
- * elsewhere in Copilot (which asks first) — pauses the campaign, and every
+ * elsewhere in Kraken (which asks first) — pauses the campaign, and every
  * view then says "Paused". Coming back, Resume is a tap, never automatic.
  * Pause and Cancel take effect before the next email.
  */
@@ -137,7 +137,7 @@ export function CampaignProgress({
         driving.current = false;
         setMessage(
           json?.error?.message ??
-            'Sending stopped: Copilot could not be reached. Continue when you are ready.',
+            'Sending stopped: Kraken could not be reached. Continue when you are ready.',
         );
         break;
       }
@@ -365,7 +365,7 @@ export function CampaignProgress({
         {running ? (
           <p className="text-sm text-[var(--fg-muted)]">
             About one email every 2 seconds. Keep this page open: leaving it, here or for another
-            part of Copilot, pauses sending.
+            part of Kraken, pauses sending.
           </p>
         ) : null}
         {toCheck.length > 0 && !running && status !== 'cancelled' ? (
@@ -373,7 +373,7 @@ export function CampaignProgress({
             <div className="w-full space-y-2">
               <p>
                 {toCheck.length} {toCheck.length === 1 ? 'email' : 'emails'} may have gone out: the
-                send was interrupted after it started, so Copilot will not send{' '}
+                send was interrupted after it started, so Kraken will not send{' '}
                 {toCheck.length === 1 ? 'it' : 'them'} again on its own. Look in Sent in Gmail, then
                 say what happened. Failed sends are separate: they did not go out.
               </p>

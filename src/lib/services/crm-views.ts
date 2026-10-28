@@ -320,7 +320,7 @@ function changedKey(event: AuditEvent, key: string): boolean {
  * kept one, counted on from the list's latest import (crm.imported, or when
  * the entry arrived if that is later) so it does not freeze at the import:
  * "12d" imported on Sep 21 reads about 36 days on Oct 15. That is an
- * estimate, and says so (timeInStatusText). An entry made in Copilot counts
+ * estimate, and says so (timeInStatusText). An entry made in Kraken counts
  * from when it was added. Anything else is unknown. Best-effort: a failure to
  * read the audit trail leaves the column blank, or uncounted, rather than
  * failing the page.
@@ -743,7 +743,7 @@ export async function exportEverything(
     zip.file(
       'README.txt',
       [
-        'Copilot CRM export',
+        'Kraken CRM export',
         `Exported ${new Date().toISOString()}`,
         '',
         `lists.csv     ${counts.lists} lists (archived ones included)`,

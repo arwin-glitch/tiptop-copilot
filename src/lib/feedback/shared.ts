@@ -1,6 +1,6 @@
 /**
  * In-app feedback, the parts both sides use: what someone wants changed in
- * Copilot, sent from the Feedback tab of the Ask Arwin panel with the page it
+ * Kraken, sent from the Feedback tab of the Ask Arwin panel with the page it
  * was sent from, and read and closed on the full Ask page's Feedback tab.
  *
  * Pure, and free of `server-only`, so the widget that sends a note, the list
@@ -52,15 +52,15 @@ export function isFeedbackPath(value: unknown): value is string {
   );
 }
 
-/** "(1) Today · TipTop Copilot" (a reply counted in the tab) reads as "Today". */
+/** "(1) Today · TipTop Kraken" (a reply counted in the tab) reads as "Today". */
 export function pageTitleFrom(documentTitle: string): string | null {
   const title = documentTitle
     .replace(/^\(\d+\)\s*/, '')
-    .replace(/\s*·\s*TipTop Copilot$/, '')
+    .replace(/\s*·\s*TipTop Kraken$/, '')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, FEEDBACK_TITLE_MAX);
-  return title && title !== 'TipTop Copilot' ? title : null;
+  return title && title !== 'TipTop Kraken' ? title : null;
 }
 
 /**

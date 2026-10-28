@@ -437,7 +437,7 @@ function ItemRow({ item }: { item: DigestItem }) {
         {item.links.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {item.links.map((l, i) => (
-              // A link to one Gmail email offers Copilot's Inbox too.
+              // A link to one Gmail email offers Kraken's Inbox too.
               <ThreadLinksForHref
                 key={i}
                 href={safeHref(l.href)}

@@ -20,7 +20,7 @@ import {
 import type { CrmList, CrmListEntry, CrmRecord } from '@/lib/types/domain';
 
 /**
- * CRM writes made in Copilot against the daily Affinity sync that still runs
+ * CRM writes made in Kraken against the daily Affinity sync that still runs
  * until the subscription ends: a fake Affinity (one person list, served the
  * way the v2 API pages it) and the real sync and CRM service on the demo
  * store. Every name and address is invented.
@@ -141,8 +141,8 @@ async function founders(): Promise<CrmList> {
 const rowsOf = async (listId: string) =>
   (await store.list('crm_list_entries', org, { eq: { list_id: listId } })) as CrmListEntry[];
 
-describe('Copilot writes and the daily Affinity sync', () => {
-  it('adopts a person made in Copilot instead of adding a second one', async () => {
+describe('Kraken writes and the daily Affinity sync', () => {
+  it('adopts a person made in Kraken instead of adding a second one', async () => {
     const made = value(
       await createRecord(
         store,
@@ -189,7 +189,7 @@ describe('Copilot writes and the daily Affinity sync', () => {
     expect((await store.get('crm_notes', org, note.id))?.entry_ids).toEqual([avery.id]);
   });
 
-  it('leaves a Copilot column alone, even one named like an Affinity field', async () => {
+  it('leaves a Kraken column alone, even one named like an Affinity field', async () => {
     await sync();
     const list = await founders();
     const { field } = value(

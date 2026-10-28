@@ -24,7 +24,7 @@ export function SoundCheckPanel() {
         <div>
           <CardTitle>Sound check</CardTitle>
           <CardDescription>
-            Check that Copilot can hear you and the meeting before a call. Nothing is sent or saved:
+            Check that Kraken can hear you and the meeting before a call. Nothing is sent or saved:
             this stays on your computer.
           </CardDescription>
         </div>

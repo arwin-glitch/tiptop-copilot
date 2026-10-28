@@ -45,7 +45,7 @@ function inListsGroup(result: Result): boolean {
 /**
  * Ctrl+K / Cmd+K search across the whole app. The button sits in the sidebar
  * and mobile header; the shortcut works anywhere except while typing in a
- * field. In the desktop app the top bar's "Search Copilot" field opens it
+ * field. In the desktop app the top bar's "Search Kraken" field opens it
  * instead (openSearch, ./search-events), and both buttons here are hidden;
  * there it hangs just under that field, like Slack's, rather than mid-window.
  * Results come from /api/search and are in-app links only.

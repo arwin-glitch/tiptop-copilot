@@ -312,7 +312,7 @@ export interface BookingCalendarRow {
 
 export interface BookingCalendars {
   calendars: BookingCalendarRow[];
-  /** Copilot's Calendar-tab toggles for the host, for the default of a switch. */
+  /** Kraken's Calendar-tab toggles for the host, for the default of a switch. */
   shown: Record<string, boolean>;
 }
 

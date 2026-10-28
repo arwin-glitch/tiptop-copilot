@@ -91,7 +91,7 @@ export default async function SharedNotePage({ params }: { params: Promise<{ tok
       ) : null}
 
       <footer className="mt-10 border-t border-[var(--border)] pt-4 text-xs text-[var(--fg-subtle)]">
-        Shared from TipTop Copilot. This link stops working on{' '}
+        Shared from TipTop Kraken. This link stops working on{' '}
         {formatDate(note.expiresAt, DEFAULT_TIMEZONE)}, or sooner if it is revoked.
       </footer>
     </main>

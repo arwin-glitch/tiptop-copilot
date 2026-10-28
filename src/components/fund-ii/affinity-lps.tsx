@@ -80,7 +80,7 @@ export function LpSourceSwitch({
 
 /**
  * Fund II → LP pipeline → From Affinity: every row of Affinity's LP pipelines
- * (individuals, institutions, Fund II prospects), grouped by Copilot's LP
+ * (individuals, institutions, Fund II prospects), grouped by Kraken's LP
  * stages through each list's own labels, with the original label on each
  * row. Fund I's own LPs are not here: their "Committed" is Fund I money, so
  * their lists feed LP lists instead (`lib/crm/destinations.ts`). Stages and

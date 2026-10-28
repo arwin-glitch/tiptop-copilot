@@ -326,8 +326,8 @@ export const SMART_FIELD_LABELS: Record<SmartFieldKey, string> = {
 };
 
 /**
- * One smart field: a date from Copilot's own mail and calendar, or — where
- * Copilot has nothing, or for the first email an earlier date — the value an
+ * One smart field: a date from Kraken's own mail and calendar, or — where
+ * Kraken has nothing, or for the first email an earlier date — the value an
  * Affinity import carried, marked as such. `at` is an ISO date or date-time,
  * or for an Affinity cell that was never a readable date, the cell as written.
  */
@@ -335,7 +335,7 @@ export interface SmartValue {
   at: string | null;
   source: 'copilot' | 'affinity' | null;
   /**
-   * For Copilot's first email: how far back the synced mail it was found in
+   * For Kraken's first email: how far back the synced mail it was found in
    * reaches (ISO), since anything older was never scanned.
    */
   scannedFrom?: string | null;
@@ -409,11 +409,11 @@ function smartTime(at: string): number {
 }
 
 /**
- * Copilot's evidence first, with the Affinity value, marked, where Copilot has
- * none. The first email is the exception: Copilot only sees the newest synced
+ * Kraken's evidence first, with the Affinity value, marked, where Kraken has
+ * none. The first email is the exception: Kraken only sees the newest synced
  * mail, so its "first" is only the earliest in that window, and an earlier
  * Affinity date is the truer one and wins. `scannedFrom` (the oldest message
- * scanned) rides along on Copilot's first email so a reader can see the limit.
+ * scanned) rides along on Kraken's first email so a reader can see the limit.
  */
 export function smartFields(
   evidence: RelationshipEvidence,

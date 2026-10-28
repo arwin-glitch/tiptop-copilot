@@ -23,7 +23,7 @@ function SegView({ seg }: { seg: Seg }) {
         {node}
       </a>
     );
-    // A link to one Gmail email: its words, then Copilot's Inbox and Gmail.
+    // A link to one Gmail email: its words, then Kraken's Inbox and Gmail.
     const words = seg.text.trim();
     node = (
       <ThreadLinksForHref

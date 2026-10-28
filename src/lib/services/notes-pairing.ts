@@ -10,7 +10,7 @@ import { externalEmailsOf, readTeamInfo } from './notes-context';
 import type { NotesContext } from './notes';
 
 /**
- * Pairing a Copilot meeting with its Granola twin (D-076), from either side:
+ * Pairing a Kraken meeting with its Granola twin (D-076), from either side:
  * when a meeting's notes are finalized (the Granola note may already be in),
  * and when a Granola note arrives (the meeting may already be recorded). The
  * rule is lib/notes/pairing.ts; the pair is meetings.granola_external_id,
@@ -75,9 +75,9 @@ export async function pairWithGranola(ctx: NotesContext, meeting: Meeting): Prom
 }
 
 /**
- * A Granola note just arrived: pair it with the Copilot meeting of the same
+ * A Granola note just arrived: pair it with the Kraken meeting of the same
  * conversation, when exactly one unpaired meeting matches. Never fails the
- * delivery: before the Copilot Notes migration there is nothing to pair.
+ * delivery: before the Kraken Notes migration there is nothing to pair.
  */
 export async function pairGranolaNote(
   store: DataStore,
@@ -136,7 +136,7 @@ export async function pairGranolaNote(
     return match.id;
   } catch (error) {
     if (!isMissingTableError(error) && !isMissingColumnError(error)) {
-      log.warn('Copilot Notes: a Granola note could not be paired', {
+      log.warn('Kraken Notes: a Granola note could not be paired', {
         reason: error instanceof Error ? error.message : String(error),
       });
     }

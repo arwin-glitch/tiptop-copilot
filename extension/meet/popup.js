@@ -1,5 +1,5 @@
 /**
- * TipTop Copilot: Meet names (D-076). The popup: the on/off switch, what is
+ * TipTop Kraken: Meet names (D-076). The popup: the on/off switch, what is
  * happening now, and the button that posts the consent notice in the Meet
  * chat (only when pressed).
  */
@@ -16,10 +16,10 @@ function render(status) {
     statusEl.textContent = 'The extension is starting. Try again in a moment.';
   } else if (status.recording && status.consent) {
     statusEl.textContent = status.enabled
-      ? 'Copilot is recording with consent: sending names.'
-      : 'Copilot is recording. Switch names on to send them.';
+      ? 'Kraken is recording with consent: sending names.'
+      : 'Kraken is recording. Switch names on to send them.';
   } else {
-    statusEl.textContent = 'Copilot is not recording. Nothing is sent.';
+    statusEl.textContent = 'Kraken is not recording. Nothing is sent.';
   }
 }
 

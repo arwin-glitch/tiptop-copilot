@@ -138,8 +138,8 @@ export const DEMO_IDS = {
   crmListSponsors: id(1609),
   crmListNewsletter: id(1610),
   crmListMisc: id(1611),
-  // Lists the Records pages read alongside Copilot's own data: a second deal
-  // list matching Copilot deals, an LP pipeline with a likelihood column, and
+  // Lists the Records pages read alongside Kraken's own data: a second deal
+  // list matching Kraken deals, an LP pipeline with a likelihood column, and
   // an event invite list.
   crmListSeedDeals: id(1612),
   crmListHnwi: id(1613),

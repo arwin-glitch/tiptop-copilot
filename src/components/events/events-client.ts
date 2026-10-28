@@ -41,7 +41,7 @@ export async function eventCall<T>(url: string, init?: RequestInit): Promise<Eve
       return { ok: false, message: json.error?.message ?? 'That did not work. Try again.' };
     return { ok: true, data: json };
   } catch {
-    return { ok: false, message: 'Could not reach Copilot. Check the connection and try again.' };
+    return { ok: false, message: 'Could not reach Kraken. Check the connection and try again.' };
   }
 }
 

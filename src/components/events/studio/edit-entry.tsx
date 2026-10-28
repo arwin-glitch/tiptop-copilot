@@ -170,7 +170,7 @@ function Invitation({
     viewer ? 'Change anything' : 'Publish: changes go live only when TipTop publishes',
     'See the guest list, answers or anyone’s email',
     'Send messages or change the date, venue, capacity or link',
-    'Open anything else in TipTop’s Copilot',
+    'Open anything else in TipTop’s Kraken',
   ];
   const expires = new Date(preview.expiresAt).toLocaleDateString(undefined, {
     dateStyle: 'medium',

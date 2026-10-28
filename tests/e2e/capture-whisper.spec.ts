@@ -172,7 +172,7 @@ test('records a call on this computer: both meters move, lines arrive in order',
   await expect(page.getByTestId('recorder-controls')).toHaveAttribute('data-status', 'stopped', {
     timeout: 30_000,
   });
-  // Text only, to Copilot only: no model download (the fake), no speech service.
+  // Text only, to Kraken only: no model download (the fake), no speech service.
   expect(outside).toEqual([]);
 });
 

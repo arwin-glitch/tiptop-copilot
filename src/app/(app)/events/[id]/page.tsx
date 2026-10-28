@@ -97,14 +97,14 @@ export default async function EventDetailPage({
           <NotConfigured
             title="Events are not set up yet"
             description={`The events tables have not been created in the database. Run ${EVENTS_MIGRATION_FILE} in the Supabase SQL editor, then reload this page.`}
-            stillWorks="Everything else in Copilot works as before."
+            stillWorks="Everything else in Kraken works as before."
             action={null}
           />
         ) : (
           <ErrorState
             title="This event could not be read"
             message={found.error.message}
-            stillUsable="Every other page in Copilot."
+            stillUsable="Every other page in Kraken."
           />
         )}
       </PageShell>

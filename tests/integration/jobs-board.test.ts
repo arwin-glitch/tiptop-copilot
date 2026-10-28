@@ -508,7 +508,7 @@ describe('the board host in the proxy', () => {
     expect(home.headers.get('x-middleware-rewrite')).toMatch(/\/jobs-host$/);
     const app = await proxy(request('https://jobs.tiptop.vc/today', { host: 'jobs.tiptop.vc' }));
     expect(app.headers.get('x-middleware-rewrite')).toContain('/jobs-host/today');
-    // A forwarded header cannot reach Copilot on the board's host.
+    // A forwarded header cannot reach Kraken on the board's host.
     const spoofed = await proxy(
       request('https://jobs.tiptop.vc/today', {
         host: 'jobs.tiptop.vc',
@@ -524,7 +524,7 @@ describe('the board host in the proxy', () => {
     expect(old.headers.get('location')).toBe('https://jobs.tiptop.vc/ledgerly?x=1');
   });
 
-  it('serves /jobs on Copilot with no sign-in, keeps the preview and the app signed in, hides /jobs-host', async () => {
+  it('serves /jobs on Kraken with no sign-in, keeps the preview and the app signed in, hides /jobs-host', async () => {
     const board = await proxy(request('https://copilot.tiptop.vc/jobs/ledgerly'));
     expect(board.status).toBe(200);
     expect(board.headers.get('location')).toBeNull();
@@ -678,7 +678,7 @@ describe('the board host brakes and shapes', () => {
     }
   });
 
-  it('does not let X-Forwarded-Host turn Copilot into the board', async () => {
+  it('does not let X-Forwarded-Host turn Kraken into the board', async () => {
     const res = await proxy(
       request('https://copilot.tiptop.vc/today', {
         host: 'copilot.tiptop.vc',

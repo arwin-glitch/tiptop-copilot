@@ -2,13 +2,13 @@ import { gmailThreadUrl } from '@/lib/deals/links';
 
 /**
  * Where an email link goes. Every email or thread link in the app offers two
- * places to read it: "Copilot", the Inbox's reading pane at
+ * places to read it: "Kraken", the Inbox's reading pane at
  * `/inbox?thread=<id>`, and "Gmail", the thread in Gmail in the browser. Both
  * are rebuilt from a validated id, never from a stored URL.
  *
  * The id is either Gmail's own (a thread's or a message's, hex: Gmail opens
  * either, and the Inbox resolves a message id to its thread on the server),
- * or Copilot's id for an email it synced (a UUID, as Today, a deal's sources
+ * or Kraken's id for an email it synced (a UUID, as Today, a deal's sources
  * and citations hold). A synced id is looked up on the server: the Inbox
  * opens its conversation, and `&open=gmail` sends the browser on to Gmail.
  *
@@ -31,7 +31,7 @@ export function isGmailId(id: unknown): id is string {
   return typeof id === 'string' && GMAIL_ID.test(id);
 }
 
-/** Whether a value is Copilot's own id for a synced email or thread (a UUID). */
+/** Whether a value is Kraken's own id for a synced email or thread (a UUID). */
 export function isSyncedEmailId(id: unknown): id is string {
   return typeof id === 'string' && SYNCED_ID.test(id);
 }
@@ -42,7 +42,7 @@ export function isEmailLinkId(id: unknown): id is string {
 }
 
 /**
- * The conversation in Copilot's Inbox, or null for anything that is neither a
+ * The conversation in Kraken's Inbox, or null for anything that is neither a
  * Gmail id nor a synced email's id.
  */
 export function copilotThreadHref(id: string | null | undefined): string | null {
@@ -72,7 +72,7 @@ export function threadLinks(
 
 /**
  * The id to link a synced email by: Gmail's own message id when it has one,
- * so Gmail opens without a stop in the app, else Copilot's id for it (the
+ * so Gmail opens without a stop in the app, else Kraken's id for it (the
  * demo's fictional emails, or a provider id that is not Gmail's).
  */
 export function emailLinkId(message: { id: string; provider_message_id?: string | null }): string {
@@ -117,7 +117,7 @@ export function wantsGmail(params: Readonly<Record<string, string | string[] | u
  * A Gmail link to one thread or message, read back into its id and the
  * mailbox it names (`authuser`). Null for anything else: another site, a
  * search or a label, and Gmail's newer opaque ids from the address bar,
- * which the Gmail API (and so Copilot) cannot open. Used where a link was
+ * which the Gmail API (and so Kraken) cannot open. Used where a link was
  * built earlier and only its URL is at hand.
  */
 export function parseGmailThreadUrl(

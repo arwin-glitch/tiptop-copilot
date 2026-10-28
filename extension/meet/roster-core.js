@@ -1,5 +1,5 @@
 /**
- * TipTop Copilot: Meet names (D-076, v1 nice). Shared logic for the Meet tab.
+ * TipTop Kraken: Meet names (D-076, v1 nice). Shared logic for the Meet tab.
  *
  * Reads who is in the call and who is speaking from Google Meet's page, and
  * finds the chat box for the consent notice. Meet's markup is not a public
@@ -15,9 +15,9 @@
 (function (root) {
   'use strict';
 
-  /** What [Copy notice] says in Copilot (CONSENT_NOTICE_TEXT in src/lib/types/notes.ts). */
+  /** What [Copy notice] says in Kraken (CONSENT_NOTICE_TEXT in src/lib/types/notes.ts). */
   var CONSENT_NOTICE_TEXT =
-    "Hi all, I'm using TipTop Copilot to transcribe and take notes on this call. Let me know if you'd rather I didn't.";
+    "Hi all, I'm using TipTop Kraken to transcribe and take notes on this call. Let me know if you'd rather I didn't.";
 
   var EXTENSION_SOURCE = 'tiptop-meet-extension';
   var PAGE_SOURCE = 'tiptop-copilot';
@@ -137,7 +137,7 @@
 
   /**
    * Decides when a snapshot is worth sending: when who is there or who is
-   * speaking changes, and otherwise every `heartbeatMs` so a new Copilot tab
+   * speaking changes, and otherwise every `heartbeatMs` so a new Kraken tab
    * catches up.
    */
   function RosterTracker(heartbeatMs) {

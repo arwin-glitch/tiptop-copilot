@@ -1,8 +1,8 @@
 /**
- * Copilot Notes: the shared contract (D-076).
+ * Kraken Notes: the shared contract (D-076).
  *
  * Row shapes for the tables in supabase/migrations/20261024000000_copilot_notes.sql,
- * the extra fields a Copilot row carries in `meeting_notes`, the speech-to-text
+ * the extra fields a Kraken row carries in `meeting_notes`, the speech-to-text
  * session and event shapes, and the request and response bodies of every
  * /api/notes route. The UI (components/notes, app/(app)/meetings), the web
  * recorder (lib/capture) and the server (lib/services/notes*.ts,
@@ -208,7 +208,7 @@ export const CONSENT_BANNER_TEXT = "Everyone on this call should know it's being
 
 /** What [Copy notice] copies, to paste into the meeting chat. */
 export const CONSENT_NOTICE_TEXT =
-  "Hi all, I'm using TipTop Copilot to transcribe and take notes on this call. Let me know if you'd rather I didn't.";
+  "Hi all, I'm using TipTop Kraken to transcribe and take notes on this call. Let me know if you'd rather I didn't.";
 
 /** The required checkbox before Start is enabled. */
 export const CONSENT_CHECKBOX_LABEL = "I've told everyone / posted the notice";
@@ -216,16 +216,16 @@ export const CONSENT_CHECKBOX_LABEL = "I've told everyone / posted the notice";
 /** Shown in place of Start when a never-record rule matches. */
 export const NEVER_RECORD_MESSAGE = 'This meeting is on your never-record list.';
 
-/** The line a meeting booked through Copilot's booking link carries in its invite. */
+/** The line a meeting booked through Kraken's booking link carries in its invite. */
 export const INVITE_NOTICE_LINE =
-  'TipTop Copilot may transcribe this meeting to take notes. Reply if you would rather it did not.';
+  'TipTop Kraken may transcribe this meeting to take notes. Reply if you would rather it did not.';
 
 /** Version of the voice-enrolment consent wording, stored with each consent. */
 export const VOICE_CONSENT_TEXT_VERSION = 'voice-consent@1';
 
 /** The voice-enrolment consent wording (counsel confirms it before external use). */
 export const VOICE_CONSENT_TEXT =
-  'I agree that TipTop Copilot may create a voice identifier from a short recording of my voice, ' +
+  'I agree that TipTop Kraken may create a voice identifier from a short recording of my voice, ' +
   'so my name appears on my lines in meeting transcripts. It is encrypted, used only for this, never ' +
   'shared or exported, deleted within a year of its last use, and deleted at once if I withdraw consent.';
 
@@ -505,7 +505,7 @@ export interface NotesRequest {
   /** The meeting's day (YYYY-MM-DD) in the recorder's time zone, for due dates. */
   meeting_day: string | null;
   requested_by: Uuid | null;
-  /** When the routine's trigger accepted it; null while Copilot keeps trying. */
+  /** When the routine's trigger accepted it; null while Kraken keeps trying. */
   fired_at: IsoDateTime | null;
   fire_attempts: number;
   last_fire_at: IsoDateTime | null;
@@ -545,7 +545,7 @@ export interface NeverRecordMatch {
   reason: string;
 }
 
-/* ====================================== Copilot rows in meeting_notes == */
+/* ====================================== Kraken rows in meeting_notes == */
 
 /** Lines a note point came from: a closed range of transcript seq numbers. */
 export interface SegmentRange {
@@ -590,7 +590,7 @@ export interface ActionItem {
 }
 
 /**
- * The fields a Copilot row adds to `meeting_notes` (provider 'copilot',
+ * The fields a Kraken row adds to `meeting_notes` (provider 'copilot',
  * external_id = the meeting's id). Optional on MeetingNote so Granola rows,
  * which never carry them, stay valid as they are.
  */
@@ -605,14 +605,14 @@ export interface CopilotNoteFields {
   model?: string | null;
   generated_at?: IsoDateTime | null;
   edited_at?: IsoDateTime | null;
-  /** 'team' for every Granola row; a Copilot row copies its meeting's. */
+  /** 'team' for every Granola row; a Kraken row copies its meeting's. */
   visibility?: MeetingVisibility;
   owner_id?: Uuid | null;
   /** The latest request for Arwin's notes (notes_requests), when there is one. */
   notes_request_id?: Uuid | null;
 }
 
-/** A meeting_notes row written by Copilot. */
+/** A meeting_notes row written by Kraken. */
 export type CopilotMeetingNote = MeetingNote & {
   provider: 'copilot';
   meeting_id: Uuid;
@@ -739,7 +739,7 @@ export interface KnownVoice {
  * What POST /speech-setup returns per track: the settings the recorder's
  * speech engine runs with (D-076). Nothing here is a credential and nothing
  * is paid for: the browser transcribes with Whisper in a Web Worker and only
- * finished lines of text come back to Copilot. Provider 'mock' (demo mode)
+ * finished lines of text come back to Kraken. Provider 'mock' (demo mode)
  * runs no model at all: the recorder plays lib/transcribe/mock-script.ts.
  */
 export interface SpeechSession {
@@ -896,7 +896,7 @@ export interface NotesRequestView {
   reason: NotesRequestReason | null;
   templateId: string | null;
   requestedAt: IsoDateTime;
-  /** The routine was started. False while Copilot keeps trying, or when it is not connected. */
+  /** The routine was started. False while Kraken keeps trying, or when it is not connected. */
   fired: boolean;
   /** The routine's trigger and the relay are both set up, so the notes can arrive. */
   connected: boolean;
@@ -954,12 +954,12 @@ export interface VoiceProfileView {
   expiresAt: IsoDateTime | null;
 }
 
-/** One row of the Notes tab: a Copilot meeting or a Granola note. */
+/** One row of the Notes tab: a Kraken meeting or a Granola note. */
 export interface MeetingListItem {
   source: 'copilot' | 'granola';
   /** 'copilot:<meeting uuid>' or 'granola:<meeting_notes id>'. */
   qualifiedId: string;
-  /** The meeting id for Copilot rows; null for Granola rows. */
+  /** The meeting id for Kraken rows; null for Granola rows. */
   meetingId: Uuid | null;
   /** The meeting_notes row, when there is one. */
   noteId: Uuid | null;
@@ -1034,7 +1034,7 @@ export interface NotesAccessResponse {
   ok: true;
   /** NOTES_ENABLED: 'off' hides the feature, 'beta' follows each person's switch, 'on' shows it to everyone. */
   mode: 'off' | 'beta' | 'on';
-  /** This person's "Copilot Notes (beta)" switch. */
+  /** This person's "Kraken Notes (beta)" switch. */
   beta: boolean;
   /** What the app does for this person: the feature shows and its routes answer. */
   enabled: boolean;
@@ -1082,7 +1082,7 @@ export interface ListMeetingsQuery {
   folder?: Uuid;
   source?: 'copilot' | 'granola' | 'all';
   hasActionItems?: boolean;
-  /** A Google event id: the Copilot meeting made for that event ("Notes ready" on its card). */
+  /** A Google event id: the Kraken meeting made for that event ("Notes ready" on its card). */
   eventId?: string;
   cursor?: string;
 }
@@ -1473,7 +1473,7 @@ export interface VoiceEnrollRequest {
   modelVersion: string;
 }
 
-/** GET / POST /api/notes/preferences: this person's Copilot Notes settings. */
+/** GET / POST /api/notes/preferences: this person's Kraken Notes settings. */
 export interface NotesPreferences {
   /** Who sees a meeting this person records, unless they change it: 'private' or the whole 'team'. */
   defaultVisibility: MeetingVisibility;
@@ -1531,7 +1531,7 @@ export type UpdateTemplateRequest = Partial<CreateTemplateRequest>;
  * GET /api/notes/by-event?eventId=&recurringEventId=&emails=a,b : what the
  * calendar's event card shows. `meeting` is this person's meeting for the
  * event (null before "Take notes"); `series` the earlier meetings of a
- * recurring event; `pastNotes` earlier notes with these guests, Copilot and
+ * recurring event; `pastNotes` earlier notes with these guests, Kraken and
  * Granola, newest first, only what this person may see.
  */
 export interface EventNotesResponse {

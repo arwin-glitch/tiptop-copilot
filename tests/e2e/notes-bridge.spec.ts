@@ -2,7 +2,7 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * Copilot Notes through Arwin's Claude routine (D-076, zero spend), in demo
+ * Kraken Notes through Arwin's Claude routine (D-076, zero spend), in demo
  * mode: Stop → Quick notes at once and "Arwin is writing your notes" → the
  * routine's NOTES_RESULT_V1 lands in the relay → Arwin's notes with their
  * sources, the action items filed as tasks → a chat question goes through the

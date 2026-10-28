@@ -145,8 +145,8 @@ export async function renderBriefingPdf(
   const label = KIND_LABEL[briefing.kind];
   doc.setTitle(briefing.title);
   doc.setSubject(label);
-  doc.setProducer('TipTop Copilot');
-  doc.setCreator('TipTop Copilot');
+  doc.setProducer('TipTop Kraken');
+  doc.setCreator('TipTop Kraken');
 
   const regular = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -240,7 +240,7 @@ export async function renderBriefingPdf(
   pages.forEach((p, i) => {
     p.drawText(
       clean(
-        `TipTop Copilot · ${label} · page ${i + 1} of ${pages.length} · confidential, for Nick and Arwin`,
+        `TipTop Kraken · ${label} · page ${i + 1} of ${pages.length} · confidential, for Nick and Arwin`,
       ),
       { x: MARGIN.x, y: 32, size: 7.5, font: regular, color: MUTED },
     );

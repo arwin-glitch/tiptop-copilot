@@ -1,7 +1,7 @@
 /*
  * Guest-facing event UI (D-075, WS4): the RSVP form, the personal ticket,
  * the check-in landing and the staff door list. Scoped to [data-ev-ui] so it
- * never reaches Copilot's own pages, and coloured only through the event
+ * never reaches Kraken's own pages, and coloured only through the event
  * theme's --ev-* tokens (WS2 sets them on [data-event-root]; standalone
  * pages set them on [data-ev-shell]). The fallbacks are TipTop Signature's
  * emerald and gold.

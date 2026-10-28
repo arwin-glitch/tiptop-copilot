@@ -139,7 +139,7 @@ export function toShareLinkView(link: NoteShareLink, now: Date): ShareLinkView {
 }
 
 /**
- * The Copilot note on a meeting. `changedSince` is the newest rename, split
+ * The Kraken note on a meeting. `changedSince` is the newest rename, split
  * or merge of its voices: notes generated before it are stale.
  */
 export function toCopilotNoteView(

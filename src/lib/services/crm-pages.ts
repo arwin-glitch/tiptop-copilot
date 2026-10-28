@@ -33,7 +33,7 @@ import { ok, type Result } from '@/lib/util/result';
 /**
  * What the Records pages read from the Affinity data, beyond one page of a
  * destination's entries (`crm-destinations.ts`): the whole deal pipeline to
- * merge with Copilot's deals, founders for the portfolio cards, the LP stage
+ * merge with Kraken's deals, founders for the portfolio cards, the LP stage
  * counts, the people directory, the notes stream, and one company's Affinity
  * side for a deal or portfolio profile.
  *
@@ -379,7 +379,7 @@ const LP_CHIP_ORDER: readonly LpChipKey[] = [
 ];
 
 /**
- * How many Affinity LP entries sit at each of Copilot's LP stages, reading
+ * How many Affinity LP entries sit at each of Kraken's LP stages, reading
  * each list's own stage labels (`affinityLpStage`). One count per label per
  * list, narrowed by the same title search as the table.
  */
@@ -528,7 +528,7 @@ export interface CompanyAffinity {
 }
 
 /**
- * Everything Affinity holds about one company Copilot already knows (a deal,
+ * Everything Affinity holds about one company Kraken already knows (a deal,
  * a portfolio company): its record by domain (else exact name), its people at
  * that domain, the lists it is on with its stage, and the notes. Read-only,
  * and never fails: null when there is nothing, the CRM is not set up, or it

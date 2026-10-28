@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { cn } from '@/lib/util/cn';
 
 /**
- * A five-picture tour of Copilot Notes (D-076), for a visual learner:
+ * A five-picture tour of Kraken Notes (D-076), for a visual learner:
  * diagrams, not paragraphs. The consent step, speech staying on this
  * computer, fixing a name, Arwin writing the notes (Quick notes at once, his
  * in a minute or three), and sharing.
@@ -97,7 +97,7 @@ export function NotesTour() {
           className="flex flex-wrap items-center gap-2 rounded-md border border-l-2 border-[var(--border)] border-l-[var(--gold)] bg-[var(--note-soft)] px-3 py-2 text-sm"
           data-notes-tour-banner=""
         >
-          <span>New to Copilot Notes? Five pictures show how it works.</span>
+          <span>New to Kraken Notes? Five pictures show how it works.</span>
           <Button size="sm" variant="secondary" onClick={show}>
             Show me
           </Button>
@@ -186,7 +186,7 @@ function ConsentSketch() {
       aria-label="Copy the notice, tick the box, then Start"
     >
       <div className="w-36 rounded border border-[var(--border)] bg-[var(--bg-raised)] p-2 text-[11px]">
-        “I’m using TipTop Copilot to take notes…”
+        “I’m using TipTop Kraken to take notes…”
         <span className="mt-1 block rounded bg-[var(--accent-soft)] px-1 text-center">
           Copy notice
         </span>
@@ -211,7 +211,7 @@ function SpeechSketch() {
     <div
       className="flex flex-wrap items-center justify-center gap-3"
       role="img"
-      aria-label="Your voice goes to Whisper on this computer, and only lines of text go to Copilot; no speech service"
+      aria-label="Your voice goes to Whisper on this computer, and only lines of text go to Kraken; no speech service"
     >
       <span className="inline-flex items-center gap-1 rounded-full border border-[var(--gold-rule)] bg-[var(--note-soft)] px-2.5 py-1 text-[11px] font-medium">
         <Mic className="size-3" aria-hidden /> Voices

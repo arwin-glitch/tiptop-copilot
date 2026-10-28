@@ -3,8 +3,8 @@ import { processWide } from '@/lib/util/process-state';
 /**
  * A brake on anonymous traffic to the public board, for the proxy. The board
  * is the first public, unauthenticated surface served by the same process as
- * Copilot, so a flood of page or image requests must not be able to take
- * Copilot down with it. Pure apart from its in-process counters (no
+ * Kraken, so a flood of page or image requests must not be able to take
+ * Kraken down with it. Pure apart from its in-process counters (no
  * `server-only` imports, so the proxy can use it), and keyed on the caller's
  * address the same way lib/security/client-address.ts reads it.
  *

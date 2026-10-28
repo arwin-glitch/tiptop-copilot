@@ -13,7 +13,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
  * The notice for a held time that was released because it was taken
  * (D-078): `{ draft: { to, subject, body } }` for the compose window, which
- * sends only on a person's Send. Copilot sends nothing itself.
+ * sends only on a person's Send. Kraken sends nothing itself.
  */
 export async function GET(request: NextRequest, context: Context) {
   const gate = await calendarAuth(request, { bucket: 'booking-notice', max: 30 });

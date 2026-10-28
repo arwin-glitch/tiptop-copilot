@@ -127,7 +127,7 @@ export function introductionRows(
   return rows;
 }
 
-/** Which of `keys` belong to a company or person in Copilot. Empty when the CRM is not set up. */
+/** Which of `keys` belong to a company or person in Kraken. Empty when the CRM is not set up. */
 async function keysWithRecords(
   store: DataStore,
   organizationId: string,
@@ -287,7 +287,7 @@ export interface IntroductionLine {
   evidence: 'email' | 'chat' | null;
   /** Introduced by: who made it. Introduced: who they brought in. */
   party: IntroParty;
-  /** The profile of `party`, when Copilot has one. */
+  /** The profile of `party`, when Kraken has one. */
   partyRecordId: string | null;
   /** Anyone else in it ("with …"). */
   others: IntroParty[];

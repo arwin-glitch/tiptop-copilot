@@ -14,9 +14,9 @@ const BODY = z.object({ note: z.string().trim().max(CANCEL_NOTE_MAX).optional() 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Cancel a link booking from Copilot's Booking tab (D-078): the Google event
+ * Cancel a link booking from Kraken's Booking tab (D-078): the Google event
  * deleted with Google's cancellation to everyone invited, the booking marked
- * cancelled by the team. Signed in, a member or above, from Copilot's own
+ * cancelled by the team. Signed in, a member or above, from Kraken's own
  * pages, within a rate limit; audited.
  */
 export async function POST(request: NextRequest, context: Context) {

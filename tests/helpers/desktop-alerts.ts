@@ -14,7 +14,7 @@ export const FAKE_DEVICE = 'c0ffee00c0ffee00c0ffee00c0ffee00';
 
 export interface AlertsShellOptions {
   version?: string;
-  /** This computer's id; FAKE_DEVICE unless a test needs one Copilot has never seen. */
+  /** This computer's id; FAKE_DEVICE unless a test needs one Kraken has never seen. */
   device?: string;
   /** The main window's frame flag; null for a second window. */
   frame?: 'windows' | 'mac' | null;

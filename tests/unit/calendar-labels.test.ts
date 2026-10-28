@@ -30,7 +30,7 @@ import type { EventLabel, RangeEvent } from '@/lib/calendar/range-types';
  * Google Calendar's colour labels and the one visual language around them
  * (D-070), as pure rules: the colour an event is drawn in, its look (past,
  * not answered, maybe, declined), the request a label sends, the suggested
- * label and when Copilot stays quiet. Fictional names and addresses only.
+ * label and when Kraken stays quiet. Fictional names and addresses only.
  */
 
 const label = (id: string, name: string | null, background: string): EventLabel => ({

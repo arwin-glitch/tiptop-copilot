@@ -7,7 +7,7 @@ import { cn } from '@/lib/util/cn';
 
 /**
  * Which template the notes follow: the five built-in VC templates, then the
- * team's own. "Automatic" leaves the choice to Copilot.
+ * team's own. "Automatic" leaves the choice to Kraken.
  */
 export function TemplatePicker({
   templates,

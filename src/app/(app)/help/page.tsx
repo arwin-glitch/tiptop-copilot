@@ -68,7 +68,7 @@ export default async function HelpPage() {
     <PageShell>
       <PageHeader
         eyebrow="Help & tours"
-        title="How Copilot works"
+        title="How Kraken works"
         subtitle="What every page holds and where to click. Tap Show me and the page walks you through itself."
       />
 

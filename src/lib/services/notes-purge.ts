@@ -6,13 +6,13 @@ import { NOTES_LIMITS, type Meeting } from '@/lib/types/notes';
 import { purgeExpiredVoices } from './voice-profiles';
 
 /**
- * The Copilot Notes clean-up (D-076), run by the daily job:
+ * The Kraken Notes clean-up (D-076), run by the daily job:
  *   - a meeting in the trash longer than NOTES_LIMITS.trashDays (7) is
  *     deleted with everything under it: transcript lines, voices,
  *     participants, notes, share links and its consent log;
  *   - a voice identifier a year past its last use is deleted (Texas Bus. &
  *     Com. Code 503.001), its consent left on file.
- * Before the Copilot Notes migration there is nothing to clean, and that is
+ * Before the Kraken Notes migration there is nothing to clean, and that is
  * not an error.
  */
 

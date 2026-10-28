@@ -32,7 +32,7 @@ async function post(body: { action: 'resubscribe' | 'unsubscribe'; email: string
       ? { ok: true as const, already: Boolean(json?.already) }
       : { ok: false as const, message: json?.error?.message ?? 'That did not work. Try again.' };
   } catch {
-    return { ok: false as const, message: 'Could not reach Copilot. Try again.' };
+    return { ok: false as const, message: 'Could not reach Kraken. Try again.' };
   }
 }
 

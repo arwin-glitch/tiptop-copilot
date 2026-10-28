@@ -1,6 +1,6 @@
 //! In-app updates. About 15 seconds after launch, then every hour and whenever
 //! the main window comes to the front (at most every 15 minutes), the app asks
-//! Copilot whether a newer version exists (tauri.conf.json > plugins >
+//! Kraken whether a newer version exists (tauri.conf.json > plugins >
 //! updater), downloads it in the background and asks whether to restart.
 //! Later quiets the question for that version for 4 hours.
 //! Check for Updates… does the same and also says when nothing is new. Every
@@ -324,13 +324,13 @@ async fn check<R: Runtime>(app: &AppHandle<R>, trigger: Trigger) {
             tell(
                 app,
                 "You’re up to date",
-                &format!("TipTop Copilot {current} is the newest version."),
+                &format!("TipTop Kraken {current} is the newest version."),
             );
         }
         Outcome::Failed(Stage::Check) if report => tell(
             app,
             "Couldn’t check for updates",
-            "Copilot didn’t answer. Try again in a few minutes.",
+            "Kraken didn’t answer. Try again in a few minutes.",
         ),
         Outcome::Failed(Stage::Download) if report => tell(
             app,
@@ -340,9 +340,9 @@ async fn check<R: Runtime>(app: &AppHandle<R>, trigger: Trigger) {
         ),
         Outcome::WrongPlace if updates(app).lock().tell_place(report) => tell(
             app,
-            "Move TipTop Copilot to Applications",
+            "Move TipTop Kraken to Applications",
             "This copy is running from the disk image or from Downloads, so it can’t update \
-             itself. Quit it, drag TipTop Copilot into the Applications folder, then open it \
+             itself. Quit it, drag TipTop Kraken into the Applications folder, then open it \
              from there.",
         ),
         _ => {}
@@ -414,7 +414,7 @@ fn can_update_here() -> bool {
     #[cfg(target_os = "macos")]
     {
         if let Ok(exe) = tauri::utils::platform::current_exe() {
-            // …/TipTop Copilot.app/Contents/MacOS/<binary>
+            // …/TipTop Kraken.app/Contents/MacOS/<binary>
             let bundle = exe.ancestors().nth(3).unwrap_or(exe.as_path());
             return !read_only_place(&exe.to_string_lossy(), mac::on_read_only_volume(bundle));
         }
@@ -476,7 +476,7 @@ fn ask_to_restart<R: Runtime>(app: &AppHandle<R>, version: &str) {
     let asked = version.to_owned();
     let shown = show(
         app,
-        &format!("TipTop Copilot {version} is ready"),
+        &format!("TipTop Kraken {version} is ready"),
         "Restart now to update. It takes about 10 to 20 seconds. Save anything you’re typing \
          first.",
         restart_buttons(),
@@ -553,7 +553,7 @@ fn tell<R: Runtime>(app: &AppHandle<R>, headline: &str, detail: &str) {
 /// puts its title in the title bar, so there the headline leads the text.
 fn wording(windows: bool, headline: &str, detail: &str) -> (String, String) {
     if windows {
-        ("TipTop Copilot".to_owned(), format!("{headline}.\n\n{detail}"))
+        ("TipTop Kraken".to_owned(), format!("{headline}.\n\n{detail}"))
     } else {
         (headline.to_owned(), detail.to_owned())
     }
@@ -815,7 +815,7 @@ mod tests {
     #[test]
     fn a_windows_dialog_leads_with_the_headline() {
         let (title, text) = wording(true, "You’re up to date", "Nothing new.");
-        assert_eq!(title, "TipTop Copilot");
+        assert_eq!(title, "TipTop Kraken");
         assert_eq!(text, "You’re up to date.\n\nNothing new.");
         let (title, text) = wording(false, "You’re up to date", "Nothing new.");
         assert_eq!(title, "You’re up to date");
@@ -824,11 +824,11 @@ mod tests {
 
     #[test]
     fn only_a_read_only_copy_cannot_update_itself() {
-        let bin = "TipTop Copilot.app/Contents/MacOS/tiptop-copilot-desktop";
+        let bin = "TipTop Kraken.app/Contents/MacOS/tiptop-copilot-desktop";
         assert!(!read_only_place(&format!("/Applications/{bin}"), false));
         // An external disk is fine as long as it can be written to.
         assert!(!read_only_place(&format!("/Volumes/Work/Apps/{bin}"), false));
-        assert!(read_only_place(&format!("/Volumes/TipTop Copilot/{bin}"), true));
+        assert!(read_only_place(&format!("/Volumes/TipTop Kraken/{bin}"), true));
         assert!(read_only_place(
             &format!("/private/var/folders/ab/cd/T/AppTranslocation/0A1B2C/d/{bin}"),
             false

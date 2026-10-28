@@ -59,7 +59,7 @@ export class NotesClient {
         ok: false,
         error: {
           code: 'network',
-          message: 'Copilot could not be reached. Retrying.',
+          message: 'Kraken could not be reached. Retrying.',
           status: 0,
           retryable: true,
         },
@@ -75,7 +75,7 @@ export class NotesClient {
       ok: false,
       error: {
         code: error?.code ?? `http_${response.status}`,
-        message: error?.message ?? `Copilot answered ${response.status}.`,
+        message: error?.message ?? `Kraken answered ${response.status}.`,
         status: response.status,
         retryable: error?.retryable === true || RETRYABLE_STATUS.has(response.status),
         stillUsable: error?.stillUsable,

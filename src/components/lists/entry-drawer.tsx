@@ -41,9 +41,9 @@ interface Loaded {
  * the entry, and on a company or person list to the record too, so it shows
  * on the profile and on every list that record is on.
  *
- * A column added in Copilot (and every column of a list made in Copilot) is
+ * A column added in Kraken (and every column of a list made in Kraken) is
  * edited here in place; Affinity's columns stay as the sync writes them.
- * Notes written in Copilot can be edited and deleted. "Remove from list"
+ * Notes written in Kraken can be edited and deleted. "Remove from list"
  * takes the row off, with Undo on the message that follows.
  */
 export function EntryDrawer({
@@ -120,7 +120,7 @@ export function EntryDrawer({
 
   const notesShown =
     noteCount && noteCount.entryId === entryId ? noteCount.count : current?.detail?.notes.length;
-  // Columns the team owns: added in Copilot, or on a list made in Copilot.
+  // Columns the team owns: added in Kraken, or on a list made in Kraken.
   const editable = (field: CrmField) =>
     canWrite && (list.source === 'copilot' || isCopilotField(field));
 

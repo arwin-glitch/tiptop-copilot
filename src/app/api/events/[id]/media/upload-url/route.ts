@@ -24,7 +24,7 @@ const BODY = z
 
 /**
  * Step 1 of an upload: a signed URL the browser PUTs the file to directly
- * (never through Copilot). Step 2 is …/media/[mid]/process.
+ * (never through Kraken). Step 2 is …/media/[mid]/process.
  */
 export async function POST(request: NextRequest, context: Context) {
   const gate = await eventsAuth('media-upload', { max: 60 });

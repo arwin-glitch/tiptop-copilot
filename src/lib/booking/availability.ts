@@ -25,7 +25,7 @@ import { lastOpenDay } from './months';
  *
  * Which calendars (bookingCalendarIds): his main calendar, every calendar he
  * owns, every calendar ticked in Google Calendar, and any calendar he turned
- * on in Copilot's Calendar tab. A toggle there only ever adds one: hiding a
+ * on in Kraken's Calendar tab. A toggle there only ever adds one: hiding a
  * personal or family calendar from the view never opens its time to the
  * public page.
  *
@@ -37,7 +37,7 @@ import { lastOpenDay } from './months';
 /**
  * The calendars whose busy time the link reads, before any choice on the
  * Booking tab's Calendars list: the main one, every one he owns, every one
- * ticked in Google, and every one turned on in Copilot. A Copilot toggle set
+ * ticked in Google, and every one turned on in Kraken. A Kraken toggle set
  * to off never takes one away (lib/booking/calendar-choices.ts).
  */
 export function bookingCalendarIds(
@@ -133,7 +133,7 @@ export async function busyPictureFor(
     : { shown: {} };
   // A teammate's own calendar (the assistant's, shared with the host) is
   // their day, not the host's: it never counts toward the host's busy time,
-  // even when he owns it, ticked it in Google or turned it on in Copilot.
+  // even when he owns it, ticked it in Google or turned it on in Kraken.
   // The Booking tab's Calendars list may add or drop any other.
   const team = await readTeamMembers(store, organizationId);
   const teammateCalendars = teammateCalendarIds(team, options.principalId);

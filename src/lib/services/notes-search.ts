@@ -15,10 +15,10 @@ import { canSeeMeeting, guard, meetingView, type NotesContext } from './notes';
 import { readTeamInfo } from './notes-context';
 
 /**
- * The Notes tab's list and search (D-076): Copilot meetings and Granola notes
- * in one list, newest first, each with its source. A Copilot meeting paired
+ * The Notes tab's list and search (D-076): Kraken meetings and Granola notes
+ * in one list, newest first, each with its source. A Kraken meeting paired
  * with a Granola note of the same conversation (meetings.granola_external_id)
- * shows once, as the Copilot row, with the Granola row named in `pairedWith`.
+ * shows once, as the Kraken row, with the Granola row named in `pairedWith`.
  *
  * Search matches titles, notes and transcript lines through the tsvector
  * columns on Supabase (a ranked substring match in demo mode), so it reaches
@@ -58,7 +58,7 @@ interface Loaded {
   noteOf: Map<string, MeetingNote>;
 }
 
-/** Meetings this person may see, with their participants and Copilot notes. */
+/** Meetings this person may see, with their participants and Kraken notes. */
 async function loadMeetings(
   ctx: NotesContext,
   filter: { folder?: string; eventId?: string } = {},
@@ -161,7 +161,7 @@ export async function listMeetings(
     const meetings = loaded.meetings;
     const ids = meetings.map((m) => m.id);
     const visible = new Set(ids);
-    // A folder or a calendar event narrows to Copilot meetings: Granola rows have neither.
+    // A folder or a calendar event narrows to Kraken meetings: Granola rows have neither.
     const withGranola = source !== 'copilot' && !query.folder && !query.eventId;
     let granola = withGranola
       ? ((await ctx.store.list(
@@ -293,7 +293,7 @@ const PAST_NOTES = 5;
 /**
  * What the calendar's event card shows (D-076): this person's meeting for the
  * event (null before "Take notes"), earlier meetings of the same recurring
- * series, and earlier notes with any of the guests, Copilot and Granola, a
+ * series, and earlier notes with any of the guests, Kraken and Granola, a
  * conversation recorded by both shown once. Only what this person may see.
  */
 export async function eventNotes(

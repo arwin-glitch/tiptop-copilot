@@ -62,7 +62,7 @@ export const SLOT_STEP_MINUTES = 30;
 export interface BusyBlock {
   start: number;
   end: number;
-  /** Copilot's Meeting verdict: counted toward the day's meeting cap. */
+  /** Kraken's Meeting verdict: counted toward the day's meeting cap. */
   meeting: boolean;
   /** Face to face: travel time is kept on both sides of it. */
   inPerson: boolean;
@@ -79,7 +79,7 @@ export interface LinkBooking {
   end: number;
   type: MeetingType;
   /**
-   * On the host's calendar (Copilot made the event, or a person added it by
+   * On the host's calendar (Kraken made the event, or a person added it by
    * hand), so it is among the busy blocks already. A booking made in the
    * last few minutes is not: Google may not list a new event at once, so it
    * holds its own time until then (an entry at exactly its time stands in

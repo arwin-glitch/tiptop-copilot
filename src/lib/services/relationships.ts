@@ -47,7 +47,7 @@ import {
 /**
  * Relationship intelligence for CRM records and the Network page: how strong
  * each relationship is, why, when the last and next contact were, and who can
- * make an introduction — all from the mail and calendar Copilot already syncs.
+ * make an introduction — all from the mail and calendar Kraken already syncs.
  *
  * One index per organization (network/evidence.ts), built from the same rows
  * Network counts and kept for five minutes, so a list page asking about a
@@ -653,9 +653,9 @@ function coldNote(person: Pick<GoingColdPerson, 'strength' | 'peak'>): string {
 }
 
 /**
- * The relationship radar's alerts with Copilot's own going-cold list folded
+ * The relationship radar's alerts with Kraken's own going-cold list folded
  * into "Going cold": the routine's items first (they are curated), then
- * anyone it did not already name. With no snapshot, Copilot's list alone.
+ * anyone it did not already name. With no snapshot, Kraken's list alone.
  */
 export function withGoingCold(
   snapshot: Relationships | null,

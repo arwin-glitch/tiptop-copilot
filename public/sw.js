@@ -1,6 +1,6 @@
 /* eslint-disable */
 /**
- * TipTop Copilot service worker.
+ * TipTop Kraken service worker.
  *
  * Deliberately conservative. This app holds confidential deal data, so the
  * worker caches *only* the static shell (icons, manifest, offline page) and
@@ -43,9 +43,9 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/')) return;
 
   // Never touch the public surface either: event pages (/e, D-075) and the
-  // booking page (/meet). A guest who once signed in to Copilot on this
+  // booking page (/meet). A guest who once signed in to Kraken on this
   // browser still has this worker installed; their event page must come
-  // straight from the network, never as Copilot's offline page.
+  // straight from the network, never as Kraken's offline page.
   if (/^\/(e|meet)(\/|$)/.test(url.pathname)) return;
 
   // Navigations go to the network. On failure, show the offline page rather
@@ -90,9 +90,9 @@ self.addEventListener('push', (event) => {
   } catch (e) {
     data = {};
   }
-  const title = typeof data.title === 'string' && data.title ? data.title : 'TipTop Copilot';
+  const title = typeof data.title === 'string' && data.title ? data.title : 'TipTop Kraken';
   const url = typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/today';
-  // A meeting alert's "Start notes" button (Copilot Notes): an in-app path too.
+  // A meeting alert's "Start notes" button (Kraken Notes): an in-app path too.
   const notesUrl =
     typeof data.notesUrl === 'string' && data.notesUrl.startsWith('/') ? data.notesUrl : null;
   event.waitUntil(

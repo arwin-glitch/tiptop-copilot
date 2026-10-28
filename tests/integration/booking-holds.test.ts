@@ -33,7 +33,7 @@ import { createHarness, type Harness } from '../helpers/harness';
  * Arwin's rule for instant booking (D-078): a visitor's booking never waits
  * for a person. When it cannot be written at once (calendar editing off,
  * Google down or refusing) its time is HELD, blocked for everyone else, and
- * Copilot books it by itself: at once when editing comes on, and after a
+ * Kraken books it by itself: at once when editing comes on, and after a
  * Google fault on a backoff of 1, 5, 15 and 60 minutes, then on every pass.
  * Only a time that is truly no longer free releases it (with a notice draft
  * for a person to send). Never two events, never an Approve. Every person

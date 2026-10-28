@@ -2,11 +2,11 @@ import type { Metadata, Viewport } from 'next';
 
 /**
  * The board's fallback metadata, for its layouts: what any board address
- * says when its page says nothing more (a 404, an error). Never Copilot's
+ * says when its page says nothing more (a 404, an error). Never Kraken's
  * own title or description, and noindex unless a page says otherwise.
  */
 export const BOARD_LAYOUT_METADATA: Metadata = {
-  // Absolute: Copilot's root template ("%s · TipTop Copilot") never applies here.
+  // Absolute: Kraken's root template ("%s · TipTop Kraken") never applies here.
   title: { absolute: 'TipTop VC Jobs', template: '%s' },
   description: 'Open roles at TipTop VC portfolio companies.',
   applicationName: 'TipTop VC Jobs',
@@ -25,7 +25,7 @@ export const BOARD_LAYOUT_METADATA: Metadata = {
   },
 };
 
-/** The board is dark only: the phone's address bar matches it, not Copilot's cream. */
+/** The board is dark only: the phone's address bar matches it, not Kraken's cream. */
 export const BOARD_VIEWPORT: Viewport = {
   themeColor: '#0B0F0E',
   colorScheme: 'dark',

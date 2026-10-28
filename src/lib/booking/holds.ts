@@ -2,11 +2,11 @@ import type { BookingHoldReason } from '@/lib/types/domain';
 
 /**
  * A held booking (D-078): booked at once by a visitor, its time kept, but
- * not on the host's calendar yet. Nobody approves it. Copilot puts it on the
+ * not on the host's calendar yet. Nobody approves it. Kraken puts it on the
  * calendar by itself: at once when calendar editing comes on (checked on
  * every pass, it costs nothing), and after a Google fault on a backoff of
  * about 1, 5, 15 and 60 minutes, then on every pass (the alerts job ticks
- * every minute, and every Copilot or booking page visit runs one too), until
+ * every minute, and every Kraken or booking page visit runs one too), until
  * it is booked, or released when the time is truly no longer free. Pure and
  * client-safe: the Booking tab shows the same words.
  */
@@ -47,9 +47,9 @@ export function holdReasonForError(code: string): BookingHoldReason {
 /** The Booking tab's line for a held booking: what it is waiting for, in plain words. */
 export const HOLD_REASON_TEXT: Record<BookingHoldReason, string> = {
   calendar_editing_off: 'Waiting for calendar editing. It books itself the moment that is on.',
-  no_main_calendar: 'Copilot cannot write to the main calendar yet. It keeps trying by itself.',
-  calendar_unreachable: 'Google Calendar did not answer. Copilot tries again by itself.',
-  calendar_error: 'Google Calendar refused the event. Copilot tries again by itself.',
+  no_main_calendar: 'Kraken cannot write to the main calendar yet. It keeps trying by itself.',
+  calendar_unreachable: 'Google Calendar did not answer. Kraken tries again by itself.',
+  calendar_error: 'Google Calendar refused the event. Kraken tries again by itself.',
 };
 
 export const BOOKING_HOLD_REASONS = [

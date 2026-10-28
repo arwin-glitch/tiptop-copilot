@@ -42,7 +42,7 @@ import { BoardShell } from './shell';
 
 /**
  * The public board's pages, shared by its three addresses:
- *   - `/jobs` on Copilot's own host (base "/jobs"),
+ *   - `/jobs` on Kraken's own host (base "/jobs"),
  *   - the root of jobs.tiptop.vc (base "", the `/jobs-host` routes the
  *     proxy rewrites to),
  *   - `/jobs-preview` (base "/jobs-preview"), signed-in only, which shows
@@ -51,7 +51,7 @@ import { BoardShell } from './shell';
  *
  * Every page reads the board once per request (React `cache`). Public reads
  * go through one shared data cache entry (readPublicBoardCached), rebuilt
- * every ten minutes or as soon as a person changes something in Copilot
+ * every ten minutes or as soon as a person changes something in Kraken
  * (revalidatePublicBoard); the preview reads the database directly.
  */
 

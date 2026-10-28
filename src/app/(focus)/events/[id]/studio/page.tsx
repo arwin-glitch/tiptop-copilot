@@ -29,12 +29,12 @@ export default async function StudioPage({ params }: { params: Promise<{ id: str
         <NotConfigured
           title="Studio could not open"
           description={boot.error.message}
-          stillWorks={boot.error.stillUsable ?? 'Everything else in Copilot works as before.'}
+          stillWorks={boot.error.stillUsable ?? 'Everything else in Kraken works as before.'}
           action={null}
         />
         <p className="mt-4 text-sm">
           <Link href="/today" className="underline underline-offset-4">
-            Back to Copilot
+            Back to Kraken
           </Link>
         </p>
       </main>

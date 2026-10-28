@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
 
   if (!tokens.value.refresh_token) {
     return redirectWithError(
-      'Google did not return a refresh token. Remove TipTop Copilot from your Google account permissions and connect again.',
+      'Google did not return a refresh token. Remove TipTop Kraken from your Google account permissions and connect again.',
     );
   }
 
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
     existing.account_email.toLowerCase() !== accountEmail.toLowerCase()
   ) {
     return redirectWithError(
-      `The Copilot is connected to ${existing.account_email}. Choose that Google account, or disconnect it first.`,
+      `The Kraken is connected to ${existing.account_email}. Choose that Google account, or disconnect it first.`,
     );
   }
   const now = new Date().toISOString();

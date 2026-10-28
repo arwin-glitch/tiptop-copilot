@@ -20,9 +20,9 @@ import { cn } from '@/lib/util/cn';
 import { notesCall } from './api-client';
 
 /**
- * Sharing a meeting's notes outside Copilot (D-076). The summary only by
+ * Sharing a meeting's notes outside Kraken (D-076). The summary only by
  * default; the transcript only when switched on. Links expire (7, 30 or 90
- * days) and revoke at once; the full link is shown once, because Copilot keeps
+ * days) and revoke at once; the full link is shown once, because Kraken keeps
  * only a fingerprint (hash) of it. The page it opens carries no email address.
  */
 export function SharePanel({
@@ -60,7 +60,7 @@ export function SharePanel({
     <section aria-label="Share" className="space-y-4" data-share="">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-sm text-[var(--fg-muted)]">
-          A read-only page for someone outside Copilot: the summary and action items, and the
+          A read-only page for someone outside Kraken: the summary and action items, and the
           transcript only if you switch it on. Links expire and can be revoked at any time.
         </p>
         <Button variant="primary" onClick={() => setOpen(true)} disabled={!notesReady}>
@@ -215,7 +215,7 @@ function ShareDialog({
               </Button>
             </div>
             <p className="text-xs text-[var(--fg-muted)]">
-              Shown once: Copilot keeps only a fingerprint of the link, so copy it now. You can
+              Shown once: Kraken keeps only a fingerprint of the link, so copy it now. You can
               revoke it from the Share tab.
             </p>
           </div>

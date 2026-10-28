@@ -24,7 +24,7 @@ import {
  * Pure: the post's shape, the dedupe key, the filters and the display rules.
  * The Slack read is `src/lib/services/portfolio-students.ts`. Every value is
  * rendered as plain text, and a source is only ever a Gmail id with its date
- * and subject: the tab links to the email (in Copilot or in Gmail) and never
+ * and subject: the tab links to the email (in Kraken or in Gmail) and never
  * carries any of its text.
  */
 

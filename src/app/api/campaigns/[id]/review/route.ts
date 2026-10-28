@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ id: string }> };
 
-/** The host a campaign's Copilot links go through, so the review can name it. */
+/** The host a campaign's Kraken links go through, so the review can name it. */
 function hostOf(origin: string | null): string | null {
   if (!origin) return null;
   try {

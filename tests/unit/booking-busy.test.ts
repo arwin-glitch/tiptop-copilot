@@ -598,7 +598,7 @@ describe('travel signs the first version missed (review fix)', () => {
     }
   });
 
-  it('reads the entry’s own location, not only a place Copilot judged in person', () => {
+  it('reads the entry’s own location, not only a place Kraken judged in person', () => {
     const lp = ev({
       title: 'LP meetings',
       location: '200 Main St, Port Ellis, CA',

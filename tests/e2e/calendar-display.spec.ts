@@ -17,7 +17,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * - A Key explains the looks: faded once over, outlined with a "?" while
  *   not answered, striped for maybe, struck through when declined, and a
  *   block is drawn like any other event (no dashes, no grey).
- * - A guest-less registration finds its ticket email, with the Copilot and
+ * - A guest-less registration finds its ticket email, with the Kraken and
  *   Gmail links; an event nothing explains says what was checked and offers
  *   the Inbox search.
  *
@@ -596,9 +596,9 @@ test('How you got here finds the ticket email for a guest-less registration', as
   const origin = card.locator('[data-origin]');
   await expect(origin).toContainText('How you got here');
   await expect(origin).toContainText(/Registration email from Harborlight Events, \w{3} \d+/);
-  // Both places to read it: Copilot's Inbox, and Gmail.
+  // Both places to read it: Kraken's Inbox, and Gmail.
   const copilot = origin.getByRole('link', {
-    name: 'Open in Copilot: Your ticket: Harborlight Founders Mixer',
+    name: 'Open in Kraken: Your ticket: Harborlight Founders Mixer',
   });
   const gmail = origin.getByRole('link', {
     name: 'Open in Gmail: Your ticket: Harborlight Founders Mixer',
@@ -622,7 +622,7 @@ test('when nothing explains an event, it says what was checked and offers the In
   await chip(page, 'Hotel check-in window').click({ position: { x: 12, y: 8 } });
   const card = page.getByRole('dialog', { name: 'Hotel check-in window' });
   const origin = card.locator('[data-origin]');
-  await expect(origin).toContainText('How you got here: Copilot looked for a dossier note');
+  await expect(origin).toContainText('How you got here: Kraken looked for a dossier note');
   await expect(origin).toContainText('and found nothing that explains it.');
   const search = origin.getByRole('link', { name: 'Search the Inbox for ‘Hotel window’' });
   await expect(search).toHaveAttribute('href', '/inbox?q=Hotel%20window');

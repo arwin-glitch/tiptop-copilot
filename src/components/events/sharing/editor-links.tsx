@@ -573,7 +573,7 @@ function IssuedLink({
           </Button>
         </div>
         <p className="mt-3 text-xs text-[var(--fg-muted)]">
-          “Draft an email” opens a draft in your own mail app. Nothing is sent from Copilot.
+          “Draft an email” opens a draft in your own mail app. Nothing is sent from Kraken.
         </p>
         <DialogFooter>
           <Button onClick={onClose}>Done</Button>

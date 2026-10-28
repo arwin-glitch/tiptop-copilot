@@ -51,7 +51,7 @@ export async function CrmFinderTab({ auth, params }: { auth: AuthContext; params
       <NotConfigured
         title="The CRM is not set up yet"
         description={`The CRM tables have not been created in the database. Run ${CRM_MIGRATION_FILE} in the Supabase SQL editor, then reload this page.`}
-        stillWorks="Documents, contacts and everything else in Copilot work as before."
+        stillWorks="Documents, contacts and everything else in Kraken work as before."
         action={null}
       />
     );
@@ -96,7 +96,7 @@ export async function CrmFinderTab({ auth, params }: { auth: AuthContext; params
           <ErrorState
             title="The search could not run"
             message={found.error.message}
-            stillUsable="The Affinity lists and everything else in Copilot."
+            stillUsable="The Affinity lists and everything else in Kraken."
           />
         )
       ) : found.value.needsNarrowing ? (

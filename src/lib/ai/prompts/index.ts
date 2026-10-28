@@ -31,7 +31,7 @@ export type PromptName = keyof typeof PROMPT_VERSIONS;
 
 /** Who the model is, for every task except Ask (see ASK_ARWIN_PERSONA). */
 export const CORE_IDENTITY =
-  'You are TipTop Copilot, an internal analyst for TipTop VC, an early-stage venture fund investing in vertical AI.';
+  'You are TipTop Kraken, an internal analyst for TipTop VC, an early-stage venture fund investing in vertical AI.';
 
 /** The core rules after the identity line. Every system prompt carries them. */
 export const CORE_RULES_BODY = `TONE

@@ -8,7 +8,7 @@ import type { McpToolOutput } from '@/lib/mcp/protocol';
 /**
  * Each MCP tool against the demo store: the CRM fixtures (a deal pipeline, an
  * LP pipeline with commitments, a portfolio list, notes — one of them carrying
- * an injection attempt), Copilot's own deals, portfolio and tasks, and the
+ * an injection attempt), Kraken's own deals, portfolio and tasks, and the
  * demo LP-pipeline and portfolio-health snapshots.
  *
  * Two properties are checked across tools rather than once: LP amounts never
@@ -68,7 +68,7 @@ describe('tools/list', () => {
       'lp_pipeline',
       'portfolio',
       'tasks',
-      // Copilot Notes' meeting tools (D-076), tested in notes-mcp.test.ts.
+      // Kraken Notes' meeting tools (D-076), tested in notes-mcp.test.ts.
       'list_meetings',
       'get_meetings',
       'get_meeting_transcript',
@@ -173,7 +173,7 @@ describe('search', () => {
     expect(everything(record)).not.toContain('$2M');
   });
 
-  it('finds Copilot deals and portfolio companies, with links back to the app', async () => {
+  it('finds Kraken deals and portfolio companies, with links back to the app', async () => {
     const out = await run('search', { query: 'Ledgerly', kinds: ['portfolio', 'company'] });
     const results = out.structured.results as { kind: string; url?: string }[];
     expect(results.find((r) => r.kind === 'portfolio')?.url).toBe(
@@ -217,14 +217,14 @@ describe('get_record', () => {
     expectNoLpAmounts(out);
   });
 
-  it('shows where a company also lives in Copilot', async () => {
+  it('shows where a company also lives in Kraken', async () => {
     const out = await run('get_record', { id: LEDGERLY });
     expect(out.structured.copilot).toEqual([
       expect.objectContaining({ kind: 'portfolio', id: DEMO_IDS.pcLedgerly, name: 'Ledgerly' }),
     ]);
   });
 
-  it('returns a list entry, a Copilot deal and a portfolio company by their ids', async () => {
+  it('returns a list entry, a Kraken deal and a portfolio company by their ids', async () => {
     const entry = await run('get_record', { id: BRINDLE_DEAL_ENTRY });
     expect(entry.structured.type).toBe('list_entry');
     expect(entry.text).toContain('Deal Pipeline');
@@ -378,7 +378,7 @@ describe('get_notes', () => {
 });
 
 describe('deals_pipeline', () => {
-  it("counts Copilot's deals by stage and each CRM deal list by status", async () => {
+  it("counts Kraken's deals by stage and each CRM deal list by status", async () => {
     const out = await run('deals_pipeline', { days: 30 });
     const copilot = out.structured.copilot as {
       live_deals: number;
@@ -472,7 +472,7 @@ describe('portfolio and tasks', () => {
 });
 
 describe('before the CRM migration has run', () => {
-  it('reports the CRM as not set up, and still answers from the rest of Copilot', async () => {
+  it('reports the CRM as not set up, and still answers from the rest of Kraken', async () => {
     const missing = Object.assign(new Error('relation "crm_lists" does not exist'), {
       code: '42P01',
     });

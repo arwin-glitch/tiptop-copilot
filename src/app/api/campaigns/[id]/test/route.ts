@@ -14,7 +14,7 @@ const BODY = z.object({ recipientId: z.string().max(64).nullish() });
 
 /**
  * "Send test to me": one email, to the signed-in person only, from a tap.
- * Marked [Test]; its tracked links and pixel go through Copilot like the real
+ * Marked [Test]; its tracked links and pixel go through Kraken like the real
  * email's, and record nothing.
  */
 export async function POST(request: NextRequest, context: Context) {

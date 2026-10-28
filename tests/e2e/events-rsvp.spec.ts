@@ -9,7 +9,7 @@ import { expect, test, type Browser, type Page } from '@playwright/test';
  * own API, an open registration remembered by the browser, an approval
  * request approved by the host, a waitlisted RSVP when full, and a check-in
  * through the QR's URL (the host's browser checks in; anyone else sees the
- * ticket). Guests browse in fresh contexts with no Copilot session. Settings
+ * ticket). Guests browse in fresh contexts with no Kraken session. Settings
  * are put back at the end. Every person here is fictional.
  */
 
@@ -52,7 +52,7 @@ test.afterAll(async ({ browser }, testInfo) => {
 
 /**
  * A host API call from the signed-in page itself, so the browser sends the
- * session cookie exactly as Copilot's own screens do.
+ * session cookie exactly as Kraken's own screens do.
  */
 async function host(
   page: Page,
@@ -101,7 +101,7 @@ async function links(page: Page, guestId: string) {
   };
 }
 
-/** A guest's browser: no Copilot session at all. */
+/** A guest's browser: no Kraken session at all. */
 async function guestPage(browser: Browser, baseURL: string | undefined): Promise<Page> {
   const context = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
   return context.newPage();

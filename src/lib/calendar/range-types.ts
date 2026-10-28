@@ -1,7 +1,7 @@
 /**
  * What the new Calendar views get from the server: Nick's calendars with
  * Google's own names and colours, and every event in the visible range with
- * Copilot's Meeting/Block verdict on it. Plain data, safe for the browser.
+ * Kraken's Meeting/Block verdict on it. Plain data, safe for the browser.
  */
 
 export type CalendarViewKind = 'day' | 'week' | 'month';

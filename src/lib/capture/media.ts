@@ -120,7 +120,7 @@ export function mediaError(error: unknown, what: 'mic' | 'meeting'): RecorderErr
     if (name === 'NotAllowedError' || name === 'AbortError') {
       return {
         code: 'share_cancelled',
-        message: 'Sharing was cancelled, so Copilot cannot hear the meeting.',
+        message: 'Sharing was cancelled, so Kraken cannot hear the meeting.',
         stillUsable:
           'Start again and pick the meeting tab or screen, or record in "Mic only" mode.',
       };
@@ -142,7 +142,7 @@ export function mediaError(error: unknown, what: 'mic' | 'meeting'): RecorderErr
   if (name === 'NotAllowedError') {
     return {
       code: 'mic_denied',
-      message: 'Copilot is not allowed to use the microphone.',
+      message: 'Kraken is not allowed to use the microphone.',
       stillUsable:
         'Allow the microphone for this site in the browser (the icon at the left of the address bar), then start again.',
     };
@@ -173,8 +173,7 @@ function blockedByPolicy(): RecorderError {
   return {
     code: 'blocked_by_policy',
     message: 'This page is not allowed to record.',
-    stillUsable:
-      'Open the meeting from Copilot itself (not inside another site), then start again.',
+    stillUsable: 'Open the meeting from Kraken itself (not inside another site), then start again.',
   };
 }
 
@@ -219,7 +218,7 @@ export async function acquireMeetingAudio(
 export class NoMeetingAudioError extends Error {
   readonly recorderError: RecorderError = {
     code: 'no_meeting_audio_shared',
-    message: 'That share has no sound, so Copilot cannot hear the meeting.',
+    message: 'That share has no sound, so Kraken cannot hear the meeting.',
     stillUsable:
       'Start again and tick "Also share tab audio" (a tab) or "Share system audio" (Entire screen on Windows).',
   };

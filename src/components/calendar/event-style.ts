@@ -9,7 +9,7 @@ import type { RangeEvent } from '@/lib/calendar/range-types';
  *
  * - The fill is the event's colour from Google: its label's, else its own,
  *   else its calendar's. Meetings and blocks are filled alike; the bell on a
- *   meeting is Copilot's verdict (it pings), and nothing turns a block grey.
+ *   meeting is Kraken's verdict (it pings), and nothing turns a block grey.
  * - Not answered yet: the surface colour inside a border in the event's
  *   colour, with a thick left edge, and a "?" (Google's own style).
  * - Maybe: the same outline over diagonal stripes in the event's colour.

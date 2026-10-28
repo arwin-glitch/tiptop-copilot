@@ -11,7 +11,7 @@ import { Field, Input, Select } from '@/components/ui/form';
 import type { CrmEntityType } from '@/lib/types/domain';
 
 /**
- * "New list": an empty list made in Copilot — people, companies or deals —
+ * "New list": an empty list made in Kraken — people, companies or deals —
  * that opens straight away, ready for "Add entry", columns and rows saved from
  * elsewhere. What Affinity's own "New list" did, now that nothing else makes
  * one.
@@ -54,7 +54,7 @@ export function NewListDialog() {
       </DialogTrigger>
       <DialogContent
         title="New list"
-        description="An empty list made in Copilot. Add people or companies to it, give it columns, or send a campaign to it."
+        description="An empty list made in Kraken. Add people or companies to it, give it columns, or send a campaign to it."
       >
         <form
           className="space-y-4"

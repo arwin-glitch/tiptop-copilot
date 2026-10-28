@@ -46,7 +46,7 @@ import { corporateEmailDomain, normalizeCompanyName, normalizeDomain } from '@/l
 import { err, ok, type Result } from '@/lib/util/result';
 
 /**
- * The CRM: Affinity's model, held in Copilot.
+ * The CRM: Affinity's model, held in Kraken.
  *
  * Lists of one entity type with their own fields, companies and people as
  * records, list entries carrying a list's values, and notes. Three groups of
@@ -58,7 +58,7 @@ import { err, ok, type Result } from '@/lib/util/result';
  *     values, add an entry (or many), add, edit and delete a note, add a
  *     company or person, add a column, take a row off a list and put it back
  *   - import upserts for the CSV import route and the daily Affinity sync,
- *     idempotent on natural keys, which skip rows taken off a list in Copilot
+ *     idempotent on natural keys, which skip rows taken off a list in Kraken
  *
  * Every table here arrives by a hand-applied migration, and code has reached
  * production before its table before (the Sep 15 outage). So every function
@@ -716,7 +716,7 @@ export async function matchRecordsByName(
 // What the Lists pages need beyond a page of entries: when each list last
 // changed, how many entries sit in each status (the filter chips), the list as
 // status columns (the board), one entry with its notes (the side panel), and
-// where a company already exists elsewhere in Copilot (a profile's links).
+// where a company already exists elsewhere in Kraken (a profile's links).
 // A list can hold thousands of entries, so all of it is counted and capped in
 // the database; nothing here reads a whole list.
 
@@ -983,7 +983,7 @@ export async function getEntry(
   });
 }
 
-/** A company as it already exists in Copilot's own Deals or Portfolio. */
+/** A company as it already exists in Kraken's own Deals or Portfolio. */
 export interface CrmCopilotLink {
   kind: 'deal' | 'portfolio';
   id: string;
@@ -995,7 +995,7 @@ export interface CrmCopilotLink {
 }
 
 /**
- * Where a CRM company also lives in Copilot: deals and portfolio companies
+ * Where a CRM company also lives in Kraken: deals and portfolio companies
  * with the same domain, or — for a table where no row shares the domain — the
  * same normalized name. Read-only; the two are never merged. A person has no
  * such links. These tables predate the CRM, so a failure is an ordinary
@@ -1047,7 +1047,7 @@ export async function findCopilotLinks(
     log.warn('CRM cross-link lookup failed', {
       reason: error instanceof Error ? error.message : String(error),
     });
-    return err('internal', 'Copilot’s deals and portfolio could not be checked just now.', {
+    return err('internal', 'Kraken’s deals and portfolio could not be checked just now.', {
       retryable: true,
     });
   }
@@ -1101,7 +1101,7 @@ export interface CreateCrmListInput {
   fields?: readonly CrmFieldInput[];
 }
 
-/** A new Copilot list, placed after the existing ones. */
+/** A new Kraken list, placed after the existing ones. */
 export async function createList(
   store: DataStore,
   organizationId: string,
@@ -1712,7 +1712,7 @@ export interface AddCrmNoteInput {
 }
 
 /**
- * A note written in Copilot, signed with the actor's display name. It must be
+ * A note written in Kraken, signed with the actor's display name. It must be
  * attached to at least one record or entry, all of which must exist; the
  * names they carry are kept on the note as `entity_names`.
  */
@@ -1799,7 +1799,7 @@ async function changeableNote(
 }
 
 /**
- * Change a note's text (and title). A note written in Copilot always; one
+ * Change a note's text (and title). A note written in Kraken always; one
  * from Affinity only once the daily sync is off (`affinitySyncOn`, which the
  * caller reads from affinitySyncIsOn), since the sync would rewrite it. The
  * author and date stay as they were; the text is scanned again.
@@ -1926,7 +1926,7 @@ async function existingRecord(
 }
 
 /**
- * A new company or person, made in Copilot now that Affinity is going.
+ * A new company or person, made in Kraken now that Affinity is going.
  *
  * Keyed the way the daily Affinity sync matches records — a company on its
  * domain, a person on their email — and stored with no external id, so while
@@ -2003,7 +2003,7 @@ export async function createRecord(
 
 /** The most columns a list can carry; an import's own cap is lower. */
 export const CRM_LIST_FIELDS_MAX = 150;
-/** The most choices a Copilot status or multi column can have. */
+/** The most choices a Kraken status or multi column can have. */
 export const CRM_COPILOT_OPTIONS_MAX = 200;
 
 export interface AddCrmFieldInput {
@@ -2014,8 +2014,8 @@ export interface AddCrmFieldInput {
 }
 
 /**
- * A column added in Copilot (a custom field), at the end of the list's
- * columns. Marked as Copilot's (`origin`), so neither the Affinity sync nor a
+ * A column added in Kraken (a custom field), at the end of the list's
+ * columns. Marked as Kraken's (`origin`), so neither the Affinity sync nor a
  * CSV re-import ever takes it over by its label (mergeCrmFields,
  * planAffinityColumns): its values are the team's own, set from the side
  * panel like any other.
@@ -2036,7 +2036,7 @@ export async function addListField(
     if (name.length > 200) return err('invalid_input', 'That column name is too long.');
     const type = input.type as CrmFieldType;
     if (!(CRM_COPILOT_FIELD_TYPES as readonly string[]).includes(type)) {
-      return err('invalid_input', 'That is not a kind of column Copilot can add.');
+      return err('invalid_input', 'That is not a kind of column Kraken can add.');
     }
     if (list.fields.some((f) => crmNameKey(f.name) === crmNameKey(name))) {
       return err('conflict', `${list.name} already has a column called “${name}”.`);
@@ -2302,7 +2302,7 @@ export interface CrmUpsertSummary {
   ids: (string | null)[];
   /** Why rows were skipped or values dropped or kept (row is the input index). At most 50. */
   problems: { row: number; message: string }[];
-  /** List entries only: values changed in Copilot that the import kept rather than overwrote. */
+  /** List entries only: values changed in Kraken that the import kept rather than overwrote. */
   keptEdits: number;
 }
 
@@ -2792,7 +2792,7 @@ export async function upsertRecords(
 
 export interface CrmListMeta {
   /**
-   * The Copilot list to import into, when the person chose one. It keeps its
+   * The Kraken list to import into, when the person chose one. It keeps its
    * name; its entity type must be `entityType`.
    */
   id?: string | null;
@@ -2934,14 +2934,14 @@ function entryKeyKind(key: string): EntryKeyKind {
 const KEY_STRENGTH: Record<EntryKeyKind, number> = { name: 1, entity: 2, row: 3 };
 
 /**
- * An import's values laid over an entry. A value someone changed in Copilot
+ * An import's values laid over an entry. A value someone changed in Kraken
  * since the last import — it differs from what that import left, in
  * `imported_values` — is kept rather than overwritten, and so is a value on a
- * row no import has written yet (one made in Copilot) that the file
+ * row no import has written yet (one made in Kraken) that the file
  * disagrees with. Every other key the file carries takes the file's value, an
  * empty cell clearing it. The snapshot always takes the file's values, so a
  * kept edit stays kept when the same file is imported again, and a later
- * change in Affinity to a value nobody touched in Copilot still comes through.
+ * change in Affinity to a value nobody touched in Kraken still comes through.
  */
 function mergeImport(
   entry: Pick<CrmListEntry, 'values' | 'imported_values'>,
@@ -2964,7 +2964,7 @@ function mergeImport(
   };
 }
 
-/** What the import summary says about a value it kept: the Copilot value, and the file's. */
+/** What the import summary says about a value it kept: the Kraken value, and the file's. */
 function keptMessage(
   field: CrmField | undefined,
   key: string,
@@ -2978,10 +2978,10 @@ function keptMessage(
   const name = field?.name ?? key;
   const now = quote(copilot);
   const theirs = quote(file);
-  if (!now) return `Kept ${name} cleared, as it was in Copilot, rather than the file’s ${theirs}.`;
+  if (!now) return `Kept ${name} cleared, as it was in Kraken, rather than the file’s ${theirs}.`;
   if (!theirs)
-    return `Kept ${name} as set in Copilot (${now}) rather than clearing it as the file does.`;
-  return `Kept ${name} as set in Copilot (${now}) rather than the file’s ${theirs}.`;
+    return `Kept ${name} as set in Kraken (${now}) rather than clearing it as the file does.`;
+  return `Kept ${name} as set in Kraken (${now}) rather than the file’s ${theirs}.`;
 }
 
 /**
@@ -2999,7 +2999,7 @@ function keptMessage(
  * taken again by record or title, so two rows never fold into one.
  *
  * Values follow mergeImport: an import never overwrites what someone changed
- * in Copilot since the last one, and says so in `problems`.
+ * in Kraken since the last one, and says so in `problems`.
  */
 export async function upsertEntries(
   store: DataStore,
@@ -3055,7 +3055,7 @@ export async function upsertEntries(
       return { externalId: externalKey(row.externalId), title, recordId, values, position };
     });
 
-    // Rows someone took off this list in Copilot stay off, whoever sends
+    // Rows someone took off this list in Kraken stay off, whoever sends
     // them again: the daily sync or a CSV re-import.
     const removed = removedRowMatcher(list, await listTombstones(store, organizationId, list.id));
 
@@ -3107,7 +3107,7 @@ export async function upsertEntries(
       if (removed(row)) {
         return batch.skip(
           i,
-          `“${row.title}” was taken off ${list.name} in Copilot, so it was not added back. Add it again on the list to bring it back.`,
+          `“${row.title}” was taken off ${list.name} in Kraken, so it was not added back. Add it again on the list to bring it back.`,
         );
       }
 
@@ -3231,7 +3231,7 @@ export function crmNoteExternalId(
  * Upsert notes. A note matches the one stored under the same source and
  * external id (or content hash); a match takes the row's content, title,
  * author and date, and keeps any links added since, so re-importing never
- * detaches a note from what someone linked it to in Copilot.
+ * detaches a note from what someone linked it to in Kraken.
  */
 export async function upsertNotes(
   store: DataStore,

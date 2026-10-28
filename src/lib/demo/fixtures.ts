@@ -1162,7 +1162,7 @@ runway_months,19,16,14`,
       geography: 'United States',
       funding_stage: 'Seed',
       product_summary:
-        'Copilot for freight brokers: load matching and carrier negotiation drafting.',
+        'Kraken for freight brokers: load matching and carrier negotiation drafting.',
       customer: 'Freight brokerages',
       team: 'Strong ML team; neither founder had worked in freight.',
       founder_market_fit: 'Weak — no operating experience in the vertical.',
@@ -2161,7 +2161,7 @@ experiment, not the fundraise timing.`,
   // Suggested tasks with the routine's short labels, for Today's "At a glance".
   const glance = demoGlance(now);
 
-  // Copilot Notes (D-076): its tables, and its one note row beside Granola's.
+  // Kraken Notes (D-076): its tables, and its one note row beside Granola's.
   const { meeting_notes: copilotNotes, ...notesTables } = demoNotes(now);
 
   return {
@@ -2472,10 +2472,10 @@ Worth asking:
 // (watch list, angel investments, founders, co-investors, providers,
 // operators, sponsors, an LP newsletter, one no rule recognises), the
 // companies and people on them, and notes. Then the lists the Records pages
-// read beside Copilot's own data: a second deal list whose companies match
-// Copilot deals (by domain, and by name), an LP pipeline with Affinity-style
+// read beside Kraken's own data: a second deal list whose companies match
+// Kraken deals (by domain, and by name), an LP pipeline with Affinity-style
 // numbered stages and a likelihood column, an event invite list, and
-// founders of Copilot's own portfolio companies.
+// founders of Kraken's own portfolio companies.
 // Every company, person, address and amount is invented, on .example domains.
 
 interface DemoCrmDb {
@@ -2497,7 +2497,7 @@ function demoCrm(now: Date): DemoCrmDb {
   const day = (d: number) => daysAgo(now, d).slice(0, 10);
 
   /*
-   * records: companies 0–15, people 16–27, 28 (a company Copilot also tracks),
+   * records: companies 0–15, people 16–27, 28 (a company Kraken also tracks),
    * then 29–36 for the Records pages and 37–39 for Find & save (see the end of the list).
    */
   const companies: [string, string, Record<string, CrmValue>][] = [
@@ -2576,7 +2576,7 @@ function demoCrm(now: Date): DemoCrmDb {
       created_at: created(16 + i),
       updated_at: created(16 + i),
     })),
-    // Record 28 is also a portfolio company in Copilot itself (same domain as
+    // Record 28 is also a portfolio company in Kraken itself (same domain as
     // its portfolio_companies row), so its profile shows the cross-link.
     {
       id: demoCrmId('record', 28),
@@ -2593,9 +2593,9 @@ function demoCrm(now: Date): DemoCrmDb {
       created_at: created(28),
       updated_at: created(28),
     },
-    // 29 and 30 are deals Copilot already tracks: Vetrix by its domain,
+    // 29 and 30 are deals Kraken already tracks: Vetrix by its domain,
     // Loomstack by name alone (no domain in the export). 36 is only in
-    // Affinity. 31 and 32 found Copilot's two portfolio companies (matched by
+    // Affinity. 31 and 32 found Kraken's two portfolio companies (matched by
     // work email domain). 33–35 are LPs on the numbered LP pipeline.
     ...(
       [
@@ -2802,7 +2802,7 @@ function demoCrm(now: Date): DemoCrmDb {
       { key: 'subscribed', name: 'Subscribed', type: 'status', options: ['Yes', 'No'] },
     ]),
     list(ID.crmListMisc, 'Misc Imports', 'company', 11, []),
-    // Read beside Copilot's own data on Deals, Fund II and Network.
+    // Read beside Kraken's own data on Deals, Fund II and Network.
     list(ID.crmListSeedDeals, 'Seed Opportunities', 'deal', 12, [
       {
         key: 'status',
@@ -2872,7 +2872,7 @@ function demoCrm(now: Date): DemoCrmDb {
       title,
       external_id: String(900_000 + n),
       values: stored,
-      // As an import leaves it: nothing changed in Copilot since.
+      // As an import leaves it: nothing changed in Kraken since.
       imported_values: { ...stored },
       position,
       created_at: daysAgo(now, 300 - n),
@@ -3124,7 +3124,7 @@ function demoCrm(now: Date): DemoCrmDb {
     loose(36, ID.crmListMisc, 'Holloway Group', {}, 0),
     loose(37, ID.crmListMisc, 'Fernbrook Partners', {}, 1),
 
-    // A second deal list: Vetrix and Loomstack are Copilot deals too, the
+    // A second deal list: Vetrix and Loomstack are Kraken deals too, the
     // other two only Affinity's.
     entry(38, ID.crmListSeedDeals, 29, 'Vetrix', { status: '1. New Lead', owners: [MORGAN] }, 0),
     entry(
@@ -3184,7 +3184,7 @@ function demoCrm(now: Date): DemoCrmDb {
     entry(46, ID.crmListInvites, 16, 'Ada Brennan', { rsvp: 'Yes', table: '1' }, 0),
     entry(47, ID.crmListInvites, 24, 'Hana Kuroda', { rsvp: 'Invited' }, 1),
     loose(48, ID.crmListInvites, 'Wim Oostendorp', { rsvp: 'No' }, 2),
-    // Founders of Copilot's own portfolio companies.
+    // Founders of Kraken's own portfolio companies.
     entry(49, ID.crmListFounders, 31, 'Maya Chen', { company: ['Ledgerly'], role: 'CEO' }, 2),
     entry(50, ID.crmListFounders, 32, 'Dev Sharma', { role: 'CEO' }, 3),
   ];

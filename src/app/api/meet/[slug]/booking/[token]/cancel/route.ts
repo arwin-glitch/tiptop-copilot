@@ -16,7 +16,7 @@ type Context = { params: Promise<{ slug: string; token: string }> };
 
 /**
  * Cancel a booking from its own page (D-078), with an optional note (500
- * characters at most) that reaches the host as a Copilot alert. The Google
+ * characters at most) that reaches the host as a Kraken alert. The Google
  * event is deleted and Google sends everyone its cancellation. From the page
  * itself only, braked per address.
  */

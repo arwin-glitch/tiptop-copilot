@@ -81,7 +81,7 @@ import { TimeGrid, type GridChange } from './time-grid';
  * past or future, Today and back and forward, a date picker, all in the
  * address (?view=&date=). Nick's
  * calendars down the side with Google's own names and colours, each one on or
- * off. Every event keeps Copilot's Meeting/Block verdict, and a click on it
+ * off. Every event keeps Kraken's Meeting/Block verdict, and a click on it
  * opens Google Calendar's event card beside it (event-panel.tsx): Edit,
  * Delete, Duplicate, Email guests, its colour, Going? for an invitation, Join.
  *
@@ -950,7 +950,7 @@ export function CalendarViews(props: CalendarViewsProps) {
         <Notice>
           <span>View only. {editing.reason}</span>{' '}
           {props.turnOnHref ? (
-            <WebOnly fallback={<span>Turn it on from Copilot in your web browser.</span>}>
+            <WebOnly fallback={<span>Turn it on from Kraken in your web browser.</span>}>
               <a href={props.turnOnHref} className="link-inline font-medium">
                 Turn on calendar editing
               </a>

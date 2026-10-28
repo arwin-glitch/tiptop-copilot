@@ -143,7 +143,7 @@ test('one event: overview, subtabs in the URL, and the other workstreams’ pane
     'href',
     `/events/${HARBORVIEW}/studio`,
   );
-  // The live page opens as a full page load in a new tab, never inside Copilot.
+  // The live page opens as a full page load in a new tab, never inside Kraken.
   const live = outline.getByRole('link', { name: 'View live page' });
   await expect(live).toHaveAttribute('href', '/e/harborview-annual-meeting');
   await expect(live).toHaveAttribute('target', '_blank');

@@ -341,7 +341,7 @@ describe('the saved video link', () => {
 });
 
 describe('the visitor’s own words', () => {
-  it('stay out of an event no person approved, and point to Copilot instead', async () => {
+  it('stay out of an event no person approved, and point to Kraken instead', async () => {
     const [slot] = await slots();
     await book({ start: slot!.start, guests: ['sam@partner.example'] });
     const description = inserts()[0]!.body?.description ?? '';

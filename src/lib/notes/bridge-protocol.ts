@@ -12,7 +12,7 @@ import { formatOffset } from './api';
 import { carriedTaskId, dueFromText, parseTypedNotes } from './draft';
 
 /**
- * The notes half of the Ask bridge (D-076, zero spend): what Copilot sends
+ * The notes half of the Ask bridge (D-076, zero spend): what Kraken sends
  * Arwin's Claude routine to write a meeting's notes, and how what comes back
  * through the Slack relay is checked before it is stored. No paid API is
  * involved: the routine runs on Arwin's Claude plan.
@@ -570,7 +570,7 @@ function ownerOf(name: string, speakers: readonly RoutineSpeaker[]): RoutineSpea
 }
 
 /**
- * The routine's notes as the blocks and action items Copilot stores: the
+ * The routine's notes as the blocks and action items Kraken stores: the
  * typed lines first, word for word, then the summary, the template's sections,
  * decisions, open questions and the action items, each point linked to the
  * lines it cites.

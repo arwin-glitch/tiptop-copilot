@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
  * Save the assistant's settings: on or off, the written questions and
  * answers, AI answers and their daily cap. Merged into the booking link's
  * settings document as `chatbot`; nothing else there changes. An admin or
- * the owner, from Copilot's own pages, within a rate limit.
+ * the owner, from Kraken's own pages, within a rate limit.
  */
 export async function PATCH(request: NextRequest) {
   const gate = await calendarAuth(request, { bucket: 'booking-chatbot', max: 30, write: true });

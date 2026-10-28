@@ -112,7 +112,7 @@ const person = (
 function directory(): Directory {
   return {
     companies: [
-      // Already in Copilot from a list (the demo's first Affinity company).
+      // Already in Kraken from a list (the demo's first Affinity company).
       company(310_000, 'A different name from the directory', 'other.example'),
       company(880_001, 'Fernhollow Analytics', 'fernhollow.example'),
       company(880_002, 'Marrowgate Labs', null, ['marrowgate.example']),
@@ -272,7 +272,7 @@ describe('mapping the directory and reminders', () => {
 });
 
 describe('copying the contacts on no list', () => {
-  it('adds the ones Copilot lacks, leaves the rest exactly as they are, and skips teammates', async () => {
+  it('adds the ones Kraken lacks, leaves the rest exactly as they are, and skips teammates', async () => {
     const before = await affinityRecord('company', '310000');
     const fake = fakeAffinity(directory());
     const done = await press('contacts', fake);
@@ -291,7 +291,7 @@ describe('copying the contacts on no list', () => {
       primary_email: 'juno@fernhollow.example',
     });
     expect(await affinityRecord('person', '990002')).toBeNull();
-    // Already in Copilot: untouched, not renamed from the directory.
+    // Already in Kraken: untouched, not renamed from the directory.
     expect(await affinityRecord('company', '310000')).toEqual(before);
 
     // Companies first, then people, page by page.
@@ -376,7 +376,7 @@ describe('copying the contacts on no list', () => {
 describe('copying the open reminders', () => {
   it('makes one task per open reminder, named for whom it is about', async () => {
     const fake = fakeAffinity(directory());
-    // The company and person are in Copilot first, so the tasks can name them.
+    // The company and person are in Kraken first, so the tasks can name them.
     await press('contacts', fake);
     const done = await press('reminders', fake);
     expect(done).toMatchObject({ done: true, copied: 2, skipped: 1, openTotal: 2 });

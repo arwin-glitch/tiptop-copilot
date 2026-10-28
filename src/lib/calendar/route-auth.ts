@@ -27,7 +27,7 @@ export async function calendarAuth(
   if (options.write && !isSameOrigin(request)) {
     return {
       ok: false,
-      response: fail({ code: 'forbidden', message: 'That request did not come from Copilot.' }),
+      response: fail({ code: 'forbidden', message: 'That request did not come from Kraken.' }),
     };
   }
   const auth = await authOrError();

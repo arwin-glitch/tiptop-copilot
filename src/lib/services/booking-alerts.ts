@@ -5,14 +5,14 @@ import type { DataStore } from '@/lib/db/store';
 import type { BookingRequest } from '@/lib/types/domain';
 
 /**
- * What the host hears about the booking link (D-078), through Copilot's own
+ * What the host hears about the booking link (D-078), through Kraken's own
  * alert feed (the phone and desktop alerts, lib/services/push-alerts.ts),
  * the Booking tab and a Today line, never by email: a new booking, a move,
  * a cancellation with the visitor's note, and a held time released because
  * it was taken. Worked out from the bookings themselves, so nothing is
  * queued: each change has its own ledger key and alerts once.
  *
- * A change made in Copilot (a cancel from the Booking tab) or in Google
+ * A change made in Kraken (a cancel from the Booking tab) or in Google
  * Calendar (an event deleted there) is the team's own doing and does not
  * alert.
  */
@@ -174,7 +174,7 @@ export interface BookingTodaySummary {
   waiting: number;
   /** Held times waiting for calendar editing. */
   held: number;
-  /** Held times Copilot keeps trying to put on the calendar (Google did not answer). */
+  /** Held times Kraken keeps trying to put on the calendar (Google did not answer). */
   retrying: number;
   /** In the last day: booked, moved and cancelled by visitors. */
   booked: number;

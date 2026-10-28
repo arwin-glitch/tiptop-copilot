@@ -33,7 +33,7 @@ import { restoreLinkDescription } from './booking-calendar';
  * - Another scheduling tool's reschedule link (Fyxer edits the events its
  *   user organizes a few seconds after they are made; Vimcal and Calendly
  *   add their own) is taken back out of a booking-link event's description:
- *   Copilot's own text goes back, ending with the booking's own page, told
+ *   Kraken's own text goes back, ending with the booking's own page, told
  *   to nobody. Booking-link events only (by the event id on the booking),
  *   never any other event, and at most once per event per change: if the
  *   other tool adds it again, it stays.
@@ -277,7 +277,7 @@ export type RestoreOutcome = 'restored' | 'clean' | 'skipped' | 'failed';
 
 /**
  * Put a booking event's own description back when another tool appended
- * its reschedule link: Copilot's text, ending with the booking's own page
+ * its reschedule link: Kraken's text, ending with the booking's own page
  * (the link already in the description, or `manageUrl` when the caller has
  * it), told to nobody. Once per event per change.
  */

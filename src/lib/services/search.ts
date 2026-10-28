@@ -62,7 +62,7 @@ const CRM_LIST_KIND: Record<CrmList['entity_type'], string> = {
 const MAX_QUERY = 80;
 
 /**
- * Lines of Copilot Notes transcripts that match (D-076), for someone with
+ * Lines of Kraken Notes transcripts that match (D-076), for someone with
  * the feature on: only meetings they may see, each result opening the
  * transcript at that moment.
  */
@@ -116,7 +116,7 @@ export async function searchEverything(
   store: DataStore,
   organizationId: string,
   rawQuery: string,
-  /** Who is searching: with Copilot Notes on for them, transcripts are searched too. */
+  /** Who is searching: with Kraken Notes on for them, transcripts are searched too. */
   viewer?: AuthContext,
 ): Promise<SearchResult[]> {
   const query = rawQuery.trim().slice(0, MAX_QUERY);

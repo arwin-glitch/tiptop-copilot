@@ -150,7 +150,7 @@ test('a click on an event opens Google’s card beside it, with Google’s optio
     card.getByRole('radiogroup', { name: 'Event colour' }).getByRole('radio'),
   ).toHaveCount(12);
   await expect(card.getByRole('link', { name: /Open in Google Calendar/ }).first()).toBeVisible();
-  // What Google shows, and Copilot's verdict with the ping.
+  // What Google shows, and Kraken's verdict with the ping.
   await expect(card.getByText('Central Time')).toBeVisible();
   await expect(card.getByText('1 guest', { exact: true })).toBeVisible();
   await expect(card.getByText('TipTop team')).toBeVisible();
@@ -437,7 +437,7 @@ test('Email guests opens a draft to the guests; nothing sends without its own ta
   expect(writes).toEqual([]);
 });
 
-test('a meeting’s latest emails on its card offer Copilot or Gmail', async ({ page }) => {
+test('a meeting’s latest emails on its card offer Kraken or Gmail', async ({ page }) => {
   // The demo mailbox has no email with these guests, so the context answer is
   // stubbed with a fictional thread; the card draws whatever the route says.
   await page.route('**/api/calendar/context?**', (route) =>
@@ -465,7 +465,7 @@ test('a meeting’s latest emails on its card offer Copilot or Gmail', async ({ 
   const card = page.getByRole('dialog', { name: title });
   await expect(card.getByText('Latest emails with them', { exact: true })).toBeVisible();
   await expect(
-    card.getByRole('link', { name: 'Open in Copilot: Reference call notes' }),
+    card.getByRole('link', { name: 'Open in Kraken: Reference call notes' }),
   ).toHaveAttribute('href', '/inbox?thread=18f0a1b2c3d4e5f6');
   const gmail = card.getByRole('link', { name: 'Open in Gmail: Reference call notes' });
   await expect(gmail).toHaveAttribute(

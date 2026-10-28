@@ -293,7 +293,7 @@ async function recipientsOf(
   );
 }
 
-/** Whether a campaign's emails carry any Copilot link (and so need a public APP_URL). */
+/** Whether a campaign's emails carry any Kraken link (and so need a public APP_URL). */
 const usesAppLinks = (c: Pick<Campaign, 'track_activity' | 'unsubscribe_link'>) =>
   c.track_activity || c.unsubscribe_link;
 
@@ -954,7 +954,7 @@ async function skipWaiting(store: DataStore, organizationId: string, email: stri
 export interface SuppressionEntry {
   email: string;
   at: string;
-  /** Through a campaign email's link, or added by a person in Copilot. */
+  /** Through a campaign email's link, or added by a person in Kraken. */
   source: 'link' | 'manual';
   campaignId: string | null;
   campaignName: string | null;
@@ -2476,7 +2476,7 @@ export function formatAddress(name: string | null | undefined, email: string): s
  * signature, and, as the campaign's switches say, tracked links and the open
  * pixel (`track_activity`) and the small unsubscribe line with its
  * List-Unsubscribe header (`unsubscribe_link`). With both off, or no URLs,
- * the email is a plain personal one: links as written, nothing of Copilot's.
+ * the email is a plain personal one: links as written, nothing of Kraken's.
  * A link whose text is itself an address is never rewritten (template.ts).
  * Copies, when given, travel beside the email (its Cc and Bcc headers) and
  * never touch its body; with none, the result carries no `cc` or `bcc` at all.
@@ -2554,7 +2554,7 @@ export interface CampaignReview {
 
 export interface ReviewOptions {
   /**
-   * The public origin for Copilot links (APP_URL), or null when it is local:
+   * The public origin for Kraken links (APP_URL), or null when it is local:
    * then a campaign with tracking or the unsubscribe line on cannot go.
    * Undefined skips that check.
    */
@@ -3110,7 +3110,7 @@ export interface BatchDeps {
   /**
    * The app's public origin, for the tracking and unsubscribe links (APP_URL),
    * or null while it is a local address (route-helpers' trackingOrigin). A
-   * campaign whose emails carry Copilot links refuses to send without one.
+   * campaign whose emails carry Kraken links refuses to send without one.
    */
   appUrl: string | null;
   now?: () => Date;
@@ -3695,7 +3695,7 @@ export async function sendBatch(
  * "Send test to me": the email as one recipient would get it (the first on
  * the list, or nobody's merge values), to the signed-in person, marked
  * [Test]. Its links and pixel are the real tracked ones, on a token that
- * names the campaign rather than a recipient: they go through Copilot exactly
+ * names the campaign rather than a recipient: they go through Kraken exactly
  * as the real email's do (so the test proves APP_URL works from outside) and
  * record nothing.
  *

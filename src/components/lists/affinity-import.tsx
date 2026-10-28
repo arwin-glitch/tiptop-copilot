@@ -71,7 +71,7 @@ import {
  * lists before notes (notes link to the companies, people and deals the lists
  * brought in). Every chunk is an idempotent upsert, so a retry, a stopped
  * import run again, or the same file dropped twice does not add its rows a
- * second time; a value someone has changed in Copilot since is kept, and the
+ * second time; a value someone has changed in Kraken since is kept, and the
  * summary says so.
  *
  * Which list a file updates is the person's choice, offered from the lists
@@ -135,7 +135,7 @@ interface FileOutcome {
   /** Notes (or introductions) linked to at least one company, person or deal. */
   linked: number;
   ambiguousNames: number;
-  /** Values changed in Copilot since the last import, kept rather than overwritten. */
+  /** Values changed in Kraken since the last import, kept rather than overwritten. */
   keptEdits: number;
   problems: AffinityRowProblem[];
   /** Why the file stopped part-way, if it did. */
@@ -175,7 +175,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * out, not allowed, or the CRM not set up, none of which a retry fixes.
  */
 async function sendChunk<T>(body: AffinityImportRequest): Promise<ChunkResult<T>> {
-  let message = 'Copilot could not be reached.';
+  let message = 'Kraken could not be reached.';
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt) await wait(attempt * 1500);
     let res: Response;
@@ -192,7 +192,7 @@ async function sendChunk<T>(body: AffinityImportRequest): Promise<ChunkResult<T>
     const json = (await res.json().catch(() => null)) as ({ ok: true } & T) | ErrorBody | null;
     if (res.ok && json?.ok) return { ok: true, value: json as T };
     const error = json && !json.ok ? json.error : undefined;
-    message = error?.message ?? `Copilot answered with an error (${res.status}).`;
+    message = error?.message ?? `Kraken answered with an error (${res.status}).`;
     if (res.status === 401 || res.status === 403 || error?.code === 'not_configured') {
       return { ok: false, message, fatal: true };
     }
@@ -227,7 +227,7 @@ export function AffinityImport({
 }: {
   ready: boolean;
   canImport: boolean;
-  /** The lists already in Copilot, to import into. */
+  /** The lists already in Kraken, to import into. */
   lists: AffinityExistingList[];
 }) {
   const [files, setFiles] = React.useState<ImportFile[]>([]);
@@ -439,7 +439,7 @@ export function AffinityImport({
           </ol>
           <p className="mt-3 text-sm text-[var(--fg-muted)]">
             Importing an export again updates the rows it brought in rather than adding them twice,
-            and keeps any value someone has changed in Copilot since. Each file goes into the list
+            and keeps any value someone has changed in Kraken since. Each file goes into the list
             you choose for it, and a list made by mistake can be archived from its page.
           </p>
         </CardContent>
@@ -491,7 +491,7 @@ export function AffinityImport({
               ? 'Importing needs the CRM tables set up first (see above).'
               : readyCount < files.length && !running
                 ? 'Files that still need a choice are left out until it is made.'
-                : 'Nothing is changed in Affinity. Rows already in Copilot are updated, and values changed in Copilot are kept.'}
+                : 'Nothing is changed in Affinity. Rows already in Kraken are updated, and values changed in Kraken are kept.'}
           </p>
         </div>
       ) : null}
@@ -1373,8 +1373,7 @@ function Outcome({ outcome, mapping }: { outcome: FileOutcome; mapping: Affinity
       {outcome.kind === 'notes' && stored > 0 ? (
         <p className="text-[var(--fg-muted)]">
           {outcome.linked.toLocaleString()} of {stored.toLocaleString()} notes are attached to a
-          company, person or deal in Copilot. The others keep the names they were attached to as
-          text
+          company, person or deal in Kraken. The others keep the names they were attached to as text
           {outcome.ambiguousNames
             ? ', including names that matched more than one record and were not guessed at'
             : ''}
@@ -1384,24 +1383,24 @@ function Outcome({ outcome, mapping }: { outcome: FileOutcome; mapping: Affinity
       {outcome.kind === 'introductions' && stored > 0 ? (
         <p className="text-[var(--fg-muted)]">
           {outcome.linked.toLocaleString()} of {stored.toLocaleString()} introductions name a
-          company or person already in Copilot and show on their profiles. The rest appear on a
+          company or person already in Kraken and show on their profiles. The rest appear on a
           profile as soon as that company or person is imported.
         </p>
       ) : null}
       {nothingChanged ? (
         <p className="text-[var(--fg-muted)]">
-          Everything in this file was already in Copilot, so nothing changed.
+          Everything in this file was already in Kraken, so nothing changed.
         </p>
       ) : rows.unchanged > 0 ? (
         <p className="text-[var(--fg-muted)]">
           {rows.unchanged.toLocaleString()} {ROWS_LABEL[outcome.kind].toLowerCase()} were already in
-          Copilot and were left as they were.
+          Kraken and were left as they were.
         </p>
       ) : null}
       {outcome.keptEdits > 0 ? (
         <p className="text-[var(--fg-muted)]">
           {outcome.keptEdits.toLocaleString()}{' '}
-          {outcome.keptEdits === 1 ? 'value was' : 'values were'} changed in Copilot since the last
+          {outcome.keptEdits === 1 ? 'value was' : 'values were'} changed in Kraken since the last
           import and {outcome.keptEdits === 1 ? 'was' : 'were'} kept rather than overwritten by this
           file; the rows below say which.
         </p>
@@ -1447,7 +1446,7 @@ function FinalSummary({ files }: { files: ImportFile[] }) {
           </CardTitle>
           <CardDescription>
             Importing the same files again matches the rows already here rather than adding them
-            twice, and keeps values changed in Copilot since.
+            twice, and keeps values changed in Kraken since.
           </CardDescription>
         </div>
       </CardHeader>

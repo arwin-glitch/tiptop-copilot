@@ -19,7 +19,7 @@ import { ok, err } from '@/lib/util/result';
 import { createHarness, type Harness } from '../helpers/harness';
 
 /**
- * Copilot Notes end to end through its routes (D-076), in demo mode with the
+ * Kraken Notes end to end through its routes (D-076), in demo mode with the
  * mock transcriber: make a meeting, refuse to start without consent, start,
  * mint speech sessions, upload the scripted call, rename a voice, split and
  * merge, stop (the notes job), share and revoke, add a task, and the flag.
@@ -219,7 +219,7 @@ describe('meetings', () => {
     expect(res.status).toBe(403);
   });
 
-  it('lists Copilot meetings beside Granola notes, and searches transcripts', async () => {
+  it('lists Kraken meetings beside Granola notes, and searches transcripts', async () => {
     const list = await json<{ meetings: { source: string; qualifiedId: string }[] }>(
       await meetingsRoute.GET(req('/api/notes/meetings')),
     );
@@ -694,8 +694,8 @@ describe('templates and voice consent', () => {
   });
 });
 
-describe('the readers that predate Copilot Notes', () => {
-  it('keep a private Copilot note off shared pages, and Granola’s catch-up window on Granola', async () => {
+describe('the readers that predate Kraken Notes', () => {
+  it('keep a private Kraken note off shared pages, and Granola’s catch-up window on Granola', async () => {
     const { listMeetingNotes, catchUpSince } = await import('@/lib/services/meetings');
     const before = await catchUpSince(harness.store, harness.auth.organizationId);
     const { meeting } = await newMeeting({ providerEventId: 'evt-private', title: 'Quiet chat' });

@@ -55,7 +55,7 @@ export async function RelationshipPanel({
   const now = new Date();
   const { strength } = r;
   // A score is only shown when there is evidence to score. With none, a "0"
-  // would claim "no relationship" where Copilot simply has nothing on record,
+  // would claim "no relationship" where Kraken simply has nothing on record,
   // or nothing to match on at all.
   const scored = strength.label !== 'none';
   const unscoredReason = !r.matched.matchable
@@ -226,7 +226,7 @@ function TimelineRow({ item, now, tz }: { item: TimelineItem; now: Date; tz: str
           {item.upcoming ? <span className="text-[var(--accent)]">Upcoming · </span> : null}
           {item.detail}
         </p>
-        {/* A thread, in Copilot's Inbox or in Gmail. */}
+        {/* A thread, in Kraken's Inbox or in Gmail. */}
         <ThreadLinksForHref
           href={item.href}
           label={item.title}
@@ -357,7 +357,7 @@ export async function WhoCanIntro({
                     <span className="min-w-0 truncate text-[var(--fg-muted)]">
                       {p.subject || '(no subject)'}
                     </span>
-                    {/* Their shared thread, in Copilot's Inbox or in Gmail. */}
+                    {/* Their shared thread, in Kraken's Inbox or in Gmail. */}
                     <ThreadLinksForHref
                       href={p.href}
                       label={p.subject || '(no subject)'}

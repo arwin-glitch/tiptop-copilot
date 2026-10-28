@@ -112,7 +112,7 @@ function AlertList({
                   {item.note ? ` · ${item.note}` : ''}
                 </p>
               </div>
-              {/* The thread with them, in Copilot's Inbox or in Gmail. */}
+              {/* The thread with them, in Kraken's Inbox or in Gmail. */}
               <ThreadLinks
                 id={item.thread_id}
                 mailbox={DEFAULT_MAILBOX}

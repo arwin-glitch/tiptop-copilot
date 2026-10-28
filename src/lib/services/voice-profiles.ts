@@ -223,7 +223,7 @@ export async function enrollVoice(
     const profile = await consentedProfile(ctx, input.email);
     if (!profile) return NO_CONSENT();
     if (!input.identifiers.every((v) => decodeVoiceprint(v) !== null)) {
-      return err('invalid_input', 'That is not a voiceprint Copilot can use.');
+      return err('invalid_input', 'That is not a voiceprint Kraken can use.');
     }
     const sealed = sealIdentifiers(input.identifiers, profile.id);
     if (!sealed.ok) return sealed;
@@ -289,7 +289,7 @@ export async function knownVoicesFor(
     const opened = openIdentifiers(row.identifier_enc, profile.id);
     const voiceprint = opened.ok ? opened.value.find((v) => decodeVoiceprint(v) !== null) : null;
     if (!voiceprint) {
-      log.warn('Copilot Notes: a voice identifier could not be opened', { profile: profile.id });
+      log.warn('Kraken Notes: a voice identifier could not be opened', { profile: profile.id });
       continue;
     }
     out.push({ label: profile.id, voiceprint, modelVersion: row.model_version });

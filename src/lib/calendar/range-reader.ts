@@ -150,7 +150,7 @@ export function toCalendarInfos(
     .sort((a, b) => group(a) - group(b) || a.name.localeCompare(b.name));
 }
 
-/** One Google event as the views draw it, with Copilot's verdict on it. */
+/** One Google event as the views draw it, with Kraken's verdict on it. */
 export function toRangeEvent(
   google: GCalEvent,
   calendar: Pick<CalendarInfo, 'id' | 'accessRole' | 'color'> &

@@ -102,7 +102,7 @@ function bookings(now: Date) {
       placeArea: 'Riverside',
       source: 'chatbot',
       rescheduledCount: 1,
-      // Booked by the visitor; Google did not answer, so Copilot keeps trying.
+      // Booked by the visitor; Google did not answer, so Kraken keeps trying.
       holdReason: 'calendar_unreachable',
       nextTryAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
     },
@@ -344,7 +344,7 @@ test('Bookings: who, when, where, guests and status, Cancel with a note', async 
   // A held booking books itself: "Booking…", why, and Try now; never Approve.
   await expect(morgan.getByText('Booking…', { exact: true })).toBeVisible();
   await expect(morgan.getByTestId('held-reason')).toContainText(
-    'Google Calendar did not answer. Copilot tries again by itself.',
+    'Google Calendar did not answer. Kraken tries again by itself.',
   );
   await expect(morgan.getByRole('button', { name: /Approve|Decline/ })).toHaveCount(0);
   await expect(morgan.getByText(/Juniper & Rye Coffee, Riverside/)).toBeVisible();
@@ -364,7 +364,7 @@ test('Bookings: who, when, where, guests and status, Cancel with a note', async 
   await robin.getByRole('button', { name: 'Cancel' }).click();
   const dialog = page.getByRole('dialog', { name: 'Cancel with Robin Vale?' });
   await expect(dialog).toBeVisible();
-  // The team's note stays in Copilot: Google's cancellation carries no text.
+  // The team's note stays in Kraken: Google's cancellation carries no text.
   await dialog
     .getByLabel('Private note (the visitor does not see it)')
     .fill('Sorry, a clash came up.');

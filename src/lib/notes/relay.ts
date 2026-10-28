@@ -4,7 +4,7 @@ import { log } from '@/lib/security/redact';
 import { processWide } from '@/lib/util/process-state';
 
 /**
- * Where Arwin's routine posts what Copilot asked it for (D-076): the Slack
+ * Where Arwin's routine posts what Kraken asked it for (D-076): the Slack
  * relay channel, read with ASK_RELAY_SLACK_TOKEN (read-only; the app posts
  * nothing there). The routine cannot reach the app, so this is the only way
  * back.

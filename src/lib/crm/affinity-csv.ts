@@ -627,7 +627,7 @@ export function defaultListName(filename: string): string {
   return name || 'Imported list';
 }
 
-/** A list already in Copilot, as the import page offers it to import into. */
+/** A list already in Kraken, as the import page offers it to import into. */
 export interface AffinityExistingList {
   id: string;
   name: string;
@@ -919,7 +919,7 @@ export function mappingWarnings(mapping: AffinityMapping, csv: AffinityCsv): str
     const unread = mapping.sections.filter((s) => s.unrecognised && s.rows > 0);
     if (unread.length) {
       warnings.push(
-        `${unread.map((s) => `“${s.title}”`).join(', ')} ${unread.length === 1 ? 'is' : 'are'} not ${unread.length === 1 ? 'a section' : 'sections'} Copilot recognises, so ${unread.length === 1 ? 'its' : 'their'} rows will be left out. The other sections import as usual.`,
+        `${unread.map((s) => `“${s.title}”`).join(', ')} ${unread.length === 1 ? 'is' : 'are'} not ${unread.length === 1 ? 'a section' : 'sections'} Kraken recognises, so ${unread.length === 1 ? 'its' : 'their'} rows will be left out. The other sections import as usual.`,
       );
     }
     if (skipped) {
@@ -942,7 +942,7 @@ export function mappingWarnings(mapping: AffinityMapping, csv: AffinityCsv): str
     const { count, example } = unreadableDates(csv, mapping.dateColumn);
     if (count) {
       warnings.push(
-        `${count.toLocaleString('en-US')} ${count === 1 ? 'note has a date' : 'notes have dates'} Copilot cannot read, such as “${example}”, so ${count === 1 ? 'it' : 'they'} will be imported without a date. If the file was opened and saved in a spreadsheet, exporting it from Affinity again usually fixes this.`,
+        `${count.toLocaleString('en-US')} ${count === 1 ? 'note has a date' : 'notes have dates'} Kraken cannot read, such as “${example}”, so ${count === 1 ? 'it' : 'they'} will be imported without a date. If the file was opened and saved in a spreadsheet, exporting it from Affinity again usually fixes this.`,
       );
     }
     return warnings;
@@ -952,7 +952,7 @@ export function mappingWarnings(mapping: AffinityMapping, csv: AffinityCsv): str
     const { count, example } = unreadableDates(csv, header);
     if (!count) continue;
     warnings.push(
-      `${count.toLocaleString('en-US')} ${count === 1 ? 'cell' : 'cells'} in “${header}” ${count === 1 ? 'is not a date' : 'are not dates'} Copilot can read, such as “${example}”. ${count === 1 ? 'It is' : 'They are'} kept as text and will not sort as dates.`,
+      `${count.toLocaleString('en-US')} ${count === 1 ? 'cell' : 'cells'} in “${header}” ${count === 1 ? 'is not a date' : 'are not dates'} Kraken can read, such as “${example}”. ${count === 1 ? 'It is' : 'They are'} kept as text and will not sort as dates.`,
     );
   }
   return warnings;
@@ -1414,7 +1414,7 @@ export interface AffinityListImportResult {
   records: AffinityCounts;
   entries: AffinityCounts;
   /**
-   * Values someone changed in Copilot since the last import, kept rather than
+   * Values someone changed in Kraken since the last import, kept rather than
    * overwritten by the file's; each is also in `problems`, by row.
    */
   keptEdits: number;

@@ -19,7 +19,7 @@ import { err, ok } from '@/lib/util/result';
 import { createHarness, type Harness } from '../helpers/harness';
 
 /**
- * Copilot Notes through Arwin's Claude routine (D-076, zero spend), end to
+ * Kraken Notes through Arwin's Claude routine (D-076, zero spend), end to
  * end in the demo store with the routine played by a stubbed fetch: Stop
  * writes Quick notes and fires NOTES_REQUEST_V1; a NOTES_RESULT_V1 in the
  * simulated relay becomes the notes, with sources and tasks filed once;

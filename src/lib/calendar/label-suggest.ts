@@ -2,7 +2,7 @@ import { labelName } from './labels';
 import type { EventLabel, RangeEvent } from './range-types';
 
 /**
- * A suggested colour label for an unlabelled event, from what Copilot
+ * A suggested colour label for an unlabelled event, from what Kraken
  * already knows, and only one of the calendar's own labels (never a new
  * one). It is a suggestion until a person taps "Use it"; nothing here
  * writes. With no clear sign, or when no single label's name fits, there is

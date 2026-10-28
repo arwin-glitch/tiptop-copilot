@@ -13,8 +13,8 @@ export const metadata: Metadata = { title: 'Sound check' };
 export const dynamic = 'force-dynamic';
 
 /**
- * Copilot Notes' sound check (D-076, WS3): test the microphone and the
- * meeting audio before a call, on this computer only. Hidden unless Copilot
+ * Kraken Notes' sound check (D-076, WS3): test the microphone and the
+ * meeting audio before a call, on this computer only. Hidden unless Kraken
  * Notes is on for this person. In demo mode it can also record the made-up
  * demo call end to end, which is what the recorder's end-to-end tests drive,
  * or (?engine=fake, ?engine=on-device) the on-device Whisper engine.
@@ -35,9 +35,9 @@ export default async function SoundCheckPage({
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Copilot Notes"
+        eyebrow="Kraken Notes"
         title="Sound check"
-        subtitle="Make sure Copilot hears you and the meeting before you record a call."
+        subtitle="Make sure Kraken hears you and the meeting before you record a call."
       />
       <div className="grid min-w-0 gap-6 lg:grid-cols-2">
         <SoundCheckPanel />

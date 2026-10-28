@@ -1,5 +1,5 @@
 /**
- * The free, open models Copilot Notes runs in the browser (D-076). Every model
+ * The free, open models Kraken Notes runs in the browser (D-076). Every model
  * is pinned to an exact revision on huggingface.co, so what downloads today
  * is what downloads next month; the browser caches each file after its first
  * download (the Cache API, 'transformers-cache'), so a second meeting starts

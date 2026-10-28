@@ -45,8 +45,8 @@ function searchQuery(value: string | string[] | undefined): string {
 }
 
 /**
- * `?thread=<id>` (a thread or a message id, or Copilot's id for a synced
- * email, from a "Copilot" email link anywhere in the app; `?message=` in
+ * `?thread=<id>` (a thread or a message id, or Kraken's id for a synced
+ * email, from a "Kraken" email link anywhere in the app; `?message=` in
  * older links) opens that conversation in the reading pane, wherever it is
  * filed, alongside the Primary list. Opening it changes nothing in Gmail; a
  * bad or unknown id says it couldn't open the email.

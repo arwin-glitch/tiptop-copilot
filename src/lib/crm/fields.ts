@@ -26,7 +26,7 @@ export const CRM_ARRAY_FIELD_TYPES: ReadonlySet<CrmFieldType> = new Set([
 export const CRM_OPTION_FIELD_TYPES: ReadonlySet<CrmFieldType> = new Set(['status', 'multi']);
 
 /**
- * The kinds of column someone can add in Copilot, with how the "Add column"
+ * The kinds of column someone can add in Kraken, with how the "Add column"
  * dialog names them. Person and company columns hold names an import
  * matched; typed by hand they would be text, so they are left out.
  */
@@ -123,11 +123,11 @@ export interface CrmFieldInput {
   name: string;
   type?: CrmFieldType | string | null;
   options?: readonly string[] | null;
-  /** 'copilot' for a column added in Copilot (see CrmField.origin). */
+  /** 'copilot' for a column added in Kraken (see CrmField.origin). */
   origin?: 'copilot' | null;
 }
 
-/** A column someone added in Copilot, which no import takes over by its label. */
+/** A column someone added in Kraken, which no import takes over by its label. */
 export function isCopilotField(field: Pick<CrmField, 'origin'>): boolean {
   return field.origin === 'copilot';
 }
@@ -181,10 +181,10 @@ export function normalizeCrmFields(input: readonly CrmFieldInput[]): CrmField[] 
  * fields the import does not mention are kept. Callers key entry values by the
  * merged list's keys, not by the keys they sent.
  *
- * A column added in Copilot is never matched (`keepCopilotColumns`, the
+ * A column added in Kraken is never matched (`keepCopilotColumns`, the
  * default, for a list that came from Affinity): an Affinity column that
  * happens to share its name or key becomes a column of its own rather than
- * taking over the team's column and its values. A list made in Copilot has
+ * taking over the team's column and its values. A list made in Kraken has
  * only such columns, and an import someone points at it means to fill them.
  */
 export function mergeCrmFields(

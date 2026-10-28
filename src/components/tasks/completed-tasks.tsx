@@ -159,7 +159,7 @@ function CompletedRow({
           <div className="mt-1 text-xs text-[var(--fg-muted)]">
             <p className="flex items-start gap-1.5">
               <Sparkles className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-              {/* The email it closed on, in Copilot or in Gmail. */}
+              {/* The email it closed on, in Kraken or in Gmail. */}
               <ThreadLinksForHref
                 href={item.auto.href}
                 text={item.auto.label}

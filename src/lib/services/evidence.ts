@@ -161,7 +161,7 @@ export async function buildDealEvidence(
     blocks.push({
       sourceId: citationId,
       sourceKind: 'nick_note',
-      label: 'Note written by Nick in TipTop Copilot',
+      label: 'Note written by Nick in TipTop Kraken',
       text: truncate(note.body, 4_000),
       occurredAt: note.created_at,
     });

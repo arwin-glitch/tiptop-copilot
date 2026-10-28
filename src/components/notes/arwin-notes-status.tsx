@@ -41,7 +41,7 @@ export function ArwinNotesStatus({
       extra =
         "Arwin's routine is not connected yet, so this can take a long time. Quick notes stay meanwhile.";
     } else if (!request.fired) {
-      extra = 'Copilot could not reach Arwin yet and keeps trying.';
+      extra = 'Kraken could not reach Arwin yet and keeps trying.';
     }
     return (
       <div

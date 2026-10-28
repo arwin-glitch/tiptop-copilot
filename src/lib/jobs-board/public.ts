@@ -18,13 +18,13 @@ import { isEmploymentType, isSeniority } from './fields';
 /**
  * What the public board shows, and the one rule for whether a role may be on
  * it. Pure and client-safe: the service reads the rows and hands them here;
- * the public pages, Copilot's preview and the tests all go through
+ * the public pages, Kraken's preview and the tests all go through
  * `postingPublicState`, so there is exactly one gate.
  *
  * Only the fields named in PublicJob and PublicCompany ever leave the server
  * for a public page. A role's source email, the people to send candidates
  * to, the founder's notes, who approved it, and every other column stay in
- * Copilot.
+ * Kraken.
  */
 
 export const DEFAULT_BOARD_TITLE = 'Jobs at TipTop portfolio companies';
@@ -41,7 +41,7 @@ export interface PublicCompany {
   careersUrl: string | null;
   logoUrl: string | null;
   /**
-   * Only what a person typed as the company's public "about". Never Copilot's
+   * Only what a person typed as the company's public "about". Never Kraken's
    * own portfolio description or sector: those are internal notes nobody
    * chose to publish.
    */
@@ -87,7 +87,7 @@ export interface PublicBoard {
   jobs: PublicJob[];
 }
 
-/** Whether a role may be public, and when not, why (for Copilot's preview). */
+/** Whether a role may be public, and when not, why (for Kraken's preview). */
 export type PublicState =
   | 'public'
   | 'closed'
@@ -483,7 +483,7 @@ export function companyPath(base: string, slug: string): string {
   return `${base}/${slug}`;
 }
 
-/** The board's home: `/jobs` on Copilot, `/` on the board's own host. */
+/** The board's home: `/jobs` on Kraken, `/` on the board's own host. */
 export function homePath(base: string): string {
   return base || '/';
 }

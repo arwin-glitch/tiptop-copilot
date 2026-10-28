@@ -17,7 +17,7 @@ function backToDownload(query: string): Response {
 }
 
 /**
- * Download the desktop app's installer, through Copilot.
+ * Download the desktop app's installer, through Kraken.
  *
  * The file is streamed from where releases are published (lib/desktop/
  * releases.ts) without being buffered, so a 10 MB installer costs this

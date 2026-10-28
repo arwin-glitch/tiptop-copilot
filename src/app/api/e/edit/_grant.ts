@@ -16,7 +16,7 @@ import { statusForError, type AppError, type Result } from '@/lib/util/result';
 
 /**
  * Shared by the outside editor's API (/api/e/edit/[eventId]/**). Never a
- * Copilot session: each request resolves the path-scoped tiptop_ev_grant
+ * Kraken session: each request resolves the path-scoped tiptop_ev_grant
  * cookie and re-checks the link (lib/events/editor-auth.ts), then calls the
  * same narrow services as owners with a grant actor, whose capabilities
  * the services enforce. Any failure to resolve is one generic 404.

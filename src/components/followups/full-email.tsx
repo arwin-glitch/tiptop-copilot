@@ -154,10 +154,10 @@ export function sameSubject(a: string, b: string | null | undefined): boolean {
 
 interface PanelProps {
   id: string;
-  /** For the Copilot and Gmail links on an error (the session only; a list row has its own). */
+  /** For the Kraken and Gmail links on an error (the session only; a list row has its own). */
   mailbox?: string;
   timeZone: string;
-  /** The session: loaded on mount, a stale copy checked again, Copilot and Gmail on an error. */
+  /** The session: loaded on mount, a stale copy checked again, Kraken and Gmail on an error. */
   auto: boolean;
   clampLines: number;
   /** True, false, or on a phone only (where the row's own subject line is cut short). */
@@ -248,7 +248,7 @@ function EmailPanel({
   }
 
   if (!result.ok) {
-    // The session offers the thread elsewhere: Copilot's Inbox reads it its own way, or Gmail.
+    // The session offers the thread elsewhere: Kraken's Inbox reads it its own way, or Gmail.
     const elsewhere = auto && isEmailId(id);
     return (
       <div className={BOX} role="status">
@@ -450,7 +450,7 @@ export function FollowUpEmailRow({
   timeZone: string;
   /** False where the row already shows the subject (cut short on a phone, so shown there). */
   showSubject?: boolean;
-  /** The row's own links (Copilot and Gmail), stacked above the toggle. */
+  /** The row's own links (Kraken and Gmail), stacked above the toggle. */
   aside?: React.ReactNode;
   children: React.ReactNode;
 }) {

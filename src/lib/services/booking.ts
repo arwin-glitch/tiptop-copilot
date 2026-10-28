@@ -89,18 +89,18 @@ import { principalTimeZone } from './push-alerts';
 
 /**
  * The booking link (D-074): its settings, the public page's data and open
- * times, the requests visitors send, and what Copilot does with them.
+ * times, the requests visitors send, and what Kraken does with them.
  *
  * The rules that matter, enforced here and nowhere else:
  * - The public side reads busy time only (lib/booking/availability.ts).
- *   Copilot never sends an email of its own: the invitation, update and
+ *   Kraken never sends an email of its own: the invitation, update and
  *   cancellation are Google's (sendUpdates 'all').
  * - A free time that passes every rule is booked at once (D-078, Arwin's
  *   decision): checked again against the live calendar (past its cache) and
  *   every rule, one booking at a time, then the event is created through
  *   lib/calendar/write.ts (the editing grant, a writable calendar). When it
  *   cannot be written right away (no grant, Google down) the time is held
- *   and Copilot books it by itself as soon as it can
+ *   and Kraken books it by itself as soon as it can
  *   (lib/services/booking-manage.ts placeHeldBookings); nobody approves it.
  * - "Approve each booking first" is an option (off by default): then a
  *   request waits for a person's Approve, which re-checks it the same way.
@@ -264,7 +264,7 @@ export interface BookingSettingsInput {
 /**
  * Save Settings > Booking link. The photo is never taken from the input:
  * the stored one is kept, and only setBookingPhoto (an upload checked by its
- * bytes, under a path Copilot named itself) may change it. So a hand-made
+ * bytes, under a path Kraken named itself) may change it. So a hand-made
  * request cannot point the public photo route at another stored file, and a
  * Settings tab open since before an upload cannot undo it.
  */
@@ -840,13 +840,13 @@ async function openFor(
  * - when that cannot happen right away (calendar editing off, no writable
  *   main calendar, Google not answering or refusing) the time is HELD: it
  *   stays blocked for everyone else, the visitor sees the neutral held
- *   copy, and Copilot books it by itself as soon as it can (at once when
+ *   copy, and Kraken books it by itself as soon as it can (at once when
  *   editing comes on, on a backoff for a Google fault:
  *   lib/services/booking-manage.ts placeHeldBookings). Nobody approves it;
  * - with "Approve each booking first" on (an option) it waits as a request.
  *
  * A message waits as before. The honeypot is answered as if all went well and
- * nothing is kept. Copilot sends no email of its own.
+ * nothing is kept. Kraken sends no email of its own.
  */
 export async function submitBookingRequest(
   store: DataStore,
@@ -1225,7 +1225,7 @@ export async function mainCalendarFor(
 /**
  * Put a just-kept booking on the host's calendar. On success the row is
  * booked with its event; when Google cannot be reached or refuses (or
- * anything after its answer fails) it becomes a hold that Copilot tries
+ * anything after its answer fails) it becomes a hold that Kraken tries
  * again by itself. "In doubt" (claimed_at) when Google may have made the
  * event before its answer was lost, so the next try looks for it first and
  * there is never a second event. Mutates `row` to match what was stored.
@@ -1479,7 +1479,7 @@ export async function nextOpenTimes(
   return slots?.state === 'ok' ? slots.slots.slice(0, limit) : [];
 }
 
-/* -------------------------------------------------------------- Copilot side */
+/* -------------------------------------------------------------- Kraken side */
 
 export interface BookingRequestList {
   available: boolean;
@@ -1990,7 +1990,7 @@ export async function setBookingPhoto(
     if (photo) await storage.remove(photo.path).catch(() => null);
     return saved;
   }
-  // Only a path Copilot itself named is ever removed.
+  // Only a path Kraken itself named is ever removed.
   const old = current.config.photo;
   if (old && old.path !== photo?.path && isOwnPhotoPath(organizationId, old)) {
     await storage.remove(old.path).catch(() => null);

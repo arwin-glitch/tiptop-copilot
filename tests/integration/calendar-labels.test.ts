@@ -776,7 +776,7 @@ describe('Ask’s calendar tool', () => {
 
 /* ------------------------------------------------- the suggested label */
 
-describe('the suggested label, from Copilot’s own data', () => {
+describe('the suggested label, from Kraken’s own data', () => {
   it('suggests Diligence for a founder whose deal is in diligence, LPs for an LP', async () => {
     const data = await read([MOCK_OWN_EMAIL]);
     const labels = data.calendars.find((c) => c.id === MOCK_OWN_EMAIL)!.labels;
@@ -844,7 +844,7 @@ describe('how you got here, for an event with no other guests', () => {
     const found = await origin(hotel);
     expect(found.lines).toEqual([]);
     expect(found.checked).toMatch(
-      /^Copilot looked for a dossier note, .*and found nothing that explains it\.$/,
+      /^Kraken looked for a dossier note, .*and found nothing that explains it\.$/,
     );
     expect(found.search).toEqual({ query: 'Hotel window', href: '/inbox?q=Hotel%20window' });
   });

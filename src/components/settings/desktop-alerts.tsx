@@ -59,7 +59,7 @@ async function turnOffOnServer(
   }
 }
 
-/** Whether Copilot has this computer turned on; null when it could not say. Never throws. */
+/** Whether Kraken has this computer turned on; null when it could not say. Never throws. */
 async function onAtCopilot(device: string): Promise<boolean | null> {
   try {
     const res = await fetch(`/api/push/desktop?device=${encodeURIComponent(device)}`, {
@@ -121,7 +121,7 @@ export function DesktopAlertsSetting({
         // On here but not in the list: turned off from another device while
         // the app was closed, or only a list from before Enable (Settings
         // unmounts a tab that is left, so this runs again on coming back,
-        // maybe before the page refreshed). Copilot decides: only its "not
+        // maybe before the page refreshed). Kraken decides: only its "not
         // on" turns the shell off, never a list, and never a failed read.
         const device = status?.device;
         if (status?.on && device && !firstComputers?.some((c) => c.device === device)) {
@@ -217,7 +217,7 @@ export function DesktopAlertsSetting({
         toast.success('Desktop alerts are off for this computer.');
       } else {
         toast.error(
-          'Off on this computer, but Copilot could not be told. If it is still listed below, turn it off there.',
+          'Off on this computer, but Kraken could not be told. If it is still listed below, turn it off there.',
         );
       }
       router.refresh();
@@ -287,7 +287,7 @@ export function DesktopAlertsSetting({
       <AlertsSummary />
       {mode.kind === 'update' ? (
         <p className="mt-1 text-sm text-[var(--fg-muted)]">
-          Phone alerts are separate: turn them on from Copilot on your phone.
+          Phone alerts are separate: turn them on from Kraken on your phone.
         </p>
       ) : (
         <p className="mt-1 text-sm text-[var(--fg-muted)]">
@@ -297,7 +297,7 @@ export function DesktopAlertsSetting({
           Alerts come while the app is running, even with its window closed (it stays in the tray on
           Windows and in the Dock on a Mac). Quitting the app pauses them until you open it again;
           signing out turns them off on this computer. Phone alerts are separate: turn them on from
-          Copilot on your phone.
+          Kraken on your phone.
         </p>
       )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -364,8 +364,8 @@ function Controls({
       <>
         <span className="text-sm text-[var(--fg-muted)]">
           {status.platform === 'mac'
-            ? 'Notifications are blocked for TipTop Copilot. Allow them in System Settings > Notifications > TipTop Copilot, then come back to this page.'
-            : 'Notifications are off for TipTop Copilot. Turn them on in Windows Settings > System > Notifications (Notifications & actions on Windows 10), then come back to this page.'}
+            ? 'Notifications are blocked for TipTop Kraken. Allow them in System Settings > Notifications > TipTop Kraken, then come back to this page.'
+            : 'Notifications are off for TipTop Kraken. Turn them on in Windows Settings > System > Notifications (Notifications & actions on Windows 10), then come back to this page.'}
         </span>
         {turnOff}
       </>
@@ -405,7 +405,7 @@ const PLATFORM_NAMES = { mac: 'Mac', windows: 'Windows' } as const;
  * end of its id, so two Windows PCs turned on the same day can be told apart
  * (and matched with the app's own list). Turn off for those the viewer may
  * turn off; on this computer's own row only once the shell is off but
- * Copilot still lists it (Turn off above could not reach Copilot).
+ * Kraken still lists it (Turn off above could not reach Kraken).
  */
 function ComputerList({
   computers,

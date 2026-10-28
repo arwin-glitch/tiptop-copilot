@@ -212,7 +212,7 @@ function EmptyLine({ children }: { children: React.ReactNode }) {
   return <p className="text-sm text-[var(--fg-subtle)]">{children}</p>;
 }
 
-/** The row's thread, in Copilot's Inbox or in Gmail. */
+/** The row's thread, in Kraken's Inbox or in Gmail. */
 function ThreadLink({ threadId, label }: { threadId: string | null | undefined; label: string }) {
   return <ThreadLinks id={threadId} mailbox={DEFAULT_MAILBOX} label={label} variant="text" />;
 }

@@ -162,7 +162,7 @@ export interface TableMap {
   job_companies: JobCompany;
   job_postings: JobPosting;
   booking_chat_questions: BookingChatQuestion;
-  // Copilot Notes (D-076; supabase/migrations/20261024000000_copilot_notes.sql).
+  // Kraken Notes (D-076; supabase/migrations/20261024000000_copilot_notes.sql).
   meetings: Meeting;
   meeting_participants: MeetingParticipant;
   meeting_speakers: MeetingSpeaker;

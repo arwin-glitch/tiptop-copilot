@@ -186,7 +186,7 @@ export async function ingestGranolaNote(
   };
 
   await store.insert('meeting_notes', note);
-  // While both tools run, a meeting recorded in Copilot Notes may be this
+  // While both tools run, a meeting recorded in Kraken Notes may be this
   // note's twin: pair them so every list shows the conversation once (D-076).
   await pairGranolaNote(store, organizationId, note);
   return ok({ id: note.id, created: true, flagged: scan.flagged });
@@ -197,11 +197,11 @@ export async function ingestGranolaNote(
 const NOTE_LIMIT = 200;
 
 /**
- * Notes as a shared page shows them (D-076): private Copilot notes left out
- * (or kept for their own recorder, when the viewer is known), a Copilot note
+ * Notes as a shared page shows them (D-076): private Kraken notes left out
+ * (or kept for their own recorder, when the viewer is known), a Kraken note
  * whose meeting is in the trash left out (its page would not open), and a
- * Granola note whose Copilot twin is shown left out too, so a conversation
- * recorded by both tools appears once. Before the Copilot Notes migration
+ * Granola note whose Kraken twin is shown left out too, so a conversation
+ * recorded by both tools appears once. Before the Kraken Notes migration
  * there are no twins and every row passes.
  */
 export async function visibleNotes(
@@ -222,7 +222,7 @@ export async function visibleNotes(
       in: { id: copilot },
     })) as Meeting[];
     trashed = new Set(meetings.filter((m) => m.deleted_at).map((m) => m.id));
-    // A trashed Copilot meeting no longer hides its Granola twin.
+    // A trashed Kraken meeting no longer hides its Granola twin.
     twins = new Set(
       meetings
         .filter((m) => !m.deleted_at)
@@ -246,7 +246,7 @@ async function recentNotes(store: DataStore, organizationId: string): Promise<Me
     {},
     { orderBy: [{ field: 'occurred_at', direction: 'desc' }], limit: NOTE_LIMIT },
   )) as MeetingNote[];
-  // A private Copilot note stays off the shared deal, company and network pages.
+  // A private Kraken note stays off the shared deal, company and network pages.
   return visibleNotes(store, organizationId, rows);
 }
 
@@ -301,7 +301,7 @@ export async function notesForCompany(
 /**
  * Notes for one CRM profile (D-076): a person by any of their addresses, a
  * company by its domain or the addresses of its people. Granola's notes and
- * Copilot's own (shared with the team) alike, with the same twin rule as the
+ * Kraken's own (shared with the team) alike, with the same twin rule as the
  * deal and company pages, so a meeting recorded by both tools shows once.
  */
 export async function notesForRecord(
@@ -442,7 +442,7 @@ export async function catchUpSince(
   organizationId: string,
   now: Date = new Date(),
 ): Promise<string | null> {
-  // Granola's own notes only: a Copilot note (D-076) says nothing about what
+  // Granola's own notes only: a Kraken note (D-076) says nothing about what
   // Granola has delivered, and must not move this window past its notes.
   const newest = (await store.list(
     'meeting_notes',
@@ -505,9 +505,9 @@ export function isNoteUnchanged(ourUpdatedAt: string | undefined, theirUpdatedAt
 export interface MeetingListOptions {
   search?: string;
   limit?: number;
-  /** Granola's notes, Copilot's, or both (the default) with twins shown once. */
+  /** Granola's notes, Kraken's, or both (the default) with twins shown once. */
   source?: 'granola' | 'copilot' | 'all';
-  /** Who is looking: their own private Copilot notes are listed too. */
+  /** Who is looking: their own private Kraken notes are listed too. */
   viewerId?: string | null;
 }
 
@@ -565,8 +565,8 @@ export async function listMeetingNotes(
 }
 
 /**
- * How many notes each tool holds, for the Notes tab's "Granola | Copilot"
- * switch (D-076): Granola's rows, the Copilot notes this viewer may see, and
+ * How many notes each tool holds, for the Notes tab's "Granola | Kraken"
+ * switch (D-076): Granola's rows, the Kraken notes this viewer may see, and
  * the conversations in all, a pair counted once.
  */
 export async function countMeetingNotes(
@@ -593,7 +593,7 @@ export async function countMeetingNotes(
       paired = meetings.length;
     }
   } catch {
-    // No Copilot Notes tables yet: Granola's count is the whole count.
+    // No Kraken Notes tables yet: Granola's count is the whole count.
   }
   return { granola, copilot, total: granola + copilot - paired };
 }

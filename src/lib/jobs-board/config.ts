@@ -6,7 +6,7 @@ import { DEFAULT_BOARD_HOST } from './host';
  *
  *   JOBS_BOARD_URL  The board's public address once its own host is live,
  *                   e.g. https://jobs.tiptop.vc. Canonical links, the
- *                   sitemap and Copilot's "View public board" button use it.
+ *                   sitemap and Kraken's "View public board" button use it.
  *                   Unset: the board's address is APP_URL + /jobs.
  *   JOBS_BOARD_HOSTS Extra hosts that serve the board at their root (comma
  *                   separated); jobs.tiptop.vc always does.
@@ -38,12 +38,12 @@ export function configuredBoardUrl(e: Env = process.env): string | null {
   }
 }
 
-/** Copilot's own origin (APP_URL). */
+/** Kraken's own origin (APP_URL). */
 export function appOrigin(e: Env = process.env): string {
   return origin(e.APP_URL) ?? origin(e.NEXT_PUBLIC_APP_URL) ?? 'http://localhost:3000';
 }
 
-/** The board's canonical base: JOBS_BOARD_URL, else Copilot's /jobs. */
+/** The board's canonical base: JOBS_BOARD_URL, else Kraken's /jobs. */
 export function boardPublicUrl(e: Env = process.env): string {
   return configuredBoardUrl(e) ?? `${appOrigin(e)}/jobs`;
 }

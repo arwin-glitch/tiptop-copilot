@@ -4,12 +4,12 @@
  *
  * On a board host every address is the board's: `/` is the board's home and
  * `/<company>/<role>` a role, rewritten to the `/jobs-host` pages (the same
- * pages as `/jobs`, with links written for the root). Copilot itself is never
+ * pages as `/jobs`, with links written for the root). Kraken itself is never
  * reachable there: `/today` on the board host is just a company page that
  * does not exist. Old `/jobs/...` links redirect to the short form.
  *
  * On every other host `/jobs-host` is internal and answers 404, and the rest
- * is untouched (`/jobs` is the board on Copilot's own host).
+ * is untouched (`/jobs` is the board on Kraken's own host).
  *
  * The board hosts: jobs.tiptop.vc, the host of JOBS_BOARD_URL when it is set,
  * and any extra in JOBS_BOARD_HOSTS (comma separated). Pointing a DNS CNAME
@@ -35,7 +35,7 @@ const PASS_THROUGH = new Set([
 ]);
 
 export type HostDecision =
-  /** Not the board host: Copilot's own routing goes on. */
+  /** Not the board host: Kraken's own routing goes on. */
   | { kind: 'pass' }
   /** The board host's own files (Next assets, icons, preview images): served as they are, no session. */
   | { kind: 'serve' }
@@ -163,7 +163,7 @@ export function routeBoardHost(
 }
 
 /**
- * The board at Copilot's own /jobs: a path there that the board does not
+ * The board at Kraken's own /jobs: a path there that the board does not
  * serve (`/jobs/a/b/c`, `/jobs/.env`) answers 404 before any page renders.
  * Null for paths outside /jobs.
  */

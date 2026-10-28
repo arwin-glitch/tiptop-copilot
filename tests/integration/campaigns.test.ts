@@ -328,7 +328,7 @@ describe('review and the one confirmation', () => {
     expect(sender.sent).toHaveLength(0);
   });
 
-  it('will not start with Copilot links on a local address, but a plain email needs none', async () => {
+  it('will not start with Kraken links on a local address, but a plain email needs none', async () => {
     const campaign = await draftWithLps();
     const local = { appUrl: null };
     const review = await reviewCampaign(harness.store, org, campaign.id, local);

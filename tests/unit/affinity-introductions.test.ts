@@ -222,7 +222,7 @@ describe('layouts that vary', () => {
     expect(mapping.introductions).toHaveLength(1);
     expect(mapping.introductions[0]?.introduced).toHaveLength(1);
     expect(mapping.sections[0]).toMatchObject({ section: null, rows: 1 });
-    expect(mapping.sections[0]?.unrecognised).toContain('not a section Copilot knows');
+    expect(mapping.sections[0]?.unrecognised).toContain('not a section Kraken knows');
     expect(mappingProblems(mapping, csv)).toEqual([]);
     expect(mappingWarnings(mapping, csv).join(' ')).toContain('“Introductions Received By:”');
   });

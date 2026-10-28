@@ -7,7 +7,7 @@ import { pickTime } from './booking-calendar-helpers';
  * /meet/nick with nobody signed in (desktop and a 390px phone, light and
  * dark), a 30-minute call and an in-person coffee at a listed place asked
  * for, the chatbot's guided helper filling the form (the visitor presses
- * Send), then Copilot's Calendar tab approving one and declining the other,
+ * Send), then Kraken's Calendar tab approving one and declining the other,
  * and last, Approve first switched off again (booking at once, the default,
  * D-078) booking straight away.
  * The demo's calendar is the in-memory mock: nothing reaches Google, and
@@ -141,7 +141,7 @@ test('the public page opens with nobody signed in, in its own TipTop face', asyn
   await expect(page).toHaveTitle('Meet with Nick Avery');
   await expect(page.getByRole('heading', { level: 1, name: 'Nick Avery' })).toBeVisible();
   await expect(page.getByText('Partner, TipTop VC (Demo)')).toBeVisible();
-  await expect(page.getByText('Scheduling by TipTop Copilot')).toBeVisible();
+  await expect(page.getByText('Scheduling by TipTop Kraken')).toBeVisible();
   // The chatbot is tagged AI.
   const launcher = page.getByRole('button', { name: /Ask Arwin/ });
   await expect(launcher).toBeVisible();
@@ -244,7 +244,7 @@ test('an hour in person: coffee at one of the listed places', async ({ browser }
 
 test('the assistant books in the chat itself (D-078)', async ({ browser }, testInfo) => {
   // The assistant's own flows are covered in booking-chat.spec.ts; this keeps
-  // the chat-booked request the Copilot side checks below ("Jordan Chat").
+  // the chat-booked request the Kraken side checks below ("Jordan Chat").
   const { context, page } = await visitor(browser, testInfo.project.use.baseURL, {
     viewport: { width: 1280, height: 900 },
   });
@@ -271,7 +271,7 @@ test('the assistant books in the chat itself (D-078)', async ({ browser }, testI
   await context.close();
 });
 
-test.describe('in Copilot', () => {
+test.describe('in Kraken', () => {
   test.use({ storageState: SIGNED_IN, viewport: { width: 1366, height: 900 } });
 
   test('Today says how many requests wait, and links to them', async ({ page }) => {

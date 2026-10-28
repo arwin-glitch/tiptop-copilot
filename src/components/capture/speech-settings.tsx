@@ -116,9 +116,9 @@ export function SpeechSettings() {
       <div className="space-y-1">
         <h2 className="text-sm font-medium">Speech on this computer</h2>
         <p className="text-note max-w-2xl text-[var(--fg-muted)]">
-          Copilot turns speech into text right here, with the free Whisper model: no paid service,
+          Kraken turns speech into text right here, with the free Whisper model: no paid service,
           and the audio never leaves this computer. Each model downloads once from huggingface.co
-          and stays in this browser. The microphone is always you; Copilot tells the other voices
+          and stays in this browser. The microphone is always you; Kraken tells the other voices
           apart on this computer too.
         </p>
         <p className="text-mini text-[var(--fg-muted)]" data-testid="speech-hardware">
@@ -174,8 +174,8 @@ export function SpeechSettings() {
         </div>
         <p className="text-mini text-[var(--fg-muted)]">
           Telling voices apart adds {formatMb(SPEAKER_MODELS_MB)} once
-          {voicesCached ? ' (downloaded)' : ''}. If a model cannot run when a meeting starts,
-          Copilot uses Fast and says so.
+          {voicesCached ? ' (downloaded)' : ''}. If a model cannot run when a meeting starts, Kraken
+          uses Fast and says so.
         </p>
       </fieldset>
 

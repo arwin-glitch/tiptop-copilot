@@ -1,6 +1,6 @@
 /**
  * Open the search palette from anywhere in the client: the desktop app's top
- * bar has a "Search Copilot" field that calls `openSearch()`. The palette
+ * bar has a "Search Kraken" field that calls `openSearch()`. The palette
  * that owns Ctrl+K (the sidebar's, mounted at every width) listens for it.
  */
 export const SEARCH_OPEN_EVENT = 'tiptop:search-open';

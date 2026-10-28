@@ -73,7 +73,7 @@ describe('opening a demo conversation from a link', () => {
     expect(unknown.error).toMatch(/^That email isn't in the mailbox/);
   });
 
-  it("opens a synced email by Copilot's own id, as Today, a deal's sources and citations hold", async () => {
+  it("opens a synced email by Kraken's own id, as Today, a deal's sources and citations hold", async () => {
     const { store, auth } = harness;
     const org = auth.organizationId;
     // The demo Inbox's id for a thread: the last 16 hex digits of its UUID.

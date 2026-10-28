@@ -71,7 +71,7 @@ describe('what the finder reads', () => {
     expect(placeSearchTerm('Austin, TX')).toBe('Austin');
   });
 
-  it('takes the later of Copilot’s and Affinity’s last contact, and counts years from now', () => {
+  it('takes the later of Kraken’s and Affinity’s last contact, and counts years from now', () => {
     const affinity = lastContactOf({
       recordFields: { 'Last Email': '2025-01-05', 'Last Contact': '2024-06-01' },
       entries: [
@@ -170,7 +170,7 @@ describe('finding people and companies', () => {
     expect(found).toMatchObject({ needsNarrowing: true, total: 0, scanned: 0 });
   });
 
-  it('finds people made in Copilot, and saved as a list they are ready for a campaign', async () => {
+  it('finds people made in Kraken, and saved as a list they are ready for a campaign', async () => {
     value(
       await createRecord(store, org, {
         kind: 'person',

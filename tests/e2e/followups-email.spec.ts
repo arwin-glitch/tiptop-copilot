@@ -222,7 +222,7 @@ test('a failed read says so, offers Try again only when it can help', async ({ p
   const card = page.getByRole('article', { name: /^Email from / });
   await expect(card.getByText("Gmail didn't answer.")).toBeVisible();
   await expect(card.getByRole('link', { name: /^Open in Gmail/ })).toBeVisible();
-  await expect(card.getByRole('link', { name: /^Open in Copilot/ })).toBeVisible();
+  await expect(card.getByRole('link', { name: /^Open in Kraken/ })).toBeVisible();
   await page.unroute(EMAIL_API);
   await card.getByRole('button', { name: 'Try again' }).click();
   await expect(card.getByRole('region', { name: /^Email: / })).toBeVisible();

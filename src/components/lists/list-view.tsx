@@ -71,7 +71,7 @@ export interface ListViewList {
   id: string;
   name: string;
   entity_type: CrmEntityType;
-  /** Imported from Affinity or made in Copilot: which columns All hides at first. */
+  /** Imported from Affinity or made in Kraken: which columns All hides at first. */
   source: CrmSource;
   fields: CrmField[];
 }

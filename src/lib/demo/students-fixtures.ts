@@ -11,7 +11,7 @@ import { DEMO_USER } from './fixtures';
 
 /**
  * Demo mode only: a students routine snapshot, and the emails behind its
- * sources so the Copilot link on each opens a thread in the Inbox. Every
+ * sources so the Kraken link on each opens a thread in the Inbox. Every
  * person, school, program, address and id is fictional, every address is on
  * a `.demo` domain, and times are relative to now.
  *

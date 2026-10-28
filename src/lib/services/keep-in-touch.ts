@@ -29,7 +29,7 @@ import { err, ok, type Result } from '@/lib/util/result';
 import { DEFAULT_TIMEZONE, formatDate } from '@/lib/util/time';
 
 /**
- * Keep-in-touch reminders: a cadence on a company or person, and a Copilot
+ * Keep-in-touch reminders: a cadence on a company or person, and a Kraken
  * task ("Check in with …") whenever one comes due.
  *
  * A cadence is an `audit_events` row (action `crm.cadence_set`, entity the

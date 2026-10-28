@@ -475,9 +475,9 @@ export function JobCompaniesView({ data, now }: { data: JobsBoardTab; now: Date 
         <RefreshButton label="Refresh all now" />
       </div>
       <p className="-mt-1 mb-3 text-sm text-[var(--fg-muted)]">
-        Give a company its careers page and Copilot reads its public job board every day:
-        Greenhouse, Lever, Ashby, Workable and Recruitee. Its roles go public only after you publish
-        them, or on their own once you switch on &ldquo;Publish its board roles on their own&rdquo;.
+        Give a company its careers page and Kraken reads its public job board every day: Greenhouse,
+        Lever, Ashby, Workable and Recruitee. Its roles go public only after you publish them, or on
+        their own once you switch on &ldquo;Publish its board roles on their own&rdquo;.
       </p>
       {companies.length === 0 ? (
         <EmptyState
@@ -535,10 +535,10 @@ export function JobCompaniesView({ data, now }: { data: JobsBoardTab; now: Date 
                     </div>
                     {settings?.careers_url && !board ? (
                       <p className="mb-3 text-sm text-[var(--fg-muted)]">
-                        Copilot can&rsquo;t read this company&rsquo;s job board (it may use
-                        Rippling, BambooHR, Wellfound or its own page). Add its roles by hand with
-                        &ldquo;Add a role&rdquo; on Public board, or switch on &ldquo;List it even
-                        with no open roles&rdquo; so visitors get a link to its careers page.
+                        Kraken can&rsquo;t read this company&rsquo;s job board (it may use Rippling,
+                        BambooHR, Wellfound or its own page). Add its roles by hand with &ldquo;Add
+                        a role&rdquo; on Public board, or switch on &ldquo;List it even with no open
+                        roles&rdquo; so visitors get a link to its careers page.
                       </p>
                     ) : null}
                     <CompanyJobsForm

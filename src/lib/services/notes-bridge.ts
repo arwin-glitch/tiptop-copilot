@@ -44,7 +44,7 @@ import { canSeeMeeting, templateViewFor, type NotesContext } from './notes';
 import { ingestTasks, normalizeTitle } from './task-ingest';
 
 /**
- * Arwin's notes (D-076, zero spend). Copilot never calls a paid model for a
+ * Arwin's notes (D-076, zero spend). Kraken never calls a paid model for a
  * meeting's notes: it hands the meeting to Arwin's Claude routine through the
  * Ask bridge and reads the notes back from the Slack relay.
  *
@@ -194,7 +194,7 @@ async function fire(text: string, fetchImpl?: typeof fetch): Promise<boolean> {
   if (env().demoMode) return false;
   if (!notesRelayChannel()) {
     log.warn(
-      'Copilot Notes: no meeting is sent to the routine until NOTES_RELAY_CHANNEL_ID names a private channel apart from the Ask relay channel',
+      'Kraken Notes: no meeting is sent to the routine until NOTES_RELAY_CHANNEL_ID names a private channel apart from the Ask relay channel',
     );
     return false;
   }
@@ -382,7 +382,7 @@ export async function settleNotesFromRelay(
       return await settleOnce({ store, organizationId, now }, options);
     } catch (error) {
       if (!isMissingTableError(error) && !isMissingColumnError(error)) {
-        log.warn('Copilot Notes: settling notes from the relay failed', {
+        log.warn('Kraken Notes: settling notes from the relay failed', {
           reason: error instanceof Error ? error.message : 'unknown',
         });
       }
@@ -477,7 +477,7 @@ export async function settleNotesForAll(store: DataStore, now: Date = new Date()
     }
     return settled;
   } catch (error) {
-    log.warn('Copilot Notes: settling every organization failed', {
+    log.warn('Kraken Notes: settling every organization failed', {
       reason: error instanceof Error ? error.message : 'unknown',
     });
     return 0;
@@ -698,7 +698,7 @@ async function applyResult(
       meeting,
     );
   } catch (error) {
-    log.warn('Copilot Notes: the follow-up routine could not be started', {
+    log.warn('Kraken Notes: the follow-up routine could not be started', {
       reason: error instanceof Error ? error.message : 'unknown',
     });
   }

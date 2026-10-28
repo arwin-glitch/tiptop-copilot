@@ -73,7 +73,7 @@ import { applyNamingLadder, type NamingOptions } from './notes-naming';
 import { requestOfNote, toRequestView } from './notes-request-view';
 
 /**
- * Copilot Notes, the core (D-076): meetings, the consent step and the
+ * Kraken Notes, the core (D-076): meetings, the consent step and the
  * recording state, transcript lines, voices and their names, templates,
  * folders and recipes. Notes and chat are in notes-generate.ts, share links in
  * notes-share.ts, the list and search in notes-search.ts, voice consent in
@@ -105,8 +105,8 @@ const nowOf = (ctx: NotesContext) => ctx.now ?? new Date();
 export const NOT_SET_UP: AppError = {
   code: 'not_configured',
   message:
-    'Copilot Notes is not set up yet: its database migration (20261024000000_copilot_notes.sql) has not been applied.',
-  stillUsable: 'Granola notes and the rest of Copilot work as before.',
+    'Kraken Notes is not set up yet: its database migration (20261024000000_copilot_notes.sql) has not been applied.',
+  stillUsable: 'Granola notes and the rest of Kraken work as before.',
 };
 
 /** Run a notes operation; a missing table or column becomes NOT_SET_UP, anything else a plain error. */
@@ -117,7 +117,7 @@ export async function guard<T>(what: string, fn: () => Promise<Result<T>>): Prom
     if (isMissingTableError(error) || isMissingColumnError(error)) {
       return { ok: false, error: NOT_SET_UP };
     }
-    log.error(`Copilot Notes: could not ${what}`, {
+    log.error(`Kraken Notes: could not ${what}`, {
       reason: error instanceof Error ? error.message : String(error),
     });
     return err('internal', `Could not ${what}. Try again.`, { retryable: true });
@@ -284,7 +284,7 @@ export async function allLinesOf(
   )) as TranscriptSegment[];
 }
 
-/** The Copilot note row of a meeting (meeting_notes, provider 'copilot'), if any. */
+/** The Kraken note row of a meeting (meeting_notes, provider 'copilot'), if any. */
 export async function noteOf(ctx: NotesContext, meeting: Meeting): Promise<MeetingNote | null> {
   return ctx.store.findOne('meeting_notes', ctx.auth.organizationId, {
     eq: { provider: 'copilot', external_id: meeting.id },
@@ -333,7 +333,7 @@ export async function namingSafely(
     return result.changed > 0;
   } catch (error) {
     if (isMissingTableError(error) || isMissingColumnError(error)) throw error;
-    log.warn('Copilot Notes: the naming pass failed', {
+    log.warn('Kraken Notes: the naming pass failed', {
       reason: error instanceof Error ? error.message : String(error),
     });
     return false;
@@ -511,7 +511,7 @@ export async function getMeetingDetail(
 }
 
 /**
- * The Copilot note row for a meeting, made on first need (typed notes are
+ * The Kraken note row for a meeting, made on first need (typed notes are
  * saved before any notes are generated). `content` is the plain text the
  * older readers show.
  */
@@ -838,7 +838,7 @@ async function sessionVocabulary(
     for (const c of crm.portfolio) words.add(c.name);
     for (const c of crm.contacts) if (c.company) words.add(c.company);
   } catch (error) {
-    log.warn('Copilot Notes: CRM words for the speech session could not be read', {
+    log.warn('Kraken Notes: CRM words for the speech session could not be read', {
       reason: error instanceof Error ? error.message : String(error),
     });
   }
@@ -884,7 +884,7 @@ export async function speechSessions(
       try {
         knownVoices = await options.knownVoices(participants.map((p) => p.email));
       } catch (error) {
-        log.warn('Copilot Notes: enrolled voices could not be read', {
+        log.warn('Kraken Notes: enrolled voices could not be read', {
           reason: error instanceof Error ? error.message : String(error),
         });
       }

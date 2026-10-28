@@ -44,7 +44,7 @@ function answer(view: DesktopFlowStatus): NextResponse {
  */
 export async function POST(request: NextRequest) {
   if (!isSameOrigin(request)) {
-    return fail(err('forbidden', 'This request must come from Copilot itself.').error);
+    return fail(err('forbidden', 'This request must come from Kraken itself.').error);
   }
   if (!rateLimit(`desktop-handoff-poll:${addressKey(request.headers)}`, 120, 60_000).ok) {
     return fail(err('rate_limited', 'Checking too often. Slowing down.').error);

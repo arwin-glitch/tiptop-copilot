@@ -7,7 +7,7 @@ import { getPreferences, savePreferences } from '@/lib/services/notes-settings';
 
 export const dynamic = 'force-dynamic';
 
-/** This person's Copilot Notes settings (NotesPreferencesResponse). */
+/** This person's Kraken Notes settings (NotesPreferencesResponse). */
 export async function GET(request: NextRequest) {
   const gate = await notesGate(request, { bucket: 'read', max: 240 });
   if (!gate.ok) return gate.response;

@@ -38,7 +38,7 @@ import { notesCall } from './api-client';
  * - 'scripted': demo mode only. Plays the fictional call from
  *   lib/transcribe/mock-script.ts with no microphone at all, so the demo works
  *   on any machine and the screen tests need no fake devices.
- * No audio is ever stored or sent to Copilot's server: only finished lines of text.
+ * No audio is ever stored or sent to Kraken's server: only finished lines of text.
  */
 
 /** The browser recorder (lib/capture) is mounted behind this hook. */

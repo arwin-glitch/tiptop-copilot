@@ -20,7 +20,7 @@ import { AffinityExitPanel } from '@/components/knowledge/affinity-exit-panel';
 import { AffinitySyncPanel } from '@/components/knowledge/affinity-sync-panel';
 
 /**
- * Knowledge → Affinity import: everything in Affinity, brought into Copilot,
+ * Knowledge → Affinity import: everything in Affinity, brought into Kraken,
  * and everything leaving it needs.
  *
  * Two views behind a pair of chips, so neither is a long scroll (`?view=exit`

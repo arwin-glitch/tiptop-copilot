@@ -162,7 +162,7 @@ test('two editors: outside link, presence, a conflict, then a revoke mid-session
     expect(c.httpOnly).toBe(true);
     expect(c.sameSite).toBe('Strict');
   }
-  // The link reaches nothing else in Copilot.
+  // The link reaches nothing else in Kraken.
   expect((await api(out.page, 'GET', `/api/events/${EVENT}/draft`)).status).toBe(401);
   expect((await api(out.page, 'GET', `/api/events/${EVENT}/editors`)).status).toBe(401);
   expect((await api(out.page, 'GET', `/api/e/edit/${EVENT}/draft`)).status).toBe(200);

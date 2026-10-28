@@ -20,7 +20,7 @@ import {
  * the public page and the public chatbot can only ever be handed times.
  *
  * Busy is any entry he has not declined and that is not marked free: a
- * meeting, and every block and hold Copilot judges not a meeting, counts. A
+ * meeting, and every block and hold Kraken judges not a meeting, counts. A
  * hold counts even when it is marked free (it is time someone is keeping).
  * Working-location entries never do. An all-day entry counts only when it is
  * opaque (Google's "Busy"), and then the whole day is busy. A journey (a

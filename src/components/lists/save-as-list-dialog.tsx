@@ -15,7 +15,7 @@ const NOUN = { person: 'people', company: 'companies', deal: 'deals' } as const;
 
 /**
  * "Save as list": the rows the view on screen shows — its search, status
- * chips and filters, in its order — as a new list made in Copilot. Applied on
+ * chips and filters, in its order — as a new list made in Kraken. Applied on
  * the server across the whole list, not just this page, and opened once made.
  * The new list starts without the old one's columns; each row keeps its name
  * and its company or person.

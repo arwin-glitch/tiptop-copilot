@@ -1,4 +1,4 @@
-//! TipTop Copilot for Mac and Windows: a window onto https://copilot.tiptop.vc.
+//! TipTop Kraken for Mac and Windows: a window onto https://copilot.tiptop.vc.
 //!
 //! A bundled fallback page hands over to the live site once it answers, so
 //! every web update reaches the app with no new build. The page gets two
@@ -163,7 +163,7 @@ fn open_view<R: Runtime>(
     let label = format!("view-{}", NEXT_VIEW.fetch_add(1, Ordering::Relaxed));
     let blank = Url::parse("about:blank").map_err(tauri::Error::InvalidUrl)?;
     let builder = window_builder(app, &label, WebviewUrl::External(blank))
-        .title("TipTop Copilot")
+        .title("TipTop Kraken")
         .inner_size(1100.0, 780.0)
         .min_inner_size(480.0, 360.0)
         .prevent_overflow()
@@ -191,11 +191,11 @@ fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         menu::{Menu, MenuItem},
         tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     };
-    let open = MenuItem::with_id(app, "open", "Open TipTop Copilot", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit TipTop Copilot", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open TipTop Kraken", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit TipTop Kraken", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
     let mut tray = TrayIconBuilder::<R>::with_id("main")
-        .tooltip("TipTop Copilot")
+        .tooltip("TipTop Kraken")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -284,7 +284,7 @@ pub fn run() {
                 MAIN,
                 WebviewUrl::App("index.html".into()),
             ))
-            .title("TipTop Copilot")
+            .title("TipTop Kraken")
             .inner_size(1280.0, 820.0)
             .min_inner_size(800.0, 560.0)
             .center()
@@ -303,7 +303,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while starting TipTop Copilot")
+        .expect("error while starting TipTop Kraken")
         .run(|app, event| match event {
             // A Dock click while the window is hidden.
             #[cfg(target_os = "macos")]

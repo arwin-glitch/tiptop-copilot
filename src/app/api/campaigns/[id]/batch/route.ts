@@ -27,7 +27,7 @@ export async function POST(_request: NextRequest, context: Context) {
   const result = await sendBatch(store, gate.auth.organizationId, id, {
     sender: sender.value,
     storage: getStorage(),
-    // Null while APP_URL is local: a campaign with Copilot links then refuses.
+    // Null while APP_URL is local: a campaign with Kraken links then refuses.
     appUrl: trackingOrigin(),
   });
   return respond(result, (progress) => ({ progress }));

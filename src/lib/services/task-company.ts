@@ -195,7 +195,7 @@ export async function setTaskCompany(
         .catch(() => null)) as CrmRecord | null;
       name = record && record.kind === 'company' ? record.name : null;
     }
-    if (!name) return err('not_found', 'That company is not in Copilot.');
+    if (!name) return err('not_found', 'That company is not in Kraken.');
     company = {
       kind: choice.kind,
       id: choice.id,

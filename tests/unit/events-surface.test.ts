@@ -15,10 +15,10 @@ import {
 import { proxy } from '@/proxy';
 
 /**
- * The public surface (D-075): event pages are same-origin with Copilot, so
- * they get their own strict nonce CSP, none of Copilot's chrome, no service
+ * The public surface (D-075): event pages are same-origin with Kraken, so
+ * they get their own strict nonce CSP, none of Kraken's chrome, no service
  * worker interception, and no indexing of personal paths. A blocking check
- * for the integrator: if any of this slips, an LP gets Copilot's worker or
+ * for the integrator: if any of this slips, an LP gets Kraken's worker or
  * an outsider's script runs next to Nick's session.
  */
 
@@ -123,7 +123,7 @@ describe('the proxy', () => {
     expect((await proxy(new NextRequest(`${ORIGIN}/events`))).status).toBe(307);
   });
 
-  it('a client cannot fake the surface flag or a nonce onto a Copilot page', async () => {
+  it('a client cannot fake the surface flag or a nonce onto a Kraken page', async () => {
     const response = await proxy(
       new NextRequest(`${ORIGIN}/login`, {
         headers: { [SURFACE_HEADER]: 'public', [NONCE_HEADER]: 'forged' },
@@ -136,11 +136,11 @@ describe('the proxy', () => {
     const overridden = (response.headers.get('x-middleware-override-headers') ?? '').split(',');
     expect(overridden).toContain(SURFACE_HEADER);
     expect(overridden).not.toContain(NONCE_HEADER);
-    // Copilot's own CSP, not an event one.
+    // Kraken's own CSP, not an event one.
     expect(response.headers.get('content-security-policy')).toMatch(/'unsafe-inline'/);
   });
 
-  it('a Copilot page keeps Copilot’s CSP and headers', async () => {
+  it('a Kraken page keeps Kraken’s CSP and headers', async () => {
     const response = await proxy(new NextRequest(`${ORIGIN}/login`));
     expect(response.headers.get('content-security-policy')).toMatch(
       /script-src 'self' 'unsafe-inline'/,
@@ -172,7 +172,7 @@ describe('the service worker', () => {
     return responded;
   }
 
-  it('never intercepts event or booking pages, but still handles Copilot navigations', () => {
+  it('never intercepts event or booking pages, but still handles Kraken navigations', () => {
     expect(intercepts(`${ORIGIN}/e/harborview-annual-meeting`)).toBe(false);
     expect(intercepts(`${ORIGIN}/e`)).toBe(false);
     expect(intercepts(`${ORIGIN}/e/party/i/token`)).toBe(false);

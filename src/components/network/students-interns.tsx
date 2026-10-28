@@ -49,7 +49,7 @@ import { ShowMore } from '@/components/ui/show-more';
  * like Portfolio's Jobs.
  *
  * Every value is plain text. A source is only ever its subject and date with
- * the two places to read it (Copilot's Inbox, or Gmail): never the email's
+ * the two places to read it (Kraken's Inbox, or Gmail): never the email's
  * text. What is on Arwin (the next step is his) carries a gold rule and its
  * own badge, and is counted at the top with a link to just those.
  */

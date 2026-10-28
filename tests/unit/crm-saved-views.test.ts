@@ -501,7 +501,7 @@ describe('columns', () => {
     expect(defaultHiddenColumns({ source: 'affinity', fields: [...FIELDS, tics] })).toEqual([
       'tics',
     ]);
-    // Made in Copilot: every entry counts from when it was added.
+    // Made in Kraken: every entry counts from when it was added.
     expect(defaultHiddenColumns({ source: 'copilot', fields: FIELDS })).toEqual([]);
     // No status field: nothing to time, nothing hidden.
     expect(defaultHiddenColumns({ source: 'affinity', fields: [tics] })).toEqual([]);

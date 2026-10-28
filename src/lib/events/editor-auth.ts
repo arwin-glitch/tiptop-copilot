@@ -34,7 +34,7 @@ import { err, ok, type Result } from '@/lib/util/result';
 
 /**
  * Outside links (D-075): edit, viewer and check-in-staff links for people
- * with no Copilot account. WS3 owns this file; WS1's ops service and WS4's
+ * with no Kraken account. WS3 owns this file; WS1's ops service and WS4's
  * staff routes call it.
  *
  *   Link      /e/edit#k=<43-char secret>  (staff: /e/checkin#k=…)
@@ -56,7 +56,7 @@ import { err, ok, type Result } from '@/lib/util/result';
  *             or mismatched: one generic not_found, never which.
  *   Limits    claims and token lookups: 10 per 10 minutes per address bucket.
  *
- * Outsiders hold no Supabase credentials and no Copilot session; nothing a
+ * Outsiders hold no Supabase credentials and no Kraken session; nothing a
  * grant resolves to reaches beyond the draft of its one event.
  */
 
@@ -130,7 +130,7 @@ export function readGrantCookie(
 
 /**
  * The paths a claimed link's cookie is set on: that one event's pages and
- * API, nothing else in Copilot. Edit and viewer links: /e/edit/<id> and
+ * API, nothing else in Kraken. Edit and viewer links: /e/edit/<id> and
  * /api/e/edit/<id>. Staff links: /e/checkin/<id> and /api/e/checkin/<id>,
  * plus the event's QR landing paths /e/<slug>/c and /api/e/<slug>/c when the
  * slug is given.

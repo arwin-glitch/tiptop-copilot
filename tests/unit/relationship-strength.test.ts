@@ -272,7 +272,7 @@ describe('smart fields', () => {
     });
   });
 
-  it('prefers Copilot’s own evidence and marks the Affinity fallback', () => {
+  it('prefers Kraken’s own evidence and marks the Affinity fallback', () => {
     const fields = smartFields(evidence({ lastEmailAt: daysAgo(3), lastContactAt: daysAgo(3) }), {
       last_contact: '2026-01-01',
       last_meeting: '2026-02-02',
@@ -282,7 +282,7 @@ describe('smart fields', () => {
     expect(fields.next_meeting).toEqual({ at: null, source: null });
   });
 
-  it('takes the earlier first email, since Copilot only sees the newest synced mail', () => {
+  it('takes the earlier first email, since Kraken only sees the newest synced mail', () => {
     const recent = evidence({ firstEmailAt: '2026-08-12T15:00:00.000Z' });
     const older = smartFields(recent, { first_email: '2021-03-04' }, { scannedFrom: daysAgo(90) });
     expect(older.first_email).toEqual({ at: '2021-03-04', source: 'affinity' });

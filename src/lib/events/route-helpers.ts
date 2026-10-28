@@ -8,7 +8,7 @@ import { statusForError, type AppError, type Result } from '@/lib/util/result';
 /**
  * Shared by the signed-in Events API routes (/api/events/**). The public
  * /api/e/** routes do NOT use these: they resolve a grant, a guest token or
- * nobody, never a Copilot session.
+ * nobody, never a Kraken session.
  */
 
 export const fail = (error: AppError, status?: number) =>

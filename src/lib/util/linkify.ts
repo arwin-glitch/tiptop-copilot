@@ -19,7 +19,7 @@ const TRUSTED: { host: RegExp; label: string }[] = [
   { host: /^(docs|drive|sheets)\.google\.com$/, label: 'Open in Google Drive' },
   { host: /^([a-z0-9-]+\.)?slack\.com$/, label: 'Open in Slack' },
   { host: /^claude\.ai$/, label: 'Open on claude.ai' },
-  { host: /^tiptop-copilot\.onrender\.com$/, label: 'Open in Copilot' },
+  { host: /^tiptop-copilot\.onrender\.com$/, label: 'Open in Kraken' },
 ];
 
 export function trustedLinkLabel(href: string): string | null {

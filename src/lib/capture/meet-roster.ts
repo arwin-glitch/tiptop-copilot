@@ -4,7 +4,7 @@ import type { RosterInterval, RosterSnapshot } from './types';
  * Names from Google Meet (D-076, v1 nice): the page side of the Meet
  * extension (extension/meet). The extension reads Meet's participant list and
  * who is speaking, and passes snapshots to this page through its content
- * script on Copilot's own origin. Nothing goes to the server from here: the
+ * script on Kraken's own origin. Nothing goes to the server from here: the
  * timeline of who spoke when is lined up with the transcript's voices in the
  * browser, as suggestions for the "Who is this?" picker. The ladder ranks a
  * roster match below a person's tap, so a suggestion never overrides a name
@@ -12,7 +12,7 @@ import type { RosterInterval, RosterSnapshot } from './types';
  *
  * Consent: the page tells the extension when a recording with a confirmed
  * consent step is running, and the extension relays only then, and only when
- * its own "Send Meet names to Copilot" switch is on.
+ * its own "Send Meet names to Kraken" switch is on.
  */
 
 export const PAGE_SOURCE = 'tiptop-copilot';

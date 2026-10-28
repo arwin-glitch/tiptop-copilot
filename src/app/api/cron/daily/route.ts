@@ -337,7 +337,7 @@ export async function POST(request: NextRequest) {
       log.error('Cron campaign reply check failed', { organizationId: organization.id });
     }
 
-    // Copilot Notes (D-076): meetings out of the 7-day trash, and voice
+    // Kraken Notes (D-076): meetings out of the 7-day trash, and voice
     // identifiers a year past their last use; and Arwin's notes that came
     // back through the relay while no meeting page was open. Counts only.
     let notesStatus: string;
@@ -347,7 +347,7 @@ export async function POST(request: NextRequest) {
       notesStatus = `ok: ${purged.meetings} meetings and ${purged.voices} voice identifiers purged; ${settled.settled} notes stored, ${settled.expired} requests expired`;
     } catch {
       notesStatus = 'failed';
-      log.error('Cron Copilot Notes purge failed', { organizationId: organization.id });
+      log.error('Cron Kraken Notes purge failed', { organizationId: organization.id });
     }
 
     // The public job board: each company's own public job board read again

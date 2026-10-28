@@ -1,7 +1,7 @@
 /**
- * TipTop Copilot: Meet names (D-076). Runs in Google Meet tabs.
+ * TipTop Kraken: Meet names (D-076). Runs in Google Meet tabs.
  *
- * Reads the roster only while the background says a Copilot recording with a
+ * Reads the roster only while the background says a Kraken recording with a
  * confirmed consent step is running and the person has switched names on;
  * otherwise it reads nothing. It never posts in the meeting chat on its own:
  * the consent notice goes in only when the person presses the popup's button.

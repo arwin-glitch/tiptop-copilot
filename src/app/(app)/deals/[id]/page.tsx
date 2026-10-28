@@ -153,7 +153,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
   const siteHref = websiteHref(deal.website ?? deal.domain);
 
   // Sources that live outside the app: Gmail threads the deal-sorter found
-  // (read in Copilot's Inbox or in Gmail), and web or manual links. Links are
+  // (read in Kraken's Inbox or in Gmail), and web or manual links. Links are
   // rebuilt from validated identifiers.
   const threadSources = detail.sources
     .filter((s) => s.kind === 'email_thread' && isGmailId(s.ref_id))
@@ -823,7 +823,7 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
                               {m.from_name ?? m.from_address} · {relativeTime(m.sent_at)}
                             </p>
                           </div>
-                          {/* The email in Copilot's Inbox, or in Gmail. */}
+                          {/* The email in Kraken's Inbox, or in Gmail. */}
                           <ThreadLinks
                             id={emailLinkId(m)}
                             mailbox={integration?.account_email}

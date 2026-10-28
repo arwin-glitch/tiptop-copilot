@@ -38,12 +38,12 @@ import { err, ok, type AppError, type Result } from '@/lib/util/result';
  *   - `contacts`: the companies and people on no list. The daily sync reads
  *     lists, not Affinity's whole directory, because the directory holds every
  *     contact Affinity ever made from the mailbox. This pages through
- *     `/v2/companies`, then `/v2/persons`, and adds the ones Copilot does not
+ *     `/v2/companies`, then `/v2/persons`, and adds the ones Kraken does not
  *     have, by Affinity id — so it is idempotent, and anything already in
- *     Copilot (from a list or a note) is left exactly as it is. Capped per
+ *     Kraken (from a list or a note) is left exactly as it is. Capped per
  *     press and by a workspace ceiling (lib/crm/affinity-exit-import.ts), so it
  *     cannot fill a free database.
- *   - `reminders`: open reminders (`/v2/reminders`), each a Copilot task. A
+ *   - `reminders`: open reminders (`/v2/reminders`), each a Kraken task. A
  *     task's id is derived from the reminder's, so copying twice adds nothing,
  *     and a task someone already finished is never brought back.
  *
@@ -73,9 +73,9 @@ export interface AffinityExitImportState {
   nextUrl: string | null;
   /** Read from Affinity since this pass started. */
   scanned: number;
-  /** Of those, already in Copilot. */
+  /** Of those, already in Kraken. */
   existing: number;
-  /** Copied into Copilot, over every press. */
+  /** Copied into Kraken, over every press. */
   copied: number;
   /** Left out on purpose: teammates and nameless contacts, finished reminders. */
   skipped: number;
@@ -448,14 +448,14 @@ export async function runAffinityExitImportStep(
       log.warn('Affinity exit copy could not count records', {
         reason: error instanceof Error ? error.message : String(error),
       });
-      return err('internal', 'The copy could not check how much Copilot holds just now.', {
+      return err('internal', 'The copy could not check how much Kraken holds just now.', {
         retryable: true,
       });
     }
     if (held + PAGE_LIMIT > ceiling) {
       return await failed({
         code: 'too_large',
-        message: `Copilot already holds ${held.toLocaleString('en-US')} companies and people, close to the ${ceiling.toLocaleString('en-US')} this copy stops at so the database stays well inside its plan. Nothing more was copied.`,
+        message: `Kraken already holds ${held.toLocaleString('en-US')} companies and people, close to the ${ceiling.toLocaleString('en-US')} this copy stops at so the database stays well inside its plan. Nothing more was copied.`,
       });
     }
   }
@@ -590,7 +590,7 @@ async function applyContacts(
   state.skipped += data.length - rows.length;
   if (!rows.length) return ok(undefined);
 
-  // The ones Copilot already has, by Affinity id, are left exactly as they are.
+  // The ones Kraken already has, by Affinity id, are left exactly as they are.
   const known = new Set<string>();
   for (const group of chunk(
     rows.map((r) => String(r.externalId)),

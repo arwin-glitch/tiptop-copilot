@@ -3,8 +3,8 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Arwin's rule: every email or thread link in Copilot offers two places to
- * read it, "Copilot" (the Inbox's reading pane, `/inbox?thread=<id>`) and
+ * Arwin's rule: every email or thread link in Kraken offers two places to
+ * read it, "Kraken" (the Inbox's reading pane, `/inbox?thread=<id>`) and
  * "Gmail". Pages and components draw those with `ThreadLinks` (or
  * `ThreadLinksForHref` for a Gmail link built earlier), never a bare Gmail
  * link of their own. This scan keeps new code from slipping back to a
@@ -41,7 +41,7 @@ const ALLOWED: Record<string, { names: string[]; why: string }> = {
   },
   'components/inbox/live-inbox.tsx': {
     names: ['a Gmail URL', "Gmail's #all/<id>"],
-    why: 'The Inbox is Copilot: its reading pane offers Gmail as the other place, "Try in Gmail" for a link it could not open, and Send in Gmail when sending is off.',
+    why: 'The Inbox is Kraken: its reading pane offers Gmail as the other place, "Try in Gmail" for a link it could not open, and Send in Gmail when sending is off.',
   },
   'components/followups/email-session-client.tsx': {
     names: ['a Gmail URL', "Gmail's #all/<id>"],
@@ -100,7 +100,7 @@ describe('email links in pages and components', () => {
     expect(ui.length).toBeGreaterThan(100);
   });
 
-  it('offer Copilot and Gmail: no bare Gmail link outside the listed exceptions', () => {
+  it('offer Kraken and Gmail: no bare Gmail link outside the listed exceptions', () => {
     const offenders: string[] = [];
     for (const file of ui) {
       const name = rel(file);

@@ -22,7 +22,7 @@ export function modelFor(tier: ModelTier): string {
  */
 export const PRICE_TABLE: Readonly<Record<string, { input: number; output: number }>> = {
   // Anthropic list prices per million tokens, October 2026, for the in-app
-  // calls that still use ANTHROPIC_API_KEY. Copilot Notes spends nothing here:
+  // calls that still use ANTHROPIC_API_KEY. Kraken Notes spends nothing here:
   // its notes and chat go to Arwin's Claude routine (D-076). A model missing
   // here falls back to the most expensive rate, which overstates spend and
   // trips the daily budget early: add new models when they ship.

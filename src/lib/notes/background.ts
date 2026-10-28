@@ -4,7 +4,7 @@ import { log } from '@/lib/security/redact';
 import { settlesWithin } from '@/lib/util/settle';
 
 /**
- * Work a Copilot Notes route finishes after it has answered (D-076): writing
+ * Work a Kraken Notes route finishes after it has answered (D-076): writing
  * notes with a model takes tens of seconds, and nobody should wait on a
  * spinner for it. Next's `after` keeps it running past the response; outside
  * a request (the tests, a script) it simply runs now, awaited. A failure is
@@ -18,7 +18,7 @@ export async function afterResponse(
     try {
       await task();
     } catch (error) {
-      log.warn(`Copilot Notes: could not ${what} after answering`, {
+      log.warn(`Kraken Notes: could not ${what} after answering`, {
         reason: error instanceof Error ? error.message : String(error),
       });
     }

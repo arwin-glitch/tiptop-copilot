@@ -40,8 +40,8 @@ function single(value: string | string[] | undefined): string | undefined {
 }
 
 /**
- * A Copilot meeting (D-076): its notes, live transcript, chat, people and
- * share links, behind subtabs. Hidden (404) while Copilot Notes is off for
+ * A Kraken meeting (D-076): its notes, live transcript, chat, people and
+ * share links, behind subtabs. Hidden (404) while Kraken Notes is off for
  * this person, and for a meeting they may not see.
  */
 export default async function MeetingPage({
@@ -78,7 +78,7 @@ export default async function MeetingPage({
         <PageHeader title="Meeting" />
         {detail.error.code === 'not_configured' ? (
           <NotConfigured
-            title="Copilot Notes is not set up yet"
+            title="Kraken Notes is not set up yet"
             description={detail.error.message}
             stillWorks={detail.error.stillUsable}
           />

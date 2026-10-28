@@ -19,7 +19,7 @@ export type NotesAnswer<T> = ({ ok: true } & T) | NotesFailure;
 const OFFLINE: NotesFailure = {
   ok: false,
   code: 'provider_unavailable',
-  message: 'Copilot could not be reached. Check the connection and try again.',
+  message: 'Kraken could not be reached. Check the connection and try again.',
 };
 
 export async function notesCall<T extends object>(
@@ -57,7 +57,7 @@ let accessCache: { at: number; value: Promise<boolean> } | null = null;
 const ACCESS_TTL_MS = 60_000;
 
 /**
- * Whether Copilot Notes is on for the person signed in. Asked once a minute
+ * Whether Kraken Notes is on for the person signed in. Asked once a minute
  * at most, so opening ten calendar cards costs one request. Off on any error:
  * a feature that cannot say it is on stays hidden.
  */

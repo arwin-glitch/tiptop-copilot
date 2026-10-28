@@ -12,11 +12,11 @@ import type { CrmRecordRow } from '@/lib/services/crm';
  * owner presses the button (lib/services/affinity-exit-import.ts runs them).
  *
  *   - Contacts on no list: every company (`GET /v2/companies`) and person
- *     (`GET /v2/persons`) in Affinity's directory that Copilot does not have
+ *     (`GET /v2/persons`) in Affinity's directory that Kraken does not have
  *     yet, with minimal fields — name, domain, email addresses — keyed by the
  *     Affinity id, so a second copy changes nothing. Teammates are never
  *     made into contacts.
- *   - Open reminders (`GET /v2/reminders`): one Copilot task each, due when
+ *   - Open reminders (`GET /v2/reminders`): one Kraken task each, due when
  *     the reminder is.
  *
  * Shapes are from Affinity's API reference for the version the client pins

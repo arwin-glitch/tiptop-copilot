@@ -68,7 +68,7 @@ test('Portfolio > Requests shows asks read from an update, with who could help',
     card.getByRole('link', { name: /^Open in Gmail: .*Ledgerly October update/ }),
   ).toHaveAttribute('href', /mail\.google\.com/);
   await expect(
-    card.getByRole('link', { name: /^Open in Copilot: .*Ledgerly October update/ }),
+    card.getByRole('link', { name: /^Open in Kraken: .*Ledgerly October update/ }),
   ).toHaveAttribute('href', /^\/inbox\?thread=[0-9a-f]+$/);
   // One reply to the thread, and one click closes every ask on the card.
   await expect(card.getByRole('button', { name: 'Draft reply' })).toHaveCount(1);

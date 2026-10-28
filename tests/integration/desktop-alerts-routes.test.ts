@@ -118,7 +118,7 @@ describe('/api/push/desktop', () => {
     expect((await desktopRoute.POST(page('POST', TURN_ON))).status).toBe(429);
   });
 
-  it('says whether Copilot still has a computer on, to a session only', async () => {
+  it('says whether Kraken still has a computer on, to a session only', async () => {
     const check = (device: string) =>
       desktopRoute.GET(new NextRequest(`${ORIGIN}/api/push/desktop?device=${device}`));
     signedIn = null;

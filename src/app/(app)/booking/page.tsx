@@ -141,7 +141,7 @@ async function BookingBody({
               serverVersion={desktopVersion}
               fallback={
                 <span className="text-sm text-[var(--fg-muted)]">
-                  Turn this on from Copilot in your web browser.
+                  Turn this on from Kraken in your web browser.
                 </span>
               }
             >

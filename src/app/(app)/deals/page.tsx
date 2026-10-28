@@ -71,7 +71,7 @@ export default async function DealsPage({
   );
 }
 
-/** Copilot's deals and Affinity's deal lists as one pipeline, a row per company. */
+/** Kraken's deals and Affinity's deal lists as one pipeline, a row per company. */
 async function PipelineTab({
   q,
   stage,

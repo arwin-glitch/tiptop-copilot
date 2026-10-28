@@ -98,7 +98,7 @@ export default async function SettingsPage({
     });
     return null;
   });
-  // Copilot Notes (D-076): its tab shows only once the server switch is not off.
+  // Kraken Notes (D-076): its tab shows only once the server switch is not off.
   const notes = await notesAccess(store, auth).catch(() => null);
   const notesTab = Boolean(notes && notes.mode !== 'off');
 
@@ -139,7 +139,7 @@ export default async function SettingsPage({
           <TabsTrigger value="limits">Limits</TabsTrigger>
           <TabsTrigger value="data">Data &amp; privacy</TabsTrigger>
           {notes && notes.mode !== 'off' ? (
-            <TabsTrigger value="notes">Copilot Notes</TabsTrigger>
+            <TabsTrigger value="notes">Kraken Notes</TabsTrigger>
           ) : null}
         </TabsList>
 
@@ -219,7 +219,7 @@ export default async function SettingsPage({
                       serverVersion={desktopVersion}
                       fallback={
                         <span className="text-sm text-[var(--fg-muted)]">
-                          Turn this on from Copilot in your web browser.
+                          Turn this on from Kraken in your web browser.
                         </span>
                       }
                     >
@@ -237,7 +237,7 @@ export default async function SettingsPage({
               {integration && !demo ? (
                 <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-[var(--border)] p-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">Edit the calendar from Copilot</p>
+                    <p className="text-sm font-medium">Edit the calendar from Kraken</p>
                     <p className="text-sm text-[var(--fg-muted)]">
                       {canEditCalendar(integration)
                         ? 'On. Events change from the Calendar tab only when someone saves, moves or deletes one; guests are emailed only when they choose Send.'
@@ -251,7 +251,7 @@ export default async function SettingsPage({
                       serverVersion={desktopVersion}
                       fallback={
                         <span className="text-sm text-[var(--fg-muted)]">
-                          Turn this on from Copilot in your web browser.
+                          Turn this on from Kraken in your web browser.
                         </span>
                       }
                     >
@@ -317,7 +317,7 @@ export default async function SettingsPage({
               <div>
                 <CardTitle as="h2">Import from Affinity</CardTitle>
                 <p className="mt-1 text-sm text-[var(--fg-muted)]">
-                  Bring your Affinity lists into Copilot: export each list (Export → Export view as
+                  Bring your Affinity lists into Kraken: export each list (Export → Export view as
                   CSV) and its notes (Export → Export all notes in view), then drop the files in.
                   Importing a file again updates what is here instead of duplicating it. It lives
                   under Knowledge, with the imported lists.

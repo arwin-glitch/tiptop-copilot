@@ -6,7 +6,7 @@ import { resetEnvCache } from '@/lib/config/env';
  * A real campaign never goes out with tracking links on a local address:
  * every pixel, link and unsubscribe in it would be broken for its recipients.
  * trackingOrigin gives null then, and the campaign service refuses any
- * campaign whose emails carry Copilot links (see the integration tests).
+ * campaign whose emails carry Kraken links (see the integration tests).
  */
 
 const SAVED = { ...process.env };

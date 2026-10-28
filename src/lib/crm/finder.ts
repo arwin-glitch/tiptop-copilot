@@ -172,7 +172,7 @@ export function placeSearchTerm(place: string): string {
 export interface CrmFinderContact {
   /** An ISO date or date-time. */
   at: string;
-  /** Copilot's own mail and calendar, or a date Affinity carried. */
+  /** Kraken's own mail and calendar, or a date Affinity carried. */
   source: 'copilot' | 'affinity';
 }
 
@@ -182,7 +182,7 @@ function timeOf(at: string): number {
 }
 
 /**
- * When someone was last in touch, the later of what Copilot's own mail and
+ * When someone was last in touch, the later of what Kraken's own mail and
  * calendar saw and what Affinity recorded (its last contact, last email or
  * last meeting, on the record or on any list they are on). Null when neither
  * has a readable date.
@@ -194,7 +194,7 @@ export function lastContactOf(input: {
     fields: readonly Pick<CrmField, 'key' | 'name'>[];
     values: Readonly<Record<string, CrmValue>>;
   }[];
-  /** Copilot's last contact from mail and calendar. */
+  /** Kraken's last contact from mail and calendar. */
   copilotAt?: string | null;
 }): CrmFinderContact | null {
   const affinity = affinitySmartValues(input.entries ?? [], input.recordFields);
@@ -208,7 +208,7 @@ export function lastContactOf(input: {
   for (const c of candidates) {
     const t = timeOf(c.at);
     if (Number.isNaN(t)) continue;
-    // A tie goes to Copilot's own evidence.
+    // A tie goes to Kraken's own evidence.
     if (t > bestAt || (t === bestAt && c.source === 'copilot')) {
       best = c;
       bestAt = t;

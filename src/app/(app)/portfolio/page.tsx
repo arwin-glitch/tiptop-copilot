@@ -384,7 +384,7 @@ function RequestCard({
                   Under &ldquo;{source.section ?? 'Asks'}&rdquo; in &ldquo;{source.label}&rdquo;
                   {source.publisher ? ` from ${source.publisher}` : ''}
                 </span>
-                {/* The update email, in Copilot's Inbox or in Gmail. */}
+                {/* The update email, in Kraken's Inbox or in Gmail. */}
                 {sourceEmail ? (
                   <ThreadLinks
                     id={sourceEmail.id}
@@ -604,7 +604,7 @@ async function NumbersTab({ auth }: { auth: AuthContext }) {
  * portfolio founder lists and any list of the portfolio itself, people and
  * companies alike. Companies shows the founders that match one of its
  * companies; this is the whole set, so a founder with a personal address or
- * a company Copilot does not have yet is never lost.
+ * a company Kraken does not have yet is never lost.
  */
 function FoundersTab({
   auth,

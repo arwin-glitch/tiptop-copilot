@@ -121,7 +121,7 @@ export function CalendarsPanel({
                     : row.selectedInGoogle
                       ? 'Ticked in Google Calendar.'
                       : row.shownInCopilot
-                        ? 'Shown in Copilot’s Calendar tab.'
+                        ? 'Shown in Kraken’s Calendar tab.'
                         : 'Shared with him.';
             return (
               <li

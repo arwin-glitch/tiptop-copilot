@@ -1,6 +1,6 @@
 /**
- * Is this Granola note the same conversation as this Copilot meeting?
- * (D-076) While both tools run, a meeting recorded in Copilot usually has a
+ * Is this Granola note the same conversation as this Kraken meeting?
+ * (D-076) While both tools run, a meeting recorded in Kraken usually has a
  * Granola note too, and every list should show it once. The two are paired
  * (meetings.granola_external_id) when the note's time is within three hours
  * of the meeting's start, and the titles match once punctuation and case are

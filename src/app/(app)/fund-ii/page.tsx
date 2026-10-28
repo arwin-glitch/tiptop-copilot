@@ -326,7 +326,7 @@ async function CampaignsTab() {
       <NotConfigured
         title="Campaigns are not set up yet"
         description={`The campaign tables have not been created in the database. Run ${CAMPAIGNS_MIGRATION_FILE} in the Supabase SQL editor, then reload this page.`}
-        stillWorks="The rest of Fund II, and everything else in Copilot, works as before."
+        stillWorks="The rest of Fund II, and everything else in Kraken, works as before."
         action={null}
       />
     );
@@ -378,7 +378,7 @@ function LpCard({ lp, now, tz }: { lp: LpItem; now: Date; tz: string }) {
               <p className="text-sm font-medium">{lp.who}</p>
               {lp.firm ? <p className="text-xs text-[var(--fg-muted)]">{lp.firm}</p> : null}
             </div>
-            {/* The thread with them, in Copilot's Inbox or in Gmail. */}
+            {/* The thread with them, in Kraken's Inbox or in Gmail. */}
             <ThreadLinks
               id={lp.thread_id}
               mailbox={DEFAULT_MAILBOX}

@@ -66,9 +66,9 @@ import { err, ok, type AppError, type Result } from '@/lib/util/result';
  * What it writes: the CRM service's import upserts, with the keys the CSV
  * import used (see `lib/crm/affinity-api.ts`), so a list imported by hand is
  * updated rather than duplicated, and running it twice changes nothing. A
- * value someone changed in Copilot since the last import is kept, as for a
+ * value someone changed in Kraken since the last import is kept, as for a
  * CSV re-import. Nothing is ever deleted: a row removed from an Affinity list
- * stays in Copilot.
+ * stays in Kraken.
  *
  * How it runs: in bounded steps. Render (and a GitHub Actions curl) cannot
  * hold one request for a full first pull, so each call does what fits in its
@@ -114,7 +114,7 @@ export type AffinitySyncTrigger = 'cron' | 'manual';
 export interface AffinitySyncCounts {
   /** Lists finished this run. */
   listsDone: number;
-  /** Lists that were new to Copilot. */
+  /** Lists that were new to Kraken. */
   listsCreated: number;
   records: AffinityCounts;
   entries: AffinityCounts;
@@ -123,7 +123,7 @@ export interface AffinitySyncCounts {
   notesLinked: number;
   /** Notes a CSV import had stored without an id, now keyed by their Affinity id. */
   notesAdopted: number;
-  /** Values changed in Copilot that the sync kept rather than overwrote. */
+  /** Values changed in Kraken that the sync kept rather than overwrote. */
   keptEdits: number;
   /**
    * Pages skipped: ones that failed to save three times running, and notes
@@ -457,13 +457,13 @@ export interface AffinitySyncOptions extends Pick<
   userId?: string | null;
 }
 
-/** Per-step caches: one list's fields and Copilot list, read once a step. */
+/** Per-step caches: one list's fields and Kraken list, read once a step. */
 interface StepContext {
   store: DataStore;
   organizationId: string;
   http: AffinityHttp;
   fields: Map<number, AffinityApiFieldMeta[]>;
-  /** Affinity list id → Copilot list, for linking notes to deal rows. */
+  /** Affinity list id → Kraken list, for linking notes to deal rows. */
   dealLists: Map<string, string> | null;
 }
 
@@ -914,7 +914,7 @@ async function listsStep(ctx: StepContext, run: AffinitySyncRun): Promise<Result
 }
 
 /**
- * The Copilot list an Affinity list goes into: the one already keyed by its
+ * The Kraken list an Affinity list goes into: the one already keyed by its
  * id, else one the CSV import made under its name (keyed by nothing), also
  * when the import kept a saved view's suffix ("Deal Pipeline - Active").
  */
@@ -1060,7 +1060,7 @@ async function notesStep(ctx: StepContext, run: AffinitySyncRun): Promise<Result
   return ok({ pages: 1, finished: true });
 }
 
-/** Affinity list id → Copilot deal list id, read once a step. */
+/** Affinity list id → Kraken deal list id, read once a step. */
 async function dealLists(ctx: StepContext): Promise<Map<string, string>> {
   if (ctx.dealLists) return ctx.dealLists;
   const lists = await listAllPages(ctx.store, 'crm_lists', ctx.organizationId, {

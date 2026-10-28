@@ -17,7 +17,7 @@ import {
 
 /**
  * A list's optional relationship columns: Strength and the smart fields
- * (first and last email, last and next meeting, last contact), from Copilot's
+ * (first and last email, last and next meeting, last contact), from Kraken's
  * own mail and calendar with Affinity's value as the marked fallback.
  *
  * Off until a reader turns them on, remembered per list in this browser like
@@ -199,8 +199,7 @@ function RelationshipColumnsMenu({
         <div className="px-1.5 pt-0.5 pb-2">
           <FieldLabel as="p">Relationship columns</FieldLabel>
           <p className="text-mini mt-1 text-[var(--fg-subtle)]">
-            From your mail and calendar. Affinity&apos;s value shows, marked, where Copilot has
-            none.
+            From your mail and calendar. Affinity&apos;s value shows, marked, where Kraken has none.
           </p>
         </div>
         <ul className="space-y-0.5">

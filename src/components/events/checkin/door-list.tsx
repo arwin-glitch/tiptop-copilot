@@ -52,7 +52,7 @@ export function DoorList({
   kind: Kind;
   eventId: string;
   initial: DoorListData;
-  /** Inside Copilot's Check-in tab (no page heading of its own). */
+  /** Inside Kraken's Check-in tab (no page heading of its own). */
   embedded?: boolean;
 }) {
   const api = useMemo(() => urls(kind, eventId), [kind, eventId]);

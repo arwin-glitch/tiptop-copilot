@@ -78,7 +78,7 @@ function tidy(problems: { row: number; message: string }[]) {
  * The list's key for each field the request sent. A re-imported column keeps
  * the key it was first stored under (mergeCrmFields matches by key, then by
  * label), so the request's keys are looked up the same way in the list the
- * upsert returned — passing over a column added in Copilot on an Affinity
+ * upsert returned — passing over a column added in Kraken on an Affinity
  * list, as mergeCrmFields does, so the file's values never land in it.
  */
 function fieldKeys(sent: readonly CrmField[], list: CrmList): Map<string, string> {

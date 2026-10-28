@@ -9,17 +9,17 @@ import { rateLimit } from '@/lib/security/limits';
 
 export const dynamic = 'force-dynamic';
 
-/** Whether Copilot Notes is on for this person, and why (NotesAccessResponse). */
+/** Whether Kraken Notes is on for this person, and why (NotesAccessResponse). */
 export async function GET() {
   const auth = await authOrError();
   if (!auth.ok) return fail(auth.error);
   return done({ ...(await notesAccess(getStore(), auth.value)) });
 }
 
-/** Turn this person's "Copilot Notes (beta)" switch on or off (SetNotesBetaRequest). */
+/** Turn this person's "Kraken Notes (beta)" switch on or off (SetNotesBetaRequest). */
 export async function POST(request: NextRequest) {
   if (!isSameOrigin(request)) {
-    return fail({ code: 'forbidden', message: 'That request did not come from Copilot.' });
+    return fail({ code: 'forbidden', message: 'That request did not come from Kraken.' });
   }
   const auth = await authOrError();
   if (!auth.ok) return fail(auth.error);

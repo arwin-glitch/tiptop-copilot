@@ -152,7 +152,7 @@ const PHOTO_EXT: Record<PhotoType, string> = {
 };
 
 /**
- * The one shape a stored photo path may have: Copilot names it on upload
+ * The one shape a stored photo path may have: Kraken names it on upload
  * (booking/<organization>/host-photo-<version>.<ext>), so a path with "..",
  * another folder or another file is never read back.
  */
@@ -172,7 +172,7 @@ export function bookingPhotoPath(organizationId: string, version: string, type: 
 }
 
 /**
- * Whether a stored photo names exactly the file Copilot would have written
+ * Whether a stored photo names exactly the file Kraken would have written
  * for this organization: the only one the photo routes serve or remove.
  */
 export function isOwnPhotoPath(
@@ -273,7 +273,7 @@ export interface BookingConfig {
   /**
    * Which calendars count as busy, where the person chose: absent means the
    * default (his main calendar, every one he owns, every one ticked in
-   * Google or turned on in Copilot). His main calendar always counts and a
+   * Google or turned on in Kraken). His main calendar always counts and a
    * teammate's own calendar never does, whatever is stored here.
    */
   calendarChoices: CalendarChoice[];

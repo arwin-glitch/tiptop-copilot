@@ -270,7 +270,7 @@ function CompanyPicker({
           ))}
         </ul>
       ) : ready ? (
-        <p className="text-xs text-[var(--fg-subtle)]">No company by that name in Copilot.</p>
+        <p className="text-xs text-[var(--fg-subtle)]">No company by that name in Kraken.</p>
       ) : null}
     </Field>
   );

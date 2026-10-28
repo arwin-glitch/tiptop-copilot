@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { FieldLabel } from '@/components/ui/card';
 
 /**
- * What Affinity holds on a company Copilot also tracks, for its deal or
+ * What Affinity holds on a company Kraken also tracks, for its deal or
  * portfolio profile: the lists it is on with its stage there, its people, and
  * the notes, newest first. Read-only; the company's Affinity profile is one
  * link away for everything else.

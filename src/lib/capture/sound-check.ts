@@ -12,7 +12,7 @@ import {
 import { DEFAULT_TUNING, type RecorderCapabilities, type RecorderError } from './types';
 
 /**
- * A sound check before a call (D-076): does Copilot hear the microphone, and
+ * A sound check before a call (D-076): does Kraken hear the microphone, and
  * does it hear the meeting tab or screen? Entirely on this computer: no
  * meeting is made, no speech service is called, nothing is sent or stored.
  * It answers the most common capture mistakes (the wrong tab, "Share tab

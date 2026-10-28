@@ -10,12 +10,12 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: 'TipTop Copilot',
-    template: '%s · TipTop Copilot',
+    default: 'TipTop Kraken',
+    template: '%s · TipTop Kraken',
   },
   description:
     'An internal investment cockpit for TipTop VC: daily outlook, inbox intelligence, deal triage and decision support.',
-  applicationName: 'TipTop Copilot',
+  applicationName: 'TipTop Kraken',
   appleWebApp: {
     capable: true,
     title: 'TipTop',
@@ -51,7 +51,7 @@ export const viewport: Viewport = {
 const themeScript = `(function(){try{var t=localStorage.getItem('tiptop-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;if(t==='dark'||(t!=='light'&&d)){document.documentElement.classList.add('dark')}}catch(e){}})();`;
 
 /**
- * Which surface this request is for: Copilot itself, an event page (/e, which
+ * Which surface this request is for: Kraken itself, an event page (/e, which
  * alone gets the nonce CSP) or the booking link (/meet). proxy.ts sets both
  * headers there and strips them everywhere else (lib/events/surface.ts).
  * Reading them makes every route render per request, which the signed-in
@@ -68,9 +68,9 @@ async function requestSurface(): Promise<'app' | 'event' | 'booking'> {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Guests on /e and /meet get none of Copilot's chrome: no desktop title bar
+  // Guests on /e and /meet get none of Kraken's chrome: no desktop title bar
   // or alert opener, and no service worker registration, so an LP never
-  // installs Copilot's worker or sees its offline page. /e gets no theme
+  // installs Kraken's worker or sees its offline page. /e gets no theme
   // script either (an inline script its nonce CSP would refuse anyway); the
   // booking page keeps the theme half, since it follows the visitor's light
   // or dark setting (D-074), but not the desktop top-bar flag, as no bar is

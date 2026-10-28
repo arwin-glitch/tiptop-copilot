@@ -28,7 +28,7 @@ import { cn } from '@/lib/util/cn';
  * in-person coffee, lunch or dinner, the next open times as buttons, a place,
  * guests if the link allows them, then name and email, sent through the same
  * public request route as the page's form (every rule and cap applies). It
- * answers questions from the answers written in Copilot, matched on the
+ * answers questions from the answers written in Kraken, matched on the
  * server; a question none of them covers may go to the booking assistant
  * routine on Arwin's own Claude plan, and the answer appears here when it
  * comes (a minute or two), while the visitor keeps booking. It never says a
@@ -65,7 +65,7 @@ type Turn =
       id: string;
       role: 'assistant';
       text: string;
-      /** An answer written in Copilot: the question it answered. */
+      /** An answer written in Kraken: the question it answered. */
       matched?: string;
       /** "Did you mean" chips under an answer. */
       suggestions?: string[];

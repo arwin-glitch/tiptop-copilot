@@ -13,7 +13,7 @@ export default function PrivacyPage() {
 
       <h1 className="font-serif text-2xl font-semibold">Privacy notice</h1>
       <p className="mt-2 text-sm text-[var(--fg-muted)]">
-        TipTop Copilot is an internal tool for TipTop VC. This describes what it stores, what it
+        TipTop Kraken is an internal tool for TipTop VC. This describes what it stores, what it
         sends where, and how to remove it.
       </p>
 

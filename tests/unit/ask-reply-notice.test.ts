@@ -299,9 +299,9 @@ describe('words, title and memory', () => {
   });
 
   it('puts the count in front of the title, and takes it off again', () => {
-    expect(titleWithCount('Today · TipTop Copilot', 1)).toBe('(1) Today · TipTop Copilot');
-    expect(titleWithCount('(1) Today · TipTop Copilot', 2)).toBe('(2) Today · TipTop Copilot');
-    expect(titleWithCount('(2) Today · TipTop Copilot', 0)).toBe('Today · TipTop Copilot');
+    expect(titleWithCount('Today · TipTop Kraken', 1)).toBe('(1) Today · TipTop Kraken');
+    expect(titleWithCount('(1) Today · TipTop Kraken', 2)).toBe('(2) Today · TipTop Kraken');
+    expect(titleWithCount('(2) Today · TipTop Kraken', 0)).toBe('Today · TipTop Kraken');
     expect(titleWithCount('Today', 0)).toBe('Today');
   });
 

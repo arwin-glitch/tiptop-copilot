@@ -39,7 +39,7 @@ import { CopyBlurbButton } from './copy-blurb-button';
  * weekly jobs routine's snapshot. Filters live in the URL (`status`,
  * `company`, `fn`, `q`) and the server renders the result, like the tabs.
  * Every value is plain text; a source email is its subject and date with the
- * two places to read it (Copilot's Inbox, or Gmail), rebuilt from its id.
+ * two places to read it (Kraken's Inbox, or Gmail), rebuilt from its id.
  */
 
 const TAB = 'jobs';

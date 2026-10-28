@@ -43,7 +43,7 @@ const MESSAGES: Record<
   expired: {
     title: 'This sign-in link has expired',
     detail:
-      'Go back to the TipTop Copilot app and click Sign in with Google again. You can close this tab.',
+      'Go back to the TipTop Kraken app and click Sign in with Google again. You can close this tab.',
   },
   busy: { title: 'Too many tries', detail: 'Wait a minute, then try again from the app.' },
   unavailable: {
@@ -99,7 +99,7 @@ export default async function DesktopCallbackPage({
       footer="This page never signs this browser in. The app signs in once you type the code there."
     >
       <p className="mt-1.5 text-sm text-[var(--fg-muted)]">
-        Type this code into the TipTop Copilot app on this computer.
+        Type this code into the TipTop Kraken app on this computer.
       </p>
       <output
         data-testid="desktop-match-code"

@@ -42,7 +42,7 @@ export async function AffinityLists({ auth, q }: { auth: AuthContext; q: string 
       <NotConfigured
         title="Affinity lists are not set up yet"
         description={`The CRM tables have not been created in the database. Run ${CRM_MIGRATION_FILE} in the Supabase SQL editor, then reload this page.`}
-        stillWorks="Documents, contacts and everything else in Copilot work as before."
+        stillWorks="Documents, contacts and everything else in Kraken work as before."
         action={null}
       />
     );

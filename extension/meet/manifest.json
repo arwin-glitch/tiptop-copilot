@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "TipTop Copilot: Meet names",
+  "name": "TipTop Kraken: Meet names",
   "version": "0.1.0",
-  "description": "Lets TipTop Copilot put Google Meet participant names on transcript lines, only while a consented recording runs.",
+  "description": "Lets TipTop Kraken put Google Meet participant names on transcript lines, only while a consented recording runs.",
   "minimum_chrome_version": "116",
   "permissions": ["storage"],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "TipTop Copilot: Meet names",
+    "default_title": "TipTop Kraken: Meet names",
     "default_popup": "popup.html"
   },
   "content_scripts": [

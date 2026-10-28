@@ -202,7 +202,7 @@ export function FinderActions({
         </DialogTrigger>
         <DialogContent
           title="Save these as a new list"
-          description={`All ${total.toLocaleString('en-US')} ${noun} this search found go on a new list made in Copilot, ready for a campaign.`}
+          description={`All ${total.toLocaleString('en-US')} ${noun} this search found go on a new list made in Kraken, ready for a campaign.`}
         >
           <form
             className="space-y-4"

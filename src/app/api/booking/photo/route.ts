@@ -22,7 +22,7 @@ async function gate(request: NextRequest) {
 /**
  * Upload the host's photo for the booking page (Settings > Booking link):
  * one JPG, PNG or WebP under 3 MB, checked by its bytes, kept in the private
- * bucket. Signed in, an admin or the owner, from Copilot's own pages.
+ * bucket. Signed in, an admin or the owner, from Kraken's own pages.
  */
 export async function POST(request: NextRequest) {
   const checked = await gate(request);

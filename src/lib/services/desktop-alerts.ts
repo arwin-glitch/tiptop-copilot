@@ -370,7 +370,7 @@ export async function authenticateDesktopToken(
   store: DataStore,
   token: string,
 ): Promise<Result<DesktopCaller>> {
-  const invalid = () => err('unauthenticated', 'That token is not valid for this Copilot.');
+  const invalid = () => err('unauthenticated', 'That token is not valid for this Kraken.');
   const parsed = parseDesktopToken(token ?? '');
   if (!parsed) return invalid();
   const unavailable = () =>

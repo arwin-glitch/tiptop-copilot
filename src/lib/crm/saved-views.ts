@@ -604,8 +604,8 @@ export function decodeCondition(raw: string): CrmViewCondition | null {
  *     so the two never sit side by side saying different things.
  *   - otherwise, on a list imported from Affinity, Time in Stage itself: with
  *     no figure from Affinity it is blank for every imported entry until its
- *     stage is changed in Copilot, so it is offered, not shown.
- * A list made in Copilot shows it: every entry there counts from when it was
+ *     stage is changed in Kraken, so it is offered, not shown.
+ * A list made in Kraken shows it: every entry there counts from when it was
  * added.
  */
 export function defaultHiddenColumns(list: Pick<CrmList, 'source' | 'fields'>): string[] {

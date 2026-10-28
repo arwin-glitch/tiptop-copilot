@@ -5,7 +5,7 @@ import { ErrorState } from '@/components/ui/feedback';
 
 /**
  * Something on an Events page failed to render. It says so, says the rest of
- * Copilot is fine, and offers to try again (this Next.js calls it `retry`).
+ * Kraken is fine, and offers to try again (this Next.js calls it `retry`).
  */
 export default function EventsError({
   retry,
@@ -18,7 +18,7 @@ export default function EventsError({
       <ErrorState
         title="This Events page could not be shown"
         message="Something went wrong while loading it. Nothing was changed."
-        stillUsable="Every other page in Copilot."
+        stillUsable="Every other page in Kraken."
         retry={{ label: 'Try again', onClick: () => retry() }}
       />
     </PageShell>

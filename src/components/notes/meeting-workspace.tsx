@@ -414,7 +414,7 @@ export function MeetingWorkspace({
     }
     const outcome = await recorder.rememberVoice(clusterKey, remember.vendorLabel, remember.email);
     const who = res.speaker.displayName;
-    if (outcome === 'saved') toast.success(`Voice remembered: Copilot will know ${who} next time.`);
+    if (outcome === 'saved') toast.success(`Voice remembered: Kraken will know ${who} next time.`);
     else if (outcome === 'unavailable')
       toast.message(`Not remembered yet: try again while ${who} is talking on this recording.`);
     else toast.error(`${who}'s voice could not be saved. Nothing was kept.`);
@@ -974,7 +974,7 @@ function StartCard({
         <ol className="space-y-2 text-sm text-[var(--fg-muted)]">
           <li className="flex gap-2">
             <FileText className="mt-0.5 size-4 shrink-0" aria-hidden /> Tell everyone it is being
-            transcribed (Copilot gives you the words to paste).
+            transcribed (Kraken gives you the words to paste).
           </li>
           <li className="flex gap-2">
             <Mic className="mt-0.5 size-4 shrink-0" aria-hidden /> Start. The transcript fills in
@@ -1025,8 +1025,8 @@ function WhoSees({
   const folderId = React.useId();
   const folder = folders.find((f) => f.id === meeting.folderId);
   return (
-    <section aria-label="Who in Copilot sees it" className="border-t border-[var(--border)] pt-4">
-      <h2 className="font-serif text-base font-semibold">Inside Copilot</h2>
+    <section aria-label="Who in Kraken sees it" className="border-t border-[var(--border)] pt-4">
+      <h2 className="font-serif text-base font-semibold">Inside Kraken</h2>
       <div className="mt-2 grid gap-3 sm:grid-cols-2">
         <div>
           <label htmlFor={visibilityId} className="text-sm font-medium">

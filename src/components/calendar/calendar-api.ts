@@ -31,7 +31,7 @@ async function call<T>(
     }
     return { ok: true, value: json as T };
   } catch {
-    return { ok: false, message: 'Copilot could not be reached. Check the connection.' };
+    return { ok: false, message: 'Kraken could not be reached. Check the connection.' };
   }
 }
 

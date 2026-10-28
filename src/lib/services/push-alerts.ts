@@ -183,7 +183,7 @@ export interface PushAlert {
   /** In-app path opened when the notification is tapped. */
   url: string;
   tag: string;
-  /** A meeting alert's "Start notes" button (D-076), while Copilot Notes is not off. */
+  /** A meeting alert's "Start notes" button (D-076), while Kraken Notes is not off. */
   notesUrl?: string;
 }
 

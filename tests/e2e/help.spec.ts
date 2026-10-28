@@ -70,7 +70,7 @@ test.describe('help page', () => {
     const system = nav.getByRole('list', { name: 'System' });
     await system.getByRole('link', { name: 'Help', exact: true }).click();
     await page.waitForURL(/\/help$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'How Copilot works' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'How Kraken works' })).toBeVisible();
     await expect(system.getByRole('link', { name: 'Help', exact: true })).toHaveAttribute(
       'aria-current',
       'page',
@@ -126,8 +126,8 @@ test.describe('help page', () => {
     await expect(
       days.first().getByRole('link', { name: 'Take the Jobs & job board tour' }),
     ).toHaveAttribute('href', '/portfolio?tab=jobs&tour=jobs');
-    // Copilot Notes is built but off: it says so.
-    await expect(days.first().getByRole('link', { name: /^Copilot Notes/ })).toContainText(
+    // Kraken Notes is built but off: it says so.
+    await expect(days.first().getByRole('link', { name: /^Kraken Notes/ })).toContainText(
       'Coming soon',
     );
   });
@@ -373,7 +373,7 @@ test.describe('on a phone', () => {
 
   test('Help fits a phone without scrolling sideways', async ({ page }) => {
     await page.goto('/help');
-    await expect(page.getByRole('heading', { level: 1, name: 'How Copilot works' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'How Kraken works' })).toBeVisible();
     const overflow = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,

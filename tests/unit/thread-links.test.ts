@@ -15,14 +15,14 @@ import {
 } from '@/lib/email/thread-links';
 
 /**
- * Every email link offers two places to read it: Copilot's Inbox
+ * Every email link offers two places to read it: Kraken's Inbox
  * (`/inbox?thread=<id>`) and Gmail. Both are rebuilt from a validated hex id;
  * anything else gets no link at all. Every id and address is fictional.
  */
 
 const ID = '0f00000000005101';
 const MAILBOX = 'nick@tiptop.demo';
-/** Copilot's own id for a synced email (a UUID). */
+/** Kraken's own id for a synced email (a UUID). */
 const SYNCED = '00000000-0000-4000-8000-000000000400';
 
 describe('the two places to read an email', () => {
@@ -60,7 +60,7 @@ describe('the two places to read an email', () => {
     expect(inboxThreadParam({ thread: ID, message: SYNCED })).toBe(ID);
   });
 
-  it("links a synced email by Copilot's id, Gmail by way of the Inbox", () => {
+  it("links a synced email by Kraken's id, Gmail by way of the Inbox", () => {
     expect(isSyncedEmailId(SYNCED)).toBe(true);
     expect(isSyncedEmailId(ID)).toBe(false);
     expect(isGmailId(SYNCED)).toBe(false);
@@ -77,7 +77,7 @@ describe('the two places to read an email', () => {
 
   it("prefers a synced email's own Gmail id, so Gmail opens without a stop in the app", () => {
     expect(emailLinkId({ id: SYNCED, provider_message_id: ID })).toBe(ID);
-    // The demo's fictional ids, or another provider's: Copilot's id.
+    // The demo's fictional ids, or another provider's: Kraken's id.
     expect(emailLinkId({ id: SYNCED, provider_message_id: 'demo-msg-0400' })).toBe(SYNCED);
     expect(emailLinkId({ id: SYNCED })).toBe(SYNCED);
   });
@@ -103,7 +103,7 @@ describe('the two places to read an email', () => {
       null,
       '',
       'not a url',
-      // A search, a label, Gmail's newer opaque ids: not one email Copilot can open.
+      // A search, a label, Gmail's newer opaque ids: not one email Kraken can open.
       'https://mail.google.com/mail/u/0/#search/from%3Aada%40school.demo',
       'https://mail.google.com/mail/u/0/#label/Deals',
       'https://mail.google.com/mail/u/0/#inbox/FMfcgzQXJWDsKmzfbqNzrKdLxbHCtqxb',
@@ -129,27 +129,27 @@ describe('<ThreadLinks>', () => {
   const render = (props: Parameters<typeof ThreadLinks>[0]) =>
     renderToStaticMarkup(createElement(ThreadLinks, props));
 
-  it('renders "Copilot" in this tab and "Gmail" in a new one, named for a screen reader', () => {
+  it('renders "Kraken" in this tab and "Gmail" in a new one, named for a screen reader', () => {
     const html = render({ id: ID, mailbox: MAILBOX, label: 'Mentoring this fall' });
     expect(html).toContain(`href="/inbox?thread=${ID}"`);
-    expect(html).toContain('aria-label="Open in Copilot: Mentoring this fall"');
+    expect(html).toContain('aria-label="Open in Kraken: Mentoring this fall"');
     expect(html).toContain('aria-label="Open in Gmail: Mentoring this fall"');
     expect(html).toContain(
       `href="https://mail.google.com/mail/?authuser=nick%40tiptop.demo#all/${ID}"`,
     );
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');
-    expect(html).toMatch(/>Copilot<\/a>/);
+    expect(html).toMatch(/>Kraken<\/a>/);
     expect(html).toMatch(/>Gmail<\/a>/);
     // Only the Gmail link leaves the app.
     expect(html.match(/target="_blank"/g)).toHaveLength(1);
   });
 
   it('names the links plainly without a label, and draws icons alone when asked', () => {
-    expect(render({ id: ID, mailbox: MAILBOX })).toContain('aria-label="Open in Copilot"');
+    expect(render({ id: ID, mailbox: MAILBOX })).toContain('aria-label="Open in Kraken"');
     const icons = render({ id: ID, mailbox: MAILBOX, variant: 'icons' });
     expect(icons).toContain('title="Open in Gmail"');
-    expect(icons).not.toMatch(/>Copilot<\/a>/);
+    expect(icons).not.toMatch(/>Kraken<\/a>/);
   });
 
   it('renders nothing for an id that is not a Gmail id', () => {

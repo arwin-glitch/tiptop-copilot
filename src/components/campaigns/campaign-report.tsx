@@ -238,7 +238,7 @@ export function CampaignReport({
                   ) : null}
                   {r.lastAt ? <span className="hidden sm:inline">{fmt(r.lastAt)}</span> : null}
                   <Badge tone={STATE_TONE[r.state]}>{STATE_LABEL[r.state]}</Badge>
-                  {/* Their reply, in Copilot's Inbox or in Gmail. */}
+                  {/* Their reply, in Kraken's Inbox or in Gmail. */}
                   {r.state === 'replied' ? (
                     <ThreadLinks
                       id={r.replyThreadId}

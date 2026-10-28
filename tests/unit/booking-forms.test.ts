@@ -482,7 +482,7 @@ describe('what an approved request becomes', () => {
     });
   });
 
-  it('fills Google Calendar’s own page when Copilot may not write', () => {
+  it('fills Google Calendar’s own page when Kraken may not write', () => {
     const url = new URL(googleCalendarTemplateUrl('Sam Host', coffee, 'America/Chicago'));
     expect(url.origin + url.pathname).toBe('https://calendar.google.com/calendar/render');
     expect(Object.fromEntries(url.searchParams)).toEqual({

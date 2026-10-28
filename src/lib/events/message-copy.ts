@@ -31,7 +31,7 @@ export interface MessageOptions {
 }
 
 export interface MessageCopy {
-  /** The campaign's name in Copilot; guests never see it. */
+  /** The campaign's name in Kraken; guests never see it. */
   name: string;
   subject: string;
   body: string;

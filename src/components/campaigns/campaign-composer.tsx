@@ -127,7 +127,7 @@ async function call<T>(
     }
     return { ok: true, data: json };
   } catch {
-    return { ok: false, message: 'Could not reach Copilot. Check the connection and try again.' };
+    return { ok: false, message: 'Could not reach Kraken. Check the connection and try again.' };
   }
 }
 
@@ -867,9 +867,9 @@ function MessageStep({
                 Track opens and clicks
               </label>
               <p id="campaign-track-hint" className="text-xs text-[var(--fg-muted)]">
-                Adds an invisible image, and sends links with their own text through Copilot to
-                count clicks (so they depend on Copilot being up). Off: a plain email; replies are
-                still tracked.
+                Adds an invisible image, and sends links with their own text through Kraken to count
+                clicks (so they depend on Kraken being up). Off: a plain email; replies are still
+                tracked.
               </p>
             </div>
           </div>
@@ -1199,7 +1199,7 @@ interface ReviewData {
   from_identity: CampaignFromIdentity;
   track_activity: boolean;
   unsubscribe_link: boolean;
-  /** The host the email's Copilot links go through, when it has any. */
+  /** The host the email's Kraken links go through, when it has any. */
   linkHost: string | null;
   attachments: { id: string; name: string; size: number; type: string }[];
   status: string;

@@ -25,7 +25,7 @@ import { formatDate, formatTime, formatWeekdayLong, relativeTime } from '@/lib/u
  * link is rebuilt from a validated Gmail thread id, never taken from a post.
  */
 
-/** A row's thread as two icons, Copilot's Inbox and Gmail; `label` says what the thread is. */
+/** A row's thread as two icons, Kraken's Inbox and Gmail; `label` says what the thread is. */
 function GmailLink({ threadId, label }: { threadId: string | null | undefined; label: string }) {
   return (
     <ThreadLinks
@@ -334,7 +334,7 @@ export function LpUpdateCard({ draft, now }: { draft: LpUpdateDraft; now: Date }
             ) : null}
           </div>
         </div>
-        {/* The draft's thread: read it in Copilot's Inbox, edit and send it in Gmail. */}
+        {/* The draft's thread: read it in Kraken's Inbox, edit and send it in Gmail. */}
         <ThreadLinks
           id={draft.draft_thread_id}
           mailbox={DEFAULT_MAILBOX}

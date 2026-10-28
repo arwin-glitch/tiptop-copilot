@@ -64,18 +64,18 @@ describe('the page a note names', () => {
 
   it("reads the browser's location as path and query, never the fragment or origin", () => {
     expect(
-      feedbackPageFrom('https://copilot.example/deals?tab=pipeline#top', 'Deals · TipTop Copilot'),
+      feedbackPageFrom('https://copilot.example/deals?tab=pipeline#top', 'Deals · TipTop Kraken'),
     ).toEqual({ path: '/deals?tab=pipeline', title: 'Deals' });
-    expect(feedbackPageFrom('not a url', 'Today · TipTop Copilot')).toEqual({
+    expect(feedbackPageFrom('not a url', 'Today · TipTop Kraken')).toEqual({
       path: null,
       title: 'Today',
     });
   });
 
   it("names the page by its tab's title, without the app's suffix or a reply count", () => {
-    expect(pageTitleFrom('Today · TipTop Copilot')).toBe('Today');
-    expect(pageTitleFrom('(2) Follow-ups · TipTop Copilot')).toBe('Follow-ups');
-    expect(pageTitleFrom('TipTop Copilot')).toBeNull();
+    expect(pageTitleFrom('Today · TipTop Kraken')).toBe('Today');
+    expect(pageTitleFrom('(2) Follow-ups · TipTop Kraken')).toBe('Follow-ups');
+    expect(pageTitleFrom('TipTop Kraken')).toBeNull();
     expect(pageTitleFrom('   ')).toBeNull();
     expect(pageTitleFrom('x'.repeat(300))).toHaveLength(200);
   });

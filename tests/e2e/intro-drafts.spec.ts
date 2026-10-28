@@ -68,6 +68,6 @@ test('an intro to a firm nobody knows leaves To empty and says why', async ({ pa
     'Intro: Northwind Capital <> Harbor Labs',
   );
   await expect(dialog.getByRole('list', { name: 'Before you send' })).toContainText(
-    "Copilot doesn't know who at Northwind Capital this goes to.",
+    "Kraken doesn't know who at Northwind Capital this goes to.",
   );
 });

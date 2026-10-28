@@ -35,7 +35,7 @@ import type { EventOwner } from './events';
  * are kept. Roles: editor (the page design and content of this one event,
  * within a scope), viewer (read-only draft preview) and checkin (the door
  * list, WS4). No link reaches guests, answers, messages, analytics, settings,
- * sharing, versions, publishing or any other Copilot page.
+ * sharing, versions, publishing or any other Kraken page.
  *
  * Nothing here sends anything: "Draft an email" in the Sharing panel opens a
  * draft in the owner's own mail app, never sends.
@@ -104,7 +104,7 @@ async function guard<T>(operation: string, run: () => Promise<Result<T>>): Promi
   } catch (error) {
     if (isMissingTableError(error) || isMissingColumnError(error)) {
       return err('not_configured', NOT_SET_UP, {
-        stillUsable: 'Everything else in Copilot works as before.',
+        stillUsable: 'Everything else in Kraken works as before.',
         details: { operation },
       });
     }

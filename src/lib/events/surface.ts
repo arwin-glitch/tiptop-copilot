@@ -1,13 +1,13 @@
 /**
- * The PUBLIC SURFACE: pages outsiders open on Copilot's own origin — event
+ * The PUBLIC SURFACE: pages outsiders open on Kraken's own origin — event
  * pages and their guest/editor/staff entries (/e/*), and the booking page
  * (/meet/*, D-074). proxy.ts marks these requests with a header the root
- * layout reads, so guests never get Copilot's chrome: no service-worker
- * registration (and no offline page), no Copilot theme script, no desktop
+ * layout reads, so guests never get Kraken's chrome: no service-worker
+ * registration (and no offline page), no Kraken theme script, no desktop
  * title bar or alert opener.
  *
  * /e/* pages also get their own strict, per-request nonce CSP instead of
- * Copilot's: outsider-authored content renders there next to Nick's session
+ * Kraken's: outsider-authored content renders there next to Nick's session
  * cookies, so a script that is not ours must never run.
  *
  * Pure: imported by proxy.ts (no server-only, no env() — process.env read
@@ -29,7 +29,7 @@ export function isEventPublicPath(pathname: string): boolean {
   return underPath(pathname, '/e') || underPath(pathname, '/api/e');
 }
 
-/** Pages where Copilot's chrome must not appear. */
+/** Pages where Kraken's chrome must not appear. */
 export function isPublicSurfacePath(pathname: string): boolean {
   return underPath(pathname, '/e') || underPath(pathname, '/meet');
 }

@@ -527,7 +527,7 @@ describe('which calendars block his time', () => {
   const mate = cal('assistant@example.test', { accessRole: 'owner', selectedInGoogle: true });
   const teammates = new Set(['assistant@example.test']);
 
-  it('counts by default his main one, his own, the ticked ones and Copilot-shown ones', () => {
+  it('counts by default his main one, his own, the ticked ones and Kraken-shown ones', () => {
     expect(countsByDefault(main, {})).toBe(true);
     expect(countsByDefault(family, {})).toBe(true);
     expect(countsByDefault(team, { [team.id]: false })).toBe(true);

@@ -23,7 +23,7 @@ function Code({ children }: { children: ReactNode }) {
 }
 
 function botName(handle: string | null): string {
-  return handle ? `@${handle}` : "the Copilot's Slack bot";
+  return handle ? `@${handle}` : "the Kraken's Slack bot";
 }
 
 function InviteCommand({ handle }: { handle: string | null }) {
@@ -31,7 +31,7 @@ function InviteCommand({ handle }: { handle: string | null }) {
     <Code>/invite @{handle}</Code>
   ) : (
     <>
-      <Code>/invite</Code> followed by the Copilot&apos;s Slack bot&apos;s name
+      <Code>/invite</Code> followed by the Kraken&apos;s Slack bot&apos;s name
     </>
   );
 }

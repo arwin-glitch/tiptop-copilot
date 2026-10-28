@@ -11,7 +11,7 @@ import { isAllowedHref } from '@/lib/campaigns/template';
  * reads its types. Nothing here touches the database or the network.
  *
  * Security rules this schema enforces, because outsiders (edit links) write
- * into this document and it renders on the same origin as Copilot:
+ * into this document and it renders on the same origin as Kraken:
  *   - strict objects everywhere: an unknown key is an error, never ignored;
  *   - colours are exact 6-digit hex, fonts and effects come from enums,
  *     numbers are bounded;

@@ -4,7 +4,7 @@ import { CONSENT_BANNER_TEXT, CONSENT_CHECKBOX_LABEL } from '../../src/lib/types
 import { MOCK_CALL_LINES } from '../../src/lib/transcribe/mock-script';
 
 /**
- * Copilot Notes (D-076) with the browser recorder mounted behind the meeting
+ * Kraken Notes (D-076) with the browser recorder mounted behind the meeting
  * page: the integration of the screens (notes-ui) and the web recorder
  * (notes-capture) on the core. Chromium's fake microphone and an auto-picked
  * shared screen stand in for the devices, the recorder's worklets and engines
@@ -178,7 +178,7 @@ test('the calendar to notes on a company page, with the browser recorder', async
     .getByRole('button', { name: /Maya Chen/ })
     .click();
   await expect(
-    page.getByText('Voice remembered: Copilot will know Maya Chen next time.'),
+    page.getByText('Voice remembered: Kraken will know Maya Chen next time.'),
   ).toBeVisible();
 
   // Typed notes, saved as they are typed.
@@ -211,7 +211,7 @@ test('the calendar to notes on a company page, with the browser recorder', async
   await page.getByLabel('Who can see it').selectOption('team');
   await expect(page.getByText('Saved.')).toBeVisible();
   await page.goto(`/portfolio/${LEDGERLY}`);
-  const fromCopilot = page.locator('li').filter({ hasText: 'from Copilot' }).filter({
+  const fromCopilot = page.locator('li').filter({ hasText: 'from Kraken' }).filter({
     hasText: title,
   });
   await expect(fromCopilot.first()).toBeVisible();

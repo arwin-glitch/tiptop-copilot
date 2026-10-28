@@ -20,7 +20,7 @@ export async function GET(request: NextRequest, context: Context) {
   const { slug } = await context.params;
   const found = await resolveOpenLink(getStore(), slug);
   const photo = found.open ? found.link.config.photo : null;
-  // Exactly the file Copilot wrote on upload, never any other path in the bucket.
+  // Exactly the file Kraken wrote on upload, never any other path in the bucket.
   if (!found.open || !photo || !isOwnPhotoPath(found.link.organizationId, photo)) {
     return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
   }

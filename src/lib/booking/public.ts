@@ -73,7 +73,7 @@ export const UNAVAILABLE_MESSAGE =
   'Open times cannot be shown right now. You can leave a message instead.';
 
 /**
- * What the visitor sees once a request is in. Copilot sends no email itself:
+ * What the visitor sees once a request is in. Kraken sends no email itself:
  * the calendar invitation comes from Google when the time is booked. No
  * person is named as confirming it.
  */

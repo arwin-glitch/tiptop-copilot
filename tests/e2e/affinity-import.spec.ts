@@ -71,7 +71,7 @@ test('reads Affinity exports, imports them, and a second import changes nothing'
   // The same files again: matched, not duplicated.
   await page.getByRole('button', { name: 'Import again' }).click();
   await expect(
-    page.getByText('Everything in this file was already in Copilot, so nothing changed.'),
+    page.getByText('Everything in this file was already in Kraken, so nothing changed.'),
   ).toHaveCount(2);
   await expect(summary).toContainText('1 list: 0 added · 4 already up to date');
 

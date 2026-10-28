@@ -30,10 +30,10 @@ import { addDaysToKey, localDateKey } from '@/lib/util/time';
 import { readFollowUps } from './follow-ups';
 
 /**
- * Google Calendar's colour labels, where Copilot uses them beyond drawing:
+ * Google Calendar's colour labels, where Kraken uses them beyond drawing:
  *
  * - The suggested label on an event's card (lib/calendar/label-suggest.ts):
- *   what Copilot already knows about the people on it (portfolio companies,
+ *   what Kraken already knows about the people on it (portfolio companies,
  *   deals in the pipeline and their founders, Fund II's LPs, other VC
  *   firms, the team), gathered here read-only and kept for a few minutes.
  * - Ask Arwin's calendar tool: each event's label name, and a filter by it.
@@ -84,7 +84,7 @@ async function safeList<T>(label: string, run: () => Promise<T[]>): Promise<T[]>
   }
 }
 
-/** What Copilot knows about people, for a suggested label. Read-only, cached for minutes. */
+/** What Kraken knows about people, for a suggested label. Read-only, cached for minutes. */
 export async function labelKnowledge(
   store: DataStore,
   organizationId: string,
@@ -194,7 +194,7 @@ export async function labelKnowledge(
   const lpFirms = new Set(
     lps.map((l) => (l.firm ? lettersOnly(l.firm) : '')).filter((f) => f.length >= 4),
   );
-  // A VC-looking domain, unless Copilot knows its people as something else.
+  // A VC-looking domain, unless Kraken knows its people as something else.
   for (const address of [...vcEmails.keys()]) {
     const domain = domainOf(address);
     if (VC_DOMAIN.test(domain) && !vcDomains.has(domain)) vcDomains.set(domain, domain);

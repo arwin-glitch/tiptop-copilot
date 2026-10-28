@@ -114,7 +114,7 @@ export function SourceDrawer({
             {ordered.map((citation, index) => {
               const href = citationHref(citation);
               const external = citation.kind === 'web';
-              // An email offers both places to read it, Copilot and Gmail.
+              // An email offers both places to read it, Kraken and Gmail.
               const email = citationEmail(citation);
               return (
                 <li

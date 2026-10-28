@@ -2,7 +2,7 @@ import type { MetadataRoute } from 'next';
 import { appOrigin } from '@/lib/jobs-board/config';
 
 /**
- * Copilot's own host: everything is private (and every page says noindex)
+ * Kraken's own host: everything is private (and every page says noindex)
  * except the public job board at /jobs (D-077) and published event pages
  * (/e/<slug>, D-075). The board's own host (jobs.tiptop.vc) answers with
  * app/jobs-host/robots.txt instead.

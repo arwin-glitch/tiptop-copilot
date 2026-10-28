@@ -62,7 +62,7 @@ import { useReplyNotices } from './use-reply-notices';
  * panel with two tabs. Conversations has two views: the history of past
  * conversations, and one conversation with the composer. It runs on the same
  * chat service as the full Ask page, which stays as the fallback for deep
- * links and long answers. Feedback is a box for what to change in Copilot,
+ * links and long answers. Feedback is a box for what to change in Kraken,
  * saved with the page under the panel (components/ask/feedback-form.tsx) and
  * read on the full page's Feedback tab. Wherever the name shows, a small "AI"
  * tag says this is the assistant, not the person (components/ask/ai-tag.tsx).
@@ -991,7 +991,7 @@ export function AskWidget({
             </div>
             <DialogPrimitive.Description className="sr-only">
               Ask about email, deals, portfolio, tasks and calendar. Past conversations are listed
-              here, and the Feedback tab takes what to change in Copilot.
+              here, and the Feedback tab takes what to change in Kraken.
             </DialogPrimitive.Description>
             <Link
               href={fullPageHref}

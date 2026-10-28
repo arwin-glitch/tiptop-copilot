@@ -420,7 +420,7 @@ export function evidenceFor(
 /**
  * Synced threads in the shape warm-paths reads (ParsedThread), so "who can
  * intro" runs the very rules Fund II's Gmail lookup uses — per message, mass
- * mail left out — over mail Copilot already holds, with no Gmail call. Only
+ * mail left out — over mail Kraken already holds, with no Gmail call. Only
  * threads touching one of `addresses` or `domains` are converted.
  */
 export function warmThreadsFor(

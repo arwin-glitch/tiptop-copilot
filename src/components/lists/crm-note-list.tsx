@@ -105,7 +105,7 @@ function CrmNoteItem({
           <span title={`Imported ${formatDate(note.created_at, timezone)}`}>Date unknown</span>
         )}
         <Badge tone="outline" className="ml-1">
-          {note.source === 'affinity' ? 'From Affinity' : 'Copilot'}
+          {note.source === 'affinity' ? 'From Affinity' : 'Kraken'}
         </Badge>
         {actions ? <span className="ml-auto flex items-center gap-1">{actions}</span> : null}
       </p>

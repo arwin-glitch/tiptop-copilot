@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { CONSENT_BANNER_TEXT, CONSENT_CHECKBOX_LABEL } from '../../src/lib/types/notes';
 
 /**
- * Copilot Notes at zero spend (D-076), the whole chain in one go, at 1440 and
+ * Kraken Notes at zero spend (D-076), the whole chain in one go, at 1440 and
  * at 390 pixels, in demo mode:
  *
  *   Calendar → an event → "Take notes" → the consent step (the server refuses
@@ -144,7 +144,7 @@ const FLOWS: Flow[] = [
 ];
 
 for (const flow of FLOWS) {
-  test(`Copilot Notes at zero spend, calendar to MCP (${flow.width}px)`, async ({
+  test(`Kraken Notes at zero spend, calendar to MCP (${flow.width}px)`, async ({
     page,
     browser,
   }, testInfo) => {
@@ -402,7 +402,7 @@ for (const flow of FLOWS) {
         if (tab) await page.getByRole('tab', { name: tab }).click();
         const listed = page
           .locator('li')
-          .filter({ hasText: 'from Copilot' })
+          .filter({ hasText: 'from Kraken' })
           .filter({ hasText: flow.event })
           .first();
         await expect(listed, url).toBeVisible();

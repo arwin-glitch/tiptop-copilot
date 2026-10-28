@@ -28,7 +28,7 @@ import { settleAnswersFromSlack } from './ask-routine';
  *   it, so the answer's own age keeps a touched old thread from replaying.
  * - How it shows: the answer's first line, plain, as the in-page pop-up
  *   previews it, marked `quietWhenFocused`: the shell shows nothing while the
- *   person is looking at Copilot, where the page says so itself.
+ *   person is looking at Kraken, where the page says so itself.
  * - When: while the person's own question waits (up to 30 minutes, as the
  *   widget watches), the computer is told to ask again in 30 seconds, day or
  *   night, and each ask first settles answers from the Slack relay.

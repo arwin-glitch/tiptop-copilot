@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 
 /**
  * The Inbox's deep link over the invented demo workspace: `/inbox?thread=<id>`
- * (a thread or a message id, from a "Copilot" email link anywhere in the app)
+ * (a thread or a message id, from a "Kraken" email link anywhere in the app)
  * opens that conversation in the reading pane even when it is not in the
  * inbox, without marking it read; closing it puts the address back; a bad or
  * unknown id says it couldn't open the email, with the list still there.
@@ -81,16 +81,16 @@ test("a bad or unknown id says it couldn't open the email, never an error page",
   await expect.poll(() => new URL(page.url()).search).toBe('');
 });
 
-/** The demo's Vetrix deal and its intro email (Copilot's own synced ids). */
+/** The demo's Vetrix deal and its intro email (Kraken's own synced ids). */
 const VETRIX_DEAL = '00000000-0000-4000-8000-000000000064';
 const VETRIX_INTRO = '00000000-0000-4000-8000-000000000190';
 
-test("a deal's source email opens in Copilot by its synced id, where it was a dead link", async ({
+test("a deal's source email opens in Kraken by its synced id, where it was a dead link", async ({
   page,
 }) => {
   await page.goto(`/deals/${VETRIX_DEAL}`);
   await page.getByRole('tab', { name: 'Sources' }).click();
-  const copilot = page.getByRole('link', { name: /^Open in Copilot: Intro: Vetrix/ }).first();
+  const copilot = page.getByRole('link', { name: /^Open in Kraken: Intro: Vetrix/ }).first();
   await expect(copilot).toHaveAttribute('href', `/inbox?thread=${VETRIX_INTRO}`);
   await expect(
     page.getByRole('link', { name: /^Open in Gmail: Intro: Vetrix/ }).first(),
@@ -104,16 +104,16 @@ test("a deal's source email opens in Copilot by its synced id, where it was a de
   );
 });
 
-/** The demo LP's question about Q3 reporting (Copilot's own synced id for the email). */
+/** The demo LP's question about Q3 reporting (Kraken's own synced id for the email). */
 const LP_QUESTION = '00000000-0000-4000-8000-000000000195';
 
-test('an email in the Today outlook\u2019s top priorities opens in Copilot or Gmail', async ({
+test('an email in the Today outlook\u2019s top priorities opens in Kraken or Gmail', async ({
   page,
 }) => {
   await page.goto('/today');
   await expect(page.getByRole('heading', { name: 'Outlook' })).toBeVisible();
   const copilot = page
-    .getByRole('link', { name: /^Open in Copilot: Elena Ward: LP question on Q3/ })
+    .getByRole('link', { name: /^Open in Kraken: Elena Ward: LP question on Q3/ })
     .first();
   await expect(copilot).toHaveAttribute('href', `/inbox?thread=${LP_QUESTION}`);
   await expect(

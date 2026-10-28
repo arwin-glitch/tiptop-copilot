@@ -44,12 +44,12 @@ const SIGN_IN_MS = 10 * 60_000;
  *
  * Google will not sign anyone in inside the app's window, so this asks the
  * server for a sign-in URL and navigates to it: the shell sees a host that is
- * not Copilot's, opens the system browser instead and keeps this page where
+ * not Kraken's, opens the system browser instead and keeps this page where
  * it is. The browser ends on a page showing a 4-character code, which the
  * person types here; a right code signs this window in.
  *
  * Meanwhile it polls (every 2 seconds, at once when the window regains focus,
- * backing off while Copilot cannot be reached) so it notices the code is
+ * backing off while Kraken cannot be reached) so it notices the code is
  * ready, or that the browser cancelled. Only a real outcome ends an attempt:
  * a failed check just says "Reconnecting…" and tries again.
  */
@@ -234,7 +234,7 @@ export function DesktopSignIn() {
           return;
       }
     } catch {
-      setCodeError('Couldn’t reach Copilot. Try again.');
+      setCodeError('Couldn’t reach Kraken. Try again.');
     } finally {
       setVerifying(false);
     }

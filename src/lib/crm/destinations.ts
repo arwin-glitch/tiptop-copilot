@@ -126,7 +126,7 @@ export const CRM_DESTINATION_INFO: Record<CrmDestination, CrmDestinationInfo> = 
     page: 'Knowledge',
     href: '/knowledge?tab=lists',
     blurb:
-      'Lists no rule recognised, and lists made in Copilot. Kept and searchable here; pick a destination to use one.',
+      'Lists no rule recognised, and lists made in Kraken. Kept and searchable here; pick a destination to use one.',
   },
 };
 
@@ -263,7 +263,7 @@ export interface CrmClassification {
 
 /**
  * Where a list's data belongs, from its name and entity type alone. A list
- * made in Copilot (`source`) stays here for reference until someone sends it
+ * made in Kraken (`source`) stays here for reference until someone sends it
  * somewhere: a view saved as a list repeats rows its own list already feeds,
  * and an LP list saved that way would count every LP on Fund II twice.
  */

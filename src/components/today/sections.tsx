@@ -108,7 +108,7 @@ export function BriefItemRow({
           ) : null}
         </p>
         <p className="mt-1 text-sm text-[var(--fg-muted)]">{item.detail}</p>
-        {/* An email item: in Copilot's Inbox or in Gmail. */}
+        {/* An email item: in Kraken's Inbox or in Gmail. */}
         <ThreadLinks
           id={emailId}
           mailbox={null}

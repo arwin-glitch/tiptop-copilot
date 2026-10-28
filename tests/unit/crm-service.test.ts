@@ -93,7 +93,7 @@ describe('reading lists', () => {
       ['Summit Sponsors', 'company', 2],
       ['Investor Newsletter', 'person', 2],
       ['Misc Imports', 'company', 2],
-      // Read beside Copilot's own data on Deals, Fund II and Network.
+      // Read beside Kraken's own data on Deals, Fund II and Network.
       ['Seed Opportunities', 'deal', 4],
       ['Family Office LP Pipeline', 'deal', 4],
       ['Founder Lunch Invites', 'person', 3],
@@ -902,7 +902,7 @@ describe('re-importing a list from another saved view', () => {
   });
 });
 
-describe('re-importing over changes made in Copilot', () => {
+describe('re-importing over changes made in Kraken', () => {
   async function pipeline() {
     return value(
       await upsertList(store, org, {
@@ -921,7 +921,7 @@ describe('re-importing over changes made in Copilot', () => {
     ).list;
   }
 
-  it('keeps a value changed in Copilot since the last import, takes the rest, and says so', async () => {
+  it('keeps a value changed in Kraken since the last import, takes the rest, and says so', async () => {
     const list = await pipeline();
     const row = {
       externalId: '990001',
@@ -929,7 +929,7 @@ describe('re-importing over changes made in Copilot', () => {
       values: { status: '3. First Meeting', amount: '$1M', lead: '' },
     };
     const [id] = value(await upsertEntries(store, org, list.id, [row])).ids;
-    // Moved on in Copilot, and given a lead Affinity never had.
+    // Moved on in Kraken, and given a lead Affinity never had.
     value(
       await updateEntryValues(
         store,
@@ -945,8 +945,8 @@ describe('re-importing over changes made in Copilot', () => {
     const again = value(await upsertEntries(store, org, list.id, [changed]));
     expect(again).toMatchObject({ updated: 1, keptEdits: 2 });
     expect(again.problems.map((p) => p.message)).toEqual([
-      'Kept Status as set in Copilot (“5. Due Diligence”) rather than the file’s “3. First Meeting”.',
-      'Kept Lead as set in Copilot (“Morgan Ellery”) rather than clearing it as the file does.',
+      'Kept Status as set in Kraken (“5. Due Diligence”) rather than the file’s “3. First Meeting”.',
+      'Kept Lead as set in Kraken (“Morgan Ellery”) rather than clearing it as the file does.',
     ]);
     const entry = (await store.get('crm_list_entries', org, id!)) as CrmListEntry;
     expect(entry.values).toEqual({
@@ -961,7 +961,7 @@ describe('re-importing over changes made in Copilot', () => {
     expect(third).toMatchObject({ unchanged: 1, keptEdits: 2 });
     expect(await snapshot()).toEqual(before);
 
-    // A later change in Affinity to a value nobody touched in Copilot still comes through.
+    // A later change in Affinity to a value nobody touched in Kraken still comes through.
     const later = value(
       await upsertEntries(store, org, list.id, [
         { ...changed, values: { ...changed.values, amount: '$1.5M' } },
@@ -971,7 +971,7 @@ describe('re-importing over changes made in Copilot', () => {
     expect((await store.get('crm_list_entries', org, id!))?.values.amount).toBe(1_500_000);
   });
 
-  it('keeps the values of a row made in Copilot that an import then finds', async () => {
+  it('keeps the values of a row made in Kraken that an import then finds', async () => {
     const list = await pipeline();
     const made = value(
       await addEntry(

@@ -214,7 +214,7 @@ describe('when nothing turns up', () => {
   it('says what was checked, in plain words, and offers the Inbox search', () => {
     const terms = originTerms(mixer, OWN);
     expect(checkedWords(terms, 0)).toBe(
-      'Copilot looked for a dossier note, email from harborlight-mixer.example, email mentioning harborlight-mixer.example, email about “Harborlight Founders Mixer” and a meeting note or an earlier event with this title, and found nothing that explains it.',
+      'Kraken looked for a dossier note, email from harborlight-mixer.example, email mentioning harborlight-mixer.example, email about “Harborlight Founders Mixer” and a meeting note or an earlier event with this title, and found nothing that explains it.',
     );
     expect(
       checkedWords(
@@ -222,7 +222,7 @@ describe('when nothing turns up', () => {
         2,
       ),
     ).toBe(
-      'Copilot looked for a dossier note, emails with the guests, email about “Gym” and a meeting note or an earlier event with this title, and found nothing that explains it.',
+      'Kraken looked for a dossier note, emails with the guests, email about “Gym” and a meeting note or an earlier event with this title, and found nothing that explains it.',
     );
     expect(inboxSearchFor(terms, mixer.title)).toEqual({
       query: 'Harborlight Founders Mixer',

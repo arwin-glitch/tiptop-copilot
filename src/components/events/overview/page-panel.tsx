@@ -88,7 +88,7 @@ export async function PagePanel({ event, viewer }: EventPanelProps) {
             </Button>
             {live ? (
               <Button asChild variant="secondary" size="sm">
-                {/* A full page load, never next/link: the guest page has its own CSP and no Copilot chrome. */}
+                {/* A full page load, never next/link: the guest page has its own CSP and no Kraken chrome. */}
                 <a href={eventPaths.page(event.slug)} target="_blank" rel="noopener noreferrer">
                   <ExternalLink aria-hidden="true" />
                   View live page

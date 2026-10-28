@@ -18,8 +18,8 @@ export type InstallerPlatform = (typeof INSTALLER_PLATFORMS)[number];
 
 /** The stable asset names every desktop release carries (.github/workflows/desktop.yml). */
 export const DESKTOP_INSTALLERS: Record<InstallerPlatform, string> = {
-  mac: 'TipTop-Copilot-mac.dmg',
-  windows: 'TipTop-Copilot-windows-setup.exe',
+  mac: 'TipTop-Kraken-mac.dmg',
+  windows: 'TipTop-Kraken-windows-setup.exe',
 };
 
 /**
@@ -27,8 +27,8 @@ export const DESKTOP_INSTALLERS: Record<InstallerPlatform, string> = {
  * (desktop.yml). Windows updates with the same installer /download serves.
  */
 export const DESKTOP_UPDATE_FILES: Record<InstallerPlatform, string> = {
-  mac: 'TipTop-Copilot-mac.app.tar.gz',
-  windows: 'TipTop-Copilot-windows-setup.exe',
+  mac: 'TipTop-Kraken-mac.app.tar.gz',
+  windows: 'TipTop-Kraken-windows-setup.exe',
 };
 /** Each release's update manifest: the version and each file's signature. */
 export const DESKTOP_UPDATE_MANIFEST = 'latest.json';
@@ -156,7 +156,7 @@ export function desktopFrame(): DesktopFrame | null {
 /**
  * From 0.4.0 the shell shows alerts on the computer itself (Settings >
  * Preferences > Desktop alerts; lib/services/desktop-alerts.ts): it asks
- * Copilot for due alerts with a token of its own and shows them as Windows
+ * Kraken for due alerts with a token of its own and shows them as Windows
  * toasts or macOS notifications. Older apps are told to update.
  */
 export const FIRST_DESKTOP_ALERTS_VERSION = '0.4.0';
@@ -169,8 +169,8 @@ export function desktopAlertsShell(version: string | null): boolean {
 /**
  * From 0.4.1 Ask Arwin's answers are desktop alerts too (D-058): the shell
  * holds back an alert marked `quietWhenFocused` while the person is looking at
- * Copilot, and the page may ask it to poll within half a minute after a
- * question. Copilot sends those alerts only to a shell this new or newer (by
+ * Kraken, and the page may ask it to poll within half a minute after a
+ * question. Kraken sends those alerts only to a shell this new or newer (by
  * its User-Agent); an older one would show them on top of the page's own
  * "Arwin replied" pop-up.
  */
@@ -190,7 +190,7 @@ export const DESKTOP_ALERT_OPEN_EVENT = 'tiptop-desktop-open';
 
 /**
  * The DOM event the shell (0.4.1+) fires in its main window when it holds
- * back a `quietWhenFocused` alert because the person is looking at Copilot,
+ * back a `quietWhenFocused` alert because the person is looking at Kraken,
  * with the alert's in-app path as `detail`. The Ask Arwin widget reads the
  * conversation a `/ask?thread=` path names (and the others answered in the
  * last ten minutes, which a grouped alert does not name) and shows its own
@@ -244,6 +244,6 @@ export interface DesktopComputer {
  */
 export function whereToCheckForUpdates(version: string | null): string {
   return framelessShell(version)
-    ? 'in the menu at the top left on Windows (under File) or the TipTop Copilot menu on a Mac'
-    : 'in the File menu on Windows or the TipTop Copilot menu on a Mac';
+    ? 'in the menu at the top left on Windows (under File) or the TipTop Kraken menu on a Mac'
+    : 'in the File menu on Windows or the TipTop Kraken menu on a Mac';
 }

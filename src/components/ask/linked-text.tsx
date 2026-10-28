@@ -8,7 +8,7 @@ import { stripSlackLinks } from '@/lib/util/slack-text';
 /**
  * Answer text with links into trusted tools (Gmail, Calendar, Drive, Slack,
  * claude.ai, this app) made clickable and shortened to what they open. A link
- * to one Gmail email offers it in Copilot's Inbox too. Any other URL stays
+ * to one Gmail email offers it in Kraken's Inbox too. Any other URL stays
  * plain text — answers quote third-party email. Slack's link markup is
  * stripped first for answers stored before that was done on ingest.
  */

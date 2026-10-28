@@ -19,7 +19,7 @@ import {
 import type { ActionItem, EnhancedBlock } from '@/lib/types/notes';
 
 /**
- * Copilot Notes through Arwin's Claude routine (D-076, zero spend): what the
+ * Kraken Notes through Arwin's Claude routine (D-076, zero spend): what the
  * app sends (condensed to a budget, ids kept), and what it accepts back
  * (validated, plain text, cited ids checked, parts put together). Fictional
  * people and numbers only.

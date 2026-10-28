@@ -56,7 +56,7 @@ export function mintShareToken(): string {
 
 const SHARE_OFF = () =>
   err('not_configured', 'Share links are not set up yet: NOTES_SHARE_PEPPER is missing.', {
-    stillUsable: 'Notes can still be read in Copilot by anyone they are visible to.',
+    stillUsable: 'Notes can still be read in Kraken by anyone they are visible to.',
   });
 
 export async function createShareLink(
@@ -181,7 +181,7 @@ export async function resolveSharedNote(
   const limited = rateLimit(`notes-share-view:${options.ip ?? 'unknown'}`, 60, 60_000);
   if (!limited.ok) return limited;
   if (!TOKEN_RE.test(token)) return nothing();
-  // Turning Copilot Notes off turns its links off too.
+  // Turning Kraken Notes off turns its links off too.
   if (env().notesEnabled === 'off') return nothing();
   const key = pepper();
   if (!key) return nothing();

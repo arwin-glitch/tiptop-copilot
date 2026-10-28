@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
  * The share kit: the page link (copy, open), a QR code to download as PNG
  * or SVG for signage, and the share card guests see in messages. Links to
  * /e/* are plain anchors in a new tab, so the guest page loads with its own
- * policy and none of Copilot's chrome.
+ * policy and none of Kraken's chrome.
  */
 export function ShareKit({
   path,

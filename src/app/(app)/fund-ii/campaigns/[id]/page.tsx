@@ -73,7 +73,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         <NotConfigured
           title="Campaigns are not set up yet"
           description={`The campaign tables have not been created in the database. Run ${CAMPAIGNS_MIGRATION_FILE} in the Supabase SQL editor, then reload this page.`}
-          stillWorks="Everything else in Copilot works as before."
+          stillWorks="Everything else in Kraken works as before."
           action={null}
         />
       </PageShell>

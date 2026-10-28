@@ -393,7 +393,7 @@ export interface AffinityColumn {
   type: CrmFieldType;
 }
 
-/** How a list's Affinity fields land in Copilot. */
+/** How a list's Affinity fields land in Kraken. */
 export interface AffinityListPlan {
   /** The columns, as fields to merge into the list (existing ones exactly as stored). */
   fields: CrmField[];
@@ -420,7 +420,7 @@ export interface AffinityListPlan {
  * its label; the pipeline field (a dropdown named Status or Stage) is keyed
  * `status`, as the CSV import keys it.
  *
- * A column someone added in Copilot is the team's, never Affinity's: no
+ * A column someone added in Kraken is the team's, never Affinity's: no
  * Affinity field is matched to it, so a global field with the same label
  * stays on the record and a list field becomes a column of its own.
  */

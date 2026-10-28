@@ -28,7 +28,7 @@ import { INTRODUCTION_ACTION } from './introductions';
  * address or LinkedIn comes only from verified data, in this order —
  *
  *  1. the intro tracker's own row, when it names each side's people;
- *  2. a Copilot CRM person record with exactly that name (a name two records
+ *  2. a Kraken CRM person record with exactly that name (a name two records
  *     share matches neither);
  *  3. a portfolio company's saved contacts, and the founders the imported
  *     founder lists tie to it, when a side is a portfolio company;
@@ -36,7 +36,7 @@ import { INTRODUCTION_ACTION } from './introductions';
  *
  * A person none of these knows keeps their name and no address; the compose
  * window says so. A side that is only a firm ("Northwind Capital") stays a
- * firm: Copilot never picks someone there. A side that names only founders
+ * firm: Kraken never picks someone there. A side that names only founders
  * of a portfolio company gets all its founders, so every co-founder is
  * addressed.
  *

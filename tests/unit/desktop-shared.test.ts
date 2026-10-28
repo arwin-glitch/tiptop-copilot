@@ -119,13 +119,13 @@ describe('the frameless window (0.3.0)', () => {
 
   it('says where Check for Updates… is for each version', () => {
     expect(whereToCheckForUpdates(null)).toBe(
-      'in the File menu on Windows or the TipTop Copilot menu on a Mac',
+      'in the File menu on Windows or the TipTop Kraken menu on a Mac',
     );
     expect(whereToCheckForUpdates('0.2.1')).toBe(
-      'in the File menu on Windows or the TipTop Copilot menu on a Mac',
+      'in the File menu on Windows or the TipTop Kraken menu on a Mac',
     );
     expect(whereToCheckForUpdates('0.3.0')).toBe(
-      'in the menu at the top left on Windows (under File) or the TipTop Copilot menu on a Mac',
+      'in the menu at the top left on Windows (under File) or the TipTop Kraken menu on a Mac',
     );
   });
 });

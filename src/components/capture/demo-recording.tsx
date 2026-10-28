@@ -71,7 +71,7 @@ export function DemoRecording({
       }
       setMeetingId(body.meeting.id);
     } catch {
-      setError('Copilot could not be reached. Try again.');
+      setError('Kraken could not be reached. Try again.');
     } finally {
       setBusy(false);
     }

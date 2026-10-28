@@ -36,7 +36,7 @@ import type { CrmField, CrmListEntry, CrmNote, CrmRecord } from '@/lib/types/dom
 /**
  * CRM write parity: what keeps the CRM growing once Affinity is cancelled —
  * new companies and people the daily sync adopts rather than copies, new
- * lists, Copilot columns no import takes over, notes edited and deleted, and
+ * lists, Kraken columns no import takes over, notes edited and deleted, and
  * rows taken off a list that stay off. Against the demo store and its
  * invented fixtures; every name, domain and address here is fictional.
  */
@@ -289,7 +289,7 @@ describe('lists', () => {
     expect(value(await listCrmLists(store, org)).map((l) => l.id)).toContain(saved.list.id);
   });
 
-  it('keeps a list made in Copilot for reference until someone sends it to a page', async () => {
+  it('keeps a list made in Kraken for reference until someone sends it to a page', async () => {
     // Saved from the LP pipeline, it would otherwise count every LP on Fund II twice.
     const saved = value(
       await saveViewAsList(store, org, DEMO_IDS.crmListLps, { name: 'LP Pipeline (filtered)' }),
@@ -349,7 +349,7 @@ describe('lists', () => {
   });
 });
 
-describe('Copilot columns', () => {
+describe('Kraken columns', () => {
   it('adds a column of the team’s own, whose values are set like any other', async () => {
     const { field, list } = value(
       await addListField(
@@ -405,7 +405,7 @@ describe('Copilot columns', () => {
       { key: 'seat', name: 'Seat', type: 'text', origin: 'copilot' },
       { key: 'seat_2', name: 'Seat', type: 'number' },
     ]);
-    // On a list made in Copilot an import someone points at it fills its columns.
+    // On a list made in Kraken an import someone points at it fills its columns.
     expect(
       mergeCrmFields(
         [{ key: 'seat', name: 'Seat', type: 'text', origin: 'copilot' }],
@@ -415,7 +415,7 @@ describe('Copilot columns', () => {
     ).toEqual([{ key: 'seat', name: 'Seat', type: 'text', origin: 'copilot' }]);
   });
 
-  it('keeps an Affinity field with the same label off the Copilot column, in the sync’s plan', () => {
+  it('keeps an Affinity field with the same label off the Kraken column, in the sync’s plan', () => {
     const existing: CrmField[] = [
       { key: 'industry', name: 'Industry', type: 'text', origin: 'copilot' },
       { key: 'stage', name: 'Stage', type: 'status', options: ['Seed'] },
@@ -476,7 +476,7 @@ describe('notes', () => {
     return (await store.get('crm_notes', org, summary.ids[0]!))!;
   }
 
-  it('edits and deletes a note written in Copilot, scanning the new text', async () => {
+  it('edits and deletes a note written in Kraken, scanning the new text', async () => {
     const note = value(
       await addNote(store, org, { content: 'First take.', recordIds: [COBALTLINE] }, actor),
     );
@@ -576,7 +576,7 @@ describe('taking a row off a list', () => {
       ]),
     );
     expect(again).toMatchObject({ inserted: 0, skipped: 1 });
-    expect(again.problems[0]?.message).toMatch(/taken off Deal Pipeline in Copilot/);
+    expect(again.problems[0]?.message).toMatch(/taken off Deal Pipeline in Kraken/);
     expect(value(await getCrmList(store, org, DEMO_IDS.crmListDeals)).entry_count).toBe(10);
 
     // Undone, the next import finds the row by its key and changes nothing.

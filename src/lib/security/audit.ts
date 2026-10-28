@@ -176,7 +176,7 @@ export type AuditAction =
   | 'account.data_deleted'
   | 'security.injection_flagged'
   | 'security.citation_rejected'
-  // Copilot Notes (D-076). Names and ids only: never transcript text, a
+  // Kraken Notes (D-076). Names and ids only: never transcript text, a
   // share token, a speech key or a voice identifier.
   | 'notes.beta_set'
   | 'notes.meeting_created'

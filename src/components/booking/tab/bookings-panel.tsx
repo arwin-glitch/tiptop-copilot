@@ -43,7 +43,7 @@ const STATUS: Record<
   { label: string; tone: 'ok' | 'warn' | 'info' | 'neutral' | 'danger' }
 > = {
   booked: { label: 'Booked', tone: 'ok' },
-  // Booked by the visitor, not on the calendar yet: Copilot books it by itself.
+  // Booked by the visitor, not on the calendar yet: Kraken books it by itself.
   held: { label: 'Booking…', tone: 'warn' },
   pending: { label: 'Waiting for approval', tone: 'info' },
   cancelled: { label: 'Cancelled', tone: 'neutral' },
@@ -299,7 +299,7 @@ function BookingCard({
           {b.status === 'cancelled' && b.cancelNote ? (
             <p className="text-sm">
               <span className="text-[var(--fg-muted)]">
-                {b.cancelledBy === 'team' ? 'Your note (only in Copilot): ' : 'Their note: '}
+                {b.cancelledBy === 'team' ? 'Your note (only in Kraken): ' : 'Their note: '}
               </span>
               <span className="whitespace-pre-line">{b.cancelNote}</span>
             </p>
@@ -353,7 +353,7 @@ function BookingCard({
 }
 
 /**
- * A held booking (D-078): the visitor booked it, and Copilot puts it on the
+ * A held booking (D-078): the visitor booked it, and Kraken puts it on the
  * calendar by itself as soon as it can. Says what it waits for and when it
  * tries next, with "Try now". Never Approve or Decline: nobody has to.
  */
@@ -391,7 +391,7 @@ function HeldLine({
       toast.success('Booked: it is on the calendar and the invitation went out.');
     else if (json.status === 'declined')
       toast.message('That time was taken meanwhile, so it was released.');
-    else toast.message('Still not on the calendar. Copilot keeps trying by itself.');
+    else toast.message('Still not on the calendar. Kraken keeps trying by itself.');
     onDone();
   };
   return (

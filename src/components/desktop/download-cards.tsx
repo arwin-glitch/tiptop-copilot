@@ -230,20 +230,20 @@ export function DownloadCards({
             ) : null}
             {oldApp ? (
               <p className="mt-1 text-[var(--fg-muted)]">
-                The app always shows the latest Copilot, so most updates need nothing from you. To
+                The app always shows the latest Kraken, so most updates need nothing from you. To
                 install a new app version, quit the app first (Mac: ⌘Q; Windows: right-click the
                 tray icon, then Quit), then download it again and install it over the old one. From
                 version {FIRST_SELF_UPDATING_VERSION} the app updates itself.
               </p>
             ) : offersSelfUpdating ? (
               <p className="mt-1 text-[var(--fg-muted)]">
-                The app always shows the latest Copilot and installs its own updates: when a new
+                The app always shows the latest Kraken and installs its own updates: when a new
                 version is ready, it asks to restart, which takes about 10 to 20 seconds. To look
                 now, use Check for Updates… {whereToCheckForUpdates(appVersion ?? latest)}.
               </p>
             ) : (
               <p className="mt-1 text-[var(--fg-muted)]">
-                The app always shows the latest Copilot, so most updates need nothing from you. From
+                The app always shows the latest Kraken, so most updates need nothing from you. From
                 version {FIRST_SELF_UPDATING_VERSION} the app updates itself: when a new version is
                 ready, it asks to restart, which takes about 10 to 20 seconds. To look now, use
                 Check for Updates… {whereToCheckForUpdates(appVersion ?? latest)}.

@@ -2,7 +2,7 @@ import type { GCalColor, GCalColors, GCalListEntry } from './google-types';
 import type { CalendarColor, EventLabel, EventPaletteEntry } from './range-types';
 
 /**
- * Colours come from Google, never from Copilot: each calendar's colour from
+ * Colours come from Google, never from Kraken: each calendar's colour from
  * the calendar list, each event's from its label (the calendar's named colour
  * labels, lib/calendar/labels.ts), else its own colorId in Google's event
  * palette, and an event with neither takes its calendar's. That is the rule

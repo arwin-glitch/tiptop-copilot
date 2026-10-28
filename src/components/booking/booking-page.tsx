@@ -126,7 +126,7 @@ export function Shell({
         {children}
       </main>
       <footer className="border-t border-[var(--border)] px-4 py-5 text-center text-xs text-[var(--fg-subtle)]">
-        Scheduling by TipTop Copilot
+        Scheduling by TipTop Kraken
       </footer>
     </div>
   );

@@ -21,14 +21,14 @@ import { platformOf } from './helpers';
 
 type Loaded = {
   enabled: boolean;
-  /** The Copilot meeting made for this event, if any. */
+  /** The Kraken meeting made for this event, if any. */
   mine: MeetingView | null;
   past: MeetingListItem[];
 };
 
 const PAST_SHOWN = 3;
 
-/** Where a list row opens: a Copilot meeting's page, or the Granola note by its title. */
+/** Where a list row opens: a Kraken meeting's page, or the Granola note by its title. */
 export function noteHref(item: MeetingListItem): string {
   return item.meetingId
     ? `/meetings/${encodeURIComponent(item.meetingId)}`
@@ -36,7 +36,7 @@ export function noteHref(item: MeetingListItem): string {
 }
 
 /**
- * Copilot Notes on a calendar event's card (D-076), one slot in event-panel:
+ * Kraken Notes on a calendar event's card (D-076), one slot in event-panel:
  * a gold "Take notes" (which makes the meeting with its guests attached and
  * opens the consent step), "Notes ready" once they are written, and the
  * latest notes with these people. Renders nothing while Notes is off.
@@ -71,7 +71,7 @@ export function MeetingNotesSlot({
         return;
       }
       // One read: this event's meeting, and earlier notes with these guests
-      // (Copilot and Granola, a recorded-twice meeting once).
+      // (Kraken and Granola, a recorded-twice meeting once).
       const res = await notesCall<Omit<EventNotesResponse, 'ok'>>(
         'GET',
         NOTES_API.eventNotes({
@@ -183,7 +183,7 @@ export function MeetingNotesSlot({
                   </Link>
                   <span className="shrink-0 text-xs text-[var(--fg-subtle)]">
                     {formatMonthDay(m.occurredAt, timeZone)} ·{' '}
-                    {m.source === 'copilot' ? 'Copilot' : 'Granola'}
+                    {m.source === 'copilot' ? 'Kraken' : 'Granola'}
                   </span>
                 </li>
               ))}

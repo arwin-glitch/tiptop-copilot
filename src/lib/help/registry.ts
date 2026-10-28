@@ -443,7 +443,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'inbox-reading',
         title: 'Read and reply',
-        body: 'The open email shows here, also from any "Copilot" email link. Nothing sends until you tap Send.',
+        body: 'The open email shows here, also from any "Kraken" email link. Nothing sends until you tap Send.',
         placement: 'left',
       },
       {
@@ -699,13 +699,13 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'meetings',
     name: 'Meetings',
     href: '/meetings',
-    purpose: "The week ahead and every meeting note. Copilot's own notes are coming (beta).",
+    purpose: "The week ahead and every meeting note. Kraken's own notes are coming (beta).",
     subtabs: recordsSubtabs(MEETINGS_TABS),
     steps: [
       navStep(
         '/meetings',
         'Meetings and notes',
-        'Meetings shows the week ahead and your meeting notes. Copilot Notes is coming soon.',
+        'Meetings shows the week ahead and your meeting notes. Kraken Notes is coming soon.',
       ),
       subtabStep(MEETINGS_TABS),
       {
@@ -861,8 +861,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
       { key: 'data', label: 'Data & privacy', blurb: 'What is stored, and deleting it.' },
       {
         key: 'notes',
-        label: 'Copilot Notes',
-        blurb: 'Coming soon (beta). This tab shows once Copilot Notes is switched on.',
+        label: 'Kraken Notes',
+        blurb: 'Coming soon (beta). This tab shows once Kraken Notes is switched on.',
       },
     ],
     steps: [
@@ -904,10 +904,10 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'download',
     name: 'Download',
     href: '/download',
-    purpose: 'Copilot as an app for your Mac or PC, in its own window.',
+    purpose: 'Kraken as an app for your Mac or PC, in its own window.',
     subtabs: [],
     steps: [
-      navStep('/download', 'Download', 'Get Copilot as an app for your Mac or Windows PC.'),
+      navStep('/download', 'Download', 'Get Kraken as an app for your Mac or Windows PC.'),
       {
         target: 'download-apps',
         title: 'Mac or Windows',
@@ -918,7 +918,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'download-more',
         title: 'Signing in and updates',
-        body: 'The app signs in through your browser once and always shows the latest Copilot. From 0.2.0 it updates itself.',
+        body: 'The app signs in through your browser once and always shows the latest Kraken. From 0.2.0 it updates itself.',
         placement: 'top',
       },
     ],
@@ -1072,7 +1072,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       {
         target: 'students-list',
         title: 'Each ask, with emails',
-        body: 'Deadlines in the next two weeks are flagged. Copilot or Gmail opens the emails.',
+        body: 'Deadlines in the next two weeks are flagged. Kraken or Gmail opens the emails.',
         placement: 'top',
       },
     ],
@@ -1164,7 +1164,7 @@ const GRAND_INTRO: ResolvedStep = {
   body: 'Working pages first, records next, settings last. Tap any name to go there.',
   placement: 'right',
   path: '/today',
-  pageName: 'Copilot',
+  pageName: 'Kraken',
 };
 
 /** The last stop: where to come back to. */

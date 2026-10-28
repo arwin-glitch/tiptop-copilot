@@ -19,7 +19,7 @@ const BODY = z
 
 /**
  * Save Settings > Booking link: on or off, the link's name, and the rest of
- * its settings. Signed in, an admin or the owner, from Copilot's own pages.
+ * its settings. Signed in, an admin or the owner, from Kraken's own pages.
  */
 export async function PUT(request: NextRequest) {
   const gate = await calendarAuth(request, { bucket: 'booking-settings', max: 30, write: true });
@@ -50,7 +50,7 @@ const PATCH_BODY = z
 /**
  * Save one Booking tab panel (D-078): only the fields it sends change, on top
  * of what is stored, so the planner, the profile and the chatbot never undo
- * each other. Signed in, an admin or the owner, from Copilot's own pages.
+ * each other. Signed in, an admin or the owner, from Kraken's own pages.
  */
 export async function PATCH(request: NextRequest) {
   const gate = await calendarAuth(request, { bucket: 'booking-settings', max: 60, write: true });

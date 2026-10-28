@@ -35,7 +35,7 @@ function release(tag: string, extra: Record<string, unknown> = {}, names = STABL
     ...extra,
   };
 }
-const STABLE = ['TipTop-Copilot-mac.dmg', 'TipTop-Copilot-windows-setup.exe'];
+const STABLE = ['TipTop-Kraken-mac.dmg', 'TipTop-Kraken-windows-setup.exe'];
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -124,7 +124,7 @@ describe('pickDesktopRelease', () => {
   });
 
   it('offers what a half-published release has', () => {
-    const picked = pickDesktopRelease([release('desktop-v0.1.0', {}, ['TipTop-Copilot-mac.dmg'])]);
+    const picked = pickDesktopRelease([release('desktop-v0.1.0', {}, ['TipTop-Kraken-mac.dmg'])]);
     expect(picked.state === 'ready' && Object.keys(picked.installers)).toEqual(['mac']);
   });
 });
@@ -238,7 +238,7 @@ describe('openInstaller', () => {
     expect(opened.ok && opened.value.bytes).toBe(11);
     expect(fetchImpl.mock.calls.map(([url]) => url)).not.toContain('http://evil.example/x');
     expect(fetchImpl.mock.calls.at(-1)?.[0]).toBe(
-      'https://github.com/example-owner/example-app/releases/latest/download/TipTop-Copilot-windows-setup.exe',
+      'https://github.com/example-owner/example-app/releases/latest/download/TipTop-Kraken-windows-setup.exe',
     );
   });
 
@@ -284,9 +284,9 @@ function releaseHost(
   const releases = options.releases ?? [release('desktop-v0.2.1', {}, UPDATE_ASSETS)];
   const files: Record<string, () => Response> = {
     'latest.json': () => jsonResponse(fakeManifest('0.2.1')),
-    'TipTop-Copilot-mac.app.tar.gz': () =>
+    'TipTop-Kraken-mac.app.tar.gz': () =>
       new Response('mac update bytes', { headers: { 'content-length': '16' } }),
-    'TipTop-Copilot-windows-setup.exe': () => new Response('windows update bytes'),
+    'TipTop-Kraken-windows-setup.exe': () => new Response('windows update bytes'),
     ...options.files,
   };
   return vi.fn(async (url: string) => {
@@ -412,7 +412,7 @@ describe('latestUpdateManifest', () => {
         {
           ...release('desktop-v0.2.1'),
           assets: UPDATE_ASSETS.map((name, i) => ({ id: 100 + i, name, size: 1000 })).filter(
-            (asset) => asset.name !== 'TipTop-Copilot-mac.app.tar.gz',
+            (asset) => asset.name !== 'TipTop-Kraken-mac.app.tar.gz',
           ),
         },
       ],
@@ -457,7 +457,7 @@ describe('findUpdateFile and openUpdateFile', () => {
 
     const calls = fetchImpl.mock.calls as unknown as [string, RequestInit][];
     expect(calls.some(([url]) => url.endsWith('/releases/assets/102'))).toBe(true);
-    const signed = calls.find(([url]) => url === `${SIGNED_HOST}TipTop-Copilot-mac.app.tar.gz`);
+    const signed = calls.find(([url]) => url === `${SIGNED_HOST}TipTop-Kraken-mac.app.tar.gz`);
     expect(signed).toBeDefined();
     expect(headerOf(signed?.[1], 'Authorization')).toBeUndefined();
 
@@ -496,7 +496,7 @@ describe('findUpdateFile and openUpdateFile', () => {
 
     resetDesktopReleaseCache();
     const fileDown = releaseHost({
-      files: { 'TipTop-Copilot-mac.app.tar.gz': () => new Response('', { status: 502 }) },
+      files: { 'TipTop-Kraken-mac.app.tar.gz': () => new Response('', { status: 502 }) },
     });
     const opened = await openOffered('mac', '0.2.1', { fetchImpl: fileDown });
     expect(!opened.ok && opened.error.code).toBe('provider_unavailable');

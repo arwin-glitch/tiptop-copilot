@@ -7,7 +7,7 @@ import {
 } from '../../src/lib/types/notes';
 
 /**
- * Copilot Notes (D-076), the whole demo flow as the principal meets it, in demo mode
+ * Kraken Notes (D-076), the whole demo flow as the principal meets it, in demo mode
  * against the mock transcriber (a scripted, fictional call: Dana Reyes and
  * Priya Shah of Acme Robotics, and a late joiner nobody names). Nothing here
  * reaches a speech vendor, a model, Google or Slack.
@@ -95,7 +95,7 @@ async function noSidewaysScroll(page: Page) {
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 2);
 }
 
-test('Copilot Notes, from the calendar to a revoked share link', async ({
+test('Kraken Notes, from the calendar to a revoked share link', async ({
   page,
   browser,
 }, testInfo) => {
@@ -119,7 +119,7 @@ test('Copilot Notes, from the calendar to a revoked share link', async ({
   // 2. The consent step: Start stays off until the box is ticked.
   const consent = consentDialog(page);
   await expect(consent).toBeVisible();
-  await expect(consent.getByText(/I'm using TipTop Copilot to transcribe/)).toBeVisible();
+  await expect(consent.getByText(/I'm using TipTop Kraken to transcribe/)).toBeVisible();
   const start = consent.getByRole('button', { name: 'Start' });
   await expect(start).toBeDisabled();
   await consent.getByRole('checkbox', { name: CONSENT_CHECKBOX_LABEL }).check();
@@ -263,12 +263,12 @@ test('Copilot Notes, from the calendar to a revoked share link', async ({
   await page.getByLabel('Who can see it').selectOption('team');
   await expect(page.getByText('Saved.')).toBeVisible();
 
-  // The deal page (the guest's domain) lists it from Copilot, and it opens the meeting.
+  // The deal page (the guest's domain) lists it from Kraken, and it opens the meeting.
   await page.goto(`/deals/${GIRDER_DEAL}`);
   await page.getByRole('tab', { name: 'Sources' }).click();
   const onDeal = page
     .locator('li')
-    .filter({ hasText: 'from Copilot' })
+    .filter({ hasText: 'from Kraken' })
     .filter({ hasText: title })
     .first();
   await expect(onDeal).toBeVisible();
@@ -290,7 +290,7 @@ test('Copilot Notes, from the calendar to a revoked share link', async ({
   await page.waitForURL(new RegExp(`/meetings/${meetingId}\\?.*t=\\d+`));
   await expect(page.locator('[data-seq]').filter({ hasText: 'eleven days' }).first()).toBeVisible();
 
-  // 11. The routines read it through Copilot's MCP meeting tools (shaped like Granola's).
+  // 11. The routines read it through Kraken's MCP meeting tools (shaped like Granola's).
   await page.goto('/settings');
   await page.getByRole('tab', { name: 'Integrations' }).click();
   await page.getByLabel('Connection name').fill(`notes e2e ${Date.now()}`);

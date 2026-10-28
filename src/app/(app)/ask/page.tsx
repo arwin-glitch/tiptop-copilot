@@ -155,7 +155,7 @@ function AskHeader({
         titleTag={<AiTag className="ml-2.5" />}
         subtitle={
           tab === 'feedback'
-            ? 'What to change in Copilot, sent from the Feedback tab of the chat, with the page it was about.'
+            ? 'What to change in Kraken, sent from the Feedback tab of the chat, with the page it was about.'
             : aiAvailable
               ? 'One question, one direct answer, with the record it came from.'
               : 'Answering questions needs an AI provider, which is not connected. Past conversations are still here to read.'

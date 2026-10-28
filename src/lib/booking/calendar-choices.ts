@@ -7,7 +7,7 @@ import type { CalendarChoice } from './config';
  * (lib/booking/availability.ts) and the tab's list use the same answer.
  *
  * By default: his main calendar, every calendar he owns (personal, family),
- * every one ticked in Google Calendar, and any turned on in Copilot's
+ * every one ticked in Google Calendar, and any turned on in Kraken's
  * Calendar tab (a Calendar-tab toggle only ever adds one, so hiding a family
  * calendar from the view never opens its time to the public). A choice made
  * on the Calendars tab overrides that default either way, with two fixed
@@ -44,7 +44,7 @@ export function calendarLock(
 }
 
 export interface ChoiceContext {
-  /** Copilot's Calendar-tab toggles for the host. */
+  /** Kraken's Calendar-tab toggles for the host. */
   shown: Readonly<Record<string, boolean>>;
   /** What the Calendars tab saved. */
   choices: readonly CalendarChoice[];

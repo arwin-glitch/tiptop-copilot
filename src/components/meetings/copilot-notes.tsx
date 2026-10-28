@@ -70,11 +70,11 @@ function top(values: string[], n: number): { value: string; count: number }[] {
 }
 
 /**
- * Meetings → Notes → Copilot / All (D-076): Copilot's own notes and, under
+ * Meetings → Notes → Kraken / All (D-076): Kraken's own notes and, under
  * All, Granola's beside them, each with its source, newest first. Filters by
  * person, company, folder and "Has action items"; the search reads titles,
  * notes and transcripts, and a transcript hit opens the meeting at that
- * moment. During the parallel run a Copilot meeting paired with a Granola note
+ * moment. During the parallel run a Kraken meeting paired with a Granola note
  * of the same call shows once.
  */
 export async function CopilotNotes({
@@ -102,7 +102,7 @@ export async function CopilotNotes({
   if (!listed.ok) {
     return listed.error.code === 'not_configured' ? (
       <NotConfigured
-        title="Copilot Notes is not set up yet"
+        title="Kraken Notes is not set up yet"
         description={listed.error.message}
         stillWorks={listed.error.stillUsable}
         action={null}
@@ -136,7 +136,7 @@ export async function CopilotNotes({
   );
 
   return (
-    <section aria-label={source === 'copilot' ? 'Copilot notes' : 'All notes'}>
+    <section aria-label={source === 'copilot' ? 'Kraken notes' : 'All notes'}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <LiveSearch
           path={PATH}
@@ -213,7 +213,7 @@ export async function CopilotNotes({
 
       {meetings.length === 0 ? (
         <EmptyState
-          title={filtered ? 'No meeting matches' : 'No Copilot notes yet'}
+          title={filtered ? 'No meeting matches' : 'No Kraken notes yet'}
           description={
             filtered
               ? 'Clear a filter, or search for part of a title, a name or something that was said.'
@@ -318,7 +318,7 @@ function MeetingRow({ item, timeZone }: { item: MeetingListItem; timeZone: strin
       </div>
       <p className="text-mini mt-1 flex flex-wrap items-center gap-1.5 text-[var(--fg-subtle)]">
         <Badge tone={item.source === 'copilot' ? 'accent' : 'neutral'}>
-          {item.source === 'copilot' ? 'Copilot' : 'Granola'}
+          {item.source === 'copilot' ? 'Kraken' : 'Granola'}
         </Badge>
         {item.source === 'copilot' ? <span>{statusWords(item.status)}</span> : null}
         {length ? <span>· {length}</span> : null}
@@ -339,7 +339,7 @@ function MeetingRow({ item, timeZone }: { item: MeetingListItem; timeZone: strin
   );
 }
 
-/** The two buttons beside the source chips while Copilot Notes is on. */
+/** The two buttons beside the source chips while Kraken Notes is on. */
 export function NotesActions() {
   return (
     <div className="flex flex-wrap gap-2">

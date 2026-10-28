@@ -331,7 +331,7 @@ export async function saveCrmViewAsListAction(
   return succeed({ id: list.id, name: list.name, added, truncated });
 }
 
-/** A column added in Copilot (a custom field), at the end of the list's columns. */
+/** A column added in Kraken (a custom field), at the end of the list's columns. */
 export async function addCrmListFieldAction(
   listId: string,
   input: { name: string; type: string; options?: string[] },

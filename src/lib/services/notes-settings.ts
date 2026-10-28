@@ -27,7 +27,7 @@ import { applyNamingLadder } from './notes-naming';
 import { allLinesOf, guard, loadMeeting, speakerViews, type NotesContext } from './notes';
 
 /**
- * Copilot Notes settings (D-076): each person's default visibility, the
+ * Kraken Notes settings (D-076): each person's default visibility, the
  * firm's never-record rules, custom templates, and the meeting-app roster.
  *
  * Never-record rules are the firm's own (a sister company's domain, a

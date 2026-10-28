@@ -186,7 +186,7 @@ describe('warnings before importing', () => {
     expect(mappingProblems(mapping, csv)).toEqual([]);
     expect(mappingWarnings(mapping, csv)).toEqual([
       expect.stringMatching(
-        /^2 notes have dates Copilot cannot read, such as “sometime in May”, so they will be imported without a date\./,
+        /^2 notes have dates Kraken cannot read, such as “sometime in May”, so they will be imported without a date\./,
       ),
     ]);
     expect(mappingWarnings({ ...mapping, dateColumn: null }, csv)).toEqual([
@@ -202,7 +202,7 @@ describe('warnings before importing', () => {
     expect(mappingWarnings(mapping, csv)).toEqual([]);
     const asDates = { ...mapping, types: { ...mapping.types, 'Close Date': 'date' as const } };
     expect(mappingWarnings(asDates, csv)).toEqual([
-      '1 cell in “Close Date” is not a date Copilot can read, such as “TBD”. It is kept as text and will not sort as dates.',
+      '1 cell in “Close Date” is not a date Kraken can read, such as “TBD”. It is kept as text and will not sort as dates.',
     ]);
   });
 });

@@ -71,7 +71,7 @@ export function DesktopAppSetting({
     <div>
       <p className="text-sm font-medium">Desktop app</p>
       <p className="mt-1 text-sm text-[var(--fg-muted)]">
-        Copilot in its own window, with an icon in your Dock or taskbar.
+        Kraken in its own window, with an icon in your Dock or taskbar.
       </p>
       <Button asChild variant="secondary" size="sm" className="mt-3">
         <Link href="/download">Get the desktop app</Link>

@@ -62,7 +62,7 @@ export function IntegrationControls({
       {!connected && canConnect ? (
         inDesktopApp ? (
           <p className="text-sm text-[var(--fg-muted)]">
-            Connect Google from Copilot in your web browser.
+            Connect Google from Kraken in your web browser.
           </p>
         ) : (
           <Button asChild variant="primary" size="sm">

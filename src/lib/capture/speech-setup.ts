@@ -79,7 +79,7 @@ function cancelled(): ApiFailure {
 function missingSession(track: TranscriptTrack): ApiFailure {
   return {
     code: 'missing_session',
-    message: `Copilot did not return speech settings for the ${track} track.`,
+    message: `Kraken did not return speech settings for the ${track} track.`,
     status: 200,
     retryable: true,
   };

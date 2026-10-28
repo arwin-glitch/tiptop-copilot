@@ -10,11 +10,11 @@ type Context = { params: Promise<{ id: string }> };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * "Try now" on a held booking (D-078): Copilot tries to put it on the host's
+ * "Try now" on a held booking (D-078): Kraken tries to put it on the host's
  * calendar at once, past its backoff, with the same checks as every other
  * try (the time re-checked against the live calendar and every rule, one
  * event at most). Never an approval: a held booking was booked by the
- * visitor already. Signed in, a member or above, from Copilot's own pages,
+ * visitor already. Signed in, a member or above, from Kraken's own pages,
  * within a rate limit. Answers what it came to.
  */
 export async function POST(request: NextRequest, context: Context) {

@@ -42,8 +42,8 @@ test('the exit checklist counts down, keeps its tools, reminds on Today and stop
   );
   await expect(page.getByRole('heading', { name: 'Affinity exit', level: 2 })).toBeVisible();
 
-  // What Copilot has, counted from its records, and what is not copied.
-  const status = page.getByRole('list', { name: 'What Copilot has from Affinity' });
+  // What Kraken has, counted from its records, and what is not copied.
+  const status = page.getByRole('list', { name: 'What Kraken has from Affinity' });
   await expect(status).toContainText('Daily sync');
   await expect(status).toContainText('Running every morning');
   await expect(status).toContainText(/Lists synced\s*\d+ lists?/);

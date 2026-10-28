@@ -5,15 +5,15 @@ import { parseGmailThreadUrl, threadLinks } from '@/lib/email/thread-links';
 import { cn } from '@/lib/util/cn';
 
 /**
- * The two places to read an email, side by side: "Copilot" opens the thread
+ * The two places to read an email, side by side: "Kraken" opens the thread
  * in the Inbox's reading pane (`/inbox?thread=<id>`, in this tab), "Gmail"
  * opens it in Gmail in a new tab. Arwin's rule: every email or thread link in
  * the app offers both, and a link never brings the email's text with it.
  *
  * Works in server and client components alike (no hooks, no state). Takes a
- * Gmail thread or message id, or Copilot's own id for a synced email (which
+ * Gmail thread or message id, or Kraken's own id for a synced email (which
  * the Inbox looks up), and renders nothing for anything else, so a caller can
- * pass whatever it holds. Accessible names are "Open in Copilot" and "Open in
+ * pass whatever it holds. Accessible names are "Open in Kraken" and "Open in
  * Gmail", with the `label` after a colon when one is given, so a list of them
  * stays telling apart for a screen reader; the visible words are always just
  * the place.
@@ -39,7 +39,7 @@ export interface ThreadLinksProps {
   className?: string;
 }
 
-const NAME = { copilot: 'Open in Copilot', gmail: 'Open in Gmail' } as const;
+const NAME = { copilot: 'Open in Kraken', gmail: 'Open in Gmail' } as const;
 
 export function ThreadLinks({
   id,
@@ -79,7 +79,7 @@ export function ThreadLinks({
         className={item}
       >
         <Inbox className={cn(icon, 'shrink-0')} aria-hidden="true" />
-        {variant === 'icons' ? null : 'Copilot'}
+        {variant === 'icons' ? null : 'Kraken'}
       </Link>
       <a
         href={links.gmail}

@@ -59,7 +59,7 @@ describe('the calendar cache and writes', () => {
     const now = Date.now();
     const stale = readRangeEvents(source, ORG, CAL, MIN, MAX, now);
     expect(calls).toHaveLength(1);
-    // The host adds a meeting: Copilot's check invalidates the cache...
+    // The host adds a meeting: Kraken's check invalidates the cache...
     invalidateCalendarCache(ORG);
     // ...and only then does the slow read come back, with the old calendar.
     calls[0]!.resolve([]);

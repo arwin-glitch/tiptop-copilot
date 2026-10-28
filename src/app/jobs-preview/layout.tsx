@@ -5,8 +5,8 @@ import { getAuthContext } from '@/lib/auth/session';
 import '@/components/jobs-board/board.css';
 
 /**
- * Copilot's preview of the public job board: the same pages, read while the
- * board is still switched off, for people signed in to Copilot only. The
+ * Kraken's preview of the public job board: the same pages, read while the
+ * board is still switched off, for people signed in to Kraken only. The
  * proxy only checks that a session cookie is present, so the layout and every
  * page check the session itself and send anyone else to /login.
  *
@@ -15,7 +15,7 @@ import '@/components/jobs-board/board.css';
  * would hand the staged roles to anyone with a made-up session cookie.)
  */
 export const metadata: Metadata = {
-  title: { absolute: 'Job board preview · TipTop Copilot' },
+  title: { absolute: 'Job board preview · TipTop Kraken' },
   description: 'A signed-in preview of the public job board.',
   robots: { index: false, follow: false, nocache: true },
 };

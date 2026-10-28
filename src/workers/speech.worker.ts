@@ -2,7 +2,7 @@ import { SpeechPipeline, type ModelAdapter } from '@/lib/capture/speech-pipeline
 import type { FromWorker, ToWorker } from '@/lib/capture/speech-protocol';
 
 /**
- * Copilot Notes' speech worker (D-076): Whisper and the speaker models, off
+ * Kraken Notes' speech worker (D-076): Whisper and the speaker models, off
  * the page's main thread, on this computer. One worker per track (or one
  * shared, for the largest model); lib/capture/whisper-engine.ts makes them.
  *

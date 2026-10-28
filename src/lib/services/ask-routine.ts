@@ -59,7 +59,7 @@ export function fireText(question: PendingBridgeQuestion): string {
       deal_id: question.deal_id,
       question: question.question,
       history: question.history,
-      // Only a Copilot Notes chat question has one; every other payload is unchanged.
+      // Only a Kraken Notes chat question has one; every other payload is unchanged.
       ...(question.context ? { context: question.context } : {}),
     })}\``,
   ].join('\n');
@@ -88,7 +88,7 @@ export function routineFireHeaders(token: string): Record<string, string> {
 
 /**
  * Start the answering routine with any relay-shaped text: an Ask question
- * (fireText) or a Copilot Notes job (NOTES_REQUEST_V1, lib/notes/
+ * (fireText) or a Kraken Notes job (NOTES_REQUEST_V1, lib/notes/
  * bridge-protocol.ts). The routine runs on Arwin's Claude plan, so nothing
  * is billed per call. Best-effort, like fireAskRoutine.
  */
@@ -129,7 +129,7 @@ export interface QueuedBridgeQuestion {
 
 /**
  * Ask a question through the bridge from somewhere other than the Ask page
- * (Copilot Notes' chat, D-076): the rows `ask()` writes on its bridge path
+ * (Kraken Notes' chat, D-076): the rows `ask()` writes on its bridge path
  * (the question, then a pending answer), the same audit and the same fire,
  * plus optional `context` for the routine. It never falls back to an in-app
  * model call, so it costs nothing: without ASK_BRIDGE_TOKEN it is refused

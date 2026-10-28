@@ -2,7 +2,7 @@
  * Event pages (D-075, WS2): the core of the guest renderer's styles.
  *
  * Rules every selector follows:
- *   - scoped to [data-event-root] (Studio renders pages inside Copilot);
+ *   - scoped to [data-event-root] (Studio renders pages inside Kraken);
  *   - colours, fonts and sizes come only from --ev-* variables set by
  *     lib/events/theme/tokens.ts from a validated theme (never from text);
  *   - layout responds to the CONTAINER (.ev-page), not the viewport, so

@@ -20,7 +20,7 @@ export async function CheckinPanel({ event }: EventPanelProps) {
           <CardTitle>Check-in</CardTitle>
           <CardDescription>
             Scan a guest’s QR with your phone camera, or tap them in here. Staff links (Sharing tab)
-            open the same list on any phone without a Copilot account.
+            open the same list on any phone without a Kraken account.
           </CardDescription>
         </div>
       </CardHeader>

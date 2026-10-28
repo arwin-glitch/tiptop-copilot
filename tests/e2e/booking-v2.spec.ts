@@ -16,7 +16,7 @@ import { pickTime } from './booking-calendar-helpers';
  * saved Zoom link (the label, never the link) with two guests at once; the
  * confirmation hands over an .ics file and the booking's own page; that page
  * says "You have a meeting with Nick", moves the SAME event and cancels it
- * with a note, which Copilot shows on the Booking tab and on Today. Plus a
+ * with a note, which Kraken shows on the Booking tab and on Today. Plus a
  * coffee at a listed place, a booking made in the chat, and an answer from
  * the written list. The demo calendar is the in-memory mock: nothing reaches
  * Google and nothing is emailed. Every person, address and link is invented.
@@ -169,7 +169,7 @@ test('the Booking tab switches months on and off, and the public page follows', 
 });
 
 for (const width of [1440, 390]) {
-  test(`a call with two guests on the Zoom link, moved and cancelled, seen in Copilot at ${width}px`, async ({
+  test(`a call with two guests on the Zoom link, moved and cancelled, seen in Kraken at ${width}px`, async ({
     browser,
   }, testInfo) => {
     const baseURL = testInfo.project.use.baseURL;
@@ -224,7 +224,7 @@ for (const width of [1440, 390]) {
       fullPage: true,
     });
 
-    // Copilot sees it booked, with its event in Google Calendar.
+    // Kraken sees it booked, with its event in Google Calendar.
     const nick = await copilot(browser, baseURL);
     const tab = await nick.newPage();
     await tab.goto('/booking?tab=bookings');

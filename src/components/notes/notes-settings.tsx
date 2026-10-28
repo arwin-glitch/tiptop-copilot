@@ -31,7 +31,7 @@ import { Input, Select, Switch, Textarea } from '@/components/ui/form';
 import { notesCall, resetNotesAccess } from './api-client';
 
 /**
- * Copilot Notes settings (D-076): the beta switch, templates, never-record
+ * Kraken Notes settings (D-076): the beta switch, templates, never-record
  * rules, voice consent, and folders and recipes. Each section saves through
  * its /api/notes route and shows the server's answer.
  */
@@ -50,10 +50,10 @@ export function NotesBetaSwitch({ initial }: { initial: Access }) {
   return (
     <div className="flex items-start justify-between gap-4" data-notes-beta="">
       <label htmlFor={id} className="text-sm">
-        <span className="font-medium">Copilot Notes (beta)</span>
+        <span className="font-medium">Kraken Notes (beta)</span>
         <span className="block text-[var(--fg-muted)]">
           {access.mode === 'on'
-            ? 'On for everyone on this Copilot.'
+            ? 'On for everyone on this Kraken.'
             : 'Bot-free meeting notes: a live transcript with names, your own notes, and a summary to share. Off until you turn it on.'}
         </span>
       </label>
@@ -71,7 +71,7 @@ export function NotesBetaSwitch({ initial }: { initial: Access }) {
           }
           resetNotesAccess();
           setAccess({ mode: res.mode, beta: res.beta, enabled: res.enabled });
-          toast.success(res.enabled ? 'Copilot Notes is on.' : 'Copilot Notes is off.');
+          toast.success(res.enabled ? 'Kraken Notes is on.' : 'Kraken Notes is off.');
           router.refresh();
         }}
       />
@@ -84,7 +84,7 @@ export function NotesBetaSwitch({ initial }: { initial: Access }) {
 /**
  * Who sees a meeting this person records, unless they change it on the
  * meeting: only them (the default), or the whole team. 'Your team' is also
- * what lets the cloud routines read their meetings through Copilot's tools.
+ * what lets the cloud routines read their meetings through Kraken's tools.
  */
 export function NotesPreferencesSettings({ initial }: { initial: NotesPreferences }) {
   const [visibility, setVisibility] = React.useState<MeetingVisibility>(initial.defaultVisibility);
@@ -668,7 +668,7 @@ export function VoicesSettings({
           Your voice
         </h2>
         <p className="text-sm text-[var(--fg-muted)]">
-          Optional. With your consent, Copilot can recognise your voice when you are not on your own
+          Optional. With your consent, Kraken can recognise your voice when you are not on your own
           mic (in a room, on someone else&rsquo;s laptop). Nothing is enrolled without it.
         </p>
         <blockquote className="rounded-md border-l-2 border-[var(--gold)] bg-[var(--note-soft)] px-3 py-2 text-sm">

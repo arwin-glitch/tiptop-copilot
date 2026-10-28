@@ -192,7 +192,7 @@ test.describe('the download page', () => {
 
   test.use({ storageState: SIGNED_IN });
 
-  test('offers both installers through Copilot, with the first-time steps', async ({ page }) => {
+  test('offers both installers through Kraken, with the first-time steps', async ({ page }) => {
     await page.goto('/download');
     await expect(page.getByRole('heading', { level: 1, name: 'Desktop app' })).toBeVisible();
 
@@ -292,7 +292,7 @@ test.describe('the download page', () => {
     await page.getByRole('tab', { name: 'Preferences' }).click();
     await expect(
       page.getByText(
-        'To look now, use Check for Updates… in the menu at the top left on Windows (under File) or the TipTop Copilot menu on a Mac.',
+        'To look now, use Check for Updates… in the menu at the top left on Windows (under File) or the TipTop Kraken menu on a Mac.',
       ),
     ).toBeVisible();
     await expect(page.getByText(/in the File menu on Windows/)).toHaveCount(0);

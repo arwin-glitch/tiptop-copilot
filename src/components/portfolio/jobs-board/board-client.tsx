@@ -673,7 +673,7 @@ export function CompanyJobsForm({
             />
           </Field>
           {aboutFallback && !text.trim() ? (
-            // Copilot's own portfolio description is internal: it is never
+            // Kraken's own portfolio description is internal: it is never
             // published unless a person copies it in here on purpose.
             <div className="text-sm text-[var(--fg-muted)] sm:col-span-2">
               <p>

@@ -218,7 +218,7 @@ function ReaderRow({
               <WarmPaths email={r.email} />
             </div>
           </div>
-          {/* The DocSend notice's thread, in Copilot's Inbox or in Gmail. */}
+          {/* The DocSend notice's thread, in Kraken's Inbox or in Gmail. */}
           <ThreadLinks
             id={r.threadId}
             mailbox={DEFAULT_MAILBOX}

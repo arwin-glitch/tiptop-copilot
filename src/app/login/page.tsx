@@ -109,7 +109,7 @@ export default async function LoginPage({
             <p className="mt-1.5 text-sm text-[var(--fg-muted)]">
               {demo
                 ? 'Explore the full product against a fictional dataset. No credentials, no external calls, nothing real.'
-                : 'TipTop Copilot is an internal tool. Access is limited to members of the TipTop organization.'}
+                : 'TipTop Kraken is an internal tool. Access is limited to members of the TipTop organization.'}
             </p>
 
             {busy ? (
