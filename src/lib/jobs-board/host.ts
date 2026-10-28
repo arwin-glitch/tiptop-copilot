@@ -34,6 +34,16 @@ const PASS_THROUGH = new Set([
   '/favicon.ico',
 ]);
 
+/**
+ * The board assistant's public routes ("Ask Arwin", lib/jobs-board/route-helpers.ts),
+ * served as they are on a board host and on Kraken's own: no session, braked
+ * per address by the routes themselves. Nothing else under /api is.
+ */
+export const JOBS_CHAT_API_PATHS: ReadonlySet<string> = new Set([
+  '/api/jobs-board/ask',
+  '/api/jobs-board/ask/answer',
+]);
+
 export type HostDecision =
   /** Not the board host: Kraken's own routing goes on. */
   | { kind: 'pass' }
@@ -142,7 +152,8 @@ export function routeBoardHost(
   if (
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/__nextjs') ||
-    PASS_THROUGH.has(pathname)
+    PASS_THROUGH.has(pathname) ||
+    JOBS_CHAT_API_PATHS.has(pathname)
   ) {
     return { kind: 'serve' };
   }

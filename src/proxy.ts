@@ -15,6 +15,7 @@ import {
 import { boardHostOrigin } from '@/lib/jobs-board/config';
 import {
   boardHosts,
+  JOBS_CHAT_API_PATHS,
   isCopilotBoardPath,
   requestHosts,
   routeBoardHost,
@@ -139,6 +140,10 @@ const PUBLIC_PATHS = [
   // list is read (see proxy()); listed so the list stays the whole story.
   // /jobs-preview, the signed-in preview, is not matched and stays private.
   '/jobs',
+  // The board's assistant ("Ask Arwin"): a question and its answer's poll,
+  // answered from the public board only. Also handled before this list (see
+  // proxy()), so no session cookie rides on it.
+  '/api/jobs-board/ask',
 ];
 
 /**
@@ -233,6 +238,10 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
         : NextResponse.rewrite(target),
     );
   }
+
+  // The board assistant's routes: public, braked per address by the routes
+  // themselves, and never through the session refresh below.
+  if (JOBS_CHAT_API_PATHS.has(pathname)) return withSecurityHeaders(passThrough(request));
 
   // The board at Kraken's own /jobs: public, braked like the board host, and
   // never through the session refresh below, so a rotated session cookie can

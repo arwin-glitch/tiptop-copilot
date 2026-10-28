@@ -174,8 +174,26 @@ function FeatureCard({
   );
 }
 
-function CompanyCard({ company, base }: { company: PublicCompany; base: string }) {
+/** "See roles on LinkedIn": a plain outbound link; LinkedIn is never read. */
+function LinkedInLink({ href, className }: { href: string; className: string }) {
   return (
+    <a className={className} href={href} target="_blank" rel="noopener noreferrer">
+      See roles on LinkedIn <ExternalIcon />
+    </a>
+  );
+}
+
+function CompanyCard({
+  company,
+  base,
+  reserveExtra,
+}: {
+  company: PublicCompany;
+  base: string;
+  /** Another card in the grid has a LinkedIn link: keep the same room so the rows line up. */
+  reserveExtra: boolean;
+}) {
+  const card = (
     <Link href={companyPath(base, company.slug)} className="jb-card" prefetch={false}>
       <span className="jb-card-top">
         <CompanyLogo name={company.name} logoUrl={company.logoUrl} />
@@ -189,6 +207,20 @@ function CompanyCard({ company, base }: { company: PublicCompany; base: string }
         {company.openRoles === 1 ? 'role' : 'roles'} <ArrowRight />
       </span>
     </Link>
+  );
+  if (!company.linkedinJobsUrl && !reserveExtra) return card;
+  // Its own link beside the card, never inside it: a link in a link is not
+  // valid HTML. A card without one keeps an empty row of the same height,
+  // so every card in a grid row ends at the same line.
+  return (
+    <div className="jb-card-stack">
+      {card}
+      {company.linkedinJobsUrl ? (
+        <LinkedInLink href={company.linkedinJobsUrl} className="jb-card-extra" />
+      ) : (
+        <span className="jb-card-extra" aria-hidden="true" />
+      )}
+    </div>
   );
 }
 
@@ -301,6 +333,7 @@ export async function CompaniesPage({ base, preview }: BoardPageOptions) {
   const read = await readBoard(false, Boolean(preview));
   if (read.state !== 'on') return <ComingSoon base={base} state={read.state} />;
   const { board } = read;
+  const anyLinkedIn = board.companies.some((c) => Boolean(c.linkedinJobsUrl));
   return (
     <BoardShell base={base} board={board} active="companies" preview={read.preview}>
       <section className="jb-wrap jb-page">
@@ -317,7 +350,7 @@ export async function CompaniesPage({ base, preview }: BoardPageOptions) {
           <ul className="jb-grid" aria-label="Companies">
             {board.companies.map((company) => (
               <li key={company.slug}>
-                <CompanyCard company={company} base={base} />
+                <CompanyCard company={company} base={base} reserveExtra={anyLinkedIn} />
               </li>
             ))}
           </ul>
@@ -434,6 +467,12 @@ export async function CompanyPage({ base, preview, slug }: BoardPageOptions & { 
             >
               Careers page <ExternalIcon />
             </a>
+          ) : null}
+          {company.linkedinJobsUrl ? (
+            <LinkedInLink
+              href={company.linkedinJobsUrl}
+              className="jb-btn jb-btn-ghost jb-btn-small"
+            />
           ) : null}
           {company.website ? (
             <a

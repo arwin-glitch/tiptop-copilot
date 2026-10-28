@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { isSameOrigin } from '@/lib/auth/desktop-handoff';
-import { addressKey, clientAddress } from '@/lib/security/client-address';
+import { addressBucket, addressKey, clientAddress } from '@/lib/security/client-address';
 import { hashIp } from '@/lib/security/crypto';
 import { rateLimit } from '@/lib/security/limits';
 import { statusForError, type AppError } from '@/lib/util/result';
@@ -55,7 +55,12 @@ export function visitorGate(
     const limited = rateLimit(`${limit.bucket}:${key}`, limit.max, limit.windowMs);
     if (!limited.ok) return { ok: false, response: publicFail(limited.error) };
   }
-  return { ok: true, visitor: { key, ipHash: hashIp(clientAddress(request.headers)) } };
+  // Hashed by the /64 an IPv6 visitor controls, not the one address they
+  // used, so the per-address daily caps keyed on it hold.
+  return {
+    ok: true,
+    visitor: { key, ipHash: hashIp(addressBucket(clientAddress(request.headers))) },
+  };
 }
 
 /** A JSON body of at most `maxBytes`, or null. */

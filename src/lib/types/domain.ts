@@ -1471,6 +1471,19 @@ export type BookingHoldReason =
  * server; `answer` is the routine's reply after lib/booking/chat-bridge.ts
  * made it plain.
  */
+/** A job board visitor's question sent to the jobs assistant routine (20261028110000_jobs_chat.sql). */
+export interface JobsChatQuestion {
+  id: Uuid;
+  organization_id: Uuid;
+  question: string;
+  answer: string | null;
+  status: 'pending' | 'answered' | 'expired';
+  /** A keyed hash of the visitor's address, for the per-address cap; never the address. */
+  ip_hash: string | null;
+  created_at: IsoDateTime;
+  answered_at: IsoDateTime | null;
+}
+
 export interface BookingChatQuestion {
   id: Uuid;
   organization_id: Uuid;
@@ -1972,6 +1985,11 @@ export interface EventShareLink {
 // person turns it on; see lib/services/jobs-board.ts for how a role becomes
 // public.
 
+/**
+ * `ats` covers both a company's job board API and the JobPosting structured
+ * data on its own careers page (source_key `page:…`, lib/jobs-board/careers-page.ts):
+ * both are read by the sync and follow the company's auto-publish switch.
+ */
 export type JobPostingSource = 'ats' | 'email' | 'manual';
 export type JobAts = 'greenhouse' | 'lever' | 'ashby' | 'workable' | 'recruitee';
 export type JobEmploymentType = 'full_time' | 'part_time' | 'contract' | 'internship' | 'temporary';
@@ -1994,6 +2012,13 @@ export interface JobBoardSettings {
   title: string;
   intro: string | null;
   accent: string;
+  /**
+   * The board assistant's settings ("Ask Arwin": on or off, written answers,
+   * AI answers, daily cap), read leniently by lib/jobs-board/assistant-config.ts.
+   * Absent until supabase/migrations/20261028110000_jobs_chat.sql adds the
+   * column; the assistant then uses its defaults.
+   */
+  assistant?: unknown;
   updated_by: Uuid | null;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
@@ -2012,6 +2037,11 @@ export interface JobCompany {
   listed: boolean;
   logo_url: string | null;
   about: string | null;
+  /**
+   * The company's LinkedIn jobs tab, a link only (never fetched).
+   * 20261028100000_jobs_linkedin.sql; absent until that migration runs.
+   */
+  linkedin_url?: string | null;
   last_sync_at: IsoDateTime | null;
   last_sync_status: 'ok' | 'failed' | 'skipped' | null;
   last_sync_message: string | null;
