@@ -14,7 +14,7 @@ const QID = '12345678-1234-1234-1234-123456789abc';
 const KEY = 'A'.repeat(32);
 
 describe('perksQuestionText', () => {
-  it('fences the payload, carries the key, and strips what could break the fence', () => {
+  it('fences the payload, carries the key, splits the live question from context, and strips what could break the fence', () => {
     const text = perksQuestionText({
       question_id: QID,
       answer_key: KEY,
@@ -26,12 +26,15 @@ describe('perksQuestionText', () => {
     const payload = JSON.parse(inner) as {
       question_id: string;
       answer_key: string;
-      questions: string[];
+      question: string;
+      context: string[];
     };
     expect(payload.question_id).toBe(QID);
     expect(payload.answer_key).toBe(KEY);
-    expect(payload.questions[0]).not.toContain('`');
-    expect(payload.questions[0]).not.toContain('<');
+    expect(payload.question).toBe('And NVIDIA?');
+    expect(payload.context).toHaveLength(1);
+    expect(payload.context[0]).not.toContain('`');
+    expect(payload.context[0]).not.toContain('<');
   });
 
   it('appends the catalog block after the fenced JSON when one is given', () => {

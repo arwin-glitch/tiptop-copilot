@@ -97,6 +97,9 @@ export interface PerksQuestionPayload {
   questions: string[];
 }
 
+/** How many already-answered questions ride along for pronoun context. */
+const CONTEXT_MAX = 5;
+
 /* ------------------------------------------------------------- answer key */
 
 /** 24 random bytes as base64url: 32 characters. */
@@ -121,15 +124,16 @@ export function perksAnswerKeyMatches(key: string | null, storedHash: string | n
  * from. Without the block the routine answers its cannot-check fallback.
  */
 export function perksQuestionText(payload: PerksQuestionPayload, catalog?: string): string {
+  // The live question and the already-answered ones are SEPARATE fields, so
+  // the routine cannot conflate them and re-answer old history (it did, once).
+  const cleaned = payload.questions.map((q) => cleanQuestion(q)).filter(Boolean);
   const lines = [
     PERKS_QUESTION_MARKER,
     `\`${JSON.stringify({
       question_id: payload.question_id,
       answer_key: payload.answer_key,
-      questions: payload.questions
-        .map((q) => cleanQuestion(q))
-        .filter(Boolean)
-        .slice(-6),
+      question: cleaned[cleaned.length - 1] ?? '',
+      context: cleaned.slice(0, -1).slice(-CONTEXT_MAX),
     })}\``,
   ];
   if (catalog) lines.push('', catalog);
