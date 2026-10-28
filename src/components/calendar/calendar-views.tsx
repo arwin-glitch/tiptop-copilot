@@ -3,7 +3,15 @@
 import * as React from 'react';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
-import { CalendarDays, ChevronLeft, ChevronRight, Layers, Loader2, Plus } from 'lucide-react';
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Layers,
+  Loader2,
+  MousePointerClick,
+  Plus,
+} from 'lucide-react';
 import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
 import { WebOnly } from '@/components/desktop/desktop-only';
 import { Button } from '@/components/ui/button';
@@ -55,6 +63,20 @@ import {
   type CalendarViewKind,
   type RangeEvent,
 } from '@/lib/calendar/range-types';
+import { DEFAULT_PICK_DURATION, type PickRange } from '@/lib/booking/picks';
+import {
+  addPickRange,
+  clickedRange,
+  draggedRange,
+  freshRanges,
+  heldOverlap,
+  pickRangeKey,
+  rememberBusy,
+  removePickRange,
+  stretchRanges,
+  type BusyMemory,
+  type HeldRange,
+} from '@/lib/calendar/pick-selection';
 import { addDaysToKey, localDateKey } from '@/lib/util/time';
 import { cn } from '@/lib/util/cn';
 import {
@@ -73,7 +95,15 @@ import { EventEditor, type EditorState } from './event-editor';
 import { EventPanel, type CardAnchor } from './event-panel';
 import { MiniMonth } from './mini-month';
 import { MonthGrid } from './month-grid';
-import { TimeGrid, type GridChange } from './time-grid';
+import { PickPanel } from './pick-panel';
+import { fetchPicks, type PickListAnswer } from './picks-api';
+import {
+  TimeGrid,
+  type GridChange,
+  type HeldSlot,
+  type PickedSlot,
+  type PickGesture,
+} from './time-grid';
 
 /**
  * The Calendar tab: Day, Week and Month (D-066, D-069; since D-072 the only
@@ -96,6 +126,11 @@ import { TimeGrid, type GridChange } from './time-grid';
  * "Send … emails to guests?", every time; only Send emails anyone. An answer
  * to an invitation asks "Send your response to the organizer?" the same way.
  * A colour or label change is nobody else's business and is never asked about.
+ *
+ * Pick times (Vimcal-style; "s"): Day and Week turn into a picker. Clicks and
+ * drags pick open times, the pick panel (pick-panel.tsx) copies them with a
+ * booking link for an email, and picks still held are drawn on the grid. It
+ * needs no calendar editing: nothing is written to Google.
  */
 
 export interface CalendarViewsProps {
@@ -124,6 +159,11 @@ const VIEW_LABEL: Record<CalendarViewKind, string> = { day: 'Day', week: 'Week',
 
 /** A phone-sized screen: the calendar opens on Day there, like Google Calendar's app. */
 const PHONE_QUERY = '(max-width: 639px)';
+/**
+ * Too narrow for the pick panel beside the grid (it sits there from lg up):
+ * below it the panel is a sheet along the bottom, so it stays in view.
+ */
+const SHEET_QUERY = '(max-width: 1023px)';
 
 function parseView(value: string | null): CalendarViewKind | null {
   return CALENDAR_VIEWS.includes(value as CalendarViewKind) ? (value as CalendarViewKind) : null;
@@ -145,17 +185,19 @@ function covers(
   return ids.every((id) => tried.has(id));
 }
 
-function usePhone(): boolean {
+function useMedia(query: string): boolean {
   return React.useSyncExternalStore(
     (onChange) => {
-      const mq = window.matchMedia(PHONE_QUERY);
+      const mq = window.matchMedia(query);
       mq.addEventListener('change', onChange);
       return () => mq.removeEventListener('change', onChange);
     },
-    () => window.matchMedia(PHONE_QUERY).matches,
+    () => window.matchMedia(query).matches,
     () => false,
   );
 }
+
+const usePhone = () => useMedia(PHONE_QUERY);
 
 /** The key of a new event on the page while Google is still saving it. */
 const PENDING_PREFIX = 'pending-';
@@ -194,6 +236,7 @@ export function CalendarViews(props: CalendarViewsProps) {
   const { timeZone, ownEmails, editing } = props;
   const params = useSearchParams();
   const phone = usePhone();
+  const sheet = useMedia(SHEET_QUERY);
   const urlView = parseView(params.get('view'));
   const urlDate = params.get('date');
   // A phone opens on Day, like Google's app, unless the address names a view.
@@ -219,6 +262,17 @@ export function CalendarViews(props: CalendarViewsProps) {
   const swipe = React.useRef<{ x: number; y: number } | null>(null);
   const savedView = React.useRef(props.view);
   const [pickerOpen, setPickerOpen] = React.useState(false);
+  // Pick times: on or off, the times picked, the meeting's length, and the open picks.
+  const [picking, setPicking] = React.useState(false);
+  const [pickRanges, setPickRanges] = React.useState<PickRange[]>([]);
+  const [pickDuration, setPickDuration] = React.useState<number>(DEFAULT_PICK_DURATION);
+  const [picks, setPicks] = React.useState<PickListAnswer | null>(null);
+  const [picksError, setPicksError] = React.useState<string | null>(null);
+  const [picksToken, setPicksToken] = React.useState(0);
+  // What each picked range was seen to overlap, kept while its week is off screen.
+  const [busyMemory, setBusyMemory] = React.useState<BusyMemory>({});
+  // The view picking left (Month moves to Week), to go back to when it ends.
+  const [viewBeforePicking, setViewBeforePicking] = React.useState<CalendarViewKind | null>(null);
 
   const calendars = current.calendars.length ? current.calendars : props.initial.calendars;
   const palette = current.palette.length ? current.palette : props.initial.palette;
@@ -293,10 +347,29 @@ export function CalendarViews(props: CalendarViewsProps) {
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [reload]);
 
+  // The open picks: for the held times on the grid and the panel's Open picks.
+  // A failure (or the table not there yet) leaves the rest of the Calendar as it is.
+  React.useEffect(() => {
+    let live = true;
+    void fetchPicks().then((res) => {
+      if (!live) return;
+      if (res.ok) {
+        setPicks(res.value);
+        setPicksError(null);
+      } else {
+        setPicksError(res.message);
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, [picksToken]);
+  const reloadPicks = React.useCallback(() => setPicksToken((n) => n + 1), []);
+
   /* ------------------------------------------------------------ moving */
 
   const go = React.useCallback(
-    (next: { view?: CalendarViewKind; date?: string }) => {
+    (next: { view?: CalendarViewKind; date?: string; save?: boolean }) => {
       const v = next.view ?? view;
       const d = next.date ?? date;
       const href = `/calendar?view=${v}&date=${d}`;
@@ -304,7 +377,8 @@ export function CalendarViews(props: CalendarViewsProps) {
       if (`${window.location.pathname}${window.location.search}` !== href) {
         window.history.pushState(null, '', href);
       }
-      if (next.view && next.view !== savedView.current) {
+      // Pick times moving Month to Week (and back) is not a choice to keep.
+      if (next.view && next.save !== false && next.view !== savedView.current) {
         savedView.current = next.view;
         void savePrefs({ view: next.view });
       }
@@ -404,12 +478,12 @@ export function CalendarViews(props: CalendarViewsProps) {
 
   // From the grid: not when the press only closed an open card.
   const createAt = (r: GridChange) => {
-    if (swallowCreate.current) return;
+    if (swallowCreate.current || picking) return;
     openCreate(newDraft(r.start, r.end, timeZone), 'quick');
   };
   /** An all-day event on one day, or across the days dragged over (`endKey` exclusive). */
   const createAllDay = (day: string, endKey = addDaysToKey(day, 1)) => {
-    if (swallowCreate.current) return;
+    if (swallowCreate.current || picking) return;
     openCreate(newAllDayDraft(day, endKey, timeZone), 'quick');
   };
   const createNow = () => {
@@ -732,6 +806,67 @@ export function CalendarViews(props: CalendarViewsProps) {
     if (start && end) changeTimes(event, { start: new Date(start), end: new Date(end) });
   };
 
+  /* -------------------------------------------------------- pick times */
+
+  const startPicking = () => {
+    setSelected(null);
+    setEditor(null);
+    // Picking works on the hours: Month moves to Week, for now only.
+    if (view === 'month') {
+      setViewBeforePicking('month');
+      go({ view: 'week', save: false });
+    } else {
+      setViewBeforePicking(null);
+    }
+    setPicking(true);
+    reloadPicks();
+  };
+  /**
+   * Off again; the times picked stay for next time, unless copied. Month
+   * comes back if picking left it, and focus goes back to the toggle when it
+   * was in the panel (which is about to go), so no one loses their place.
+   */
+  const stopPicking = () => {
+    const active = document.activeElement;
+    if (!active || active === document.body || active.closest('[data-pick-panel]')) {
+      document.querySelector<HTMLElement>('[data-pick-toggle]')?.focus();
+    }
+    setPicking(false);
+    if (viewBeforePicking) go({ view: viewBeforePicking, save: false });
+    setViewBeforePicking(null);
+  };
+  // Back to Month while picking (the browser's Back): picking ends, as
+  // nothing can be picked there. Only a move to Month counts: starting from
+  // Month renders once on Month before Week arrives.
+  const [lastView, setLastView] = React.useState(view);
+  if (view !== lastView) {
+    setLastView(view);
+    if (picking && view === 'month') {
+      setPicking(false);
+      setViewBeforePicking(null);
+    }
+  }
+  const togglePicking = () => (picking ? stopPicking() : startPicking());
+
+  const pickTime = (g: PickGesture) => {
+    const range =
+      g.kind === 'click'
+        ? clickedRange(g.day, g.minutes, pickDuration, timeZone)
+        : draggedRange(g.day, g.anchor, g.current, pickDuration, timeZone);
+    const next = addPickRange(pickRanges, range, new Date());
+    if (!next.ok) {
+      toast.message(next.problem);
+      return;
+    }
+    setPickRanges(next.ranges);
+  };
+  const unpickTime = (start: string) => setPickRanges((r) => removePickRange(r, start));
+  /** A new length: times picked shorter than it stretch to fit, never left offering nothing. */
+  const changePickDuration = (minutes: number) => {
+    setPickDuration(minutes);
+    setPickRanges((r) => stretchRanges(r, minutes));
+  };
+
   /* ---------------------------------------------------------- keyboard */
 
   React.useEffect(() => {
@@ -758,9 +893,17 @@ export function CalendarViews(props: CalendarViewsProps) {
         case 'w':
           return act(() => go({ view: 'week' }));
         case 'm':
-          return act(() => go({ view: 'month' }));
+          // Pick times works in Day and Week only.
+          if (!picking) act(() => go({ view: 'month' }));
+          return;
         case 'c':
-          if (canEdit) act(createNow);
+          if (canEdit && !picking) act(createNow);
+          return;
+        case 's':
+          return act(togglePicking);
+        case 'Escape':
+          // A drag on the grid takes Esc first (it drops the drag).
+          if (picking && !document.querySelector('[data-grid-dragging]')) act(stopPicking);
           return;
       }
     };
@@ -822,8 +965,41 @@ export function CalendarViews(props: CalendarViewsProps) {
     editor?.mode === 'quick' && editor.event === null
       ? { allDay: editor.draft.allDay, start: editor.draft.start, end: editor.draft.end }
       : null;
-  const openEvent = (event: RangeEvent, element: HTMLElement | null) =>
+  const openEvent = (event: RangeEvent, element: HTMLElement | null) => {
+    if (picking) return;
     setSelected({ key: event.key, anchor: { element } });
+  };
+  const heldPicks =
+    picks?.available && nowMs !== null
+      ? picks.picks.filter((p) => p.status === 'open' && p.hold && Date.parse(p.expiresAt) > nowMs)
+      : [];
+  const heldSlots: HeldSlot[] = heldPicks.flatMap((p) =>
+    p.ranges.map((r, i) => ({
+      key: `${p.id}-${i}`,
+      start: r.start,
+      end: r.end,
+      label: `Held: ${p.recipientName ?? 'picked times'}`,
+    })),
+  );
+  const heldRanges: HeldRange[] = heldPicks.flatMap((p) =>
+    p.ranges.map((r) => ({ start: r.start, end: r.end, name: p.recipientName })),
+  );
+  // What each picked range overlaps (every calendar shown, whatever the label
+  // filter), remembered for ranges in weeks no longer loaded.
+  const loadedDays = current.state === 'ok' ? { from: current.from, to: current.to } : null;
+  const nextBusyMemory = rememberBusy(busyMemory, pickRanges, events, loadedDays, timeZone);
+  if (nextBusyMemory !== busyMemory) setBusyMemory(nextBusyMemory);
+  // The grid and the panel show the same times: those still ahead that fit the meeting.
+  const shownRanges =
+    nowMs === null ? pickRanges : freshRanges(pickRanges, new Date(nowMs), pickDuration);
+  const pickedSlots: PickedSlot[] = shownRanges.map((r) => {
+    const held = heldOverlap(r, heldRanges);
+    return {
+      ...r,
+      busy: (nextBusyMemory[pickRangeKey(r)] ?? []).length > 0,
+      heldFor: held ? (held.name ?? 'someone else') : null,
+    };
+  });
   const failedNames = current.failed
     .map((f) => calendarsById.get(f.calendarId)?.name)
     .filter((n): n is string => Boolean(n));
@@ -858,7 +1034,7 @@ export function CalendarViews(props: CalendarViewsProps) {
   );
 
   return (
-    <div className="space-y-3">
+    <div className={cn('space-y-3', picking && sheet && 'pb-36')}>
       <div data-tour="calendar-views" className="flex flex-wrap items-center gap-x-2 gap-y-2">
         <Button variant="secondary" size="sm" onClick={() => go({ date: today })}>
           Today
@@ -909,10 +1085,24 @@ export function CalendarViews(props: CalendarViewsProps) {
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {canEdit ? (
-            <Button variant="primary" size="sm" onClick={createNow}>
+            <Button variant="primary" size="sm" onClick={createNow} disabled={picking}>
               <Plus aria-hidden /> Create
             </Button>
           ) : null}
+          <Button
+            variant="secondary"
+            size="sm"
+            data-pick-toggle=""
+            aria-pressed={picking}
+            onClick={togglePicking}
+            title="Pick open times to paste into an email (S)"
+            className={cn(
+              picking &&
+                'border-[var(--primary)] bg-[var(--accent-soft)] hover:bg-[var(--accent-soft)]',
+            )}
+          >
+            <MousePointerClick aria-hidden /> Pick times
+          </Button>
           <div
             role="group"
             aria-label="View"
@@ -924,11 +1114,13 @@ export function CalendarViews(props: CalendarViewsProps) {
                 type="button"
                 aria-pressed={v === view}
                 onClick={() => go({ view: v })}
+                disabled={picking && v === 'month'}
+                title={picking && v === 'month' ? 'Pick times works in Day and Week.' : undefined}
                 className={cn(
                   'rounded-[5px] px-2.5 py-1 text-sm',
                   v === view
                     ? 'bg-[var(--primary)] font-medium text-[var(--primary-fg)]'
-                    : 'text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]',
+                    : 'text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] disabled:pointer-events-none disabled:opacity-50',
                 )}
               >
                 {VIEW_LABEL[v]}
@@ -981,8 +1173,9 @@ export function CalendarViews(props: CalendarViewsProps) {
           about 60px, too narrow for two events side by side at the minimum
           width, so they move behind the Calendars button and the date
           picker instead. */}
-      <div className="grid gap-4 xl:grid-cols-[13.5rem_minmax(0,1fr)]">
-        <aside className="hidden space-y-4 xl:block">
+      <div className={cn('grid gap-4', !picking && 'xl:grid-cols-[13.5rem_minmax(0,1fr)]')}>
+        {/* While picking, the pick panel takes the side's place. */}
+        <aside className={cn('hidden space-y-4', !picking && 'xl:block')}>
           <MiniMonth
             selected={date}
             today={today}
@@ -998,72 +1191,105 @@ export function CalendarViews(props: CalendarViewsProps) {
         </aside>
 
         <div
-          className="min-w-0 space-y-2"
-          aria-busy={!loaded}
-          onTouchStart={(e) => {
-            const t = e.touches[0];
-            if (t) swipe.current = { x: t.clientX, y: t.clientY };
-          }}
-          onTouchEnd={(e) => {
-            const start = swipe.current;
-            swipe.current = null;
-            const t = e.changedTouches[0];
-            if (!start || !t) return;
-            const dx = t.clientX - start.x;
-            const dy = t.clientY - start.y;
-            if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) step(dx < 0 ? 1 : -1);
-          }}
-        >
-          <div className="flex min-w-0 items-start gap-2">
-            <CalendarKey labels={legend} sample={sampleColor} />
-            <LabelLegend
-              labels={legend}
-              filter={activeFilter}
-              onToggle={toggleLabel}
-              onClear={() => saveLabelFilter([])}
-            />
-          </div>
-          {view === 'month' ? (
-            <MonthGrid
-              weeks={monthWeeks(date)}
-              monthOf={date}
-              events={inView}
-              timeZone={timeZone}
-              today={today}
-              nowMs={nowMs}
-              calendars={calendarsById}
-              canEdit={canEdit}
-              compact={phone}
-              pending={pending}
-              onOpen={openEvent}
-              onPickDay={(d) => go({ view: 'day', date: d })}
-              onCreateAllDay={createAllDay}
-              onShiftDays={shiftDays}
-            />
-          ) : (
-            <TimeGrid
-              days={range.days}
-              events={inView}
-              timeZone={timeZone}
-              today={today}
-              nowMs={nowMs}
-              calendars={calendarsById}
-              canEdit={canEdit}
-              pending={pending}
-              onOpen={openEvent}
-              onCreate={createAt}
-              onCreateAllDay={createAllDay}
-              onChange={changeTimes}
-              onShiftDays={shiftDays}
-              onPickDay={(d) => go({ view: 'day', date: d })}
-            />
+          className={cn(
+            'min-w-0',
+            picking && !sheet && 'grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start',
           )}
-          {loaded && current.state === 'ok' && inView.length === 0 ? (
-            <p className="mt-2 text-center text-sm text-[var(--fg-subtle)]">
-              {inRange.length > 0
-                ? `Nothing with ${activeFilter.length === 1 ? 'that label' : 'those labels'} ${view === 'day' ? 'this day' : `this ${view}`}.`
-                : `Nothing on the calendar ${view === 'day' ? 'this day' : `this ${view}`}.`}
-            </p>
+        >
+          <div
+            className="min-w-0 space-y-2"
+            aria-busy={!loaded}
+            onTouchStart={(e) => {
+              const t = e.touches[0];
+              if (t) swipe.current = { x: t.clientX, y: t.clientY };
+            }}
+            onTouchEnd={(e) => {
+              const start = swipe.current;
+              swipe.current = null;
+              const t = e.changedTouches[0];
+              if (!start || !t) return;
+              const dx = t.clientX - start.x;
+              const dy = t.clientY - start.y;
+              if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) step(dx < 0 ? 1 : -1);
+            }}
+          >
+            <div className="flex min-w-0 items-start gap-2">
+              <CalendarKey labels={legend} sample={sampleColor} />
+              <LabelLegend
+                labels={legend}
+                filter={activeFilter}
+                onToggle={toggleLabel}
+                onClear={() => saveLabelFilter([])}
+              />
+            </div>
+            {view === 'month' ? (
+              <MonthGrid
+                weeks={monthWeeks(date)}
+                monthOf={date}
+                events={inView}
+                timeZone={timeZone}
+                today={today}
+                nowMs={nowMs}
+                calendars={calendarsById}
+                canEdit={canEdit}
+                compact={phone}
+                pending={pending}
+                onOpen={openEvent}
+                onPickDay={(d) => go({ view: 'day', date: d })}
+                onCreateAllDay={createAllDay}
+                onShiftDays={shiftDays}
+              />
+            ) : (
+              <TimeGrid
+                days={range.days}
+                events={inView}
+                timeZone={timeZone}
+                today={today}
+                nowMs={nowMs}
+                calendars={calendarsById}
+                canEdit={canEdit}
+                pending={pending}
+                onOpen={openEvent}
+                onCreate={createAt}
+                onCreateAllDay={createAllDay}
+                onChange={changeTimes}
+                onShiftDays={shiftDays}
+                onPickDay={(d) => go({ view: 'day', date: d })}
+                selecting={picking}
+                picked={pickedSlots}
+                held={heldSlots}
+                onPickTime={pickTime}
+                onUnpickTime={unpickTime}
+              />
+            )}
+            {loaded && current.state === 'ok' && inView.length === 0 ? (
+              <p className="mt-2 text-center text-sm text-[var(--fg-subtle)]">
+                {inRange.length > 0
+                  ? `Nothing with ${activeFilter.length === 1 ? 'that label' : 'those labels'} ${view === 'day' ? 'this day' : `this ${view}`}.`
+                  : `Nothing on the calendar ${view === 'day' ? 'this day' : `this ${view}`}.`}
+              </p>
+            ) : null}
+          </div>
+          {picking ? (
+            <PickPanel
+              phone={sheet}
+              hostZone={timeZone}
+              ranges={pickRanges}
+              slots={pickedSlots}
+              duration={pickDuration}
+              onDuration={changePickDuration}
+              status={picks}
+              statusError={picksError}
+              nowMs={nowMs}
+              onRemove={unpickTime}
+              onClear={() => setPickRanges([])}
+              onDone={() => {
+                setPickRanges([]);
+                stopPicking();
+              }}
+              onPicksChanged={reloadPicks}
+              onClose={stopPicking}
+            />
           ) : null}
         </div>
       </div>

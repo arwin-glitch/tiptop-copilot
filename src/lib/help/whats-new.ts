@@ -26,6 +26,11 @@ export interface WhatsNewItem {
 
 export const WHATS_NEW: readonly WhatsNewItem[] = [
   {
+    date: '2026-10-28',
+    page: 'calendar',
+    text: 'Calendar: Pick times copies open times and a booking link for an email, and holds them.',
+  },
+  {
     date: '2026-10-22',
     page: 'events',
     text: 'Events: event pages with themes, Studio, outside editors, RSVPs, check-in and invite drafts.',

@@ -161,6 +161,8 @@ export type AuditAction =
   | 'booking.cancelled'
   | 'booking.synced'
   | 'booking.chatbot_updated'
+  | 'booking.pick_created'
+  | 'booking.pick_revoked'
   | 'draft.created'
   | 'chat.question_asked'
   | 'brief.generated'

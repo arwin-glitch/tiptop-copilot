@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Bell } from 'lucide-react';
+import { Bell, X } from 'lucide-react';
 import {
   dayNumber,
   hourLabel,
@@ -21,6 +21,7 @@ import {
   weekdayShort,
 } from '@/lib/calendar/grid';
 import { eventLook, type EventLook } from '@/lib/calendar/event-look';
+import { dayLabel } from '@/lib/booking/public';
 import { labelName } from '@/lib/calendar/labels';
 import type { CalendarInfo, RangeEvent } from '@/lib/calendar/range-types';
 import { cn } from '@/lib/util/cn';
@@ -58,6 +59,13 @@ import {
  * a phone only its colour. Each chip is drawn in its look (event-style.ts):
  * faded once over, outlined with a "?" while Nick has not answered, striped
  * for maybe, struck through when declined; a meeting has the bell.
+ *
+ * With Pick times on (`selecting`), the grid is for choosing open times
+ * instead: a click on any time (events included) picks a slot as long as the
+ * meeting, a drag picks the time dragged over, and a click on a picked time
+ * takes it off again. Events cannot be opened, moved or resized meanwhile,
+ * and no new event is started. Picks already sent and still held are drawn
+ * behind the events, striped, whether picking or not.
  */
 
 export const HOUR_PX = 48;
@@ -111,10 +119,36 @@ function TitleWords({ title }: { title: string }) {
   );
 }
 
+const NONE_PICKED: readonly PickedSlot[] = [];
+const NONE_HELD: readonly HeldSlot[] = [];
+
 export interface GridChange {
   start: Date;
   end: Date;
 }
+
+/** A time picked for Pick times (instants), drawn while picking. */
+export interface PickedSlot {
+  start: string;
+  end: string;
+  /** It overlaps an event that takes time: drawn with a warning dot. */
+  busy: boolean;
+  /** Who already holds it (another open pick), or null: those times are not offered. */
+  heldFor?: string | null;
+}
+
+/** A pick sent and still held, drawn striped behind the events. */
+export interface HeldSlot {
+  key: string;
+  start: string;
+  end: string;
+  label: string;
+}
+
+/** Where Pick times was clicked or dragged, as the grid read it. */
+export type PickGesture =
+  | { kind: 'click'; day: string; minutes: number }
+  | { kind: 'drag'; day: string; anchor: number; current: number };
 
 /** The new event being made, drawn while its quick editor is open. */
 export interface PendingSlot {
@@ -175,6 +209,11 @@ export function TimeGrid({
   onChange,
   onShiftDays,
   onPickDay,
+  selecting = false,
+  picked = NONE_PICKED,
+  held = NONE_HELD,
+  onPickTime,
+  onUnpickTime,
 }: {
   days: string[];
   events: RangeEvent[];
@@ -194,6 +233,15 @@ export function TimeGrid({
   onChange: (event: RangeEvent, next: GridChange) => void;
   onShiftDays: (event: RangeEvent, days: number) => void;
   onPickDay: (day: string) => void;
+  /** Pick times is on: clicks and drags pick times rather than make or move events. */
+  selecting?: boolean;
+  /** The times picked so far (while selecting). */
+  picked?: readonly PickedSlot[];
+  /** Picks sent and still held. */
+  held?: readonly HeldSlot[];
+  onPickTime?: (gesture: PickGesture) => void;
+  /** A click on a picked time: `start` names it. */
+  onUnpickTime?: (start: string) => void;
 }) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
@@ -206,7 +254,9 @@ export function TimeGrid({
     setDragState(next);
   };
 
-  const editable = (e: RangeEvent) => canEdit && e.canModify;
+  const editable = (e: RangeEvent) => canEdit && !selecting && e.canModify;
+  // A press on empty time makes something: a new event, or a picked time.
+  const pressable = canEdit || selecting;
   const single = days.length === 1;
 
   // A day column's width, for the overlap layout's minimum chip width. Until
@@ -309,14 +359,18 @@ export function TimeGrid({
   });
 
   function onPointerDownEmpty(e: React.PointerEvent<HTMLDivElement>) {
-    if (!canEdit || e.button !== 0) return;
+    if (!pressable || e.button !== 0) return;
     // A "+N" list is open: a press elsewhere on the grid only closes it, as in
     // Google. Asked of the page, not remembered, so a "+N" that goes away
     // while its list is open (the window resized) cannot leave the grid deaf.
     if (document.querySelector('[data-fold-list]')) return;
     // A press in a "+N" list (drawn elsewhere on the page) is not a press on the grid.
     if (!(e.target instanceof Node) || !contentRef.current?.contains(e.target)) return;
-    if ((e.target as HTMLElement).closest('[data-event-chip], [data-event-fold]')) return;
+    // While picking, chips let presses through (pointer-events: none), so a
+    // time can be picked over an event; a picked time handles its own click.
+    if ((e.target as HTMLElement).closest('[data-event-chip], [data-event-fold], [data-picked]')) {
+      return;
+    }
     // The hour labels are not a day: a click there makes nothing.
     const rect = contentRef.current?.getBoundingClientRect();
     if (!rect || e.clientX - rect.left < GUTTER_PX) return;
@@ -416,6 +470,19 @@ export function TimeGrid({
       contentRef.current.releasePointerCapture(e.pointerId);
     }
     if (cancelled) return;
+    if (selecting) {
+      if (!current && p?.mode === 'create') {
+        onPickTime?.({ kind: 'click', day: p.day, minutes: p.anchor });
+      } else if (current?.mode === 'create') {
+        onPickTime?.({
+          kind: 'drag',
+          day: current.day,
+          anchor: current.anchor,
+          current: current.current,
+        });
+      }
+      return;
+    }
     if (!current) {
       // A click (or a tap) on empty time: a one-hour event on the half hour.
       if (p?.mode === 'create') {
@@ -504,7 +571,7 @@ export function TimeGrid({
         timeZone={timeZone}
         columns={columns}
         calendars={calendars}
-        canEdit={canEdit}
+        canEdit={canEdit && !selecting}
         maxLanes={single ? 6 : 3}
         pending={newSlot?.allDay ? newSlot : null}
         lookOf={lookOf}
@@ -523,7 +590,10 @@ export function TimeGrid({
       >
         <div
           ref={contentRef}
-          className={cn('relative isolate grid select-none', canEdit && 'cursor-cell')}
+          data-selecting={selecting ? '' : undefined}
+          // Read by the page's Esc: a drag in progress takes Esc first.
+          data-grid-dragging={dragging ? '' : undefined}
+          className={cn('relative isolate grid select-none', pressable && 'cursor-cell')}
           style={{ gridTemplateColumns: columns, height: 24 * HOUR_PX }}
           onPointerDown={onPointerDownEmpty}
           onPointerMove={onPointerMove}
@@ -568,8 +638,8 @@ export function TimeGrid({
                 Number('fold' in a) - Number('fold' in b),
             );
             const creating = drag?.mode === 'create' && drag.day === d ? drag : null;
-            const held =
-              !creating && newSlot && !newSlot.allDay
+            const placeholder =
+              !selecting && !creating && newSlot && !newSlot.allDay
                 ? segmentOnDay({ startsAt: newSlot.start, endsAt: newSlot.end }, d, timeZone)
                 : null;
             return (
@@ -606,6 +676,7 @@ export function TimeGrid({
                         timeZone={timeZone}
                         lookOf={lookOf}
                         onOpen={onOpen}
+                        inert={selecting}
                       />
                     );
                   }
@@ -666,7 +737,9 @@ export function TimeGrid({
                         narrow ? 'px-0.5' : 'px-1.5',
                         compact ? 'py-0' : 'py-0.5',
                         editable(event) && 'cursor-grab active:cursor-grabbing',
+                        selecting && 'pointer-events-none',
                       )}
+                      tabIndex={selecting ? -1 : undefined}
                       style={chipBoxStyle(event, {
                         top,
                         height,
@@ -750,15 +823,86 @@ export function TimeGrid({
                   );
                 })}
 
-                {held ? (
+                {held.map((h) => {
+                  const seg = slotOnDay(h, d, timeZone);
+                  if (!seg) return null;
+                  return (
+                    <div
+                      key={h.key}
+                      data-held-pick={h.key}
+                      title={`${h.label}, ${shortTime(h.start, timeZone)} – ${shortTime(h.end, timeZone)}`}
+                      className="pointer-events-none absolute inset-x-0.5 z-0 overflow-hidden rounded-[5px] border border-dashed border-[var(--primary)]/70 px-1.5 py-0.5 text-[11px] leading-tight font-medium text-[var(--fg-muted)]"
+                      style={{
+                        top: (seg.start / 60) * HOUR_PX,
+                        height: Math.max(
+                          MIN_CHIP_HEIGHT_PX,
+                          ((seg.end - seg.start) / 60) * HOUR_PX - 1,
+                        ),
+                        backgroundImage:
+                          'repeating-linear-gradient(135deg, color-mix(in srgb, var(--primary) 18%, transparent) 0 6px, transparent 6px 12px)',
+                      }}
+                    >
+                      <span className="block truncate">{h.label}</span>
+                    </div>
+                  );
+                })}
+
+                {selecting
+                  ? picked.map((slot) => {
+                      const seg = slotOnDay(slot, d, timeZone);
+                      if (!seg) return null;
+                      const height = Math.max(
+                        MIN_CHIP_HEIGHT_PX,
+                        ((seg.end - seg.start) / 60) * HOUR_PX - 1,
+                      );
+                      const when = `${shortTime(slot.start, timeZone)} – ${shortTime(slot.end, timeZone)}`;
+                      const held = slot.heldFor ?? null;
+                      const warn = [
+                        slot.busy ? 'overlaps an event' : null,
+                        held ? `held for ${held}` : null,
+                      ].filter(Boolean);
+                      return (
+                        <button
+                          key={slot.start}
+                          type="button"
+                          data-picked=""
+                          data-busy={slot.busy ? '' : undefined}
+                          data-held={held ? '' : undefined}
+                          aria-label={`Remove picked time ${dayLabel(slot.start, timeZone)}, ${when}${warn.length ? `, ${warn.join(', ')}` : ''}`}
+                          // The grid's own press would pick a time here as well.
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={() => onUnpickTime?.(slot.start)}
+                          className="group absolute inset-x-0.5 z-[905] flex items-start gap-1 overflow-hidden rounded-[5px] border border-[var(--primary-fg)]/40 bg-[var(--primary)] px-1.5 py-0.5 text-left text-[12px] leading-tight font-semibold text-[var(--primary-fg)] shadow-[var(--elevation-lifted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]"
+                          style={{ top: (seg.start / 60) * HOUR_PX, height }}
+                        >
+                          {slot.busy || held ? (
+                            <span
+                              aria-hidden
+                              className={cn(
+                                'mt-1 size-2 shrink-0 rounded-full ring-1 ring-[var(--primary-fg)]',
+                                held ? 'bg-[var(--danger)]' : 'bg-[var(--warn)]',
+                              )}
+                            />
+                          ) : null}
+                          <span className="min-w-0 flex-1 truncate">{when}</span>
+                          <X
+                            aria-hidden
+                            className="mt-px size-3 shrink-0 opacity-60 group-hover:opacity-100"
+                          />
+                        </button>
+                      );
+                    })
+                  : null}
+
+                {placeholder ? (
                   <div
                     data-new-event=""
                     className="pointer-events-none absolute inset-x-0.5 z-[900] overflow-hidden rounded-[5px] border border-[var(--primary)] bg-[var(--primary)]/30 px-1.5 py-0.5 text-[12px] leading-tight font-medium text-[var(--fg)] shadow-[var(--elevation-lifted)]"
                     style={{
-                      top: (held.start / 60) * HOUR_PX,
+                      top: (placeholder.start / 60) * HOUR_PX,
                       height: Math.max(
                         MIN_CHIP_HEIGHT_PX,
-                        ((held.end - held.start) / 60) * HOUR_PX - 1,
+                        ((placeholder.end - placeholder.start) / 60) * HOUR_PX - 1,
                       ),
                     }}
                   >
@@ -786,7 +930,7 @@ export function TimeGrid({
                       ),
                     }}
                   >
-                    New event
+                    {selecting ? 'Pick this time' : 'New event'}
                   </div>
                 ) : null}
 
@@ -855,6 +999,7 @@ function FoldChip({
   timeZone,
   lookOf,
   onOpen,
+  inert = false,
 }: {
   events: RangeEvent[];
   top: number;
@@ -865,6 +1010,8 @@ function FoldChip({
   timeZone: string;
   lookOf: (event: RangeEvent) => EventLook;
   onOpen: (event: RangeEvent, element: HTMLElement) => void;
+  /** While picking: presses pass through to the grid. */
+  inert?: boolean;
 }) {
   const trigger = React.useRef<HTMLButtonElement>(null);
   const first = events[0];
@@ -877,7 +1024,11 @@ function FoldChip({
           type="button"
           data-event-fold=""
           aria-label={`${events.length} more events from ${shortTime(first.startsAt, timeZone)}`}
-          className="absolute z-[var(--chip-z)] flex flex-col items-center overflow-hidden rounded-[5px] border border-[var(--border-strong)] bg-[var(--bg-hover)] px-0.5 py-0.5 text-center text-[12px] leading-tight font-semibold whitespace-nowrap text-[var(--fg)] hover:bg-[var(--bg-raised)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]"
+          tabIndex={inert ? -1 : undefined}
+          className={cn(
+            'absolute z-[var(--chip-z)] flex flex-col items-center overflow-hidden rounded-[5px] border border-[var(--border-strong)] bg-[var(--bg-hover)] px-0.5 py-0.5 text-center text-[12px] leading-tight font-semibold whitespace-nowrap text-[var(--fg)] hover:bg-[var(--bg-raised)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus)]',
+            inert && 'pointer-events-none',
+          )}
           style={{
             top,
             height,
@@ -922,6 +1073,12 @@ function FoldChip({
       </PopoverContent>
     </Popover>
   );
+}
+
+/** A picked or held time's piece on one day, as minutes past its midnight. */
+function slotOnDay(slot: { start: string; end: string }, day: string, timeZone: string) {
+  const seg = segmentOnDay({ startsAt: slot.start, endsAt: slot.end }, day, timeZone);
+  return seg && seg.end > seg.start ? seg : null;
 }
 
 function minutesNow(nowMs: number, timeZone: string): number {

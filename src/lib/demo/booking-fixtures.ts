@@ -1,7 +1,7 @@
 import { readChatbotConfig } from '@/lib/booking/chatbot-config';
 import { DEFAULT_BOOKING_CONFIG, type BookingConfig } from '@/lib/booking/config';
 import { defaultOpenMonths } from '@/lib/booking/months';
-import type { BookingRequest, BookingSettingsRow } from '@/lib/types/domain';
+import type { BookingPick, BookingRequest, BookingSettingsRow } from '@/lib/types/domain';
 import { addDaysToKey, localDateKey, wallTimeToUtc } from '@/lib/util/time';
 import { DEMO_IDS } from './ids';
 
@@ -82,6 +82,8 @@ function at(dateKey: string, hour: number, minute = 0): string {
 export function demoBooking(now: Date): {
   booking_settings: BookingSettingsRow[];
   booking_requests: BookingRequest[];
+  /** Pick times: none until the demo user picks some on the Calendar. */
+  booking_picks: BookingPick[];
 } {
   const created = new Date(now.getTime() - 3 * 3_600_000).toISOString();
   const [callDay, coffeeDay] = nextMidweek(now, 16, 2);
@@ -105,6 +107,7 @@ export function demoBooking(now: Date): {
     updated_at: created,
   };
   return {
+    booking_picks: [],
     booking_settings: [
       {
         id: DEMO_BOOKING_SETTINGS_ID,

@@ -18,11 +18,14 @@ import {
 } from '@/lib/booking/config';
 import {
   bookingsBefore,
+  holdsBefore,
   openSlotsAndDays,
   slotProblem,
   type EngineInput,
   type LinkBooking,
+  type PickHold,
 } from '@/lib/booking/engine';
+import { pickStartBlocked } from '@/lib/booking/picks';
 import { openMonthsAhead } from '@/lib/booking/months';
 import {
   bookingEventDraft,
@@ -75,7 +78,7 @@ import type {
   UserProfile,
 } from '@/lib/types/domain';
 import { newId, sha256 } from '@/lib/util/hash';
-import { localDateKey } from '@/lib/util/time';
+import { addDaysToKey, localDateKey } from '@/lib/util/time';
 import { processWide } from '@/lib/util/process-state';
 import { err, ok, type Result } from '@/lib/util/result';
 import { createLinkEvent } from './booking-calendar';
@@ -492,10 +495,82 @@ function linkBookings(rows: readonly BookingRequest[], now: Date): LinkBooking[]
                 Boolean(r.event_id) &&
                 now.getTime() - Date.parse(r.updated_at) > ON_CALENDAR_AFTER_MS),
             createdAt: Date.parse(r.created_at),
+            ...(r.pick_id ? { picked: true } : {}),
           },
         ]
       : [],
   );
+}
+
+/**
+ * The times open picks hold (Pick times, booking_picks): open, holding, and
+ * not past their expiry at `now` (read at the time, no job). Without the
+ * table (its migration not run yet) there are none, and nothing else changes.
+ */
+export async function openPickHolds(
+  store: DataStore,
+  organizationId: string,
+  now: Date,
+): Promise<PickHold[]> {
+  try {
+    const rows = await store.list('booking_picks', organizationId, {
+      eq: { status: 'open', hold: true },
+      gt: { expires_at: now.toISOString() },
+    });
+    return rows.flatMap((r) =>
+      (Array.isArray(r.ranges) ? r.ranges : []).flatMap((range) => {
+        const start = Date.parse(range.start);
+        const end = Date.parse(range.end);
+        return Number.isFinite(start) && Number.isFinite(end) && end > start
+          ? [{ pickId: r.id, start, end, createdAt: Date.parse(r.created_at) }]
+          : [];
+      }),
+    );
+  } catch (error) {
+    if (isMissingTableError(error) || isMissingColumnError(error)) return [];
+    log.warn('Picked times could not be read; nothing is held', {
+      reason: error instanceof Error ? error.message : 'unknown',
+    });
+    return [];
+  }
+}
+
+/**
+ * Why a booking made from picked times can no longer keep its time, or
+ * null: the pick rules (busy time, the link's other time-holding bookings,
+ * other picks' holds; overlap only, no buffers, still ahead), never the
+ * public link's windows, notice or caps. For the held-time pass and the
+ * Approve guard.
+ */
+export function pickRowProblem(
+  input: EngineInput,
+  row: Pick<BookingRequest, 'id' | 'starts_at' | 'ends_at' | 'created_at' | 'pick_id'>,
+): string | null {
+  const start = Date.parse(row.starts_at ?? '');
+  const end = Date.parse(row.ends_at ?? '');
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 'That time could not be read.';
+  if (start <= input.now.getTime()) return 'That time has passed.';
+  const created = Date.parse(row.created_at);
+  const minutes = Math.round((end - start) / 60_000);
+  const blocked = pickStartBlocked(start, minutes, {
+    busy: input.busy,
+    bookings: bookingsBefore(input.linkBookings, { id: row.id, createdAt: created }),
+    holds: holdsBefore(input.pickHolds ?? [], created).filter((h) => h.pickId !== row.pick_id),
+  });
+  return blocked ? 'That time is not free any more.' : null;
+}
+
+/**
+ * How far the busy read must reach to re-check a booking from picked times:
+ * the day after its end (its UTC day: the host's zone is not known yet).
+ * Picks run up to 60 days ahead, past the months the link opens, and a
+ * read that stops short would see that day as free. Null for other rows.
+ */
+export function pickRowThrough(row: Pick<BookingRequest, 'pick_id' | 'ends_at'>): string | null {
+  if (!row.pick_id) return null;
+  const end = Date.parse(row.ends_at ?? '');
+  if (!Number.isFinite(end)) return null;
+  return addDaysToKey(localDateKey(new Date(end), 'UTC'), 1);
 }
 
 /**
@@ -518,6 +593,8 @@ export async function engineInputFor(
   deps: BookingDeps & {
     fresh?: boolean;
     ignore?: { id: string; start: number; end: number; onCalendar: boolean } | null;
+    /** Read busy time at least through this host-zone day (a pick's last range). */
+    through?: string | null;
   } = {},
 ): Promise<Result<{ input: EngineInput; source: CalendarSource; hostZone: string }>> {
   const now = deps.now ?? new Date();
@@ -540,6 +617,7 @@ export async function engineInputFor(
     config,
     now,
     fresh: deps.fresh === true,
+    through: deps.through ?? null,
   });
   if (!picture.ok) return picture;
   // The read saw the link's own events too: one deleted in Google is a
@@ -552,6 +630,7 @@ export async function engineInputFor(
   );
   let bookings = linkBookings(synced.rows, now);
   let busy = picture.value.busy;
+  const pickHolds = await openPickHolds(store, organizationId, now);
   const ignore = deps.ignore;
   if (ignore) {
     bookings = bookings.filter((b) => b.id !== ignore.id);
@@ -573,6 +652,7 @@ export async function engineInputFor(
       travelDays: picture.value.travelDays,
       inPersonPausedThrough: picture.value.inPersonPausedThrough,
       linkBookings: bookings,
+      pickHolds,
     },
   });
 }
@@ -762,12 +842,15 @@ export function publicBookingView(
             (context.withLink ?? false) && status === 'booked',
           )
         : null,
-    canReschedule: live && !started && moved < MAX_RESCHEDULES && context.linkOpen !== false,
+    // A booking from picked times is moved by email, never from its page.
+    canReschedule:
+      live && !started && moved < MAX_RESCHEDULES && context.linkOpen !== false && !row.pick_id,
     canCancel: live && !started,
     reschedulesLeft: Math.max(0, MAX_RESCHEDULES - moved),
     notice: context.notice ?? null,
     icsUid: `booking-${sha256(`ics:${row.id}`).slice(0, 24)}@copilot.tiptop.vc`,
     icsSequence: moved,
+    picked: Boolean(row.pick_id),
   };
 }
 
@@ -891,83 +974,14 @@ export async function submitBookingRequest(
   const kept = await oneAtATime(
     organizationId,
     async (): Promise<Result<{ row: BookingRequest; result: PublicBookingResult }>> => {
-      const brakes = dailyBrakes();
-      let fromAddress = 0;
-      const counts: number[] = [];
-      let recent: BookingRequest[] = [];
-      try {
-        for (const email of [input.email, ...guests]) {
-          counts.push(await openFor(store, organizationId, email, now));
-        }
-        if (context.ipHash) {
-          fromAddress =
-            (await store.count('booking_requests', organizationId, {
-              eq: { ip_hash: context.ipHash, status: 'pending', meeting_type: 'message' },
-            })) +
-            (await store.count('booking_requests', organizationId, {
-              eq: { ip_hash: context.ipHash },
-              in: { status: ['pending', 'held', 'booked'] },
-              neq: { meeting_type: 'message' },
-              gte: { starts_at: now.toISOString() },
-            }));
-        }
-        if (meeting) recent = await meetingsBookedSince(store, organizationId, now);
-      } catch (error) {
-        if (isMissingTableError(error)) return err('forbidden', CLOSED_MESSAGE);
-        throw error;
-      }
-      if ((counts[0] ?? 0) >= MAX_OPEN_PER_EMAIL) {
-        return err(
-          'rate_limited',
-          `You already have ${MAX_OPEN_PER_EMAIL} meetings or messages on this link. Change or cancel one from its own page first.`,
-        );
-      }
-      const busyGuest = guests.find((_, i) => (counts[i + 1] ?? 0) >= MAX_OPEN_PER_EMAIL);
-      if (busyGuest) {
-        return err(
-          'rate_limited',
-          `${busyGuest} already has ${MAX_OPEN_PER_EMAIL} meetings on this link. Leave them out this time.`,
-        );
-      }
-      if (fromAddress >= MAX_OPEN_PER_ADDRESS) {
-        return err(
-          'rate_limited',
-          'You already have several meetings or messages on this link. Change or cancel one from its own page first.',
-        );
-      }
-      if (meeting) {
-        // Every meeting of the last 24 hours, cancelled ones too: booking and
-        // cancelling in a loop counts every time.
-        if (recent.length >= brakes.holds) return err('rate_limited', BUSY_LINK_MESSAGE);
-        const appearances = (address: string) => {
-          const who = normalizeAddress(address);
-          return recent.filter(
-            (r) =>
-              normalizeAddress(r.email) === who ||
-              (r.guest_emails ?? []).some((g) => normalizeAddress(g) === who),
-          ).length;
-        };
-        if (appearances(input.email) >= brakes.perEmail) {
-          return err('rate_limited', BOOKED_A_LOT_MESSAGE);
-        }
-        const tiredGuest = guests.find((g) => appearances(g) >= brakes.perEmail);
-        if (tiredGuest) {
-          return err(
-            'rate_limited',
-            `${tiredGuest} has been invited a lot on this link today. Leave them out this time.`,
-          );
-        }
-        if (
-          context.ipHash &&
-          recent.filter((r) => r.ip_hash === context.ipHash).length >= brakes.perAddress
-        ) {
-          return err('rate_limited', BOOKED_A_LOT_MESSAGE);
-        }
-        const invited = recent.reduce((n, r) => n + (r.guest_emails?.length ?? 0), 0);
-        if (guests.length > 0 && invited + guests.length > brakes.guests) {
-          return err('rate_limited', GUEST_BUDGET_MESSAGE);
-        }
-      }
+      const braked = await bookingBrakes(store, organizationId, {
+        email: input.email,
+        guests,
+        ipHash: context.ipHash,
+        meeting,
+        now,
+      });
+      if (!braked.ok) return braked;
 
       const base = {
         id: newId(),
@@ -1161,11 +1175,106 @@ export async function submitBookingRequest(
 }
 
 /**
+ * The abuse brakes every booking passes, inside oneAtATime: open meetings
+ * and messages per email (booker and guests) and per sender, and for a
+ * meeting the link's 24-hour caps (bookings, per email, per sender, guest
+ * invitations). An error with the plain reason, or ok.
+ */
+export async function bookingBrakes(
+  store: DataStore,
+  organizationId: string,
+  who: {
+    email: string;
+    guests: readonly string[];
+    ipHash: string | null;
+    meeting: boolean;
+    now: Date;
+  },
+): Promise<Result<null>> {
+  const { guests, meeting, now } = who;
+  const brakes = dailyBrakes();
+  let fromAddress = 0;
+  const counts: number[] = [];
+  let recent: BookingRequest[] = [];
+  try {
+    for (const email of [who.email, ...guests]) {
+      counts.push(await openFor(store, organizationId, email, now));
+    }
+    if (who.ipHash) {
+      fromAddress =
+        (await store.count('booking_requests', organizationId, {
+          eq: { ip_hash: who.ipHash, status: 'pending', meeting_type: 'message' },
+        })) +
+        (await store.count('booking_requests', organizationId, {
+          eq: { ip_hash: who.ipHash },
+          in: { status: ['pending', 'held', 'booked'] },
+          neq: { meeting_type: 'message' },
+          gte: { starts_at: now.toISOString() },
+        }));
+    }
+    if (meeting) recent = await meetingsBookedSince(store, organizationId, now);
+  } catch (error) {
+    if (isMissingTableError(error)) return err('forbidden', CLOSED_MESSAGE);
+    throw error;
+  }
+  if ((counts[0] ?? 0) >= MAX_OPEN_PER_EMAIL) {
+    return err(
+      'rate_limited',
+      `You already have ${MAX_OPEN_PER_EMAIL} meetings or messages on this link. Change or cancel one from its own page first.`,
+    );
+  }
+  const busyGuest = guests.find((_, i) => (counts[i + 1] ?? 0) >= MAX_OPEN_PER_EMAIL);
+  if (busyGuest) {
+    return err(
+      'rate_limited',
+      `${busyGuest} already has ${MAX_OPEN_PER_EMAIL} meetings on this link. Leave them out this time.`,
+    );
+  }
+  if (fromAddress >= MAX_OPEN_PER_ADDRESS) {
+    return err(
+      'rate_limited',
+      'You already have several meetings or messages on this link. Change or cancel one from its own page first.',
+    );
+  }
+  if (meeting) {
+    // Every meeting of the last 24 hours, cancelled ones too: booking and
+    // cancelling in a loop counts every time.
+    if (recent.length >= brakes.holds) return err('rate_limited', BUSY_LINK_MESSAGE);
+    const appearances = (address: string) => {
+      const inbox = normalizeAddress(address);
+      return recent.filter(
+        (r) =>
+          normalizeAddress(r.email) === inbox ||
+          (r.guest_emails ?? []).some((g) => normalizeAddress(g) === inbox),
+      ).length;
+    };
+    if (appearances(who.email) >= brakes.perEmail) {
+      return err('rate_limited', BOOKED_A_LOT_MESSAGE);
+    }
+    const tiredGuest = guests.find((g) => appearances(g) >= brakes.perEmail);
+    if (tiredGuest) {
+      return err(
+        'rate_limited',
+        `${tiredGuest} has been invited a lot on this link today. Leave them out this time.`,
+      );
+    }
+    if (who.ipHash && recent.filter((r) => r.ip_hash === who.ipHash).length >= brakes.perAddress) {
+      return err('rate_limited', BOOKED_A_LOT_MESSAGE);
+    }
+    const invited = recent.reduce((n, r) => n + (r.guest_emails?.length ?? 0), 0);
+    if (guests.length > 0 && invited + guests.length > brakes.guests) {
+      return err('rate_limited', GUEST_BUDGET_MESSAGE);
+    }
+  }
+  return ok(null);
+}
+
+/**
  * The hourly per-address brake (in memory), charged only for a booking that
  * is about to be kept: booker and guests on separate keys, each address as
  * one inbox. An error when one of them has no room left.
  */
-function chargeEmailLimits(
+export function chargeEmailLimits(
   booker: string,
   guests: readonly string[],
 ): Result<{ row: BookingRequest; result: PublicBookingResult }> | null {
@@ -1230,7 +1339,7 @@ export async function mainCalendarFor(
  * event before its answer was lost, so the next try looks for it first and
  * there is never a second event. Mutates `row` to match what was stored.
  */
-async function bookOnCalendar(
+export async function bookOnCalendar(
   store: DataStore,
   link: OpenLink,
   row: BookingRequest,
@@ -1642,7 +1751,7 @@ async function approveUnlocked(
   const prepared = await engineInputFor(
     ctx.store,
     { organizationId: ctx.organizationId, config: settings.config },
-    { ...deps, source, now, fresh: true },
+    { ...deps, source, now, fresh: true, through: pickRowThrough(request) },
   );
   if (!prepared.ok) return prepared;
   const { hostZone, input } = prepared.value;
@@ -1650,19 +1759,24 @@ async function approveUnlocked(
   // First come, first served: checked against approved bookings and the
   // waiting requests asked for before this one, so the oldest of two that
   // overlap can always be approved and they never block each other.
-  const problem = slotProblem(
-    {
-      ...input,
-      askedAt: new Date(request.created_at),
-      linkBookings: bookingsBefore(input.linkBookings, {
-        id: request.id,
-        createdAt: Date.parse(request.created_at),
-      }),
-    },
-    { type: request.meeting_type, kind: request.kind },
-    request.starts_at,
-    request.id,
-  );
+  // Picks made after it was asked for never refuse it. A booking from picked
+  // times never waits for Approve, but if one ever does, the pick rules apply.
+  const problem = request.pick_id
+    ? pickRowProblem(input, request)
+    : slotProblem(
+        {
+          ...input,
+          askedAt: new Date(request.created_at),
+          linkBookings: bookingsBefore(input.linkBookings, {
+            id: request.id,
+            createdAt: Date.parse(request.created_at),
+          }),
+          pickHolds: holdsBefore(input.pickHolds ?? [], Date.parse(request.created_at)),
+        },
+        { type: request.meeting_type, kind: request.kind },
+        request.starts_at,
+        request.id,
+      );
   if (problem) {
     await auditRefusal(ctx, request, 'no_longer_free');
     return err(

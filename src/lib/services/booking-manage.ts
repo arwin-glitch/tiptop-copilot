@@ -16,7 +16,8 @@ import {
   type BookingConfig,
   type MeetingType,
 } from '@/lib/booking/config';
-import { bookingsBefore, openSlotsAndDays, slotProblem } from '@/lib/booking/engine';
+import { bookingsBefore, holdsBefore, openSlotsAndDays, slotProblem } from '@/lib/booking/engine';
+import { PICK_MOVE_MESSAGE } from '@/lib/booking/picks';
 import { openMonthsAhead } from '@/lib/booking/months';
 import { BOOKED_LINE } from '@/lib/booking/event';
 import { holdDue, holdNextTryAt, holdReasonForError } from '@/lib/booking/holds';
@@ -60,6 +61,8 @@ import {
   MAX_RESCHEDULES,
   oneAtATime,
   photoUrl,
+  pickRowProblem,
+  pickRowThrough,
   publicBookingView,
   readHost,
   resolveOpenLink,
@@ -312,6 +315,11 @@ export async function manageSlots(
   const endsAt = found.row.ends_at;
   const type: MeetingType = row.meeting_type === 'in_person' ? 'in_person' : 'call';
   const base = { type, kind: row.kind };
+  // Booked from picked times: moved by email, so nothing to move to here.
+  if (row.pick_id) {
+    const hostTimeZone = await principalTimeZone(store, found.organizationId);
+    return { ...base, slots: [], state: 'ok', hostTimeZone, message: PICK_MOVE_MESSAGE };
+  }
   const link = await resolveOpenLink(store, slug);
   if (!link.open) {
     return { ...base, slots: [], state: 'closed', hostTimeZone: 'UTC', message: CLOSED_MESSAGE };
@@ -384,6 +392,7 @@ export async function rescheduleByToken(
   const now = deps.now ?? new Date();
   const found = await bookingForToken(store, slug, token);
   if (!found) return err('not_found', NOT_YOURS);
+  if (found.row.pick_id) return err('forbidden', PICK_MOVE_MESSAGE);
   const link = await resolveOpenLink(store, slug);
   if (!link.open) {
     return err(
@@ -824,7 +833,7 @@ export async function placeHeldBookings(
       const prepared = await engineInputFor(
         store,
         { organizationId, config },
-        { ...deps, source, now, fresh: true },
+        { ...deps, source, now, fresh: true, through: pickRowThrough(row) },
       );
       if (!prepared.ok) {
         await failedTry(store, organizationId, row, 'calendar_unreachable', now, false, deps);
@@ -833,22 +842,28 @@ export async function placeHeldBookings(
       }
       const { input, hostZone } = prepared.value;
 
+      // A booking from picked times keeps to the pick rules (busy time
+      // only), never the public link's windows, notice or caps; and picks
+      // made after a booking was asked for never release it.
       const problem =
         Date.parse(row.starts_at) < now.getTime()
           ? 'That time has passed.'
-          : slotProblem(
-              {
-                ...input,
-                askedAt: new Date(row.created_at),
-                linkBookings: bookingsBefore(input.linkBookings, {
-                  id: row.id,
-                  createdAt: Date.parse(row.created_at),
-                }),
-              },
-              { type, kind: row.kind },
-              row.starts_at,
-              row.id,
-            );
+          : row.pick_id
+            ? pickRowProblem(input, row)
+            : slotProblem(
+                {
+                  ...input,
+                  askedAt: new Date(row.created_at),
+                  linkBookings: bookingsBefore(input.linkBookings, {
+                    id: row.id,
+                    createdAt: Date.parse(row.created_at),
+                  }),
+                  pickHolds: holdsBefore(input.pickHolds ?? [], Date.parse(row.created_at)),
+                },
+                { type, kind: row.kind },
+                row.starts_at,
+                row.id,
+              );
       if (problem) {
         const changed = await store.updateWhere(
           'booking_requests',

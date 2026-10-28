@@ -125,6 +125,8 @@ export interface PublicBookingView {
   icsUid: string;
   /** How many times it moved, for the file's SEQUENCE. */
   icsSequence: number;
+  /** Booked from times the host picked (Pick times): moved by email, not from its page. */
+  picked?: boolean;
 }
 
 /** The booking's own page: the host's card and the booking, or nothing at all. */

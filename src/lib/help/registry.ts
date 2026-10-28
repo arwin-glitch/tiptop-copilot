@@ -475,8 +475,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
       navStep('/calendar', 'Your calendar, live', 'Calendar shows the week like Google Calendar.'),
       {
         target: 'calendar-views',
-        title: 'Day, week or month',
-        body: 'Pick Day, Week or Month. Step back or ahead, jump to any date; Today brings you back.',
+        title: 'Views and Pick times',
+        body: 'Pick Day, Week or Month, or jump to a date. Pick times copies held open times and a booking link.',
         placement: 'bottom',
       },
       {

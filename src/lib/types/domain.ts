@@ -1458,6 +1458,44 @@ export interface BookingRequest {
   hold_reason?: BookingHoldReason | null;
   hold_attempts?: number;
   hold_next_try_at?: IsoDateTime | null;
+  /**
+   * The pick it was booked from ("Pick times",
+   * 20261028000000_booking_picks.sql): checked against busy time only, and
+   * not moved from its own page. Optional: absent before that migration.
+   */
+  pick_id?: Uuid | null;
+}
+
+/**
+ * Times the host picked and sent someone ("Pick times",
+ * supabase/migrations/20261028000000_booking_picks.sql). Only the SHA-256 of
+ * the link's token is kept for finding it; `token_sealed` holds the token
+ * encrypted (lib/security/crypto.ts sealToken, the pick id as AAD) so Copy
+ * again gives the same link. `ranges` are RFC 3339 instants, merged.
+ */
+export interface BookingPick {
+  id: Uuid;
+  organization_id: Uuid;
+  token_hash: string;
+  token_sealed: {
+    ciphertext: string;
+    iv: string;
+    authTag: string;
+    keyVersion: number;
+  } | null;
+  meeting_type: 'call' | 'in_person';
+  kind: 'coffee' | 'lunch' | 'dinner' | null;
+  duration_minutes: number;
+  ranges: { start: IsoDateTime; end: IsoDateTime }[];
+  recipient_name: string | null;
+  recipient_time_zone: string;
+  hold: boolean;
+  status: 'open' | 'used' | 'revoked';
+  booking_request_id: Uuid | null;
+  expires_at: IsoDateTime;
+  created_by: Uuid | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
 }
 
 /** Why a held booking is not on the calendar yet (D-078). */

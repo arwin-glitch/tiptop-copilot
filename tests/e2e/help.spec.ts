@@ -117,19 +117,23 @@ test.describe('help page', () => {
     expect(newBox && tourBox && newBox.y < tourBox.y).toBe(true);
 
     const days = main.getByRole('list', { name: /^New on / });
-    await expect(days.first()).toHaveAccessibleName('New on Thursday, Oct 22');
-    await expect(days.nth(1)).toHaveAccessibleName('New on Wednesday, Oct 21');
-    await expect(days.first().getByRole('link', { name: /^Events: event pages/ })).toHaveAttribute(
+    await expect(days.first()).toHaveAccessibleName('New on Wednesday, Oct 28');
+    await expect(days.first().getByRole('link', { name: /^Calendar: Pick times/ })).toHaveAttribute(
+      'href',
+      '/calendar',
+    );
+    const oct22 = days.nth(1);
+    await expect(oct22).toHaveAccessibleName('New on Thursday, Oct 22');
+    await expect(days.nth(2)).toHaveAccessibleName('New on Wednesday, Oct 21');
+    await expect(oct22.getByRole('link', { name: /^Events: event pages/ })).toHaveAttribute(
       'href',
       '/events',
     );
     await expect(
-      days.first().getByRole('link', { name: 'Take the Jobs & job board tour' }),
+      oct22.getByRole('link', { name: 'Take the Jobs & job board tour' }),
     ).toHaveAttribute('href', '/portfolio?tab=jobs&tour=jobs');
     // Kraken Notes is built but off: it says so.
-    await expect(days.first().getByRole('link', { name: /^Kraken Notes/ })).toContainText(
-      'Coming soon',
-    );
+    await expect(oct22.getByRole('link', { name: /^Kraken Notes/ })).toContainText('Coming soon');
   });
 
   test('Settings links to Help', async ({ page }) => {
@@ -196,9 +200,9 @@ test.describe('guided tours', () => {
     await page.goto('/calendar?tour=calendar');
     await expectStep(page, /Calendar · 1 of 6/i, 'Your calendar, live');
     await next(page).click();
-    await expectStep(page, /2 of 6/, 'Day, week or month');
+    await expectStep(page, /2 of 6/, 'Views and Pick times');
     await page.reload();
-    await expectStep(page, /2 of 6/, 'Day, week or month');
+    await expectStep(page, /2 of 6/, 'Views and Pick times');
     await next(page).click();
     await expectStep(page, /3 of 6/, 'The Key, and the bell');
     await card(page).getByRole('button', { name: 'End tour' }).click();

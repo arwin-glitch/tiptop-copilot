@@ -122,6 +122,11 @@ export async function busyPictureFor(
     now: Date;
     /** Past the calendar cache (every check that books, moves or places a time). */
     fresh?: boolean;
+    /**
+     * Read at least through this host-zone day too (Pick times: a picked
+     * range may lie past the link's last open month).
+     */
+    through?: string | null;
   },
 ): Promise<Result<BusyRead>> {
   const { source, hostZone, config, now } = options;
@@ -149,7 +154,8 @@ export async function busyPictureFor(
   // no month open, today and tomorrow only (the read still says whether the
   // calendar can be read).
   const from = localDateKey(now, hostZone);
-  const last = lastOpenDay(config, from) ?? from;
+  const open = lastOpenDay(config, from) ?? from;
+  const last = options.through && options.through > open ? options.through : open;
   const to = addDaysToKey(last, 2);
   const events: RangeEvent[] = [];
   let calendars: CalendarInfo[] = [];
@@ -195,7 +201,7 @@ export async function busyPictureFor(
       now,
       // The pause looks for his flight home as far as the link is open.
       horizonDays: Math.round(
-        (Date.parse(`${last}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000,
+        (Date.parse(`${open}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000,
       ),
     }),
   });

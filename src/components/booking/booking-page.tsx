@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/feedback';
 import { Input, Label, Select, Textarea } from '@/components/ui/form';
 import { KIND_LABEL } from '@/lib/booking/config';
+import { PICK_GONE_MESSAGE, type PublicPick } from '@/lib/booking/picks';
 import {
   CLOSED_MESSAGE,
   callOptionLabel,
@@ -48,7 +49,20 @@ import { GuestList } from './guest-list';
  * and the confirmation links the booking's own page, to reschedule or
  * cancel; with approve first on it waits as a request instead. The chatbot
  * can fill the form; the visitor still presses the button.
+ *
+ * With `picked` it is a pick's page (/meet/<slug>/p/<token>, Pick times):
+ * the meeting type is the host's, the times are only the starts inside his
+ * picked ranges (shown first in the zone he chose for the guest), it books
+ * at once, and there is no chatbot and no message.
  */
+
+/** A pick's page: its token, and the pick while it is open (else the closed card). */
+export interface PickedMode {
+  token: string;
+  pick: PublicPick | null;
+  /** The public booking link, while it is on: offered on the closed card. */
+  publicPath?: string | null;
+}
 
 const noSubscribe = () => () => {};
 const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || null;
@@ -68,15 +82,27 @@ function initials(name: string): string {
 export function BookingPage({
   data,
   remembered = null,
+  picked = null,
 }: {
   data: PublicBookingPage;
   /** The latest booking this device made on the link, while it is ahead (D-078). */
   remembered?: RememberedBooking | null;
+  /** A pick's page (Pick times), or null for the booking link itself. */
+  picked?: PickedMode | null;
 }) {
   const detected = React.useSyncExternalStore(noSubscribe, browserZone, serverNull);
   const [chosenZone, setChosenZone] = React.useState<string | null>(null);
-  const zone = chosenZone ?? (knownZone(detected) ? detected : data.hostTimeZone);
+  const zone =
+    chosenZone ??
+    (picked?.pick
+      ? picked.pick.recipientTimeZone
+      : knownZone(detected)
+        ? detected
+        : data.hostTimeZone);
 
+  if (picked && (!picked.pick || data.state !== 'open' || !data.host)) {
+    return <PickGone publicPath={picked.publicPath ?? null} />;
+  }
   if (data.state !== 'open' || !data.host) {
     return (
       <Shell firmName="TipTop Ventures">
@@ -91,12 +117,32 @@ export function BookingPage({
   return (
     <OpenPage
       data={data}
+      picked={picked?.pick ? { token: picked.token, pick: picked.pick } : null}
       remembered={remembered}
       visitorZone={zone}
       zonePicked={chosenZone !== null}
       onZone={setChosenZone}
       detectedZone={detected ?? null}
     />
+  );
+}
+
+/** A pick that is used, cancelled, past its time or unknown: the closed card. */
+function PickGone({ publicPath }: { publicPath: string | null }) {
+  return (
+    <Shell firmName="TipTop Ventures">
+      <section className="mx-auto max-w-lg py-16 text-center">
+        <CalendarCheck2 className="mx-auto size-8 text-[var(--accent)]" aria-hidden="true" />
+        <h1 className="mt-4 font-serif text-2xl font-semibold">{PICK_GONE_MESSAGE}</h1>
+        {publicPath ? (
+          <p className="mt-3 text-sm text-[var(--fg-muted)]">
+            <a href={publicPath} className="link-inline">
+              See other open times
+            </a>
+          </p>
+        ) : null}
+      </section>
+    </Shell>
   );
 }
 
@@ -213,6 +259,7 @@ function slotKey(form: Pick<BookingFormState, 'type' | 'kind'>): string | null {
 
 function OpenPage({
   data,
+  picked,
   remembered,
   visitorZone,
   zonePicked,
@@ -220,6 +267,8 @@ function OpenPage({
   detectedZone,
 }: {
   data: PublicBookingPage;
+  /** A pick's page: the type is locked and the times come from the pick. */
+  picked: { token: string; pick: PublicPick } | null;
   remembered: RememberedBooking | null;
   visitorZone: string;
   /** The visitor chose a zone in the picker: it wins everywhere. */
@@ -228,12 +277,20 @@ function OpenPage({
   detectedZone: string | null;
 }) {
   const host = data.host!;
-  const callLabel = callOptionLabel(data.callProvider);
-  const [form, setForm] = React.useState<BookingFormState>(EMPTY_FORM);
+  const pick = picked?.pick ?? null;
+  const callLabel = pick
+    ? `${pick.durationMinutes}-min ${data.callProvider || 'Google Meet'}`
+    : callOptionLabel(data.callProvider);
+  const startForm = React.useMemo(
+    () => (pick ? patchForm(EMPTY_FORM, { type: pick.type, kind: pick.kind }) : EMPTY_FORM),
+    [pick],
+  );
+  const [form, setForm] = React.useState<BookingFormState>(startForm);
   // In person the visitor will be in the host's city, so its times read in
   // the host's own clock (coffee at 8:30 AM, not 9:30 PM in Manila) unless
-  // they pick another zone. Calls stay in the visitor's zone.
-  const hostClock = form.type === 'in_person' && !zonePicked;
+  // they pick another zone. Calls stay in the visitor's zone. Picked times
+  // read in the zone the host chose for the guest.
+  const hostClock = !pick && form.type === 'in_person' && !zonePicked;
   const zone = hostClock ? data.hostTimeZone : visitorZone;
   const [slots, setSlots] = React.useState<Record<string, SlotState>>({});
   const [day, setDay] = React.useState<string | null>(null);
@@ -252,6 +309,8 @@ function OpenPage({
   const [latest, setLatest] = React.useState<RememberedBooking | null>(remembered);
   const submitLabel =
     form.type === 'message' ? 'Send message' : data.instant ? 'Book meeting' : 'Send request';
+  const base = `/api/meet/${encodeURIComponent(data.slug)}`;
+  const pickBase = picked ? `${base}/p/${encodeURIComponent(picked.token)}` : null;
   const [website, setWebsite] = React.useState('');
   const [reload, setReload] = React.useState(0);
   const formRef = React.useRef<HTMLDivElement>(null);
@@ -264,7 +323,7 @@ function OpenPage({
     const [type, kind] = key.split(':');
     const params = new URLSearchParams({ type: type! });
     if (kind) params.set('kind', kind);
-    fetch(`/api/meet/${encodeURIComponent(data.slug)}/slots?${params.toString()}`, {
+    fetch(pickBase ? `${pickBase}/slots` : `${base}/slots?${params.toString()}`, {
       cache: 'no-store',
     })
       .then(async (res) => {
@@ -295,7 +354,7 @@ function OpenPage({
     return () => {
       live = false;
     };
-  }, [key, data.slug, reload]);
+  }, [key, base, pickBase, reload]);
 
   const current: SlotState | null = key
     ? (slots[key] ?? { loading: true, data: null, error: null })
@@ -381,7 +440,7 @@ function OpenPage({
     }
     setSending(true);
     setProblem(null);
-    const res = await fetch(`/api/meet/${encodeURIComponent(data.slug)}/request`, {
+    const res = await fetch(pickBase ? `${pickBase}/request` : `${base}/request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -429,7 +488,7 @@ function OpenPage({
       return;
     }
     setProblem(json?.error?.message ?? 'That did not go through. Try again.');
-    if (json?.error?.code === 'conflict') {
+    if (json?.error?.code === 'conflict' || (pickBase && json?.error?.code === 'not_found')) {
       setForm((f) => ({ ...f, start: null }));
       setNextTimes(Array.isArray(json.next) ? json.next.slice(0, 3) : []);
       setReload((n) => n + 1);
@@ -444,10 +503,10 @@ function OpenPage({
           booking={sent.booking}
           manageUrl={sent.manageUrl}
           hostName={host.displayName}
-          visitorZone={sent.booking?.type === 'in_person' ? data.hostTimeZone : zone}
+          visitorZone={pick || sent.booking?.type !== 'in_person' ? zone : data.hostTimeZone}
           onAnother={() => {
             setSent(null);
-            setForm(EMPTY_FORM);
+            setForm(startForm);
             setReload((n) => n + 1);
           }}
         />
@@ -492,22 +551,37 @@ function OpenPage({
           >
             <div>
               <h2 id={`${uid}-title`} className="font-serif text-xl font-semibold">
-                {form.type === 'message'
-                  ? 'Leave a message'
-                  : data.instant
-                    ? 'Book a time'
-                    : 'Ask for a time'}
+                {pick
+                  ? 'Pick one of these times'
+                  : form.type === 'message'
+                    ? 'Leave a message'
+                    : data.instant
+                      ? 'Book a time'
+                      : 'Ask for a time'}
               </h2>
               <p className="mt-1 text-sm text-[var(--fg-muted)]">
-                {form.type === 'message'
-                  ? `Your message goes to ${host.displayName}.`
-                  : data.instant
-                    ? 'Pick what suits you. It goes straight onto the calendar, and the invitation comes by email.'
-                    : "Pick what suits you. You'll get a calendar invitation once the time is booked."}
+                {pick
+                  ? `${host.displayName} offered these times${pick.recipientName ? ` for ${pick.recipientName}` : ''}. Pick one and it goes straight onto the calendar.`
+                  : form.type === 'message'
+                    ? `Your message goes to ${host.displayName}.`
+                    : data.instant
+                      ? 'Pick what suits you. It goes straight onto the calendar, and the invitation comes by email.'
+                      : "Pick what suits you. You'll get a calendar invitation once the time is booked."}
               </p>
             </div>
 
-            {form.type !== 'message' ? (
+            {pick ? (
+              <p className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
+                {pick.type === 'call' ? (
+                  <Video className="size-4 text-[var(--accent)]" aria-hidden="true" />
+                ) : (
+                  <Coffee className="size-4 text-[var(--accent)]" aria-hidden="true" />
+                )}
+                {pick.type === 'call'
+                  ? callLabel
+                  : `${pick.durationMinutes} minutes in person${pick.kind ? `: ${KIND_LABEL[pick.kind].toLowerCase()}` : ''}`}
+              </p>
+            ) : form.type !== 'message' ? (
               <fieldset className="space-y-3">
                 <legend className="text-sm font-medium">What kind of meeting?</legend>
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -614,6 +688,8 @@ function OpenPage({
                   <Notice tone="warn">{current.error}</Notice>
                 ) : current?.data?.state === 'unavailable' ? (
                   <Notice tone="warn">{current.data.message}</Notice>
+                ) : pick && current?.data?.state === 'closed' ? (
+                  <Notice tone="warn">{current.data.message ?? PICK_GONE_MESSAGE}</Notice>
                 ) : list.length === 0 ? (
                   <Notice>
                     No open times for this right now. Try another kind of meeting, or leave a
@@ -812,7 +888,7 @@ function OpenPage({
               <Button type="submit" variant="primary" size="lg" loading={sending}>
                 {submitLabel}
               </Button>
-              {form.type === 'message' ? (
+              {pick ? null : form.type === 'message' ? (
                 <Button type="button" variant="link" onClick={() => update({ type: 'call' })}>
                   {data.instant ? 'Book a time instead' : 'Ask for a time instead'}
                 </Button>
@@ -851,7 +927,7 @@ function OpenPage({
         ) : null}
       </div>
 
-      {data.chatbot.enabled ? (
+      {data.chatbot.enabled && !pick ? (
         <BookingChat
           slug={data.slug}
           hostName={host.displayName}

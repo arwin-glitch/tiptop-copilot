@@ -16,6 +16,7 @@ import {
   type PublicSlot,
   type PublicSlots,
 } from '@/lib/booking/public';
+import { PICK_MOVE_MESSAGE } from '@/lib/booking/picks';
 import { CANCEL_NOTE_MAX } from '@/lib/booking/request';
 import { Shell } from './booking-page';
 import { AddToCalendarButton, BookingDetails, bookingZone } from './booking-details';
@@ -282,9 +283,11 @@ function Manage({
         ) : null}
         {mode === 'view' && live && !booking.canReschedule && booking.canCancel ? (
           <p className="mt-3 text-xs text-[var(--fg-subtle)]">
-            {booking.reschedulesLeft === 0
-              ? 'This meeting was moved as many times as it can be. Cancel it and book a new time if this one does not work.'
-              : 'Moving it is not open right now. You can still cancel.'}
+            {booking.picked
+              ? PICK_MOVE_MESSAGE
+              : booking.reschedulesLeft === 0
+                ? 'This meeting was moved as many times as it can be. Cancel it and book a new time if this one does not work.'
+                : 'Moving it is not open right now. You can still cancel.'}
           </p>
         ) : null}
       </section>

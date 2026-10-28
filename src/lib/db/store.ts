@@ -2,6 +2,7 @@ import type {
   AiUsageRecord,
   AuditEvent,
   BookingChatQuestion,
+  BookingPick,
   BookingRequest,
   BookingSettingsRow,
   CalendarEvent,
@@ -158,6 +159,8 @@ export interface TableMap {
   sync_runs: SyncRun;
   booking_settings: BookingSettingsRow;
   booking_requests: BookingRequest;
+  // Pick times (supabase/migrations/20261028000000_booking_picks.sql).
+  booking_picks: BookingPick;
   job_board_settings: JobBoardSettings;
   job_companies: JobCompany;
   job_postings: JobPosting;

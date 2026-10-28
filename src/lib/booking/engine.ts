@@ -45,6 +45,8 @@ import { furthestMonth, hoursFor, lastOpenDay, monthOf, plannerClosure } from '.
  *     for an in-person meeting, and 30 around any existing in-person meeting
  *     (travel), whichever is more. An opaque all-day entry makes the whole
  *     day busy.
+ *     Times an open pick holds (Pick times, PickHold) are kept clear with
+ *     the same buffer, but they are not meetings: no cap, no run.
  *  8. Back-to-back runs: when `stackSize` or more busy entries sit back to
  *     back (gaps under `stackGapMinutes`), nothing touches the run, nothing
  *     starts within `stackCooldownMinutes` after it ends, and nothing ends
@@ -88,6 +90,31 @@ export interface LinkBooking {
   onCalendar: boolean;
   /** When it was asked for (ms), for first come, first served on Approve. */
   createdAt?: number;
+  /**
+   * Booked from times the host picked himself ("Pick times"): it holds its
+   * time like any booking, but it is not one of the link's own, so it never
+   * counts toward `maxLinkBookingsPerDay`.
+   */
+  picked?: boolean;
+}
+
+/**
+ * Times the host picked and sent someone ("Pick times", booking_picks), held
+ * while that pick is open: the public link does not offer them (with its
+ * usual buffer), but they are not meetings. They count toward no cap and no
+ * back-to-back run, and their clash reads as plain busy time.
+ */
+export interface PickHold {
+  pickId: string;
+  start: number;
+  end: number;
+  /** When the pick was made (ms): a re-check of an older booking leaves newer holds out. */
+  createdAt?: number;
+}
+
+/** The holds made before a booking was asked for: newer picks never release an older booking. */
+export function holdsBefore(holds: readonly PickHold[], createdAt: number): PickHold[] {
+  return holds.filter((h) => (h.createdAt ?? 0) < createdAt);
 }
 
 /**
@@ -129,6 +156,10 @@ export interface EngineInput {
    * request was made, and the slot must still be at least an hour away.
    */
   askedAt?: Date | null;
+  /** Open picks' held times (see PickHold). Absent: none. */
+  pickHolds?: readonly PickHold[];
+  /** Leave this pick's own holds out (its guest is booking one of them). */
+  ignorePickId?: string | null;
 }
 
 export interface SlotQuery {
@@ -288,6 +319,8 @@ interface Prepared {
   pad: number;
   /** Busy blocks plus the link's own bookings that are not on the calendar yet. */
   blocks: BusyBlock[];
+  /** Open picks' held times: an overlap (with the buffer) only, never a meeting or a run. */
+  pickBlocks: { start: number; end: number }[];
   runs: Run[];
   linkPerDay: Map<string, number>;
   meetingsPerDay: Map<string, number>;
@@ -310,6 +343,7 @@ function prepare(input: EngineInput, query: SlotQuery, excludeId?: string): Prep
   const blocks = [...input.busy, ...pending];
   const linkPerDay = new Map<string, number>();
   for (const b of bookings) {
+    if (b.picked) continue;
     const key = localDateKey(new Date(b.start), hostZone);
     linkPerDay.set(key, (linkPerDay.get(key) ?? 0) + 1);
   }
@@ -327,6 +361,9 @@ function prepare(input: EngineInput, query: SlotQuery, excludeId?: string): Prep
     minutes: MEETING_MINUTES[query.type],
     pad,
     blocks,
+    pickBlocks: (input.pickHolds ?? [])
+      .filter((h) => !input.ignorePickId || h.pickId !== input.ignorePickId)
+      .map((h) => ({ start: h.start, end: h.end })),
     runs: backToBackRuns(blocks, config.stackGapMinutes, config.stackSize),
     linkPerDay,
     meetingsPerDay,
@@ -451,6 +488,13 @@ function problemFor(
       return block.link
         ? problem('waiting', WAITING_CLASH)
         : problem('busy', 'That time is too close to another meeting.');
+    }
+  }
+  // Times picked for someone else: kept clear with the link's own buffer,
+  // and said as busy time (never as a waiting request).
+  for (const hold of p.pickBlocks) {
+    if (start - pad < hold.end && end + pad > hold.start) {
+      return problem('busy', 'That time is too close to another meeting.');
     }
   }
 
