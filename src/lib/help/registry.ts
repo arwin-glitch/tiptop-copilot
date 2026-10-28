@@ -518,55 +518,6 @@ export const HELP_PAGES: readonly HelpPage[] = [
     ],
   },
   {
-    id: 'events',
-    name: 'Events',
-    href: '/events',
-    purpose: 'Event pages, guest lists and invites. Every email is a draft you send.',
-    subtabs: recordsSubtabs(EVENTS_LIBRARY_TABS),
-    // Library, then sections, then the theme, then publish and share: the
-    // four steps of making an event page (D-075).
-    steps: [
-      navStep(
-        '/events',
-        'Your event library',
-        'Events holds your event pages, guests and invites.',
-      ),
-      subtabStep(EVENTS_LIBRARY_TABS),
-      {
-        target: 'events-new',
-        title: 'Start from a starter',
-        body: 'A starter gives you the sections: cover, agenda, venue, RSVP. Change any of them later in Studio.',
-        placement: 'bottom',
-      },
-      {
-        target: 'events-new',
-        title: 'Pick a theme',
-        body: 'Choose the look next. In Studio, a special link lets an outside designer edit the design only.',
-        placement: 'bottom',
-      },
-      {
-        target: 'events-library',
-        title: 'Publish and share',
-        body: 'Open an event: Studio, guests, RSVPs, check-in and messages. Every email waits for your Send.',
-        placement: 'top',
-        grand: true,
-      },
-    ],
-    sketch: [
-      ...header('events-new'),
-      TABS_BAR,
-      { x: 1, y: 5.8, w: 7, h: 9.4, tone: 'card', pin: 'events-library' },
-      { x: 1.6, y: 6.4, w: 5.8, h: 3, tone: 'band' },
-      ...lines(1.8, 10.2, 5, 3),
-      { x: 8.5, y: 5.8, w: 7, h: 9.4, tone: 'card' },
-      { x: 9.1, y: 6.4, w: 5.8, h: 3, tone: 'gold' },
-      ...lines(9.3, 10.2, 5, 3),
-      { x: 16, y: 5.8, w: 7, h: 9.4, tone: 'card' },
-      { x: 16.6, y: 6.4, w: 5.8, h: 3, tone: 'band' },
-      ...lines(16.8, 10.2, 5, 3),
-    ],
-  },
-  {
     id: 'booking',
     name: 'Booking',
     href: BOOKING_PATH,
@@ -628,6 +579,55 @@ export const HELP_PAGES: readonly HelpPage[] = [
       { x: 16, y: 11.2, w: 7, h: 1.6, tone: 'card' },
       { x: 1, y: 13.4, w: 22, h: 1.2, tone: 'line', pin: 'booking-why' },
       { x: 1, y: 14.9, w: 22, h: 0.9, tone: 'chip', pin: 'booking-months' },
+    ],
+  },
+  {
+    id: 'events',
+    name: 'Events',
+    href: '/events',
+    purpose: 'Event pages, guest lists and invites. Every email is a draft you send.',
+    subtabs: recordsSubtabs(EVENTS_LIBRARY_TABS),
+    // Library, then sections, then the theme, then publish and share: the
+    // four steps of making an event page (D-075).
+    steps: [
+      navStep(
+        '/events',
+        'Your event library',
+        'Events holds your event pages, guests and invites.',
+      ),
+      subtabStep(EVENTS_LIBRARY_TABS),
+      {
+        target: 'events-new',
+        title: 'Start from a starter',
+        body: 'A starter gives you the sections: cover, agenda, venue, RSVP. Change any of them later in Studio.',
+        placement: 'bottom',
+      },
+      {
+        target: 'events-new',
+        title: 'Pick a theme',
+        body: 'Choose the look next. In Studio, a special link lets an outside designer edit the design only.',
+        placement: 'bottom',
+      },
+      {
+        target: 'events-library',
+        title: 'Publish and share',
+        body: 'Open an event: Studio, guests, RSVPs, check-in and messages. Every email waits for your Send.',
+        placement: 'top',
+        grand: true,
+      },
+    ],
+    sketch: [
+      ...header('events-new'),
+      TABS_BAR,
+      { x: 1, y: 5.8, w: 7, h: 9.4, tone: 'card', pin: 'events-library' },
+      { x: 1.6, y: 6.4, w: 5.8, h: 3, tone: 'band' },
+      ...lines(1.8, 10.2, 5, 3),
+      { x: 8.5, y: 5.8, w: 7, h: 9.4, tone: 'card' },
+      { x: 9.1, y: 6.4, w: 5.8, h: 3, tone: 'gold' },
+      ...lines(9.3, 10.2, 5, 3),
+      { x: 16, y: 5.8, w: 7, h: 9.4, tone: 'card' },
+      { x: 16.6, y: 6.4, w: 5.8, h: 3, tone: 'band' },
+      ...lines(16.8, 10.2, 5, 3),
     ],
   },
   {

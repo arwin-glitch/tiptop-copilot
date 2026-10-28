@@ -29,10 +29,11 @@ describe('the main navigation', () => {
     expect(sectionLabel('/ask')).toBe('Ask Arwin');
   });
 
-  it('has an Events entry in the Working group, after Calendar (D-075)', () => {
+  it('has an Events entry in the Working group, after Booking (D-075)', () => {
     const hrefs = NAV_ITEMS.map((i) => i.href);
     expect(hrefs).toContain('/events');
-    expect(hrefs.indexOf('/events')).toBe(hrefs.indexOf('/calendar') + 1);
+    expect(hrefs.indexOf('/booking')).toBe(hrefs.indexOf('/calendar') + 1);
+    expect(hrefs.indexOf('/events')).toBe(hrefs.indexOf('/booking') + 1);
     expect(NAV_ITEMS.find((i) => i.href === '/events')?.label).toBe('Events');
   });
 
