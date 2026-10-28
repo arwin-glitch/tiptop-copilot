@@ -4385,3 +4385,49 @@ has any booked time."
   changed.
 - The in-process retry timer is lost on a restart; the alerts job and every
   visit pick the hold up again.
+
+### D-079 — Ask Arwin on the perks site: the app answers a different site, on its own capped key
+
+Arwin asked for the app's Ask Arwin on perks.tiptop.vc (28 Oct 2026). The
+perks site is a static Netlify site deployed by hand-dragged zip, and manual
+zip deploys never build or deploy Netlify Functions — so the site itself
+cannot host the model call. The app hosts it instead, at
+`/api/public/perks-ask`: the one route that answers a browser on another
+origin, with explicit CORS for exactly `https://perks.tiptop.vc`.
+
+**Its own key, not the app's.** The route runs on `PERKS_ASK_ANTHROPIC_KEY`,
+never `ANTHROPIC_API_KEY`, so the app's deliberate no-in-app-key stance
+(D-078) is untouched and the public widget's worst case is the separate
+key's own Anthropic workspace spend cap. Without the key the route answers
+`not_configured` and the widget on the perks site shows its email-Arwin
+fallback — the site degrades, never breaks.
+
+**What the bot can know.** Only what the perks site already publishes: the
+route fetches the site's own `perks-data.js`, runs it in an empty VM sandbox,
+and re-validates every field into capped plain strings (ten-minute cache,
+last good copy on a bad fetch). Redemption contacts, links and codes are
+deliberately dropped — those unlock on the perk page behind the founder
+email gate, and the prompt says to point people there. The whole prompt is
+written to be safe to extract.
+
+**The public contract admits only user turns** — client-supplied assistant
+turns are the classic persona-priming vector, so the request schema rejects
+them outright rather than sanitising them. Brakes: ten a minute per address
+plus a shared ceiling of 120 per ten minutes, checked before charging; the
+Origin check is hygiene, not authentication, and the comment on the route
+says so. The persona is public-facing and separate from `ASK_ARWIN_PERSONA`
+(which assumes Nick is asking, and is SHA-pinned for the routines); it keeps
+the house rules — calls itself Arwin, honest it's an AI when sincerely
+asked, spaced hyphens, never invents a number or a partner, no "best perk"
+crowning, short answers that link the perk pages.
+
+**Known limits.**
+
+- The brakes are in-process: they reset on restart and do not span
+  instances. The hard ceiling is the key's workspace spend cap, which is
+  set in the Anthropic Console, not in this repository.
+- The system prompt is rebuilt per cold start and cached with one
+  `cache_control` breakpoint, so follow-ups read the directory digest at a
+  tenth of the input price; the digest itself is ~25K tokens.
+- A scripted caller can forge the Origin header; the route's protections
+  are the brakes and the capped key, by design.
