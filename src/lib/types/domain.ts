@@ -1554,6 +1554,8 @@ export interface PerksChatQuestion {
   status: 'pending' | 'answered' | 'expired';
   /** A keyed hash of the visitor's address, for the per-address cap; never the address. */
   ip_hash: string | null;
+  /** SHA-256 hex of the one-time answer key; cleared once the answer settles. */
+  answer_key_hash: string | null;
   created_at: IsoDateTime;
   answered_at: IsoDateTime | null;
 }

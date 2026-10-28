@@ -406,10 +406,14 @@ export function jobsChatRelayProblem(e: AppEnv = env()): string | null {
 }
 
 /**
- * The same relay-safety rule for the perks assistant (D-079): a stranger's
- * question from perks.tiptop.vc reaches that routine, so its answers must
- * come back through a channel no other relay reads, posted by an account no
- * other relay trusts (D-078's reasoning, unchanged).
+ * The same kind of check for the perks assistant's relay (PERKS_CHAT_*,
+ * D-079). A stranger's question from perks.tiptop.vc reaches that routine,
+ * so its answers come back through a private channel of its own: never one
+ * the Ask, deal, booking or jobs readers use. The routine may post as the
+ * same Slack account the other routines use: every answer must carry the
+ * one-time key fired with its question (only its hash is kept), so a post
+ * without it settles nothing, and the other readers never read this channel
+ * (the job-board assistant's design).
  */
 export function perksChatRelayProblem(e: AppEnv = env()): string | null {
   const channel = e.perksChatRelayChannelId;
@@ -426,10 +430,6 @@ export function perksChatRelayProblem(e: AppEnv = env()): string | null {
   }
   if (e.perksChatPosterIds.length === 0) {
     return 'PERKS_CHAT_POSTER_IDS is not set: name the Slack account the routine posts as.';
-  }
-  const trustedElsewhere = new Set([...e.taskRelayPosterIds, ...e.dealRelayPosterIds]);
-  if (e.perksChatPosterIds.some((id) => trustedElsewhere.has(id))) {
-    return 'PERKS_CHAT_POSTER_IDS names an account another relay trusts: connect the routine to Slack as an account no other relay trusts.';
   }
   return null;
 }

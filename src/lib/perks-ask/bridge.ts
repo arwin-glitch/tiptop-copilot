@@ -6,7 +6,8 @@ import { rateLimit, rateLimitHasRoom } from '@/lib/security/limits';
 import { log } from '@/lib/security/redact';
 import { fireRoutineWithText, readRelayChannel } from '@/lib/services/ask-routine';
 import type { PerksChatQuestion } from '@/lib/types/domain';
-import { newId } from '@/lib/util/hash';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { newId, sha256 } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
 import { unwrapSlackText } from '@/lib/util/slack-text';
 
@@ -17,14 +18,17 @@ import { unwrapSlackText } from '@/lib/util/slack-text';
  *
  * A visitor question from perks.tiptop.vc is kept in `perks_chat_questions`
  * and sent to the perks assistant routine (a Claude routine with no data
- * connectors, docs/PERKS_CHAT_ROUTINE.md) through its API trigger, as
- * `PERKS_QUESTION_V1` and one backticked JSON object: the question id and
- * the visitor's recent questions, nothing else - the routine fetches the
- * public perks catalog itself. The routine posts `PERKS_ANSWER_V1` and
- * `{question_id, answer}` to its relay channel; while the widget polls, the
- * app reads that channel, takes only posts from the configured posters,
- * matches the id, and makes the answer plain before anyone sees it
- * (`sanitisePerksAnswer`: text only, perks.tiptop.vc links only).
+ * connectors beyond one Slack post, docs/PERKS_CHAT_ROUTINE.md) through its
+ * API trigger, as `PERKS_QUESTION_V1` and one backticked JSON object: the
+ * question id, a one-time answer key and the visitor's recent questions,
+ * nothing else - the routine fetches the public perks catalog itself. The
+ * routine posts `PERKS_ANSWER_V1` and `{question_id, answer_key, answer}` to
+ * its relay channel; while the widget polls, the app reads that channel,
+ * takes only posts from the configured posters, verifies the one-time key
+ * timing-safely (only its SHA-256 is kept, cleared once used - so the
+ * routine MAY post as the same Slack account the other routines use, the
+ * job-board assistant's design), and makes the answer plain before anyone
+ * sees it (`sanitisePerksAnswer`: text only, perks.tiptop.vc links only).
  *
  * Off unless PERKS_CHAT_FIRE_URL, PERKS_CHAT_TOKEN,
  * PERKS_CHAT_RELAY_CHANNEL_ID, PERKS_CHAT_POSTER_IDS and the relay's read
@@ -85,8 +89,28 @@ export function cleanQuestion(text: unknown): string {
 
 export interface PerksQuestionPayload {
   question_id: string;
+  /** The question's one-time answer key, which the routine must echo. */
+  answer_key: string;
   /** The visitor's recent questions, oldest first; the last is the live one. */
   questions: string[];
+}
+
+/* ------------------------------------------------------------- answer key */
+
+/** 24 random bytes as base64url: 32 characters. */
+const ANSWER_KEY = /^[A-Za-z0-9_-]{32}$/;
+const KEY_HASH = /^[0-9a-f]{64}$/;
+
+/** A new one-time answer key and the SHA-256 hex kept in its place. */
+export function newPerksAnswerKey(): { key: string; hash: string } {
+  const key = randomBytes(24).toString('base64url');
+  return { key, hash: sha256(key) };
+}
+
+/** Whether a relayed key is the one whose hash was kept, compared in constant time. */
+export function perksAnswerKeyMatches(key: string | null, storedHash: string | null): boolean {
+  if (!key || !ANSWER_KEY.test(key) || !storedHash || !KEY_HASH.test(storedHash)) return false;
+  return timingSafeEqual(Buffer.from(sha256(key), 'hex'), Buffer.from(storedHash, 'hex'));
 }
 
 /** What the routine is fired with: the marker line, then one backticked JSON object. */
@@ -95,6 +119,7 @@ export function perksQuestionText(payload: PerksQuestionPayload): string {
     PERKS_QUESTION_MARKER,
     `\`${JSON.stringify({
       question_id: payload.question_id,
+      answer_key: payload.answer_key,
       questions: payload.questions
         .map((q) => cleanQuestion(q))
         .filter(Boolean)
@@ -107,6 +132,8 @@ export function perksQuestionText(payload: PerksQuestionPayload): string {
 
 export interface RelayedPerksAnswer {
   question_id: string;
+  /** The one-time key the routine echoed, or null when it sent none. */
+  answer_key: string | null;
   answer: string;
 }
 
@@ -132,6 +159,7 @@ export function parsePerksAnswer(rawText: unknown): RelayedPerksAnswer | null {
     }
     return {
       question_id: payload.question_id.toLowerCase(),
+      answer_key: typeof payload.answer_key === 'string' ? payload.answer_key.slice(0, 64) : null,
       answer: payload.answer.slice(0, 4000),
     };
   } catch {
@@ -282,6 +310,7 @@ export async function askPerksRoutine(store: DataStore, input: AskInput): Promis
       ]);
       if (fromAddress >= PER_ADDRESS_PER_DAY) return unavailable('address_cap');
       if (today >= PER_DAY_TOTAL) return unavailable('daily_cap');
+      const answerKey = newPerksAnswerKey();
       const row: PerksChatQuestion = {
         id: newId(),
         organization_id: input.organizationId,
@@ -289,11 +318,12 @@ export async function askPerksRoutine(store: DataStore, input: AskInput): Promis
         answer: null,
         status: 'pending',
         ip_hash: input.ipHash,
+        answer_key_hash: answerKey.hash,
         created_at: now.toISOString(),
         answered_at: null,
       };
       await store.insert('perks_chat_questions', row);
-      return row;
+      return { row, key: answerKey.key };
     } catch (error) {
       if (isMissingTableError(error)) return unavailable('no_table');
       log.warn('Perks question could not be kept', {
@@ -306,7 +336,11 @@ export async function askPerksRoutine(store: DataStore, input: AskInput): Promis
 
   const fired = await fireRoutineWithText(
     { url: e.perksChatFireUrl, token: e.perksChatToken },
-    perksQuestionText({ question_id: kept.id, questions: input.questions }),
+    perksQuestionText({
+      question_id: kept.row.id,
+      answer_key: kept.key,
+      questions: input.questions,
+    }),
     input.fetchImpl,
     'Perks assistant routine',
   );
@@ -315,13 +349,13 @@ export async function askPerksRoutine(store: DataStore, input: AskInput): Promis
       .updateWhere(
         'perks_chat_questions',
         input.organizationId,
-        { eq: { id: kept.id, status: 'pending' } },
-        { status: 'expired' },
+        { eq: { id: kept.row.id, status: 'pending' } },
+        { status: 'expired', answer_key_hash: null },
       )
       .catch(() => []);
     return unavailable('fire_failed');
   }
-  return { kind: 'pending', id: kept.id };
+  return { kind: 'pending', id: kept.row.id };
 }
 
 /* ----------------------------------------------------------------- settle */
@@ -346,7 +380,7 @@ async function expireStale(store: DataStore, organizationId: string, now: Date):
       eq: { status: 'pending' },
       lt: { created_at: new Date(now.getTime() - EXPIRE_AFTER_MS).toISOString() },
     },
-    { status: 'expired' },
+    { status: 'expired', answer_key_hash: null },
   );
 }
 
@@ -424,15 +458,30 @@ export async function settlePerksAnswers(
         if (!(typeof message.user === 'string' && posters.includes(message.user))) continue;
         const relayed = parsePerksAnswer(message.text);
         if (!relayed || !waiting.has(relayed.question_id)) continue;
+        const question = pending.find((p) => p.id.toLowerCase() === relayed.question_id)!;
+        // The one-time key makes a shared poster safe: a post without the key
+        // fired with this exact question settles nothing. Compared by hash,
+        // timing-safely; the hash is cleared below so the key works once.
+        const storedHash = question.answer_key_hash ?? null;
+        if (!storedHash || !perksAnswerKeyMatches(relayed.answer_key, storedHash)) {
+          log.warn('Perks answer ignored: one-time key missing or wrong', {
+            key: relayed.answer_key ? 'wrong' : 'missing',
+          });
+          continue;
+        }
         const answer = sanitisePerksAnswer(relayed.answer);
-        const id = pending.find((p) => p.id.toLowerCase() === relayed.question_id)!.id;
         const changed = await store.updateWhere(
           'perks_chat_questions',
           organizationId,
-          { eq: { id, status: 'pending' } },
+          { eq: { id: question.id, status: 'pending', answer_key_hash: storedHash } },
           answer
-            ? { status: 'answered', answer, answered_at: now.toISOString() }
-            : { status: 'expired', answered_at: now.toISOString() },
+            ? {
+                status: 'answered',
+                answer,
+                answer_key_hash: null,
+                answered_at: now.toISOString(),
+              }
+            : { status: 'expired', answer_key_hash: null, answered_at: now.toISOString() },
         );
         waiting.delete(relayed.question_id);
         if (changed.length > 0) settled++;
@@ -488,7 +537,7 @@ export async function readPerksAnswer(
           'perks_chat_questions',
           organizationId,
           { eq: { id: row.id, status: 'pending' } },
-          { status: 'expired' },
+          { status: 'expired', answer_key_hash: null },
         )
         .catch(() => []);
       return { status: 'expired', answer: null };

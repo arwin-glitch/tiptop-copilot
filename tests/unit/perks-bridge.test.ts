@@ -2,27 +2,48 @@ import { describe, expect, it } from 'vitest';
 import {
   ANSWER_MAX_CHARS,
   cleanQuestion,
+  newPerksAnswerKey,
   parsePerksAnswer,
+  perksAnswerKeyMatches,
   perksQuestionText,
   sanitisePerksAnswer,
 } from '@/lib/perks-ask/bridge';
 
 /** Entirely fictional ids and content, as everywhere in this repository. */
 const QID = '12345678-1234-1234-1234-123456789abc';
+const KEY = 'A'.repeat(32);
 
 describe('perksQuestionText', () => {
-  it('fences the payload and strips what could break the fence', () => {
+  it('fences the payload, carries the key, and strips what could break the fence', () => {
     const text = perksQuestionText({
       question_id: QID,
+      answer_key: KEY,
       questions: ['What`s <the> deal?', 'And NVIDIA?'],
     });
     expect(text.startsWith('PERKS_QUESTION_V1\n`')).toBe(true);
     expect(text.endsWith('`')).toBe(true);
     const inner = text.slice(text.indexOf('`') + 1, text.lastIndexOf('`'));
-    const payload = JSON.parse(inner) as { question_id: string; questions: string[] };
+    const payload = JSON.parse(inner) as {
+      question_id: string;
+      answer_key: string;
+      questions: string[];
+    };
     expect(payload.question_id).toBe(QID);
+    expect(payload.answer_key).toBe(KEY);
     expect(payload.questions[0]).not.toContain('`');
     expect(payload.questions[0]).not.toContain('<');
+  });
+});
+
+describe('the one-time answer key', () => {
+  it('matches only its own hash, and tolerates junk', () => {
+    const { key, hash } = newPerksAnswerKey();
+    expect(perksAnswerKeyMatches(key, hash)).toBe(true);
+    expect(perksAnswerKeyMatches(newPerksAnswerKey().key, hash)).toBe(false);
+    expect(perksAnswerKeyMatches(null, hash)).toBe(false);
+    expect(perksAnswerKeyMatches(key, null)).toBe(false);
+    expect(perksAnswerKeyMatches('short', hash)).toBe(false);
+    expect(perksAnswerKeyMatches(key, 'not-a-hash')).toBe(false);
   });
 });
 
@@ -34,11 +55,18 @@ describe('cleanQuestion', () => {
 });
 
 describe('parsePerksAnswer', () => {
-  it('reads a well-formed relay post', () => {
+  it('reads a well-formed relay post, key included', () => {
     const parsed = parsePerksAnswer(
-      `PERKS_ANSWER_V1\n\`${JSON.stringify({ question_id: QID, answer: 'Credits galore.' })}\``,
+      `PERKS_ANSWER_V1\n\`${JSON.stringify({ question_id: QID, answer_key: KEY, answer: 'Credits galore.' })}\``,
     );
-    expect(parsed).toEqual({ question_id: QID, answer: 'Credits galore.' });
+    expect(parsed).toEqual({ question_id: QID, answer_key: KEY, answer: 'Credits galore.' });
+  });
+
+  it('reads a post without a key as key null (settle then refuses it)', () => {
+    const parsed = parsePerksAnswer(
+      `PERKS_ANSWER_V1\n\`${JSON.stringify({ question_id: QID, answer: 'No key here.' })}\``,
+    );
+    expect(parsed?.answer_key).toBeNull();
   });
 
   it('rejects the wrong marker, a bad id, and junk', () => {

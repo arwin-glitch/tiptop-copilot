@@ -40,24 +40,24 @@ questions per visitor address a day, 300 a day in total.
 
 ## Set it up (once)
 
-**Why its own channel and its own Slack account.** A stranger's question
-reaches this routine, so a prompt-injected answer must never be able to pass
-for a task, a briefing or a queued email. Same rule as the booking assistant
-(D-078): the routine posts to a private channel **no other relay reads**, as a
-Slack account **no other relay trusts**, and the app refuses to use the bridge
-otherwise (`perksChatRelayProblem` says why). The booking assistant's dedicated
-Slack account may be reused here — the two are the same trust class (public
-visitor bots) — but keep the channels separate.
+**Why its own channel.** A stranger's question reaches this routine, so a
+prompt-injected answer must never be able to pass for a task, a briefing or a
+queued email. Two defences (the job-board assistant's design): the routine
+posts to a private channel **no other relay reads**, and every answer must
+echo the **one-time key** fired with its question — only the key's SHA-256 is
+kept, compared timing-safely, cleared once used — so a post without the right
+key settles nothing. With both in place the routine MAY post as the same
+Slack account the other routines use; no second account is needed
+(`perksChatRelayProblem` still refuses shared channels).
 
 1. In Slack, create a private channel used by nothing else (for example
    `#perks-assistant-relay`) and invite the app's relay reader to it (it reads
    with `ASK_RELAY_SLACK_TOKEN`, which needs `groups:history`). Note its ID.
 2. On claude.ai, create a new routine named **Perks assistant**.
-3. **Connectors:** add Slack only, connected as a Slack user that **no other
-   relay trusts** (the booking assistant's account is fine; never the account
-   the task, deal or Ask routines post as), and allow only
-   `slack_send_message` plus web fetching. Remove every other connector.
-   **No repository.** No schedule: it runs only when fired.
+3. **Connectors:** Slack only — the usual account is fine thanks to the
+   one-time key — allowing only `slack_send_message`, plus web fetching.
+   Remove every other connector. **No repository.** No schedule: it runs
+   only when fired.
 4. Paste the prompt below as the routine's instructions, with
    `<RELAY_CHANNEL_ID>` replaced by the channel's ID from step 1.
 5. Open the routine's **API trigger**, copy the URL (ends in `/fire`) and the
@@ -66,8 +66,8 @@ visitor bots) — but keep the channels separate.
    - `PERKS_CHAT_TOKEN`: the trigger token;
    - `PERKS_CHAT_RELAY_CHANNEL_ID`: the channel from step 1 (no default; never
      the Ask, deal or booking relay channel);
-   - `PERKS_CHAT_POSTER_IDS`: the Slack user ID from step 3 (no default; never
-     one of `TASK_RELAY_POSTER_IDS` or `DEAL_RELAY_POSTER_IDS`).
+   - `PERKS_CHAT_POSTER_IDS`: the Slack user ID the routine posts as (the
+     usual account is fine — the one-time key is what makes a post count).
 
    `ASK_RELAY_SLACK_TOKEN` must already be set (it is, for Ask and the Today
    page).
@@ -88,7 +88,7 @@ this exact shape (the last question is the live one; earlier ones are only
 context):
 
 PERKS_QUESTION_V1
-`{"question_id": "<uuid>", "questions": ["<earlier>", "<the live question>"]}`
+`{"question_id": "<uuid>", "answer_key": "<32 characters>", "questions": ["<earlier>", "<the live question>"]}`
 
 Read the JSON between the backticks. Then fetch the perks catalog from
 https://perks.tiptop.vc/perks-data.js - that file is your ONLY source of
@@ -124,7 +124,7 @@ Your ONLY action is one slack_send_message to channel <RELAY_CHANNEL_ID>, with
 exactly these two lines and nothing else:
 
 PERKS_ANSWER_V1
-`{"question_id": "<the same question_id>", "answer": "<your answer>"}`
+`{"question_id": "<the same question_id>", "answer_key": "<the same answer_key>", "answer": "<your answer>"}`
 
 The second line is valid JSON inside single backticks: escape any double quote
 in the answer as \" and keep the answer on one line. Do not post anything
@@ -136,7 +136,8 @@ JSON.
 ## What the app does with the answer
 
 - Reads its own channel only while a question waits, at most every 3 seconds,
-  and only posts from `PERKS_CHAT_POSTER_IDS`.
+  and only posts from `PERKS_CHAT_POSTER_IDS` whose `answer_key` matches the
+  stored hash (timing-safe; the hash is cleared so a key works once).
 - `sanitisePerksAnswer` makes the answer plain before anyone sees it: text
   only, at most 900 characters, no markup, no phone numbers, no email but
   arwin@tiptop.vc, and no link except `perks.tiptop.vc` pages.
