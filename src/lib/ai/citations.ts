@@ -121,6 +121,7 @@ export function citationHref(citation: Citation): string | null {
     case 'note':
       return `/deals/${encodeURIComponent(citation.ref_id)}?tab=notes`;
     case 'web':
+    case 'help':
       return citation.url;
   }
 }
@@ -156,6 +157,8 @@ export function citationProvenance(citation: Citation): string {
       return 'Portfolio update';
     case 'note':
       return 'Nick’s note';
+    case 'help':
+      return 'Kraken Help';
     case 'web':
       return [
         citation.publisher ?? 'Public web',

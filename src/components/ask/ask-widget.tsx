@@ -44,6 +44,7 @@ import { ignoreTitleBarPointer } from '@/lib/desktop/title-bar';
 import type { ChatMessage } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
 import { snippet } from '@/lib/util/text';
+import { APP_GUIDE_SUGGESTIONS } from '@/lib/help/app-guide';
 import {
   ASK_OPEN_EVENT,
   ASK_PANEL_EVENT,
@@ -1139,7 +1140,11 @@ export function AskWidget({
                         aiAvailable={aiAvailable}
                         dealName={dealName}
                         suggestions={
-                          !aiAvailable ? [] : dealName ? DEAL_SUGGESTIONS : suggestions.slice(0, 4)
+                          !aiAvailable
+                            ? []
+                            : dealName
+                              ? DEAL_SUGGESTIONS
+                              : [...suggestions.slice(0, 3), ...APP_GUIDE_SUGGESTIONS]
                         }
                         onSuggestion={(s) => submit(s)}
                       />
@@ -1154,6 +1159,9 @@ export function AskWidget({
                               message={message}
                               compact
                               pendingHint={PENDING_HINT}
+                              // A page button or "Show me" leaves the chat for
+                              // the page, and a tour waits while it is open.
+                              onNavigate={() => setOpen(false)}
                             />
                           </li>
                         ))}

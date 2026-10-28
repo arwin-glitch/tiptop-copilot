@@ -72,6 +72,10 @@ export default async function HelpPage() {
         subtitle="What every page holds and where to click. Tap Show me and the page walks you through itself."
       />
 
+      <p className="mb-4 text-sm text-[var(--fg-muted)]">
+        Tip: you can also ask Arwin where anything is.
+      </p>
+
       <WhatsNew />
 
       <section

@@ -1,5 +1,7 @@
 import 'server-only';
+import { env } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
+import { appGuideHints, isAppQuestion, type AppGuideHint } from '@/lib/help/app-guide';
 import type { ChatMessage } from '@/lib/types/domain';
 import { stripSlackLinks } from '@/lib/util/slack-text';
 
@@ -35,6 +37,24 @@ export interface PendingBridgeQuestion {
    * them from the app. Questions asked on the Ask page have none.
    */
   context?: AskBridgeContext;
+  /**
+   * Up to three places in Kraken the question may be about ("where is the job
+   * board?"), from the Help registry, with links on the app's own origin. Only
+   * present for a question about the app itself that matched well; questions
+   * about mail, deals or meetings carry no app_guide, so their payload is as it
+   * was. The routine uses it to say where things are and never invents a page.
+   */
+  app_guide?: AppGuideHint[];
+}
+
+/**
+ * The `app_guide` field for a question: spread into a payload, it adds the
+ * field only for a question about Kraken itself with a good Help match.
+ */
+export function appGuideField(question: string): { app_guide?: AppGuideHint[] } {
+  if (!isAppQuestion(question)) return {};
+  const hints = appGuideHints(question, { origin: env().appUrl });
+  return hints.length > 0 ? { app_guide: hints } : {};
 }
 
 /**
@@ -144,6 +164,7 @@ export async function listPendingBridgeQuestions(
       question: question.content,
       created_at: p.created_at,
       history: conversationBefore(threadMessages, idx - 1),
+      ...appGuideField(question.content),
     });
   }
   return results;
