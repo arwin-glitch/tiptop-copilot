@@ -4431,3 +4431,17 @@ crowning, short answers that link the perk pages.
   tenth of the input price; the digest itself is ~25K tokens.
 - A scripted caller can forge the Origin header; the route's protections
   are the brakes and the capped key, by design.
+
+**Amended the same day — free by default.** Arwin's one-line review ("arwin
+ai is free") pointed at the house pattern the first cut had skipped: both
+existing public assistants answer on his own Claude plan, not on a paid API
+key. The bridge is now the default path: the question waits in
+`perks_chat_questions`, the perks assistant routine (no connectors beyond one
+Slack post; it fetches the public catalog itself — docs/PERKS_CHAT_ROUTINE.md)
+answers into its own relay channel, and the widget polls `./answer` for up to
+two and a half minutes. The relay-safety rule is D-078's, enforced by
+`perksChatRelayProblem`: a channel no other relay reads, a poster no other
+relay trusts. Caps counted from the table: 20 per address a day, 300 a day in
+total; answers sanitised to plain text where only perks.tiptop.vc links and
+arwin@tiptop.vc survive. `PERKS_ASK_ANTHROPIC_KEY` stays as an optional paid
+fast lane; with neither configured the widget keeps its email fallback.

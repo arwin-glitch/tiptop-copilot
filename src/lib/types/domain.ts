@@ -1544,6 +1544,20 @@ export interface BookingChatQuestion {
   answered_at: IsoDateTime | null;
 }
 
+/** A perks-site Ask Arwin question (D-079): same bridge shape as the booking
+ * assistant's, with the perks widget's larger caps (question 500, answer 900). */
+export interface PerksChatQuestion {
+  id: Uuid;
+  organization_id: Uuid;
+  question: string;
+  answer: string | null;
+  status: 'pending' | 'answered' | 'expired';
+  /** A keyed hash of the visitor's address, for the per-address cap; never the address. */
+  ip_hash: string | null;
+  created_at: IsoDateTime;
+  answered_at: IsoDateTime | null;
+}
+
 /**
  * A token a Claude client (a claude.ai custom connector, a Claude Code session,
  * a cloud routine) uses to read the CRM through the MCP endpoint. Only the

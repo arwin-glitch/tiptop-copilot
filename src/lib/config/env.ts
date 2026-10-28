@@ -204,6 +204,11 @@ export interface AppEnv {
    * relay poster: the routine posts as an account no other relay trusts.
    */
   bookingChatPosterIds: readonly string[];
+  /** The perks-site Ask Arwin routine (D-079): its API trigger and relay. */
+  perksChatFireUrl: string | undefined;
+  perksChatToken: string | undefined;
+  perksChatRelayChannelId: string | undefined;
+  perksChatPosterIds: readonly string[];
   /**
    * The public job board assistant's optional AI answers ("Ask Arwin" on the
    * board), on Arwin's own Claude plan like the booking assistant: no API
@@ -400,6 +405,35 @@ export function jobsChatRelayProblem(e: AppEnv = env()): string | null {
   return null;
 }
 
+/**
+ * The same relay-safety rule for the perks assistant (D-079): a stranger's
+ * question from perks.tiptop.vc reaches that routine, so its answers must
+ * come back through a channel no other relay reads, posted by an account no
+ * other relay trusts (D-078's reasoning, unchanged).
+ */
+export function perksChatRelayProblem(e: AppEnv = env()): string | null {
+  const channel = e.perksChatRelayChannelId;
+  if (!channel) {
+    return 'PERKS_CHAT_RELAY_CHANNEL_ID is not set: give the routine a private channel of its own.';
+  }
+  const others = [
+    ...trustedRelayChannels(e),
+    e.bookingChatRelayChannelId,
+    e.jobsChatRelayChannelId,
+  ].filter((c): c is string => Boolean(c));
+  if (others.includes(channel)) {
+    return 'PERKS_CHAT_RELAY_CHANNEL_ID is a channel another relay reads: give the routine a private channel of its own.';
+  }
+  if (e.perksChatPosterIds.length === 0) {
+    return 'PERKS_CHAT_POSTER_IDS is not set: name the Slack account the routine posts as.';
+  }
+  const trustedElsewhere = new Set([...e.taskRelayPosterIds, ...e.dealRelayPosterIds]);
+  if (e.perksChatPosterIds.some((id) => trustedElsewhere.has(id))) {
+    return 'PERKS_CHAT_POSTER_IDS names an account another relay trusts: connect the routine to Slack as an account no other relay trusts.';
+  }
+  return null;
+}
+
 /** The account the task routines post as, so nothing has to be set on Render. */
 export const DEFAULT_TASK_RELAY_POSTER_IDS: readonly string[] = ['U0AKEG0Q389'];
 
@@ -480,6 +514,13 @@ export function env(): AppEnv {
     jobsChatToken: str('JOBS_CHAT_TOKEN'),
     jobsChatRelayChannelId: str('JOBS_CHAT_RELAY_CHANNEL_ID'),
     jobsChatPosterIds: (str('JOBS_CHAT_POSTER_IDS') ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean),
+    perksChatFireUrl: str('PERKS_CHAT_FIRE_URL'),
+    perksChatToken: str('PERKS_CHAT_TOKEN'),
+    perksChatRelayChannelId: str('PERKS_CHAT_RELAY_CHANNEL_ID'),
+    perksChatPosterIds: (str('PERKS_CHAT_POSTER_IDS') ?? '')
       .split(',')
       .map((id) => id.trim())
       .filter(Boolean),

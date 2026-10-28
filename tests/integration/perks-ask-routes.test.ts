@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetEnvCache } from '@/lib/config/env';
 import { resetPerksKnowledgeCache } from '@/lib/perks-ask/knowledge';
 import * as service from '@/lib/perks-ask/service';
 import { resetLimiters } from '@/lib/security/limits';
@@ -28,6 +29,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  resetEnvCache();
   await harness.dispose();
 });
 
@@ -49,7 +52,10 @@ const question = (content = 'What do founders get from the cloud perks?') => ({
   messages: [{ role: 'user', content }],
 });
 
+/** Put the route on its paid fast lane with a fictional key, and script the answer. */
 function answered(reply = 'Plenty - see the perk pages.') {
+  vi.stubEnv('PERKS_ASK_ANTHROPIC_KEY', 'sk-ant-test-not-a-real-key');
+  resetEnvCache();
   return vi.spyOn(service, 'answerPerksQuestion').mockResolvedValue({ ok: true, value: { reply } });
 }
 
@@ -150,13 +156,54 @@ describe('brakes', () => {
   });
 });
 
-describe('without the widget key', () => {
-  it('says not_configured rather than touching the app key', async () => {
-    // The harness runs demo mode with no PERKS_ASK_ANTHROPIC_KEY set, so the
-    // real service refuses before any model call.
+describe('with neither the key nor the routine set up', () => {
+  it('says not_configured rather than touching any key', async () => {
     const res = await askRoute(post(question()));
     expect(res.status).toBe(503);
     const json = (await res.json()) as { ok: boolean; error: { code: string } };
     expect(json.error.code).toBe('not_configured');
+  });
+});
+
+describe('the free path (the routine bridge)', () => {
+  function bridgeEnv() {
+    vi.stubEnv('PERKS_CHAT_FIRE_URL', 'https://routine.example/fire');
+    vi.stubEnv('PERKS_CHAT_TOKEN', 'fictional-routine-token');
+    vi.stubEnv('PERKS_CHAT_RELAY_CHANNEL_ID', 'C000FICTION1');
+    vi.stubEnv('PERKS_CHAT_POSTER_IDS', 'U000FICTION1');
+    vi.stubEnv('ASK_RELAY_SLACK_TOKEN', 'xoxb-fictional');
+    resetEnvCache();
+  }
+
+  it('parks the question and hands back an id to poll', async () => {
+    bridgeEnv();
+    const bridge = await import('@/lib/services/ask-routine');
+    const fire = vi.spyOn(bridge, 'fireRoutineWithText').mockResolvedValue(true);
+    const res = await askRoute(post(question('Do we get cloud credits?')));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; pending?: boolean; id?: string };
+    expect(json.pending).toBe(true);
+    expect(json.id).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(fire).toHaveBeenCalledOnce();
+    const sentText = fire.mock.calls[0]![1];
+    expect(sentText).toContain('PERKS_QUESTION_V1');
+    expect(sentText).toContain('Do we get cloud credits?');
+
+    const { GET: answerRoute } = await import('@/app/api/public/perks-ask/answer/route');
+    const pollReq = new NextRequest(`${APP_ORIGIN}/api/public/perks-ask/answer?id=${json.id}`, {
+      headers: { 'x-forwarded-for': '203.0.113.7', host: 'copilot.example', origin: PERKS_ORIGIN },
+    });
+    const poll = await answerRoute(pollReq);
+    expect(poll.status).toBe(200);
+    const view = (await poll.json()) as { status: string };
+    expect(view.status).toBe('pending');
+  });
+
+  it('reports not_configured when the routine cannot be fired', async () => {
+    bridgeEnv();
+    const bridge = await import('@/lib/services/ask-routine');
+    vi.spyOn(bridge, 'fireRoutineWithText').mockResolvedValue(false);
+    const res = await askRoute(post(question()));
+    expect(res.status).toBe(503);
   });
 });

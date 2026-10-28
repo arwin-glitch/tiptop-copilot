@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { env } from '@/lib/config/env';
 import { pruneBookingQuestionsForAll } from '@/lib/booking/chat-bridge';
 import { pruneJobsQuestionsForAll } from '@/lib/jobs-board/chat-bridge';
+import { prunePerksQuestionsForAll } from '@/lib/perks-ask/bridge';
 import { getStore } from '@/lib/runtime';
 import { afterResponse } from '@/lib/notes/background';
 import { placeHeldBookingsForAll } from '@/lib/services/booking-manage';
@@ -58,6 +59,7 @@ export async function GET(request: NextRequest) {
   await placeHeldBookingsForAll(getStore()).catch(() => null);
   if (scope === 'all') await pruneBookingQuestionsForAll(getStore()).catch(() => null);
   if (scope === 'all') await pruneJobsQuestionsForAll(getStore()).catch(() => null);
+  if (scope === 'all') await prunePerksQuestionsForAll(getStore()).catch(() => null);
   const outbox = await buildOutbox(getStore(), new Date(), scope);
   // Kraken Notes (D-076): this job calls every minute through the day, so
   // Arwin's notes (and the tasks from them) land within minutes even when no

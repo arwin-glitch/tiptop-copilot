@@ -10,13 +10,17 @@ throughout.
 
 ## [Unreleased]
 
-- **Ask Arwin reaches the perks site** (D-079). A new public route,
-  `/api/public/perks-ask`, answers the chat widget on perks.tiptop.vc from
-  the perks catalog that site already publishes - CORS for exactly that
-  origin, user-turns-only input, per-address and shared brakes, and its own
-  `PERKS_ASK_ANTHROPIC_KEY` (a separate capped workspace key; without it the
-  route answers not_configured and the widget falls back to email). No data
-  change.
+- **Ask Arwin reaches the perks site, free by default** (D-079). A new public
+  route, `/api/public/perks-ask`, answers the chat widget on perks.tiptop.vc
+  from the perks catalog that site already publishes - CORS for exactly that
+  origin, user-turns-only input, per-address and shared brakes. The default
+  path is the perks assistant routine on Arwin's own Claude plan (nothing
+  billed, docs/PERKS_CHAT_ROUTINE.md): the question waits in the new
+  `perks_chat_questions` table, the routine posts the answer to its own
+  relay, and the widget polls `./answer` - same rails and relay-safety rule
+  as the booking assistant. `PERKS_ASK_ANTHROPIC_KEY` (a separate capped
+  workspace key) remains an optional paid fast lane. With neither set up the
+  widget keeps its email-Arwin fallback. One additive migration.
 
 - **Help catches up with Oct 21-22.** Help opens with **What's new**: the
   latest changes, one line each, by day, newest first, each opening its page

@@ -138,6 +138,20 @@ services:
       - key: PERKS_ASK_ANTHROPIC_KEY
         sync: false
 
+      # The perks assistant routine (D-079, the FREE default path): the Ask
+      # Arwin widget's questions go to a Claude routine on Arwin's own plan -
+      # no API key, nothing billed. Its API trigger and its relay channel;
+      # posters is the comma-separated Slack user ids allowed to answer.
+      # All unset: the widget shows its email-Arwin fallback.
+      - key: PERKS_CHAT_FIRE_URL
+        sync: false
+      - key: PERKS_CHAT_TOKEN
+        sync: false
+      - key: PERKS_CHAT_RELAY_CHANNEL_ID
+        sync: false
+      - key: PERKS_CHAT_POSTER_IDS
+        sync: false
+
       # Authenticates the scheduled daily job. Without it that endpoint rejects
       # every caller, which is the correct failure.
       - key: CRON_SECRET

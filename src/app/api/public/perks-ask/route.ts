@@ -2,8 +2,13 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { publicDone, publicFail, readJson } from '@/lib/booking/route-helpers';
+import { env } from '@/lib/config/env';
+import { soleOrganizationId } from '@/lib/db/tenancy';
+import { askPerksRoutine } from '@/lib/perks-ask/bridge';
 import { answerPerksQuestion } from '@/lib/perks-ask/service';
-import { addressKey } from '@/lib/security/client-address';
+import { getStore } from '@/lib/runtime';
+import { addressKey, clientAddress } from '@/lib/security/client-address';
+import { hashIp } from '@/lib/security/crypto';
 import { rateLimit, rateLimitHasRoom } from '@/lib/security/limits';
 
 export const dynamic = 'force-dynamic';
@@ -89,7 +94,38 @@ export async function POST(request: NextRequest) {
     questions.shift();
   }
 
-  const answer = await answerPerksQuestion(questions);
-  if (!answer.ok) return withCors(publicFail(answer.error));
-  return withCors(publicDone({ reply: answer.value.reply }));
+  // The optional paid fast lane: only when its own capped key is set.
+  if (env().perksAskAnthropicKey) {
+    const answer = await answerPerksQuestion(questions);
+    if (!answer.ok) return withCors(publicFail(answer.error));
+    return withCors(publicDone({ reply: answer.value.reply }));
+  }
+
+  // The free path (the default): the perks assistant routine on Arwin's own
+  // Claude plan, nothing billed. The widget polls ./answer for the result.
+  const organizationId = await soleOrganizationId('perks-ask');
+  if (!organizationId) {
+    return withCors(
+      publicFail({ code: 'not_configured', message: 'Ask Arwin is not switched on yet.' }),
+    );
+  }
+  const outcome = await askPerksRoutine(getStore(), {
+    organizationId,
+    questions,
+    ipHash: hashIp(clientAddress(request.headers)),
+  });
+  if (outcome.kind === 'pending') {
+    return withCors(publicDone({ pending: true, id: outcome.id }));
+  }
+  if (outcome.reason === 'address_cap' || outcome.reason === 'daily_cap') {
+    return withCors(
+      publicFail({
+        code: 'rate_limited',
+        message: 'Ask Arwin has hit its daily limit - email arwin@tiptop.vc instead.',
+      }),
+    );
+  }
+  return withCors(
+    publicFail({ code: 'not_configured', message: 'Ask Arwin is not switched on yet.' }),
+  );
 }

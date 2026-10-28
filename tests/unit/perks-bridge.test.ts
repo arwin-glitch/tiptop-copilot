@@ -1,0 +1,76 @@
+import { describe, expect, it } from 'vitest';
+import {
+  ANSWER_MAX_CHARS,
+  cleanQuestion,
+  parsePerksAnswer,
+  perksQuestionText,
+  sanitisePerksAnswer,
+} from '@/lib/perks-ask/bridge';
+
+/** Entirely fictional ids and content, as everywhere in this repository. */
+const QID = '12345678-1234-1234-1234-123456789abc';
+
+describe('perksQuestionText', () => {
+  it('fences the payload and strips what could break the fence', () => {
+    const text = perksQuestionText({
+      question_id: QID,
+      questions: ['What`s <the> deal?', 'And NVIDIA?'],
+    });
+    expect(text.startsWith('PERKS_QUESTION_V1\n`')).toBe(true);
+    expect(text.endsWith('`')).toBe(true);
+    const inner = text.slice(text.indexOf('`') + 1, text.lastIndexOf('`'));
+    const payload = JSON.parse(inner) as { question_id: string; questions: string[] };
+    expect(payload.question_id).toBe(QID);
+    expect(payload.questions[0]).not.toContain('`');
+    expect(payload.questions[0]).not.toContain('<');
+  });
+});
+
+describe('cleanQuestion', () => {
+  it('caps and flattens', () => {
+    expect(cleanQuestion(`a\u0000b\n\nc${'x'.repeat(600)}`).length).toBeLessThanOrEqual(500);
+    expect(cleanQuestion(42)).toBe('');
+  });
+});
+
+describe('parsePerksAnswer', () => {
+  it('reads a well-formed relay post', () => {
+    const parsed = parsePerksAnswer(
+      `PERKS_ANSWER_V1\n\`${JSON.stringify({ question_id: QID, answer: 'Credits galore.' })}\``,
+    );
+    expect(parsed).toEqual({ question_id: QID, answer: 'Credits galore.' });
+  });
+
+  it('rejects the wrong marker, a bad id, and junk', () => {
+    expect(parsePerksAnswer('BOOKING_ANSWER_V1\n`{}`')).toBeNull();
+    expect(
+      parsePerksAnswer(`PERKS_ANSWER_V1\n\`${JSON.stringify({ question_id: 'x', answer: 'y' })}\``),
+    ).toBeNull();
+    expect(parsePerksAnswer('PERKS_ANSWER_V1 no fence')).toBeNull();
+  });
+});
+
+describe('sanitisePerksAnswer', () => {
+  it('keeps perks links and arwin@tiptop.vc, strips everything else', () => {
+    const out = sanitisePerksAnswer(
+      'See https://perks.tiptop.vc/perk.html?p=acme-cloud or email arwin@tiptop.vc - ' +
+        'not pat@evil.example, not https://evil.example/steal, not +1 (555) 010-0199.',
+    );
+    expect(out).toContain('https://perks.tiptop.vc/perk.html?p=acme-cloud');
+    expect(out).toContain('arwin@tiptop.vc');
+    expect(out).not.toContain('evil.example');
+    expect(out).not.toContain('555');
+  });
+
+  it('flattens markup and caps the length', () => {
+    const out = sanitisePerksAnswer(`**Bold** \`code\` <b>tag</b> ${'word '.repeat(400)}`);
+    expect(out).not.toContain('*');
+    expect(out).not.toContain('<');
+    expect((out ?? '').length).toBeLessThanOrEqual(ANSWER_MAX_CHARS);
+  });
+
+  it('returns null when nothing is left', () => {
+    expect(sanitisePerksAnswer('https://evil.example/only-a-link')).toBeNull();
+    expect(sanitisePerksAnswer(42)).toBeNull();
+  });
+});
