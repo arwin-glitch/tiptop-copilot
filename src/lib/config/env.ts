@@ -52,6 +52,8 @@ export interface AppEnv {
   supabaseStorageBucket: string;
 
   anthropicApiKey: string | undefined;
+  /** The public perks-site widget's own capped key (D-079), never the app's. */
+  perksAskAnthropicKey: string | undefined;
   modelFast: string;
   modelDeep: string;
   aiEffortDeep: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -367,6 +369,7 @@ export function env(): AppEnv {
     supabaseStorageBucket: str('SUPABASE_STORAGE_BUCKET') ?? 'deal-attachments',
 
     anthropicApiKey: str('ANTHROPIC_API_KEY'),
+    perksAskAnthropicKey: str('PERKS_ASK_ANTHROPIC_KEY'),
     modelFast: str('AI_MODEL_FAST') ?? 'claude-haiku-4-5',
     modelDeep: str('AI_MODEL_DEEP') ?? 'claude-opus-5-5',
     aiEffortDeep: (['low', 'medium', 'high', 'xhigh', 'max'] as const).includes(

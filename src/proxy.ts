@@ -85,6 +85,12 @@ const PUBLIC_PATHS = [
   // Gmail/Calendar/Slack access reads and answers pending Ask questions here,
   // and carries no session cookie either.
   '/api/integrations/ask-bridge/webhook',
+  // The Ask Arwin widget on perks.tiptop.vc (D-079): browser calls from a
+  // different site, so no session cookie and the OPTIONS preflight must pass
+  // too. The route allows only the perks origin, brakes per address and
+  // globally, and runs on its own capped key. Listed as the exact path, not
+  // /api/public, so nothing added there later is public by accident.
+  '/api/public/perks-ask',
   // Same shared-secret contract; the watchers that notice a new investment
   // post it here (add-only) and carry no session cookie either.
   '/api/integrations/portfolio/webhook',

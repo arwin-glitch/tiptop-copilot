@@ -129,6 +129,15 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
 
+      # The public Ask Arwin widget on perks.tiptop.vc (D-079). Deliberately a
+      # SEPARATE key from ANTHROPIC_API_KEY: put it in its own Anthropic
+      # workspace with a monthly spend cap, so the public widget's worst case
+      # is that cap and a flood there never rate-limits the app's own AI.
+      # Without it the widget's route answers not_configured (503) and the
+      # widget shows its email-Arwin fallback.
+      - key: PERKS_ASK_ANTHROPIC_KEY
+        sync: false
+
       # Authenticates the scheduled daily job. Without it that endpoint rejects
       # every caller, which is the correct failure.
       - key: CRON_SECRET
