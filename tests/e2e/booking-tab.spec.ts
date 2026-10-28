@@ -114,8 +114,8 @@ test('Booking sits in the menu after Calendar and opens on Overview', async ({ p
   const nav = page.getByRole('navigation', { name: 'Main' }).first();
   const working = nav.getByRole('list', { name: 'Working' });
   const links = await working.getByRole('link').allTextContents();
-  // After Calendar, with Events (D-075) between them.
-  expect(links.map((t) => t.trim()).slice(-3)).toEqual(['Calendar', 'Events', 'Booking']);
+  // Right after Calendar, with Events (D-075) last.
+  expect(links.map((t) => t.trim()).slice(-3)).toEqual(['Calendar', 'Booking', 'Events']);
   await working.getByRole('link', { name: 'Booking', exact: true }).click();
   await page.waitForURL(/\/booking$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Booking' })).toBeVisible();

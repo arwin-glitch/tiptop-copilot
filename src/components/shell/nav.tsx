@@ -58,10 +58,10 @@ export const NAV_ITEMS = [
   { href: '/deals', label: 'Deals', icon: Target },
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/calendar', label: 'Calendar', icon: CalendarClock },
-  // Event pages, guests and their invites (D-075).
-  { href: '/events', label: 'Events', icon: Ticket },
   // Nick's booking link: its months, bookings, profile and rules (D-078).
   { href: '/booking', label: 'Booking', icon: CalendarCheck },
+  // Event pages, guests and their invites (D-075).
+  { href: '/events', label: 'Events', icon: Ticket },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { href: '/fund-ii', label: 'Fund II', icon: Landmark },
   { href: '/meetings', label: 'Meetings', icon: CalendarDays },
@@ -88,8 +88,8 @@ const GROUPS: { label: string; hrefs: string[] }[] = [
       '/deals',
       '/inbox',
       '/calendar',
-      '/events',
       '/booking',
+      '/events',
     ],
   },
   {
