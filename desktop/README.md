@@ -130,12 +130,90 @@ which no installed app trusts, so a branch build can never be installed as
 an update. Only a tag's `sign` job uses the real key (see "The update
 signing key").
 
-The icons are generated during the build from `public/icon.svg`, so none are
-committed. The Mac build runs `cargo test` on the navigation rules, the zoom
+The icons are generated during the build from the Kraken crest,
+`public/brand/kraken-logo.png` (`tauri icon` takes the 1024px PNG), so none
+are committed; the web app's icons come from the same file
+(`scripts/generate-icons.mjs`). The Mac build runs `cargo test` on the
+navigation rules, the zoom
 steps, the update timing, the top bar commands' input checks, the desktop
 alerts rules (tokens, alert pages, timing, Kraken's answers, the saved
-file) and the capability files first. Windows-only code is checked by the
+file), the old-name rename on a Mac (`rename.rs`) and the capability files
+first. Windows-only code is checked by the
 Windows build compiling it, not by tests.
+
+## Names: what may change and what never does
+
+Three different names, and only the first is for people:
+
+- **The display name**, `productName` in `tauri.conf.json`: "TipTop Kraken"
+  from 0.5.0 (up to 0.4.2, "TipTop Copilot"). It names the Mac bundle
+  (`TipTop Kraken.app`, the Dock, the menu bar), the Windows install folder
+  (`%LOCALAPPDATA%\TipTop Kraken`), the Start menu and desktop shortcuts, the
+  Add or Remove Programs entry, and the versioned files a build makes
+  (`TipTop Kraken_0.5.0_x64-setup.exe`, `TipTop Kraken_0.5.0_universal.dmg`,
+  `TipTop Kraken.app.tar.gz`). The window titles, menus and tray say
+  TipTop Kraken in code. Changing it again needs a migration like 0.5.0's.
+- **The release file names**, fixed forever: `TipTop-Copilot-mac.dmg`,
+  `TipTop-Copilot-windows-setup.exe`, `TipTop-Copilot-mac.app.tar.gz`, their
+  `.sig` files and `latest.json`. The workflow copies the built files to
+  these names, `src/lib/desktop/shared.ts` asks for them, and every installed
+  app's update path depends on them (`tests/unit/desktop-asset-names.test.ts`).
+  So the file people download on Windows is still
+  `TipTop-Copilot-windows-setup.exe`, and installs TipTop Kraken.
+- **The identifier**, `vc.tiptop.copilot`, fixed forever. The app's data
+  lives under it (`%APPDATA%\vc.tiptop.copilot`, `%LOCALAPPDATA%\vc.tiptop.copilot`,
+  `~/Library/Application Support/vc.tiptop.copilot`): the WebView profile
+  with the sign-in, the window's place and zoom, and the desktop alerts token.
+  Windows keys toasts and their notification setting on it (the Start menu
+  shortcut's AppUserModelID), and macOS keys notification permission on it.
+  Changing it would sign everyone out, lose their alerts and start a new app
+  as far as the system is concerned. So do the updater's endpoint and public
+  key, the crate name (`tiptop-copilot-desktop`, also the binary's name) and
+  the alerts User-Agent (`TipTopCopilot/…`, which Kraken reads).
+
+### The 0.5.0 rename
+
+0.5.0 changes only the display name and the icons (the Kraken crest). Both
+installers keep everything under the identifier, so people stay signed in
+with alerts on.
+
+- **Windows.** The installer keys its folder, shortcuts and uninstall entry
+  on the display name, so 0.5.0 installs next to TipTop Copilot. An NSIS hook
+  (`src-tauri/windows/installer-hooks.nsh`, `bundle.windows.nsis.installerHooks`)
+  then removes the old copy, after the new app is in place. It finds the old
+  folder from its installer key (`HKCU\Software\TipTop Ventures\TipTop
+  Copilot`), else `%LOCALAPPDATA%\TipTop Copilot`, and deletes it only when the
+  name ends in "TipTop Copilot", it is not the new app's folder and it holds
+  `uninstall.exe`, closing a copy still running from it first. Once the folder
+  is gone it replaces the old Start menu shortcut and the old desktop
+  shortcut with "TipTop Kraken" ones (each only if the old one was there),
+  setting the AppUserModelID toasts need. The hook must make the Start menu
+  one itself: 0.4.2's updater runs the installer with `/UPDATE`, and in update
+  mode Tauri's template only refreshes a shortcut that already has the new
+  name, so without the hook updated users would have no Start menu entry and
+  no toasts. The `SetLnkAppUserModelId` calls are unguarded on purpose, so a
+  template change that drops that macro fails the Windows build. It also
+  deletes the old Add or Remove Programs entry and installer key, and points
+  a taskbar pin at the new app (Windows lets no installer pin anything; the pin keeps its
+  old file name, so its tooltip may say TipTop Copilot until it is unpinned
+  and pinned again). It never runs the old uninstaller, which can delete the
+  app's data, and never names the identifier's folders
+  (`tests/unit/desktop-installer-hooks.test.ts`). With no old copy it does
+  nothing, so it runs harmlessly on every later install. It works the same
+  from 0.4.2's updater (a passive install that then starts the app from the
+  new folder, `$INSTDIR`) and from running the downloaded installer.
+- **Mac.** The updater swaps the new app into the old bundle's place, so an
+  updated copy still sits in `TipTop Copilot.app`. At launch, a release build
+  running from a folder named exactly `TipTop Copilot.app` renames it to
+  `TipTop Kraken.app` in the same folder and starts again from there
+  (`src-tauri/src/rename.rs`, unit-tested), before the single-instance plugin
+  runs. It leaves things as they are on a read-only volume (the disk image),
+  under App Translocation, when `TipTop Kraken.app` already exists (never
+  replaced), and when the folder cannot be written (a standard user in
+  Applications): the app then runs as before, under the old folder name. If
+  it cannot start the new launch it renames the folder back.
+- **Order.** Release `desktop-v0.5.0` as usual; the web app needs nothing
+  from it and works with either name.
 
 ## Releasing a new version
 
@@ -215,7 +293,7 @@ xattr -dr com.apple.quarantine "/Applications/TipTop Kraken.app"
 2. If a blue box says "Windows protected your PC", click **More info**, then
    **Run anyway**.
 3. It installs for the current user in a few seconds (no administrator
-   password) and opens. Find it later in the Start menu.
+   password) and opens. Find it later in the Start menu as TipTop Kraken.
 
 The first time, the app opens the web browser to sign in with Google. After
 that it stays signed in.
@@ -727,3 +805,26 @@ job strips stray line breaks and spaces anyway.
     - Mac: a banner does not show while the window is key, and does while
       another app is active. Note what happens with the screen locked or the
       screensaver on while the window is key.
+17. The rename to TipTop Kraken (0.5.0), on a machine signed in to 0.4.2 with
+    desktop alerts on:
+    - Windows, through the updater (Restart now) and, on a second PC, by
+      running the downloaded installer: the app reopens as TipTop Kraken,
+      still signed in, with alerts still on and the window in the same place.
+      `%LOCALAPPDATA%\TipTop Copilot` is gone and `%LOCALAPPDATA%\TipTop
+      Kraken` holds the app; `%LOCALAPPDATA%\vc.tiptop.copilot` is still
+      there. Start menu search finds only TipTop Kraken, with the crest;
+      Settings > Apps lists only TipTop Kraken 0.5.0. A desktop shortcut
+      that existed is now "TipTop Kraken"; a taskbar pin still opens the app
+      (note its tooltip). Send a test alert: the toast says TipTop Kraken
+      with the crest. Running the installer a second time changes nothing.
+    - Windows, with TipTop Copilot opened by hand and then the installer run:
+      the old copy is closed and removed, and the new one opens.
+    - Mac, through the updater: the app reopens once more by itself and
+      Applications holds `TipTop Kraken.app` (no `TipTop Copilot.app`); the
+      Dock, the menu bar and ⌘Tab say TipTop Kraken with the crest; still
+      signed in, alerts still allowed and on. A Dock icon kept in the Dock
+      still opens it (note if it shows a question mark). Quit and reopen: no
+      further restart.
+    - Mac, with a `TipTop Kraken.app` already in Applications next to the
+      updated `TipTop Copilot.app`: the old one opens normally and is not
+      renamed.

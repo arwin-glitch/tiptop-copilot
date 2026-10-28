@@ -602,7 +602,7 @@ where
 /// The one system call the wrong-place check needs, made directly rather than
 /// through another crate.
 #[cfg(target_os = "macos")]
-mod mac {
+pub(crate) mod mac {
     use std::{
         ffi::{CString, c_char, c_int},
         os::unix::ffi::OsStrExt,

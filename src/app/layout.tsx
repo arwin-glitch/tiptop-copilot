@@ -27,7 +27,10 @@ export const metadata: Metadata = {
   // appear in a search index.
   robots: { index: false, follow: false, nocache: true },
   icons: {
-    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/icon-192.png', type: 'image/png', sizes: '192x192' },
+    ],
     apple: [{ url: '/apple-icon.png' }],
   },
 };

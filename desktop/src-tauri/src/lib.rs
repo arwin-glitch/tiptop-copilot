@@ -10,12 +10,14 @@
 //! within half a minute after a question to Ask Arwin (`alerts.rs`).
 //! Everything else native is here, driven from Rust: the menus (`menu.rs`),
 //! the in-app updates (`updates.rs`), the alerts themselves, links and
-//! downloads.
+//! downloads, and on a Mac the move from the old app name (`rename.rs`).
 
 mod alerts;
 mod frame;
 mod menu;
 mod nav;
+#[cfg(any(target_os = "macos", test))]
+mod rename;
 mod updates;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -221,6 +223,12 @@ fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 }
 
 pub fn run() {
+    // A Mac copy updated from 0.4.x still sits in "TipTop Copilot.app": rename
+    // it to "TipTop Kraken.app" and start again from there (rename.rs).
+    #[cfg(all(target_os = "macos", not(debug_assertions)))]
+    if rename::relaunch_under_new_name() {
+        return;
+    }
     tauri::Builder::default()
         // First, as its docs require: a second launch focuses this one and exits.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| show_main(app)))

@@ -11,7 +11,7 @@
  * Its job is installability and a useful offline message — not offline data.
  */
 
-const CACHE = 'tiptop-shell-v4';
+const CACHE = 'tiptop-shell-v5';
 const SHELL = ['/offline', '/icon.svg', '/icon-192.png', '/icon-512.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {

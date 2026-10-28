@@ -24,7 +24,7 @@ const STEPS: Record<InstallerPlatform, { title: string; steps: string[]; note: s
     steps: [
       'Open TipTop-Copilot-windows-setup.exe. If your browser asks, choose Keep (in Edge: Keep, then Show more, then Keep anyway).',
       'If a blue box says Windows protected your PC, click More info, then Run anyway.',
-      'It installs in a few seconds and opens. Find it later in the Start menu.',
+      'It installs in a few seconds and opens. Find it later in the Start menu as TipTop Kraken.',
     ],
     note: ONCE,
   },

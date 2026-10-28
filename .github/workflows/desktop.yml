@@ -1,4 +1,6 @@
-# Builds the TipTop Copilot desktop app (desktop/) for Mac and Windows.
+# Builds the TipTop Kraken desktop app (desktop/) for Mac and Windows. From
+# 0.5.0 the app is named TipTop Kraken (productName); the release files below
+# keep their TipTop-Copilot names, and the identifier stays vc.tiptop.copilot.
 #
 # A push to any branch that touches desktop/ or this file builds both
 # installers and keeps them on the run as artifacts for 14 days, for trying on
@@ -22,7 +24,8 @@
 # sign job is the one place the secret appears. It signs the update files,
 # checks every signature against the public key (failing if any check does
 # not pass or does not run), and only then does the release job publish.
-# Icons are generated here from public/icon.svg, so none are committed.
+# Icons are generated here from public/brand/kraken-logo.png (the Kraken
+# crest), so none are committed.
 #
 # The build jobs can only read the repository. Only the lock and release jobs
 # can write: the lock job commits Cargo.lock to a branch, and the release job
@@ -178,7 +181,7 @@ jobs:
           fi
       - name: Icons
         working-directory: desktop
-        run: npx --yes @tauri-apps/cli@2.12.3 icon ../public/icon.svg --output src-tauri/icons
+        run: npx --yes @tauri-apps/cli@2.12.3 icon ../public/brand/kraken-logo.png --output src-tauri/icons
       - name: Unit tests
         if: matrix.platform == 'mac'
         run: |
@@ -223,6 +226,9 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           version=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+          # The built app's name ("TipTop Kraken.app"); the files published
+          # from it keep their fixed TipTop-Copilot names.
+          product=$(node -p "require('./desktop/src-tauri/tauri.conf.json').productName")
           bundle='${{ matrix.bundle-dir }}'
           mkdir -p out
           copy() { cp "$1" "out/$(basename "$1" | tr ' ' '-')"; }
@@ -237,7 +243,7 @@ jobs:
             copy "${dmg[0]}"
             cp "${dmg[0]}" out/TipTop-Copilot-mac.dmg
             # The Mac app's update: the signed app, packed by the CLI.
-            tarball="$bundle/macos/TipTop Copilot.app.tar.gz"
+            tarball="$bundle/macos/$product.app.tar.gz"
             if [ ! -s "$tarball" ]; then
               echo "::error::Expected the update file $tarball."
               exit 1
@@ -424,7 +430,7 @@ jobs:
             --arg base "$base" --rawfile macsig "$mac.sig" --rawfile winsig "$win.sig" '
             ($macsig | gsub("\\s"; "")) as $m | ($winsig | gsub("\\s"; "")) as $w | {
               version: $version,
-              notes: ("TipTop Copilot " + $version),
+              notes: ("TipTop Kraken " + $version),
               pub_date: $date,
               platforms: {
                 "darwin-aarch64": { signature: $m, url: "\($base)/mac/\($version)" },
@@ -442,6 +448,6 @@ jobs:
             gh release edit "$TAG" --draft=false --prerelease=false --latest -R "$GITHUB_REPOSITORY"
           else
             gh release create "$TAG" "${files[@]}" out/latest.json -R "$GITHUB_REPOSITORY" \
-              --verify-tag --latest --title "TipTop Copilot ${TAG#desktop-v}" \
-              --notes "Desktop app for Mac and Windows. Install it from the Download page in Copilot; installed apps update themselves."
+              --verify-tag --latest --title "TipTop Kraken ${TAG#desktop-v}" \
+              --notes "Desktop app for Mac and Windows. Install it from the Download page in Kraken; installed apps update themselves."
           fi
