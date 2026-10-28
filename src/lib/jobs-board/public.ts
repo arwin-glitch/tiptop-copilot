@@ -14,6 +14,7 @@ import type {
   PortfolioCompany,
 } from '@/lib/types/domain';
 import { isEmploymentType, isSeniority } from './fields';
+import { isLinkedInJobsUrl } from './linkedin';
 
 /**
  * What the public board shows, and the one rule for whether a role may be on
@@ -46,6 +47,8 @@ export interface PublicCompany {
    * chose to publish.
    */
   about: string | null;
+  /** The company's LinkedIn jobs tab, when a person gave its LinkedIn address. A link only. */
+  linkedinJobsUrl: string | null;
   openRoles: number;
 }
 
@@ -200,6 +203,23 @@ export function postingPublicState(
   return 'public';
 }
 
+/**
+ * Whether a company's job settings belong to a live portfolio company: the
+ * portfolio row exists, is not archived, and is in the same organization.
+ * Only portfolio companies are ever on the board.
+ */
+export function isPortfolioJobCompany(
+  company: Pick<JobCompany, 'organization_id' | 'portfolio_company_id'>,
+  portfolio: Pick<PortfolioCompany, 'id' | 'organization_id' | 'is_archived'> | null | undefined,
+): portfolio is PortfolioCompany {
+  return Boolean(
+    portfolio &&
+    !portfolio.is_archived &&
+    portfolio.id === company.portfolio_company_id &&
+    portfolio.organization_id === company.organization_id,
+  );
+}
+
 export interface BoardRows {
   settings: Pick<JobBoardSettings, 'title' | 'intro' | 'accent'> | null;
   portfolio: readonly PortfolioCompany[];
@@ -219,13 +239,20 @@ export function buildPublicBoard(
 ): PublicBoard {
   const now = options.now ?? new Date();
   const portfolioById = new Map(rows.portfolio.map((p) => [p.id, p]));
-  const companyByPortfolio = new Map(rows.jobCompanies.map((c) => [c.portfolio_company_id, c]));
+  // Portfolio companies only: a company row (and so every role under it)
+  // counts only when it points at a portfolio company of the same
+  // organization. Anything else never reaches a public page.
+  const companyByPortfolio = new Map(
+    rows.jobCompanies
+      .filter((c) => isPortfolioJobCompany(c, portfolioById.get(c.portfolio_company_id)))
+      .map((c) => [c.portfolio_company_id, c]),
+  );
 
   const chosen = new Map<string, { posting: JobPosting; company: JobCompany }>();
   for (const posting of rows.postings) {
     const portfolio = portfolioById.get(posting.portfolio_company_id) ?? null;
     const company = companyByPortfolio.get(posting.portfolio_company_id) ?? null;
-    if (!company) continue;
+    if (!company || posting.organization_id !== company.organization_id) continue;
     if (postingPublicState(posting, company, portfolio, now) !== 'public') continue;
     const key = `${posting.portfolio_company_id}|${normalizeJobTitle(posting.title)}`;
     const seen = chosen.get(key);
@@ -264,9 +291,8 @@ export function buildPublicBoard(
   for (const job of jobs) counts.set(job.companySlug, (counts.get(job.companySlug) ?? 0) + 1);
 
   const companies: PublicCompany[] = [];
-  for (const company of rows.jobCompanies) {
-    const portfolio = portfolioById.get(company.portfolio_company_id);
-    if (!portfolio || portfolio.is_archived) continue;
+  for (const company of companyByPortfolio.values()) {
+    const portfolio = portfolioById.get(company.portfolio_company_id)!;
     const openRoles = counts.get(company.slug) ?? 0;
     if (openRoles === 0 && !company.listed) continue;
     const domain = strictDomain(portfolio.website ?? portfolio.domain);
@@ -278,6 +304,7 @@ export function buildPublicBoard(
       careersUrl: httpLink(company.careers_url),
       logoUrl: company.logo_url && /^https:\/\//i.test(company.logo_url) ? company.logo_url : null,
       about: company.about?.trim() || null,
+      linkedinJobsUrl: isLinkedInJobsUrl(company.linkedin_url) ? company.linkedin_url : null,
       openRoles,
     });
   }

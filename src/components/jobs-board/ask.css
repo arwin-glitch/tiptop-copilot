@@ -1,0 +1,376 @@
+/* ============================================================
+   "Ask Arwin" on the public job board (ask-arwin.tsx): the
+   floating button and its chat. Styled only from the board's
+   own --jb-* tokens (board.css), so it follows the board's
+   theme; every class starts with `jb-ask-`. A bottom sheet on
+   a phone; motion respects prefers-reduced-motion.
+   ============================================================ */
+
+.jb-ask {
+  --jb-ask-gap: 16px;
+  --jb-ask-lift: 0px;
+  position: relative;
+  z-index: 40;
+  font-family: var(--jb-font);
+}
+
+/* ---------- the button ---------- */
+.jb-ask-bubble {
+  position: fixed;
+  right: calc(var(--jb-ask-gap) + env(safe-area-inset-right));
+  bottom: calc(var(--jb-ask-gap) + var(--jb-ask-lift) + env(safe-area-inset-bottom));
+  z-index: 42;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  min-width: 48px;
+  padding: 12px 18px 12px 14px;
+  border: 1px solid var(--jb-line, transparent);
+  border-radius: 999px;
+  background: var(--jb-accent);
+  color: var(--jb-accent-ink);
+  font: 700 14px/1.2 var(--jb-font);
+  cursor: pointer;
+  box-shadow: 0 10px 28px -10px var(--jb-shadow, rgb(0 0 0 / 0.6));
+  transition:
+    transform 0.2s var(--jb-ease),
+    filter 0.2s var(--jb-ease);
+}
+.jb-ask-bubble:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+.jb-ask-bubble:focus-visible {
+  outline: 2px solid var(--jb-ink);
+  outline-offset: 3px;
+}
+.jb-ask-bubble svg {
+  flex-shrink: 0;
+}
+
+/* A role page's Apply bar rides along the bottom of a phone: sit above it. */
+@media (max-width: 959px) {
+  .jb-root:has(.jb-apply-bar) .jb-ask {
+    --jb-ask-lift: 76px;
+  }
+}
+
+/* On a narrow phone the button is a round icon, so it covers less. */
+@media (max-width: 479px) {
+  .jb-ask-bubble {
+    padding: 12px;
+  }
+  .jb-ask-bubble-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
+/* ---------- the chat ---------- */
+.jb-ask-backdrop {
+  display: none;
+}
+
+.jb-ask-panel {
+  position: fixed;
+  right: calc(var(--jb-ask-gap) + env(safe-area-inset-right));
+  bottom: calc(var(--jb-ask-gap) + var(--jb-ask-lift) + 60px + env(safe-area-inset-bottom));
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(600px, calc(100dvh - 120px - var(--jb-ask-lift)));
+  background: var(--jb-surface);
+  color: var(--jb-ink);
+  border: 1px solid var(--jb-border-strong);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px -20px var(--jb-shadow, rgb(0 0 0 / 0.6));
+  overflow: hidden;
+  animation: jb-ask-in 0.22s var(--jb-ease);
+}
+
+@keyframes jb-ask-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.jb-ask-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 14px;
+  border-bottom: 1px solid var(--jb-gold-rule, var(--jb-border));
+}
+.jb-ask-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--jb-tint-strong);
+  border: 1px solid var(--jb-line);
+  color: var(--jb-accent);
+  font: 700 14px/1 var(--jb-font);
+}
+.jb-ask-head-text {
+  flex: 1;
+  min-width: 0;
+}
+.jb-ask-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.jb-ask-head p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--jb-muted);
+}
+.jb-ask-close {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--jb-muted);
+  cursor: pointer;
+}
+.jb-ask-close:hover {
+  color: var(--jb-ink);
+  border-color: var(--jb-border-strong);
+}
+
+.jb-ask-log {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.jb-ask-msg {
+  max-width: 92%;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.jb-ask-msg p {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.jb-ask-msg-arwin {
+  align-self: flex-start;
+  padding: 10px 12px;
+  border-radius: 4px 12px 12px 12px;
+  background: var(--jb-surface-2);
+  border: 1px solid var(--jb-border);
+}
+.jb-ask-msg-visitor {
+  align-self: flex-end;
+  padding: 8px 12px;
+  border-radius: 12px 4px 12px 12px;
+  background: var(--jb-tint-strong);
+  border: 1px solid var(--jb-line);
+}
+
+.jb-ask-links {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.jb-ask-links a {
+  display: grid;
+  gap: 1px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--jb-border);
+  background: var(--jb-surface);
+  text-decoration: none;
+  transition: border-color 0.15s var(--jb-ease);
+}
+.jb-ask-links a:hover {
+  border-color: var(--jb-line);
+}
+.jb-ask-link-title {
+  font-weight: 650;
+  color: var(--jb-ink);
+}
+.jb-ask-link-detail {
+  font-size: 12px;
+  color: var(--jb-muted);
+}
+.jb-ask-see-all {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--jb-accent);
+  text-decoration: none;
+}
+.jb-ask-see-all:hover {
+  text-decoration: underline;
+}
+
+.jb-ask-waiting {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px !important;
+}
+.jb-ask-waiting span {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--jb-muted);
+  animation: jb-ask-dot 1.2s infinite ease-in-out;
+}
+.jb-ask-waiting span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.jb-ask-waiting span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes jb-ask-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+.jb-ask-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 10px;
+}
+.jb-ask-chip {
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--jb-border-strong);
+  background: transparent;
+  color: var(--jb-ink);
+  font: 600 13px/1.2 var(--jb-font);
+  cursor: pointer;
+}
+.jb-ask-chip:hover:not(:disabled) {
+  border-color: var(--jb-line);
+  color: var(--jb-accent);
+}
+.jb-ask-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.jb-ask-form {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--jb-border);
+}
+.jb-ask-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--jb-border-strong);
+  background: var(--jb-bg);
+  color: var(--jb-ink);
+  /* 16px, so a phone does not zoom in on focus. */
+  font: 400 16px/1.3 var(--jb-font);
+}
+.jb-ask-input::placeholder {
+  color: var(--jb-muted-2);
+}
+.jb-ask-send {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--jb-accent);
+  color: var(--jb-accent-ink);
+  cursor: pointer;
+}
+.jb-ask-send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---------- a phone: a bottom sheet ---------- */
+@media (max-width: 639px) {
+  .jb-ask-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgb(0 0 0 / 0.45);
+  }
+  .jb-ask-panel {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 85dvh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: 0;
+    animation-name: jb-ask-up;
+  }
+  /* The sheet has its own close button; the floating one hides behind it. */
+  .jb-ask[data-open='true'] .jb-ask-bubble {
+    display: none;
+  }
+}
+
+@keyframes jb-ask-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jb-ask-bubble,
+  .jb-ask-links a {
+    transition: none;
+  }
+  .jb-ask-bubble:hover {
+    transform: none;
+  }
+  .jb-ask-panel {
+    animation: none;
+  }
+  .jb-ask-waiting span {
+    animation: none;
+    opacity: 0.7;
+  }
+}

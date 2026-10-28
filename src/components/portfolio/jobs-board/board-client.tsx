@@ -549,6 +549,7 @@ export function CompanyJobsForm({
   companyName,
   careersUrl,
   hasBoard,
+  linkedinUrl,
   syncEnabled,
   autoPublish,
   listed,
@@ -560,6 +561,7 @@ export function CompanyJobsForm({
   companyName: string;
   careersUrl: string;
   hasBoard: boolean;
+  linkedinUrl: string;
   syncEnabled: boolean;
   autoPublish: boolean;
   listed: boolean;
@@ -568,6 +570,7 @@ export function CompanyJobsForm({
   aboutFallback: string;
 }) {
   const [url, setUrl] = React.useState(careersUrl);
+  const [linkedin, setLinkedin] = React.useState(linkedinUrl);
   const [logo, setLogo] = React.useState(logoUrl);
   const [text, setText] = React.useState(about);
   const { pending, run } = useAction();
@@ -602,11 +605,35 @@ export function CompanyJobsForm({
           Save
         </Button>
       </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <Field
+          label="LinkedIn page"
+          htmlFor={`co-${id}-linkedin`}
+          hint="Shown on the board as “See roles on LinkedIn”. Kraken never reads LinkedIn."
+          className="min-w-0 flex-1"
+        >
+          <Input
+            id={`co-${id}-linkedin`}
+            value={linkedin}
+            placeholder="https://www.linkedin.com/company/company-name"
+            onChange={(e) => setLinkedin(e.target.value)}
+          />
+        </Field>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={pending || linkedin.trim() === linkedinUrl}
+          aria-label={`Save the LinkedIn page for ${companyName}`}
+          onClick={() => save({ linkedinUrl: linkedin }, 'LinkedIn link saved')}
+        >
+          Save
+        </Button>
+      </div>
       <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
         <label className="inline-flex items-center gap-2">
           <Switch
             checked={syncEnabled}
-            disabled={pending || !hasBoard}
+            disabled={pending || (!hasBoard && !careersUrl)}
             aria-label={`Read ${companyName}'s job board every day`}
             onCheckedChange={(on) =>
               save({ syncEnabled: on }, on ? 'Daily read on' : 'Daily read off')

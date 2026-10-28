@@ -27,6 +27,6 @@ export const BOARD_LAYOUT_METADATA: Metadata = {
 
 /** The board is dark only: the phone's address bar matches it, not Kraken's cream. */
 export const BOARD_VIEWPORT: Viewport = {
-  themeColor: '#0B0F0E',
+  themeColor: '#0C231C',
   colorScheme: 'dark',
 };

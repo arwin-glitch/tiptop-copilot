@@ -3,6 +3,7 @@ import { env, type AppEnv } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import { demoAtsFetch } from '@/lib/demo/jobs-board-fixtures';
 import {
+  ATS_LABELS,
   atsApiUrl,
   detectAtsFromUrl,
   detectAtsInHtml,
@@ -12,6 +13,11 @@ import {
   type AtsBoard,
   type AtsPosting,
 } from '@/lib/jobs-board/ats';
+import {
+  pageSourceKey,
+  parseCareersPageJobs,
+  type CareersSource,
+} from '@/lib/jobs-board/careers-page';
 import { guessFunction, guessSeniority } from '@/lib/jobs-board/fields';
 import { robotsAllows, robotsCrawlDelaySeconds, SYNC_USER_AGENT } from '@/lib/jobs-board/robots';
 import { roleSlug } from '@/lib/jobs-board/slug';
@@ -25,8 +31,8 @@ import { processWide } from '@/lib/util/process-state';
 import { readJobsBoard, revalidatePublicBoard } from './jobs-board';
 
 /**
- * Filling the public job board from two places, never publishing anything a
- * person has not allowed:
+ * Filling the public job board from portfolio companies only, from two
+ * places, never publishing anything a person has not allowed:
  *
  *   1. Companies' own public job boards (Greenhouse, Lever, Ashby, Workable,
  *      Recruitee). For each company a person gave a careers page and left
@@ -34,7 +40,11 @@ import { readJobsBoard, revalidatePublicBoard } from './jobs-board';
  *      "Refresh now"): new roles are added, changed ones updated, and roles
  *      the board no longer lists are closed. New roles go public on their own
  *      only when a person turned that company's auto-publish on; a role a
- *      person hid stays hidden.
+ *      person hid stays hidden. A careers page on no supported board is read
+ *      for the JobPosting structured data it publishes for search engines
+ *      (lib/jobs-board/careers-page.ts), through the same checked fetch as
+ *      the board check, and its roles are kept the same way. LinkedIn is
+ *      never read: the board only links to a company's LinkedIn jobs tab.
  *   2. Roles founders emailed Nick (the jobs scan's JOBS_V1 snapshot), at
  *      portfolio companies only, as unpublished drafts that wait for a person
  *      to approve each one. Only the role's title, team, place, level and job
@@ -359,23 +369,41 @@ async function hostIsPublic(hostname: string, options: SyncOptions): Promise<boo
   }
 }
 
+type CareersPage =
+  | { kind: 'board'; board: AtsBoard }
+  | { kind: 'page'; html: string; url: string }
+  | {
+      kind: 'failed';
+      reason:
+        | 'invalid'
+        | 'not_public'
+        | 'robots_blocked'
+        | 'robots_unreachable'
+        | 'backoff'
+        | 'too_large'
+        | 'network'
+        | 'redirects'
+        | 'status';
+      status?: number;
+    };
+
 /**
- * The job board behind a company's own careers page: a redirect that lands
- * on a board's address (a careers link often goes to jobs.lever.co), else the
- * boards the page's markup embeds or links to. Every hop is checked before it
- * is fetched (a public host name whose addresses are all public, robots.txt)
- * and redirects are followed by hand, at most three. Null when the page names
- * no board, or cannot be read.
+ * A company's own careers page, fetched the careful way: a redirect that
+ * lands on a board's address (a careers link often goes to jobs.lever.co)
+ * returns that board; otherwise the page's HTML. Every hop is checked before
+ * it is fetched (an http/https address, a public host name whose addresses
+ * are all public, robots.txt, the host's pause), redirects are followed by
+ * hand, at most three, and the page is size-capped. Never throws.
  */
-export async function detectCareersBoard(
-  careersUrl: string,
-  options: SyncOptions = {},
-): Promise<AtsBoard | null> {
+async function fetchCareersPage(careersUrl: string, options: SyncOptions): Promise<CareersPage> {
   let url = parseCareersUrl(careersUrl);
-  for (let hop = 0; url && hop <= MAX_PAGE_HOPS; hop++) {
+  if (!url) return { kind: 'failed', reason: 'invalid' };
+  for (let hop = 0; hop <= MAX_PAGE_HOPS; hop++) {
     const direct = detectAtsFromUrl(url.toString());
-    if (direct) return direct;
-    if (!(await hostIsPublic(url.hostname, options))) return null;
+    if (direct) return { kind: 'board', board: direct };
+    if (!(await hostIsPublic(url.hostname, options))) {
+      return { kind: 'failed', reason: 'not_public' };
+    }
     const page = await politeGet(url.toString(), {
       fetchImpl: fetchFor(options),
       sleep: options.sleep ?? wait,
@@ -384,20 +412,59 @@ export async function detectCareersBoard(
       accept: 'text/html,application/xhtml+xml',
       redirect: 'manual',
     });
-    if (page.kind !== 'ok') return null;
+    if (page.kind !== 'ok') return { kind: 'failed', reason: page.kind };
     if (page.status >= 300 && page.status < 400) {
-      if (!page.location) return null;
+      let next: URL | null = null;
       try {
-        url = parseCareersUrl(new URL(page.location, url).toString());
+        next = page.location ? parseCareersUrl(new URL(page.location, url).toString()) : null;
       } catch {
-        return null;
+        next = null;
       }
+      if (!next) return { kind: 'failed', reason: 'invalid' };
+      url = next;
       continue;
     }
-    if (page.status !== 200) return null;
-    return detectAtsInHtml(page.text);
+    if (page.status !== 200) return { kind: 'failed', reason: 'status', status: page.status };
+    return { kind: 'page', html: page.text, url: url.toString() };
   }
-  return null;
+  return { kind: 'failed', reason: 'redirects' };
+}
+
+/**
+ * The job board behind a company's own careers page: a redirect that lands
+ * on a board's address, else the boards the page's markup embeds or links
+ * to (fetchCareersPage checks every hop). Null when the page names no board,
+ * or cannot be read.
+ */
+export async function detectCareersBoard(
+  careersUrl: string,
+  options: SyncOptions = {},
+): Promise<AtsBoard | null> {
+  const page = await fetchCareersPage(careersUrl, options);
+  if (page.kind === 'board') return page.board;
+  return page.kind === 'page' ? detectAtsInHtml(page.html) : null;
+}
+
+/**
+ * What a careers address offers, read once: a supported job board (preferred:
+ * its API is the fuller list), else how many roles the page publishes as
+ * JobPosting structured data. Null when the page cannot be read.
+ */
+export async function detectCareersSource(
+  careersUrl: string,
+  options: SyncOptions & { companyName?: string | null } = {},
+): Promise<CareersSource | null> {
+  const page = await fetchCareersPage(careersUrl, options);
+  if (page.kind === 'board') return { board: page.board, pageRoles: 0 };
+  if (page.kind !== 'page') return null;
+  const board = detectAtsInHtml(page.html);
+  if (board) return { board, pageRoles: 0 };
+  const parsed = parseCareersPageJobs(page.html, {
+    pageUrl: page.url,
+    companyName: options.companyName ?? null,
+    now: options.now,
+  });
+  return { board: null, pageRoles: parsed.postings.length };
 }
 
 /* ------------------------------------------------------------ the sync -- */
@@ -422,7 +489,7 @@ async function applyBoardPostings(
   store: DataStore,
   organizationId: string,
   company: JobCompany,
-  board: AtsBoard,
+  keyOf: (posting: AtsPosting) => string,
   postings: readonly AtsPosting[],
   now: string,
 ): Promise<{ added: number; updated: number; closed: number }> {
@@ -431,13 +498,24 @@ async function applyBoardPostings(
   });
   const boardRows = new Map(rows.filter((r) => r.source === 'ats').map((r) => [r.source_key, r]));
   const emailed = rows.filter((r) => r.source === 'email' && r.status === 'active');
+  // Board rows this list no longer names by key: a role whose key changed
+  // (a page's link churned, a company moved between a job board and its own
+  // careers page) is found here by its title and keeps its row.
+  const incoming = new Set(postings.map((p) => keyOf(p)));
+  const orphans = [...boardRows.values()]
+    .filter((r) => !incoming.has(r.source_key))
+    .sort(
+      (a, b) =>
+        Number(b.status === 'active') - Number(a.status === 'active') ||
+        String(b.closed_at ?? '').localeCompare(String(a.closed_at ?? '')),
+    );
   const seen = new Set<string>();
   let added = 0;
   let updated = 0;
   let closed = 0;
 
   for (const p of postings) {
-    const key = sourceKey(board, p);
+    const key = keyOf(p);
     if (seen.has(key)) continue;
     seen.add(key);
     const fields = {
@@ -468,6 +546,29 @@ async function applyBoardPostings(
           : company.auto_publish;
       await store.update('job_postings', organizationId, existing.id, {
         ...fields,
+        published,
+        updated_at: now,
+      });
+      updated++;
+      continue;
+    }
+
+    // The same role under a key it no longer has: its row is kept and
+    // re-keyed, so a person's hide, approval and feature, and the role's
+    // public address, all carry over (a role hidden on purpose never comes
+    // back as a fresh row under auto-publish).
+    const predecessor = orphans.find((r) => sameTitle(r.title, p.title));
+    if (predecessor) {
+      orphans.splice(orphans.indexOf(predecessor), 1);
+      boardRows.delete(predecessor.source_key);
+      const published = predecessor.hidden_at
+        ? false
+        : predecessor.approved_at
+          ? predecessor.published
+          : company.auto_publish;
+      await store.update('job_postings', organizationId, predecessor.id, {
+        ...fields,
+        source_key: key,
         published,
         updated_at: now,
       });
@@ -513,8 +614,9 @@ async function applyBoardPostings(
     }
   }
 
-  // Every open board role this list no longer has: closed (from this board
-  // or from one the company's careers page used to point at).
+  // Every open board role this list no longer has: closed (from this board,
+  // from one the company's careers page used to point at, or from the page's
+  // own structured data).
   for (const row of boardRows.values()) {
     if (seen.has(row.source_key) || row.status !== 'active') continue;
     await store.update('job_postings', organizationId, row.id, {
@@ -556,12 +658,17 @@ export async function syncCompanyBoard(
 ): Promise<CompanySyncResult> {
   const now = (options.now ?? new Date()).toISOString();
   let outcome: CompanySyncResult;
-  if (!company.ats || !isValidAtsToken(company.ats, company.ats_token)) {
-    outcome = result(company, portfolio, 'skipped', 'No supported job board on the careers page.');
+  const board: AtsBoard | null =
+    company.ats && isValidAtsToken(company.ats, company.ats_token)
+      ? { ats: company.ats, token: company.ats_token }
+      : null;
+  if (!board && !company.careers_url) {
+    outcome = result(company, portfolio, 'skipped', 'No careers page to read.');
   } else {
-    const board: AtsBoard = { ats: company.ats, token: company.ats_token };
     try {
-      outcome = await readAndApply(store, organizationId, company, portfolio, board, now, options);
+      outcome = board
+        ? await readAndApply(store, organizationId, company, portfolio, board, now, options)
+        : await readPageAndApply(store, organizationId, company, portfolio, now, options);
     } catch (error) {
       log.warn('Job board sync failed for one company', {
         ats: company.ats,
@@ -655,7 +762,7 @@ async function readAndApply(
     store,
     organizationId,
     company,
-    board,
+    (p) => sourceKey(board, p),
     parsed.postings,
     now,
   );
@@ -663,6 +770,79 @@ async function readAndApply(
   const parts = [`${total} open ${total === 1 ? 'role' : 'roles'}`];
   if (counts.added) parts.push(`${counts.added} new`);
   if (counts.closed) parts.push(`${counts.closed} closed`);
+  if (parsed.skipped) parts.push(`${parsed.skipped} unreadable left out`);
+  return result(company, portfolio, 'ok', parts.join(', '), { ...counts, total });
+}
+
+/**
+ * A careers page on no supported board: its JobPosting structured data read
+ * and applied like a board's list. A page that cannot be read, or that
+ * publishes no roles in its page data, never closes roles.
+ */
+async function readPageAndApply(
+  store: DataStore,
+  organizationId: string,
+  company: JobCompany,
+  portfolio: PortfolioCompany,
+  now: string,
+  options: SyncOptions,
+): Promise<CompanySyncResult> {
+  const fail = (message: string) => result(company, portfolio, 'failed', message);
+  const skip = (message: string) => result(company, portfolio, 'skipped', message);
+  const page = await fetchCareersPage(company.careers_url ?? '', options);
+  if (page.kind === 'board') {
+    return skip(
+      `The careers page now uses ${ATS_LABELS[page.board.ats]}. Save the careers page again to read it.`,
+    );
+  }
+  if (page.kind === 'failed') {
+    switch (page.reason) {
+      case 'invalid':
+      case 'not_public':
+        return fail('The careers page address cannot be read. Check it.');
+      case 'robots_blocked':
+        return fail("The careers page's robots.txt asks not to be read, so it is left alone.");
+      case 'robots_unreachable':
+        return skip("The careers page's robots.txt did not answer; the next run tries again.");
+      case 'backoff':
+        return skip('The careers page asked for a pause; the next run tries again.');
+      case 'too_large':
+        return fail('The careers page is larger than Kraken reads at once.');
+      case 'redirects':
+        return fail('The careers page redirects too many times.');
+      case 'status':
+        return page.status === 404
+          ? fail('The careers page was not found. Check its address.')
+          : fail(`The careers page answered ${page.status}; the next run tries again.`);
+      case 'network':
+        return fail('The careers page did not answer in time; the next run tries again.');
+    }
+  }
+  const parsed = parseCareersPageJobs(page.html, {
+    pageUrl: page.url,
+    companyName: portfolio.name,
+    now: options.now,
+  });
+  // No JobPostings at all (none, or none readable): most likely a redesigned
+  // page, not every role closing at once, so nothing is closed.
+  if (parsed.postings.length === 0 && parsed.expired === 0) {
+    return skip('The careers page lists no roles in its page data.');
+  }
+  const counts = await applyBoardPostings(
+    store,
+    organizationId,
+    company,
+    // Keyed by the saved careers address, never by where its redirects
+    // landed today, so a page that moves hosts keeps its roles' keys.
+    (p) => pageSourceKey(company.careers_url || page.url, p),
+    parsed.postings,
+    now,
+  );
+  const total = parsed.postings.length;
+  const parts = [`${total} open ${total === 1 ? 'role' : 'roles'} on the careers page`];
+  if (counts.added) parts.push(`${counts.added} new`);
+  if (counts.closed) parts.push(`${counts.closed} closed`);
+  if (parsed.expired) parts.push(`${parsed.expired} expired left out`);
   if (parsed.skipped) parts.push(`${parsed.skipped} unreadable left out`);
   return result(company, portfolio, 'ok', parts.join(', '), { ...counts, total });
 }
@@ -717,7 +897,7 @@ async function runSync(
   const companies = data.companies.filter(
     (c) =>
       c.sync_enabled &&
-      c.ats &&
+      (c.ats || c.careers_url) &&
       portfolioById.has(c.portfolio_company_id) &&
       (!wanted || wanted.has(c.portfolio_company_id)),
   );
@@ -727,7 +907,7 @@ async function runSync(
     const host =
       company.ats && company.ats_token && isValidAtsToken(company.ats, company.ats_token)
         ? new URL(atsApiUrl({ ats: company.ats, token: company.ats_token })).host
-        : 'none';
+        : (parseCareersUrl(company.careers_url)?.host.toLowerCase() ?? 'none');
     groups.set(host, [...(groups.get(host) ?? []), company]);
   }
 

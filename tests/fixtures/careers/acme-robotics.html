@@ -1,0 +1,116 @@
+<!doctype html>
+<!-- A fictional company's own careers page (Acme Robotics), with its roles
+     published as schema.org JobPosting structured data. Every name, place,
+     address and number here is invented. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Careers at Acme Robotics</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Acme Robotics",
+        "url": "https://acme-robotics.example.com"
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "name": "Careers"
+          },
+          {
+            "@type": "JobPosting",
+            "title": "Senior Robotics Engineer",
+            "identifier": { "@type": "PropertyValue", "name": "Acme Robotics", "value": "ENG-104" },
+            "datePosted": "2026-10-01",
+            "validThrough": "2027-01-31T00:00",
+            "employmentType": "FULL_TIME",
+            "hiringOrganization": { "@type": "Organization", "name": "Acme Robotics, Inc." },
+            "jobLocation": {
+              "@type": "Place",
+              "address": {
+                "@type": "PostalAddress",
+                "addressLocality": "Austin",
+                "addressRegion": "TX",
+                "addressCountry": "US"
+              }
+            },
+            "baseSalary": {
+              "@type": "MonetaryAmount",
+              "currency": "USD",
+              "value": {
+                "@type": "QuantitativeValue",
+                "minValue": 150000,
+                "maxValue": 185000,
+                "unitText": "YEAR"
+              }
+            },
+            "description": "<p>Build the arms.</p><ul><li>ROS 2</li><li>C++</li></ul><script>alert(1)<\/script><img src=\"https://tracker.example/p.gif\">",
+            "url": "/careers/senior-robotics-engineer"
+          },
+          {
+            "@type": "JobPosting",
+            "title": "Customer Success Lead",
+            "datePosted": "2026-09-20",
+            "employmentType": ["CONTRACTOR", "PART_TIME"],
+            "jobLocationType": "TELECOMMUTE",
+            "applicantLocationRequirements": { "@type": "Country", "name": "USA" },
+            "hiringOrganization": "Acme Robotics",
+            "description": "Help our customers.",
+            "url": "https://jobs.acme-robotics.example.com/cs-lead"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <h1>Join Acme Robotics</h1>
+    <script type="application/ld+json">
+      [
+        {
+          "@context": "https://schema.org",
+          "@type": "JobPosting",
+          "title": "Old Role",
+          "validThrough": "2026-01-01",
+          "url": "https://acme-robotics.example.com/careers/old"
+        },
+        {
+          "@context": "https://schema.org",
+          "@type": "JobPosting",
+          "title": "Field Technician",
+          "employmentType": "Full-time",
+          "jobLocation": [
+            { "@type": "Place", "address": "Denver, CO" },
+            { "@type": "Place", "address": { "addressLocality": "Boise", "addressRegion": "ID" } }
+          ],
+          "url": "https://acme-robotics.example.com/careers/field-technician"
+        },
+        {
+          "@type": "JobPosting",
+          "title": "Bad Link Role",
+          "url": "javascript:alert(1)"
+        },
+        {
+          "@type": "JobPosting",
+          "title": "Someone Else's Role",
+          "hiringOrganization": { "name": "Globex Shipping" },
+          "url": "https://globex.example.com/jobs/1"
+        },
+        {
+          "@type": "JobPosting",
+          "description": "No title at all."
+        }
+      ]
+    </script>
+    <script type="application/ld+json">
+      { not json at all
+    </script>
+    <script>
+      window.notJsonLd = { '@type': 'JobPosting', title: 'Hidden' };
+    </script>
+  </body>
+</html>

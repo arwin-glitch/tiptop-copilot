@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { CSSProperties, ReactNode } from 'react';
-import { homePath, type PublicBoard } from '@/lib/jobs-board/public';
+import { DEFAULT_BOARD_ACCENT, homePath, type PublicBoard } from '@/lib/jobs-board/public';
+import { AskArwinMount } from './ask-mount';
 import { boardFontClasses } from './fonts';
 import { TipTopMark } from './parts';
 
@@ -21,7 +22,10 @@ export function BoardShell({
   preview?: boolean;
   children: ReactNode;
 }) {
-  const style = board ? ({ '--jb-accent': board.accent } as CSSProperties) : undefined;
+  // The stock accent (TipTop green) keeps the theme's own lit emerald; only an
+  // accent a person chose in Kraken replaces it.
+  const custom = board && board.accent.toUpperCase() !== DEFAULT_BOARD_ACCENT.toUpperCase();
+  const style = custom ? ({ '--jb-accent': board.accent } as CSSProperties) : undefined;
   return (
     <div className={`jb-root ${boardFontClasses}`} style={style}>
       {preview ? (
@@ -90,6 +94,7 @@ export function BoardShell({
           </div>
         </div>
       </footer>
+      <AskArwinMount board={board} preview={preview} />
     </div>
   );
 }

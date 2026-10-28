@@ -1,5 +1,6 @@
 import { ExternalLink, Eye, Globe } from 'lucide-react';
 import { ATS_LABELS, atsBoardUrl } from '@/lib/jobs-board/ats';
+import { isCareersPageRole } from '@/lib/jobs-board/careers-page';
 import { functionLabel, placeLine, SENIORITY_LABELS } from '@/lib/jobs-board/fields';
 import { PUBLIC_STATE_LABELS, applyLinkFor, type PublicState } from '@/lib/jobs-board/public';
 import { isPrivateDocLink } from '@/lib/jobs-board/links';
@@ -22,6 +23,7 @@ import {
   RoleEditorButton,
   type CompanyOption,
 } from './board-client';
+import { JobsAssistantButton } from './assistant-panel';
 import type { JobsBoardTab, JobsView } from './data';
 
 /**
@@ -46,6 +48,11 @@ const SOURCE_LABELS: Record<JobPosting['source'], string> = {
   email: 'From founders’ emails',
   manual: 'Added by hand',
 };
+
+/** Where a role came from; a board role read from a careers page's own data says so. */
+function sourceLabel(posting: Pick<JobPosting, 'source' | 'source_key'>): string {
+  return isCareersPageRole(posting) ? 'From careers page' : SOURCE_LABELS[posting.source];
+}
 
 const STATE_TONE: Record<PublicState, BadgeProps['tone']> = {
   public: 'ok',
@@ -150,6 +157,7 @@ export function JobsBoardHeader({ data, view }: { data: JobsBoardTab; view: Jobs
                     intro={data.settings?.intro ?? ''}
                     accent={data.settings?.accent ?? data.board.accent}
                   />
+                  <JobsAssistantButton />
                 </>
               ) : null}
             </div>
@@ -418,7 +426,7 @@ export function JobBoardRolesView({
                         {posting.featured && state === 'public' ? (
                           <Badge tone="accent">Featured</Badge>
                         ) : null}
-                        <Badge tone="outline">{SOURCE_LABELS[posting.source]}</Badge>
+                        <Badge tone="outline">{sourceLabel(posting)}</Badge>
                       </span>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -476,8 +484,10 @@ export function JobCompaniesView({ data, now }: { data: JobsBoardTab; now: Date 
       </div>
       <p className="-mt-1 mb-3 text-sm text-[var(--fg-muted)]">
         Give a company its careers page and Kraken reads its public job board every day: Greenhouse,
-        Lever, Ashby, Workable and Recruitee. Its roles go public only after you publish them, or on
-        their own once you switch on &ldquo;Publish its board roles on their own&rdquo;.
+        Lever, Ashby, Workable and Recruitee, or the roles a careers page lists in its page data for
+        search engines. Its roles go public only after you publish them, or on their own once you
+        switch on &ldquo;Publish its board roles on their own&rdquo;. LinkedIn is only linked to,
+        never read.
       </p>
       {companies.length === 0 ? (
         <EmptyState
@@ -520,6 +530,8 @@ export function JobCompaniesView({ data, now }: { data: JobsBoardTab; now: Date 
                               {ATS_LABELS[board.ats]} · {board.token}
                             </a>
                           </Badge>
+                        ) : settings?.careers_url && settings.sync_enabled ? (
+                          <Badge tone="ok">Reads its careers page</Badge>
                         ) : settings?.careers_url ? (
                           <Badge tone="warn">No supported job board found</Badge>
                         ) : (
@@ -528,17 +540,18 @@ export function JobCompaniesView({ data, now }: { data: JobsBoardTab; now: Date 
                         {settings?.last_sync_status === 'failed' ? (
                           <Badge tone="danger">Last read failed</Badge>
                         ) : null}
-                        {board && settings?.sync_enabled ? (
+                        {(board || settings?.careers_url) && settings?.sync_enabled ? (
                           <RefreshButton companyId={company.id} label="Refresh now" />
                         ) : null}
                       </span>
                     </div>
-                    {settings?.careers_url && !board ? (
+                    {settings?.careers_url && !board && !settings.sync_enabled ? (
                       <p className="mb-3 text-sm text-[var(--fg-muted)]">
                         Kraken can&rsquo;t read this company&rsquo;s job board (it may use Rippling,
                         BambooHR, Wellfound or its own page). Add its roles by hand with &ldquo;Add
                         a role&rdquo; on Public board, or switch on &ldquo;List it even with no open
-                        roles&rdquo; so visitors get a link to its careers page.
+                        roles&rdquo; so visitors get a link to its careers page. If the page later
+                        lists its roles in its page data, switch on the daily read.
                       </p>
                     ) : null}
                     <CompanyJobsForm
@@ -546,6 +559,7 @@ export function JobCompaniesView({ data, now }: { data: JobsBoardTab; now: Date 
                       companyName={company.name}
                       careersUrl={settings?.careers_url ?? ''}
                       hasBoard={Boolean(board)}
+                      linkedinUrl={settings?.linkedin_url ?? ''}
                       syncEnabled={Boolean(settings?.sync_enabled)}
                       autoPublish={Boolean(settings?.auto_publish)}
                       listed={Boolean(settings?.listed)}

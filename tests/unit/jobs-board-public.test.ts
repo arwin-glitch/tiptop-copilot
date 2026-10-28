@@ -7,6 +7,7 @@ import {
   filterBoardJobs,
   hasFilters,
   parseBoardFilters,
+  isPortfolioJobCompany,
   placesAndRemote,
   postingPublicState,
   validThroughOf,
@@ -225,6 +226,7 @@ describe('buildPublicBoard', () => {
       careersUrl: null,
       logoUrl: null,
       about: null,
+      linkedinJobsUrl: null,
       openRoles: 1,
     });
     expect(
@@ -604,5 +606,55 @@ describe('stale emailed and hand-added roles', () => {
       locations: ['Austin, TX'],
       remote: 'onsite',
     });
+  });
+});
+
+describe('portfolio companies only', () => {
+  it('never shows a company or role that is not a live portfolio company of this organization', () => {
+    const stranger = company('pc-globex', 'globex', { listed: true });
+    const otherOrgPortfolio = portfolio('pc-initech', 'Initech Fixture', {
+      organization_id: 'org-2',
+    });
+    const otherOrgCompany = company('pc-initech', 'initech', { listed: true });
+    const board = buildPublicBoard({
+      settings: null,
+      // Globex has job settings and roles but is not in the portfolio;
+      // Initech's portfolio row belongs to another organization.
+      portfolio: [ACME, otherOrgPortfolio],
+      jobCompanies: [ACME_CO, stranger, otherOrgCompany],
+      postings: [
+        posting('pc-acme', { title: 'Acme Role' }),
+        posting('pc-globex', { title: 'Globex Role' }),
+        posting('pc-initech', { title: 'Initech Role' }),
+        // A role row from another organization under a portfolio company.
+        posting('pc-acme', { title: 'Foreign Row', organization_id: 'org-2' }),
+      ],
+    });
+    expect(board.jobs.map((j) => j.title)).toEqual(['Acme Role']);
+    expect(board.companies.map((c) => c.slug)).toEqual(['acme-fixture']);
+  });
+
+  it('isPortfolioJobCompany checks the portfolio row, archive and organization', () => {
+    expect(isPortfolioJobCompany(ACME_CO, ACME)).toBe(true);
+    expect(isPortfolioJobCompany(ACME_CO, undefined)).toBe(false);
+    expect(isPortfolioJobCompany(ACME_CO, { ...ACME, is_archived: true })).toBe(false);
+    expect(isPortfolioJobCompany(ACME_CO, { ...ACME, organization_id: 'org-2' })).toBe(false);
+    expect(isPortfolioJobCompany(ACME_CO, { ...ACME, id: 'pc-other' })).toBe(false);
+  });
+
+  it('shows a LinkedIn jobs link only when it is a valid one', () => {
+    const withLink = (linkedin_url: string | null) =>
+      buildPublicBoard({
+        settings: null,
+        portfolio: [ACME],
+        jobCompanies: [company('pc-acme', 'acme-fixture', { listed: true, linkedin_url })],
+        postings: [],
+      }).companies[0]!.linkedinJobsUrl;
+    expect(withLink('https://www.linkedin.com/company/acme-fixture/jobs/')).toBe(
+      'https://www.linkedin.com/company/acme-fixture/jobs/',
+    );
+    expect(withLink('javascript:alert(1)')).toBeNull();
+    expect(withLink('https://www.linkedin.com/company/acme-fixture')).toBeNull();
+    expect(withLink(null)).toBeNull();
   });
 });

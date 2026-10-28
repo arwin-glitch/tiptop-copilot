@@ -19,7 +19,7 @@ import {
   type PostingInput,
 } from '@/lib/services/jobs-board';
 import {
-  detectCareersBoard,
+  detectCareersSource,
   importEmailedRoles,
   syncJobBoards,
   type CompanySyncResult,
@@ -107,9 +107,11 @@ export async function saveJobCompanyAction(
     if ('logoUrl' in input)
       clean.logoUrl = typeof input.logoUrl === 'string' ? input.logoUrl : null;
     if ('about' in input) clean.about = typeof input.about === 'string' ? input.about : null;
+    if ('linkedinUrl' in input)
+      clean.linkedinUrl = typeof input.linkedinUrl === 'string' ? input.linkedinUrl : null;
   }
   const result = await saveCompanyJobs(getStore(), actor, String(portfolioCompanyId ?? ''), clean, {
-    detect: (url) => detectCareersBoard(url),
+    detectSource: (url, companyName) => detectCareersSource(url, { companyName }),
   });
   return done(
     result.ok

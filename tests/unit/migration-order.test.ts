@@ -212,14 +212,16 @@ describe('migrations apply in filename order', () => {
     expect(files.length).toBeGreaterThan(0);
     // Pinned so an accidentally-deleted migration is caught. Bump it when a
     // migration legitimately adds a table — most recently booking_picks
-    // (Pick times), after Kraken Notes' thirteen (meetings and the tables under it, and notes_requests, D-076),
+    // (Pick times) and jobs_chat_questions (the job board assistant's AI
+    // answers), after Kraken Notes' thirteen (meetings and the tables under
+    // it, and notes_requests, D-076),
     // after the twelve event tables (20261023000000_events.sql),
     // booking_chat_questions (the booking assistant's AI answers), the public
     // job board's three (job_board_settings, job_companies, job_postings),
     // booking_settings and booking_requests (the booking link),
     // campaign_photos, crm_entry_tombstones, desktop_handoffs, the four
     // campaign tables and mcp_tokens.
-    expect(tables.size).toBe(80);
+    expect(tables.size).toBe(81);
   });
 
   it('declares no SQL function before a table it reads', () => {

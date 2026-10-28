@@ -1,31 +1,48 @@
 /* ============================================================
-   TipTop public job board: the Perks directory's look
-   (perks.tiptop.vc): near-black with a cool undertone, off-white
-   ink, TipTop green used sparingly, Mona Sans + Fragment Mono.
+   TipTop public job board, in Kraken's emerald and gold (the
+   values of the emerald theme in src/app/globals.css): deep
+   emerald ground and panels, ivory ink, a lit emerald for links
+   and interactive states, and gold only for thin rules, the Jobs
+   tag and small labels. TipTop's mark stays brand green. Text
+   meets WCAG AA on every surface. Mona Sans + Fragment Mono.
    Every class starts with `jb-`, so nothing here touches Kraken.
    Mobile first; motion respects prefers-reduced-motion.
    ============================================================ */
 
 html:has(.jb-root),
 html:has(.jb-root) body {
-  background: #0b0f0e;
+  background: #0c231c;
   color-scheme: dark;
 }
 
 .jb-root {
-  --jb-bg: #0b0f0e;
-  --jb-surface: #131817;
-  --jb-surface-2: #181e1c;
-  --jb-border: #232b28;
-  --jb-border-strong: #2c3532;
-  --jb-ink: #f3f5f4;
-  --jb-muted: #93a19b;
-  --jb-muted-2: #6f7c77;
-  --jb-accent: #0fc382;
-  --jb-accent-ink: #06120d;
+  /* Emerald ground and panels (globals.css emerald: --bg-sunken, --bg,
+     --bg-raised), facet-edge dividers. */
+  --jb-bg: #0c231c;
+  --jb-surface: #133529;
+  --jb-surface-2: #0f2a21;
+  --jb-border: #2b5647;
+  --jb-border-strong: #3b6a58;
+  /* Ivory ink: 13:1, 9:1 and 6:1 on the panels. */
+  --jb-ink: #eee8d6;
+  --jb-ink-soft: #ddd8c7;
+  --jb-muted: #bfcbbf;
+  --jb-muted-2: #a3b5a8;
+  /* Green leads: the lit emerald for links, focus, active tabs and the
+     primary button. A board accent set in Kraken overrides it. */
+  --jb-accent: #45d6a0;
+  --jb-accent-ink: #052016;
   --jb-tint: color-mix(in srgb, var(--jb-accent) 10%, transparent);
   --jb-tint-strong: color-mix(in srgb, var(--jb-accent) 18%, transparent);
   --jb-line: color-mix(in srgb, var(--jb-accent) 38%, transparent);
+  /* Gold, sparingly: hairline rules, the Jobs tag, small labels. Opaque or
+     near-opaque only: gold at low alpha over emerald turns olive. */
+  --jb-gold: #d4af37;
+  --jb-gold-ink: #d8b663;
+  --jb-gold-rule: rgb(212 175 55 / 0.5);
+  /* TipTop's mark, always brand green on emerald. */
+  --jb-mark: #0fc382;
+  --jb-shadow: rgb(2 12 9 / 0.6);
   --jb-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --jb-font: var(--jb-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --jb-font-mono: var(--jb-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -86,18 +103,14 @@ html:has(.jb-root) body {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(
-      680px 480px at 82% -6%,
-      color-mix(in srgb, var(--jb-accent) 10%, transparent),
-      transparent 60%
-    ),
+    radial-gradient(680px 480px at 82% -6%, rgb(46 125 98 / 0.32), transparent 60%),
     radial-gradient(
       600px 420px at 6% 78%,
       color-mix(in srgb, var(--jb-accent) 6%, transparent),
       transparent 65%
     ),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 64px),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 64px);
+    repeating-linear-gradient(90deg, rgb(238 232 214 / 0.025) 0 1px, transparent 1px 64px),
+    repeating-linear-gradient(0deg, rgb(238 232 214 / 0.025) 0 1px, transparent 1px 64px);
 }
 
 .jb-main {
@@ -110,10 +123,11 @@ html:has(.jb-root) body {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(11, 15, 14, 0.8);
+  background: rgb(12 35 28 / 0.84);
   backdrop-filter: blur(14px) saturate(140%);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border-bottom: 1px solid var(--jb-border);
+  /* The one gold rule across the top of every page. */
+  border-bottom: 1px solid var(--jb-gold-rule);
 }
 
 .jb-header-inner {
@@ -134,7 +148,7 @@ html:has(.jb-root) body {
 .jb-mark {
   width: 26px;
   height: 26px;
-  color: var(--jb-accent);
+  color: var(--jb-mark);
   flex-shrink: 0;
 }
 
@@ -154,9 +168,9 @@ html:has(.jb-root) body {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--jb-accent);
-  background: var(--jb-tint);
-  border: 1px solid var(--jb-line);
+  color: var(--jb-gold-ink);
+  background: transparent;
+  border: 1px solid var(--jb-gold-rule);
   border-radius: 20px;
   padding: 3px 9px;
   white-space: nowrap;
@@ -169,7 +183,7 @@ html:has(.jb-root) body {
 .jb-tabs {
   position: relative;
   z-index: 15;
-  background: rgba(17, 22, 21, 0.6);
+  background: rgb(16 43 35 / 0.6);
   border-bottom: 1px solid var(--jb-border);
 }
 .jb-tabs-inner {
@@ -223,7 +237,7 @@ html:has(.jb-root) body {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--jb-accent);
+  color: var(--jb-gold-ink);
   margin: 0 0 12px;
 }
 
@@ -376,13 +390,13 @@ html:has(.jb-root) body {
   content: '';
   position: absolute;
   inset: 0 0 auto 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--jb-accent), transparent 85%);
+  height: 1px;
+  background: linear-gradient(90deg, var(--jb-gold), transparent 85%);
 }
 .jb-feature:hover {
   transform: translateY(-2px);
   border-color: var(--jb-line);
-  box-shadow: 0 20px 40px -24px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 20px 40px -24px var(--jb-shadow);
 }
 .jb-feature h3 {
   font-size: 18px;
@@ -612,7 +626,7 @@ html:has(.jb-root) body {
   height: 44px;
   flex-shrink: 0;
   border-radius: 10px;
-  background: #eef1ef;
+  background: #f6f1e4;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -675,7 +689,7 @@ html:has(.jb-root) body {
 .jb-card:hover {
   transform: translateY(-3px);
   border-color: var(--jb-line);
-  box-shadow: 0 20px 40px -24px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 20px 40px -24px var(--jb-shadow);
 }
 .jb-card-top {
   display: flex;
@@ -708,6 +722,34 @@ html:has(.jb-root) body {
   color: var(--jb-accent);
 }
 .jb-card-count {
+  color: var(--jb-accent);
+}
+/* A card with a link of its own under it ("See roles on LinkedIn"). */
+.jb-card-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+}
+.jb-card-stack > .jb-card {
+  flex: 1;
+}
+.jb-card-extra {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 4px 2px;
+  font-size: 13px;
+  color: var(--jb-muted);
+  text-decoration: none;
+}
+.jb-card-extra svg {
+  width: 14px;
+  height: 14px;
+}
+.jb-card-extra:hover {
   color: var(--jb-accent);
 }
 
@@ -762,7 +804,7 @@ html:has(.jb-root) body {
 .jb-desc {
   font-size: 16px;
   line-height: 1.7;
-  color: #c9d2ce;
+  color: var(--jb-ink-soft);
   max-width: 68ch;
 }
 .jb-desc h2 {
@@ -810,8 +852,8 @@ html:has(.jb-root) body {
   content: '';
   position: absolute;
   inset: 0 0 auto 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--jb-accent), transparent 85%);
+  height: 1px;
+  background: linear-gradient(90deg, var(--jb-gold), transparent 85%);
 }
 .jb-facts {
   list-style: none;
@@ -908,7 +950,7 @@ html:has(.jb-root) body {
 .jb-footer {
   position: relative;
   z-index: 1;
-  border-top: 1px solid var(--jb-border);
+  border-top: 1px solid var(--jb-gold-rule);
   background: var(--jb-surface-2);
   padding: 32px 0;
   margin-top: 24px;

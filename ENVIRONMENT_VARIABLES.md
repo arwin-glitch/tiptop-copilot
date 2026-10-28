@@ -392,6 +392,27 @@ Caps hold whatever is set: 3 questions per visitor session, 5 per visitor
 address a day, and the daily total set in the Booking tab (15 by default,
 30 at most). Past a cap the assistant answers from the written questions only.
 
+### `JOBS_CHAT_FIRE_URL`, `JOBS_CHAT_TOKEN`, `JOBS_CHAT_RELAY_CHANNEL_ID`, `JOBS_CHAT_POSTER_IDS`
+
+Optional, and free: "Ask Arwin" on the public job board can send a question
+it cannot answer to the **jobs assistant routine** on Arwin's own Claude plan,
+never an API key. Without them the assistant still answers from the published
+roles and the written answers in Portfolio > Jobs > Ask Arwin.
+
+- `JOBS_CHAT_FIRE_URL` and `JOBS_CHAT_TOKEN` — the routine's API trigger
+  address and bearer token (no data connectors; its prompt and setup are in
+  `docs/JOBS_CHAT_ROUTINE.md`). Either unset: AI answers are off.
+- The answer comes back through `ASK_RELAY_SLACK_TOKEN`, posted to
+  `JOBS_CHAT_RELAY_CHANNEL_ID` as `JOBS_ANSWER_V1`, and only posts from
+  `JOBS_CHAT_POSTER_IDS` are read. Neither has a default; the channel may not be
+  the Ask or deal relay channel and the posters may not be task or deal relay
+  posters (the booking assistant's channel and account are allowed). Otherwise
+  AI answers stay off and Diagnostics says why.
+
+Caps hold whatever is set: 3 questions per visitor session, 5 per visitor
+address a day, and the daily total in Portfolio > Jobs > Ask Arwin (15 by
+default, 30 at most). They also need AI answers switched on there.
+
 ### `DEAL_RELAY_CHANNEL_ID`, `DEAL_RELAY_POSTER_IDS`
 
 Optional. The deal-sorter cloud routine posts every deal it finds in Nick's

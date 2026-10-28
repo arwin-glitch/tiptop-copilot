@@ -25,7 +25,9 @@ import {
   buildPublicBoard,
   type PublicBoard,
 } from '@/lib/jobs-board/public';
+import type { CareersSource } from '@/lib/jobs-board/careers-page';
 import { isPrivateDocLink, PRIVATE_LINK_MESSAGE } from '@/lib/jobs-board/links';
+import { linkedInJobsUrl } from '@/lib/jobs-board/linkedin';
 import { plainToStructuredText } from '@/lib/jobs-board/sanitize';
 import { companySlug, roleSlug } from '@/lib/jobs-board/slug';
 import { normalizeJobFunction } from '@/lib/portfolio/job-taxonomy';
@@ -59,6 +61,7 @@ import { err, ok, type Result } from '@/lib/util/result';
  */
 
 export const JOBS_BOARD_MIGRATION = 'supabase/migrations/20261022100000_public_jobs.sql';
+export const JOBS_LINKEDIN_MIGRATION = 'supabase/migrations/20261028100000_jobs_linkedin.sql';
 
 const NEEDS_MIGRATION = `The public job board needs its database tables. Run ${JOBS_BOARD_MIGRATION} in the Supabase SQL editor.`;
 
@@ -416,6 +419,8 @@ export interface CompanyJobsInput {
   listed?: boolean;
   logoUrl?: string | null;
   about?: string | null;
+  /** The company's LinkedIn address (any linkedin.com/company/<slug> link); empty clears it. */
+  linkedinUrl?: string | null;
 }
 
 export interface CompanyJobsSaved {
@@ -444,17 +449,23 @@ function httpsLogo(value: string): string | null {
 
 /**
  * Save a company's job settings. A new careers address is read for its job
- * board (the address itself, else `detect`, which fetches the page); a
- * supported board turns the daily sync on unless the person said otherwise.
- * Auto-publish on puts that company's open, never-hidden board roles on the
- * board; off takes off the ones no person approved one by one.
+ * board (the address itself, else `detectSource` or `detect`, which fetch the
+ * page); a supported board, or a careers page that publishes its roles as
+ * JobPosting structured data, turns the daily sync on unless the person said
+ * otherwise. Auto-publish on puts that company's open, never-hidden board
+ * and careers-page roles on the board; off takes off the ones no person
+ * approved one by one. A LinkedIn address is stored as the company's jobs
+ * tab link (never fetched); before its migration runs the rest still saves.
  */
 export async function saveCompanyJobs(
   store: DataStore,
   actor: JobsActor,
   portfolioCompanyId: string,
   input: CompanyJobsInput,
-  options: { detect?: (url: string) => Promise<AtsBoard | null> } = {},
+  options: {
+    detect?: (url: string) => Promise<AtsBoard | null>;
+    detectSource?: (url: string, companyName: string) => Promise<CareersSource | null>;
+  } = {},
 ): Promise<Result<CompanyJobsSaved>> {
   try {
     const portfolio = await portfolioCompany(store, actor.organizationId, portfolioCompanyId);
@@ -478,15 +489,26 @@ export async function saveCompanyJobs(
         if (!url) return err('invalid_input', 'That careers address is not a web address.');
         patch.careers_url = url.toString();
         detected = detectAtsFromUrl(url.toString());
-        if (!detected && options.detect)
+        let pageRoles = 0;
+        if (!detected && options.detectSource) {
+          const source = await options
+            .detectSource(url.toString(), portfolio.name)
+            .catch(() => null);
+          detected = source?.board ?? null;
+          pageRoles = source?.pageRoles ?? 0;
+        } else if (!detected && options.detect) {
           detected = await options.detect(url.toString()).catch(() => null);
+        }
         patch.ats = detected?.ats ?? null;
         patch.ats_token = detected?.token ?? null;
-        if (detected && input.syncEnabled === undefined) patch.sync_enabled = true;
-        if (!detected) {
+        if ((detected || pageRoles > 0) && input.syncEnabled === undefined)
+          patch.sync_enabled = true;
+        if (!detected && pageRoles > 0) {
+          note = `Kraken found ${pageRoles} ${pageRoles === 1 ? 'role' : 'roles'} on that careers page and will read it every day.`;
+        } else if (!detected) {
           patch.sync_enabled = false;
           note =
-            'Kraken could not find a job board it can read on that page (Greenhouse, Lever, Ashby, Workable or Recruitee). Roles can still be added by hand.';
+            'Kraken could not find a job board it can read on that page (Greenhouse, Lever, Ashby, Workable or Recruitee), or roles listed in its page data. Roles can still be added by hand.';
         }
       }
     }
@@ -504,9 +526,11 @@ export async function saveCompanyJobs(
       }
     }
     const ats = patch.ats !== undefined ? patch.ats : current.ats;
+    const careers = patch.careers_url !== undefined ? patch.careers_url : current.careers_url;
     if (input.syncEnabled !== undefined) {
-      if (input.syncEnabled && !ats) {
-        return err('invalid_input', 'Add a careers page on a supported job board first.');
+      // A careers page with no supported board is read for its JobPosting data.
+      if (input.syncEnabled && !ats && !careers) {
+        return err('invalid_input', 'Add a careers page first.');
       }
       patch.sync_enabled = Boolean(input.syncEnabled);
     }
@@ -522,11 +546,40 @@ export async function saveCompanyJobs(
       }
     }
     if (input.about !== undefined) patch.about = cleanText(input.about, 600);
+    if (input.linkedinUrl !== undefined) {
+      const raw = (input.linkedinUrl ?? '').trim();
+      if (!raw) patch.linkedin_url = null;
+      else {
+        const jobs = linkedInJobsUrl(raw);
+        if (!jobs) {
+          return err(
+            'invalid_input',
+            'Use the company’s LinkedIn page, like linkedin.com/company/acme-robotics.',
+          );
+        }
+        patch.linkedin_url = jobs;
+      }
+    }
 
-    const saved = await store.update('job_companies', actor.organizationId, current.id, {
-      ...patch,
-      updated_at: new Date().toISOString(),
-    });
+    const updatedAt = new Date().toISOString();
+    let saved: JobCompany;
+    try {
+      saved = await store.update('job_companies', actor.organizationId, current.id, {
+        ...patch,
+        updated_at: updatedAt,
+      });
+    } catch (error) {
+      // The LinkedIn column comes from its own migration: before it runs,
+      // everything else still saves and the person is told what is missing.
+      if (!('linkedin_url' in patch) || !isMissingColumnError(error)) throw error;
+      const rest = { ...patch };
+      delete rest.linkedin_url;
+      saved = await store.update('job_companies', actor.organizationId, current.id, {
+        ...rest,
+        updated_at: updatedAt,
+      });
+      note = `The LinkedIn link was not saved: it needs ${JOBS_LINKEDIN_MIGRATION} run in the Supabase SQL editor.`;
+    }
 
     let changedRoles = 0;
     if (patch.auto_publish !== undefined && patch.auto_publish !== current.auto_publish) {

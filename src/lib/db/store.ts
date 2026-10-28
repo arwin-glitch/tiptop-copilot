@@ -3,6 +3,7 @@ import type {
   AuditEvent,
   BookingChatQuestion,
   BookingPick,
+  JobsChatQuestion,
   BookingRequest,
   BookingSettingsRow,
   CalendarEvent,
@@ -165,6 +166,7 @@ export interface TableMap {
   job_companies: JobCompany;
   job_postings: JobPosting;
   booking_chat_questions: BookingChatQuestion;
+  jobs_chat_questions: JobsChatQuestion;
   // Kraken Notes (D-076; supabase/migrations/20261024000000_copilot_notes.sql).
   meetings: Meeting;
   meeting_participants: MeetingParticipant;
