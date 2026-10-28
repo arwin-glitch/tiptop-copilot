@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import { DesktopAlertOpener } from '@/components/desktop/desktop-alert-opener';
 import { DesktopTitleBar } from '@/components/desktop/desktop-title-bar';
 import { ServiceWorkerRegistrar } from '@/components/shell/service-worker';
+import { DOMAIN_MOVE_SCRIPT } from '@/lib/brand/domain-move';
 import { FRAME_BOOT_SCRIPT } from '@/lib/desktop/frame-boot';
 import { NONCE_HEADER, SURFACE_HEADER } from '@/lib/events/surface';
 import './globals.css';
@@ -80,8 +81,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Two static, self-authored constants with no external input: the
-            standard no-flash theme bootstrap, and the desktop app's top-bar
+        {/* Static, self-authored constants with no external input: the move
+            from copilot.tiptop.vc to kraken.tiptop.vc (lib/brand/domain-move.ts),
+            the standard no-flash theme bootstrap, and the desktop app's top-bar
             flag (lib/desktop/frame-boot.ts). Neither can carry untrusted
             content. Every other surface in the app renders text through
             <PlainText>. */}
@@ -89,7 +91,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <script
             // eslint-disable-next-line no-restricted-syntax -- static constants, see above
             dangerouslySetInnerHTML={{
-              __html: surface === 'booking' ? themeScript : themeScript + FRAME_BOOT_SCRIPT,
+              __html:
+                DOMAIN_MOVE_SCRIPT +
+                (surface === 'booking' ? themeScript : themeScript + FRAME_BOOT_SCRIPT),
             }}
           />
         )}

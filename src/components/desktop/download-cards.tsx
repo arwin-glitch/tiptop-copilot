@@ -199,7 +199,7 @@ export function DownloadCards({
                 Rather skip the security steps?
               </h2>
               <p className="mt-1 text-[var(--fg-muted)]">
-                Install from Chrome: open copilot.tiptop.vc in Chrome, click the install icon at the
+                Install from Chrome: open kraken.tiptop.vc in Chrome, click the install icon at the
                 right end of the address bar, then Install. On a Mac with Safari: File, then Add to
                 Dock.
               </p>
