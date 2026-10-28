@@ -28,6 +28,7 @@ import { addNote, compareDeals } from '@/lib/services/deals';
 import { analyzeDeal } from '@/lib/services/deal-analysis';
 import { createDraft } from '@/lib/services/drafts';
 import { listEventsWithLabels } from '@/lib/services/calendar-labels';
+import { helpCitation, searchAppGuide } from '@/lib/help/app-guide';
 
 /**
  * The allowlisted server-side tool layer.
@@ -1073,6 +1074,42 @@ const optionalWebResearch: ToolSpec<
   },
 };
 
+const appGuideSearch: ToolSpec<z.ZodObject<{ question: z.ZodString }>> = {
+  name: 'app_guide_search',
+  description:
+    'Where things are in Kraken itself: the page and tab for a feature ("where is the job board?", "how do I snooze a task?"), from the Help centre. Read-only. Use it for questions about the app, not for questions about mail, deals or meetings. Only name pages it returns.',
+  schema: z.object({ question: z.string().min(1).max(300) }),
+  mutates: false,
+  async run(input, ctx) {
+    const matches = searchAppGuide(input.question, { limit: 3 });
+    const places = matches.map((m) => {
+      const citation = helpCitation(m, { tour: true });
+      addCitation(ctx, citation);
+      return {
+        source_id: citation.id,
+        page: m.pageName,
+        tab: m.tabLabel,
+        link: m.href,
+        tour_link: m.tourHref,
+        what_it_holds: m.why,
+      };
+    });
+    return {
+      result: {
+        places,
+        note:
+          places.length === 0
+            ? 'Nothing in Kraken matched. Say so; do not guess a page.'
+            : 'Give the page and tab and cite the source_id. Never name a page that is not listed.',
+      },
+      summary:
+        places.length === 0
+          ? 'No page in Kraken matched.'
+          : `Kraken pages: ${places.map((p) => (p.tab ? `${p.page} › ${p.tab}` : p.page)).join(', ')}.`,
+    };
+  },
+};
+
 /* -------------------------------------------------------------- registry */
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- the specs are a
@@ -1097,6 +1134,7 @@ const ALL_TOOLS: ToolSpec<any>[] = [
   createTaskTool,
   saveNote,
   optionalWebResearch,
+  appGuideSearch,
 ];
 /* eslint-enable @typescript-eslint/no-explicit-any */
 

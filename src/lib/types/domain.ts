@@ -369,7 +369,9 @@ export interface Citation {
     | 'prior_decision'
     | 'portfolio_update'
     | 'note'
-    | 'web';
+    | 'web'
+    /** A page or tab of Kraken itself, from the Help registry (`url` opens it). */
+    | 'help';
   ref_id: string;
   label: string;
   /** 1-indexed page for paged documents. */
@@ -381,6 +383,8 @@ export interface Citation {
   retrieved_at: IsoDateTime | null;
   publisher: string | null;
   excerpt: string | null;
+  /** 'help' only: opens the page and starts its guided tour (the "Show me" button). */
+  tour_url?: string | null;
 }
 
 export interface ScorecardCategoryResult {

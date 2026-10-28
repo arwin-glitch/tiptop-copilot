@@ -1,15 +1,18 @@
 'use client';
 
 import * as React from 'react';
-import { CornerDownLeft, Wrench } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowRight, CornerDownLeft, Play, Wrench } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PlainText } from '@/components/ui/feedback';
 import { Textarea } from '@/components/ui/form';
 import { LinkedText } from '@/components/ask/linked-text';
 import { CitationChip, SourceDrawer } from '@/components/evidence/source-drawer';
-import type { ChatMessage, Citation } from '@/lib/types/domain';
+import { helpActions } from '@/lib/chat/help-actions';
+import { APP_GUIDE_MODEL } from '@/lib/help/app-guide';
+import type { ChatMessage } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
 
 /**
@@ -61,20 +64,29 @@ export function WorkingMessage({
 export function AssistantMessage({
   message,
   compact = false,
+  onNavigate,
 }: {
   message: ChatMessage;
   compact?: boolean;
+  /** Called when a page button or "Show me" is tapped: the widget closes. */
+  onNavigate?: () => void;
 }) {
-  const citations: Citation[] = message.citations;
+  // Pages of Kraken named in the answer are buttons; records stay sources.
+  const { links, showMe, sources: citations } = helpActions(message.citations);
   const [answer, ...rest] = splitAnswer(message.content);
 
   return (
     <Card className={compact ? 'shadow-none' : undefined}>
       <CardContent className={compact ? 'px-3 pt-3 pb-3 sm:px-3' : 'pt-4'}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Badge tone="outline">
-            <span aria-hidden="true">✦</span> AI-generated
-          </Badge>
+          {message.model === APP_GUIDE_MODEL ? (
+            // Read straight from Kraken's Help, no model involved.
+            <Badge tone="outline">From Help</Badge>
+          ) : (
+            <Badge tone="outline">
+              <span aria-hidden="true">✦</span> AI-generated
+            </Badge>
+          )}
           {citations.length > 0 ? (
             <SourceDrawer citations={citations}>
               <Button variant="ghost" size="sm" className={compact ? 'h-7 px-2' : undefined}>
@@ -102,6 +114,32 @@ export function AssistantMessage({
             )}
           >
             <LinkedText text={rest.join('\n')} />
+          </div>
+        ) : null}
+
+        {links.length > 0 || showMe ? (
+          <div className={cn('flex flex-wrap gap-1.5', compact ? 'mt-2.5' : 'mt-3')}>
+            {links.map((l) => (
+              <Link
+                key={l.key}
+                href={l.href}
+                onClick={onNavigate}
+                className={buttonVariants({ variant: 'secondary', size: 'sm' })}
+              >
+                {l.label}
+                <ArrowRight aria-hidden="true" />
+              </Link>
+            ))}
+            {showMe ? (
+              <Link
+                href={showMe.href}
+                onClick={onNavigate}
+                className={buttonVariants({ variant: 'primary', size: 'sm' })}
+              >
+                <Play aria-hidden="true" />
+                {showMe.label}
+              </Link>
+            ) : null}
           </div>
         ) : null}
 
@@ -145,10 +183,12 @@ export function ConversationMessage({
   message,
   compact = false,
   pendingHint,
+  onNavigate,
 }: {
   message: ChatMessage;
   compact?: boolean;
   pendingHint?: string;
+  onNavigate?: () => void;
 }) {
   if (message.role === 'user') return <UserMessage text={message.content} compact={compact} />;
   if (message.status === 'pending') {
@@ -160,7 +200,7 @@ export function ConversationMessage({
       />
     );
   }
-  return <AssistantMessage message={message} compact={compact} />;
+  return <AssistantMessage message={message} compact={compact} onNavigate={onNavigate} />;
 }
 
 /**

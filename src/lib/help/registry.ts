@@ -845,11 +845,17 @@ export const HELP_PAGES: readonly HelpPage[] = [
         label: 'Thesis & scoring',
         blurb: 'What you invest in, and how deals score.',
       },
-      { key: 'integrations', label: 'Integrations', blurb: 'Google, and importing from Affinity.' },
+      {
+        key: 'integrations',
+        label: 'Integrations',
+        blurb: 'Google, and importing from Affinity.',
+        href: tabHref('/settings', 'integrations', 'thesis'),
+      },
       {
         key: 'preferences',
         label: 'Preferences',
         blurb: 'Time zone, phone alerts and the desktop app.',
+        href: tabHref('/settings', 'preferences', 'thesis'),
       },
       {
         key: 'booking',
@@ -857,12 +863,23 @@ export const HELP_PAGES: readonly HelpPage[] = [
         blurb: 'Moved to its own Booking tab; this links there.',
         href: '/booking',
       },
-      { key: 'limits', label: 'Limits', blurb: 'Usage ceilings. AI cost: $0, on the Claude plan.' },
-      { key: 'data', label: 'Data & privacy', blurb: 'What is stored, and deleting it.' },
+      {
+        key: 'limits',
+        label: 'Limits',
+        blurb: 'Usage ceilings. AI cost: $0, on the Claude plan.',
+        href: tabHref('/settings', 'limits', 'thesis'),
+      },
+      {
+        key: 'data',
+        label: 'Data & privacy',
+        blurb: 'What is stored, and deleting it.',
+        href: tabHref('/settings', 'data', 'thesis'),
+      },
       {
         key: 'notes',
         label: 'Kraken Notes',
         blurb: 'Coming soon (beta). This tab shows once Kraken Notes is switched on.',
+        href: tabHref('/settings', 'notes', 'thesis'),
       },
     ],
     steps: [

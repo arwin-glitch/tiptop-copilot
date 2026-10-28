@@ -61,6 +61,8 @@ export function fireText(question: PendingBridgeQuestion): string {
       history: question.history,
       // Only a Kraken Notes chat question has one; every other payload is unchanged.
       ...(question.context ? { context: question.context } : {}),
+      // Places in Kraken the question may be about, when the Help registry matched.
+      ...(question.app_guide?.length ? { app_guide: question.app_guide } : {}),
     })}\``,
   ].join('\n');
 }

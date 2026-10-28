@@ -15,8 +15,9 @@ import { newId } from '@/lib/util/hash';
 import { truncate } from '@/lib/util/text';
 import { err, ok, type Result } from '@/lib/util/result';
 import { fireAskRoutine, settleAnswersFromSlack } from './ask-routine';
-import { threadHistoryBefore } from './ask-bridge';
+import { appGuideField, threadHistoryBefore } from './ask-bridge';
 import { getActiveThesis } from './thesis';
+import { answerAppQuestion, APP_GUIDE_MODEL, helpCitation, refersBack } from '@/lib/help/app-guide';
 
 /**
  * Ask Arwin.
@@ -183,10 +184,6 @@ export async function ask(
 
   const store = getStore();
   const bridgeToken = env().askBridgeToken;
-  if (!bridgeToken) {
-    const budget = await checkAiBudget(store, auth.organizationId, auth.userId);
-    if (!budget.ok) return budget;
-  }
 
   let thread: ChatThread | null = options.threadId
     ? ((await store.get(
@@ -201,6 +198,17 @@ export async function ask(
   // to someone else's thread would put words on their screen.
   if (options.threadId && (!thread || thread.user_id !== auth.userId)) {
     return err('not_found', 'That conversation does not exist.');
+  }
+
+  // "Where is…" and "how do I…" about Kraken itself are answered at once from
+  // the Help registry: no routine, no model call, so no budget either. Not in
+  // a deal's chat, where "where are the notes" means that deal's notes, and
+  // not for a follow-up that leans on the conversation ("where is it?").
+  const dealScoped = Boolean(thread?.deal_id ?? options.dealId);
+  const guide = dealScoped || (thread && refersBack(trimmed)) ? null : answerAppQuestion(trimmed);
+  if (!bridgeToken && !guide) {
+    const budget = await checkAiBudget(store, auth.organizationId, auth.userId);
+    if (!budget.ok) return budget;
   }
 
   if (!thread) {
@@ -245,6 +253,40 @@ export async function ask(
   };
   await store.insert('chat_messages', userMessage);
 
+  if (guide) {
+    const assistantMessage: ChatMessage = {
+      id: newId(),
+      organization_id: auth.organizationId,
+      thread_id: thread.id,
+      role: 'assistant',
+      content: guide.content,
+      citations: guide.matches.map((m) => helpCitation(m, { tour: guide.showMe })),
+      // No tool ran: the audit row records routed_to: 'app_guide'.
+      tool_calls: [],
+      model: APP_GUIDE_MODEL,
+      prompt_version: null,
+      status: 'answered',
+      created_at: new Date().toISOString(),
+    };
+    await store.insert('chat_messages', assistantMessage);
+    await store.update('chat_threads', auth.organizationId, thread.id, {
+      updated_at: new Date().toISOString(),
+    });
+    await recordAudit(store, {
+      organizationId: auth.organizationId,
+      userId: auth.userId,
+      action: 'chat.question_asked',
+      entityType: 'chat_thread',
+      entityId: thread.id,
+      metadata: {
+        routed_to: 'app_guide',
+        places: guide.matches.map((m) => m.id),
+        scoped_to_deal: Boolean(scopeDealId),
+      },
+    });
+    return ok({ thread, userMessage, assistantMessage });
+  }
+
   if (bridgeToken) {
     const assistantMessage: ChatMessage = {
       id: newId(),
@@ -281,6 +323,7 @@ export async function ask(
       question: trimmed,
       created_at: assistantMessage.created_at,
       history: await threadHistoryBefore(store, auth.organizationId, thread.id, userMessage.id),
+      ...appGuideField(trimmed),
     });
     return ok({ thread, userMessage, assistantMessage });
   }
