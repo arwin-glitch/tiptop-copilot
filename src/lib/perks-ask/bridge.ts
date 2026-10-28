@@ -2,7 +2,6 @@ import 'server-only';
 import { env, perksChatRelayProblem } from '@/lib/config/env';
 import { isMissingTableError } from '@/lib/db/missing-table';
 import type { DataStore, Filter } from '@/lib/db/store';
-import { rateLimit, rateLimitHasRoom } from '@/lib/security/limits';
 import { log } from '@/lib/security/redact';
 import { buildFireCatalog, getPerksKnowledge } from '@/lib/perks-ask/knowledge';
 import { fireRoutineWithText, readRelayChannel } from '@/lib/services/ask-routine';

@@ -16,10 +16,14 @@ export const DESKTOP_COOKIE = 'tiptop_desktop';
 export const INSTALLER_PLATFORMS = ['mac', 'windows'] as const;
 export type InstallerPlatform = (typeof INSTALLER_PLATFORMS)[number];
 
-/** The stable asset names every desktop release carries (.github/workflows/desktop.yml). */
+/**
+ * The stable asset names every desktop release carries (.github/workflows/desktop.yml).
+ * They keep the old app name on purpose: installed apps and the workflow use
+ * them, so the Kraken rename must not change them.
+ */
 export const DESKTOP_INSTALLERS: Record<InstallerPlatform, string> = {
-  mac: 'TipTop-Kraken-mac.dmg',
-  windows: 'TipTop-Kraken-windows-setup.exe',
+  mac: 'TipTop-Copilot-mac.dmg',
+  windows: 'TipTop-Copilot-windows-setup.exe',
 };
 
 /**
@@ -27,8 +31,8 @@ export const DESKTOP_INSTALLERS: Record<InstallerPlatform, string> = {
  * (desktop.yml). Windows updates with the same installer /download serves.
  */
 export const DESKTOP_UPDATE_FILES: Record<InstallerPlatform, string> = {
-  mac: 'TipTop-Kraken-mac.app.tar.gz',
-  windows: 'TipTop-Kraken-windows-setup.exe',
+  mac: 'TipTop-Copilot-mac.app.tar.gz',
+  windows: 'TipTop-Copilot-windows-setup.exe',
 };
 /** Each release's update manifest: the version and each file's signature. */
 export const DESKTOP_UPDATE_MANIFEST = 'latest.json';

@@ -118,10 +118,10 @@ both installers on GitHub's Mac and Windows runners:
   release.
 - **A tag `desktop-vX.Y.Z`** builds the same way, signs the update files
   (the `sign` job) and then publishes a release with the versioned
-  installers plus files with fixed names: `TipTop-Kraken-mac.dmg` and
-  `TipTop-Kraken-windows-setup.exe`, which the web app's `/download` page
+  installers plus files with fixed names: `TipTop-Copilot-mac.dmg` and
+  `TipTop-Copilot-windows-setup.exe`, which the web app's `/download` page
   serves through our own domain, so people never visit GitHub; and the
-  update files (`TipTop-Kraken-mac.app.tar.gz`, a `.sig` for it and for
+  update files (`TipTop-Copilot-mac.app.tar.gz`, a `.sig` for it and for
   the Windows installer, and `latest.json`), which installed apps fetch
   through Kraken's update routes. Never rename any of them.
 
@@ -210,7 +210,7 @@ xattr -dr com.apple.quarantine "/Applications/TipTop Kraken.app"
 
 **Windows** (10 or 11):
 
-1. Open `TipTop-Kraken-windows-setup.exe`. If the browser warns about the
+1. Open `TipTop-Copilot-windows-setup.exe`. If the browser warns about the
    download, keep it (in Edge: **Keep**, then **Show more**, **Keep anyway**).
 2. If a blue box says "Windows protected your PC", click **More info**, then
    **Run anyway**.

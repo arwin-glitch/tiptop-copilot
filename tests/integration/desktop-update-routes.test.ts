@@ -33,7 +33,7 @@ function stubHost(host: Host = {}) {
   const releases = host.releases ?? [releaseWith('0.2.1', UPDATE_ASSETS)];
   const files: Record<string, () => Response> = {
     'latest.json': host.manifest ?? (() => Response.json(fakeManifest('0.2.1'))),
-    'TipTop-Kraken-mac.app.tar.gz':
+    'TipTop-Copilot-mac.app.tar.gz':
       host.macFile ??
       (() =>
         new Response(MAC_BYTES, {
@@ -148,7 +148,7 @@ describe('GET /api/desktop/update/<os>/<arch>/<version>', () => {
     resetDesktopReleaseCache();
     const fetchImpl = stubHost({
       releases: [
-        releaseWith('0.1.0', ['TipTop-Kraken-mac.dmg', 'TipTop-Kraken-windows-setup.exe']),
+        releaseWith('0.1.0', ['TipTop-Copilot-mac.dmg', 'TipTop-Copilot-windows-setup.exe']),
       ],
     });
     expect((await askForUpdate('darwin', 'aarch64', '0.1.0')).status).toBe(204);
@@ -209,7 +209,7 @@ describe('GET /api/desktop/update-file/<platform>/<version>', () => {
     expect(response.headers.get('content-type')).toBe('application/octet-stream');
     expect(response.headers.get('content-length')).toBe(String(MAC_BYTES.byteLength));
     expect(response.headers.get('content-disposition')).toBe(
-      'attachment; filename="TipTop-Kraken-mac.app.tar.gz"',
+      'attachment; filename="TipTop-Copilot-mac.app.tar.gz"',
     );
     expect(response.headers.get('content-encoding')).toBeNull();
     expect(response.headers.get('cache-control')).toBe('no-store');

@@ -61,7 +61,7 @@ describe('parseUpdateManifest', () => {
       signatures: {
         'darwin-aarch64': fakeSignature('0.2.1'),
         'darwin-x86_64': fakeSignature('0.2.1'),
-        'windows-x86_64': fakeSignature('0.2.1', 'TipTop-Kraken-windows-setup.exe'),
+        'windows-x86_64': fakeSignature('0.2.1', 'TipTop-Copilot-windows-setup.exe'),
       },
     });
     expect(JSON.stringify(manifest)).not.toMatch(/files\.example|notes/);

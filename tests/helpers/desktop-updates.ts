@@ -5,16 +5,16 @@
  */
 
 export const UPDATE_ASSETS = [
-  'TipTop-Kraken-mac.dmg',
-  'TipTop-Kraken-windows-setup.exe',
-  'TipTop-Kraken-mac.app.tar.gz',
-  'TipTop-Kraken-mac.app.tar.gz.sig',
-  'TipTop-Kraken-windows-setup.exe.sig',
+  'TipTop-Copilot-mac.dmg',
+  'TipTop-Copilot-windows-setup.exe',
+  'TipTop-Copilot-mac.app.tar.gz',
+  'TipTop-Copilot-mac.app.tar.gz.sig',
+  'TipTop-Copilot-windows-setup.exe.sig',
   'latest.json',
 ];
 
 /** Base64 of a fake signature file whose trusted comment names `version`. */
-export function fakeSignature(version: string, file = 'TipTop-Kraken-mac.app.tar.gz'): string {
+export function fakeSignature(version: string, file = 'TipTop-Copilot-mac.app.tar.gz'): string {
   return Buffer.from(
     [
       'untrusted comment: signature from tauri secret key',
@@ -36,7 +36,7 @@ export function fakeManifest(version: string, extra: Record<string, unknown> = {
       'darwin-aarch64': mac,
       'darwin-x86_64': mac,
       'windows-x86_64': {
-        signature: fakeSignature(version, 'TipTop-Kraken-windows-setup.exe'),
+        signature: fakeSignature(version, 'TipTop-Copilot-windows-setup.exe'),
         url: 'https://files.example/windows',
       },
     },
