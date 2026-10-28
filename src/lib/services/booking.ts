@@ -1270,7 +1270,7 @@ async function bookOnCalendar(
         'booking_requests',
         organizationId,
         { eq: { id: row.id } },
-        { calendar_id: calendarId, event_id: created.value.eventId },
+        { calendar_id: calendarId, event_id: created.value.eventId, updated_at: now.toISOString() },
       );
       row.calendar_id = calendarId;
       row.event_id = created.value.eventId;
