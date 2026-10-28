@@ -33,6 +33,15 @@ describe('perksQuestionText', () => {
     expect(payload.questions[0]).not.toContain('`');
     expect(payload.questions[0]).not.toContain('<');
   });
+
+  it('appends the catalog block after the fenced JSON when one is given', () => {
+    const text = perksQuestionText(
+      { question_id: QID, answer_key: KEY, questions: ['Cloud credits?'] },
+      'PERKS_CATALOG_V1 (1 perks; columns)\nacme-cloud | Acme Cloud',
+    );
+    expect(text).toContain('`\n\nPERKS_CATALOG_V1');
+    expect(text.endsWith('acme-cloud | Acme Cloud')).toBe(true);
+  });
 });
 
 describe('the one-time answer key', () => {

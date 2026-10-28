@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildFireCatalog,
   buildKnowledge,
+  matchPerks,
   parsePerksSource,
   perkDigest,
+  perkIndexLine,
   type PerkFact,
 } from '@/lib/perks-ask/knowledge';
 
@@ -80,7 +83,7 @@ describe('perkDigest', () => {
 });
 
 describe('buildKnowledge', () => {
-  it('splits the cohorts and counts them', () => {
+  it('splits the cohorts, counts them, and keeps the facts for the fire catalog', () => {
     const parsed = parsePerksSource(SOURCE);
     if (!parsed.ok) throw new Error('expected ok');
     const knowledge = buildKnowledge(parsed.value);
@@ -89,5 +92,40 @@ describe('buildKnowledge', () => {
     expect(knowledge.consultantCount).toBe(1);
     expect(knowledge.digest).toContain('=== SOFTWARE VENDORS ===');
     expect(knowledge.digest).toContain('Pat Lee Advisory');
+    expect(knowledge.facts).toHaveLength(2);
+  });
+});
+
+describe('the fire-payload catalog', () => {
+  function facts(): PerkFact[] {
+    const parsed = parsePerksSource(SOURCE);
+    if (!parsed.ok) throw new Error('expected ok');
+    return parsed.value;
+  }
+
+  it('indexes every perk on one backtick-free line', () => {
+    const [acme] = facts() as [PerkFact];
+    const line = perkIndexLine({ ...acme, tagline: 'Has `ticks` — and dashes.' });
+    expect(line).toContain('acme-cloud | Acme Cloud | Software Vendor');
+    expect(line).not.toContain('`');
+    expect(line).not.toContain('—');
+  });
+
+  it('matches perks by plain word overlap, directory noise ignored', () => {
+    const all = facts();
+    expect(matchPerks(all, 'Do we get cloud credits?').map((p) => p.slug)).toEqual(['acme-cloud']);
+    expect(matchPerks(all, 'any growth advisory help?').map((p) => p.slug)).toEqual([
+      'pat-lee-advisory',
+    ]);
+    expect(matchPerks(all, 'what perks do founders get?')).toEqual([]);
+  });
+
+  it('carries the whole index and full entries for the matches', () => {
+    const block = buildFireCatalog(facts(), 'cloud credits');
+    expect(block).toContain('PERKS_CATALOG_V1 (2 perks;');
+    expect(block).toContain('pat-lee-advisory | Pat Lee Advisory');
+    expect(block).toContain('PERKS_CATALOG_DETAIL_V1');
+    expect(block).toContain('perk.html?p=acme-cloud');
+    expect(block).not.toContain('`');
   });
 });

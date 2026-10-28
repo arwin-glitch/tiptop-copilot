@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetEnvCache } from '@/lib/config/env';
+import * as knowledge from '@/lib/perks-ask/knowledge';
 import { resetPerksKnowledgeCache } from '@/lib/perks-ask/knowledge';
 import * as service from '@/lib/perks-ask/service';
 import { resetLimiters } from '@/lib/security/limits';
@@ -173,6 +174,27 @@ describe('the free path (the routine bridge)', () => {
     vi.stubEnv('PERKS_CHAT_POSTER_IDS', 'U000FICTION1');
     vi.stubEnv('ASK_RELAY_SLACK_TOKEN', 'xoxb-fictional');
     resetEnvCache();
+    // The bridge mails a catalog digest with each question; never the network in tests.
+    vi.spyOn(knowledge, 'getPerksKnowledge').mockResolvedValue({
+      ok: true,
+      value: knowledge.buildKnowledge([
+        {
+          slug: 'acme-cloud',
+          name: 'Acme Cloud',
+          kindLabel: 'Software',
+          catLabel: 'Infrastructure',
+          tagline: 'Cloud hosting credits for portfolio startups.',
+          stat: '$5,000',
+          statLabel: 'in credits',
+          bullets: ['12 months of hosting credits'],
+          eligibility: 'Portfolio companies',
+          provisional: false,
+          redemptionType: 'code',
+          redemptionNote: 'Unlocks on the perk page.',
+          redemptionSteps: [],
+        },
+      ]),
+    });
   }
 
   it('parks the question and hands back an id to poll', async () => {
@@ -188,6 +210,8 @@ describe('the free path (the routine bridge)', () => {
     const sentText = fire.mock.calls[0]![1];
     expect(sentText).toContain('PERKS_QUESTION_V1');
     expect(sentText).toContain('Do we get cloud credits?');
+    expect(sentText).toContain('PERKS_CATALOG_V1');
+    expect(sentText).toContain('acme-cloud | Acme Cloud');
 
     const { GET: answerRoute } = await import('@/app/api/public/perks-ask/answer/route');
     const pollReq = new NextRequest(`${APP_ORIGIN}/api/public/perks-ask/answer?id=${json.id}`, {

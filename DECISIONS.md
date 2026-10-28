@@ -4445,3 +4445,25 @@ relay trusts. Caps counted from the table: 20 per address a day, 300 a day in
 total; answers sanitised to plain text where only perks.tiptop.vc links and
 arwin@tiptop.vc survive. `PERKS_ASK_ANTHROPIC_KEY` stays as an optional paid
 fast lane; with neither configured the widget keeps its email fallback.
+
+**Amended the same day, twice more, while wiring the routine up.**
+
+- *One-time answer key (the job board assistant's design, shipped in
+  parallel that day).* Each question is fired with a 32-character key the
+  answer must echo; only the key's SHA-256 is stored, compared timing-safely
+  and cleared on settle. A forged post without the key settles nothing, so
+  the "poster no other relay trusts" half of the relay rule is relaxed: the
+  routine may post as the same Slack account the other routines use, and no
+  second Slack account is needed. `perksChatRelayProblem` still refuses
+  shared channels.
+- *The catalog travels with the question.* The routine's cloud environment
+  has no network egress to any TipTop host (verified by a live run: CONNECT
+  403 / ENOTFOUND), so "it fetches the public catalog itself" could never
+  run. Instead the app fetches and re-validates `perks-data.js` as before
+  and sends a digest in the fire payload: one index line per perk for the
+  whole directory plus full entries for the perks whose words match the
+  question (~20-26KB, accepted by the trigger endpoint). The routine now
+  needs no tools beyond its one Slack post, which also shrinks its attack
+  surface; with no catalog section it answers an honest cannot-check
+  fallback. Verified end to end with a live fire: correct catalog-grounded
+  answer, key echoed, exact two-line post.

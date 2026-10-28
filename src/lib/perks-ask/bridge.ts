@@ -4,6 +4,7 @@ import { isMissingTableError } from '@/lib/db/missing-table';
 import type { DataStore, Filter } from '@/lib/db/store';
 import { rateLimit, rateLimitHasRoom } from '@/lib/security/limits';
 import { log } from '@/lib/security/redact';
+import { buildFireCatalog, getPerksKnowledge } from '@/lib/perks-ask/knowledge';
 import { fireRoutineWithText, readRelayChannel } from '@/lib/services/ask-routine';
 import type { PerksChatQuestion } from '@/lib/types/domain';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -20,8 +21,10 @@ import { unwrapSlackText } from '@/lib/util/slack-text';
  * and sent to the perks assistant routine (a Claude routine with no data
  * connectors beyond one Slack post, docs/PERKS_CHAT_ROUTINE.md) through its
  * API trigger, as `PERKS_QUESTION_V1` and one backticked JSON object: the
- * question id, a one-time answer key and the visitor's recent questions,
- * nothing else - the routine fetches the public perks catalog itself. The
+ * question id, a one-time answer key and the visitor's recent questions -
+ * followed by a digest of the public perks catalog (lib/perks-ask/knowledge),
+ * because the routine's cloud environment has no network access to
+ * perks.tiptop.vc. The bot can still never know more than the site shows. The
  * routine posts `PERKS_ANSWER_V1` and `{question_id, answer_key, answer}` to
  * its relay channel; while the widget polls, the app reads that channel,
  * takes only posts from the configured posters, verifies the one-time key
@@ -113,9 +116,13 @@ export function perksAnswerKeyMatches(key: string | null, storedHash: string | n
   return timingSafeEqual(Buffer.from(sha256(key), 'hex'), Buffer.from(storedHash, 'hex'));
 }
 
-/** What the routine is fired with: the marker line, then one backticked JSON object. */
-export function perksQuestionText(payload: PerksQuestionPayload): string {
-  return [
+/**
+ * What the routine is fired with: the marker line, one backticked JSON
+ * object, and (when the catalog could be read) the catalog block it answers
+ * from. Without the block the routine answers its cannot-check fallback.
+ */
+export function perksQuestionText(payload: PerksQuestionPayload, catalog?: string): string {
+  const lines = [
     PERKS_QUESTION_MARKER,
     `\`${JSON.stringify({
       question_id: payload.question_id,
@@ -125,7 +132,9 @@ export function perksQuestionText(payload: PerksQuestionPayload): string {
         .filter(Boolean)
         .slice(-6),
     })}\``,
-  ].join('\n');
+  ];
+  if (catalog) lines.push('', catalog);
+  return lines.join('\n');
 }
 
 /* ----------------------------------------------------------------- answer */
@@ -334,13 +343,22 @@ export async function askPerksRoutine(store: DataStore, input: AskInput): Promis
   });
   if ('kind' in kept) return kept;
 
+  // The catalog travels with the question (the routine has no network). On a
+  // bad fetch the knowledge module's last good copy answers; with none at all
+  // the routine gives its honest cannot-check fallback.
+  const knowledge = await getPerksKnowledge(input.fetchImpl);
+  const catalog = knowledge.ok ? buildFireCatalog(knowledge.value.facts, question) : undefined;
+
   const fired = await fireRoutineWithText(
     { url: e.perksChatFireUrl, token: e.perksChatToken },
-    perksQuestionText({
-      question_id: kept.row.id,
-      answer_key: kept.key,
-      questions: input.questions,
-    }),
+    perksQuestionText(
+      {
+        question_id: kept.row.id,
+        answer_key: kept.key,
+        questions: input.questions,
+      },
+      catalog,
+    ),
     input.fetchImpl,
     'Perks assistant routine',
   );

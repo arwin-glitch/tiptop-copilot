@@ -117,6 +117,8 @@ export function perkDigest(p: PerkFact): string {
 
 export interface PerksKnowledge {
   digest: string;
+  /** The validated facts themselves, for the fire-payload catalog below. */
+  facts: PerkFact[];
   count: number;
   softwareCount: number;
   consultantCount: number;
@@ -134,10 +136,135 @@ export function buildKnowledge(perks: PerkFact[]): PerksKnowledge {
   ].join('\n');
   return {
     digest,
+    facts: perks,
     count: perks.length,
     softwareCount: software.length,
     consultantCount: consultants.length,
   };
+}
+
+/* ---------------------------------------------------- fire-payload catalog */
+
+/*
+ * The routine's cloud environment has no network access to perks.tiptop.vc
+ * (its egress allowlist excludes every TipTop host), so the free bridge
+ * sends the catalog WITH each question - the job board assistant's design.
+ * The payload stays small: one index line per perk for the whole catalog,
+ * plus the full digests of the few perks whose words match the question.
+ */
+
+/** Catalog text carried next to a backticked fence: no backticks, no em dashes. */
+const scrub = (text: string): string => text.replace(/`/g, "'").replace(/\s*—\s*/g, ' - ');
+
+export const PERKS_CATALOG_MARKER = 'PERKS_CATALOG_V1';
+export const PERKS_CATALOG_DETAIL_MARKER = 'PERKS_CATALOG_DETAIL_V1';
+
+/** One perk, one index line for the fire payload. */
+export function perkIndexLine(p: PerkFact): string {
+  return scrub(
+    [
+      p.slug,
+      p.name,
+      p.kindLabel || 'Partner',
+      p.catLabel || 'General',
+      p.stat ? `${p.stat} ${p.statLabel}`.trim() : '',
+      p.tagline.slice(0, 160),
+      p.provisional ? 'PROVISIONAL' : '',
+    ].join(' | '),
+  );
+}
+
+/** Words too common to tell perks apart (includes the directory's own vocabulary). */
+const STOP_WORDS = new Set([
+  'the',
+  'and',
+  'for',
+  'with',
+  'what',
+  'which',
+  'how',
+  'does',
+  'are',
+  'you',
+  'your',
+  'our',
+  'get',
+  'can',
+  'any',
+  'about',
+  'have',
+  'has',
+  'who',
+  'that',
+  'this',
+  'there',
+  'perk',
+  'perks',
+  'tiptop',
+  'founder',
+  'founders',
+  'startup',
+  'startups',
+  'company',
+  'companies',
+  'discount',
+  'deal',
+  'offer',
+  'offers',
+  'free',
+  'credit',
+  'credits',
+]);
+
+function words(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length > 2 && !STOP_WORDS.has(t)),
+  );
+}
+
+/** The perks most related to a question, by plain word overlap; empty when none match. */
+export function matchPerks(perks: PerkFact[], question: string, limit = 6): PerkFact[] {
+  const asked = words(question);
+  if (asked.size === 0) return [];
+  return perks
+    .map((p) => {
+      const strong = words(`${p.slug.replace(/-/g, ' ')} ${p.name} ${p.kindLabel} ${p.catLabel}`);
+      const weak = words(`${p.tagline} ${p.bullets.join(' ')}`);
+      let score = 0;
+      for (const t of asked) {
+        if (strong.has(t)) score += 3;
+        else if (weak.has(t)) score += 1;
+      }
+      return { p, score };
+    })
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((s) => s.p);
+}
+
+/**
+ * The catalog block fired with each question: every perk's index line under
+ * PERKS_CATALOG_V1, then full digests of the best matches under
+ * PERKS_CATALOG_DETAIL_V1. About 20KB for the whole directory.
+ */
+export function buildFireCatalog(perks: PerkFact[], question: string): string {
+  const parts = [
+    `${PERKS_CATALOG_MARKER} (${perks.length} perks; columns: slug | name | kind | category | headline | offer | PROVISIONAL when unconfirmed)`,
+    perks.map(perkIndexLine).join('\n'),
+  ];
+  const matched = matchPerks(perks, question);
+  if (matched.length > 0) {
+    parts.push(
+      '',
+      `${PERKS_CATALOG_DETAIL_MARKER} (fuller entries for the perks closest to the question)`,
+      matched.map((p) => scrub(perkDigest(p))).join('\n\n'),
+    );
+  }
+  return parts.join('\n');
 }
 
 let cache: { knowledge: PerksKnowledge; at: number } | null = null;

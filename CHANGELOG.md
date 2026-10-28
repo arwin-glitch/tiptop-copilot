@@ -18,9 +18,14 @@ throughout.
   billed, docs/PERKS_CHAT_ROUTINE.md): the question waits in the new
   `perks_chat_questions` table, the routine posts the answer to its own
   relay, and the widget polls `./answer` - same rails and relay-safety rule
-  as the booking assistant. `PERKS_ASK_ANTHROPIC_KEY` (a separate capped
-  workspace key) remains an optional paid fast lane. With neither set up the
-  widget keeps its email-Arwin fallback. One additive migration.
+  as the booking assistant. Each answer must echo a per-question one-time
+  key (only its SHA-256 is stored, cleared on settle), so the routine may
+  post as the same Slack account the other routines use; and because the
+  routine's cloud environment has no network access, the app sends a digest
+  of the public catalog with each question (the whole index plus full
+  entries for the best matches). `PERKS_ASK_ANTHROPIC_KEY` (a separate
+  capped workspace key) remains an optional paid fast lane. With neither set
+  up the widget keeps its email-Arwin fallback. Two additive migrations.
 
 - **Help catches up with Oct 21-22.** Help opens with **What's new**: the
   latest changes, one line each, by day, newest first, each opening its page
