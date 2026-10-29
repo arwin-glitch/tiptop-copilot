@@ -9,7 +9,7 @@ import { SUGGESTED_QUESTIONS } from '@/lib/services/chat';
 import { recordVisit } from '@/lib/services/presence';
 import { AskWidget } from '@/components/ask/ask-widget';
 import { GoldFiligree } from '@/components/brand/gold-filigree';
-import { Mark, Wordmark } from '@/components/brand/wordmark';
+import { KrakenMark, Wordmark } from '@/components/brand/wordmark';
 import { MobileNav, SidebarNav } from '@/components/shell/nav';
 import { CommandPalette } from '@/components/shell/command-palette';
 import { MobileSectionLabel } from '@/components/shell/mobile-header';
@@ -136,7 +136,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                   so a label mentioning a nav destination would shadow the real
                   nav link in any `getByRole('link', { name: 'Today' })`. */}
               <Link href="/today" aria-label="TipTop Kraken" className="shrink-0">
-                <Mark className="text-[var(--brand-mark)]" size={20} />
+                <KrakenMark size={28} />
               </Link>
               <MobileSectionLabel />
             </div>

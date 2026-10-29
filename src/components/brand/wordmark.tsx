@@ -40,6 +40,26 @@ export function Mark({ className, size = 24 }: { className?: string; size?: numb
   );
 }
 
+/**
+ * The Kraken crest: the app's own logo, used wherever the product names
+ * itself (app header, sign-in). TipTop's mark above stays on pages that speak
+ * for the firm (public booking page, job board).
+ */
+export function KrakenMark({ className, size = 24 }: { className?: string; size?: number }) {
+  return (
+    // A fixed 128px raster: next/image would add a loader for no gain.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/brand/kraken-mark.png"
+      width={size}
+      height={size}
+      alt="TipTop Kraken"
+      className={className}
+      decoding="async"
+    />
+  );
+}
+
 export function Wordmark({
   className,
   showSubtitle = true,
@@ -49,8 +69,7 @@ export function Wordmark({
 }) {
   return (
     <span className={`inline-flex items-center gap-2.5 ${className ?? ''}`}>
-      {/* TipTop green on every ground: --brand-mark carries the pair. */}
-      <Mark className="text-[var(--brand-mark)]" size={22} />
+      <KrakenMark size={30} />
       <span className="flex flex-col leading-none">
         <span className="font-serif text-[15px] font-semibold tracking-tight">TipTop Kraken</span>
         {showSubtitle ? (
