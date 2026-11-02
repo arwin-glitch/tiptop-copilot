@@ -36,13 +36,88 @@
 !define KRAKEN_OLD_PIN "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\TipTop Copilot.lnk"
 !endif
 
+; In-app updates must replace the program files (seen Nov 2 2026, 0.5.0 to
+; 0.5.1): the updater starts this installer and ends the app at once, but the
+; app's process can take a few seconds to finish ending, and until it has,
+; Windows will not let anything write over its .exe. Tauri's template copies
+; the files right after this hook, guarded only by a Restart Manager check,
+; and that check found nothing to close while the copy then failed. The
+; template writes the new version into Add or Remove Programs either way, so
+; the old app came back while Windows reported the new one.
+;
+; So before the copy, this waits up to 20 seconds for the .exe and
+; uninstall.exe to be writable. Only for an update (the user chose Restart
+; now, so the app is meant to be closed) does it end a copy still running
+; after 5 seconds. A first install or a reinstall by hand keeps the template's
+; own "close the app?" question. If the files are still locked after 20
+; seconds, the template's copy shows its Retry / Ignore box as before.
 !macro NSIS_HOOK_PREINSTALL
+  Push $R0
+  Push $R1
+  Push $R2
+
+  StrCpy $R1 0
+  kraken_wait_loop:
+    StrCpy $R2 0
+    IfFileExists "$INSTDIR\${MAINBINARYNAME}.exe" 0 kraken_wait_exe_ok
+      ClearErrors
+      FileOpen $R0 "$INSTDIR\${MAINBINARYNAME}.exe" a
+      IfErrors kraken_wait_exe_locked
+      FileClose $R0
+      Goto kraken_wait_exe_ok
+    kraken_wait_exe_locked:
+      StrCpy $R2 1
+    kraken_wait_exe_ok:
+    IfFileExists "$INSTDIR\uninstall.exe" 0 kraken_wait_un_ok
+      ClearErrors
+      FileOpen $R0 "$INSTDIR\uninstall.exe" a
+      IfErrors kraken_wait_un_locked
+      FileClose $R0
+      Goto kraken_wait_un_ok
+    kraken_wait_un_locked:
+      StrCpy $R2 1
+    kraken_wait_un_ok:
+    StrCmp $R2 0 kraken_wait_done
+    IntCmp $R1 40 kraken_wait_gave_up 0 kraken_wait_gave_up
+    ; After 5 seconds (10 tries), an update ends the app if it is still there.
+    IntCmp $R1 10 0 kraken_wait_sleep kraken_wait_sleep
+    StrCmp $UpdateMode 1 0 kraken_wait_sleep
+      DetailPrint "Closing ${PRODUCTNAME} so it can be updated"
+      nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM ${MAINBINARYNAME}.exe'
+      Pop $R0
+    kraken_wait_sleep:
+    Sleep 500
+    IntOp $R1 $R1 + 1
+    Goto kraken_wait_loop
+
+  kraken_wait_gave_up:
+  DetailPrint "${PRODUCTNAME}'s files are still in use"
+  kraken_wait_done:
+
+  Pop $R2
+  Pop $R1
+  Pop $R0
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
   Push $R0
   Push $R1
   Push $R2
+
+  ; The copy must really have happened. The template has already written
+  ; ${VERSION} into Add or Remove Programs; if the .exe is not that version,
+  ; put back the version actually there and say so. The app the installer
+  ; starts next is then the old one, which offers the update again.
+  ClearErrors
+  ${GetFileVersion} "$INSTDIR\${MAINBINARYNAME}.exe" $R0
+  IfErrors kraken_version_ok
+  StrCmp $R0 "${VERSIONWITHBUILD}" kraken_version_ok
+    ; "0.5.0.0" is shown as "0.5.0".
+    ${WordFind} "$R0" "." "-1{" $R1
+    WriteRegStr SHCTX "${UNINSTKEY}" "DisplayVersion" "$R1"
+    DetailPrint "${MAINBINARYNAME}.exe is still $R1, not ${VERSION}"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "${PRODUCTNAME} could not be updated to ${VERSION} because its files were in use. Nothing was changed. Try again from Check for Updates, or download the newest version from copilot.tiptop.vc/download." /SD IDOK
+  kraken_version_ok:
 
   ; Where the old app was installed: the installer key's default value (the
   ; folder), else the default per-user folder.

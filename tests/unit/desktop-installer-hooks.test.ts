@@ -149,3 +149,61 @@ describe('Windows installer hooks', () => {
     });
   });
 });
+
+/**
+ * Nov 2 2026: an in-app update from 0.5.0 to 0.5.1 left the 0.5.0 .exe and
+ * uninstall.exe in place while Add or Remove Programs said 0.5.1. The updater
+ * ends the app as it starts the installer, and Tauri's template copies the
+ * files right after NSIS_HOOK_PREINSTALL, guarded only by a Restart Manager
+ * check that found nothing to close. The hooks now wait for the files before
+ * the copy and check the result after it.
+ */
+describe('Windows installer hooks: in-app updates replace the files', () => {
+  const macro = (name: string) => {
+    const match = code.match(new RegExp(`^!macro ${name}$([\\s\\S]*?)^!macroend$`, 'm'));
+    return match?.[1] ?? '';
+  };
+  const pre = macro('NSIS_HOOK_PREINSTALL');
+  const post = macro('NSIS_HOOK_POSTINSTALL');
+
+  it('waits, before the copy, until the .exe and uninstall.exe can be written', () => {
+    expect(pre).toContain('FileOpen $R0 "$INSTDIR\\${MAINBINARYNAME}.exe" a');
+    expect(pre).toContain('FileOpen $R0 "$INSTDIR\\uninstall.exe" a');
+    // Every handle it opens is closed again.
+    expect((pre.match(/FileOpen /g) ?? []).length).toBe((pre.match(/FileClose /g) ?? []).length);
+    expect(pre).toContain('Sleep 500');
+    // 40 tries of half a second: never waits forever.
+    expect(pre).toContain('IntCmp $R1 40 kraken_wait_gave_up 0 kraken_wait_gave_up');
+    expect(pre).toContain('Goto kraken_wait_loop');
+  });
+
+  it('ends a lingering app only for an update, and only after 5 seconds', () => {
+    const kill = pre.indexOf('taskkill.exe');
+    expect(kill).toBeGreaterThan(-1);
+    expect((pre.match(/taskkill/g) ?? []).length).toBe(1);
+    expect(pre.indexOf('StrCmp $UpdateMode 1 0 kraken_wait_sleep')).toBeLessThan(kill);
+    expect(pre.indexOf('IntCmp $R1 10 0 kraken_wait_sleep kraken_wait_sleep')).toBeLessThan(kill);
+    // Our own binary only.
+    expect(pre).toContain("taskkill.exe\" /F /T /IM ${MAINBINARYNAME}.exe'");
+  });
+
+  it('keeps the registers it borrows', () => {
+    // The template's own code runs on after each hook with $R0-$R2 as it left them.
+    for (const body of [pre, post]) {
+      const lines = body.split('\n').map((l) => l.trim()).filter(Boolean);
+      expect(lines.slice(0, 3)).toEqual(['Push $R0', 'Push $R1', 'Push $R2']);
+      expect(lines.slice(-3)).toEqual(['Pop $R2', 'Pop $R1', 'Pop $R0']);
+    }
+  });
+
+  it('never leaves Add or Remove Programs naming a version that was not installed', () => {
+    const check = post.indexOf('${GetFileVersion} "$INSTDIR\\${MAINBINARYNAME}.exe" $R0');
+    expect(check).toBeGreaterThan(-1);
+    // Before anything else the hook does.
+    expect(check).toBeLessThan(post.indexOf('ReadRegStr $R0 HKCU "${KRAKEN_OLD_PRODUCTKEY}" ""'));
+    expect(post).toContain('StrCmp $R0 "${VERSIONWITHBUILD}" kraken_version_ok');
+    expect(post).toContain('WriteRegStr SHCTX "${UNINSTKEY}" "DisplayVersion" "$R1"');
+    // Silent installs never stop on the notice.
+    expect(post).toMatch(/MessageBox MB_OK\|MB_ICONEXCLAMATION .* \/SD IDOK/);
+  });
+});

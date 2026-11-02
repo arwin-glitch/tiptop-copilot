@@ -343,6 +343,37 @@ from 0.2.0 on install it themselves:
   `/download` and install it over the old copy (quit first: Mac ⌘Q;
   Windows: right-click the tray icon, then Quit). The Download page and
   Settings say so. After that it updates itself.
+- **Windows: the files must really be replaced.** On Nov 2 2026 an in-app
+  update from 0.5.0 to 0.5.1 reopened 0.5.0: Add or Remove Programs said
+  0.5.1, but `tiptop-copilot-desktop.exe` and `uninstall.exe` in
+  `%LOCALAPPDATA%\TipTop Kraken` were still the 0.5.0 files. Running the
+  same installer by hand with the app closed replaced them fine. The cause
+  is a race in how Tauri updates on Windows. The updater
+  (tauri-plugin-updater 2.14.0) starts the installer with
+  `/P /UPDATE /R /ARGS` and calls `std::process::exit(0)` straight away,
+  but the process takes a moment to finish ending, and Windows will not let
+  anything write over a running .exe. The installer (Tauri CLI 2.12.3's
+  `installer.nsi`) copies the files about a second later. Its only guard is
+  a Restart Manager check (`CheckIfAppIsRunning`), and Windows' Application
+  log shows that check ran at 10:23:24 and found nothing to close. So the
+  copy hit a locked file, while the version, written to the registry
+  afterwards, was written anyway. Update mode itself skips no files, and
+  our hook ran only after the copy, so neither caused it. Since 0.5.2 the hook
+  closes the gap on both sides of the copy:
+  - `NSIS_HOOK_PREINSTALL` (runs just before the copy) waits up to 20
+    seconds for both files to be writable. For an update only, it ends a
+    copy of the app still running after 5 seconds (`taskkill`): the person
+    chose Restart now. A first install or a reinstall by hand keeps the
+    template's own "close the app?" question.
+  - `NSIS_HOOK_POSTINSTALL` checks the installed .exe's version. If it is
+    not the new one, it writes the true version back to Add or Remove
+    Programs and says the update could not be installed. The old app then
+    reopens and offers the update again at its next check.
+
+  `tests/unit/desktop-installer-hooks.test.ts` checks both. The fix is in
+  the new installer, so it helps from the update *to* 0.5.2 onwards (0.5.1's
+  installer still has the race). Check it on a real PC with the
+  checklist below.
 
 **First self-update: a canary.** After 0.2.0 is installed by hand, release
 0.2.1 as a version-only change (`tauri.conf.json`, `Cargo.toml` and the
@@ -653,6 +684,14 @@ job strips stray line breaks and spaces anyway.
       date".
     - Opened straight from the disk image, a Mac copy says once that it
       must be moved to Applications.
+    - Windows, files really replaced (from 0.5.2): with the app open on the
+      older version, choose Restart now, wait for it to reopen, then in
+      PowerShell run
+      `(Get-Item "$env:LOCALAPPDATA\TipTop Kraken\tiptop-copilot-desktop.exe").VersionInfo.FileVersion`
+      and the same for `uninstall.exe`. Both must show the new version, the
+      same as `DisplayVersion` under
+      `HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\TipTop Kraken`.
+      No "Error opening file for writing" box may appear.
 14. The top bar (0.3.0):
     - Windows: one emerald bar, no grey title bar or menu bar. Drag it to
       move the window; double-click maximises and restores; right-click
