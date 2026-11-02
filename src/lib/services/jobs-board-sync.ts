@@ -16,6 +16,8 @@ import {
 import {
   pageSourceKey,
   parseCareersPageJobs,
+  roleFromPage,
+  roleLinksIn,
   type CareersSource,
 } from '@/lib/jobs-board/careers-page';
 import { guessFunction, guessSeniority } from '@/lib/jobs-board/fields';
@@ -823,10 +825,16 @@ async function readPageAndApply(
     companyName: portfolio.name,
     now: options.now,
   });
-  // No JobPostings at all (none, or none readable): most likely a redesigned
-  // page, not every role closing at once, so nothing is closed.
+  // No structured data on the list itself: many pages give each role its own
+  // page instead. Those are followed, each through the same checked fetch.
   if (parsed.postings.length === 0 && parsed.expired === 0) {
-    return skip('The careers page lists no roles in its page data.');
+    const followed = await readRolePages(page.html, page.url, portfolio.name, options);
+    if (followed.length > 0) parsed.postings = followed;
+  }
+  // No roles at all (none, or none readable): most likely a redesigned page,
+  // not every role closing at once, so nothing is closed.
+  if (parsed.postings.length === 0 && parsed.expired === 0) {
+    return skip('The careers page lists no roles in its page data or role pages.');
   }
   const counts = await applyBoardPostings(
     store,
@@ -845,6 +853,34 @@ async function readPageAndApply(
   if (parsed.expired) parts.push(`${parsed.expired} expired left out`);
   if (parsed.skipped) parts.push(`${parsed.skipped} unreadable left out`);
   return result(company, portfolio, 'ok', parts.join(', '), { ...counts, total });
+}
+
+/**
+ * The roles behind a careers page's links to role pages on its own site (see
+ * roleLinksIn), each page fetched the careful way, one at a time so the
+ * host's pace is kept. A page that cannot be read is left out. Never throws.
+ */
+async function readRolePages(
+  html: string,
+  pageUrl: string,
+  companyName: string,
+  options: SyncOptions,
+): Promise<AtsPosting[]> {
+  const out: AtsPosting[] = [];
+  const seen = new Set<string>();
+  for (const roleUrl of roleLinksIn(html, pageUrl)) {
+    try {
+      const page = await fetchCareersPage(roleUrl, options);
+      if (page.kind !== 'page') continue;
+      const role = roleFromPage(page.html, roleUrl, { companyName, now: options.now });
+      if (!role || seen.has(role.externalId)) continue;
+      seen.add(role.externalId);
+      out.push(role);
+    } catch {
+      // Left out; the rest are still read.
+    }
+  }
+  return out;
 }
 
 async function runLimited<T>(items: readonly T[], limit: number, work: (item: T) => Promise<void>) {

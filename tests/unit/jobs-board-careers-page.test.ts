@@ -8,6 +8,8 @@ import {
   MAX_PAGE_ROLES,
   pageSourceKey,
   parseCareersPageJobs,
+  roleFromPage,
+  roleLinksIn,
 } from '@/lib/jobs-board/careers-page';
 import { isLinkedInJobsUrl, linkedInJobsUrl } from '@/lib/jobs-board/linkedin';
 
@@ -261,5 +263,67 @@ describe('linkedInJobsUrl', () => {
       expect(linkedInJobsUrl(raw)).toBeNull();
     }
     expect(isLinkedInJobsUrl('https://www.linkedin.com/company/acme')).toBe(false);
+  });
+});
+
+describe('role pages linked from a careers page', () => {
+  const LIST = `
+    <nav><a href="/careers">Careers</a><a href="/about">About</a></nav>
+    <a href="/careers/founding-engineer">View role</a>
+    <a href="https://www.example-robotics.test/roles/field-specialist?ref=list#top">Field Specialist</a>
+    <a href="/careers/founding-engineer/">View role again</a>
+    <a href="/careers/benefits">Benefits</a>
+    <a href="https://other-company.test/jobs/sales-lead">Someone else</a>
+    <a href="mailto:jobs@example-robotics.test">Email us</a>`;
+
+  it('finds same-site role pages once each, in order', () => {
+    expect(roleLinksIn(LIST, 'https://example-robotics.test/careers')).toEqual([
+      'https://example-robotics.test/careers/founding-engineer',
+      'https://www.example-robotics.test/roles/field-specialist',
+    ]);
+  });
+
+  it('finds nothing on a page without role links', () => {
+    expect(roleLinksIn('<a href="/careers">Careers</a>', 'https://example-robotics.test/')).toEqual(
+      [],
+    );
+  });
+
+  it('reads a role page by its heading, without the site name', () => {
+    const html = `<title>Marketing Manager — Careers at Example Robotics</title>
+      <meta name="description" content="Own our launch campaigns.">
+      <h1>Marketing Manager</h1>`;
+    const role = roleFromPage(html, 'https://example-robotics.test/roles/marketing-manager');
+    expect(role).toMatchObject({
+      externalId: 'link:/roles/marketing-manager',
+      title: 'Marketing Manager',
+      applyUrl: 'https://example-robotics.test/roles/marketing-manager',
+    });
+    expect(role?.description).toContain('Own our launch campaigns.');
+  });
+
+  it("prefers the role page's own JobPosting data", () => {
+    const html = `<script type="application/ld+json">${JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'JobPosting',
+      title: 'Founding Engineer',
+      hiringOrganization: { '@type': 'Organization', name: 'Example Robotics' },
+      jobLocation: { '@type': 'Place', address: { addressLocality: 'Boston' } },
+    })}</script><h1>Something else</h1>`;
+    const role = roleFromPage(html, 'https://example-robotics.test/careers/founding-engineer', {
+      companyName: 'Example Robotics',
+    });
+    expect(role?.title).toBe('Founding Engineer');
+    expect(role?.externalId).toBe('link:/careers/founding-engineer');
+    expect(role?.applyUrl).toBe('https://example-robotics.test/careers/founding-engineer');
+  });
+
+  it('reads no role from a not-found page', () => {
+    expect(
+      roleFromPage(
+        '<title>Page not found</title><h1>404</h1>',
+        'https://example-robotics.test/x/y',
+      ),
+    ).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 import { normalizeJobTitle } from '@/lib/portfolio/job-taxonomy';
 import type { AtsBoard, AtsPosting } from './ats';
 import { formatPayRange, normalizeEmploymentType, remoteFromPlace } from './fields';
-import { htmlToStructuredText } from './sanitize';
+import { decodeEntities, htmlToStructuredText, plainToStructuredText } from './sanitize';
 
 /**
  * A company's own careers page that is not on a supported job board, read for
@@ -486,4 +486,142 @@ export function pageSourceKey(pageUrl: string, posting: Pick<AtsPosting, 'extern
     // Kept as "page".
   }
   return `${PAGE_SOURCE_PREFIX}${host}:${posting.externalId}`.slice(0, 200);
+}
+
+/* ------------------------------------------------------------ role pages -- */
+
+/**
+ * Many careers pages publish no structured data on the list itself but give
+ * every role its own page (`/careers/founding-engineer`, `/roles/...`). These
+ * read that shape: the list's links to role pages on the same site, then each
+ * role page's own JobPosting data, or else its heading. Pure.
+ */
+
+/** Most role pages followed from one careers page in one sync. */
+export const MAX_ROLE_LINKS = 30;
+
+/** A role page's path: one listing folder, then the role's own slug. */
+const ROLE_PATH =
+  /^\/(?:careers?|roles?|jobs?|positions?|openings?|vacancies|join-us|join)\/([A-Za-z0-9][A-Za-z0-9._-]{1,120})\/?$/i;
+
+/** Slugs that are pages about careers, not roles. */
+const NOT_A_ROLE_SLUG =
+  /^(?:index|all|search|apply|faq|benefits|culture|team|life|about|values|perks|students|interns?hips?-program|open-roles|openings|positions|jobs|careers)$/i;
+
+function siteOf(host: string): string {
+  return host.toLowerCase().replace(/^www\./, '');
+}
+
+/**
+ * The links on a careers page that lead to a single role's page on the same
+ * site, in page order, one each, at most MAX_ROLE_LINKS.
+ */
+export function roleLinksIn(html: string | null | undefined, pageUrl: string): string[] {
+  if (!html || typeof html !== 'string') return [];
+  let base: URL;
+  try {
+    base = new URL(pageUrl);
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const re = /<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(html)) && out.length < MAX_ROLE_LINKS) {
+    const href = decodeEntities(match[1] ?? match[2] ?? '');
+    const resolved = link(href, base.toString());
+    if (!resolved) continue;
+    const url = new URL(resolved);
+    if (siteOf(url.hostname) !== siteOf(base.hostname)) continue;
+    const slug = ROLE_PATH.exec(url.pathname)?.[1];
+    if (!slug || NOT_A_ROLE_SLUG.test(slug)) continue;
+    url.hash = '';
+    url.search = '';
+    const key = `${siteOf(url.hostname)}${url.pathname.replace(/\/$/, '')}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(url.toString());
+  }
+  return out;
+}
+
+/** Headings that are not a role's title. */
+const NOT_A_TITLE =
+  /^(?:careers?|jobs?|open (?:roles|positions)|join (?:us|the team|our team)|we'?re hiring|page not found|not found|404|error|apply|apply now)$/i;
+
+function cleanText(raw: string, max: number): string | null {
+  const text = decodeEntities(raw.replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text && text.length <= max ? text : null;
+}
+
+/** "Marketing Manager — Careers at Acme" -> "Marketing Manager". */
+function titleOnly(raw: string): string {
+  return raw.split(/\s+(?:[—–|·]|-)\s+/)[0]!.trim();
+}
+
+/**
+ * A role page -> the role. Its own JobPosting data when it has some (the
+ * role's link defaults to the page); else its first heading, or its page
+ * title without the site's name, with the meta description as the summary.
+ * Null when the page names no believable role.
+ */
+export function roleFromPage(
+  html: string | null | undefined,
+  roleUrl: string,
+  options: { companyName?: string | null; now?: Date } = {},
+): AtsPosting | null {
+  if (!html || typeof html !== 'string') return null;
+  const parsed = parseCareersPageJobs(html, {
+    pageUrl: roleUrl,
+    companyName: options.companyName,
+    now: options.now,
+  });
+  if (parsed.expired > 0 && parsed.postings.length === 0) return null;
+  let path = roleUrl;
+  try {
+    path = new URL(roleUrl).pathname.replace(/\/$/, '').toLowerCase();
+  } catch {
+    // Kept whole.
+  }
+  const externalId = `link:${path}`.slice(0, 160);
+  const first = parsed.postings[0];
+  if (first) return { ...first, externalId, applyUrl: first.applyUrl ?? roleUrl };
+
+  const h1 = /<h1\b[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1];
+  const og = /<meta\b[^>]*property\s*=\s*["']og:title["'][^>]*content\s*=\s*["']([^"']*)["']/i.exec(
+    html,
+  )?.[1];
+  const pageTitle = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1];
+  let title: string | null = null;
+  for (const candidate of [h1, og, pageTitle]) {
+    if (!candidate) continue;
+    const text = cleanText(candidate, 300);
+    const only = text ? titleOnly(text) : null;
+    if (only && only.length >= 3 && only.length <= 120 && !NOT_A_TITLE.test(only)) {
+      title = only;
+      break;
+    }
+  }
+  if (!title) return null;
+  const summary =
+    /<meta\b[^>]*name\s*=\s*["']description["'][^>]*content\s*=\s*["']([^"']*)["']/i.exec(
+      html,
+    )?.[1] ?? null;
+  const description = summary ? (cleanText(summary, 2000) ?? '') : '';
+  return {
+    externalId,
+    title,
+    team: null,
+    locations: [],
+    remote: null,
+    employmentType: null,
+    comp: null,
+    description: description ? plainToStructuredText(description) : '',
+    applyUrl: roleUrl,
+    postedAt: null,
+    updatedAt: null,
+  };
 }
