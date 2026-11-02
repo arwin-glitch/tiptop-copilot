@@ -265,11 +265,17 @@ release again.
 
 ## Installing for the first time
 
-The installers are not signed with a paid certificate, so each computer asks
-once, at the first install. From 0.2.0, later versions install from inside
-the app with none of these steps.
+From the first desktop release built after November 2026, the Mac app is
+signed with TipTop's Apple Developer ID and notarised by Apple
+(`.github/workflows/desktop.yml`), so it opens like any other downloaded app:
+open the `.dmg`, drag TipTop Kraken into Applications, open it, and click
+**Open** if the Mac asks once. The steps below are for older Mac builds, and
+for builds made without the signing secrets (a fork). The Windows installer is
+still not signed with a paid certificate, so Windows asks once, at the first
+install. From 0.2.0, later versions install from inside the app with none of
+these steps.
 
-**Mac** (macOS 13 or newer):
+**Mac, an older or ad-hoc signed build** (macOS 13 or newer):
 
 1. Open the downloaded `.dmg` and drag TipTop Kraken into Applications.
 2. Open TipTop Kraken from the Applications folder. The Mac says
@@ -589,13 +595,15 @@ job strips stray line breaks and spaces anyway.
 - A downloaded update waits in memory: after Later, quitting means the next
   launch downloads it again. Release notes are not shown.
 - On a Mac, the "access your Downloads folder" question may come back after
-  an update, because the app is only ad-hoc signed. A Mac user who is not an
+  an update on an ad-hoc signed build (one made without the Developer ID
+  secrets); Developer ID builds keep the answer. A Mac user who is not an
   administrator is asked for an administrator's password to update.
 
 ## Checklist on a real Mac and PC
 
-1. The Mac shows Open Anyway, not "damaged" (if damaged, use the `xattr`
-   command above).
+1. A Developer ID build opens on a Mac with at most one Open prompt, never
+   Open Anyway (an ad-hoc build shows Open Anyway, not "damaged"; if damaged,
+   use the `xattr` command above).
 2. Sign-in through the browser works on both.
 3. A Gmail link opens in the default browser.
 4. CSV exports and attachments reach Downloads. On a Mac, Finder shows the

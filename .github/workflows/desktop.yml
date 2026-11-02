@@ -13,10 +13,17 @@
 # and latest.json. The web app's /api/desktop/update routes answer the
 # installed apps from those, so never rename any of them.
 #
-# No paid certificates: Apple and Microsoft sign nothing here. The Mac app is
-# ad-hoc signed, which Apple Silicon needs before it will run downloaded code
-# at all, and the first install needs Open Anyway (see desktop/README.md).
-# From 0.2.0 the app updates itself, and installs only files signed with the
+# The Mac app is signed with the Developer ID Application certificate (the
+# MAC_DEVID_P12 and MAC_DEVID_P12_PASSWORD secrets) and notarised with the
+# App Store Connect team key (the ASC_KEY_P8 secret, the ASC_KEY_ID and
+# ASC_ISSUER_ID variables), so it opens without Open Anyway; the disk image is
+# notarised and stapled too. The certificate goes into a keychain made for
+# the run and deleted after it. The identity carries the Account Holder's
+# legal name, so it and the team ID are masked before any tool could print
+# them. Without those secrets (a fork, say) the Mac app is ad-hoc signed as
+# before, which Apple Silicon needs before it will run downloaded code at
+# all, and the first install needs Open Anyway (see desktop/README.md).
+# Windows is not signed. From 0.2.0 the app updates itself, and installs only files signed with the
 # minisign key in the TAURI_SIGNING_PRIVATE_KEY secret, checked against
 # plugins.updater.pubkey in tauri.conf.json. That key never reaches a build:
 # each build signs its update files with a throwaway key made for the run, so
@@ -196,6 +203,83 @@ jobs:
         run: |
           npx --yes @tauri-apps/cli@2.12.3 signer generate --ci \
             --write-keys "$RUNNER_TEMP/throwaway.key" > /dev/null
+      - name: Developer ID signing
+        # Mac only, and only when the Developer ID certificate is in the
+        # repository's secrets (a fork, or a run without them, builds ad-hoc
+        # signed as before). Imports the certificate into a keychain made for
+        # this run, masks the identity (it carries the Account Holder's legal
+        # name) and the team ID before anything could print them, and hands
+        # Tauri the identity and the App Store Connect key for notarisation.
+        if: matrix.platform == 'mac'
+        env:
+          MAC_DEVID_P12: ${{ secrets.MAC_DEVID_P12 }}
+          MAC_DEVID_P12_PASSWORD: ${{ secrets.MAC_DEVID_P12_PASSWORD }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          [ -n "${APPLE_TEAM_ID:-}" ] && echo "::add-mask::$APPLE_TEAM_ID"
+          has() { local value="${!1:-}"; [ -n "${value//[[:space:]]/}" ]; }
+          missing=()
+          for name in MAC_DEVID_P12 MAC_DEVID_P12_PASSWORD ASC_KEY_P8 ASC_KEY_ID ASC_ISSUER_ID; do
+            has "$name" || missing+=("$name")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::notice::Mac app ad-hoc signed and not notarised: missing ${missing[*]}."
+            exit 0
+          fi
+          umask 077
+          keychain="$RUNNER_TEMP/devid.keychain-db"
+          keychain_password=$(openssl rand -hex 24)
+          echo "::add-mask::$keychain_password"
+          printf '%s' "$MAC_DEVID_P12" | tr -d '\r\n ' | base64 --decode > "$RUNNER_TEMP/devid.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          if ! security import "$RUNNER_TEMP/devid.p12" -k "$keychain" -P "$MAC_DEVID_P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security > /dev/null 2>&1; then
+            rm -f "$RUNNER_TEMP/devid.p12"
+            echo "::error::MAC_DEVID_P12 did not import with MAC_DEVID_P12_PASSWORD."
+            exit 1
+          fi
+          rm -f "$RUNNER_TEMP/devid.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" \
+            "$keychain" > /dev/null 2>&1
+          # The run's keychain first, then the existing ones, so codesign finds it.
+          existing=$(security list-keychains -d user | tr -d '"' | xargs)
+          # shellcheck disable=SC2086
+          security list-keychains -d user -s "$keychain" $existing
+          # The identity, read without printing it: "Developer ID Application:
+          # <legal name> (<team ID>)".
+          identity=$(security find-identity -v -p codesigning "$keychain" \
+            | sed -n 's/^ *[0-9][0-9]*) [0-9A-F]\{40\} "\(Developer ID Application: .*\)"$/\1/p' | head -n 1)
+          if [ -z "$identity" ]; then
+            echo "::error::MAC_DEVID_P12 holds no valid Developer ID Application identity."
+            exit 1
+          fi
+          echo "::add-mask::$identity"
+          name=${identity#Developer ID Application: }
+          name=${name% (*}
+          [ -n "$name" ] && echo "::add-mask::$name"
+          team=${identity##* (}
+          team=${team%)}
+          [ -n "$team" ] && echo "::add-mask::$team"
+          # The App Store Connect key, for notarisation, as a .p8 file.
+          mkdir -p "$RUNNER_TEMP/asc"
+          key="$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
+          node --input-type=module \
+            -e 'import { p8ToPem } from "./ios-app/scripts/asc.mjs"; process.stdout.write(p8ToPem(process.env.ASC_KEY_P8));' \
+            > "$key"
+          {
+            echo "APPLE_SIGNING_IDENTITY=$identity"
+            echo "APPLE_API_KEY=$ASC_KEY_ID"
+            echo "APPLE_API_ISSUER=$ASC_ISSUER_ID"
+            echo "APPLE_API_KEY_PATH=$key"
+            echo "MAC_DEVID_KEYCHAIN=$keychain"
+          } >> "$GITHUB_ENV"
+          echo "Mac app: signed with Developer ID and notarised in this build."
       - name: Build
         working-directory: desktop
         env:
@@ -221,6 +305,66 @@ jobs:
             msg=${msg//$'\n'/'%0A'}
             echo "::error title=${{ matrix.platform }} $(basename "$log")::$msg"
           done
+      - name: Check the Developer ID signature, notarise the disk image
+        # Only when the Developer ID step set the identity. Fails closed: the
+        # app, the app inside the update file and the disk image must each be
+        # signed with Developer ID and carry Apple's notarisation ticket.
+        if: matrix.platform == 'mac' && env.APPLE_SIGNING_IDENTITY != ''
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          version=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+          product=$(node -p "require('./desktop/src-tauri/tauri.conf.json').productName")
+          bundle='${{ matrix.bundle-dir }}'
+          fail() { echo "::error::$1"; exit 1; }
+          developer_id() {
+            # codesign prints the authority chain; the leaf must be Developer ID.
+            codesign -dvv "$1" 2>&1 | grep -q '^Authority=Developer ID Application: ' \
+              || fail "$2 is not signed with Developer ID."
+          }
+          app="$bundle/macos/$product.app"
+          [ -d "$app" ] || fail "Expected $app."
+          codesign --verify --deep --strict "$app" || fail "The app's signature does not verify."
+          developer_id "$app" 'The app'
+          codesign -dvv "$app" 2>&1 | grep -q 'flags=.*runtime' || fail "The app lacks the hardened runtime."
+          xcrun stapler validate "$app" > /dev/null || fail "The app carries no notarisation ticket."
+          spctl --assess --type execute "$app" || fail "Gatekeeper does not accept the app."
+          # The update file must hold the same notarised app.
+          mkdir -p "$RUNNER_TEMP/update-check"
+          tar -xzf "$bundle/macos/$product.app.tar.gz" -C "$RUNNER_TEMP/update-check"
+          xcrun stapler validate "$RUNNER_TEMP/update-check/$product.app" > /dev/null \
+            || fail "The app in the update file carries no notarisation ticket."
+          developer_id "$RUNNER_TEMP/update-check/$product.app" 'The app in the update file'
+          # The disk image: signed by Tauri; notarised and stapled here, so
+          # it opens without Open Anyway even before the app is copied out.
+          dmg=("$bundle"/dmg/*_"$version"_*.dmg)
+          [ ${#dmg[@]} -eq 1 ] || fail "Expected one $version .dmg in $bundle/dmg."
+          codesign -s "$APPLE_SIGNING_IDENTITY" --keychain "$MAC_DEVID_KEYCHAIN" --timestamp --force \
+            "${dmg[0]}"
+          developer_id "${dmg[0]}" 'The disk image'
+          if ! xcrun notarytool submit "${dmg[0]}" --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" --wait --timeout 30m --output-format json \
+            > "$RUNNER_TEMP/notary.json"; then
+            cat "$RUNNER_TEMP/notary.json" || true
+            fail "Notarising the disk image failed."
+          fi
+          status=$(node -p "require(process.argv[1]).status" "$RUNNER_TEMP/notary.json")
+          if [ "$status" != Accepted ]; then
+            id=$(node -p "require(process.argv[1]).id" "$RUNNER_TEMP/notary.json")
+            xcrun notarytool log "$id" --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" \
+              --issuer "$APPLE_API_ISSUER" || true
+            fail "Apple did not accept the disk image (status: $status)."
+          fi
+          xcrun stapler staple "${dmg[0]}" > /dev/null || fail "Could not staple the disk image's ticket."
+          xcrun stapler validate "${dmg[0]}" > /dev/null || fail "The disk image carries no ticket."
+          spctl --assess --type open --context context:primary-signature "${dmg[0]}" \
+            || fail "Gatekeeper does not accept the disk image."
+          echo "Signed with Developer ID and notarised: the app, its update file and the disk image."
+      - name: Remove the signing keychain
+        if: always() && matrix.platform == 'mac'
+        run: |
+          [ -n "${MAC_DEVID_KEYCHAIN:-}" ] && security delete-keychain "$MAC_DEVID_KEYCHAIN" 2> /dev/null || true
+          rm -rf "$RUNNER_TEMP/asc" "$RUNNER_TEMP/devid.p12"
       - name: Collect installers
         run: |
           set -euo pipefail
