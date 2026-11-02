@@ -1,6 +1,8 @@
 /**
- * Generates the web app's icons from the Kraken crest,
- * public/brand/kraken-logo.png (1024x1024, transparent background).
+ * Generates the web app's icons from the Kraken tile (the cream octopus on
+ * emerald, holding up a gold T): public/brand/kraken-logo.png (1024x1024,
+ * rounded corners, transparent outside them) and kraken-logo-square.png (the
+ * same art, square and full-bleed, for icons the device rounds itself).
  *
  * The desktop app's icons come from the same file: the desktop workflow runs
  * `tauri icon ../public/brand/kraken-logo.png` (.github/workflows/desktop.yml).
@@ -24,18 +26,19 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 
-/** Forest from globals.css (the dark page colour). */
-const FOREST = { r: 0x0e, g: 0x27, b: 0x20, alpha: 1 };
 const CLEAR = { r: 0, g: 0, b: 0, alpha: 0 };
+/** The tile's own emerald, so a shrunk tile fills its square seamlessly. */
+const TILE = { r: 0x0b, g: 0x5d, b: 0x46, alpha: 1 };
 
 const root = process.cwd();
 const source = path.join(root, 'public', 'brand', 'kraken-logo.png');
+const square = path.join(root, 'public', 'brand', 'kraken-logo-square.png');
 const outDir = path.join(root, 'public');
 
 /** The crest scaled to `size * scale`, centred on a `size` square of `background`. */
-async function render(size, scale, background) {
+async function render(size, scale, background, from = source) {
   const inner = Math.round(size * scale);
-  const crest = await sharp(source)
+  const crest = await sharp(from)
     .resize(inner, inner, { fit: 'contain', background: CLEAR })
     .png()
     .toBuffer();
@@ -48,14 +51,15 @@ async function render(size, scale, background) {
 const targets = [
   { file: 'icon-192.png', size: 192, scale: 1, background: CLEAR },
   { file: 'icon-512.png', size: 512, scale: 1, background: CLEAR },
-  // The maskable safe zone is a circle 80% of the width; the crest's corners
-  // reach about 0.7 of its box from the centre, so 0.72 keeps them inside.
-  { file: 'icon-maskable-512.png', size: 512, scale: 0.72, background: FOREST },
-  { file: 'apple-icon.png', size: 180, scale: 0.86, background: FOREST },
+  // Full-bleed squares the device crops itself. Maskable crops can be a
+  // circle 80% of the width, so the art is shrunk to keep the gold T inside;
+  // iOS only rounds the corners, so its icon uses the art full size.
+  { file: 'icon-maskable-512.png', size: 512, scale: 0.78, background: TILE, from: square },
+  { file: 'apple-icon.png', size: 180, scale: 1, background: TILE, from: square },
 ];
 
 for (const target of targets) {
-  const png = await render(target.size, target.scale, target.background);
+  const png = await render(target.size, target.scale, target.background, target.from);
   writeFileSync(path.join(outDir, target.file), png);
   console.log(`wrote public/${target.file} (${target.size}x${target.size})`);
 }
@@ -70,4 +74,4 @@ const svg = [
   '',
 ].join('\n');
 writeFileSync(path.join(outDir, 'icon.svg'), svg);
-console.log('wrote public/icon.svg (96x96 crest)');
+console.log('wrote public/icon.svg (96x96 tile)');

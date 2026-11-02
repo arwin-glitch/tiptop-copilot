@@ -41,7 +41,7 @@ export function Mark({ className, size = 24 }: { className?: string; size?: numb
 }
 
 /**
- * The Kraken crest: the app's own logo, used wherever the product names
+ * The Kraken tile (cream octopus on emerald, holding up a gold T): the app's own logo, used wherever the product names
  * itself (app header, sign-in). TipTop's mark above stays on pages that speak
  * for the firm (public booking page, job board).
  */
