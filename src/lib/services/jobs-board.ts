@@ -198,6 +198,9 @@ export const JOBS_BOARD_CACHE_TAG = 'jobs-board';
 
 class BoardUnreadable extends Error {}
 
+/** Unique to this server process: see the cache key below. */
+const BOOT_KEY = `boot-${process.pid}-${Date.now()}`;
+
 const cachedRead = unstable_cache(
   async (descriptions: boolean): Promise<PublicBoardRead> => {
     const read = await readPublicBoard({ descriptions });
@@ -205,7 +208,12 @@ const cachedRead = unstable_cache(
     if (read.state === 'unavailable') throw new BoardUnreadable();
     return read;
   },
-  ['jobs-board-public-v1'],
+  // Keyed per server start. The data cache lives on disk and the host keeps
+  // it across deploys and restarts, so a fixed key served whatever was saved
+  // last (once, the deploy day's single role) to the first visitor after each
+  // wake. A fresh key per start reads the database first; within one start the
+  // ten-minute window and the tag still apply.
+  ['jobs-board-public-v2', BOOT_KEY],
   { tags: [JOBS_BOARD_CACHE_TAG], revalidate: 600 },
 );
 
