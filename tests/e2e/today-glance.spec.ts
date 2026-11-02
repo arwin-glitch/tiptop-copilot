@@ -69,7 +69,9 @@ async function openGlance(page: Page) {
   return glance;
 }
 
-test('Top priorities comes first, and Do now steps aside while it shows', async ({ page }) => {
+test('Brief and Dossier open the page, Top priorities next, and Do now steps aside', async ({
+  page,
+}) => {
   const glance = await openGlance(page);
   const priorities = page.getByRole('heading', { name: 'Top priorities', exact: true });
   await expect(priorities).toBeVisible();
@@ -79,8 +81,12 @@ test('Top priorities comes first, and Do now steps aside while it shows', async 
   await expect(card.getByText('Pay the Northwind invoice', { exact: true })).toBeVisible();
   await expect(card.getByText('Money', { exact: true })).toBeVisible();
 
-  // Above the glance cards and the briefing below them.
+  // Brief and Dossier always hold the top; Top priorities sits right under them.
+  const briefings = page.locator('[data-tour="today-briefings"]');
+  await expect(briefings).toBeVisible();
   const top = (await priorities.boundingBox())?.y ?? Number.POSITIVE_INFINITY;
+  expect((await briefings.boundingBox())?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(top);
+  // Above the glance cards and the outlook.
   expect(top).toBeLessThan((await glance.boundingBox())?.y ?? -1);
   const outlook = await page.getByRole('heading', { name: 'Outlook', exact: true }).boundingBox();
   expect(top).toBeLessThan(outlook?.y ?? -1);

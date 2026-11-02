@@ -32,7 +32,7 @@ import { EmptyState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { Button } from '@/components/ui/button';
 import { GeneratedMeta } from '@/components/evidence/source-drawer';
 import { BriefItemRow, ExpandableSection, OpenSourcesButton } from '@/components/today/sections';
-import { RoutineBriefingCard } from '@/components/today/briefing-summary';
+import { RoutineBriefingCard, RoutineBriefingPending } from '@/components/today/briefing-summary';
 import { TopPrioritiesCard } from '@/components/today/top-priorities';
 import { BriefingWatcher } from '@/components/today/briefing-watcher';
 import { WelcomeBack } from '@/components/today/welcome-back';
@@ -50,7 +50,6 @@ import {
   TaskControls,
 } from '@/components/today/today-actions';
 import { formatTime, formatWeekdayLong, isOverdue, relativeTime } from '@/lib/util/time';
-import { cn } from '@/lib/util/cn';
 import type { Citation } from '@/lib/types/domain';
 
 export const metadata: Metadata = { title: 'Today' };
@@ -242,6 +241,22 @@ async function TodayContent({
     <>
       <WelcomeBack />
 
+      {/* Brief and Dossier always open the page, side by side: a card waits
+          in each place until the triage fleet posts today's. */}
+      <div className="mb-6 grid gap-4 sm:grid-cols-2" data-tour="today-briefings">
+        {routineBrief ? (
+          <RoutineBriefingCard briefing={routineBrief} now={now} />
+        ) : (
+          <RoutineBriefingPending kind="brief" />
+        )}
+        {routineDossier ? (
+          <RoutineBriefingCard briefing={routineDossier} now={now} />
+        ) : (
+          <RoutineBriefingPending kind="dossier" />
+        )}
+      </div>
+      <BriefingWatcher version={briefingVersion(routineBrief, routineDossier)} />
+
       {priorities ? <TopPrioritiesCard priorities={priorities} now={now} /> : null}
 
       {glance && glanceCards.length > 0 ? (
@@ -255,19 +270,6 @@ async function TodayContent({
       <EventsLine organizationId={auth.organizationId} now={now} />
 
       <NotSeenSentCard items={notSeenSent} />
-
-      {routineBrief || routineDossier ? (
-        <div
-          className={cn(
-            'mb-6 grid gap-4',
-            routineBrief && routineDossier ? 'sm:grid-cols-2' : 'grid-cols-1',
-          )}
-        >
-          {routineBrief ? <RoutineBriefingCard briefing={routineBrief} now={now} /> : null}
-          {routineDossier ? <RoutineBriefingCard briefing={routineDossier} now={now} /> : null}
-        </div>
-      ) : null}
-      <BriefingWatcher version={briefingVersion(routineBrief, routineDossier)} />
 
       {nothingToday ? (
         <EmptyState

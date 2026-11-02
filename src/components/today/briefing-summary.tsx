@@ -135,3 +135,43 @@ export function RoutineBriefingCard({
     </Card>
   );
 }
+
+/**
+ * Where a routine card goes when today's has not been posted yet, so the
+ * Brief and the Dossier always hold the top of Today, in the same place, as a
+ * matched pair. Says what will appear and when, nothing more.
+ */
+export function RoutineBriefingPending({
+  kind,
+  className,
+}: {
+  kind: 'brief' | 'dossier';
+  className?: string;
+}) {
+  const Icon = kind === 'dossier' ? BookOpen : Sun;
+  return (
+    <Card className={cn('overflow-hidden border-dashed', className)}>
+      <CardHeader>
+        <div className="flex min-w-0 items-start gap-3">
+          <span
+            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--neutral-soft)] text-[var(--fg-subtle)]"
+            aria-hidden="true"
+          >
+            <Icon className="size-4.5" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle as="h2">{kind === 'dossier' ? 'Dossier' : 'Brief'}</CardTitle>
+              <Badge tone="outline">Not posted yet</Badge>
+            </div>
+            <p className="mt-1.5 text-sm text-[var(--fg-muted)]">
+              {kind === 'dossier'
+                ? "Today's meeting dossier shows here once the triage fleet posts it."
+                : "Today's brief shows here once the triage fleet posts it, morning and afternoon."}
+            </p>
+          </div>
+        </div>
+      </CardHeader>
+    </Card>
+  );
+}

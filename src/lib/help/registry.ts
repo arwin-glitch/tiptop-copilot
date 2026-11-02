@@ -165,7 +165,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'today',
     name: 'Today',
     href: '/today',
-    purpose: "Your day on one screen: top priorities, intros you owe, and what's next.",
+    purpose: "Your day on one screen: Brief and Dossier first, then priorities and what's next.",
     subtabs: [],
     steps: [
       navStep(
