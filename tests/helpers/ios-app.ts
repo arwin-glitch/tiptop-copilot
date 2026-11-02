@@ -129,7 +129,7 @@ export function markAsIosApp({
         addListener: addListener('App'),
         getInfo: async () => {
           record('App', 'getInfo', {});
-          return { name: 'TipTop Copilot', id: 'vc.tiptop.copilot', build, version: '1.0.0' };
+          return { name: 'TipTop Kraken', id: 'vc.tiptop.copilot', build, version: '1.0.0' };
         },
       },
     },

@@ -35,7 +35,7 @@ import type { AuditEvent, UserProfile } from '@/lib/types/domain';
 import { createHarness, type Harness } from '../helpers/harness';
 
 /**
- * iPhone app alerts (D-058): devices, Apple's answers, and the rule that
+ * iPhone app alerts (D-080): devices, Apple's answers, and the rule that
  * holds an iPhone's home-screen web push back while the app has the alerts,
  * so nothing pings twice and nothing goes quiet. Fictional tokens only.
  */

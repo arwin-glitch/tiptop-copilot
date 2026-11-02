@@ -131,7 +131,7 @@ async function openSignedOutApp(browser: Browser, baseURL: string | undefined) {
 test.describe('signing in to the iPhone app', () => {
   test.use({ storageState: EMPTY });
 
-  test('Safari shows the code and an Open TipTop Copilot button that signs the app in', async ({
+  test('Safari shows the code and an Open TipTop Kraken button that signs the app in', async ({
     browser,
   }, testInfo) => {
     const baseURL = testInfo.project.use.baseURL;
@@ -149,7 +149,7 @@ test.describe('signing in to the iPhone app', () => {
       });
       await app.page.getByRole('button', { name: 'Sign in with Google' }).click();
       await expect(
-        app.page.getByText('Then tap Open TipTop Copilot there, or type the 4-character code'),
+        app.page.getByText('Then tap Open TipTop Kraken there, or type the 4-character code'),
       ).toBeVisible();
       await expect.poll(app.sentToSafari).not.toBe('');
 
@@ -159,7 +159,7 @@ test.describe('signing in to the iPhone app', () => {
       await expect(web.getByText('on your iPhone')).toBeVisible();
       const code = ((await web.getByTestId('desktop-match-code').textContent()) ?? '').trim();
       const open = web.getByTestId('ios-open-app');
-      await expect(open).toHaveText('Open TipTop Copilot');
+      await expect(open).toHaveText('Open TipTop Kraken');
       await expect(open).toHaveAttribute('href', `vc.tiptop.copilot://signin?code=${code}`);
 
       // The tap comes back to the app as its App plugin's appUrlOpen.
@@ -277,7 +277,7 @@ test.describe('iPhone alerts', () => {
 
     // Until the alert job has asked with a working Apple key, the app says
     // it cannot be reached, and a test would only wait.
-    const unreachable = page.getByText('Copilot can’t send to this app yet');
+    const unreachable = page.getByText('Kraken can’t send to this app yet');
     await expect(unreachable).toBeVisible();
     await expect(page.getByRole('button', { name: 'Send a test alert' })).toBeDisabled();
     await senderAsks(page);
@@ -435,11 +435,11 @@ test.describe('the home-screen web app on the same iPhone', () => {
       await web.getByRole('tab', { name: 'Preferences' }).click();
       await expect(web.getByText('On for this device.')).toBeVisible();
       await expect(
-        web.getByText('Alerts now go to the TipTop Copilot iPhone app, so this home-screen app'),
+        web.getByText('Alerts now go to the TipTop Kraken iPhone app, so this home-screen app'),
       ).toBeVisible();
       await web.getByRole('button', { name: 'Send alerts here instead' }).click();
       await expect(
-        web.getByText('Your alerts come here instead of the TipTop Copilot iPhone app.'),
+        web.getByText('Your alerts come here instead of the TipTop Kraken iPhone app.'),
       ).toBeVisible();
 
       // The app offers the way back.

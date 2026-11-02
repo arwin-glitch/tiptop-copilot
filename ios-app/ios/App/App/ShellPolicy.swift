@@ -86,7 +86,7 @@ enum ShellPolicy {
     /// Whether an address is a page of the live site, so it opens in the app
     /// rather than in Safari. Same scheme, host and port as the server URL, and
     /// a path under its path. Compares parts rather than text, so an address
-    /// such as https://copilot.tiptop.vc.example.com/ never passes.
+    /// such as https://kraken.tiptop.vc.example.com/ never passes.
     static func isAppAddress(_ url: URL, serverURL: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == serverURL.scheme?.lowercased(),
               let host = url.host?.lowercased(), host == serverURL.host?.lowercased(),

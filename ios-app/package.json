@@ -1,8 +1,8 @@
 {
-  "name": "tiptop-copilot-ios",
+  "name": "tiptop-kraken-ios",
   "version": "1.0.0",
   "private": true,
-  "description": "TipTop Copilot for iPhone: a Capacitor shell around copilot.tiptop.vc. See README.md.",
+  "description": "TipTop Kraken for iPhone: a Capacitor shell around kraken.tiptop.vc. See README.md.",
   "engines": {
     "node": ">=22.0.0"
   },

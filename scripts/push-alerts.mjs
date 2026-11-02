@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * TipTop Copilot phone alerts: the sender, run from GitHub Actions.
+ * TipTop Kraken phone alerts: the sender, run from GitHub Actions.
  *
  * The app decides what is due (GET /api/cron/push); this script signs and
  * sends each alert, then reports back (POST /api/cron/push) which alert keys
@@ -9,7 +9,7 @@
  * nothing has to be set on Render:
  *
  * - Web Push, to home-screen web apps, with the VAPID_PRIVATE_KEY secret.
- * - Apple's push service (APNs), to the TipTop Copilot iPhone app, with the
+ * - Apple's push service (APNs), to the TipTop Kraken iPhone app, with the
  *   APNS_KEY_P8 secret plus the APNS_KEY_ID and APPLE_TEAM_ID variables.
  *
  * Each channel runs when its key is there; with neither, the script says so

@@ -23,7 +23,7 @@ interface Back {
 export function computerOnlyPage(what: string, back: Back) {
   return stopPage(
     'Do this on your computer',
-    `${what} needs Google’s own sign-in page, which doesn’t open inside the iPhone app. Open Copilot on your computer and do it there. Everything else works here as usual.`,
+    `${what} needs Google’s own sign-in page, which doesn’t open inside the iPhone app. Open Kraken on your computer and do it there. Everything else works here as usual.`,
     back,
   );
 }
@@ -48,7 +48,7 @@ function stopPage(heading: string, text: string, back: Back) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
-<title>${heading} · TipTop Copilot</title>
+<title>${heading} · TipTop Kraken</title>
 <style>
 body{margin:0;min-height:100dvh;display:flex;align-items:center;justify-content:center;background:#f6f1e4;color:#1d2a24;font:16px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:calc(env(safe-area-inset-top) + 24px) 20px calc(env(safe-area-inset-bottom) + 24px);box-sizing:border-box}
 main{max-width:26rem}

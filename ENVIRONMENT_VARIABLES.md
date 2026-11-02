@@ -248,7 +248,7 @@ the workflow logs an error and leaves the iPhone app aside for an hour, during
 which Web Push carries the alerts. A run reads these values only when it
 starts, so after adding or changing one, cancel the `push-alerts` run in
 progress and start a new one (Run workflow). See
-[DECISIONS.md](DECISIONS.md) D-058.
+[DECISIONS.md](DECISIONS.md) D-080.
 
 ### iPhone app builds (GitHub only)
 

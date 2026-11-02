@@ -134,7 +134,7 @@ else
 fi
 sleep 2
 xcrun simctl io "$udid" screenshot "$out/2-after-link.png" > /dev/null
-# A link opened from outside the app makes iOS ask "Open in “TipTop”?"
+# A link opened from outside the app makes iOS ask "Open in “Kraken”?"
 # first, on a simulator as on a real iPhone (the person taps Open after
 # signing in in Safari). The check cannot tap it, so iOS routing the link to
 # this app and asking counts as the scheme working.

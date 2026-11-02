@@ -291,6 +291,6 @@ export async function sendTestAlert(): Promise<string | null> {
     const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
     return body?.error?.message ?? 'Couldn’t send a test alert just now. Try again.';
   } catch {
-    return 'Couldn’t reach Copilot. Try again.';
+    return 'Couldn’t reach Kraken. Try again.';
   }
 }

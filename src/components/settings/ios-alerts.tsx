@@ -26,7 +26,7 @@ type Mode = { kind: 'loading' } | IosAlertsState;
 /**
  * Settings > Preferences inside the iPhone app: the same alerts as phone and
  * desktop alerts, through Apple's push service (lib/services/ios-push.ts;
- * D-058). Off until someone turns them on here: the app never asks for
+ * D-080). Off until someone turns them on here: the app never asks for
  * permission at launch. Takes the place of the home-screen web push card,
  * which cannot work in the app.
  *
@@ -199,7 +199,7 @@ export function IosAlertsSetting({
       {mode.kind === 'on' && unreachable ? (
         <Notice tone="warn" className="mt-3">
           <p>
-            Copilot can’t send to this app yet: the alert job doesn’t have a working Apple push key.
+            Kraken can’t send to this app yet: the alert job doesn’t have a working Apple push key.
             Until it does, your alerts go to your other phones.
           </p>
         </Notice>

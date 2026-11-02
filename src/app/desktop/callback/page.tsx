@@ -64,7 +64,7 @@ function one(value: string | string[] | undefined): string | null {
  *
  * The iPhone app signs in the same way, through Safari on the same phone,
  * so an iPhone gets its wording from this request (the hand-off's platform
- * column has no iPhone value) and an "Open TipTop Copilot" button: a link
+ * column has no iPhone value) and an "Open TipTop Kraken" button: a link
  * to the app's own scheme carrying the code, which the app types in only
  * while its sign-in is open (components/desktop/desktop-sign-in.tsx).
  */
@@ -109,8 +109,8 @@ export default async function DesktopCallbackPage({
     >
       <p className="mt-1.5 text-sm text-[var(--fg-muted)]">
         {iphone
-          ? 'Tap Open TipTop Copilot below, or type this code into the TipTop Copilot app on your iPhone.'
-          : 'Type this code into the TipTop Copilot app on this computer.'}
+          ? 'Tap Open TipTop Kraken below, or type this code into the TipTop Kraken app on your iPhone.'
+          : 'Type this code into the TipTop Kraken app on this computer.'}
       </p>
       <output
         data-testid="desktop-match-code"
@@ -122,7 +122,7 @@ export default async function DesktopCallbackPage({
       {iphone ? (
         <Button asChild variant="primary" size="lg" className="mt-4 w-full">
           <a href={iosSignInReturnUrl(view.matchCode)} data-testid="ios-open-app">
-            Open TipTop Copilot
+            Open TipTop Kraken
           </a>
         </Button>
       ) : null}

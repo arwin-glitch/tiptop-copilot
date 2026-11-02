@@ -14,7 +14,8 @@
 //   its root, nothing else allowed in the app, native HTTP and cookies off);
 // - Info.plist, the entitlements or the Xcode project lose a reviewed value;
 // - the app icon is not a 1024 x 1024 image without transparency.
-// Warns when public/icon.svg has changed since the icon was drawn.
+// Warns when public/brand/kraken-logo-square.png has changed since the icon
+// was drawn.
 
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -30,7 +31,7 @@ const read = (path) => readFileSync(join(appDir, path), 'utf8');
 const json = (path) => JSON.parse(read(path));
 
 const BUNDLE_ID = 'vc.tiptop.copilot';
-const SERVER_URL = 'https://copilot.tiptop.vc/';
+const SERVER_URL = 'https://kraken.tiptop.vc/';
 const PINS = {
   '@capacitor/app': '8.1.2',
   '@capacitor/cli': '8.5.3',
@@ -135,7 +136,10 @@ const info = plist.parse(read('ios/App/App/Info.plist'));
 const expect = (ok, message) => {
   if (!ok) problem(`Info.plist: ${message}`);
 };
-expect(info.CFBundleDisplayName === 'TipTop', 'CFBundleDisplayName must be "TipTop".');
+expect(
+  info.CFBundleDisplayName === 'Kraken',
+  'CFBundleDisplayName must be "Kraken" (the home-screen name).',
+);
 expect(
   info.ITSAppUsesNonExemptEncryption === false,
   'ITSAppUsesNonExemptEncryption must be false.',
@@ -230,13 +234,18 @@ if (
     'The app icon must be a 1024 x 1024 PNG without transparency (ITMS-90717): run npm run icon in ios-app.',
   );
 }
-const svgPath = join(repoDir, 'public', 'icon.svg');
-if (existsSync(svgPath)) {
-  const drawnFrom = json('icon-source.json').sha256;
-  const now = createHash('sha256').update(readFileSync(svgPath)).digest('hex');
+const iconSource = json('icon-source.json');
+const sourcePath = join(repoDir, ...String(iconSource.source).split('/'));
+if (iconSource.source !== 'public/brand/kraken-logo-square.png') {
+  problem(
+    'icon-source.json must name public/brand/kraken-logo-square.png: run npm run icon in ios-app.',
+  );
+} else if (existsSync(sourcePath)) {
+  const drawnFrom = iconSource.sha256;
+  const now = createHash('sha256').update(readFileSync(sourcePath)).digest('hex');
   if (drawnFrom !== now) {
     console.log(
-      '::warning::public/icon.svg has changed since the iPhone icon was drawn: run npm run icon in ios-app and commit.',
+      '::warning::public/brand/kraken-logo-square.png has changed since the iPhone icon was drawn: run npm run icon in ios-app and commit.',
     );
   }
 }

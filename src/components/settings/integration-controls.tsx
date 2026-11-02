@@ -68,7 +68,7 @@ export function IntegrationControls({
       {!connected && canConnect ? (
         inIosApp ? (
           <p className="text-sm text-[var(--fg-muted)]">
-            Do this on your computer: connect Google from Copilot there.
+            Do this on your computer: connect Google from Kraken there.
           </p>
         ) : inDesktopApp ? (
           <p className="text-sm text-[var(--fg-muted)]">

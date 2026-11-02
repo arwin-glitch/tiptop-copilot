@@ -78,7 +78,7 @@ export function DesktopAppSetting({
         <Link href="/download">Get the desktop app</Link>
       </Button>
       <p className="ios-app:block mt-1 hidden text-sm text-[var(--fg-muted)]">
-        Do this on your computer: open Copilot there and choose Download.
+        Do this on your computer: open Kraken there and choose Download.
       </p>
     </div>
   );

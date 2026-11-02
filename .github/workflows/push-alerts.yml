@@ -1,5 +1,5 @@
 # Phone alerts for Nick: Web Push to the home-screen web app, and Apple's push
-# service (APNs) to the TipTop Copilot iPhone app.
+# service (APNs) to the TipTop Kraken iPhone app.
 #
 # One run loops through the day: every minute it asks the app for meetings
 # starting in about five minutes (GET /api/cron/push?scope=meetings), and every

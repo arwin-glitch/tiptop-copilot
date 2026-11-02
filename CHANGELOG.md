@@ -10,8 +10,8 @@ throughout.
 
 ## [Unreleased]
 
-- **The iPhone app, web and server side (D-058).** Copilot now knows when it
-  is open in the TipTop Copilot iPhone app (`ios-app/`, a Capacitor shell; its
+- **The iPhone app, web and server side (D-080).** Kraken now knows when it
+  is open in the TipTop Kraken iPhone app (`ios-app/`, a Capacitor shell; its
   user agent carries `TipTopCopilotiOS/<version>`), from the first frame:
   `html[data-ios-app]` moves the page down clear of the clock and the Dynamic
   Island (a fixed strip in the phone's light or dark colour behind them), hides the
@@ -21,9 +21,9 @@ throughout.
   of going to Google, and `/api/auth/google` a page pointing back to the
   app's own Sign in with Google. The login page signs the app in
   through Safari with the desktop hand-off; on an iPhone the code page adds
-  "Open TipTop Copilot", which carries the code back to the app (used only
+  "Open TipTop Kraken", which carries the code back to the app (used only
   while the app's sign-in is open). An iPhone is no longer recorded as a Mac
-  in that hand-off. In the app, links to Copilot that open a new window stay
+  in that hand-off. In the app, links to Kraken that open a new window stay
   in the app, and a meeting alert joins through `/go/meeting?format=json`.
   Settings › Preferences in the app has "iPhone alerts" in place of the web
   push card: Turn on (iOS asks once, never at launch), Send a test alert (a
@@ -49,13 +49,13 @@ throughout.
   them. Inert until an iPhone registers and the key is added; tests use only
   invented tokens and people.
 
-- **The iPhone app itself (`ios-app/`, `.github/workflows/ios.yml`; D-058).**
+- **The iPhone app itself (`ios-app/`, `.github/workflows/ios.yml`; D-080).**
   A Capacitor 8.5.3 shell (pinned, with `@capacitor/push-notifications`
-  8.1.3 and `@capacitor/app` 8.1.2) around `https://copilot.tiptop.vc/`:
+  8.1.3 and `@capacitor/app` 8.1.2) around `https://kraken.tiptop.vc/`:
   bundle ID `vc.tiptop.copilot`, iPhone only, portrait, iOS 16.4 or later,
   the `TipTopCopilotiOS/<version>` user-agent token, the
   `vc.tiptop.copilot://` sign-in return link, the icon drawn from
-  `public/icon.svg`, and a view controller that answers only the App,
+  `public/brand/kraken-logo-square.png` (home-screen name "Kraken"), and a view controller that answers only the App,
   PushNotifications, SystemBars and Console plugins, keeps same-site
   new-window links in the app, saves downloads through the share sheet,
   shows the offline page only for a real network failure, and turns on

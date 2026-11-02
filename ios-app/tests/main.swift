@@ -24,13 +24,13 @@ func check(_ condition: Bool, _ what: String) {
     }
 }
 
-let server = URL(string: "https://copilot.tiptop.vc/")!
+let server = URL(string: "https://kraken.tiptop.vc/")!
 
 func url(_ text: String) -> URL { URL(string: text)! }
 
 // MARK: - Bridge messages
 
-func allows(_ body: Any, mainFrame: Bool = true, origin: URL? = URL(string: "https://copilot.tiptop.vc/")) -> Bool {
+func allows(_ body: Any, mainFrame: Bool = true, origin: URL? = URL(string: "https://kraken.tiptop.vc/")) -> Bool {
     ShellPolicy.allowsBridgeMessage(body, fromMainFrame: mainFrame, originURL: origin, serverURL: server)
 }
 
@@ -50,7 +50,7 @@ check(!allows(["type": "message", "methodName": "getInfo"]), "a call with no plu
 check(!allows(["type": "message", "pluginId": "App"], mainFrame: false), "a frame inside the page cannot call plugins")
 check(!allows(["type": "message", "pluginId": "App"], origin: url("capacitor://localhost/")),
       "the bundled offline page cannot call plugins")
-check(!allows(["type": "message", "pluginId": "App"], origin: url("https://copilot.tiptop.vc.example.com/")),
+check(!allows(["type": "message", "pluginId": "App"], origin: url("https://kraken.tiptop.vc.example.com/")),
       "a look-alike site cannot call plugins")
 check(!allows(["type": "message", "pluginId": "App"], origin: nil), "a message with no origin is dropped")
 
@@ -84,23 +84,23 @@ check(!ShellPolicy.showsOfflinePage(for: error(WKError.errorDomain, WKError.Code
 
 // MARK: - The live site's own addresses
 
-check(ShellPolicy.isAppAddress(url("https://copilot.tiptop.vc/"), serverURL: server), "the start page")
-check(ShellPolicy.isAppAddress(url("https://copilot.tiptop.vc"), serverURL: server), "the site with no path")
-check(ShellPolicy.isAppAddress(url("https://copilot.tiptop.vc/api/briefings/morning/pdf"), serverURL: server),
+check(ShellPolicy.isAppAddress(url("https://kraken.tiptop.vc/"), serverURL: server), "the start page")
+check(ShellPolicy.isAppAddress(url("https://kraken.tiptop.vc"), serverURL: server), "the site with no path")
+check(ShellPolicy.isAppAddress(url("https://kraken.tiptop.vc/api/briefings/morning/pdf"), serverURL: server),
       "a briefing PDF")
 check(ShellPolicy.isAppAddress(url("https://COPILOT.tiptop.vc/inbox?thread=example"), serverURL: server),
       "any case, with a query")
-check(!ShellPolicy.isAppAddress(url("http://copilot.tiptop.vc/"), serverURL: server), "plain http is not the site")
-check(!ShellPolicy.isAppAddress(url("https://copilot.tiptop.vc.example.com/"), serverURL: server),
+check(!ShellPolicy.isAppAddress(url("http://kraken.tiptop.vc/"), serverURL: server), "plain http is not the site")
+check(!ShellPolicy.isAppAddress(url("https://kraken.tiptop.vc.example.com/"), serverURL: server),
       "a look-alike host is not the site")
-check(!ShellPolicy.isAppAddress(url("https://example.com/https://copilot.tiptop.vc/"), serverURL: server),
+check(!ShellPolicy.isAppAddress(url("https://example.com/https://kraken.tiptop.vc/"), serverURL: server),
       "another site is not the site")
-check(!ShellPolicy.isAppAddress(url("https://copilot.tiptop.vc@example.com/"), serverURL: server),
+check(!ShellPolicy.isAppAddress(url("https://kraken.tiptop.vc@example.com/"), serverURL: server),
       "a user-name trick is not the site")
-check(!ShellPolicy.isAppAddress(url("https://user@copilot.tiptop.vc/"), serverURL: server),
+check(!ShellPolicy.isAppAddress(url("https://user@kraken.tiptop.vc/"), serverURL: server),
       "an address with a user name is not the site")
-check(!ShellPolicy.isAppAddress(url("https://copilot.tiptop.vc:8443/"), serverURL: server), "another port is not the site")
-check(!ShellPolicy.isAppAddress(url("blob:https://copilot.tiptop.vc/0000"), serverURL: server), "a blob: URL is not a page")
+check(!ShellPolicy.isAppAddress(url("https://kraken.tiptop.vc:8443/"), serverURL: server), "another port is not the site")
+check(!ShellPolicy.isAppAddress(url("blob:https://kraken.tiptop.vc/0000"), serverURL: server), "a blob: URL is not a page")
 
 // MARK: - Downloads
 

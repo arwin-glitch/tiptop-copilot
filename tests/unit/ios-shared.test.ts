@@ -156,7 +156,7 @@ describe('the sign-in return link', () => {
       'vc.tiptop.copilot://signin?code=ab2c',
       'vc.tiptop.copilot://signin?code=AB2CD',
       'vc.tiptop.copilot://other?code=AB2C',
-      'https://copilot.tiptop.vc/signin?code=AB2C',
+      'https://kraken.tiptop.vc/signin?code=AB2C',
       'evil://signin?code=AB2C',
       'vc.tiptop.copilot://signin',
       'not a url',

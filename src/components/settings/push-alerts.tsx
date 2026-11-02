@@ -243,7 +243,7 @@ export function PushAlertsSetting({
       {iphoneWithApp && preference === 'web' ? (
         <Notice className="mt-3">
           <div>
-            <p>Your alerts come here instead of the TipTop Copilot iPhone app.</p>
+            <p>Your alerts come here instead of the TipTop Kraken iPhone app.</p>
             <Button
               size="sm"
               variant="secondary"
@@ -259,8 +259,8 @@ export function PushAlertsSetting({
         <Notice className="mt-3">
           <div>
             <p>
-              Alerts now go to the TipTop Copilot iPhone app, so this home-screen app stays quiet.
-              If the app stops checking in, they come back here by themselves.
+              Alerts now go to the TipTop Kraken iPhone app, so this home-screen app stays quiet. If
+              the app stops checking in, they come back here by themselves.
             </p>
             <Button
               size="sm"

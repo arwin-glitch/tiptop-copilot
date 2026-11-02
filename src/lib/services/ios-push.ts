@@ -1,6 +1,7 @@
 import 'server-only';
 import { hasRole, type AuthContext } from '@/lib/auth/session';
 import type { DataStore } from '@/lib/db/store';
+import { listOrganizationMembers } from '@/lib/db/members';
 import {
   IOS_BUILD_STALE_DAYS,
   IOS_HOLD_BACK_DAYS,
@@ -12,15 +13,15 @@ import {
 } from '@/lib/ios/shared';
 import { recordAudit } from '@/lib/security/audit';
 import { log } from '@/lib/security/redact';
-import type { AuditEvent, OrganizationMember } from '@/lib/types/domain';
+import type { AuditEvent } from '@/lib/types/domain';
 import { newId, sha256 } from '@/lib/util/hash';
 import { processWide } from '@/lib/util/process-state';
 import { err, ok, type Result } from '@/lib/util/result';
 
 /**
  * iPhone app alerts: the same alerts phones get by Web Push (push-alerts.ts),
- * sent through Apple's push service (APNs) to the TipTop Copilot iPhone app
- * (ios-app/; D-058).
+ * sent through Apple's push service (APNs) to the TipTop Kraken iPhone app
+ * (ios-app/; D-080).
  *
  *   app page ── POST /api/push/ios ──> this iPhone's push token (per device)
  *   GitHub job ── GET  /api/cron/push?apns=1 ──> due alerts + subscriptions + tokens
@@ -355,11 +356,8 @@ export async function sweepIosDevices(
       eq: { action: TEST_ACTION },
       lt: { created_at: new Date(now.getTime() - DAY_MS).toISOString() },
     });
-    const members = (await store.list(
-      'organization_members',
-      organizationId,
-      {},
-    )) as OrganizationMember[];
+    // Scoped to this organization (D-071): the table itself is scopeless.
+    const members = await listOrganizationMembers(store, organizationId);
     const current = new Set(members.map((m) => m.user_id));
     for (const device of await listIosDevices(store, organizationId)) {
       if (device.userId && !current.has(device.userId)) {

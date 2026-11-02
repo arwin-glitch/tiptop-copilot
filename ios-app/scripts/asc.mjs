@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 // ASC_API_BASE points the script at a stand-in server in its own test.
 const API = process.env.ASC_API_BASE || 'https://api.appstoreconnect.apple.com';
 const BUNDLE_ID = process.env.IOS_BUNDLE_ID || 'vc.tiptop.copilot';
-const APP_NAME = 'TipTop Copilot';
+const APP_NAME = 'TipTop Kraken';
 
 // ---------------------------------------------------------------------------
 // Signed tokens

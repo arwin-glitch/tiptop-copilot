@@ -4,10 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
-    <title>TipTop Copilot</title>
+    <title>TipTop Kraken</title>
     <!--
       Bundled with the iPhone app (server.errorPath in capacitor.config.json)
-      and shown only when copilot.tiptop.vc cannot be reached. It hands back
+      and shown only when kraken.tiptop.vc cannot be reached. It hands back
       to the live site as soon as the site answers, so it must stay
       self-contained: no external fonts, styles or scripts. The colours are
       the page colours in src/app/globals.css (light, and :root.dark).
@@ -125,13 +125,13 @@
       </svg>
 
       <section id="offline" aria-live="polite">
-        <h1>Can't reach TipTop Copilot</h1>
+        <h1>Can't reach TipTop Kraken</h1>
         <p>Check your internet connection. The app tries again on its own.</p>
         <button id="retry" type="button">Try again</button>
       </section>
 
       <section id="opening" aria-live="polite" hidden>
-        <h1>Opening TipTop Copilot…</h1>
+        <h1>Opening TipTop Kraken…</h1>
         <div class="spinner" aria-hidden="true"></div>
         <p id="slow" hidden>Waking up the server. This can take up to a minute.</p>
       </section>
@@ -141,7 +141,7 @@
       // The app's start address (server.url). Only that site's pages load in
       // the app, so this page goes back there rather than to the page that
       // failed, which the shell does not pass along.
-      const LIVE = 'https://copilot.tiptop.vc';
+      const LIVE = 'https://kraken.tiptop.vc';
       const opening = document.getElementById('opening');
       const slow = document.getElementById('slow');
       const offline = document.getElementById('offline');

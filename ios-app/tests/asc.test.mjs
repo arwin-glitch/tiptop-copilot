@@ -123,7 +123,7 @@ test('prepare registers the bundle ID and turns on push', async () => {
     assert.deepEqual(made.body, {
       data: {
         type: 'bundleIds',
-        attributes: { identifier: 'vc.tiptop.copilot', name: 'TipTop Copilot', platform: 'IOS' },
+        attributes: { identifier: 'vc.tiptop.copilot', name: 'TipTop Kraken', platform: 'IOS' },
       },
     });
     const push = api.calls.find(
@@ -256,7 +256,7 @@ test('profile makes an App Store profile for the certificate when none holds it'
     assert.equal(result.code, 0, result.stdout);
     const made = api.calls.find((c) => c.method === 'POST' && c.path === '/v1/profiles');
     assert.equal(made.body.data.attributes.profileType, 'IOS_APP_STORE');
-    assert.match(made.body.data.attributes.name, /^TipTop Copilot App Store \d{8}-\d{4}$/);
+    assert.match(made.body.data.attributes.name, /^TipTop Kraken App Store \d{8}-\d{4}$/);
     assert.deepEqual(made.body.data.relationships, {
       bundleId: { data: { type: 'bundleIds', id: 'B1' } },
       certificates: { data: [{ type: 'certificates', id: 'C1' }] },

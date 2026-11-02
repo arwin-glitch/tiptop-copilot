@@ -48,7 +48,7 @@ const CHANGED = {
   'App/App/Base.lproj/LaunchScreen.storyboard':
     'a plain light or dark colour instead of the sample splash',
   'App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png':
-    'the TipTop icon from public/icon.svg',
+    'the TipTop Kraken tile from public/brand/kraken-logo-square.png',
   'App/CapApp-SPM/Package.swift': 'written by cap sync from the project: iOS 16 rather than 15',
 };
 

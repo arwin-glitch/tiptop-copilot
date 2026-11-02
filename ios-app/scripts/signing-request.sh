@@ -37,8 +37,8 @@ for name in dist devid; do
     continue
   fi
   case "$name" in
-    dist) label='TipTop Copilot iPhone distribution' ;;
-    devid) label='TipTop Copilot Mac Developer ID' ;;
+    dist) label='TipTop Kraken iPhone distribution' ;;
+    devid) label='TipTop Kraken Mac Developer ID' ;;
   esac
   openssl genrsa -out "$name.key" 2048 2> /dev/null
   # MSYS_NO_PATHCONV stops Git Bash rewriting the leading "/" of -subj as a

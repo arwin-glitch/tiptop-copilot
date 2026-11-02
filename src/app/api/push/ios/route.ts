@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
   const auth = await authOrError();
   if (!auth.ok) return fail(auth.error);
   if (!isSameOrigin(request)) return fail(err('forbidden', 'Not allowed from here.').error);
-  if (!isIosAppRequest(request)) return bad('Only the TipTop Copilot iPhone app can do this.');
+  if (!isIosAppRequest(request)) return bad('Only the TipTop Kraken iPhone app can do this.');
   const limited = rateLimit(`push-ios:${auth.value.userId}`, 10, 3_600_000);
   if (!limited.ok) return fail(limited.error);
   const parsed = TURN_ON.safeParse(await request.json().catch(() => null));

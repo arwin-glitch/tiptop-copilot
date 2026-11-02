@@ -18,7 +18,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
         // A vc.tiptop.copilot:// link, such as the sign-in page's "Open
-        // TipTop Copilot" button. The App plugin hands it to the page.
+        // TipTop Kraken" button. The App plugin hands it to the page.
         ShellLog.note("opened by a link to the app")
         SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
     }

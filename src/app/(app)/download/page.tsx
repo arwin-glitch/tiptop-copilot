@@ -36,7 +36,7 @@ export default async function DownloadPage({
         subtitle="TipTop Kraken in its own window, with an icon in your Dock or taskbar."
       />
       <Notice className="ios-app:flex hidden">
-        Do this on your computer: open Copilot on your Mac or PC and choose Download there.
+        Do this on your computer: open Kraken on your Mac or PC and choose Download there.
       </Notice>
       <div className="ios-app:hidden">
         <DownloadCards

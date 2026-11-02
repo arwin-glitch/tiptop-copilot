@@ -1,9 +1,9 @@
 {
   "appId": "vc.tiptop.copilot",
-  "appName": "TipTop Copilot",
+  "appName": "TipTop Kraken",
   "webDir": "www",
   "server": {
-    "url": "https://copilot.tiptop.vc/",
+    "url": "https://kraken.tiptop.vc/",
     "errorPath": "offline.html"
   },
   "ios": {

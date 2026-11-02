@@ -2,7 +2,7 @@ import UIKit
 import WebKit
 import Capacitor
 
-/// The app's one screen: Capacitor's web view on copilot.tiptop.vc, with the
+/// The app's one screen: Capacitor's web view on kraken.tiptop.vc, with the
 /// changes the live site needs inside an iPhone app (see WebViewProxies.swift
 /// and ShellPolicy.swift for each one and why). SceneDelegate makes it in
 /// place of Capacitor's own CAPBridgeViewController.

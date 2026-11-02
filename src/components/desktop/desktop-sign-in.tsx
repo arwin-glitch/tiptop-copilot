@@ -57,7 +57,7 @@ const SIGN_IN_MS = 10 * 60_000;
  * a failed check just says "Reconnecting…" and tries again.
  *
  * The iPhone app signs in the same way, with Safari as the browser. There
- * the code page also offers "Open TipTop Copilot", a link back to the app
+ * the code page also offers "Open TipTop Kraken", a link back to the app
  * carrying the code (lib/ios/shared.ts), which this then types in for the
  * person. Only while this sign-in is open: a code arriving any other time is
  * ignored, and /api/auth/desktop/verify still needs this app's own poll
@@ -124,7 +124,7 @@ export function DesktopSignIn() {
           return;
       }
     } catch {
-      setCodeError('Couldn’t reach Copilot. Try again.');
+      setCodeError('Couldn’t reach Kraken. Try again.');
     } finally {
       setVerifying(false);
     }
@@ -161,7 +161,7 @@ export function DesktopSignIn() {
   const active = phase.kind === 'waiting' || phase.kind === 'code';
   const deadline = phase.kind === 'waiting' || phase.kind === 'code' ? phase.deadline : 0;
 
-  // The iPhone app: Safari's "Open TipTop Copilot" brings the code back. The
+  // The iPhone app: Safari's "Open TipTop Kraken" brings the code back. The
   // app holds a link until something listens, so this listens from the start
   // and drops a code that arrives with no sign-in open (one left over from
   // before the app restarted would only use up a try of the next sign-in).
@@ -336,7 +336,7 @@ export function DesktopSignIn() {
           </h2>
           <p className="text-sm text-[var(--fg-muted)]">
             {ios
-              ? 'Sign in with Google in the browser that just opened. Then tap Open TipTop Copilot there, or type the 4-character code it shows here.'
+              ? 'Sign in with Google in the browser that just opened. Then tap Open TipTop Kraken there, or type the 4-character code it shows here.'
               : 'Sign in with Google in the browser window that just opened. It then shows a 4-character code for you to type here.'}
           </p>
         </>

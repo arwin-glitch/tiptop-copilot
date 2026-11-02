@@ -1,6 +1,6 @@
-# TipTop Copilot for iPhone
+# TipTop Kraken for iPhone
 
-An iPhone app that is a window onto the live site, https://copilot.tiptop.vc,
+An iPhone app that is a window onto the live site, https://kraken.tiptop.vc,
 with Apple's own push service (APNs) for alerts. It is built with
 [Capacitor](https://capacitorjs.com) 8.5.3 and reaches Nick and Arwin through
 TestFlight, for internal testing only: it is never on the App Store.
@@ -18,10 +18,10 @@ and sent to TestFlight; everything else runs, and is checked, without them.
 | Path | What it is |
 | --- | --- |
 | `package.json`, `package-lock.json` | Capacitor, pinned exactly: `@capacitor/cli`, `core` and `ios` 8.5.3, `@capacitor/push-notifications` 8.1.3, `@capacitor/app` 8.1.2. No other plugin. |
-| `capacitor.config.json` | The live site as the server (`https://copilot.tiptop.vc/`, root and trailing slash both required), the offline page, the user-agent token, native HTTP and cookies off. |
+| `capacitor.config.json` | The live site as the server (`https://kraken.tiptop.vc/`, root and trailing slash both required), the offline page, the user-agent token, native HTTP and cookies off. |
 | `www/offline.html` | Shown only when the site cannot be reached; tries again on its own. |
 | `ios/` | The Xcode project: Capacitor's own template (`npx cap add ios`) plus the changes listed below. `cap sync` regenerates the ignored parts on every build. |
-| `icon-source.json` | The SHA-256 of `public/icon.svg` the app icon was drawn from. |
+| `icon-source.json` | The SHA-256 of `public/brand/kraken-logo-square.png` the app icon was drawn from. |
 | `scripts/` | `make-icon.mjs` draws the icon. `asc.mjs` talks to App Store Connect and APNs. `check-config.mjs` and `check-native-project.mjs` are CI's checks. `simulator-smoke.sh` opens the app on a simulator. `signing-keychain.sh` loads the certificate on the runner. `signing-request.sh` and `signing-p12.sh` make the signing certificate on the admin's computer. |
 | `tests/` | `main.swift`, the shell's own checks, compiled and run on the Mac runner; `asc.test.mjs`, the App Store Connect script against a stand-in server. |
 
@@ -32,7 +32,10 @@ on every CI run and fails on any change not in this list.
 
 - **Bundle ID `vc.tiptop.copilot`, iOS 16.4, iPhone only, portrait.** 16.4 is
   the same floor web push already needs, so any phone that gets alerts today
-  can run the app. The home-screen name is "TipTop", as for the web app.
+  can run the app. The home-screen name is "Kraken" (`CFBundleDisplayName`;
+  "TipTop Kraken" would be cut short under the icon); the App Store Connect
+  record and TestFlight call it TipTop Kraken. The bundle ID keeps the old
+  `copilot` name: it was registered before the rename and is permanent.
 - **`Info.plist`.** `ITSAppUsesNonExemptEncryption` is false (HTTPS only), so
   uploads do not wait on the export-compliance questions. Camera, microphone
   and photo-library usage strings, because the web app's file pickers offer
@@ -59,7 +62,7 @@ on every CI run and fails on any change not in this list.
     old one, so a download or a redirect handed to Safari leaves push and link
     listeners working.
   - **Same-site new-window links stay in the app.** Capacitor sends every
-    `target=_blank` and `window.open` to Safari, which would show Copilot
+    `target=_blank` and `window.open` to Safari, which would show Kraken
     signed out. Other sites still go to Safari or their own app.
   - **`window.open` works without a tap**, so a meeting's join link opens
     after the page fetches it, or from an alert tap.
@@ -70,7 +73,7 @@ on every CI run and fails on any change not in this list.
     as "off", so a script on the page cannot make native requests around the
     CSP or write cookies.
   - **No camera, microphone or motion access for web pages.** Capacitor grants
-    them to any page; Copilot never asks. File pickers are unaffected.
+    them to any page; Kraken never asks. File pickers are unaffected.
   - The stand-ins pass every other delegate call to Capacitor unchanged, and
     the simulator check fails if Capacitor ever implements one they do not.
 - **`AppDelegate`.** Passes the push token to the plugin (the plugin's
@@ -78,8 +81,9 @@ on every CI run and fails on any change not in this list.
   notification router exists: Apple requires a notification delegate before
   launch finishes, and Capacitor 8 sets its own only when the scene connects.
 - **Launch screen and icon.** A plain colour, `#f6f1e4` or `#0e0f0f` in dark
-  mode, and the TipTop mark from `public/icon.svg`, full-bleed, 1024 px, no
-  transparency (`npm run icon` redraws it; CI warns when the SVG changes).
+  mode, and the TipTop Kraken tile (the cream octopus on emerald) from
+  `public/brand/kraken-logo-square.png`, full-bleed, 1024 px, no
+  transparency (`npm run icon` redraws it; CI warns when the tile changes).
 
 ## What the web app relies on
 
@@ -117,7 +121,7 @@ on every CI run and fails on any change not in this list.
 `.github/workflows/ios.yml`, on GitHub's `macos-26` runners with Xcode 26.6:
 
 1. **checks** (Linux, every push touching this folder, the workflow,
-   `public/icon.svg` or the root `package.json`): versions and pins agree,
+   `public/brand/kraken-logo-square.png` or the root `package.json`): versions and pins agree,
    the reviewed settings hold, the native project is the template plus the
    listed changes and in step with `cap sync`, and `asc.mjs`'s tests pass.
 2. **simulator** (macOS, when this folder or the workflow changed): compiles
@@ -189,9 +193,17 @@ Variables (the same page, Variables):
 | `APNS_KEY_ID` | The APNs key's ID. |
 | `APNS_TIME_SENSITIVE` | Optional, set later: `1` once an installed build has Time Sensitive Notifications (step A10). |
 
-The Mac app's notarisation keys come later, with the desktop work.
+The Mac app's Developer ID certificate (`MAC_DEVID_P12`, `MAC_DEVID_P12_PASSWORD`)
+and this same App Store Connect key sign and notarise the desktop app
+(`.github/workflows/desktop.yml`).
 
 ## One-time setup, after Apple approves the account
+
+**Status, 2 November 2026:** N1-N6 and A1-A6 are done (certificates, the
+APNs key, the App Store Connect team key, every secret and variable, and
+`vc.tiptop.copilot` registered with Push Notifications as "TipTop Kraken").
+A7 and A8 (the app record and the TestFlight group) are being done by hand;
+A9 (the first upload) comes after them.
 
 Nick enrolled as an Individual in October 2026. These steps start once
 Apple's approval email arrives. On an Individual account only Nick can use
@@ -283,7 +295,7 @@ GitHub → **Actions** → **push-alerts** → click the run that is in progress
 → **Cancel workflow** (top right); then back on the push-alerts list, **Run
 workflow** → branch `master` → **Run workflow**. (A cancelled run does not
 start the next one by itself. Until a new run starts, the app's Settings say
-"Copilot can't send to this app yet" and Send a test alert is greyed out.)
+"Kraken can’t send to this app yet" and Send a test alert is greyed out.)
 
 **A6.** GitHub → **Actions** → **ios** → **Run workflow** → task **setup** →
 Run. Every row of its summary should say yes. It registers
@@ -293,8 +305,8 @@ Notifications could not be turned on, ask Nick to tick it: developer.apple.com
 Save. (Without it meeting alerts still arrive, as ordinary alerts.)
 
 **A7.** App Store Connect → **Apps** → **+** → **New App**: platform **iOS**,
-name `TipTop Copilot` (if taken, `TipTop Copilot for iPhone`), language
-English (U.S.), bundle ID `vc.tiptop.copilot`, SKU `tiptop-copilot-ios`,
+name `TipTop Kraken`, language
+English (U.S.), bundle ID `vc.tiptop.copilot`, SKU `tiptop-kraken-ios`,
 **Full Access** → **Create**. The bundle ID is permanent from the first
 upload.
 
@@ -321,11 +333,11 @@ meeting alerts arrive as ordinary alerts.
 1. Install **TestFlight** from the App Store.
 2. Open the TestFlight email on the iPhone → **View in TestFlight** →
    **Accept** → **Install**.
-3. In TestFlight, open TipTop Copilot and turn **Automatic Updates** on, so
+3. In TestFlight, open TipTop Kraken and turn **Automatic Updates** on, so
    the monthly build replaces the old one before it expires.
 4. Open the app → **Sign in with Google** → Safari opens; sign in with
    Google there → on the page showing a 4-character code, tap **Open TipTop
-   Copilot** → **Open** (or type the code into the app).
+   Kraken** → **Open** (or type the code into the app).
 5. In the app: **Settings** (near the right end of the bottom bar; swipe the
    bar to reach it) → **Preferences** → iPhone alerts → **Turn on alerts on
    this iPhone** → **Allow**. Then tap **Send a test alert**: it
@@ -347,7 +359,7 @@ Arwin, on the first build, before Nick installs:
 - [ ] A link to another site opens Safari; a same-site link meant for a new tab stays in the app.
 - [ ] Attaching a file offers Take Photo or Video, which works without the app closing.
 - [ ] Settings' Google connect link says to do it on a computer.
-- [ ] Airplane mode → reopen the app → the offline page; turn it off → Copilot returns on its own.
+- [ ] Airplane mode → reopen the app → the offline page; turn it off → Kraken returns on its own.
 - [ ] After a test alert, the web app's own home-screen alerts stop arriving on that phone (no double pings).
 
 ## Every year: renewing the certificate
@@ -395,7 +407,7 @@ his work address and to Arwin.
   in `ios/App/App.xcodeproj/project.pbxproj` (both lines); CI checks they
   agree. Then tag `ios-vX.Y.Z`.
 - **Only web changes need nothing here**: they reach the app from the site.
-- **The icon.** Edit `public/icon.svg`, then run `npm run icon` here (from a
+- **The icon.** Replace `public/brand/kraken-logo-square.png`, then run `npm run icon` here (from a
   checkout where `npm ci` ran at the root) and commit the PNG and
   `icon-source.json`.
 - **Capacitor or a plugin.** Change the exact version in `package.json`, run

@@ -1,8 +1,8 @@
-# Builds the TipTop Copilot iPhone app (ios-app/) and, once Apple's keys are
+# Builds the TipTop Kraken iPhone app (ios-app/) and, once Apple's keys are
 # in the repository, sends it to TestFlight. See ios-app/README.md.
 #
-# A push to any branch that touches ios-app/, this file, public/icon.svg or
-# the root package.json runs the checks job: the version, the pinned
+# A push to any branch that touches ios-app/, this file, the icon's source
+# (public/brand/kraken-logo-square.png) or the root package.json runs the checks job: the version, the pinned
 # Capacitor packages and the reviewed settings agree; the native project is
 # Capacitor 8.5.3's own template plus the changes ios-app/scripts/
 # check-native-project.mjs lists, and in step with `cap sync`; the App Store
@@ -55,7 +55,7 @@ on:
     paths:
       - 'ios-app/**'
       - '.github/workflows/ios.yml'
-      - 'public/icon.svg'
+      - 'public/brand/kraken-logo-square.png'
       - 'package.json'
     tags: ['ios-v*']
   schedule:
@@ -296,7 +296,7 @@ jobs:
           fail() { echo "::error::Built app: $1"; exit 1; }
           value() { plutil -extract "$1" raw -o - "$info" 2> /dev/null || true; }
           [ "$(value CFBundleIdentifier)" = vc.tiptop.copilot ] || fail "bundle ID is not vc.tiptop.copilot."
-          [ "$(value CFBundleDisplayName)" = TipTop ] || fail "home-screen name is not TipTop."
+          [ "$(value CFBundleDisplayName)" = Kraken ] || fail "home-screen name is not Kraken."
           [ "$(value CFBundleShortVersionString)" = "$version" ] || fail "version is not $version."
           [ "$(value MinimumOSVersion)" = 16.4 ] || fail "minimum iOS is not 16.4."
           [ "$(plutil -extract UIDeviceFamily json -o - "$info")" = '[1]' ] || fail "it is not iPhone only."
@@ -307,7 +307,7 @@ jobs:
           node -e '
             const c = require(process.argv[1]);
             const list = c.packageClassList || [];
-            const ok = c.server && c.server.url === "https://copilot.tiptop.vc/" &&
+            const ok = c.server && c.server.url === "https://kraken.tiptop.vc/" &&
               list.includes("AppPlugin") && list.includes("PushNotificationsPlugin");
             if (!ok) { console.log("::error::Built app: capacitor.config.json lacks the server URL or a plugin."); process.exit(1); }
           ' "$app/capacitor.config.json"
@@ -531,7 +531,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
           echo "day=$day" >> "$GITHUB_OUTPUT"
-          echo "Building TipTop Copilot $version ($build) from $REF."
+          echo "Building TipTop Kraken $version ($build) from $REF."
       - name: Install, check and sync
         env:
           DAY: ${{ steps.version.outputs.day }}
@@ -592,7 +592,7 @@ jobs:
       - name: App record exists
         if: steps.profile.outputs.app_record != 'yes'
         run: |
-          echo "::error::Make the app record in App Store Connect first (ios-app/README.md, step A6), then run this again."
+          echo "::error::Make the app record in App Store Connect first (ios-app/README.md, step A7), then run this again."
           exit 1
       - name: Install the profile
         env:
@@ -700,7 +700,7 @@ jobs:
           EXPIRES: ${{ steps.keychain.outputs.expires }}
         run: |
           {
-            echo "### TipTop Copilot $VERSION ($BUILD) sent to TestFlight"
+            echo "### TipTop Kraken $VERSION ($BUILD) sent to TestFlight"
             echo
             echo "For internal testing only. Apple processes it for about 5 to 30 minutes; then TestFlight"
             echo "offers it to the internal group, and phones with Automatic Updates on install it."
