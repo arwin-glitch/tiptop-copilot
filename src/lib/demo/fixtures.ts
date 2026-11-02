@@ -2202,6 +2202,8 @@ experiment, not the fundraise timing.`,
     ...demoCrm(now),
     ...demoCampaigns(now),
     ...demoBooking(now),
+    // Inbox snooze: none until the demo user snoozes a thread.
+    inbox_snoozes: [],
     // The public job board, switched on, over the two demo companies.
     ...demoJobsBoard(now),
     // Events (D-075): fictional pages, sessions and guests.

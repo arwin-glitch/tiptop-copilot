@@ -33,6 +33,7 @@ import { scanForInjection } from '@/lib/security/injection';
 import { processWide } from '@/lib/util/process-state';
 import { err, ok, type AppError, type Err, type Result } from '@/lib/util/result';
 import { getPrimaryIntegration } from './inbox';
+import { readOpenSnoozes, wakeDueSnoozes } from './inbox-snooze';
 
 /**
  * The Inbox tab, straight from Gmail: the same mailbox, tabs and search Nick
@@ -43,10 +44,11 @@ import { getPrimaryIntegration } from './inbox';
 
 export type { AttachmentRef };
 
-export const INBOX_TABS = ['primary', 'other', 'starred', 'sent'] as const;
+export const INBOX_TABS = ['primary', 'other', 'starred', 'snoozed', 'sent'] as const;
 export type InboxTab = (typeof INBOX_TABS)[number];
 
-const TAB_QUERY: Record<InboxTab, { labelIds: string[]; q?: string }> = {
+/** Snoozed is Kraken's own list (inbox_snoozes), not a Gmail query. */
+const TAB_QUERY: Record<Exclude<InboxTab, 'snoozed'>, { labelIds: string[]; q?: string }> = {
   primary: { labelIds: ['INBOX'], q: 'category:primary' },
   other: { labelIds: ['INBOX'], q: '-category:primary' },
   starred: { labelIds: ['STARRED'] },
@@ -77,6 +79,8 @@ export interface LiveThreadRow {
   lastFromUs: boolean;
   /** Text aimed at an AI assistant was found; shown, flagged, never acted on. */
   flagged: boolean;
+  /** On the Snoozed tab: when the thread comes back to the inbox. */
+  snoozedUntil?: string | null;
 }
 
 export interface LiveThreadList {
@@ -86,6 +90,10 @@ export interface LiveThreadList {
   canAct: boolean;
   /** Labels can be changed from a tap: sending is on, or this is the demo. */
   canLabel: boolean;
+  /** Threads can be snoozed from a tap: sending is on, or this is the demo. */
+  canSnooze: boolean;
+  /** False when Snooze's table is not there yet (its migration not run). */
+  snoozeReady?: boolean;
   /** The person's own Gmail labels, for the Label menu. */
   labelChoices: MailLabel[];
   mailbox: string | null;
@@ -225,7 +233,12 @@ export async function listLiveThreads(
   options: { tab?: InboxTab; q?: string; pageToken?: string | null; now?: Date } = {},
 ): Promise<LiveThreadList> {
   const now = options.now ?? new Date();
-  if (isDemoMode()) return demoList(store, organizationId, options);
+  if (isDemoMode()) {
+    // Snoozes that came due go back first, so they are in the list this read.
+    const woke = await wakeDueSnoozes(store, organizationId, { demo: true, now });
+    await markDemoThreadsUnread(store, organizationId, woke.woken);
+    return demoList(store, organizationId, options);
+  }
 
   const integration = await getPrimaryIntegration(store, organizationId).catch(() => null);
   if (!integration || integration.status === 'disconnected') {
@@ -235,12 +248,21 @@ export async function listLiveThreads(
       nextPageToken: null,
       canAct: false,
       canLabel: false,
+      canSnooze: false,
       labelChoices: [],
       mailbox: null,
     };
   }
+  // Snoozes that came due go back to the inbox before Gmail is read: one
+  // indexed read when none are due, and a failure never holds up the list.
+  const woke = await wakeDueSnoozes(store, organizationId, { demo: false, integration, now });
+  if (woke.woken.length) forgetThreads(woke.woken);
+
   const search = options.q?.trim();
-  const tab = TAB_QUERY[options.tab ?? 'primary'];
+  if (options.tab === 'snoozed' && !search) {
+    return snoozedList(store, organizationId, integration, now);
+  }
+  const tab = TAB_QUERY[options.tab === 'snoozed' ? 'primary' : (options.tab ?? 'primary')];
   const page = await listThreadPage(store, integration, {
     q: search || tab.q,
     labelIds: search ? [] : tab.labelIds,
@@ -250,6 +272,8 @@ export async function listLiveThreads(
   const base = {
     canAct: canSend(integration),
     canLabel: canSend(integration),
+    canSnooze: canSend(integration),
+    snoozeReady: woke.state !== 'needs_migration',
     mailbox: integration.account_email ?? null,
   };
   if (!page.ok) {
@@ -291,6 +315,63 @@ export async function listLiveThreads(
     rows,
     nextPageToken: page.value.nextPageToken,
     labelChoices: labelChoices(names),
+    ...base,
+  };
+}
+
+/**
+ * The Snoozed tab: the open snoozes, soonest wake first, each read from Gmail
+ * once (cached under the thread's id, forgotten when the app changes it).
+ */
+async function snoozedList(
+  store: DataStore,
+  organizationId: string,
+  integration: Integration,
+  now: Date,
+): Promise<LiveThreadList> {
+  const base = {
+    nextPageToken: null,
+    canAct: canSend(integration),
+    canLabel: canSend(integration),
+    canSnooze: canSend(integration),
+    mailbox: integration.account_email ?? null,
+  };
+  const open = await readOpenSnoozes(store, organizationId).catch(() => null);
+  if (!open) {
+    return {
+      state: 'error',
+      rows: [],
+      message: 'Could not read the snoozed list.',
+      labelChoices: [],
+      ...base,
+    };
+  }
+  const key = (id: string) => `${id}:snoozed`;
+  const snoozes = open.rows.slice(0, PAGE_SIZE);
+  const missing = snoozes.filter((s) => !cache.meta.has(key(s.thread_id)));
+  for (let i = 0; i < missing.length; i += FETCH_BATCH) {
+    const batch = missing.slice(i, i + FETCH_BATCH);
+    const metas = await Promise.all(
+      batch.map((s) => readThreadMeta(store, integration, s.thread_id).catch(() => null)),
+    );
+    batch.forEach((s, j) => {
+      const meta = metas[j];
+      if (meta) cache.meta.set(key(s.thread_id), meta);
+    });
+  }
+  const seen = snoozes.flatMap((s) => cache.meta.get(key(s.thread_id))?.labelIds ?? []);
+  const names = await labelNames(store, integration, now.getTime(), { seen });
+  const rows = snoozes
+    .map((s): LiveThreadRow | null => {
+      const meta = cache.meta.get(key(s.thread_id));
+      return meta ? { ...toRow(meta, '', names), snoozedUntil: s.wake_at } : null;
+    })
+    .filter((r): r is LiveThreadRow => Boolean(r));
+  return {
+    state: 'ok',
+    rows,
+    labelChoices: labelChoices(names),
+    snoozeReady: open.state === 'ok',
     ...base,
   };
 }
@@ -570,8 +651,15 @@ async function demoList(
   organizationId: string,
   options: { tab?: InboxTab; q?: string },
 ): Promise<LiveThreadList> {
-  const { threads, byThread } = await demoData(store, organizationId);
+  const [{ threads, byThread }, open] = await Promise.all([
+    demoData(store, organizationId),
+    readOpenSnoozes(store, organizationId).catch(() => ({ state: 'ok' as const, rows: [] })),
+  ]);
+  // Snoozed threads are out of the inbox until they wake, as in Gmail; the
+  // Snoozed tab lists them with their wake time.
+  const snoozedUntil = new Map(open.rows.map((s) => [s.thread_id, s.wake_at]));
   const q = options.q?.trim().toLowerCase() ?? '';
+  const snoozedTab = options.tab === 'snoozed' && !q;
   const rows = threads
     .map((t): LiveThreadRow | null => {
       const list = byThread.get(t.id) ?? [];
@@ -585,18 +673,25 @@ async function demoList(
         at: last.sent_at,
         unread: list.some((m) => m.is_unread),
         starred: false,
-        inInbox: true,
+        inInbox: !snoozedUntil.has(demoId(t)),
         labels: userLabels(demoLabelIds(list), DEMO_LABEL_NAMES),
         labelIds: demoLabelIds(list),
         lastFromUs: false,
         flagged: list.some((m) => m.injection_flagged),
+        ...(snoozedUntil.has(demoId(t)) ? { snoozedUntil: snoozedUntil.get(demoId(t)) } : {}),
       };
     })
     .filter((r): r is LiveThreadRow => Boolean(r))
-    .filter((r) =>
-      q ? `${r.who} ${r.subject} ${r.snippet}`.toLowerCase().includes(q) : options.tab !== 'sent',
-    )
-    .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
+    .filter((r) => {
+      if (q) return `${r.who} ${r.subject} ${r.snippet}`.toLowerCase().includes(q);
+      if (snoozedTab) return snoozedUntil.has(r.id);
+      return options.tab !== 'sent' && !snoozedUntil.has(r.id);
+    })
+    .sort((a, b) =>
+      snoozedTab
+        ? (a.snoozedUntil ?? '').localeCompare(b.snoozedUntil ?? '')
+        : (b.at ?? '').localeCompare(a.at ?? ''),
+    );
   return {
     state: 'ok',
     rows,
@@ -604,6 +699,9 @@ async function demoList(
     canAct: false,
     // Label changes stay on the demo messages, so the demo can show them.
     canLabel: true,
+    // Snoozes are kept on demo rows alone; nothing reaches Gmail.
+    canSnooze: true,
+    snoozeReady: open.state === 'ok',
     labelChoices: [...DEMO_MAIL_LABELS],
     mailbox: null,
   };
@@ -647,6 +745,30 @@ async function demoThread(
       flagged: m.injection_flagged || scanForInjection(m.body_text ?? m.snippet).flagged,
     })),
   });
+}
+
+/**
+ * A demo thread that woke from a snooze comes back unread, as in Gmail: its
+ * newest message is marked unread. Best-effort; never throws.
+ */
+async function markDemoThreadsUnread(
+  store: DataStore,
+  organizationId: string,
+  ids: readonly string[],
+): Promise<void> {
+  if (ids.length === 0) return;
+  try {
+    const { threads, byThread } = await demoData(store, organizationId);
+    for (const thread of threads) {
+      if (!ids.includes(demoId(thread))) continue;
+      const last = byThread.get(thread.id)?.at(-1);
+      if (last && !last.is_unread) {
+        await store.update('email_messages', organizationId, last.id, { is_unread: true });
+      }
+    }
+  } catch {
+    // The thread is back either way; only its unread dot is missing.
+  }
 }
 
 /**

@@ -1502,6 +1502,23 @@ export interface BookingPick {
   updated_at: IsoDateTime;
 }
 
+/**
+ * A snoozed Inbox thread (supabase/migrations/20261102000000_inbox_snoozes.sql).
+ * Gmail has no snooze: snoozing takes INBOX off the thread and keeps this row;
+ * at `wake_at` Kraken puts INBOX and UNREAD back and the row becomes 'woken'.
+ * `thread_id` is the Gmail thread id (the demo Inbox's id in the demo).
+ */
+export interface InboxSnooze {
+  id: Uuid;
+  organization_id: Uuid;
+  thread_id: string;
+  wake_at: IsoDateTime;
+  status: 'snoozed' | 'woken' | 'cancelled';
+  created_by: Uuid | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
 /** Why a held booking is not on the calendar yet (D-078). */
 export type BookingHoldReason =
   'calendar_editing_off' | 'no_main_calendar' | 'calendar_unreachable' | 'calendar_error';

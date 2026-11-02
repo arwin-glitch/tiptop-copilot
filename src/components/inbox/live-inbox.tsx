@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { toast } from 'sonner';
 import {
+  AlarmClock,
   Archive,
   ArrowLeft,
   ExternalLink,
@@ -28,6 +29,7 @@ import { swapSignOff } from '@/components/followups/email-session-client';
 import { Composer, type ComposeDraft } from '@/components/inbox/composer';
 import { LabelMenu } from '@/components/inbox/label-menu';
 import { MessageItem, longTime } from '@/components/inbox/message-view';
+import { readerZone, SnoozeMenu } from '@/components/inbox/snooze-menu';
 import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
 import { Notice } from '@/components/ui/feedback';
 import {
@@ -46,6 +48,7 @@ import {
   INBOX_THREAD_PARAM,
   isGmailId,
 } from '@/lib/email/thread-links';
+import { formatWake } from '@/lib/email/snooze';
 import { cn } from '@/lib/util/cn';
 import { formatDate, formatMonthDay, formatTime, localDateKey } from '@/lib/util/time';
 import type {
@@ -67,6 +70,7 @@ const TABS: { id: InboxTab; label: string }[] = [
   { id: 'primary', label: 'Primary' },
   { id: 'other', label: 'Other tabs' },
   { id: 'starred', label: 'Starred' },
+  { id: 'snoozed', label: 'Snoozed' },
   { id: 'sent', label: 'Sent' },
 ];
 
@@ -174,6 +178,8 @@ export function LiveInbox({
    * thread or selection.
    */
   const [labelMenu, setLabelMenu] = React.useState<string | null>(null);
+  /** Which Snooze menu the b key opened, keyed the same way as `labelMenu`. */
+  const [snoozeMenu, setSnoozeMenu] = React.useState<string | null>(null);
   /** Older pages are on screen: a quiet re-read of the first page would drop them. */
   const [extraPages, setExtraPages] = React.useState(false);
   const searchRef = React.useRef<HTMLInputElement>(null);
@@ -197,7 +203,7 @@ export function LiveInbox({
     url.searchParams.delete('q');
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }, [initialQuery]);
-  const { canAct, canLabel, mailbox, labelChoices } = list;
+  const { canAct, canLabel, canSnooze, mailbox, labelChoices } = list;
 
   const load = React.useCallback(
     async (next: { tab: InboxTab; q: string }, opts: { quiet?: boolean } = {}) => {
@@ -441,6 +447,109 @@ export function LiveInbox({
     [canLabel, labelChoices, linked, list.rows, hold, release, settle],
   );
 
+  const snoozedView = !searched && tab === 'snoozed';
+
+  /** Unsnooze: back in the inbox now, out of the Snoozed list. */
+  const unsnooze = React.useCallback(
+    async (ids: string[], opts: { restore?: LiveThreadRow[] } = {}) => {
+      const before = list.rows;
+      const patch: Partial<LiveThreadRow> = { inInbox: true, snoozedUntil: null };
+      if (snoozedView) {
+        setList((cur) => ({ ...cur, rows: cur.rows.filter((r) => !ids.includes(r.id)) }));
+        if (selectedId && ids.includes(selectedId)) setSelectedId(null);
+        release(ids);
+        hold(ids, patch, viewKey(view.current));
+      } else if (!opts.restore) {
+        patchRows(ids, patch);
+      }
+      setChecked(new Set());
+      const res = await postJson('/api/inbox/snooze', { action: 'unsnooze', threadIds: ids });
+      if (!res.ok) {
+        release(ids);
+        setList((cur) => ({ ...cur, rows: before }));
+        toast.error(await errorMessage(res, 'Could not unsnooze that. Try again.'));
+        return false;
+      }
+      if (opts.restore) {
+        // The toast's Undo: the rows go back where they were.
+        const restore = opts.restore;
+        release(ids);
+        hold(ids, patch, null);
+        setList((cur) => ({ ...cur, rows: restore }));
+      } else {
+        toast.success(ids.length === 1 ? 'Back in your inbox' : `${ids.length} back in your inbox`);
+      }
+      settle();
+      return true;
+    },
+    [list.rows, snoozedView, selectedId, release, hold, patchRows, settle],
+  );
+
+  /**
+   * Snooze until `wakeAt`: out of the inbox now (as Archive does), back at
+   * that time, unread. Drawn at once and put back if the server refuses,
+   * including before Snooze's database update, which the toast then says.
+   */
+  const snooze = React.useCallback(
+    async (ids: string[], wakeAt: Date) => {
+      if (!canSnooze) {
+        toast.error('Snoozing needs sending turned on. Snooze in Gmail for now.');
+        return false;
+      }
+      const before = list.rows;
+      const linkedBefore = linked;
+      const iso = wakeAt.toISOString();
+      const patch: Partial<LiveThreadRow> = { inInbox: false, snoozedUntil: iso };
+      if (inInboxView) {
+        setList((cur) => ({ ...cur, rows: cur.rows.filter((r) => !ids.includes(r.id)) }));
+        if (selectedId && ids.includes(selectedId)) setSelectedId(null);
+        hold(ids, patch, viewKey(view.current));
+      } else {
+        patchRows(ids, patch);
+        hold(ids, patch);
+      }
+      setChecked(new Set());
+
+      const res = await postJson('/api/inbox/snooze', {
+        action: 'snooze',
+        threadIds: ids,
+        wakeAt: iso,
+      });
+      if (!res.ok) {
+        release(ids);
+        setList((cur) => ({ ...cur, rows: before }));
+        setLinked(linkedBefore);
+        toast.error(await errorMessage(res, 'Could not snooze that. Try again.'));
+        return false;
+      }
+      settle();
+      const when = formatWake(wakeAt, readerZone(timeZone));
+      toast.success(
+        ids.length === 1 ? `Snoozed until ${when}` : `${ids.length} snoozed until ${when}`,
+        {
+          action: {
+            label: 'Undo',
+            onClick: () => void unsnooze(ids, { restore: before }),
+          },
+        },
+      );
+      return true;
+    },
+    [
+      canSnooze,
+      list.rows,
+      linked,
+      inInboxView,
+      selectedId,
+      hold,
+      release,
+      patchRows,
+      settle,
+      timeZone,
+      unsnooze,
+    ],
+  );
+
   const open = React.useCallback(
     (row: LiveThreadRow) => {
       setSelectedId(row.id);
@@ -476,8 +585,8 @@ export function LiveInbox({
     if (linkedId && selectedId !== linkedId) forgetThreadParam();
   }, [linkedId, selectedId]);
 
-  // Gmail's keys: j/k move, o/Enter open, e archive, s star, Shift+U unread,
-  // r reply, l label, u back, / search, x select. Never while something is
+  // Gmail's keys: j/k move, o/Enter open, e archive, b snooze, s star,
+  // Shift+U unread, r reply, l label, u back, / search, x select. Never while something is
   // drawn over the list (the Ask Arwin panel, a tour card, a dialog): a key
   // meant for that must not archive or open the thread underneath.
   React.useEffect(() => {
@@ -523,6 +632,12 @@ export function LiveInbox({
           // Kept out of the menu's filter, which takes focus as it opens.
           e.preventDefault();
           setLabelMenu(paneMenu ?? bulkMenu);
+          break;
+        case 'b':
+          // Gmail's snooze key: the open thread's menu, else the selection's.
+          if (!canSnooze || !(paneMenu ?? bulkMenu)) break;
+          e.preventDefault();
+          setSnoozeMenu(paneMenu ?? bulkMenu);
           break;
         case 'u':
         case 'Escape':
@@ -697,6 +812,23 @@ export function LiveInbox({
               >
                 <Archive className="size-4" aria-hidden /> Archive
               </Button>
+              {canSnooze ? (
+                <SnoozeMenu
+                  timeZone={timeZone}
+                  onSnooze={(at) => void snooze([...checked], at)}
+                  open={snoozeMenu !== null && snoozeMenu === bulkMenu}
+                  onOpenChange={(o) => setSnoozeMenu(o ? bulkMenu : null)}
+                >
+                  <Button size="sm" variant="secondary">
+                    <AlarmClock className="size-4" aria-hidden /> Snooze
+                  </Button>
+                </SnoozeMenu>
+              ) : null}
+              {snoozedView ? (
+                <Button size="sm" variant="secondary" onClick={() => void unsnooze([...checked])}>
+                  <InboxIcon className="size-4" aria-hidden /> Unsnooze
+                </Button>
+              ) : null}
               <Button size="sm" variant="secondary" onClick={() => void act([...checked], 'read')}>
                 <MailOpen className="size-4" aria-hidden /> Mark read
               </Button>
@@ -725,9 +857,20 @@ export function LiveInbox({
               </Button>
             </div>
           ) : null}
+          {snoozedView && list.snoozeReady === false ? (
+            <div className="mb-2">
+              <Notice tone="warn">
+                Snooze needs a database update before it can be used. Nothing else changes.
+              </Notice>
+            </div>
+          ) : null}
           {rows.length === 0 && !loading ? (
             <p className="py-8 text-center text-sm text-[var(--fg-subtle)]">
-              {searched ? 'No mail matches that search.' : 'Nothing here. Inbox zero.'}
+              {searched
+                ? 'No mail matches that search.'
+                : snoozedView
+                  ? 'Nothing snoozed. Snooze a thread to have it come back later.'
+                  : 'Nothing here. Inbox zero.'}
             </p>
           ) : (
             <ul
@@ -749,6 +892,9 @@ export function LiveInbox({
                   onArchive={row.inInbox ? () => void act([row.id], 'archive') : null}
                   labelChoices={labelChoices}
                   onLabel={canLabel ? (change) => void label([row.id], change) : null}
+                  onSnooze={canSnooze ? (at) => void snooze([row.id], at) : null}
+                  snoozedUntil={snoozedView ? (row.snoozedUntil ?? null) : null}
+                  onUnsnooze={snoozedView ? () => void unsnooze([row.id]) : null}
                 />
               ))}
             </ul>
@@ -762,8 +908,8 @@ export function LiveInbox({
             </div>
           ) : null}
           <p className="mt-3 hidden text-xs text-[var(--fg-subtle)] lg:block">
-            Keys: j/k next and previous · e archive · s star · r reply · l label · Shift+U unread ·
-            u back · / search
+            Keys: j/k next and previous · e archive · b snooze · s star · r reply · l label ·
+            Shift+U unread · u back · / search
           </p>
         </section>
 
@@ -791,6 +937,11 @@ export function LiveInbox({
               onLabel={canLabel ? (change) => void label([selected.id], change) : null}
               labelMenuOpen={labelMenu !== null && labelMenu === paneMenu}
               setLabelMenuOpen={(o) => setLabelMenu(o ? paneMenu : null)}
+              onSnooze={canSnooze ? (at) => void snooze([selected.id], at) : null}
+              snoozeMenuOpen={snoozeMenu !== null && snoozeMenu === paneMenu}
+              setSnoozeMenuOpen={(o) => setSnoozeMenu(o ? paneMenu : null)}
+              snoozedUntil={snoozedView ? (selected.snoozedUntil ?? null) : null}
+              onUnsnooze={() => void unsnooze([selected.id])}
               onSent={() => void load({ tab, q: searched }, { quiet: true })}
               onForward={(draft) => setCompose({ title: 'Forward', draft })}
             />
@@ -829,6 +980,9 @@ function ThreadRow({
   onArchive,
   labelChoices,
   onLabel,
+  onSnooze,
+  snoozedUntil,
+  onUnsnooze,
 }: {
   row: LiveThreadRow;
   timeZone: string;
@@ -840,6 +994,10 @@ function ThreadRow({
   onArchive: (() => void) | null;
   labelChoices: readonly MailLabel[];
   onLabel: ((change: LabelChange) => void) | null;
+  onSnooze: ((wakeAt: Date) => void) | null;
+  /** On the Snoozed tab: when it comes back, shown in place of the date. */
+  snoozedUntil: string | null;
+  onUnsnooze: (() => void) | null;
 }) {
   return (
     <li
@@ -880,14 +1038,22 @@ function ThreadRow({
             {row.unread ? <span className="sr-only">Unread: </span> : null}
             {row.who}
           </span>
-          <span
-            className={cn(
-              'shrink-0 text-xs',
-              row.unread ? 'font-semibold' : 'text-[var(--fg-muted)]',
-            )}
-          >
-            {shortTime(row.at, timeZone)}
-          </span>
+          {snoozedUntil ? (
+            <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-[var(--accent)]">
+              <AlarmClock className="size-3.5" aria-hidden />
+              <span className="sr-only">Snoozed until </span>
+              {formatWake(snoozedUntil, readerZone(timeZone))}
+            </span>
+          ) : (
+            <span
+              className={cn(
+                'shrink-0 text-xs',
+                row.unread ? 'font-semibold' : 'text-[var(--fg-muted)]',
+              )}
+            >
+              {shortTime(row.at, timeZone)}
+            </span>
+          )}
         </div>
         <p className={cn('truncate text-sm', row.unread ? 'font-medium' : 'text-[var(--fg)]')}>
           {row.subject}
@@ -919,6 +1085,28 @@ function ThreadRow({
           </button>
         </LabelMenu>
       ) : null}
+      {onSnooze ? (
+        <SnoozeMenu timeZone={timeZone} onSnooze={onSnooze}>
+          <button
+            type="button"
+            aria-label="Snooze"
+            className="mt-0.5 text-[var(--fg-subtle)] opacity-100 hover:text-[var(--fg)] lg:opacity-0 lg:group-hover:opacity-100 lg:focus:opacity-100 lg:data-[state=open]:opacity-100"
+          >
+            <AlarmClock className="size-4" aria-hidden />
+          </button>
+        </SnoozeMenu>
+      ) : null}
+      {onUnsnooze ? (
+        <button
+          type="button"
+          onClick={onUnsnooze}
+          aria-label="Unsnooze: back to the inbox now"
+          title="Unsnooze"
+          className="mt-0.5 text-[var(--fg-subtle)] opacity-100 hover:text-[var(--fg)] lg:opacity-0 lg:group-hover:opacity-100 lg:focus:opacity-100"
+        >
+          <InboxIcon className="size-4" aria-hidden />
+        </button>
+      ) : null}
       {onArchive ? (
         <button
           type="button"
@@ -947,6 +1135,11 @@ function ThreadView({
   onLabel,
   labelMenuOpen,
   setLabelMenuOpen,
+  onSnooze,
+  snoozeMenuOpen,
+  setSnoozeMenuOpen,
+  snoozedUntil,
+  onUnsnooze,
   onSent,
   onForward,
 }: {
@@ -964,6 +1157,12 @@ function ThreadView({
   onLabel: ((change: LabelChange) => void) | null;
   labelMenuOpen: boolean;
   setLabelMenuOpen: (open: boolean) => void;
+  onSnooze: ((wakeAt: Date) => void) | null;
+  snoozeMenuOpen: boolean;
+  setSnoozeMenuOpen: (open: boolean) => void;
+  /** Opened from the Snoozed tab: when it comes back; Unsnooze replaces Move to inbox. */
+  snoozedUntil: string | null;
+  onUnsnooze: () => void;
   onSent: () => void;
   onForward: (draft: ComposeDraft) => void;
 }) {
@@ -1006,7 +1205,11 @@ function ThreadView({
           <span className="lg:hidden">Back</span>
         </Button>
         <div className="flex-1" />
-        {row.inInbox ? (
+        {snoozedUntil ? (
+          <Button size="sm" variant="secondary" onClick={onUnsnooze}>
+            <InboxIcon className="size-4" aria-hidden /> Unsnooze
+          </Button>
+        ) : row.inInbox ? (
           <Button size="sm" variant="secondary" onClick={() => void onAct('archive')}>
             <Archive className="size-4" aria-hidden /> Archive
           </Button>
@@ -1015,6 +1218,18 @@ function ThreadView({
             <InboxIcon className="size-4" aria-hidden /> Move to inbox
           </Button>
         )}
+        {onSnooze ? (
+          <SnoozeMenu
+            timeZone={timeZone}
+            onSnooze={onSnooze}
+            open={snoozeMenuOpen}
+            onOpenChange={setSnoozeMenuOpen}
+          >
+            <Button size="sm" variant="secondary">
+              <AlarmClock className="size-4" aria-hidden /> Snooze
+            </Button>
+          </SnoozeMenu>
+        ) : null}
         <Button
           size="sm"
           variant="ghost"
@@ -1071,6 +1286,12 @@ function ThreadView({
 
       <div className="space-y-3 p-4">
         <h2 className="text-lg font-semibold text-balance">{thread?.subject ?? row.subject}</h2>
+        {snoozedUntil ? (
+          <p className="flex items-center gap-1.5 text-sm text-[var(--fg-muted)]">
+            <AlarmClock className="size-4 text-[var(--accent)]" aria-hidden />
+            Snoozed until {formatWake(snoozedUntil, readerZone(timeZone))}
+          </p>
+        ) : null}
         {/* The row's labels, so a change made here shows at once. */}
         {row.labels.length > 0 ? (
           <div className="flex flex-wrap gap-1">

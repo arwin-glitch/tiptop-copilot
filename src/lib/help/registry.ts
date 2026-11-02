@@ -408,23 +408,28 @@ export const HELP_PAGES: readonly HelpPage[] = [
     id: 'inbox',
     name: 'Inbox',
     href: '/inbox',
-    purpose: 'Your Gmail, live. Read, reply, archive, star and label without leaving.',
+    purpose: 'Your Gmail, live. Read, reply, archive, snooze, star and label without leaving.',
     subtabs: [
       { key: 'primary', label: 'Primary', blurb: 'The main inbox, as in Gmail.' },
       { key: 'other', label: 'Other tabs', blurb: 'Promotions, Updates and the other Gmail tabs.' },
       { key: 'starred', label: 'Starred', blurb: 'Everything starred.' },
+      {
+        key: 'snoozed',
+        label: 'Snoozed',
+        blurb: 'Snoozed threads and when each comes back. Unsnooze brings one back now.',
+      },
       { key: 'sent', label: 'Sent', blurb: 'What went out.' },
     ],
     steps: [
       navStep(
         '/inbox',
         'Your Gmail, live',
-        'Inbox is your Gmail: read, reply, archive, star and label right here.',
+        'Inbox is your Gmail: read, reply, archive, snooze, star and label right here.',
       ),
       {
         target: 'inbox-tabs',
         title: 'Mail folders',
-        body: 'Primary, Other tabs, Starred and Sent, one tap each.',
+        body: 'Primary, Other tabs, Starred, Snoozed and Sent, one tap each.',
         placement: 'bottom',
       },
       {
@@ -436,7 +441,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'inbox-list',
         title: 'Conversations',
-        body: 'Tap a thread to read it. Star, label or archive straight from the row.',
+        body: 'Tap a thread to read it. Star, label, snooze or archive straight from the row.',
         placement: 'right',
         grand: true,
       },

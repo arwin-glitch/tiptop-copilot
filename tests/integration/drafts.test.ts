@@ -246,6 +246,9 @@ describe('nothing sends on its own', () => {
       'app/api/inbox/modify/route.ts',
       'app/api/inbox/compose/route.ts',
       'lib/services/inbox-live.ts',
+      // Snooze: takes INBOX off on a tap, and puts INBOX and UNREAD back at
+      // the wake time on threads someone snoozed (never sends, never deletes).
+      'lib/services/inbox-snooze.ts',
       // Campaigns: the one wrapper that builds a Gmail sender. It is reached
       // only from the campaign routes a person's tap calls (test, confirm,
       // batch) plus the read-only sender info; see the next test. The
@@ -267,7 +270,9 @@ describe('nothing sends on its own', () => {
 
   it('changes Gmail labels only in gmail-send.ts, called from the Inbox modify route alone', async () => {
     // Labels (archive, star, read state, the person's own labels) change on a
-    // tap in the Inbox tab and nowhere else: no job, tool or relay reader.
+    // tap in the Inbox tab and nowhere else: no tool or relay reader. The one
+    // scheduled change is Snooze's wake (inbox-snooze.ts): INBOX and UNREAD
+    // back on a thread a person snoozed from the Inbox, at the time they chose.
     const MODIFY_ENDPOINT = /\/(threads|messages)\/\$\{[^}]+\}\/modify|batchModify/;
     const files = await walk(SRC);
     const callers: string[] = [];
@@ -280,7 +285,10 @@ describe('nothing sends on its own', () => {
       }
       if (MODIFY_ENDPOINT.test(source)) writers.push(rel);
     }
-    expect(callers).toEqual(['app/api/inbox/modify/route.ts']);
+    expect(callers.sort()).toEqual([
+      'app/api/inbox/modify/route.ts',
+      'lib/services/inbox-snooze.ts',
+    ]);
     expect(writers).toEqual(['lib/google/gmail-send.ts']);
   });
 

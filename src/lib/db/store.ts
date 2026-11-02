@@ -46,6 +46,7 @@ import type {
   EventSlugAlias,
   EventVersion,
   GeneratedDraft,
+  InboxSnooze,
   Integration,
   JobBoardSettings,
   JobCompany,
@@ -163,6 +164,8 @@ export interface TableMap {
   booking_requests: BookingRequest;
   // Pick times (supabase/migrations/20261028000000_booking_picks.sql).
   booking_picks: BookingPick;
+  // Inbox snooze (supabase/migrations/20261102000000_inbox_snoozes.sql).
+  inbox_snoozes: InboxSnooze;
   job_board_settings: JobBoardSettings;
   job_companies: JobCompany;
   job_postings: JobPosting;

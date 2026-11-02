@@ -12,6 +12,7 @@ import { formatDealCronStatus, pullDealsFromSlack } from '@/lib/services/deal-re
 import { recordJobHeartbeat } from '@/lib/services/feed-health';
 import { ensureGmailWatch } from '@/lib/services/gmail-watch';
 import { syncMailbox } from '@/lib/services/inbox';
+import { formatSnoozeCronStatus, wakeDueSnoozes } from '@/lib/services/inbox-snooze';
 import { listPortfolio } from '@/lib/services/portfolio';
 import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
 import { refreshPortfolioAsks } from '@/lib/services/portfolio-asks';
@@ -99,6 +100,7 @@ export async function POST(request: NextRequest) {
     asks: string;
     campaigns: string;
     notes?: string;
+    snooze?: string;
     jobs: string;
   }[] = [];
 
@@ -187,6 +189,14 @@ export async function POST(request: NextRequest) {
       syncStatus = `failed: ${(error as Error)?.message?.slice(0, 120)}`;
       log.error('Cron sync failed', { organizationId: organization.id });
     }
+
+    // Snoozed Inbox threads whose wake time has passed go back to the inbox,
+    // unread (INBOX and UNREAD only; lib/services/inbox-snooze.ts), on every
+    // run including tasks=sync, so one comes back even with the Inbox shut.
+    // Never throws. Counts only: public log.
+    const snoozeStatus = formatSnoozeCronStatus(
+      await wakeDueSnoozes(store, organization.id, { demo: env().demoMode }),
+    );
 
     // Registers on the first run and renews thereafter. Gmail caps a watch at
     // seven days, and a lapsed one stops delivering silently — a mailbox that
@@ -408,6 +418,7 @@ export async function POST(request: NextRequest) {
       asks: asksStatus,
       campaigns: campaignsStatus,
       notes: notesStatus,
+      snooze: snoozeStatus,
       jobs: jobsStatus,
     });
   }
