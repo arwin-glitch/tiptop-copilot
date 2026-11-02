@@ -88,7 +88,7 @@ check(ShellPolicy.isAppAddress(url("https://kraken.tiptop.vc/"), serverURL: serv
 check(ShellPolicy.isAppAddress(url("https://kraken.tiptop.vc"), serverURL: server), "the site with no path")
 check(ShellPolicy.isAppAddress(url("https://kraken.tiptop.vc/api/briefings/morning/pdf"), serverURL: server),
       "a briefing PDF")
-check(ShellPolicy.isAppAddress(url("https://COPILOT.tiptop.vc/inbox?thread=example"), serverURL: server),
+check(ShellPolicy.isAppAddress(url("https://KRAKEN.tiptop.vc/inbox?thread=example"), serverURL: server),
       "any case, with a query")
 check(!ShellPolicy.isAppAddress(url("http://kraken.tiptop.vc/"), serverURL: server), "plain http is not the site")
 check(!ShellPolicy.isAppAddress(url("https://kraken.tiptop.vc.example.com/"), serverURL: server),
