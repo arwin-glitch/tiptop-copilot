@@ -139,7 +139,9 @@ jobs:
             build-args: ''
             bundle-dir: desktop/src-tauri/target/release/bundle
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # Apple's notarisation of the Mac app alone took 39 minutes on the first
+    # signed build (Nov 2 2026), on top of a universal build.
+    timeout-minutes: 120
     defaults:
       run:
         # Bash on Windows too, so every step reads the same.
