@@ -134,6 +134,11 @@ test('prepare registers the bundle ID and turns on push', async () => {
     assert.deepEqual(push.body.data.relationships, {
       bundleId: { data: { type: 'bundleIds', id: 'B1' } },
     });
+    // Apple answers 400 to any paging parameter on this relationship list.
+    const capsRead = api.calls.find(
+      (c) => c.method === 'GET' && c.path === '/v1/bundleIds/B1/bundleIdCapabilities',
+    );
+    assert.deepEqual(capsRead.query, {});
     assert.match(result.stdout, /Time Sensitive Notifications could not be turned on/);
     assert.equal(result.outputs.time_sensitive, 'no');
     // Every request carries an ES256 token for this key, for App Store Connect.

@@ -151,7 +151,7 @@ async function findBundleId() {
 }
 
 async function capabilitiesOf(bundle) {
-  const { items } = await list(`/v1/bundleIds/${bundle.id}/bundleIdCapabilities?limit=200`);
+  const { items } = await list(`/v1/bundleIds/${bundle.id}/bundleIdCapabilities`);
   return items.map((c) => c.attributes?.capabilityType).filter(Boolean);
 }
 
