@@ -97,30 +97,36 @@ export async function gatherTodayData(
       cursor: integration?.sync_cursor ?? null,
     });
     if (fetched.ok) {
-      for (const event of fetched.value.events) {
-        await store.upsert(
-          'calendar_events',
-          {
-            id: newId(),
-            organization_id: auth.organizationId,
-            user_id: auth.userId,
-            provider: 'google',
-            provider_event_id: event.providerEventId,
-            title: event.title,
-            description: event.description,
-            location: event.location,
-            starts_at: event.startsAt,
-            ends_at: event.endsAt,
-            all_day: event.allDay,
-            attendees: event.attendees,
-            organizer_email: event.organizerEmail,
-            is_private: event.isPrivate,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          ['organization_id', 'provider', 'provider_event_id'],
-        );
-      }
+      // One write per event, all at once: each is keyed on its own event, so
+      // the order never mattered, and in sequence up to 40 store round trips
+      // stood between the calendar answer and the page.
+      const stamp = new Date().toISOString();
+      await Promise.all(
+        fetched.value.events.map((event) =>
+          store.upsert(
+            'calendar_events',
+            {
+              id: newId(),
+              organization_id: auth.organizationId,
+              user_id: auth.userId,
+              provider: 'google',
+              provider_event_id: event.providerEventId,
+              title: event.title,
+              description: event.description,
+              location: event.location,
+              starts_at: event.startsAt,
+              ends_at: event.endsAt,
+              all_day: event.allDay,
+              attendees: event.attendees,
+              organizer_email: event.organizerEmail,
+              is_private: event.isPrivate,
+              created_at: stamp,
+              updated_at: stamp,
+            },
+            ['organization_id', 'provider', 'provider_event_id'],
+          ),
+        ),
+      );
     }
   }
 

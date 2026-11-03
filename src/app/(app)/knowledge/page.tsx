@@ -23,6 +23,7 @@ import {
   resolvePageTab,
 } from '@/lib/records-tabs';
 import { SHOW_PARAM, showMoreHref, shownCount, single } from '@/lib/util/page-tabs';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -91,8 +92,8 @@ export default async function KnowledgePage({
   return (
     <PageShell>
       <PageHeader
-        title="Knowledge"
-        subtitle="Thesis documents, memos, pass notes, market maps, your network, and everything carried over from Affinity. Retrieval is full-text over Postgres, with page-level citations."
+        title={PAGE_HEADERS.knowledge.title}
+        subtitle={PAGE_HEADERS.knowledge.subtitle}
         actions={
           <>
             <ImportNetworkButton />

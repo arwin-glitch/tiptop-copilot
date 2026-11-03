@@ -11,7 +11,16 @@ const nextConfig: NextConfig = {
   // (`npx tsc --noEmit` is a required gate), so the build skips that pass and
   // collects pages with one worker.
   typescript: { ignoreBuildErrors: true },
-  experimental: { cpus: 1 },
+  experimental: {
+    cpus: 1,
+    // Client router cache (in the tab's memory only, per signed-in session):
+    // a tab visited in the last 30 seconds opens instantly from it instead of
+    // asking the server again. Nothing here reaches a shared cache: pages stay
+    // dynamic, the service worker never stores app HTML or API answers, and
+    // signing out (a server action that clears the session cookies) empties
+    // the router cache. Open tabs still refresh on their own version watchers.
+    staleTimes: { dynamic: 30 },
+  },
   async headers() {
     return [
       {

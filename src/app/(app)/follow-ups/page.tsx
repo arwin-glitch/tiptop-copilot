@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
+import { timed } from '@/lib/util/timing';
 import { CalendarClock, HeartHandshake, Hourglass, NotebookPen } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
@@ -15,6 +16,7 @@ import {
 import { readEmailSession } from '@/lib/services/email-session';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { mailboxOwnerPresence, type MailboxOwnerPresence } from '@/lib/services/presence';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { EmailSessionCard } from '@/components/followups/email-session-card';
 import { FollowUpEmailRow } from '@/components/followups/full-email';
@@ -32,10 +34,7 @@ export const dynamic = 'force-dynamic';
 export default function FollowUpsPage() {
   return (
     <PageShell>
-      <PageHeader
-        title="Follow-ups"
-        subtitle="Who is waiting on you, who you are waiting on, recaps drafted after your meetings, and meeting times drafted into replies. Every draft sits in Gmail for review; nothing is sent unless you tap Send in an email session."
-      />
+      <PageHeader title={PAGE_HEADERS.followUps.title} subtitle={PAGE_HEADERS.followUps.subtitle} />
       <Suspense fallback={<SkeletonText lines={10} />}>
         <FollowUpsContent />
       </Suspense>
@@ -58,7 +57,27 @@ const STATE_MESSAGE: Partial<Record<FollowUpsState, string>> = {
 async function FollowUpsContent() {
   const auth = await requireAuth();
   const now = new Date();
-  const { state, snapshot } = await readFollowUps(getStore(), auth.organizationId, { now });
+  // The relay read, the email session and the mailbox owner's presence at
+  // once rather than one after another.
+  const [{ state, snapshot }, session, presence] = await Promise.all([
+    timed('follow-ups', 'readFollowUps', () =>
+      readFollowUps(getStore(), auth.organizationId, { now }),
+    ),
+    readEmailSession(getStore(), auth.organizationId, { now }),
+    auth.isDemo
+      ? null
+      : getPrimaryIntegration(getStore(), auth.organizationId)
+          .catch(() => null)
+          .then((integration) =>
+            mailboxOwnerPresence(
+              getStore(),
+              auth.organizationId,
+              auth.userId,
+              integration?.account_email,
+            ),
+          )
+          .catch(() => null),
+  ]);
   const tz = auth.profile.timezone;
 
   if (state !== 'ok') {
@@ -71,18 +90,6 @@ async function FollowUpsContent() {
 
   const waiting = snapshot.waiting?.items ?? [];
   const onYou = snapshot.relationships?.waiting ?? [];
-  const session = await readEmailSession(getStore(), auth.organizationId, { now });
-  const integration = await getPrimaryIntegration(getStore(), auth.organizationId).catch(
-    () => null,
-  );
-  const presence = auth.isDemo
-    ? null
-    : await mailboxOwnerPresence(
-        getStore(),
-        auth.organizationId,
-        auth.userId,
-        integration?.account_email,
-      ).catch(() => null);
   return (
     <div className="space-y-8">
       <AutoRefresh minutes={10} />

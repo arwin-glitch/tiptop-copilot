@@ -40,6 +40,7 @@ import {
   affinityPeopleCount,
   type PeopleSource,
 } from '@/components/network/affinity-people';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { EmptyState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
@@ -86,10 +87,7 @@ export default async function NetworkPage({
 
   return (
     <PageShell>
-      <PageHeader
-        title="Network"
-        subtitle="Everyone you have actually corresponded or sat down with, counted from your own mail and calendar, students and interns from a twice-weekly mailbox scan, plus the investors, providers, operators and events carried over from Affinity. Every strength shows the evidence it was counted from."
-      />
+      <PageHeader title={PAGE_HEADERS.network.title} subtitle={PAGE_HEADERS.network.subtitle} />
       <PageTabs
         label={NETWORK_TABS.navLabel}
         path={NETWORK_TABS.path}

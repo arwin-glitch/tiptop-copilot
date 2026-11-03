@@ -84,6 +84,13 @@ is no re-encryption path — a half-rotated token table is a worse failure than 
 reconnect prompt. `key_version` is stored per record so a future rotation
 strategy can be added without a migration.
 
+### `KRAKEN_TIMING`
+Default unset (off). Set to `1` to log how long each slow step of a tab takes,
+one line per step: `[timing] <tab> <step> <ms>ms` (for example
+`[timing] auth supabase.getUser 140ms`, `[timing] tasks pullTaskRelays 900ms`).
+For finding what holds a tab back; turn it off again afterwards. It logs no
+data, only step names and durations.
+
 ---
 
 ## Supabase

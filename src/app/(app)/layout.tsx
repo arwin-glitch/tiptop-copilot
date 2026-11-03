@@ -22,7 +22,9 @@ import { FieldLabel } from '@/components/ui/card';
 import { cn } from '@/lib/util/cn';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const auth = await getAuthContext();
+  // Both at once: identity (memoised for the request, so the page's own
+  // requireAuth() reuses it) and the desktop app's cookie hint.
+  const [auth, desktopVersion] = await Promise.all([getAuthContext(), desktopVersionHint()]);
   if (!auth) redirect('/login');
 
   const demo = isDemoMode();
@@ -37,8 +39,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // configuration checks, so this costs nothing per page.
   const askAvailable = getAI().available() || Boolean(env().askBridgeToken);
   // Inside the desktop app the navigation leaves out Download from the first
-  // paint; the client confirms it (useDesktopApp).
-  const desktopVersion = await desktopVersionHint();
+  // paint (desktopVersion, read above); the client confirms it (useDesktopApp).
 
   return (
     // `data-app-shell` tells the desktop app's top bar (in the root layout)

@@ -14,6 +14,7 @@ import { configuredCriteria, getActiveThesis } from '@/lib/services/thesis';
 import { googleConfigured } from '@/lib/google/oauth';
 import { canSend } from '@/lib/google/gmail-send';
 import { canEditCalendar } from '@/lib/calendar/edit-access';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell, DataRow } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -63,9 +64,47 @@ export default async function SettingsPage({
   if (asked === 'booking') redirect('/booking');
   const tab = (SETTINGS_TABS as readonly string[]).includes(asked ?? '') ? asked! : 'thesis';
   const store = getStore();
-  const [thesis, integration] = await Promise.all([
+  const canManageMcp = hasRole(auth, 'owner');
+  // Two cookie and header hints, then every read at once: these used to run
+  // one after another, nine store or network round trips in a row.
+  const [desktopVersion, iosVersion] = await Promise.all([desktopVersionHint(), iosAppHint()]);
+  const [
+    thesis,
+    integration,
+    mcpTokens,
+    iosStatus,
+    newestDesktop,
+    desktopComputers,
+    booking,
+    notes,
+  ] = await Promise.all([
     getActiveThesis(store, auth.organizationId, auth.userId),
     getPrimaryIntegration(store, auth.organizationId),
+    canManageMcp
+      ? listMcpTokens(store, auth.organizationId)
+      : Promise.resolve(err('forbidden', 'Owners only.')),
+    // Null when it cannot be read: the cards then say nothing about the app.
+    iosAlertsStatus(store, auth.organizationId, auth.userId).catch(() => null),
+    // Only an app too old to update itself is told the newest version, so a
+    // browser or a self-updating app never waits on the release lookup.
+    desktopVersion && !updatesItself(desktopVersion) ? latestDesktopRelease() : null,
+    // Null, not an empty list, when it cannot be read: the card then neither
+    // shows a list nor concludes this computer was turned off elsewhere.
+    listDesktopDevices(store, auth.organizationId, {
+      userId: auth.userId,
+      admin: hasRole(auth, 'admin'),
+    }).catch(() => null),
+    // The booking link (D-074) lives on its own Booking tab (D-078); this
+    // tab only says whether it is on and links there. A fault reading it
+    // leaves the badge out rather than taking Settings down with it.
+    readBookingSettings(store, auth.organizationId).catch((error: unknown) => {
+      log.warn('Booking settings could not be read', {
+        reason: error instanceof Error ? error.message : 'unknown',
+      });
+      return null;
+    }),
+    // Kraken Notes (D-076): its tab shows only once the server switch is not off.
+    notesAccess(store, auth).catch(() => null),
   ]);
   const limits = envLimits();
   // No paid AI key means nothing here can spend: AI answers come from the
@@ -73,48 +112,14 @@ export default async function SettingsPage({
   const paidAi = Boolean(env().anthropicApiKey);
   const criteria = configuredCriteria(thesis);
   const demo = isDemoMode();
-  const canManageMcp = hasRole(auth, 'owner');
-  const mcpTokens = canManageMcp
-    ? await listMcpTokens(store, auth.organizationId)
-    : err('forbidden', 'Owners only.');
   const mcpEndpoint = `${env().appUrl.replace(/\/+$/, '')}/api/mcp`;
-  const desktopVersion = await desktopVersionHint();
-  const iosVersion = await iosAppHint();
-  // Null when it cannot be read: the cards then say nothing about the app.
-  const iosStatus = await iosAlertsStatus(store, auth.organizationId, auth.userId).catch(
-    () => null,
-  );
-  // Only an app too old to update itself is told the newest version, so a
-  // browser or a self-updating app never waits on the release lookup.
-  const newestDesktop =
-    desktopVersion && !updatesItself(desktopVersion) ? await latestDesktopRelease() : null;
   const newestDesktopVersion =
     newestDesktop && newestDesktop.state !== 'none' ? newestDesktop.version : null;
-  // Null, not an empty list, when it cannot be read: the card then neither
-  // shows a list nor concludes this computer was turned off elsewhere.
-  const desktopComputers = await listDesktopDevices(store, auth.organizationId, {
-    userId: auth.userId,
-    admin: hasRole(auth, 'admin'),
-  }).catch(() => null);
-  // The booking link (D-074) lives on its own Booking tab (D-078); this
-  // tab only says whether it is on and links there. A fault reading it
-  // leaves the badge out rather than taking Settings down with it.
-  const booking = await readBookingSettings(store, auth.organizationId).catch((error: unknown) => {
-    log.warn('Booking settings could not be read', {
-      reason: error instanceof Error ? error.message : 'unknown',
-    });
-    return null;
-  });
-  // Kraken Notes (D-076): its tab shows only once the server switch is not off.
-  const notes = await notesAccess(store, auth).catch(() => null);
   const notesTab = Boolean(notes && notes.mode !== 'off');
 
   return (
     <PageShell>
-      <PageHeader
-        title="Settings"
-        subtitle="Your thesis, your thresholds, your integrations. Nothing here is inferred on your behalf."
-      />
+      <PageHeader title={PAGE_HEADERS.settings.title} subtitle={PAGE_HEADERS.settings.subtitle} />
 
       {/* One row, above the tabs, so it is there whichever tab is open. */}
       <Card className="mb-6" data-tour="settings-help">

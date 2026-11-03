@@ -63,15 +63,15 @@ export default async function AskPage({
     );
   }
 
+  // The Ask page re-renders every few seconds while an answer is pending. Each
+  // pass is the moment to check whether the routine has posted it to Slack:
+  // alongside the other reads, and before the thread itself is read.
   const [threads, deal, feedback] = await Promise.all([
     listThreads(auth.organizationId, auth.userId, 15),
     dealId ? (store.get('deals', auth.organizationId, dealId) as Promise<Deal | null>) : null,
     feedbackRead,
+    threadId ? settleAnswersFromSlack(store, auth.organizationId) : null,
   ]);
-
-  // The Ask page re-renders every few seconds while an answer is pending. Each
-  // pass is the moment to check whether the routine has posted it to Slack.
-  if (threadId) await settleAnswersFromSlack(store, auth.organizationId);
 
   let messages: ChatMessage[] = [];
   if (threadId) {

@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
+import { timed } from '@/lib/util/timing';
 import { requireAuth } from '@/lib/auth/session';
 import { inboxThreadParam, wantsGmail } from '@/lib/email/thread-links';
 import { getStore } from '@/lib/runtime';
 import { gmailHrefForLink, listLiveThreads, openFromLink } from '@/lib/services/inbox-live';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { SkeletonText } from '@/components/ui/feedback';
 import { LiveInbox } from '@/components/inbox/live-inbox';
@@ -27,10 +29,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Search
   }
   return (
     <PageShell>
-      <PageHeader
-        title="Inbox"
-        subtitle="Nick's Gmail, live: read, reply, archive and star right here. Replies send from his inbox only when someone taps Send, with 8 seconds to undo."
-      />
+      <PageHeader title={PAGE_HEADERS.inbox.title} subtitle={PAGE_HEADERS.inbox.subtitle} />
       <Suspense fallback={<SkeletonText lines={10} />}>
         <InboxContent wanted={wanted} query={searchQuery(params.q)} />
       </Suspense>
@@ -55,7 +54,9 @@ async function InboxContent({ wanted, query }: { wanted: string | null; query: s
   const auth = await requireAuth();
   const store = getStore();
   const [initial, opened] = await Promise.all([
-    listLiveThreads(store, auth.organizationId, { tab: 'primary', q: query || undefined }),
+    timed('inbox', 'listLiveThreads', () =>
+      listLiveThreads(store, auth.organizationId, { tab: 'primary', q: query || undefined }),
+    ),
     wanted ? openFromLink(store, auth.organizationId, wanted) : null,
   ]);
   return (

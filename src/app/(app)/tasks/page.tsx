@@ -1,7 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { after } from 'next/server';
-import { requireAuth } from '@/lib/auth/session';
+import { Suspense } from 'react';
+import { requireAuth, type AuthContext } from '@/lib/auth/session';
+import { timed } from '@/lib/util/timing';
+import { LoadingBodyShape } from '@/components/shell/tab-loading';
 import { dueAndOverdue, listCompletedTasks, listSnoozedTasks } from '@/lib/services/tasks';
 import { listDrafts } from '@/lib/services/drafts';
 import { getStore } from '@/lib/runtime';
@@ -22,6 +25,7 @@ import {
   readTaskPeople,
 } from '@/lib/services/money-legal';
 import { getTaskRelayStatus, pullTaskRelays, readTasksVersion } from '@/lib/services/task-relay';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { VersionWatcher } from '@/components/shell/version-watcher';
 import { Badge } from '@/components/ui/badge';
@@ -50,11 +54,38 @@ import { relativeTime } from '@/lib/util/time';
 export const metadata: Metadata = { title: 'Tasks' };
 export const dynamic = 'force-dynamic';
 
-/** How long the page waits for the relay pull before listing what is stored. */
-const PULL_BUDGET_MS = 8_000;
+/**
+ * How long the list waits for the relay pull before showing what is stored.
+ * Short: the header is already on screen, and a pull that runs longer finishes
+ * after the response for the open tab's version watcher to bring in.
+ */
+const PULL_BUDGET_MS = 1_500;
 
 export default async function TasksPage() {
+  // The header needs only the signed-in profile, so it paints at once; the
+  // list streams in below it.
   const auth = await requireAuth();
+  return (
+    <PageShell>
+      <PageHeader
+        title={PAGE_HEADERS.tasks.title}
+        subtitle={PAGE_HEADERS.tasks.subtitle}
+        actions={
+          <CreateFollowUpButton
+            variant="primary"
+            label="New follow-up"
+            timeZone={auth.profile.timezone}
+          />
+        }
+      />
+      <Suspense fallback={<LoadingBodyShape body="list" />}>
+        <TasksContent auth={auth} />
+      </Suspense>
+    </PageShell>
+  );
+}
+
+async function TasksContent({ auth }: { auth: AuthContext }) {
   const store = getStore();
   const orgId = auth.organizationId;
 
@@ -62,7 +93,9 @@ export default async function TasksPage() {
   // check and the snapshot, before listing. Bounded: if Slack is slow the page
   // lists what is stored and the pull finishes after the response, for the
   // open-tab watcher to pick up.
-  const pull = pullTaskRelays(store, orgId).catch(() => null);
+  const pull = timed('tasks', 'pullTaskRelays', () => pullTaskRelays(store, orgId)).catch(
+    () => null,
+  );
   if (!(await settlesWithin(pull, PULL_BUDGET_MS))) {
     after(async () => {
       await pull;
@@ -299,18 +332,7 @@ export default async function TasksPage() {
   );
 
   return (
-    <PageShell>
-      <PageHeader
-        title="Tasks"
-        subtitle="Things you owe someone. Who you are waiting on, and who is waiting on you, are on Follow-ups."
-        actions={
-          <CreateFollowUpButton
-            variant="primary"
-            label="New follow-up"
-            timeZone={auth.profile.timezone}
-          />
-        }
-      />
+    <>
       <VersionWatcher version={version} endpoint="/api/tasks/version" />
       <TasksTabs
         todoCount={openCount}
@@ -323,7 +345,7 @@ export default async function TasksPage() {
         money={<MoneyLegalTasks items={moneyItems} closedTotal={moneyClosed.length} />}
         people={people}
       />
-    </PageShell>
+    </>
   );
 }
 

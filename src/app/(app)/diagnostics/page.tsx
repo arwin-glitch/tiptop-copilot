@@ -11,6 +11,7 @@ import { getUsageWindow, rateLimit } from '@/lib/security/limits';
 import { listDesktopDevices } from '@/lib/services/desktop-alerts';
 import { feedNoticesOn, readFeedHealth } from '@/lib/services/feed-health';
 import { taskCloserRuntime } from '@/lib/services/task-relay';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { FeedHealthList } from '@/components/feeds/feed-health-list';
 import { FeedNoticesSetting } from '@/components/feeds/feed-notices';
@@ -45,8 +46,8 @@ export default async function DiagnosticsPage({
   return (
     <PageShell>
       <PageHeader
-        title="Diagnostics"
-        subtitle="What is configured, what is missing, and whether each feed is still arriving. Values are never shown — only whether a variable is present and correctly shaped."
+        title={PAGE_HEADERS.diagnostics.title}
+        subtitle={PAGE_HEADERS.diagnostics.subtitle}
       />
       <PageTabs
         label={DIAGNOSTICS_TABS.navLabel}

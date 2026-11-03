@@ -15,6 +15,7 @@ import { GRAND_TOUR_ID, TOUR_PARAM } from '@/lib/help/tour-ids';
 import { WHATS_NEW, type WhatsNewItem } from '@/lib/help/whats-new';
 import { HELP_ICONS } from '@/components/help/help-icons';
 import { PageSketch, SketchPin } from '@/components/help/page-sketch';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -67,9 +68,9 @@ export default async function HelpPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Help & tours"
-        title="How Kraken works"
-        subtitle="What every page holds and where to click. Tap Show me and the page walks you through itself."
+        eyebrow={PAGE_HEADERS.help.eyebrow}
+        title={PAGE_HEADERS.help.title}
+        subtitle={PAGE_HEADERS.help.subtitle}
       />
 
       <p className="mb-4 text-sm text-[var(--fg-muted)]">

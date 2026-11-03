@@ -33,6 +33,7 @@ import {
 import { UnsubscribeList } from '@/components/campaigns/unsubscribe-list';
 import { countRecent } from '@/lib/campaigns/status';
 import { NotConfigured } from '@/components/ui/not-configured';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -79,10 +80,7 @@ export default async function FundTwoPage({ searchParams }: { searchParams: Prom
   const source: LpSource = single(params.source) === 'affinity' ? 'affinity' : 'mail';
   return (
     <PageShell>
-      <PageHeader
-        title="Fund II"
-        subtitle="Who is reading your DocSend links, every LP conversation for Fund II and where it stands (read from your mail and carried over from Affinity; stages only, no amounts), and the updates you send LPs."
-      />
+      <PageHeader title={PAGE_HEADERS.fundII.title} subtitle={PAGE_HEADERS.fundII.subtitle} />
       <PageTabs
         label={FUND_II_TABS.navLabel}
         path={FUND_II_TABS.path}

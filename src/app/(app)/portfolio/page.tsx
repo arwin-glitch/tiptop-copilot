@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { after } from 'next/server';
 import { Suspense } from 'react';
+import { settlesWithin } from '@/lib/util/settle';
+import { timed } from '@/lib/util/timing';
 import { requireAuth, type AuthContext } from '@/lib/auth/session';
 import { readFollowUps, readFollowUpsWithin } from '@/lib/services/follow-ups';
 import { PortfolioHealthCard, snapshotUnavailable } from '@/components/followups/relay-cards';
@@ -39,6 +41,7 @@ import {
   tabHref,
 } from '@/lib/util/page-tabs';
 import { AffinityEntries } from '@/components/crm/affinity-entries';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, FieldLabel } from '@/components/ui/card';
@@ -95,11 +98,6 @@ export default async function PortfolioPage({
     landing?.state === 'ok' && (landing.snapshot.portfolioHealth?.companies.length ?? 0) > 0;
   const { tab, home } = openingTab(PORTFOLIO_TABS, params, healthShows);
 
-  // A company a cloud routine just spotted waits in the Slack relay; pull it in
-  // before anything that lists companies, so it shows as soon as the page is
-  // opened. Best effort, throttled. Health reads only the routine's snapshot.
-  if (tab !== 'health') await pullPortfolioFromSlack(store, auth.organizationId).catch(() => null);
-
   // Asks in the companies' own update emails become open requests: read when
   // Requests is viewed (at most every 30 minutes) and by the daily job. A
   // Gmail read starts after the response (the next view shows what it found);
@@ -133,8 +131,8 @@ export default async function PortfolioPage({
   return (
     <PageShell>
       <PageHeader
-        title="Portfolio"
-        subtitle="Who needs help, what they asked for, and whether anyone in your network is actually a match."
+        title={PAGE_HEADERS.portfolio.title}
+        subtitle={PAGE_HEADERS.portfolio.subtitle}
         actions={
           <>
             <ImportPortfolioButton />
@@ -154,34 +152,68 @@ export default async function PortfolioPage({
         defaultKey={home}
       />
       <Suspense key={tab} fallback={<SkeletonText lines={8} />}>
-        {tab === 'requests' ? (
-          <RequestsTab auth={auth} groups={groups} shownRaw={params[SHOW_PARAM]} />
-        ) : tab === 'jobs' ? (
-          <JobsTab auth={auth} params={params} />
-        ) : tab === 'numbers' ? (
-          <NumbersTab auth={auth} />
-        ) : tab === 'companies' ? (
-          <CompaniesTab auth={auth} />
-        ) : tab === 'founders' ? (
-          <FoundersTab
-            auth={auth}
-            q={single(params.q) ?? ''}
-            list={single(params.list) ?? null}
-            page={params[PAGE_PARAM]}
-          />
-        ) : tab === 'angel' ? (
-          <AngelTab
-            auth={auth}
-            q={single(params.q) ?? ''}
-            list={single(params.list) ?? null}
-            page={params[PAGE_PARAM]}
-          />
-        ) : (
-          <HealthTab auth={auth} />
-        )}
+        <AfterRelayPull organizationId={auth.organizationId} skip={tab === 'health'}>
+          {tab === 'requests' ? (
+            <RequestsTab auth={auth} groups={groups} shownRaw={params[SHOW_PARAM]} />
+          ) : tab === 'jobs' ? (
+            <JobsTab auth={auth} params={params} />
+          ) : tab === 'numbers' ? (
+            <NumbersTab auth={auth} />
+          ) : tab === 'companies' ? (
+            <CompaniesTab auth={auth} />
+          ) : tab === 'founders' ? (
+            <FoundersTab
+              auth={auth}
+              q={single(params.q) ?? ''}
+              list={single(params.list) ?? null}
+              page={params[PAGE_PARAM]}
+            />
+          ) : tab === 'angel' ? (
+            <AngelTab
+              auth={auth}
+              q={single(params.q) ?? ''}
+              list={single(params.list) ?? null}
+              page={params[PAGE_PARAM]}
+            />
+          ) : (
+            <HealthTab auth={auth} />
+          )}
+        </AfterRelayPull>
       </Suspense>
     </PageShell>
   );
+}
+
+/** How long a tab waits for the Slack relay pull before listing what is stored. */
+const PORTFOLIO_PULL_BUDGET_MS = 1_500;
+
+/**
+ * A company a cloud routine just spotted waits in the Slack relay; pull it in
+ * before the tab lists companies, so it shows as soon as the page is opened.
+ * Best effort, throttled, and bounded: inside the tab's boundary (the header
+ * and subtabs are already on screen), and a slow Slack finishes after the
+ * response for the next view. Health reads only the routine's snapshot.
+ * The tab renders only once this returns it, so it lists after the pull.
+ */
+async function AfterRelayPull({
+  organizationId,
+  skip,
+  children,
+}: {
+  organizationId: string;
+  skip: boolean;
+  children: React.ReactNode;
+}) {
+  if (skip) return children;
+  const pull = timed('portfolio', 'pullPortfolioFromSlack', () =>
+    pullPortfolioFromSlack(getStore(), organizationId),
+  ).catch(() => null);
+  if (!(await settlesWithin(pull, PORTFOLIO_PULL_BUDGET_MS))) {
+    after(async () => {
+      await pull;
+    });
+  }
+  return children;
 }
 
 /** The portfolio-health routine's snapshot, risk first. */

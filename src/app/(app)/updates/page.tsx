@@ -7,6 +7,7 @@ import { readUpdates } from '@/lib/services/updates';
 import { channelLabel } from '@/lib/updates/sources';
 import type { UpdatePost, UpdateSourceView } from '@/lib/updates/types';
 import { relativeTime } from '@/lib/util/time';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { EmptyState, ErrorState, Notice, SkeletonText } from '@/components/ui/feedback';
 import { FreshCompanyUpdates } from '@/components/updates/company-updates';
@@ -30,8 +31,8 @@ export default async function UpdatesPage({
   return (
     <PageShell>
       <PageHeader
-        title="Dealflow reports"
-        subtitle="Weekly dealflow reports and Nick's update digests, read live from Slack, plus company updates that landed in Gmail since. Read-only."
+        title={PAGE_HEADERS.updates.title}
+        subtitle={PAGE_HEADERS.updates.subtitle}
         actions={<RefreshUpdatesButton />}
       />
       <PageTabs

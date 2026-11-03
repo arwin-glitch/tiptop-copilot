@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
+import { timed } from '@/lib/util/timing';
 import { requireAuth } from '@/lib/auth/session';
 import { isDateKey, viewRange } from '@/lib/calendar/grid';
 import { legacyCalendarHref } from '@/lib/calendar/legacy-links';
@@ -11,6 +12,7 @@ import { getStore } from '@/lib/runtime';
 import { readCalendarPrefs } from '@/lib/services/calendar-prefs';
 import { mailboxCanSend } from '@/lib/services/docsend-follow-up';
 import { DEFAULT_MAILBOX } from '@/lib/services/task-close';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { CalendarViews } from '@/components/calendar/calendar-views';
 import { BookingShortcut } from '@/components/booking/tab/booking-shortcut';
@@ -46,10 +48,7 @@ export default async function CalendarPage({
       {/* The booking link shortcut sits over the header band's top right,
           out of the flow, so the calendar below never moves for it. */}
       <div className="relative">
-        <PageHeader
-          title="Calendar"
-          subtitle="Nick's calendar, live, by day, week or month, with his Google colour labels. Click an event for its card: whether it is a meeting or a block, why, and how it got there. Meetings ping his phone 5 minutes before; blocks never do."
-        />
+        <PageHeader title={PAGE_HEADERS.calendar.title} subtitle={PAGE_HEADERS.calendar.subtitle} />
         <Suspense fallback={null}>
           <BookingSection />
         </Suspense>
@@ -75,13 +74,15 @@ async function CalendarBody({ view, date }: { view: string | null; date: string 
   // Day view reads its whole week, so stepping through the week reads nothing more.
   const window = viewRange(shownView === 'day' ? 'week' : shownView, dateKey);
   const [initial, found] = await Promise.all([
-    readCalendarRange(store, auth.organizationId, {
-      from: window.from,
-      to: window.to,
-      timeZone: tz,
-      ownEmail: auth.profile.email,
-      shown: prefs.shown,
-    }),
+    timed('calendar', 'readCalendarRange', () =>
+      readCalendarRange(store, auth.organizationId, {
+        from: window.from,
+        to: window.to,
+        timeZone: tz,
+        ownEmail: auth.profile.email,
+        shown: prefs.shown,
+      }),
+    ),
     calendarSource(store, auth.organizationId, auth.profile.email),
   ]);
   const access = found.ok

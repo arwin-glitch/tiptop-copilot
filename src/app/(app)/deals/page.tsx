@@ -13,6 +13,7 @@ import {
   readDealsVersion,
 } from '@/lib/services/deal-relay';
 import { getActiveThesis } from '@/lib/services/thesis';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { VersionWatcher } from '@/components/shell/version-watcher';
 import { EmptyState, SkeletonText } from '@/components/ui/feedback';
@@ -26,12 +27,17 @@ import { describeDealSorterStatus } from '@/lib/deals/sorter-status';
 import { DEALS_TABS, resolvePageTab } from '@/lib/records-tabs';
 import { PAGE_PARAM } from '@/lib/util/page-tabs';
 import { settlesWithin } from '@/lib/util/settle';
+import { timed } from '@/lib/util/timing';
 
 export const metadata: Metadata = { title: 'Deals' };
 export const dynamic = 'force-dynamic';
 
-/** How long the page waits for the relay pull before rendering what is stored. */
-const PULL_BUDGET_MS = 8_000;
+/**
+ * How long the list waits for the relay pull before rendering what is stored.
+ * Short: the header and tabs are already on screen, and a longer pull finishes
+ * after the response for the open tab's version watcher to bring in.
+ */
+const PULL_BUDGET_MS = 1_500;
 
 export default async function DealsPage({
   searchParams,
@@ -47,10 +53,7 @@ export default async function DealsPage({
 
   return (
     <PageShell>
-      <PageHeader
-        title="Deals"
-        subtitle="Everything in the pipeline, with the current recommendation and how much of it rests on real evidence. Affinity's pipeline and watch lists sit beside it."
-      />
+      <PageHeader title={PAGE_HEADERS.deals.title} subtitle={PAGE_HEADERS.deals.subtitle} />
       <PageTabs
         label={DEALS_TABS.navLabel}
         path={DEALS_TABS.path}
@@ -124,7 +127,9 @@ async function DealsContent({ q, archived }: { q: string; archived: boolean }) {
   // Portfolio tab into Invested) before listing. Bounded: if Slack is slow the
   // page renders what is stored, and the pull finishes after the response —
   // `after` keeps it alive — for the open-tab watcher to pick up.
-  const pull = pullDealsFromSlack(store, orgId).catch(() => null);
+  const pull = timed('deals', 'pullDealsFromSlack', () => pullDealsFromSlack(store, orgId)).catch(
+    () => null,
+  );
   const finished = await settlesWithin(pull, PULL_BUDGET_MS);
   if (!finished) {
     after(async () => {

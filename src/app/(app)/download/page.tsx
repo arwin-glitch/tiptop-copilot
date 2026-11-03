@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { DownloadCards } from '@/components/desktop/download-cards';
 import { Notice } from '@/components/ui/feedback';
@@ -31,10 +32,7 @@ export default async function DownloadPage({
 
   return (
     <PageShell>
-      <PageHeader
-        title="Desktop app"
-        subtitle="TipTop Kraken in its own window, with an icon in your Dock or taskbar."
-      />
+      <PageHeader title={PAGE_HEADERS.download.title} subtitle={PAGE_HEADERS.download.subtitle} />
       <Notice className="ios-app:flex hidden">
         Do this on your computer: open Kraken on your Mac or PC and choose Download there.
       </Notice>

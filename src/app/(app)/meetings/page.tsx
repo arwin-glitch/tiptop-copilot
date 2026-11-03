@@ -18,6 +18,7 @@ import {
   single,
   tabHref,
 } from '@/lib/util/page-tabs';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { EmptyState, SkeletonText } from '@/components/ui/feedback';
 import { PageTabs } from '@/components/ui/page-tabs';
@@ -90,10 +91,7 @@ export default async function MeetingsPage({
 
   return (
     <PageShell>
-      <PageHeader
-        title="Meetings"
-        subtitle="Every note Granola has written, whether or not the company is already a deal, and every note carried over from Affinity. The record of what was actually said."
-      />
+      <PageHeader title={PAGE_HEADERS.meetings.title} subtitle={PAGE_HEADERS.meetings.subtitle} />
       <PageTabs
         label={MEETINGS_TABS.navLabel}
         path={MEETINGS_TABS.path}

@@ -1,4 +1,5 @@
 import 'server-only';
+import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { isSupabaseAuthCookie } from '@/lib/auth/cookies';
@@ -10,6 +11,7 @@ import { err, ok, type Result } from '@/lib/util/result';
 import { getStore } from '@/lib/runtime';
 import { DEMO_IDS } from '@/lib/demo/ids';
 import { DEMO_USER } from '@/lib/demo/fixtures';
+import { timed } from '@/lib/util/timing';
 
 export const SESSION_COOKIE = 'tiptop_session';
 export const DEMO_SESSION_COOKIE = 'tiptop_demo_session';
@@ -146,18 +148,31 @@ async function hadSessionCookie(): Promise<boolean> {
  *
  * Returns null when unauthenticated. Everything downstream takes an
  * AuthContext, so there is no code path that reads data without one.
+ *
+ * Memoised for one server render with React's `cache()`: the app layout, the
+ * page and each of a page's streamed sections all ask, and without this every
+ * ask was its own Supabase Auth round trip plus three store reads, one after
+ * another. The memo lives only as long as the request (it never crosses users
+ * or requests); outside a server render (route handlers, tests) it is a plain
+ * call.
  */
-export async function getAuthContext(): Promise<AuthContext | null> {
+export const getAuthContext = cache((): Promise<AuthContext | null> =>
+  timed('auth', 'getAuthContext', resolveAuthContext),
+);
+
+async function resolveAuthContext(): Promise<AuthContext | null> {
   const e = env();
 
   if (e.demoMode) {
     const store = getStore();
     const session = await readDemoSession();
     if (!session) return null;
-    const organization = await store.organizationById(session.organizationId);
-    const profile = await store.userProfileById(session.userId);
+    const [organization, profile, memberships] = await Promise.all([
+      store.organizationById(session.organizationId),
+      store.userProfileById(session.userId),
+      store.membershipsForUser(session.userId),
+    ]);
     if (!organization || !profile) return null;
-    const memberships = await store.membershipsForUser(session.userId);
     const membership = memberships.find((m) => m.organization_id === session.organizationId);
     if (!membership) return null;
     return {
@@ -175,7 +190,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     traceAuth('null: supabase not configured');
     return null;
   }
-  const { data, error } = await supabase.auth.getUser();
+  const { data, error } = await timed('auth', 'supabase.getUser', () => supabase.auth.getUser());
   if (error || !data.user) {
     // Silent for anonymous visitors — see hadSessionCookie(). A cookie that is
     // present and still does not resolve is the interesting case: an expired
@@ -202,7 +217,11 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     return null;
   }
 
-  const organization = await store.organizationById(membership.organization_id);
+  // Independent reads, so in parallel rather than one after the other.
+  const [organization, storedProfile] = await Promise.all([
+    store.organizationById(membership.organization_id),
+    store.userProfileById(userId),
+  ]);
   if (!organization) {
     traceAuth('null: membership points at a missing organization', {
       user: userId.slice(0, 8),
@@ -211,7 +230,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     return null;
   }
 
-  let profile = await store.userProfileById(userId);
+  let profile = storedProfile;
   if (!profile) {
     // First sign-in: create the profile row so settings have somewhere to live.
     const now = new Date().toISOString();

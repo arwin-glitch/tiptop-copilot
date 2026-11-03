@@ -50,7 +50,11 @@ import {
   TaskControls,
 } from '@/components/today/today-actions';
 import { formatTime, formatWeekdayLong, isOverdue, relativeTime } from '@/lib/util/time';
-import type { Citation } from '@/lib/types/domain';
+import { settlesWithin } from '@/lib/util/settle';
+import { timed } from '@/lib/util/timing';
+import { LoadingBodyShape } from '@/components/shell/tab-loading';
+import { TodayBriefingsSkeleton } from '@/components/today/today-skeletons';
+import type { Citation, DailyBrief } from '@/lib/types/domain';
 
 export const metadata: Metadata = { title: 'Today' };
 export const dynamic = 'force-dynamic';
@@ -89,6 +93,13 @@ export default async function TodayPage() {
           </>
         }
       />
+      <WelcomeBack />
+      {/* Brief and Dossier stream on their own, so the top of the page never
+          waits on the calendar sync or the outlook below, and the rest never
+          waits on the Slack relay. They stay first either way. */}
+      <Suspense fallback={<TodayBriefingsSkeleton />}>
+        <TodayBriefings organizationId={auth.organizationId} now={now} />
+      </Suspense>
       <Suspense fallback={<TodaySkeleton />}>
         <TodayContent auth={auth} now={now} aiAvailable={aiAvailable} />
       </Suspense>
@@ -96,17 +107,94 @@ export default async function TodayPage() {
   );
 }
 
-function TodaySkeleton() {
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardContent className="pt-5">
-          <SkeletonText lines={4} />
-        </CardContent>
-      </Card>
-      <SkeletonText lines={6} />
-    </div>
+/** How long Today waits for the Slack relay before showing the stored briefings. */
+const BRIEFING_PULL_BUDGET_MS = 2_500;
+
+/**
+ * The routine Brief and Dossier, side by side: a card waits in each place
+ * until the triage fleet posts today's.
+ */
+async function TodayBriefings({ organizationId, now }: { organizationId: string; now: Date }) {
+  const store = getStore();
+  // Pull any routine post that is waiting in the Slack relay first, so a card
+  // posted a minute ago shows now rather than after the next scheduled sync.
+  // Bounded: a slow Slack shows what is stored, the pull finishes after the
+  // response, and BriefingWatcher (a 15-second version check) brings it in.
+  // Best-effort: a briefing-store fault (e.g. a pending migration) must never
+  // take down the rest of the page.
+  const pull = timed('today', 'pullBriefingsFromSlack', () =>
+    pullBriefingsFromSlack(store, organizationId),
+  ).catch(() => 0);
+  if (!(await settlesWithin(pull, BRIEFING_PULL_BUDGET_MS))) {
+    after(async () => {
+      await pull;
+    });
+  }
+  const [routineBrief, routineDossier] = await timed('today', 'briefings', () =>
+    Promise.all([
+      getCurrentBrief(store, organizationId).catch(() => null),
+      getCurrentDossier(store, organizationId).catch(() => null),
+    ]),
   );
+  return (
+    <>
+      <div className="mb-6 grid gap-4 sm:grid-cols-2" data-tour="today-briefings">
+        {routineBrief ? (
+          <RoutineBriefingCard briefing={routineBrief} now={now} />
+        ) : (
+          <RoutineBriefingPending kind="brief" />
+        )}
+        {routineDossier ? (
+          <RoutineBriefingCard briefing={routineDossier} now={now} />
+        ) : (
+          <RoutineBriefingPending kind="dossier" />
+        )}
+      </div>
+      <BriefingWatcher version={briefingVersion(routineBrief, routineDossier)} />
+    </>
+  );
+}
+
+function OutlookSkeleton() {
+  return (
+    <Card className="mb-6" aria-hidden="true">
+      <CardContent className="pt-5">
+        <SkeletonText lines={4} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function TodaySkeleton() {
+  return <LoadingBodyShape body="list" />;
+}
+
+type OutlookResult = {
+  brief: DailyBrief | null;
+  briefError: { code: string; message: string } | null;
+};
+
+/**
+ * Generate on first view of the day so the page is never empty on arrival;
+ * an explicit refresh regenerates it.
+ *
+ * The failure is kept as a code, not just a message, because "no provider is
+ * connected" and "the provider returned an error" are different situations
+ * for the reader: one is a setting, the other is a fault. Rendering both as
+ * the same amber warning made a deliberate configuration look like a bug.
+ */
+async function loadOutlook(auth: AuthContext, now: Date): Promise<OutlookResult> {
+  const stored = await getTodaysBrief(auth, now);
+  if (stored) return { brief: stored, briefError: null };
+  const generated = await timed('today', 'generateDailyBrief', () =>
+    generateDailyBrief(auth, { now }),
+  );
+  return generated.ok
+    ? { brief: generated.value, briefError: null }
+    : {
+        brief: null,
+        briefError: { code: generated.error.code, message: generated.error.message },
+      };
 }
 
 async function TodayContent({
@@ -118,57 +206,51 @@ async function TodayContent({
   now: Date;
   aiAvailable: boolean;
 }) {
-  const data = await gatherTodayData(auth, now);
   // Task additions and closes waiting in Slack (and the 3pm reply check), after
   // the response: Today only lists due tasks, and the next view shows the result.
   after(async () => {
     await pullTaskRelays(getStore(), auth.organizationId).catch(() => null);
   });
-  // Best-effort: a briefing-store fault (e.g. a pending migration) must never
-  // take down the rest of the page, which is otherwise fully self-contained.
-  // Pull any routine post that is waiting in the Slack relay first, so a card
-  // posted a minute ago shows now rather than after the next scheduled sync.
-  await pullBriefingsFromSlack(getStore(), auth.organizationId).catch(() => 0);
+  // The outlook is a model call on the first view of the day: started now,
+  // shown by its own boundaries below, so nothing else waits for it.
+  const outlook = timed('today', 'outlook', () => loadOutlook(auth, now));
+  // Shown (and its faults reported) by the boundaries below; this only keeps
+  // a fault from being an unhandled rejection if the page fails first.
+  outlook.catch(() => undefined);
+  // Everything that does not need the day's tasks, at once with the calendar
+  // sync rather than after it.
+  const [data, followUps, glance, affinityExit, people, flagged, bookingRequests] =
+    await Promise.all([
+      timed('today', 'gatherTodayData', () => gatherTodayData(auth, now)),
+      // Same rule as the briefings: a Slack fault only hides the card.
+      readFollowUps(getStore(), auth.organizationId, { now }).catch(() => null),
+      // And a store fault only hides the glance cards.
+      readTodayGlance(getStore(), auth.organizationId, {
+        now,
+        timeZone: auth.profile.timezone,
+      }).catch(() => null),
+      // The Affinity exit reminder: a line in the last two weeks before the
+      // notice date, and nothing at all on a fault.
+      readAffinityExitTodayLine(getStore(), auth.organizationId, now, auth.profile.timezone).catch(
+        () => null,
+      ),
+      // The row menus' people. Never throws: a fault only leaves the menus plainer.
+      readTaskPeople(auth.organizationId),
+      // Ticked tasks whose deliverable was never seen sent. Never throws.
+      readFlaggedProofTasks(getStore(), auth.organizationId, now),
+      // The booking link's last day, requests waiting and held times (D-078).
+      // Never throws: a fault is no line.
+      bookingTodaySummary(getStore(), auth.organizationId, now, auth.profile.timezone),
+    ]);
   const dueTasks = [...data.overdueTasks, ...data.dueTodayTasks];
-  const [
-    routineBrief,
-    routineDossier,
-    followUps,
-    glance,
-    affinityExit,
-    money,
-    people,
-    flagged,
-    bookingRequests,
-  ] = await Promise.all([
-    getCurrentBrief(getStore(), auth.organizationId).catch(() => null),
-    getCurrentDossier(getStore(), auth.organizationId).catch(() => null),
-    // Same rule as the briefings: a Slack fault only hides the card.
-    readFollowUps(getStore(), auth.organizationId, { now }).catch(() => null),
-    // And a store fault only hides the glance cards.
-    readTodayGlance(getStore(), auth.organizationId, {
-      now,
-      timeZone: auth.profile.timezone,
-    }).catch(() => null),
-    // The Affinity exit reminder: a line in the last two weeks before the
-    // notice date, and nothing at all on a fault.
-    readAffinityExitTodayLine(getStore(), auth.organizationId, now, auth.profile.timezone).catch(
-      () => null,
-    ),
-    // The row menus' money marks and people. Neither throws: a fault only
-    // leaves the menus plainer.
+  const [money, companies] = await Promise.all([
+    // The row menus' money marks. Never throws.
     readMoneyLegal(getStore(), auth.organizationId, dueTasks),
-    readTaskPeople(auth.organizationId),
-    // Ticked tasks whose deliverable was never seen sent. Never throws.
-    readFlaggedProofTasks(getStore(), auth.organizationId, now),
-    // The booking link's last day, requests waiting and held times (D-078).
-    // Never throws: a fault is no line.
-    bookingTodaySummary(getStore(), auth.organizationId, now, auth.profile.timezone),
-  ]);
-  // Never throws: a fault only leaves the rows without company chips.
-  const companies = await readTaskCompanies(getStore(), auth.organizationId, [
-    ...dueTasks,
-    ...flagged.map(({ task }) => task),
+    // Never throws: a fault only leaves the rows without company chips.
+    readTaskCompanies(getStore(), auth.organizationId, [
+      ...dueTasks,
+      ...flagged.map(({ task }) => task),
+    ]),
   ]);
   const notSeenSent: NotSeenSentItem[] = flagged.flatMap(({ task, check }) => {
     const view = proofCheckView(check, {
@@ -203,23 +285,6 @@ async function TodayContent({
       auth.profile.timezone,
     ) ?? 'Unticked items are checked against mail and calendar at 3 PM Central.';
 
-  // Generate on first view of the day so the page is never empty on arrival;
-  // an explicit refresh regenerates it.
-  //
-  // The failure is kept as a code, not just a message, because "no provider is
-  // connected" and "the provider returned an error" are different situations
-  // for the reader: one is a setting, the other is a fault. Rendering both as
-  // the same amber warning made a deliberate configuration look like a bug.
-  let brief = await getTodaysBrief(auth, now);
-  let briefError: { code: string; message: string } | null = null;
-  if (!brief) {
-    const generated = await generateDailyBrief(auth, { now });
-    if (generated.ok) brief = generated.value;
-    else briefError = { code: generated.error.code, message: generated.error.message };
-  }
-
-  const citations: Citation[] = brief?.citations ?? [];
-
   // Today lists only real meetings, judged the same way as the Calendar tab
   // and the 5-minute phone alert; blocks are counted, not listed.
   const judged = data.meetingPrep.map((prep) => ({
@@ -239,24 +304,7 @@ async function TodayContent({
 
   return (
     <>
-      <WelcomeBack />
-
-      {/* Brief and Dossier always open the page, side by side: a card waits
-          in each place until the triage fleet posts today's. */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2" data-tour="today-briefings">
-        {routineBrief ? (
-          <RoutineBriefingCard briefing={routineBrief} now={now} />
-        ) : (
-          <RoutineBriefingPending kind="brief" />
-        )}
-        {routineDossier ? (
-          <RoutineBriefingCard briefing={routineDossier} now={now} />
-        ) : (
-          <RoutineBriefingPending kind="dossier" />
-        )}
-      </div>
-      <BriefingWatcher version={briefingVersion(routineBrief, routineDossier)} />
-
+      {/* Brief and Dossier open the page above this (TodayBriefings). */}
       {priorities ? <TopPrioritiesCard priorities={priorities} now={now} /> : null}
 
       {glance && glanceCards.length > 0 ? (
@@ -279,103 +327,11 @@ async function TodayContent({
         />
       ) : null}
 
-      {/* A routine briefing already covers "no AI outlook configured" — showing
-          both would tell the reader the same thing twice, once as an amber
-          warning and once as a working card. A genuine provider fault still
-          surfaces regardless, since that's news the briefing doesn't carry. */}
-      {/* No in-app model is the normal production setup: the routines' briefing
-          cards and Top priorities above are the outlook, so a "not configured"
-          notice here would only say a working page is broken. A real provider
-          fault still surfaces. */}
-      {briefError && briefError.code !== 'not_configured' ? (
-        <Notice tone="warn" className="mb-5">
-          <p className="font-medium">The outlook could not be generated.</p>
-          <p className="mt-1 text-[var(--fg-muted)]">{briefError.message}</p>
-          <p className="mt-1 text-[var(--fg-muted)]">
-            Everything below is read straight from your records and is unaffected.
-          </p>
-        </Notice>
-      ) : null}
-
-      {brief ? (
-        <Card className="mb-6">
-          <CardHeader>
-            <div className="min-w-0">
-              <CardTitle as="h2">Outlook</CardTitle>
-              <GeneratedMeta
-                className="mt-1.5"
-                model={brief.model}
-                promptVersion={brief.prompt_version}
-                generatedAt={brief.generated_at}
-                timeZone={auth.profile.timezone}
-              />
-            </div>
-            <OpenSourcesButton citations={citations} />
-          </CardHeader>
-          <CardContent>
-            <p className="text-[15px] leading-relaxed">{brief.outlook}</p>
-
-            {brief.priorities.length > 0 ? (
-              <div className="mt-5">
-                <FieldLabel as="h3" className="mb-2">
-                  Top {brief.priorities.length}
-                </FieldLabel>
-                <ol className="space-y-2.5">
-                  {brief.priorities.map((item, i) => {
-                    // An email priority offers both places to read it, like the brief's rows.
-                    const emailId = emailIdFromInboxHref(item.href);
-                    return (
-                      <li key={item.id} className="flex gap-3">
-                        <span className="tabular mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--jewel)] text-[11px] font-semibold text-[var(--jewel-fg)]">
-                          {i + 1}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium">
-                            {item.href && !emailId ? (
-                              <Link href={item.href} className="underline-offset-2 hover:underline">
-                                {item.title}
-                              </Link>
-                            ) : (
-                              item.title
-                            )}
-                          </p>
-                          <p className="mt-0.5 text-sm text-[var(--fg-muted)]">{item.detail}</p>
-                          <ThreadLinks
-                            id={emailId}
-                            mailbox={DEFAULT_MAILBOX}
-                            label={item.title}
-                            variant="text"
-                            className="mt-1"
-                          />
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ol>
-              </div>
-            ) : null}
-
-            {brief.recommended_actions.length > 0 ? (
-              <div className="mt-5 rounded-md bg-[var(--bg-sunken)] p-3.5">
-                <FieldLabel as="h3" className="mb-2">
-                  Do next
-                </FieldLabel>
-                <ul className="space-y-1.5">
-                  {brief.recommended_actions.map((action, i) => (
-                    <li key={i} className="flex gap-2 text-sm">
-                      <ArrowRight
-                        className="mt-0.5 size-3.5 shrink-0 text-[var(--fg-subtle)]"
-                        aria-hidden="true"
-                      />
-                      {action}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
+      {/* With a model connected the outlook may still be generating (the first
+          view of the day); its card's place is held so nothing jumps. */}
+      <Suspense fallback={aiAvailable ? <OutlookSkeleton /> : null}>
+        <OutlookSection outlook={outlook} timeZone={auth.profile.timezone} />
+      </Suspense>
 
       <div
         data-tour="today-sections"
@@ -737,19 +693,143 @@ async function TodayContent({
         ) : null}
 
         {data.researchAvailable ? (
-          <ExpandableSection
-            title="Market signals"
-            count={brief?.sections.market_signals.length ?? 0}
-            emptyLabel="Nothing notable"
-          >
-            <ul>
-              {(brief?.sections.market_signals ?? []).map((item) => (
-                <BriefItemRow key={item.id} item={item} citations={citations} />
-              ))}
-            </ul>
-          </ExpandableSection>
+          <Suspense fallback={null}>
+            <MarketSignals outlook={outlook} />
+          </Suspense>
         ) : null}
       </div>
     </>
+  );
+}
+
+/** The in-app outlook (a model call on the first view of the day), or why it is missing. */
+async function OutlookSection({
+  outlook,
+  timeZone,
+}: {
+  outlook: Promise<OutlookResult>;
+  timeZone: string;
+}) {
+  const { brief, briefError } = await outlook;
+  const citations: Citation[] = brief?.citations ?? [];
+  return (
+    <>
+      {/* A routine briefing already covers "no AI outlook configured" — showing
+        both would tell the reader the same thing twice, once as an amber
+        warning and once as a working card. A genuine provider fault still
+        surfaces regardless, since that's news the briefing doesn't carry. */}
+      {/* No in-app model is the normal production setup: the routines' briefing
+        cards and Top priorities above are the outlook, so a "not configured"
+        notice here would only say a working page is broken. A real provider
+        fault still surfaces. */}
+      {briefError && briefError.code !== 'not_configured' ? (
+        <Notice tone="warn" className="mb-5">
+          <p className="font-medium">The outlook could not be generated.</p>
+          <p className="mt-1 text-[var(--fg-muted)]">{briefError.message}</p>
+          <p className="mt-1 text-[var(--fg-muted)]">
+            Everything below is read straight from your records and is unaffected.
+          </p>
+        </Notice>
+      ) : null}
+
+      {brief ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <div className="min-w-0">
+              <CardTitle as="h2">Outlook</CardTitle>
+              <GeneratedMeta
+                className="mt-1.5"
+                model={brief.model}
+                promptVersion={brief.prompt_version}
+                generatedAt={brief.generated_at}
+                timeZone={timeZone}
+              />
+            </div>
+            <OpenSourcesButton citations={citations} />
+          </CardHeader>
+          <CardContent>
+            <p className="text-[15px] leading-relaxed">{brief.outlook}</p>
+
+            {brief.priorities.length > 0 ? (
+              <div className="mt-5">
+                <FieldLabel as="h3" className="mb-2">
+                  Top {brief.priorities.length}
+                </FieldLabel>
+                <ol className="space-y-2.5">
+                  {brief.priorities.map((item, i) => {
+                    // An email priority offers both places to read it, like the brief's rows.
+                    const emailId = emailIdFromInboxHref(item.href);
+                    return (
+                      <li key={item.id} className="flex gap-3">
+                        <span className="tabular mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--jewel)] text-[11px] font-semibold text-[var(--jewel-fg)]">
+                          {i + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">
+                            {item.href && !emailId ? (
+                              <Link href={item.href} className="underline-offset-2 hover:underline">
+                                {item.title}
+                              </Link>
+                            ) : (
+                              item.title
+                            )}
+                          </p>
+                          <p className="mt-0.5 text-sm text-[var(--fg-muted)]">{item.detail}</p>
+                          <ThreadLinks
+                            id={emailId}
+                            mailbox={DEFAULT_MAILBOX}
+                            label={item.title}
+                            variant="text"
+                            className="mt-1"
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            ) : null}
+
+            {brief.recommended_actions.length > 0 ? (
+              <div className="mt-5 rounded-md bg-[var(--bg-sunken)] p-3.5">
+                <FieldLabel as="h3" className="mb-2">
+                  Do next
+                </FieldLabel>
+                <ul className="space-y-1.5">
+                  {brief.recommended_actions.map((action, i) => (
+                    <li key={i} className="flex gap-2 text-sm">
+                      <ArrowRight
+                        className="mt-0.5 size-3.5 shrink-0 text-[var(--fg-subtle)]"
+                        aria-hidden="true"
+                      />
+                      {action}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+    </>
+  );
+}
+
+/** Market signals from the outlook's research pass, in the sections list. */
+async function MarketSignals({ outlook }: { outlook: Promise<OutlookResult> }) {
+  const { brief } = await outlook;
+  const citations: Citation[] = brief?.citations ?? [];
+  return (
+    <ExpandableSection
+      title="Market signals"
+      count={brief?.sections.market_signals.length ?? 0}
+      emptyLabel="Nothing notable"
+    >
+      <ul>
+        {(brief?.sections.market_signals ?? []).map((item) => (
+          <BriefItemRow key={item.id} item={item} citations={citations} />
+        ))}
+      </ul>
+    </ExpandableSection>
   );
 }

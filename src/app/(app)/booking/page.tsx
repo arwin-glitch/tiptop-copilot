@@ -28,6 +28,7 @@ import { mailboxCanSend } from '@/lib/services/docsend-follow-up';
 import { principalTimeZone } from '@/lib/services/push-alerts';
 import { resolveTab } from '@/lib/util/page-tabs';
 import { localDateKey } from '@/lib/util/time';
+import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { WebOnly } from '@/components/desktop/desktop-only';
 import { desktopVersionHint } from '@/lib/desktop/server';
@@ -64,10 +65,7 @@ export default async function BookingPage({ searchParams }: { searchParams: Prom
   const tab = resolveTab(params.tab, BOOKING_TAB_KEYS, BOOKING_DEFAULT_TAB);
   return (
     <PageShell>
-      <PageHeader
-        title="Booking"
-        subtitle="Nick's booking link: people pick a free time that passes his rules and it goes straight on his calendar. Open the months you want, close days, and see exactly what visitors see."
-      />
+      <PageHeader title={PAGE_HEADERS.booking.title} subtitle={PAGE_HEADERS.booking.subtitle} />
       <Suspense fallback={<SkeletonText lines={8} />}>
         <BookingBody tab={tab} params={params} />
       </Suspense>
