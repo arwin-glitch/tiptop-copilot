@@ -1476,6 +1476,19 @@ export function LiveInbox({
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  // Gmail's tab title: "Inbox (42)" while the Inbox is on screen, the page's own title otherwise.
+  const inboxUnread = list.nav?.inboxUnread ?? null;
+  const onInbox = !searched && folder === 'inbox';
+  React.useEffect(() => {
+    const base = document.title;
+    return () => {
+      document.title = base;
+    };
+  }, []);
+  React.useEffect(() => {
+    document.title = inboxTitle(onInbox ? inboxUnread : null, document.title);
+  }, [onInbox, inboxUnread]);
+
   const [setFillNode, fillHeight] = useFillViewport();
 
   if (list.state === 'not_connected') {
@@ -2088,6 +2101,16 @@ export function LiveInbox({
       {confirmDialog}
     </div>
   );
+}
+
+/**
+ * The tab title with Gmail's unread count: "Inbox (42) · TipTop Kraken".
+ * Null drops the count again; a title that is not the Inbox's is kept.
+ */
+export function inboxTitle(unread: number | null, current: string): string {
+  const plain = current.replace(/^Inbox \([\d,]+\)/, 'Inbox');
+  if (!unread || !plain.startsWith('Inbox')) return plain;
+  return plain.replace(/^Inbox/, `Inbox (${unread.toLocaleString('en-US')})`);
 }
 
 /**
