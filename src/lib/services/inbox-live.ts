@@ -20,7 +20,8 @@ import {
   listDraftPage,
   listThreadPage,
   readLabelCount,
-  readLabelNames,
+  readLabelDirectory,
+  type GmailLabelColor,
   readMessageThreadId,
   readThreadFull,
   readThreadMeta,
@@ -78,6 +79,8 @@ export const PAGE_SIZE = 50;
 const FETCH_BATCH = 10;
 /** Label names are re-read this often, so a label made in Gmail reaches the menu soon. */
 const LABELS_TTL_MS = 10 * 60_000;
+/** Own labels whose unread count the nav reads (Gmail's list has no counts). */
+const MAX_LABEL_COUNTS = 80;
 /** Sooner when a thread carries a label the cached names do not know, but not every poll. */
 const LABELS_RECHECK_MS = 60_000;
 /** The left nav's counts are read again at most this often (and after any change). */
@@ -127,6 +130,8 @@ export interface InboxNav {
   scheduled: number | null;
   /** The category tabs with mail in them; Primary is always there. */
   categories: Category[];
+  /** Unread threads per own label (id -> count), for the nav's bold labels and numbers. */
+  labelUnread?: Record<string, number>;
 }
 
 export interface LiveThreadList {
@@ -185,7 +190,10 @@ export interface LiveThread {
 
 const cache = processWide('inbox-live', () => ({
   meta: new Map<string, InboxThreadMeta>(),
-  labels: new Map<string, { at: number; names: Map<string, string> }>(),
+  labels: new Map<
+    string,
+    { at: number; names: Map<string, string>; colors: Map<string, GmailLabelColor> }
+  >(),
   nav: new Map<string, { at: number; nav: Omit<InboxNav, 'scheduled'> }>(),
 }));
 
@@ -224,15 +232,27 @@ async function labelNames(
     const unknown = options.seen?.some((id) => USER_LABEL_ID.test(id) && !hit.names.has(id));
     if (age < LABELS_TTL_MS && !(unknown && age >= LABELS_RECHECK_MS)) return hit.names;
   }
-  const names = await readLabelNames(store, integration).catch(() => new Map<string, string>());
-  if (names.size === 0) {
+  const read = await readLabelDirectory(store, integration).catch(() => ({
+    names: new Map<string, string>(),
+    colors: new Map<string, GmailLabelColor>(),
+  }));
+  if (read.names.size === 0) {
     // A failed read: keep what is known, and try again in a minute, not after the full TTL.
-    const kept = hit?.names ?? names;
-    cache.labels.set(integration.id, { at: now - LABELS_TTL_MS + LABELS_RECHECK_MS, names: kept });
-    return kept;
+    const kept = hit ?? { names: read.names, colors: read.colors };
+    cache.labels.set(integration.id, {
+      at: now - LABELS_TTL_MS + LABELS_RECHECK_MS,
+      names: kept.names,
+      colors: kept.colors,
+    });
+    return kept.names;
   }
-  cache.labels.set(integration.id, { at: now, names });
-  return names;
+  cache.labels.set(integration.id, { at: now, names: read.names, colors: read.colors });
+  return read.names;
+}
+
+/** The person's own labels with their Gmail colours, from what `labelNames` last read. */
+function choicesOf(integration: Integration, names: Map<string, string>): MailLabel[] {
+  return labelChoices(names, cache.labels.get(integration.id)?.colors);
 }
 
 /**
@@ -248,7 +268,10 @@ export async function readLabelChoices(
   if (isDemoMode()) return [...DEMO_MAIL_LABELS];
   if (!integration) return [];
   const now = (options.now ?? new Date()).getTime();
-  return labelChoices(await labelNames(store, integration, now, { fresh: options.fresh }));
+  return choicesOf(
+    integration,
+    await labelNames(store, integration, now, { fresh: options.fresh }),
+  );
 }
 
 /** A label made from the Label menu: the cached names are read again next time. */
@@ -390,11 +413,24 @@ async function readNav(
   const others = (['promotions', 'social', 'updates', 'forums'] as const).filter(
     (_, i) => hasMail[i],
   );
+  // Gmail's label list carries no counts: one cheap labels.get per own label,
+  // capped, and cached with the rest of the nav for a minute.
+  const names = await labelNames(store, integration, now).catch(() => new Map<string, string>());
+  const ids = [...names.keys()].filter((id) => USER_LABEL_ID.test(id)).slice(0, MAX_LABEL_COUNTS);
+  const counts = await Promise.all(
+    ids.map((id) => readLabelCount(store, integration, id).catch(() => null)),
+  );
+  const labelUnread: Record<string, number> = {};
+  ids.forEach((id, i) => {
+    const unread = counts[i]?.unread ?? 0;
+    if (unread > 0) labelUnread[id] = unread;
+  });
   const nav = {
     inboxUnread: inbox?.unread ?? null,
     drafts: drafts?.total ?? null,
     spamUnread: spam?.unread ?? null,
     categories: ['primary', ...others] as Category[],
+    labelUnread,
   };
   cache.nav.set(integration.id, { at: now, nav });
   return { ...nav, scheduled };
@@ -521,7 +557,7 @@ async function gmailList(
     rows,
     nextPageToken: page.value.nextPageToken,
     total: page.value.total ?? null,
-    labelChoices: labelChoices(names),
+    labelChoices: choicesOf(integration, names),
   };
 }
 
@@ -571,7 +607,7 @@ async function snoozedList(
     rows,
     nextPageToken: null,
     total: open.rows.length,
-    labelChoices: labelChoices(names),
+    labelChoices: choicesOf(integration, names),
     snoozeReady: open.state === 'ok',
   };
 }
@@ -593,7 +629,7 @@ async function draftsList(
       rows: [],
       nextPageToken: null,
       message: page.error.message,
-      labelChoices: labelChoices(names),
+      labelChoices: choicesOf(integration, names),
     };
   }
   return {
@@ -601,7 +637,7 @@ async function draftsList(
     rows: page.value.drafts.map((d) => draftRow(d, decodeEntities(d.snippet))),
     nextPageToken: page.value.nextPageToken,
     total: page.value.total ?? null,
-    labelChoices: labelChoices(names),
+    labelChoices: choicesOf(integration, names),
   };
 }
 
@@ -649,7 +685,7 @@ async function scheduledList(
     rows: listed.rows,
     nextPageToken: null,
     total: listed.rows.length,
-    labelChoices: integration ? labelChoices(names) : [...DEMO_MAIL_LABELS],
+    labelChoices: integration ? choicesOf(integration, names) : [...DEMO_MAIL_LABELS],
     scheduleReady: listed.state === 'ok',
   };
 }

@@ -4,6 +4,7 @@ import * as React from 'react';
 import {
   AlarmClock,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Clock,
   File,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useStoredChoice } from '@/components/inbox/use-stored';
 import type { MailLabel } from '@/lib/email/inbox-actions';
+import { ancestorPaths, labelTree, type LabelNode } from '@/lib/email/label-tree';
 import type { FolderId, SystemFolder } from '@/lib/email/inbox-folders';
 import type { InboxNav as NavCounts } from '@/lib/services/inbox-live';
 import { cn } from '@/lib/util/cn';
@@ -176,34 +178,132 @@ export function InboxNav({
       {labels.length === 0 ? (
         <p className="mt-1 pl-4 text-xs text-[var(--fg-subtle)]">No labels yet.</p>
       ) : (
-        <ul className="mt-1 space-y-px">
-          {labels.map((l) => {
-            const id: FolderId = `label:${l.id}`;
-            const active = !searched && folder === id;
-            return (
-              <li key={l.id}>
-                <button
-                  type="button"
-                  onClick={() => onFolder(id)}
-                  aria-current={active ? 'page' : undefined}
-                  className={cn(
-                    'flex h-8 w-full items-center gap-3 rounded-r-full pr-3 pl-4 text-left text-sm',
-                    active
-                      ? 'bg-[var(--nav-active)] font-semibold text-[var(--fg)]'
-                      : 'text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
-                  )}
-                >
-                  <Tag
-                    className={cn('size-4 shrink-0', active && 'text-[var(--gold)]')}
-                    aria-hidden
-                  />
-                  <span className="min-w-0 flex-1 truncate">{l.name}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        <LabelTreeList
+          labels={labels}
+          folder={folder}
+          searched={searched}
+          unread={nav?.labelUnread}
+          onFolder={onFolder}
+        />
       )}
     </nav>
+  );
+}
+
+const COLLAPSED_KEY = 'kraken.inbox.labelsCollapsed';
+
+function parseCollapsed(value: string | null): string {
+  try {
+    const list: unknown = JSON.parse(value ?? '[]');
+    return Array.isArray(list) ? JSON.stringify(list.filter((x) => typeof x === 'string')) : '[]';
+  } catch {
+    return '[]';
+  }
+}
+
+/**
+ * The person's labels as Gmail lists them: nested by "/", each row showing
+ * its own part of the name, a tag in the label's Gmail colour, and the unread
+ * count in bold. Parents fold with an arrow, remembered per browser; the
+ * folder on screen always stays in view.
+ */
+function LabelTreeList({
+  labels,
+  folder,
+  searched,
+  unread,
+  onFolder,
+}: {
+  labels: readonly MailLabel[];
+  folder: FolderId;
+  searched: boolean;
+  unread: Record<string, number> | undefined;
+  onFolder: (folder: FolderId) => void;
+}) {
+  const tree = React.useMemo(() => labelTree(labels), [labels]);
+  const [stored, setStored] = useStoredChoice<string>(COLLAPSED_KEY, parseCollapsed, '[]');
+  const collapsed = React.useMemo(() => new Set<string>(JSON.parse(stored) as string[]), [stored]);
+  const current = folder.startsWith('label:')
+    ? labels.find((l) => `label:${l.id}` === folder)
+    : undefined;
+  const keepOpen = new Set(current ? ancestorPaths(current.name) : []);
+  const toggle = (path: string) => {
+    const next = new Set(collapsed);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    setStored(JSON.stringify([...next]));
+  };
+
+  const row = (node: LabelNode): React.ReactNode => {
+    const open = !collapsed.has(node.path) || keepOpen.has(node.path);
+    const id: FolderId | null = node.label ? `label:${node.label.id}` : null;
+    const active = !searched && id !== null && folder === id;
+    const count = node.label ? (unread?.[node.label.id] ?? 0) : 0;
+    const color = node.label?.color;
+    return (
+      <li key={node.path}>
+        <div
+          className={cn(
+            'flex h-8 w-full items-center rounded-r-full pr-3 text-sm',
+            active
+              ? 'bg-[var(--nav-active)] text-[var(--fg)]'
+              : 'text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
+          )}
+          style={{ paddingLeft: `${0.25 + node.depth * 1}rem` }}
+        >
+          {node.children.length ? (
+            <button
+              type="button"
+              onClick={() => toggle(node.path)}
+              aria-expanded={open}
+              aria-label={`${open ? 'Collapse' : 'Expand'} ${node.name}`}
+              className="grid size-5 shrink-0 place-items-center rounded-full hover:bg-[var(--bg-hover)]"
+            >
+              {open ? (
+                <ChevronDown className="size-3.5" aria-hidden />
+              ) : (
+                <ChevronRight className="size-3.5" aria-hidden />
+              )}
+            </button>
+          ) : (
+            <span className="size-5 shrink-0" aria-hidden />
+          )}
+          <button
+            type="button"
+            disabled={id === null}
+            onClick={() => id && onFolder(id)}
+            aria-current={active ? 'page' : undefined}
+            title={node.label?.name ?? node.path}
+            className="flex h-full min-w-0 flex-1 items-center gap-2.5 pl-1 text-left disabled:cursor-default"
+          >
+            <Tag
+              className="size-4 shrink-0"
+              style={color ? { color: color.bg, fill: color.bg } : undefined}
+              aria-hidden
+            />
+            <span
+              className={cn(
+                'min-w-0 flex-1 truncate',
+                (count > 0 || active) && 'font-semibold text-[var(--fg)]',
+              )}
+            >
+              {node.name}
+            </span>
+            {count > 0 ? (
+              <span className="shrink-0 text-xs font-semibold text-[var(--fg)]">{count}</span>
+            ) : null}
+          </button>
+        </div>
+        {node.children.length && open ? (
+          <ul className="space-y-px">{node.children.map(row)}</ul>
+        ) : null}
+      </li>
+    );
+  };
+
+  return (
+    <ul className="mt-1 space-y-px" data-label-tree>
+      {tree.map(row)}
+    </ul>
   );
 }

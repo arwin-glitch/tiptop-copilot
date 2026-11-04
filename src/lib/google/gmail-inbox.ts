@@ -43,17 +43,43 @@ export async function listInboxThreadIds(
   return ok(ids);
 }
 
+/** A label's colour as Gmail stores it: both hex, e.g. "#fb4c2f" on "#ffffff". */
+export interface GmailLabelColor {
+  bg: string;
+  fg: string;
+}
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
+/** Gmail's labels: id -> name, and id -> colour for the ones given a colour in Gmail. */
+export async function readLabelDirectory(
+  store: DataStore,
+  integration: Integration,
+): Promise<{ names: Map<string, string>; colors: Map<string, GmailLabelColor> }> {
+  const res = await gmailGet<{
+    labels?: {
+      id: string;
+      name: string;
+      color?: { backgroundColor?: string; textColor?: string };
+    }[];
+  }>(store, integration, '/labels');
+  const labels = res.ok ? (res.value.labels ?? []) : [];
+  const colors = new Map<string, GmailLabelColor>();
+  for (const l of labels) {
+    const bg = l.color?.backgroundColor;
+    const fg = l.color?.textColor;
+    // Only plain hex reaches a style attribute.
+    if (bg && fg && HEX.test(bg) && HEX.test(fg)) colors.set(l.id, { bg, fg });
+  }
+  return { names: new Map(labels.map((l) => [l.id, l.name])), colors };
+}
+
 /** Label id -> name, for the triage @-labels. */
 export async function readLabelNames(
   store: DataStore,
   integration: Integration,
 ): Promise<Map<string, string>> {
-  const res = await gmailGet<{ labels?: { id: string; name: string }[] }>(
-    store,
-    integration,
-    '/labels',
-  );
-  return new Map((res.ok ? (res.value.labels ?? []) : []).map((l) => [l.id, l.name]));
+  return (await readLabelDirectory(store, integration)).names;
 }
 
 export interface InboxThreadMeta {

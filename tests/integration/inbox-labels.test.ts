@@ -55,6 +55,10 @@ vi.mock('@/lib/google/gmail-inbox', async (importOriginal) => ({
     labelReads.push(Date.now());
     return new Map(names);
   },
+  readLabelDirectory: async () => {
+    labelReads.push(Date.now());
+    return { names: new Map(names), colors: new Map() };
+  },
 }));
 
 vi.mock('@/lib/services/email-session-auth', async (importOriginal) => ({

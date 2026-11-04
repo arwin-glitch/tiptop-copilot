@@ -47,6 +47,8 @@ import { initialOf, type FolderId } from '@/lib/email/inbox-folders';
 import type { SystemAction } from '@/lib/email/inbox-modify';
 import { formatWake } from '@/lib/email/snooze';
 import { cn } from '@/lib/util/cn';
+import { colorsByName } from '@/lib/email/label-tree';
+import { LabelChip } from '@/components/inbox/label-chip';
 import type { LiveMessage, LiveThread, LiveThreadRow } from '@/lib/services/inbox-live';
 
 export type WriteKind = 'reply' | 'replyAll' | 'forward';
@@ -479,6 +481,7 @@ export function ThreadView({
   position: { index: number; total: number; onNewer: () => void; onOlder: () => void } | null;
 }) {
   const [thread, setThread] = React.useState<LiveThread | null>(initialThread ?? null);
+  const labelColors = React.useMemo(() => colorsByName(labelChoices), [labelChoices]);
   const [error, setError] = React.useState<string | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
   const [openIds, setOpenIds] = React.useState<Set<string>>(new Set());
@@ -832,12 +835,7 @@ export function ThreadView({
               </span>
             ) : null}
             {row.labels.map((l) => (
-              <span
-                key={l}
-                className="rounded border border-[var(--border)] bg-[var(--neutral-soft)] px-1.5 text-xs text-[var(--fg-muted)]"
-              >
-                {l}
-              </span>
+              <LabelChip key={l} name={l} color={labelColors.get(l)} />
             ))}
           </span>
           {snoozedUntil ? (

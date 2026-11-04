@@ -21,6 +21,8 @@ import type { LabelChange, MailLabel } from '@/lib/email/inbox-actions';
 import { fullDate, initialOf, smartDate, type Density } from '@/lib/email/inbox-folders';
 import { formatWake } from '@/lib/email/snooze';
 import type { LiveThreadRow } from '@/lib/services/inbox-live';
+import { colorsByName } from '@/lib/email/label-tree';
+import { LabelChip } from '@/components/inbox/label-chip';
 import { cn } from '@/lib/util/cn';
 
 const PAD: Record<Density, string> = {
@@ -83,6 +85,7 @@ export function ThreadRow({
       ? formatWake(snoozedUntil, readerZone(timeZone))
       : smartDate(row.at, timeZone);
   const whenTitle = fullDate(scheduled ? (row.sendAt ?? null) : row.at, timeZone);
+  const labelColors = React.useMemo(() => colorsByName(labelChoices), [labelChoices]);
   const hasHoverActions = Boolean(
     actions.onArchive ||
     actions.onDelete ||
@@ -135,12 +138,12 @@ export function ThreadRow({
         </span>
       ) : null}
       {row.labels.map((l) => (
-        <span
+        <LabelChip
           key={l}
-          className="max-w-32 shrink-0 truncate rounded border border-[var(--border)] bg-[var(--neutral-soft)] px-1.5 text-xs text-[var(--fg-muted)]"
-        >
-          {l}
-        </span>
+          name={l}
+          color={labelColors.get(l)}
+          className="max-w-32 shrink-0 truncate"
+        />
       ))}
     </>
   );

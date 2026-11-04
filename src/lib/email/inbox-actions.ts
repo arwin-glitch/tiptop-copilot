@@ -9,6 +9,8 @@
 export interface MailLabel {
   id: string;
   name: string;
+  /** Gmail's colour for the label, when one was picked in Gmail (both hex). */
+  color?: { bg: string; fg: string };
 }
 
 /** Gmail ids a person's own labels `Label_…`; system labels and categories never look like it. */
@@ -29,10 +31,16 @@ export function isNumberedLabel(name: string): boolean {
 }
 
 /** The person's own labels from Gmail's id -> name map, sorted the way Gmail lists them. */
-export function labelChoices(names: ReadonlyMap<string, string>): MailLabel[] {
+export function labelChoices(
+  names: ReadonlyMap<string, string>,
+  colors?: ReadonlyMap<string, { bg: string; fg: string }>,
+): MailLabel[] {
   return [...names]
     .filter(([id, name]) => USER_LABEL_ID.test(id) && name.trim() !== '')
-    .map(([id, name]) => ({ id, name }))
+    .map(([id, name]) => {
+      const color = colors?.get(id);
+      return color ? { id, name, color } : { id, name };
+    })
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
 
