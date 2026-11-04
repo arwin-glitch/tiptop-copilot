@@ -11,6 +11,7 @@ import {
   type DemoDraft,
 } from '@/lib/demo/inbox-folder-fixtures';
 import { isFromMailbox } from '@/lib/email/addresses';
+import { demoMatches, type DemoSearchable } from '@/lib/email/demo-search';
 import { isGmailId, isSyncedEmailId } from '@/lib/email/thread-links';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { gmailFailCode, type GmailReadOptions } from '@/lib/google/gmail-get';
@@ -195,6 +196,10 @@ const cache = processWide('inbox-live', () => ({
     { at: number; names: Map<string, string>; colors: Map<string, GmailLabelColor> }
   >(),
   nav: new Map<string, { at: number; nav: Omit<InboxNav, 'scheduled'> }>(),
+  /** Per mailbox: address -> who last wrote from it, off threads already read (type-ahead). */
+  senders: new Map<string, Map<string, { name: string; at: string | null }>>(),
+  /** Type-ahead conversation answers, kept briefly per mailbox and query. */
+  suggest: new Map<string, { at: number; rows: LiveThreadRow[] }>(),
 }));
 
 /** The demo mailbox's state: label changes on demo threads, and its drafts. */
@@ -209,6 +214,8 @@ export function resetInboxLiveCache(): void {
   cache.meta.clear();
   cache.labels.clear();
   cache.nav.clear();
+  cache.senders.clear();
+  cache.suggest.clear();
   demoState.system.clear();
   demoState.drafts = null;
 }
@@ -543,6 +550,10 @@ async function gmailList(
     });
   }
   if (cache.meta.size > 5000) cache.meta.clear();
+  rememberSenders(
+    integration.id,
+    page.value.threads.map((t) => cache.meta.get(key(t))),
+  );
 
   const seen = page.value.threads.flatMap((t) => cache.meta.get(key(t))?.labelIds ?? []);
   const names = await labelNames(store, integration, now.getTime(), { seen });
@@ -937,6 +948,159 @@ function decodeEntities(text: string): string {
 /* ------------------------------------------------------------ demo mode */
 
 /** Demo threads get a hex id (the tail of their uuid) so the same routes serve them. */
+/* ----------------------------------------------------------- type-ahead */
+
+const MAX_SENDERS = 2000;
+const SUGGEST_TTL_MS = 30_000;
+/** The search box's conversation suggestions: a few, never a page. */
+export const SUGGEST_THREADS = 5;
+const ADDRESS = /<?([^<>\s"]+@[^<>\s"]+)>?/;
+
+/** Who wrote the threads just read, kept per mailbox for the search's people suggestions. */
+function rememberSenders(
+  integrationId: string,
+  metas: readonly (InboxThreadMeta | undefined)[],
+): void {
+  let known = cache.senders.get(integrationId);
+  if (!known) {
+    known = new Map();
+    cache.senders.set(integrationId, known);
+  }
+  for (const meta of metas) {
+    const from = meta?.latestFrom;
+    if (!meta || !from?.address || meta.lastFromUs) continue;
+    const prev = known.get(from.address);
+    if (!prev || (meta.latestAt ?? '') > (prev.at ?? '')) {
+      known.set(from.address, { name: from.name, at: meta.latestAt });
+    }
+  }
+  if (known.size > MAX_SENDERS) known.clear();
+}
+
+export interface RecentSender {
+  name: string;
+  email: string;
+  at: string | null;
+}
+
+/** Senders of mail already read here (no Gmail call), newest first, matching `text`. */
+export function recentSenders(integrationId: string, text: string, max = 5): RecentSender[] {
+  const needle = text.trim().toLowerCase();
+  if (!needle) return [];
+  const known = cache.senders.get(integrationId);
+  if (!known) return [];
+  const out: RecentSender[] = [];
+  for (const [email, s] of known) {
+    if (email.includes(needle) || s.name.toLowerCase().includes(needle)) {
+      out.push({ name: s.name, email, at: s.at });
+    }
+  }
+  return out.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? '')).slice(0, max);
+}
+
+/**
+ * The search box's conversation suggestions while someone types: ONE Gmail
+ * threads.list (q, five results) and each thread's metadata from the list's
+ * own cache (read only for a thread not seen before). The answer is kept 30
+ * seconds per mailbox and query, so typing back over a word costs nothing.
+ */
+export async function suggestConversations(
+  store: DataStore,
+  organizationId: string,
+  text: string,
+  options: { now?: Date; integration?: Integration | null } = {},
+): Promise<LiveThreadRow[]> {
+  const q = text.trim().slice(0, 200);
+  if (!q) return [];
+  const now = options.now ?? new Date();
+  if (isDemoMode()) {
+    const ids = await demoMatchingIds(store, organizationId, q, SUGGEST_THREADS);
+    const all = await demoConversations(store, organizationId, now);
+    return ids.map((id) => all.find((c) => c.row.id === id)!.row);
+  }
+  const integration =
+    options.integration !== undefined
+      ? options.integration
+      : await getPrimaryIntegration(store, organizationId).catch(() => null);
+  if (!integration || integration.status === 'disconnected') return [];
+  const cacheKey = `${integration.id}:${q.toLowerCase()}`;
+  const hit = cache.suggest.get(cacheKey);
+  if (hit && now.getTime() - hit.at < SUGGEST_TTL_MS) return hit.rows;
+  const page = await listThreadPage(store, integration, { q, max: SUGGEST_THREADS });
+  if (!page.ok) return [];
+  const key = (t: { id: string; historyId: string }) => `${t.id}:${t.historyId}`;
+  const missing = page.value.threads.filter((t) => !cache.meta.has(key(t)));
+  const metas = await Promise.all(
+    missing.map((t) => readThreadMeta(store, integration, t.id).catch(() => null)),
+  );
+  missing.forEach((t, i) => {
+    const meta = metas[i];
+    if (meta) cache.meta.set(key(t), meta);
+  });
+  rememberSenders(
+    integration.id,
+    page.value.threads.map((t) => cache.meta.get(key(t))),
+  );
+  const names = await labelNames(store, integration, now.getTime());
+  const rows = page.value.threads
+    .map((t) => {
+      const meta = cache.meta.get(key(t));
+      return meta ? toRow(meta, decodeEntities(t.snippet), names) : null;
+    })
+    .filter((r): r is LiveThreadRow => Boolean(r));
+  if (cache.suggest.size > 200) cache.suggest.clear();
+  cache.suggest.set(cacheKey, { at: now.getTime(), rows });
+  return rows;
+}
+
+/** People who wrote demo mail, for the demo's type-ahead (fictional fixtures only). */
+export async function demoSenders(
+  store: DataStore,
+  organizationId: string,
+  text: string,
+  max = 5,
+): Promise<RecentSender[]> {
+  const needle = text.trim().toLowerCase();
+  if (!needle) return [];
+  const all = await demoConversations(store, organizationId, new Date());
+  const known = new Map<string, RecentSender>();
+  for (const c of all) {
+    for (const m of c.full().messages) {
+      const email = ADDRESS.exec(m.from)?.[1]?.toLowerCase();
+      if (!email || email === DEMO_USER.email.toLowerCase()) continue;
+      const prev = known.get(email);
+      if (!prev || (m.at ?? '') > (prev.at ?? '')) {
+        known.set(email, { name: m.fromName, email, at: m.at });
+      }
+    }
+  }
+  return [...known.values()]
+    .filter((s) => s.email.includes(needle) || s.name.toLowerCase().includes(needle))
+    .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
+    .slice(0, max);
+}
+
+/** Demo conversations a search matches (Trash and Spam left out), newest first. */
+export async function demoMatchingIds(
+  store: DataStore,
+  organizationId: string,
+  q: string,
+  max: number,
+): Promise<string[]> {
+  const now = new Date();
+  const all = await demoConversations(store, organizationId, now);
+  return all
+    .filter(
+      (c) =>
+        !c.system.includes('TRASH') &&
+        !c.system.includes('SPAM') &&
+        demoMatches({ ...c.search, ...c.row }, q, { now, mailbox: DEMO_USER.email }),
+    )
+    .sort((a, b) => (b.row.at ?? '').localeCompare(a.row.at ?? ''))
+    .slice(0, max)
+    .map((c) => c.row.id);
+}
+
 const demoId = (thread: EmailThread) => thread.id.replace(/-/g, '').slice(-16);
 
 const DEMO_LABEL_NAMES = new Map(DEMO_MAIL_LABELS.map((l) => [l.id, l.name]));
@@ -978,6 +1142,29 @@ interface DemoConversation {
   row: LiveThreadRow;
   system: string[];
   full: () => LiveThread;
+  /** What the demo's Gmail-style search reads (lib/email/demo-search.ts). */
+  search: DemoSearchable;
+}
+
+/** The addresses on a set of header values, lowercased. */
+function addressesIn(values: readonly string[]): string {
+  return values
+    .flatMap((v) => v.match(/[^\s<>,"]+@[^\s<>,"]+/g) ?? [])
+    .map((a) => a.toLowerCase())
+    .join(' ');
+}
+
+function searchable(row: LiveThreadRow, people: { from: string[]; to: string[] }): DemoSearchable {
+  const senders = addressesIn(people.from);
+  const recipients = addressesIn(people.to);
+  return {
+    ...row,
+    senders,
+    recipients,
+    people:
+      `${senders} ${recipients} ${people.from.join(' ')} ${people.to.join(' ')}`.toLowerCase(),
+    fromMe: senders.split(' ').includes(DEMO_USER.email.toLowerCase()),
+  };
 }
 
 /** Every demo conversation: the synced demo mail, then the other folders' fixtures. */
@@ -1020,6 +1207,12 @@ async function demoConversations(
     out.push({
       row,
       system,
+      search: searchable(row, {
+        from: list.map((m) =>
+          m.from_name ? `${m.from_name} <${m.from_address}>` : m.from_address,
+        ),
+        to: list.flatMap((m) => [...m.to_addresses, ...m.cc_addresses]),
+      }),
       full: () => ({
         id,
         subject: row.subject,
@@ -1052,22 +1245,27 @@ async function demoConversations(
       })),
     );
     const fromUs = isFromMailbox(last.from, DEMO_USER.email);
+    const folderRow: LiveThreadRow = {
+      id: f.id,
+      kind: 'thread',
+      who: line.names,
+      count: line.count,
+      subject: f.subject,
+      snippet: last.text.replace(/\s+/g, ' ').slice(0, 160),
+      at: last.at,
+      ...flags,
+      labels: [],
+      labelIds: [],
+      lastFromUs: fromUs,
+      flagged: false,
+    };
     out.push({
-      row: {
-        id: f.id,
-        kind: 'thread',
-        who: line.names,
-        count: line.count,
-        subject: f.subject,
-        snippet: last.text.replace(/\s+/g, ' ').slice(0, 160),
-        at: last.at,
-        ...flags,
-        labels: [],
-        labelIds: [],
-        lastFromUs: fromUs,
-        flagged: false,
-      },
+      row: folderRow,
       system,
+      search: searchable(folderRow, {
+        from: f.messages.map((m) => m.from),
+        to: f.messages.flatMap((m) => [m.to, m.cc ?? '']),
+      }),
       full: () => {
         const live = toLiveThread(demoFolderFullThread(f), new Map(), DEMO_USER.email);
         return { ...live, ...flags };
@@ -1127,7 +1325,8 @@ async function demoList(
   // Snoozed threads are out of the inbox until they wake, as in Gmail; the
   // Snoozed tab lists them with their wake time.
   const snoozedUntil = new Map(open.rows.map((s) => [s.thread_id, s.wake_at]));
-  const q = options.q?.trim().toLowerCase() ?? '';
+  const rawQ = options.q?.trim() ?? '';
+  const q = rawQ.toLowerCase();
   const view = { folder: options.folder, category: options.category };
   const drafts = demoDraftList(options.now);
   const scheduled = await listScheduledRows(store, organizationId);
@@ -1150,7 +1349,10 @@ async function demoList(
         q
           ? !c.system.includes('TRASH') &&
             !c.system.includes('SPAM') &&
-            `${c.row.who} ${c.row.subject} ${c.row.snippet}`.toLowerCase().includes(q)
+            demoMatches({ ...c.search, ...c.row }, rawQ, {
+              now: options.now,
+              mailbox: DEMO_USER.email,
+            })
           : inDemoFolder(c, view, snoozedUntil.has(c.row.id)),
       )
       .map((c) => ({

@@ -92,6 +92,8 @@ export interface InboxThreadMeta {
   lastFromUs: boolean;
   /** The address the thread's first message came from (who started it). */
   firstFromAddress?: string | null;
+  /** The newest real message's sender, name and address (the search's people suggestions). */
+  latestFrom?: { name: string; address: string | null };
   /** Who wrote each message, oldest first (drafts left out), for Gmail's "Name, me 3". */
   senders?: { name: string; me: boolean }[];
   /** Who the newest message went to, for the Sent folder's "To: name". */
@@ -148,6 +150,10 @@ export async function readThreadMeta(
       me: isOwn(header(m, 'From')),
     })),
     toName: displayName(header(latest, 'To').split(',')[0] ?? ''),
+    latestFrom: {
+      name: displayName(from),
+      address: /<?([^<>\s"]+@[^<>\s"]+)>?/.exec(from)?.[1]?.toLowerCase() ?? null,
+    },
     hasDraft: all.some((m) => m.labelIds?.includes('DRAFT')),
     hasAttachment: real.some((m) => /multipart\/mixed/i.test(header(m, 'Content-Type'))),
     id,
