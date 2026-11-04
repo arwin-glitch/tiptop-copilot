@@ -1,4 +1,5 @@
 import type { FullMessage, FullThread } from '@/lib/google/gmail-inbox';
+import { demoAttachment } from './attachment-fixtures';
 import { DEMO_USER } from './fixtures';
 
 /**
@@ -27,6 +28,8 @@ export interface DemoFolderThread {
     /** A mailing list's List-Unsubscribe (and -Post) headers. */
     listUnsubscribe?: string;
     listUnsubscribePost?: string;
+    /** Fictional files (lib/demo/attachment-fixtures.ts), for the attachment preview. */
+    attachments?: string[];
   }[];
 }
 
@@ -57,6 +60,7 @@ export function demoFolderThreads(now: Date): DemoFolderThread[] {
           at: ago(30),
           text: 'Renew this month and keep 20% off for a year.',
           listUnsubscribe: '<mailto:optout@workspacepro.demo?subject=Remove%20me>',
+          attachments: ['demo-att-renewal-quote', 'demo-att-plan-chart'],
         },
       ],
     },
@@ -137,7 +141,19 @@ export function demoFolderFullThread(thread: DemoFolderThread): FullThread {
     date: m.at,
     subject: i === 0 ? thread.subject : `Re: ${thread.subject}`,
     text: m.text,
-    attachments: [],
+    attachments: (m.attachments ?? []).flatMap((id) => {
+      const file = demoAttachment(id);
+      return file
+        ? [
+            {
+              id: file.id,
+              name: file.name,
+              mimeType: file.mimeType,
+              size: Math.floor((file.base64.length * 3) / 4),
+            },
+          ]
+        : [];
+    }),
     labelIds: thread.labels,
     ...(m.listUnsubscribe
       ? { listUnsubscribe: m.listUnsubscribe, listUnsubscribePost: m.listUnsubscribePost ?? '' }

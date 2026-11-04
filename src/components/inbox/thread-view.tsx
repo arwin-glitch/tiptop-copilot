@@ -34,6 +34,8 @@ import {
 import { ComposeForm, type ComposeEnv, type ComposeSeed } from '@/components/inbox/compose-window';
 import type { ComposeDraft } from '@/components/inbox/composer';
 import { LabelMenu } from '@/components/inbox/label-menu';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { PdfPreview } from '@/components/inbox/pdf-preview';
 import { MenuButton, MoveMenu, type MenuItem } from '@/components/inbox/inbox-menus';
 import {
   MessageBody,
@@ -211,7 +213,74 @@ function printMessages(subject: string, messages: LiveMessage[], timeZone: strin
   w.print();
 }
 
+/** Attachments Gmail previews in its overlay: images and PDFs. */
+const previewable = (mimeType: string) =>
+  opensInline(mimeType) && (mimeType.startsWith('image/') || mimeType === 'application/pdf');
+
+/**
+ * Gmail's attachment preview: the image, or the PDF drawn by pdf.js (no
+ * plugin, no frame, no script from the file), over the conversation, with
+ * Download kept. The file comes from the same attachment route as the
+ * download (inline types only), so no mail-borne script runs here.
+ */
+function AttachmentPreview({
+  file,
+  onClose,
+}: {
+  file: { name: string; mimeType: string; href: string } | null;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={file !== null} onOpenChange={(o) => !o && onClose()}>
+      {file ? (
+        <DialogContent
+          title={file.name}
+          description="Preview"
+          className="h-[min(90dvh,60rem)] max-w-5xl"
+        >
+          <div className="flex h-full min-h-0 flex-col gap-2">
+            <div className="flex justify-end gap-1">
+              <a
+                href={file.href}
+                download={file.name}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-[var(--fg)] hover:bg-[var(--bg-hover)]"
+              >
+                <Download className="size-4" aria-hidden /> Download
+              </a>
+              <a
+                href={file.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-[var(--fg)] hover:bg-[var(--bg-hover)]"
+              >
+                <ExternalLink className="size-4" aria-hidden /> Open in a new tab
+              </a>
+            </div>
+            {file.mimeType.startsWith('image/') ? (
+              <div className="grid min-h-0 flex-1 place-items-center overflow-auto rounded-md bg-[var(--bg-sunken)] p-2">
+                {/* eslint-disable-next-line @next/next/no-img-element -- a mail attachment, not a site asset */}
+                <img
+                  src={file.href}
+                  alt={file.name}
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+            ) : (
+              <PdfPreview href={file.href} name={file.name} />
+            )}
+          </div>
+        </DialogContent>
+      ) : null}
+    </Dialog>
+  );
+}
+
 function AttachmentCards({ message }: { message: LiveMessage }) {
+  const [preview, setPreview] = React.useState<{
+    name: string;
+    mimeType: string;
+    href: string;
+  } | null>(null);
   if (message.attachments.length === 0) return null;
   return (
     <div className="mt-3 border-t border-[var(--border)] pt-3">
@@ -238,9 +307,26 @@ function AttachmentCards({ message }: { message: LiveMessage }) {
               key={`${a.id}|${a.name}|${i}`}
               className="group/att relative flex w-44 flex-col overflow-hidden rounded-md border border-[var(--border)] bg-[var(--bg-sunken)]"
             >
-              <div className="grid h-20 place-items-center text-[var(--fg-subtle)]">
-                <Icon className="size-8" aria-hidden />
-              </div>
+              {href && previewable(a.mimeType) ? (
+                <button
+                  type="button"
+                  onClick={() => setPreview({ name: a.name, mimeType: a.mimeType, href })}
+                  aria-label={`Preview ${a.name}`}
+                  title="Preview"
+                  className="grid h-20 place-items-center overflow-hidden text-[var(--fg-subtle)] hover:bg-[var(--bg-hover)] focus-visible:outline-2 focus-visible:outline-[var(--focus)]"
+                >
+                  {a.mimeType.startsWith('image/') ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- a mail attachment thumbnail
+                    <img src={href} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  ) : (
+                    <Icon className="size-8" aria-hidden />
+                  )}
+                </button>
+              ) : (
+                <div className="grid h-20 place-items-center text-[var(--fg-subtle)]">
+                  <Icon className="size-8" aria-hidden />
+                </div>
+              )}
               <div className="flex items-center gap-2 border-t border-[var(--border)] bg-[var(--bg-raised)] px-2 py-1.5">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-medium" title={a.name}>
@@ -275,6 +361,7 @@ function AttachmentCards({ message }: { message: LiveMessage }) {
           );
         })}
       </ul>
+      <AttachmentPreview file={preview} onClose={() => setPreview(null)} />
     </div>
   );
 }

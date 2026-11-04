@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { getStore } from '@/lib/runtime';
 import { opensInline } from '@/lib/email/attachment-types';
 import { readAttachment } from '@/lib/google/gmail-inbox';
+import { demoAttachment } from '@/lib/demo/attachment-fixtures';
 import { fail, sessionAuth } from '@/lib/services/email-session-auth';
 
 export const dynamic = 'force-dynamic';
@@ -18,16 +19,27 @@ export async function GET(request: NextRequest) {
   if (!/^[0-9a-f]{10,24}$/i.test(messageId) || !/^[\w-]{10,1000}$/.test(attachmentId)) {
     return fail({ code: 'invalid_input', message: 'Bad attachment link.' });
   }
-  if (!s.integration || s.auth.isDemo) {
-    return fail({ code: 'not_found', message: 'Attachments open only on the real mailbox.' });
+  let bytes: Buffer;
+  let mime = type;
+  if (s.auth.isDemo) {
+    // The demo's fictional files only; nothing reaches Gmail.
+    const demo = demoAttachment(attachmentId);
+    if (!demo) return fail({ code: 'not_found', message: 'That attachment is not in the demo.' });
+    bytes = Buffer.from(demo.base64, 'base64');
+    mime = demo.mimeType;
+  } else {
+    if (!s.integration) {
+      return fail({ code: 'not_found', message: 'Attachments open only on the real mailbox.' });
+    }
+    const file = await readAttachment(getStore(), s.integration, messageId, attachmentId);
+    if (!file.ok) return fail(file.error);
+    bytes = file.value;
   }
-  const file = await readAttachment(getStore(), s.integration, messageId, attachmentId);
-  if (!file.ok) return fail(file.error);
   // Types a browser may show in a tab; everything else downloads.
-  const inline = opensInline(type);
-  return new NextResponse(new Uint8Array(file.value), {
+  const inline = opensInline(mime);
+  return new NextResponse(new Uint8Array(bytes), {
     headers: {
-      'Content-Type': inline ? type : 'application/octet-stream',
+      'Content-Type': inline ? mime : 'application/octet-stream',
       'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${name}"`,
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy':
