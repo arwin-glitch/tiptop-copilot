@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Clock,
   Copy,
+  ExternalLink,
   Italic,
   Link as LinkIcon,
   List,
@@ -614,9 +615,15 @@ export function ComposeForm({
   onDone,
   onClose,
   onDraftSaved,
+  onPopOut,
 }: {
   seed: ComposeSeed;
   env: ComposeEnv;
+  /**
+   * Gmail's "Pop out reply": the inline reply moves to a floating compose
+   * window with what is written so far, its draft and its thread. Inline only.
+   */
+  onPopOut?: (seed: ComposeSeed) => void;
   /** In the conversation (Gmail's inline reply): no subject line, no window chrome. */
   inline?: boolean;
   /** Put the caret in the box as it opens (not for a Gmail draft shown quietly). */
@@ -952,6 +959,28 @@ export function ComposeForm({
     closeRef.current = close;
   });
 
+  /** Hand the words, the draft and the thread to a floating window; this box closes. */
+  const popOut = async () => {
+    if (!onPopOut) return;
+    if (pending) undo();
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    if (savingNow.current) await savingNow.current;
+    // Unsaved words go to the draft first, so the window opens on a saved draft.
+    if (dirty.current) await save();
+    closed.current = true;
+    onPopOut({
+      ...seed,
+      key: `pop-${seed.key}-${Date.now()}`,
+      to,
+      cc,
+      bcc,
+      subject,
+      html: html(),
+      draftId: draftRef.current,
+      signature,
+    });
+  };
+
   const copy = async () => {
     const text = editor.current?.innerText ?? '';
     const head = `To: ${to}\n${cc ? `Cc: ${cc}\n` : ''}Subject: ${subject}`;
@@ -991,6 +1020,18 @@ export function ComposeForm({
         }
       }}
     >
+      {inline && onPopOut ? (
+        <button
+          type="button"
+          aria-label="Pop out reply"
+          title="Pop out reply"
+          disabled={busy}
+          onClick={() => void popOut()}
+          className="absolute top-1 right-1.5 grid size-7 place-items-center rounded text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]"
+        >
+          <ExternalLink className="size-3.5" aria-hidden />
+        </button>
+      ) : null}
       {scheduled && seed.sendAt ? (
         <p className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--accent-soft)] px-3 py-2 text-xs text-[var(--accent)]">
           <Clock className="size-3.5" aria-hidden />

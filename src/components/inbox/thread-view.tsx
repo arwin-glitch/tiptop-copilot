@@ -1176,7 +1176,7 @@ export function ThreadView({
       {thread ? (
         <div className="px-4 py-4 sm:pl-[4.25rem]">
           {seed ? (
-            <div className="shadow-raised overflow-hidden rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg)]">
+            <div className="shadow-raised relative overflow-hidden rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg)]">
               <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-1.5 text-xs text-[var(--fg-muted)]">
                 {seed.mode === 'forward' ? (
                   <Forward className="size-3.5" aria-hidden />
@@ -1204,6 +1204,14 @@ export function ThreadView({
                 env={{ ...composeEnv, gmailHref: gmailUrl(row.id, mailbox) }}
                 inline
                 focusOnOpen={seedFocus}
+                onPopOut={
+                  onCompose
+                    ? (popped) => {
+                        closeWrite();
+                        onCompose(popped);
+                      }
+                    : undefined
+                }
                 onDone={(what) => {
                   closeWrite();
                   if (what === 'sent' || what === 'scheduled') {
