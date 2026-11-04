@@ -135,8 +135,30 @@ function RecipientField({
     onChange([...tokens, ...add].join(', '));
     setText('');
   };
+  const people = usePeopleSuggestions(text);
+  // Gmail highlights the first match; a full address typed out keeps what was typed.
+  const [active, setActive] = React.useState(0);
+  const [dismissed, setDismissed] = React.useState(false);
+  const [shownFor, setShownFor] = React.useState(text);
+  if (shownFor !== text) {
+    setShownFor(text);
+    setActive(ADDRESS.test(text.trim()) ? -1 : 0);
+    setDismissed(false);
+  }
+  const taken = new Set(tokens.map((t) => addressIn(t).toLowerCase()));
+  const options = people.filter((p) => !taken.has(p.email.toLowerCase()));
+  const open = !dismissed && !disabled && text.trim().length >= 2 && options.length > 0;
+  const listId = `${id}-people`;
+  const pick = (p: { name: string; email: string }) => {
+    const chip =
+      p.name && p.name !== p.email
+        ? `${p.name.replace(/[",<>]/g, ' ').trim()} <${p.email}>`
+        : p.email;
+    onChange([...tokens, chip].join(', '));
+    setText('');
+  };
   return (
-    <div className="flex min-h-9 items-center gap-2 border-b border-[var(--border)] px-3">
+    <div className="relative flex min-h-9 items-center gap-2 border-b border-[var(--border)] px-3">
       <label htmlFor={id} className="shrink-0 text-sm text-[var(--fg-muted)]">
         {label}
       </label>
@@ -173,12 +195,34 @@ function RecipientField({
           disabled={disabled}
           autoFocus={autoFocus}
           autoComplete="off"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={open ? listId : undefined}
+          aria-autocomplete="list"
+          aria-activedescendant={open && active >= 0 ? `${listId}-${active}` : undefined}
           onChange={(e) => {
             const v = e.target.value;
             if (/[,;]\s*$/.test(v)) commit(v);
             else setText(v);
           }}
           onKeyDown={(e) => {
+            if (open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+              e.preventDefault();
+              const step = e.key === 'ArrowDown' ? 1 : -1;
+              setActive((a) => (a + step + options.length) % options.length);
+              return;
+            }
+            if (open && e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              setDismissed(true);
+              return;
+            }
+            if (open && active >= 0 && options[active] && (e.key === 'Enter' || e.key === 'Tab')) {
+              e.preventDefault();
+              pick(options[active]!);
+              return;
+            }
             if ((e.key === 'Enter' || e.key === 'Tab') && text.trim()) {
               if (e.key === 'Enter') e.preventDefault();
               commit(text);
@@ -200,8 +244,81 @@ function RecipientField({
         />
       </div>
       {trailing}
+      {open ? (
+        <ul
+          id={listId}
+          role="listbox"
+          aria-label="Suggested people"
+          className="shadow-overlay absolute top-full right-3 left-3 z-10 mt-0.5 max-h-60 overflow-y-auto rounded-md border border-[var(--border-strong)] bg-[var(--bg-overlay)] py-1"
+        >
+          {options.map((p, i) => (
+            <li
+              key={p.email}
+              id={`${listId}-${i}`}
+              role="option"
+              aria-selected={i === active}
+              // Before the field's blur, which would make a chip of the half-typed text.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pick(p);
+              }}
+              onMouseEnter={() => setActive(i)}
+              className={cn(
+                'flex cursor-pointer items-center gap-3 px-3 py-1.5 text-sm',
+                i === active && 'bg-[var(--bg-hover)]',
+              )}
+            >
+              <span
+                aria-hidden
+                className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--nav-active)] text-xs font-semibold text-[var(--accent)]"
+              >
+                {(p.name || p.email).charAt(0).toUpperCase()}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium text-[var(--fg)]">
+                  {p.name || p.email}
+                </span>
+                <span className="block truncate text-xs text-[var(--fg-muted)]">{p.email}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
+}
+
+/**
+ * People for a To/Cc/Bcc field as it is typed: Kraken's contacts and recent
+ * senders from the Inbox's own suggest route (people only, no mail search),
+ * asked once per pause in typing. Read-only.
+ */
+function usePeopleSuggestions(text: string): { name: string; email: string }[] {
+  const [found, setFound] = React.useState<{
+    q: string;
+    people: { name: string; email: string }[];
+  }>({ q: '', people: [] });
+  const q = text.trim();
+  React.useEffect(() => {
+    if (q.length < 2 || /[,;]/.test(q)) return;
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      fetch(`/api/inbox/suggest?people=1&q=${encodeURIComponent(q)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j: { people?: { name: string; email: string }[] } | null) => {
+          if (!cancelled && j?.people) setFound({ q, people: j.people });
+        })
+        .catch(() => undefined);
+    }, 150);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [q]);
+  const lower = q.toLowerCase();
+  if (!found.q || !lower.startsWith(found.q.toLowerCase())) return [];
+  // The answer for a shorter prefix, narrowed to what is typed now until the next one lands.
+  return found.people.filter((p) => `${p.name} ${p.email}`.toLowerCase().includes(lower));
 }
 
 const TOOL =

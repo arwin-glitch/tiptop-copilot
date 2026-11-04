@@ -224,6 +224,17 @@ describe('filters in demo mode', () => {
       await suggest.GET(new NextRequest('http://localhost/api/inbox/suggest?q='))
     ).json();
     expect(empty).toEqual({ ok: true, people: [], threads: [] });
+
+    // The compose window's To/Cc/Bcc ask for people only: no conversation search.
+    const peopleOnly = await (
+      await suggest.GET(
+        new NextRequest(
+          `http://localhost/api/inbox/suggest?people=1&q=${encodeURIComponent(word)}`,
+        ),
+      )
+    ).json();
+    expect(peopleOnly.threads).toEqual([]);
+    expect(Array.isArray(peopleOnly.people)).toBe(true);
   });
 });
 

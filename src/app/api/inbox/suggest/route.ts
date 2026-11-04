@@ -18,7 +18,11 @@ export async function GET(request: NextRequest) {
   const limited = rateLimit(`inbox-suggest:${s.auth.userId}`, 240, 60_000);
   if (!limited.ok) return fail(limited.error, 429);
   const q = (request.nextUrl.searchParams.get('q') ?? '').slice(0, 120);
-  const suggestions = await inboxSuggestions(getStore(), s.auth.organizationId, s.integration, q);
+  // `people=1`: the compose window's To/Cc/Bcc, which needs no conversations.
+  const peopleOnly = request.nextUrl.searchParams.get('people') === '1';
+  const suggestions = await inboxSuggestions(getStore(), s.auth.organizationId, s.integration, q, {
+    peopleOnly,
+  });
   return NextResponse.json(
     { ok: true, ...suggestions },
     { headers: { 'Cache-Control': 'no-store' } },

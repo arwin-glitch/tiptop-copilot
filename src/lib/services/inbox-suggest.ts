@@ -95,6 +95,8 @@ export async function inboxSuggestions(
   organizationId: string,
   integration: Integration | null,
   rawText: string,
+  /** The compose window's To/Cc/Bcc: people only, no conversation search. */
+  options: { peopleOnly?: boolean } = {},
 ): Promise<InboxSuggestions> {
   const text = rawText.replace(/\s+/g, ' ').trim().slice(0, 120);
   if (!text) return { people: [], threads: [] };
@@ -107,7 +109,9 @@ export async function inboxSuggestions(
       : demo
         ? demoSenders(store, organizationId, text, PEOPLE)
         : Promise.resolve(integration ? recentSenders(integration.id, text, PEOPLE) : []),
-    suggestConversations(store, organizationId, text, { integration }).catch(() => []),
+    options.peopleOnly
+      ? Promise.resolve([])
+      : suggestConversations(store, organizationId, text, { integration }).catch(() => []),
   ]);
   return {
     people: mergePeople([
