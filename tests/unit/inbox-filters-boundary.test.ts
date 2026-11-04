@@ -55,11 +55,19 @@ describe('Gmail filters', () => {
     const importers = SOURCES.filter((s) =>
       /from ['"][^'"]*google\/gmail-filters['"]/.test(s.text),
     ).map((s) => s.rel);
-    // Settings reads `canManageFilters` only, to show On or the button.
+    // Settings reads `canManageFilters` only, to show On or the button; the
+    // settings service reads it as its gate (gmail-settings.ts, alongside, too).
     expect(importers.sort()).toEqual([
       'app/(app)/settings/page.tsx',
       'lib/services/inbox-filters.ts',
+      'lib/services/inbox-settings.ts',
     ]);
+    expect(find('lib/google/gmail-settings.ts')).toMatch(
+      /import \{ canManageFilters \} from '\.\/gmail-filters'/,
+    );
+    expect(find('lib/services/inbox-settings.ts')).toMatch(
+      /import \{ canManageFilters \} from '@\/lib\/google\/gmail-filters'/,
+    );
     expect(find('app/(app)/settings/page.tsx')).toMatch(
       /import \{ canManageFilters \} from '@\/lib\/google\/gmail-filters'/,
     );

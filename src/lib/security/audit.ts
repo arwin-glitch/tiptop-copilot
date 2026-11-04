@@ -22,6 +22,7 @@ export type AuditAction =
   | 'integration.connected'
   | 'inbox.filter_created'
   | 'inbox.filter_deleted'
+  | 'inbox.signature_saved'
   | 'inbox.sender_blocked'
   | 'inbox.unsubscribed'
   | 'inbox.label_changed'

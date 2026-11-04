@@ -40,6 +40,7 @@ import {
   FiltersListDialog,
   TURN_ON_FILTERS_HREF,
 } from '@/components/inbox/inbox-filters';
+import { SignatureDialog } from '@/components/inbox/inbox-settings';
 import { useConfirm } from '@/components/ui/confirm';
 import { senderAddress } from '@/lib/email/inbox-filters';
 import { textToComposeHtml } from '@/lib/email/compose-html';
@@ -366,6 +367,7 @@ export function LiveInbox({
   /** Create filter's dialog, with the search options it opened from. */
   const [filterFrom, setFilterFrom] = React.useState<AdvancedSearch | null>(null);
   const [filtersOpen, setFiltersOpen] = React.useState(false);
+  const [signatureOpen, setSignatureOpen] = React.useState(false);
   const [confirm, confirmDialog] = useConfirm();
   const searchRef = React.useRef<HTMLInputElement>(null);
   /** Changes made here, laid over each list Gmail answers until it has caught up. */
@@ -1731,6 +1733,7 @@ export function LiveInbox({
               }
               onShortcuts={() => setHelp(true)}
               onFilters={() => setFiltersOpen(true)}
+              onSettings={{ signature: () => setSignatureOpen(true) }}
               undoSend={undoSend}
               setUndoSend={(c) => {
                 setUndoSend(c);
@@ -2037,6 +2040,7 @@ export function LiveInbox({
         }}
       />
       <FiltersListDialog open={filtersOpen} onOpenChange={setFiltersOpen} />
+      <SignatureDialog open={signatureOpen} onOpenChange={setSignatureOpen} />
       <Dialog open={newLabel !== null} onOpenChange={(o) => !o && setNewLabel(null)}>
         {newLabel !== null ? (
           <DialogContent title="New label">

@@ -326,7 +326,7 @@ const TOOL =
   'grid size-8 place-items-center rounded text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] disabled:opacity-40';
 
 /** Gmail's basic formatting bar: bold, italic, underline, link, bulleted and numbered lists. */
-function FormatBar({
+export function FormatBar({
   editor,
   disabled,
   onChange,
