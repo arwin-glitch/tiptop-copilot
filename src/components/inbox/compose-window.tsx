@@ -55,6 +55,8 @@ export interface ComposeSeed {
   /** A forward: the message whose attachments go along, and their names. */
   forwardOf?: string | null;
   forwardNames?: string[];
+  /** Forward as attachment: this message goes along whole, as an .eml (message/rfc822). */
+  attachMessage?: { threadId: string; messageId: string; name: string } | null;
   /** The Gmail draft this window saves to (opened from Drafts, or saved already). */
   draftId?: string | null;
   /** A scheduled send opened from Scheduled, and its time. */
@@ -744,7 +746,9 @@ export function ComposeForm({
     if (all.length === 0) return 'Add at least one recipient.';
     const bad = all.find((t) => !ADDRESS.test(addressIn(t)));
     if (bad) return `“${bad}” is not an email address.`;
-    if (isBlankHtml(html()) && !seed.forwardOf) return 'Write the email first.';
+    if (isBlankHtml(html()) && !seed.forwardOf && !seed.attachMessage) {
+      return 'Write the email first.';
+    }
     return null;
   };
 
@@ -757,6 +761,9 @@ export function ComposeForm({
     signature,
     threadId: seed.threadId ?? null,
     forwardOf: seed.forwardOf ?? null,
+    attachMessage: seed.attachMessage
+      ? { threadId: seed.attachMessage.threadId, messageId: seed.attachMessage.messageId }
+      : null,
   });
 
   const finish = (what: 'sent' | 'scheduled' | 'discarded' | 'cancelled') => {
@@ -844,7 +851,7 @@ export function ComposeForm({
       toast.error(problem);
       return;
     }
-    if (files.length) {
+    if (files.length || seed.attachMessage) {
       toast.error('Attachments cannot be scheduled from here yet. Send it now, or remove them.');
       return;
     }
@@ -1065,6 +1072,14 @@ export function ComposeForm({
                 <span className="text-[var(--fg-subtle)]">forwarded</span>
               </span>
             ))}
+          </div>
+        ) : null}
+        {seed.attachMessage ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 text-xs">
+              <Paperclip className="size-3" aria-hidden /> {seed.attachMessage.name}
+              <span className="text-[var(--fg-subtle)]">attached email</span>
+            </span>
           </div>
         ) : null}
         {files.length ? (

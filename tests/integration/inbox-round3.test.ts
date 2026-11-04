@@ -3,24 +3,75 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHarness, type Harness } from '../helpers/harness';
 import { DEMO_IDS } from '@/lib/demo/ids';
 import { listLiveThreads, readLiveThread, resetInboxLiveCache } from '@/lib/services/inbox-live';
+import { SEND_SCOPES } from '@/lib/google/send-scopes';
+import type { Integration } from '@/lib/types/domain';
+import { ok } from '@/lib/util/result';
 
 /**
  * Gmail parity, last round, in the demo mailbox: Show original and Download
- * message. Everything stays in the demo; nothing reaches Gmail.
+ * message, Forward as attachment. Everything stays in the demo or on stubs;
+ * nothing reaches Gmail.
  */
 
 let harness: Harness;
+let live = false;
+
+const INTEGRATION = (): Integration => ({
+  id: '33333333-3333-4333-8333-333333333333',
+  organization_id: DEMO_IDS.org,
+  user_id: DEMO_IDS.user,
+  provider: 'google',
+  kinds: ['gmail'],
+  account_email: 'partner@firm.example',
+  scopes: [...SEND_SCOPES],
+  status: 'connected',
+  status_detail: null,
+  last_sync_at: null,
+  last_sync_error: null,
+  sync_cursor: null,
+  watch_expires_at: null,
+  created_at: '2026-10-01T00:00:00.000Z',
+  updated_at: '2026-10-01T00:00:00.000Z',
+});
+
+const sendComposed = vi.fn(async (..._args: unknown[]) =>
+  ok({ messageId: '18c0a1b2c3d4e5f9', threadId: '18c0a1b2c3d4e5f9' }),
+);
+const readOriginal = vi.fn(async (..._args: unknown[]) =>
+  ok({ bytes: Buffer.from('Subject: Hi\r\n\r\nBody'), fileName: 'Hi.eml', subject: 'Hi' }),
+);
+
+vi.mock('@/lib/config/env', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/config/env')>();
+  return { ...actual, isDemoMode: () => !live && actual.isDemoMode() };
+});
+
+vi.mock('@/lib/google/gmail-send', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/google/gmail-send')>()),
+  sendComposed: (...args: unknown[]) => sendComposed(...args),
+  readPrimarySignature: async () => '<b>Signature</b>',
+}));
+
+vi.mock('@/lib/services/inbox-original', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/services/inbox-original')>();
+  return {
+    ...actual,
+    readOriginal: (...args: Parameters<typeof actual.readOriginal>) =>
+      live ? readOriginal(...args) : actual.readOriginal(...args),
+  };
+});
 
 vi.mock('@/lib/services/email-session-auth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/services/email-session-auth')>()),
   sessionAuth: async () => ({
     ok: true,
-    auth: { ...harness.auth, isDemo: true },
-    integration: null,
+    auth: { ...harness.auth, isDemo: !live },
+    integration: live ? INTEGRATION() : null,
   }),
 }));
 
 const original = await import('@/app/api/inbox/original/route');
+const compose = await import('@/app/api/inbox/compose/route');
 
 async function demoMessage() {
   const list = await listLiveThreads(harness.store, DEMO_IDS.org, { tab: 'primary' });
@@ -30,6 +81,9 @@ async function demoMessage() {
 }
 
 beforeEach(async () => {
+  live = false;
+  sendComposed.mockClear();
+  readOriginal.mockClear();
   resetInboxLiveCache();
   harness = await createHarness();
 });
@@ -65,5 +119,50 @@ describe('Show original and Download message', () => {
       ),
     );
     expect(missing.status).toBe(404);
+  });
+});
+
+describe('Forward as attachment', () => {
+  it('attaches the original as message/rfc822 on Send, with no body needed', async () => {
+    live = true;
+    const res = await compose.POST(
+      new NextRequest('http://localhost/api/inbox/compose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: 'friend@example.com',
+          subject: 'Fwd: Hi',
+          html: '<div><br></div>',
+          signature: 'nick',
+          attachMessage: { threadId: '18c0a1b2c3d4e5f6', messageId: '18c0a1b2c3d4e5f7' },
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(readOriginal).toHaveBeenCalledTimes(1);
+    const input = sendComposed.mock.calls[0]![2] as {
+      attachments: { filename: string; mimeType: string; data: Buffer }[];
+    };
+    expect(input.attachments).toHaveLength(1);
+    expect(input.attachments[0]!.mimeType).toBe('message/rfc822');
+    expect(input.attachments[0]!.filename).toBe('Hi.eml');
+  });
+
+  it('demo: nothing is sent', async () => {
+    const res = await compose.POST(
+      new NextRequest('http://localhost/api/inbox/compose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: 'friend@example.com',
+          subject: 'Fwd: Hi',
+          html: '',
+          signature: 'nick',
+          attachMessage: { threadId: '18c0a1b2c3d4e5f6', messageId: '18c0a1b2c3d4e5f7' },
+        }),
+      }),
+    );
+    expect(res.status).toBe(409);
+    expect(sendComposed).not.toHaveBeenCalled();
   });
 });

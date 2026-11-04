@@ -24,6 +24,7 @@ import {
   Mail,
   MoreVertical,
   OctagonAlert,
+  Paperclip,
   Printer,
   Reply,
   ReplyAll,
@@ -49,6 +50,7 @@ import {
 import { readerZone, SnoozeMenu } from '@/components/inbox/snooze-menu';
 import { opensInline } from '@/lib/email/attachment-types';
 import { textToComposeHtml } from '@/lib/email/compose-html';
+import { emlFileName } from '@/lib/email/raw-message';
 import { unsubscribeHow } from '@/lib/email/unsubscribe';
 import type { LabelChange, MailLabel } from '@/lib/email/inbox-actions';
 import { initialOf, type FolderId } from '@/lib/email/inbox-folders';
@@ -190,6 +192,21 @@ export function replySeed(
     subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`,
     html: '',
     threadId: thread.id,
+  };
+}
+
+/** Gmail's "Forward as attachment": a new email with the message attached whole. */
+export function attachedSeed(thread: LiveThread, message: LiveMessage): ComposeSeed {
+  const subject = thread.subject;
+  return {
+    key: `fwda-${message.id}-${Date.now()}`,
+    mode: 'forward',
+    to: '',
+    cc: '',
+    bcc: '',
+    subject: /^fwd?:/i.test(subject) ? subject : `Fwd: ${subject}`,
+    html: '',
+    attachMessage: { threadId: thread.id, messageId: message.id, name: emlFileName(subject) },
   };
 }
 
@@ -382,7 +399,10 @@ function MessageCard({
   sender,
   onShowOriginal,
   onDownload,
+  onForwardAttached,
 }: {
+  /** Gmail's "Forward as attachment": a new compose window with this email attached. */
+  onForwardAttached: (() => void) | null;
   sender: SenderActions;
   /** Gmail's "Show original": the source, read-only. */
   onShowOriginal: () => void;
@@ -438,6 +458,16 @@ function MessageCard({
     { id: 'reply', label: 'Reply', icon: Reply, onSelect: () => onWrite('reply') },
     { id: 'replyAll', label: 'Reply all', icon: ReplyAll, onSelect: () => onWrite('replyAll') },
     { id: 'forward', label: 'Forward', icon: Forward, onSelect: () => onWrite('forward') },
+    ...(onForwardAttached
+      ? [
+          {
+            id: 'forwardAttached',
+            label: 'Forward as attachment',
+            icon: Paperclip,
+            onSelect: onForwardAttached,
+          },
+        ]
+      : []),
     { id: 'print', label: 'Print', icon: Printer, divider: true, onSelect: onPrint },
     { id: 'original', label: 'Show original', icon: FileCode, onSelect: onShowOriginal },
     { id: 'download', label: 'Download message', icon: Download, onSelect: onDownload },
@@ -626,7 +656,10 @@ export function ThreadView({
   onSent,
   position,
   sender = NO_SENDER_ACTIONS,
+  onCompose,
 }: {
+  /** Open a floating compose window (Forward as attachment, Pop out). */
+  onCompose?: (seed: ComposeSeed) => void;
   /** Filter like these, Block and Report phishing for each message's sender. */
   sender?: SenderActions;
   row: LiveThreadRow;
@@ -811,6 +844,16 @@ export function ThreadView({
       divider: true,
       onSelect: () => void startWrite('forward'),
     },
+    ...(onCompose && thread && messages.length
+      ? [
+          {
+            id: 'fwdAttached',
+            label: 'Forward as attachment',
+            icon: Paperclip,
+            onSelect: () => onCompose(attachedSeed(thread, messages.at(-1)!)),
+          },
+        ]
+      : []),
     {
       id: 'print',
       label: 'Print all',
@@ -1104,6 +1147,7 @@ export function ThreadView({
                 }
                 sender={sender}
                 onShowOriginal={() => setOriginal(m.id)}
+                onForwardAttached={onCompose ? () => onCompose(attachedSeed(thread, m)) : null}
                 onDownload={() => {
                   const a = document.createElement('a');
                   a.href = originalHref(thread.id, m.id, true);

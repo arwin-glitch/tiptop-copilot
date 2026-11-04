@@ -664,7 +664,9 @@ async function composedMime(
     attachments.push(...carried.value);
   }
   const uploaded = input.attachments ?? [];
-  if (uploaded.reduce((n, a) => n + a.data.length, 0) > MAX_UPLOAD_BYTES) {
+  // A forwarded email (message/rfc822, capped at 10 MB when read) is not an upload.
+  const files = uploaded.filter((a) => a.mimeType !== 'message/rfc822');
+  if (files.reduce((n, a) => n + a.data.length, 0) > MAX_UPLOAD_BYTES) {
     return err(
       'invalid_input',
       'Attachments can be 7 MB in all from here. Attach bigger files in Gmail.',
@@ -711,7 +713,9 @@ export async function sendComposed(
     return err('invalid_input', 'Add who it goes to.');
   }
   const blank = input.html ? isBlankHtml(sanitizeComposeHtml(input.html)) : !input.body.trim();
-  if (blank && !input.forwardMessageId) return err('invalid_input', 'The email is empty.');
+  if (blank && !input.forwardMessageId && !input.attachments?.length) {
+    return err('invalid_input', 'The email is empty.');
+  }
   const mime = await composedMime(store, integration, input, input.signatureHtml, true);
   if (!mime.ok) return mime;
   const message = {

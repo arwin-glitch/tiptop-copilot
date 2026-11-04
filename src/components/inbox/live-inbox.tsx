@@ -2013,6 +2013,7 @@ export function LiveInbox({
                 onUnsnooze={() => void unsnooze([selected.id])}
                 onSent={() => void load({ folder, category, q: searched, page }, { quiet: true })}
                 sender={senderActions}
+                onCompose={addWindow}
                 position={
                   index >= 0
                     ? {

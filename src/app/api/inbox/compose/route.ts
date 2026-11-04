@@ -16,6 +16,7 @@ import { rateLimit } from '@/lib/security/limits';
 import { recordAnswer } from '@/lib/services/email-session';
 import { fail, personName, sessionAuth } from '@/lib/services/email-session-auth';
 import { forgetThreads } from '@/lib/services/inbox-live';
+import { readOriginal } from '@/lib/services/inbox-original';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +35,8 @@ const BODY = z.object({
   forwardOf: GMAIL_ID.nullish(),
   /** A reply: the thread it goes on. */
   threadId: GMAIL_ID.nullish(),
+  /** Forward as attachment: this message goes along whole (message/rfc822). */
+  attachMessage: z.object({ threadId: GMAIL_ID, messageId: GMAIL_ID }).nullish(),
   /** The Gmail draft the window was saving to: it becomes the sent email. */
   draftId: z
     .string()
@@ -76,7 +79,7 @@ export async function POST(request: NextRequest) {
   if (to.length + cc.length + bcc.length === 0) {
     return fail({ code: 'invalid_input', message: 'Add who it goes to.' });
   }
-  if (!data.html && !data.body.trim() && !data.forwardOf) {
+  if (!data.html && !data.body.trim() && !data.forwardOf && !data.attachMessage) {
     return fail({ code: 'invalid_input', message: 'Write the email first.' });
   }
   if (!s.integration || !canSend(s.integration) || s.auth.isDemo) {
@@ -97,6 +100,23 @@ export async function POST(request: NextRequest) {
     });
   }
   const store = getStore();
+  if (data.attachMessage) {
+    // Read with the read scope only; the person's Send is what sends it.
+    const original = await readOriginal(
+      store,
+      s.auth.organizationId,
+      s.integration,
+      data.attachMessage.threadId,
+      data.attachMessage.messageId,
+    );
+    if (!original.ok) return fail(original.error);
+    attachments.push({
+      // emlFileName already left out quotes, slashes and control characters.
+      filename: original.value.fileName,
+      mimeType: 'message/rfc822',
+      data: original.value.bytes,
+    });
+  }
   const signatureHtml =
     data.signature === 'nick'
       ? await readPrimarySignature(store, s.integration)
