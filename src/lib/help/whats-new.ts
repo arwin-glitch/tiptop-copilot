@@ -26,6 +26,18 @@ export interface WhatsNewItem {
 
 export const WHATS_NEW: readonly WhatsNewItem[] = [
   {
+    date: '2026-11-04',
+    page: 'network',
+    text: 'People and companies show a status tag, connections and last contact, with filters.',
+    href: '/network?tab=people&source=affinity',
+    tour: 'people-directory',
+  },
+  {
+    date: '2026-11-04',
+    page: 'network',
+    text: 'Ctrl+K search opens on recent searches; a preview shows status, owner and last contact.',
+  },
+  {
     date: '2026-10-28',
     page: 'calendar',
     text: 'Calendar: Pick times copies open times and a booking link for an email, and holds them.',

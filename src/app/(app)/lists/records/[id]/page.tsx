@@ -21,7 +21,12 @@ import {
 import { readDestinationOverrides } from '@/lib/services/crm-destinations';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
 import { notesForRecord } from '@/lib/services/meetings';
-import { getRecordRelationship, relationshipScope } from '@/lib/services/relationships';
+import {
+  contactSummaries,
+  getRecordRelationship,
+  relationshipScope,
+} from '@/lib/services/relationships';
+import { ProfileContactLine } from '@/components/network/profile-contact-line';
 import { getActiveThesis } from '@/lib/services/thesis';
 import { CrmBreadcrumb } from '@/components/lists/crm-breadcrumb';
 import { CrmNotesPanel } from '@/components/lists/crm-notes-panel';
@@ -121,6 +126,15 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
     { record, memberships, related, timeZone: timezone },
     relationshipScope(auth.profile.email, integration),
   );
+  // The status tag and last contact under the name, streamed in after the header.
+  const contactLine = contactSummaries(
+    store,
+    org,
+    [{ ...record, related }],
+    relationshipScope(auth.profile.email, integration),
+  ).then((r) =>
+    r.ok ? { ok: true as const, value: r.value[record.id] ?? null } : { ok: false as const },
+  );
   const stageLabels = copilot.some((l) => l.kind === 'deal')
     ? new Map(
         (await getActiveThesis(store, org, auth.userId)).deal_stages.map((s) => [s.key, s.label]),
@@ -158,6 +172,11 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
         }
         meta={
           <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
+            <li className="basis-full">
+              <Suspense fallback={<span className="text-mini text-[var(--fg-subtle)]">…</span>}>
+                <ProfileContactLine summary={contactLine} timezone={timezone} />
+              </Suspense>
+            </li>
             {isCompany && record.domain ? (
               <li className="inline-flex items-center gap-1.5">
                 <Globe className="size-3.5 text-[var(--fg-subtle)]" aria-hidden="true" />

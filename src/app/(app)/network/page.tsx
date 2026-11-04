@@ -35,11 +35,14 @@ import type { AuthContext } from '@/lib/auth/session';
 import { AffinityEntries } from '@/components/crm/affinity-entries';
 import { pageHref } from '@/components/crm/link-chips';
 import {
-  AffinityPeople,
   PeopleSourceSwitch,
   affinityPeopleCount,
+  asPeopleSource,
   type PeopleSource,
 } from '@/components/network/affinity-people';
+import { CrmDirectory, type DirectoryParams } from '@/components/network/crm-directory';
+import { parseContactFilter } from '@/lib/network/contact-status';
+import { asDirectorySort } from '@/lib/services/crm-directory';
 import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
 import { EmptyState, Notice, SkeletonText } from '@/components/ui/feedback';
@@ -74,7 +77,7 @@ export default async function NetworkPage({
   const { tab, home } = openingTab(NETWORK_TABS, params, introsShow);
   const sort = asRelationshipSortKey(single(params.sort));
   const direction: SortDirection = single(params.dir) === 'asc' ? 'asc' : 'desc';
-  const source: PeopleSource = single(params.source) === 'affinity' ? 'affinity' : 'mail';
+  const source: PeopleSource = asPeopleSource(single(params.source));
   const list = single(params.list) ?? null;
   const page = params[PAGE_PARAM];
   // The Students & interns badge counts open items, from memory only: never a read.
@@ -101,8 +104,8 @@ export default async function NetworkPage({
       />
       <Suspense key={tab} fallback={<SkeletonText lines={10} />}>
         {tab === 'people' ? (
-          source === 'affinity' ? (
-            <AffinityPeopleTab q={q} page={page} />
+          source !== 'mail' ? (
+            <AffinityPeopleTab source={source} params={directoryParams(params, q)} />
           ) : (
             <PeopleTab q={q} sort={sort} direction={direction} />
           )
@@ -213,9 +216,32 @@ async function AffinityTab({
   );
 }
 
-/** The people carried over from Affinity, behind the same tab as the mail list. */
-async function AffinityPeopleTab({ q, page }: { q: string; page: string | string[] | undefined }) {
+/** The directory's filter, sort and page from the URL. */
+function directoryParams(
+  params: Record<string, string | string[] | undefined>,
+  q: string,
+): DirectoryParams {
+  const sort = asDirectorySort(single(params.sort));
+  const dir = single(params.dir);
+  return {
+    q,
+    page: params[PAGE_PARAM],
+    filter: parseContactFilter((name) => single(params[name])),
+    sort,
+    dir: dir === 'asc' || dir === 'desc' ? dir : sort === 'name' ? 'asc' : 'desc',
+  };
+}
+
+/** The people (or companies) carried over from Affinity, behind the same tab as the mail list. */
+async function AffinityPeopleTab({
+  source,
+  params,
+}: {
+  source: Exclude<PeopleSource, 'mail'>;
+  params: DirectoryParams;
+}) {
   const auth = await requireAuth();
+  const { q } = params;
   const [affinityCount, mailCount] = await Promise.all([
     affinityPeopleCount(auth),
     mailPeopleCount(auth),
@@ -223,12 +249,16 @@ async function AffinityPeopleTab({ q, page }: { q: string; page: string | string
   return (
     <>
       <PeopleSourceSwitch
-        source="affinity"
+        source={source}
         q={q}
         mailCount={mailCount}
         affinityCount={affinityCount}
       />
-      <AffinityPeople auth={auth} q={q} page={page} />
+      <CrmDirectory
+        auth={auth}
+        kind={source === 'companies' ? 'company' : 'person'}
+        params={params}
+      />
     </>
   );
 }

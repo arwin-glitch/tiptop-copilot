@@ -320,8 +320,13 @@ describe('tabs with their own tour', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('cover the new areas: Jobs, Students & interns, the booking assistant', () => {
-    expect(HELP_SECTIONS.map((s) => s.id)).toEqual(['jobs', 'students', 'booking-chatbot']);
+  it('cover the new areas: Jobs, People & companies, Students & interns, the booking assistant', () => {
+    expect(HELP_SECTIONS.map((s) => s.id)).toEqual([
+      'jobs',
+      'people-directory',
+      'students',
+      'booking-chatbot',
+    ]);
   });
 
   it('run their steps on the page itself and start from the tab', () => {
