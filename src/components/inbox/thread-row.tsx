@@ -152,7 +152,7 @@ export function ThreadRow({
         'shrink-0 text-xs tabular-nums',
         row.unread ? 'font-bold text-[var(--fg)]' : 'text-[var(--fg-muted)]',
         (snoozedUntil || scheduled) && 'flex items-center gap-1 font-medium text-[var(--accent)]',
-        hasHoverActions && 'group-focus-within:hidden group-hover:hidden',
+        hasHoverActions && '@3xl:group-focus-within:hidden @3xl:group-hover:hidden',
       )}
     >
       {snoozedUntil ? <AlarmClock className="size-3.5" aria-hidden /> : null}
@@ -164,7 +164,7 @@ export function ThreadRow({
   );
 
   const hover = hasHoverActions ? (
-    <span className="hidden shrink-0 items-center gap-0.5 group-focus-within:flex group-hover:flex">
+    <span className="hidden shrink-0 items-center gap-0.5 @3xl:group-focus-within:flex @3xl:group-hover:flex">
       {actions.onArchive ? (
         <button
           type="button"
@@ -318,7 +318,10 @@ export function ThreadRow({
         ) : null}
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
           <span className="min-w-0 flex-1 truncate text-sm">
-            <span className={cn(row.unread ? 'font-bold text-[var(--fg)]' : 'text-[var(--fg)]')}>
+            <span
+              data-row-subject
+              className={cn(row.unread ? 'font-bold text-[var(--fg)]' : 'text-[var(--fg)]')}
+            >
               {row.subject}
             </span>
             {row.snippet ? (

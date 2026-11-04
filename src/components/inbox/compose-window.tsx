@@ -468,6 +468,8 @@ function ScheduleMenu({
 export interface ComposeEnv {
   /** Sending is on (Send, Schedule and Gmail drafts). */
   canSend: boolean;
+  /** Without sending, where a reply can be finished instead: the thread in Gmail. */
+  gmailHref?: string | null;
   /** The demo: drafts and scheduled sends stay in the demo; Send is off. */
   demo: boolean;
   /** Schedule send's table is there (its migration run). */
@@ -487,6 +489,7 @@ export function ComposeForm({
   seed,
   env,
   inline = false,
+  focusOnOpen = true,
   onDone,
   onClose,
   onDraftSaved,
@@ -495,6 +498,8 @@ export function ComposeForm({
   env: ComposeEnv;
   /** In the conversation (Gmail's inline reply): no subject line, no window chrome. */
   inline?: boolean;
+  /** Put the caret in the box as it opens (not for a Gmail draft shown quietly). */
+  focusOnOpen?: boolean;
   /** Sent, scheduled or discarded: the window closes and the list refreshes. */
   onDone: (what: 'sent' | 'scheduled' | 'discarded' | 'cancelled') => void;
   /** Closed with the words kept (in Drafts, once saved). */
@@ -532,6 +537,17 @@ export function ComposeForm({
   React.useEffect(() => {
     if (editor.current) editor.current.innerHTML = seed.html;
   }, [seed.html]);
+  // The caret goes where Gmail puts it: the body, or To when nobody is there yet.
+  React.useEffect(() => {
+    if (!focusOnOpen) return;
+    if (!seed.to && seed.mode !== 'reply' && seed.mode !== 'replyAll') {
+      document.getElementById(`${uid}-to`)?.focus();
+    } else {
+      editor.current?.focus();
+    }
+    // Once, as it opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const html = () => editor.current?.innerHTML ?? '';
 
@@ -861,7 +877,6 @@ export function ComposeForm({
         value={to}
         onChange={setTo}
         disabled={busy}
-        autoFocus={!inline && !seed.to}
         trailing={
           <span className="flex shrink-0 gap-1 text-sm text-[var(--fg-muted)]">
             {!showCc ? (
@@ -914,7 +929,6 @@ export function ComposeForm({
           contentEditable={!busy}
           suppressContentEditableWarning
           onInput={changed}
-          autoFocus={inline}
           className={cn(
             'min-h-40 text-sm leading-relaxed break-words text-[var(--fg)] focus-visible:outline-none [&_a]:text-[var(--accent)] [&_a]:underline [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6',
             inline && 'min-h-28',
@@ -968,6 +982,15 @@ export function ComposeForm({
       <div className="flex flex-wrap items-center gap-2 px-3 py-2">
         {!env.canSend ? (
           <>
+            {env.gmailHref ? (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => window.open(env.gmailHref!, '_blank', 'noopener')}
+              >
+                <Send className="size-4" aria-hidden /> Send in Gmail
+              </Button>
+            ) : null}
             <Button size="sm" onClick={copy}>
               <Copy className="size-4" aria-hidden /> Copy for Gmail
             </Button>

@@ -26,14 +26,19 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/feedback';
-import { Composer, type ComposeDraft } from '@/components/inbox/composer';
+import {
+  ComposeWindow,
+  type ComposeEnv,
+  type ComposeSeed,
+} from '@/components/inbox/compose-window';
 import { InboxNav } from '@/components/inbox/inbox-nav';
 import { InboxSearch } from '@/components/inbox/inbox-search';
 import { InboxToolbar, type SelectWhich } from '@/components/inbox/inbox-toolbar';
 import { ContextMenu, type MenuItem } from '@/components/inbox/inbox-menus';
 import { ThreadRow } from '@/components/inbox/thread-row';
 import { useStoredChoice } from '@/components/inbox/use-stored';
-import { ThreadView, gmailUrl } from '@/components/inbox/thread-view';
+import { ShortcutHelp } from '@/components/inbox/shortcut-help';
+import { ThreadView, gmailUrl, type WriteKind } from '@/components/inbox/thread-view';
 import { readerZone } from '@/components/inbox/snooze-menu';
 import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
@@ -59,6 +64,8 @@ import {
   type Density,
   type FolderId,
 } from '@/lib/email/inbox-folders';
+import { PREFIX_MS, readKey, type KeyPrefix } from '@/lib/email/inbox-keys';
+import { SCHEDULE_NOT_SET_UP, SEND_WINDOW_SUMMARY } from '@/lib/email/schedule-send';
 import { leavesFolder, UNDO_OF, type SystemAction } from '@/lib/email/inbox-modify';
 import {
   INBOX_MESSAGE_PARAM,
@@ -197,7 +204,19 @@ function placeOf(folder: FolderId): string | null {
   return folderLabelId(folder);
 }
 
-const NEW_EMAIL: ComposeDraft = { to: '', subject: '', body: '\n\nNick' };
+let composeKey = 0;
+/** A blank compose window's seed, Gmail's "New Message". */
+const newEmail = (): ComposeSeed => ({
+  key: `new-${++composeKey}`,
+  mode: 'new',
+  to: '',
+  cc: '',
+  bcc: '',
+  subject: '',
+  html: '',
+});
+/** Gmail keeps a few compose windows open side by side; the oldest gives way. */
+const MAX_WINDOWS = 3;
 
 export function LiveInbox({
   initial,
@@ -232,8 +251,10 @@ export function LiveInbox({
     opened?.error !== undefined ? { requested: opened.requested, error: opened.error } : null,
   );
   const [checked, setChecked] = React.useState<Set<string>>(new Set());
-  const [replyOpen, setReplyOpen] = React.useState(false);
-  const [compose, setCompose] = React.useState<{ title: string; draft: ComposeDraft } | null>(null);
+  /** The inline composer a key or a menu asked the open conversation for. */
+  const [write, setWrite] = React.useState<WriteKind | null>(null);
+  const [composes, setComposes] = React.useState<ComposeSeed[]>([]);
+  const [help, setHelp] = React.useState(false);
   /**
    * Which Label menu the l key opened: the open thread's or the selection's,
    * keyed by what it is for, so a menu never reopens on its own for a later
@@ -723,20 +744,105 @@ export function LiveInbox({
     ],
   );
 
+  const addWindow = React.useCallback((seed: ComposeSeed) => {
+    setComposes((cur) => {
+      // The same draft or scheduled email opens once.
+      const same = cur.find(
+        (c) =>
+          (seed.draftId && c.draftId === seed.draftId) ||
+          (seed.scheduledId && c.scheduledId === seed.scheduledId),
+      );
+      if (same) return cur;
+      return [...cur, seed].slice(-MAX_WINDOWS);
+    });
+  }, []);
+  const openCompose = React.useCallback(() => addWindow(newEmail()), [addWindow]);
+  const closeWindow = (key: string) => setComposes((cur) => cur.filter((c) => c.key !== key));
+
+  /** A Gmail draft, whole, into a compose window. */
+  async function openDraft(draftId: string) {
+    const res = await fetch(`/api/inbox/drafts?id=${encodeURIComponent(draftId)}`);
+    if (!res.ok) {
+      toast.error(await errorMessage(res, 'Could not open that draft.'));
+      return;
+    }
+    const { draft } = (await res.json()) as {
+      draft: {
+        draftId: string;
+        threadId: string | null;
+        to: string;
+        cc: string;
+        bcc: string;
+        subject: string;
+        html: string;
+      };
+    };
+    addWindow({
+      key: `draft-${draft.draftId}`,
+      mode: 'draft',
+      to: draft.to,
+      cc: draft.cc,
+      bcc: draft.bcc,
+      subject: draft.subject,
+      html: draft.html,
+      threadId: draft.threadId,
+      draftId: draft.draftId,
+    });
+  }
+
+  /** A scheduled email into a compose window: edit it, reschedule, send now or cancel. */
+  async function openScheduled(id: string) {
+    const res = await fetch(`/api/inbox/scheduled?id=${encodeURIComponent(id)}`);
+    if (!res.ok) {
+      toast.error(await errorMessage(res, 'Could not open that scheduled email.'));
+      return;
+    }
+    const { scheduled } = (await res.json()) as {
+      scheduled: {
+        id: string;
+        to: string;
+        cc: string;
+        bcc: string;
+        subject: string;
+        html: string;
+        signature: 'nick' | 'arwin';
+        threadId: string | null;
+        forwardOf: string | null;
+        sendAt: string;
+      };
+    };
+    addWindow({
+      key: `scheduled-${scheduled.id}`,
+      mode: 'scheduled',
+      to: scheduled.to,
+      cc: scheduled.cc,
+      bcc: scheduled.bcc,
+      subject: scheduled.subject,
+      html: scheduled.html,
+      threadId: scheduled.threadId,
+      forwardOf: scheduled.forwardOf,
+      scheduledId: scheduled.id,
+      sendAt: scheduled.sendAt,
+      signature: scheduled.signature,
+    });
+  }
+
   const openRow = React.useCallback(
     (row: LiveThreadRow) => {
-      if (row.kind === 'draft') {
-        toast.message('Drafts open in the compose window.');
+      if (row.kind === 'draft' && row.draftId) {
+        void openDraft(row.draftId);
         return;
       }
-      if (row.kind === 'scheduled') {
-        toast.message('Scheduled emails open in the compose window.');
+      if (row.kind === 'scheduled' && row.scheduledId) {
+        void openScheduled(row.scheduledId);
         return;
       }
       setSelectedId(row.id);
-      setReplyOpen(false);
+      setWrite(null);
       if (row.unread && canModify) void act([row.id], 'read', { silent: true });
     },
+    // openDraft and openScheduled only set state and fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [act, canModify],
   );
 
@@ -781,9 +887,59 @@ export function LiveInbox({
     if (linkedId && selectedId !== linkedId) forgetThreadParam();
   }, [linkedId, selectedId]);
 
-  const openCompose = React.useCallback(() => {
-    setCompose({ title: 'New Message', draft: NEW_EMAIL });
-  }, []);
+  /** Discard drafts from the Drafts folder: each to Trash, never deleted for good. */
+  const discardDrafts = async (draftIds: string[]) => {
+    const results = await Promise.all(
+      draftIds.map((id) => postJson('/api/inbox/drafts', { action: 'discard', draftId: id })),
+    );
+    const done = results.filter((r) => r.ok).length;
+    setChecked(new Set());
+    if (done) toast.success(done === 1 ? 'Draft discarded' : `${done} drafts discarded`);
+    if (done < draftIds.length) toast.error('Some drafts could not be discarded. Try again.');
+    void load({ folder, category, q: searched, page, token: tokens.at(-1) }, { quiet: true });
+  };
+
+  /** Cancel scheduled sends from the Scheduled folder: each goes back to Drafts. */
+  const cancelSends = async (ids: string[]) => {
+    const results = await Promise.all(
+      ids.map((id) => postJson('/api/inbox/scheduled', { action: 'cancel', id })),
+    );
+    const done = results.filter((r) => r.ok).length;
+    setChecked(new Set());
+    if (done)
+      toast.success(
+        done === 1 ? 'Send cancelled. It is in Drafts.' : `${done} sends cancelled, now in Drafts.`,
+      );
+    if (done < ids.length) {
+      toast.error(
+        await errorMessage(
+          results.find((r) => !r.ok)!,
+          'Some could not be cancelled.',
+        ),
+      );
+    }
+    void load({ folder, category, q: searched, page, token: tokens.at(-1) }, { quiet: true });
+  };
+
+  const composeEnv: ComposeEnv = {
+    canSend: canAct,
+    demo: !canAct && canModify,
+    scheduleReady: list.scheduleReady !== false,
+    timeZone,
+  };
+
+  /** Which actions the folder on screen offers for a set of rows, as flags. */
+  const folderOffers = (ids: string[]) => {
+    const inSpam = !searched && folder === 'spam';
+    const inTrash = !searched && folder === 'trash';
+    const own = !searched && (folder === 'drafts' || folder === 'scheduled');
+    const sample = rows.filter((r) => ids.includes(r.id));
+    return {
+      archive: !(own || inSpam || inTrash) && sample.some((r) => r.inInbox),
+      trash: !(own || inTrash),
+      spam: !(own || inSpam || inTrash),
+    };
+  };
 
   /** What the folder on screen offers for a set of rows. */
   const folderActions = (ids: string[]) => {
@@ -834,14 +990,17 @@ export function LiveInbox({
         icon: Reply,
         onSelect: () => {
           openRow(row);
-          setReplyOpen(true);
+          setWrite('reply');
         },
       });
       items.push({
         id: 'forward',
         label: 'Forward',
         icon: Forward,
-        onSelect: () => openRow(row),
+        onSelect: () => {
+          openRow(row);
+          setWrite('forward');
+        },
       });
     }
     if (f.archive)
@@ -920,78 +1079,129 @@ export function LiveInbox({
     return items;
   };
 
-  // Gmail's keys: j/k move, o/Enter open, e archive, b snooze, s star,
-  // Shift+U unread, r reply, l label, u back, / search, x select. Never while something is
-  // drawn over the list (the Ask Arwin panel, a tour card, a dialog): a key
-  // meant for that must not archive or open the thread underneath.
+  // Gmail's keys (lib/email/inbox-keys.ts): j/k, o, u, e, [ ], #, !, s, + -,
+  // l, v, b, Shift+I/U, r a f, x, z, c, /, ?, and g or * then a second key.
+  // Never while something is drawn over the list (the Ask Arwin panel, a
+  // tour card, a dialog or menu): a key meant for that must not archive or
+  // open the thread underneath.
+  const prefix = React.useRef<{ key: KeyPrefix; at: number }>({ key: null, at: 0 });
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return;
+      if (isTyping(e.target)) return;
       if (keyBelongsToOverlay(e)) return;
-      const move1 = (delta: number) => {
-        const next = rows[Math.min(rows.length - 1, Math.max(0, index + delta))];
-        if (next) openRow(next);
+      const held =
+        prefix.current.key && Date.now() - prefix.current.at < PREFIX_MS
+          ? prefix.current.key
+          : null;
+      const { command, prefix: next } = readKey(
+        { key: e.key, shift: e.shiftKey, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey },
+        held,
+      );
+      prefix.current = { key: next, at: Date.now() };
+      if (e.key === 'Escape') {
+        setSelectedId(null);
+        return;
+      }
+      if (!command) return;
+      // The conversation open, else the selection: what an action is for.
+      const targets = selected ? [selected.id] : [...checked];
+      const offers = folderOffers(targets);
+      const menuKey = paneMenu ?? bulkMenu;
+      const step = (delta: number) => {
+        const to = rows[Math.min(rows.length - 1, Math.max(0, index + delta))];
+        if (to) openRow(to);
       };
-      switch (e.key) {
-        case 'j':
-          move1(index < 0 ? 0 : 1);
-          break;
-        case 'k':
-          move1(-1);
-          break;
-        case 'o':
-        case 'Enter':
+      e.preventDefault();
+      switch (command) {
+        case 'next':
+          return step(index < 0 ? 0 : 1);
+        case 'prev':
+          return step(-1);
+        case 'open':
           if (!selected && rows[0]) openRow(rows[0]);
-          break;
-        case 'e':
-          if (selected) void act([selected.id], 'archive');
-          else if (checked.size) void act([...checked], 'archive');
-          break;
-        case 's':
-          if (selected)
-            void act([selected.id], selected.starred ? 'unstar' : 'star', { silent: true });
-          break;
-        case 'U':
-          if (selected) {
-            void act([selected.id], 'unread', { silent: true });
-            setSelectedId(null);
-          }
-          break;
-        case 'r':
-          if (selected) {
-            e.preventDefault();
-            setReplyOpen(true);
-          }
-          break;
-        case 'l':
-          if (!canLabel) break;
-          // Kept out of the menu's filter, which takes focus as it opens.
-          e.preventDefault();
-          setLabelMenu(paneMenu ?? bulkMenu);
-          break;
-        case 'b':
-          // Gmail's snooze key: the open thread's menu, else the selection's.
-          if (!canSnooze || !(paneMenu ?? bulkMenu)) break;
-          e.preventDefault();
-          setSnoozeMenu(paneMenu ?? bulkMenu);
-          break;
-        case 'u':
-        case 'Escape':
-          setSelectedId(null);
-          break;
-        case '/':
-          e.preventDefault();
-          searchRef.current?.focus();
-          break;
-        case 'c':
-          e.preventDefault();
-          openCompose();
-          break;
-        case 'x':
-          if (selected) toggleCheck(selected.id);
-          break;
-        default:
           return;
+        case 'back':
+          return setSelectedId(null);
+        case 'archive':
+          if (targets.length && offers.archive) void act(targets, 'archive');
+          return;
+        case 'archivePrev':
+        case 'archiveNext':
+          if (selected && offers.archive)
+            void act([selected.id], 'archive', {
+              advance: command === 'archiveNext' ? 'next' : 'prev',
+            });
+          return;
+        case 'delete':
+          if (targets.length && offers.trash && canModify) void act(targets, 'trash');
+          return;
+        case 'spam':
+          if (targets.length && offers.spam && canModify) void act(targets, 'spam');
+          return;
+        case 'star': {
+          const row = selected ?? rows.find((r) => checked.has(r.id));
+          if (row) void act(targets, row.starred ? 'unstar' : 'star', { silent: true });
+          return;
+        }
+        case 'important':
+          if (targets.length) void act(targets, 'important', { silent: true });
+          return;
+        case 'notImportant':
+          if (targets.length) void act(targets, 'unimportant', { silent: true });
+          return;
+        case 'markRead':
+          if (targets.length) void act(targets, 'read', { silent: true });
+          return;
+        case 'markUnread':
+          if (targets.length) {
+            void act(targets, 'unread', { silent: true });
+            if (selected) setSelectedId(null);
+          }
+          return;
+        case 'label':
+          if (canLabel && menuKey) setLabelMenu(menuKey);
+          return;
+        case 'move':
+          if (canModify && menuKey) setMoveMenu(menuKey);
+          return;
+        case 'snooze':
+          if (canSnooze && menuKey) setSnoozeMenu(menuKey);
+          return;
+        case 'reply':
+        case 'replyAll':
+        case 'forward':
+          if (selected) setWrite(command);
+          return;
+        case 'select':
+          if (selected) toggleCheck(selected.id);
+          return;
+        case 'undo':
+          lastUndo.current?.();
+          return;
+        case 'compose':
+          return openCompose();
+        case 'search':
+          return searchRef.current?.focus();
+        case 'help':
+          return setHelp(true);
+        case 'goInbox':
+          return goTo({ folder: 'inbox', category: 'primary' });
+        case 'goStarred':
+          return goTo({ folder: 'starred' });
+        case 'goSent':
+          return goTo({ folder: 'sent' });
+        case 'goDrafts':
+          return goTo({ folder: 'drafts' });
+        case 'goAll':
+          return goTo({ folder: 'all' });
+        case 'selectAll':
+          return selectWhich('all');
+        case 'selectNone':
+          return selectWhich('none');
+        case 'selectRead':
+          return selectWhich('read');
+        case 'selectUnread':
+          return selectWhich('unread');
       }
     };
     window.addEventListener('keydown', onKey);
@@ -1176,7 +1386,7 @@ export function LiveInbox({
                       )
                   : null
               }
-              onShortcuts={() => toast.message('Press ? for keyboard shortcuts.')}
+              onShortcuts={() => setHelp(true)}
               bulk={{
                 ...(inDrafts || inScheduled
                   ? {
@@ -1200,8 +1410,13 @@ export function LiveInbox({
                 notImportant: () => void act(bulkIds, 'unimportant', { silent: true }),
                 star: () => void act(bulkIds, 'star', { silent: true }),
                 unstar: () => void act(bulkIds, 'unstar', { silent: true }),
-                discardDrafts: null,
-                cancelScheduled: null,
+                discardDrafts: inDrafts
+                  ? () =>
+                      void discardDrafts(
+                        rows.filter((r) => checked.has(r.id) && r.draftId).map((r) => r.draftId!),
+                      )
+                  : null,
+                cancelScheduled: inScheduled ? () => void cancelSends(bulkIds) : null,
               }}
             />
             {showTabs ? (
@@ -1221,17 +1436,24 @@ export function LiveInbox({
                       aria-selected={active}
                       onClick={() => goTo({ folder: 'inbox', category: c })}
                       className={cn(
-                        'flex h-12 min-w-0 flex-1 items-center gap-3 border-b-[3px] px-4 text-sm font-medium sm:max-w-60',
+                        'flex h-12 min-w-0 flex-1 items-center justify-center gap-3 border-b-[3px] px-4 text-sm font-medium sm:max-w-60 sm:justify-start',
                         active
                           ? 'border-[var(--accent)] text-[var(--accent)]'
                           : 'border-transparent text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
                       )}
                     >
                       <Icon className="size-4 shrink-0" aria-hidden />
-                      <span className="truncate">{CATEGORY_NAMES[c]}</span>
+                      <span className="sr-only truncate sm:not-sr-only">{CATEGORY_NAMES[c]}</span>
                     </button>
                   );
                 })}
+              </div>
+            ) : null}
+            {inScheduled ? (
+              <div className="border-b border-[var(--border)] p-2">
+                <Notice tone={list.scheduleReady === false ? 'warn' : 'info'}>
+                  {list.scheduleReady === false ? SCHEDULE_NOT_SET_UP : SEND_WINDOW_SUMMARY}
+                </Notice>
               </div>
             ) : null}
             {snoozedView && list.snoozeReady === false ? (
@@ -1331,23 +1553,37 @@ export function LiveInbox({
                 row={selected}
                 timeZone={timeZone}
                 initialThread={seed?.id === selected.id ? seed : undefined}
-                canAct={canAct}
+                canModify={canModify}
                 mailbox={mailbox}
-                replyOpen={replyOpen}
-                setReplyOpen={setReplyOpen}
+                folder={searched ? null : folder}
+                write={write}
+                setWrite={setWrite}
+                composeEnv={composeEnv}
                 onBack={() => setSelectedId(null)}
                 onAct={(action) => act([selected.id], action)}
                 labelChoices={labelChoices}
                 onLabel={canLabel ? (change) => void label([selected.id], change) : null}
                 labelMenuOpen={labelMenu !== null && labelMenu === paneMenu}
                 setLabelMenuOpen={(o) => setLabelMenu(o ? paneMenu : null)}
+                onMove={canModify ? (to) => void move([selected.id], to) : null}
+                moveMenuOpen={moveMenu !== null && moveMenu === paneMenu}
+                setMoveMenuOpen={(o) => setMoveMenu(o ? paneMenu : null)}
                 onSnooze={canSnooze ? (at) => void snooze([selected.id], at) : null}
                 snoozeMenuOpen={snoozeMenu !== null && snoozeMenu === paneMenu}
                 setSnoozeMenuOpen={(o) => setSnoozeMenu(o ? paneMenu : null)}
                 snoozedUntil={snoozedView ? (selected.snoozedUntil ?? null) : null}
                 onUnsnooze={() => void unsnooze([selected.id])}
                 onSent={() => void load({ folder, category, q: searched, page }, { quiet: true })}
-                onForward={(draft) => setCompose({ title: 'Forward', draft })}
+                position={
+                  index >= 0
+                    ? {
+                        index,
+                        total: rows.length,
+                        onNewer: () => rows[index - 1] && openRow(rows[index - 1]!),
+                        onOlder: () => rows[index + 1] && openRow(rows[index + 1]!),
+                      }
+                    : null
+                }
               />
             ) : (
               <div className="grid h-full min-h-60 place-items-center rounded-[var(--radius-card)] border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--fg-subtle)]">
@@ -1361,13 +1597,14 @@ export function LiveInbox({
         </div>
       </div>
 
-      {/* The Gmail app's floating Compose, on a phone. */}
+      {/* The Gmail app's floating Compose, on a phone, over the list. */}
       <button
+        hidden={Boolean(selected)}
         type="button"
         onClick={openCompose}
         aria-label="Compose"
         data-tour="inbox-compose"
-        className="shadow-overlay fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-[var(--z-header)] inline-flex h-14 items-center gap-2 rounded-2xl bg-[var(--accent-soft)] px-5 text-sm font-semibold text-[var(--accent)] lg:hidden"
+        className="shadow-overlay fixed right-4 bottom-[calc(8.25rem+env(safe-area-inset-bottom))] z-[var(--z-nav)] inline-flex h-14 items-center gap-2 rounded-2xl bg-[var(--accent-soft)] px-5 text-sm font-semibold text-[var(--accent)] lg:hidden"
       >
         <PenSquare className="size-5" aria-hidden /> Compose
       </button>
@@ -1416,16 +1653,31 @@ export function LiveInbox({
         ) : null}
       </Dialog>
 
-      {compose ? (
-        <Composer
-          key={compose.title + compose.draft.subject}
-          title={compose.title}
-          initial={compose.draft}
-          canSend={canAct}
-          onClose={() => setCompose(null)}
-          onSent={() => void load({ folder, category, q: searched, page }, { quiet: true })}
+      {composes.map((c, i) => (
+        <ComposeWindow
+          key={c.key}
+          seed={c}
+          env={composeEnv}
+          slot={composes.length - 1 - i}
+          onDone={() => {
+            closeWindow(c.key);
+            void load(
+              { folder, category, q: searched, page, token: tokens.at(-1) },
+              { quiet: true },
+            );
+          }}
+          onClose={() => {
+            closeWindow(c.key);
+            if (folder === 'drafts')
+              void load(
+                { folder, category, q: searched, page, token: tokens.at(-1) },
+                { quiet: true },
+              );
+          }}
         />
-      ) : null}
+      ))}
+
+      <ShortcutHelp open={help} onOpenChange={setHelp} />
     </div>
   );
 }
