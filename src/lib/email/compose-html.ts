@@ -54,8 +54,18 @@ function safeHref(attrs: string): string | null {
   return raw.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
-/** The body with only the allowed tags left, every tag it opened closed again. */
-export function sanitizeComposeHtml(html: string): string {
+/** An inline photo's Content-ID, as Kraken makes them (`img1.ab12cd@kraken`). */
+export const INLINE_CID = /^[A-Za-z0-9._-]{1,60}@kraken$/;
+
+/**
+ * The body with only the allowed tags left, every tag it opened closed again.
+ * With `cids`, an inline photo stays as `<img src="cid:...">` when its id is
+ * one of the images going along in the same email; any other image goes.
+ */
+export function sanitizeComposeHtml(
+  html: string,
+  options: { cids?: ReadonlySet<string> } = {},
+): string {
   const input = html.slice(0, MAX_COMPOSE_HTML).replace(/<!--[\s\S]*?(-->|$)/g, '');
   const re = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>|([^<]+)|(<)/g;
   const open: string[] = [];
@@ -74,6 +84,14 @@ export function sanitizeComposeHtml(html: string): string {
     }
     if (DROP_WITH_CONTENT.has(name)) {
       if (!closing && !/\/\s*$/.test(attrs)) dropping = name;
+      continue;
+    }
+    if (name === 'img' && !closing && options.cids?.size) {
+      const src = /\bsrc\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs);
+      const cid = (src?.[2] ?? src?.[3] ?? '').replace(/^cid:/i, '');
+      if (/^cid:/i.test(src?.[2] ?? src?.[3] ?? '') && options.cids.has(cid)) {
+        out += `<img src="cid:${cid}" alt="" style="max-width:100%">`;
+      }
       continue;
     }
     if (!ALLOWED.has(name)) continue;

@@ -292,10 +292,14 @@ export function buildReplyMime(input: {
    * caller did (compose-html.ts); the plain part is its text.
    */
   html?: string | null;
+  /** Inline photos going along: their `cid:` images stay in the HTML. */
+  inlineCids?: readonly string[];
 }): string {
   const boundary = `b_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
   const signatureText = input.signatureHtml ? htmlToPlainText(input.signatureHtml) : '';
-  const formatted = input.html ? sanitizeComposeHtml(input.html) : '';
+  const formatted = input.html
+    ? sanitizeComposeHtml(input.html, { cids: new Set(input.inlineCids ?? []) })
+    : '';
   const plain = formatted
     ? htmlToPlainText(formatted).trim()
     : input.links
@@ -455,6 +459,11 @@ export interface MimeAttachment {
   data: Buffer;
 }
 
+/** A photo inserted in the body: sent inline (multipart/related) by its Content-ID. */
+export interface InlineImage extends MimeAttachment {
+  cid: string;
+}
+
 /** RFC 2822 new message (no thread), plain + HTML, optionally with attachments. Exported for tests. */
 export function buildNewMime(input: {
   from: string;
@@ -470,20 +479,51 @@ export function buildNewMime(input: {
   /** A reply's headers; empty for a new email. */
   inReplyTo?: string;
   references?: string;
+  /** Photos inserted in the body, sent inline by Content-ID. */
+  inline?: InlineImage[];
 }): string {
+  const inline = input.inline ?? [];
   const reply = buildReplyMime({
     ...input,
     inReplyTo: input.inReplyTo ?? '',
     references: input.references ?? '',
+    inlineCids: inline.map((i) => i.cid),
   });
-  if (!input.attachments?.length) return reply;
-  // Re-wrap: the alternative part becomes the first part of a multipart/mixed.
+  if (!input.attachments?.length && !inline.length) return reply;
+  // Re-wrap: the alternative part goes inside multipart/related (with the
+  // inline photos), and that inside multipart/mixed (with the attachments).
   const split = reply.indexOf('\r\n\r\n');
   const headerLines = reply.slice(0, split).split('\r\n');
-  const altType = headerLines.find((h) => h.startsWith('Content-Type: multipart/alternative'))!;
+  let altType = headerLines.find((h) => h.startsWith('Content-Type: multipart/alternative'))!;
   const outer = headerLines.filter((h) => !h.startsWith('Content-Type: multipart/alternative'));
+  const clean = (v: string) => v.replace(/[\r\n"<>]+/g, ' ').trim();
+  const b64 = (data: Buffer) => (data.toString('base64').match(/.{1,76}/g) ?? []).join('\r\n');
+  let body = reply.slice(split + 4);
+  if (inline.length) {
+    const related = `r_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+    body = [
+      `--${related}`,
+      altType,
+      '',
+      body,
+      ...inline.map((i) =>
+        [
+          `--${related}`,
+          `Content-Type: ${clean(i.mimeType)}; name="${clean(i.filename)}"`,
+          `Content-Disposition: inline; filename="${clean(i.filename)}"`,
+          `Content-ID: <${clean(i.cid)}>`,
+          'Content-Transfer-Encoding: base64',
+          '',
+          b64(i.data),
+        ].join('\r\n'),
+      ),
+      `--${related}--`,
+      '',
+    ].join('\r\n');
+    altType = `Content-Type: multipart/related; boundary="${related}"`;
+  }
+  if (!input.attachments?.length) return [...outer, altType, '', body].join('\r\n');
   const mixed = `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-  const clean = (v: string) => v.replace(/[\r\n"]+/g, ' ').trim();
   const parts = input.attachments.map((a) =>
     [
       `--${mixed}`,
@@ -501,7 +541,7 @@ export function buildNewMime(input: {
     `--${mixed}`,
     altType,
     '',
-    reply.slice(split + 4),
+    body,
     ...parts,
     `--${mixed}--`,
     '',
@@ -625,6 +665,8 @@ export interface ComposedEmail {
   forwardMessageId?: string | null;
   /** Files attached in the compose window. */
   attachments?: MimeAttachment[];
+  /** Photos inserted in the body (Insert photo), sent inline. */
+  inline?: InlineImage[];
 }
 
 /** In-Reply-To and References for a reply on a thread: its newest real message's. */
@@ -665,7 +707,10 @@ async function composedMime(
   }
   const uploaded = input.attachments ?? [];
   // A forwarded email (message/rfc822, capped at 10 MB when read) is not an upload.
-  const files = uploaded.filter((a) => a.mimeType !== 'message/rfc822');
+  const files = [
+    ...uploaded.filter((a) => a.mimeType !== 'message/rfc822'),
+    ...(input.inline ?? []),
+  ];
   if (files.reduce((n, a) => n + a.data.length, 0) > MAX_UPLOAD_BYTES) {
     return err(
       'invalid_input',
@@ -689,6 +734,7 @@ async function composedMime(
     html: input.html ?? null,
     signatureHtml,
     attachments,
+    inline: input.inline ?? [],
     inReplyTo: reply.inReplyTo,
     references: reply.references,
   });
@@ -713,7 +759,7 @@ export async function sendComposed(
     return err('invalid_input', 'Add who it goes to.');
   }
   const blank = input.html ? isBlankHtml(sanitizeComposeHtml(input.html)) : !input.body.trim();
-  if (blank && !input.forwardMessageId && !input.attachments?.length) {
+  if (blank && !input.forwardMessageId && !input.attachments?.length && !input.inline?.length) {
     return err('invalid_input', 'The email is empty.');
   }
   const mime = await composedMime(store, integration, input, input.signatureHtml, true);

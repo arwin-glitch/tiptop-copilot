@@ -7,11 +7,12 @@ import {
   readPrimarySignature,
   sendComposed,
   sendNew,
+  type InlineImage,
   type MimeAttachment,
 } from '@/lib/google/gmail-send';
 import { ARWIN_SIGNATURE_HTML } from '@/lib/email/signatures';
 import { parseAddresses } from '@/lib/email/addresses';
-import { MAX_COMPOSE_HTML } from '@/lib/email/compose-html';
+import { INLINE_CID, MAX_COMPOSE_HTML } from '@/lib/email/compose-html';
 import { rateLimit } from '@/lib/security/limits';
 import { recordAnswer } from '@/lib/services/email-session';
 import { fail, personName, sessionAuth } from '@/lib/services/email-session-auth';
@@ -53,6 +54,19 @@ const BODY = z.object({
     )
     .max(20)
     .default([]),
+  /** Photos inserted in the body (Insert photo): sent inline by Content-ID. */
+  inline: z
+    .array(
+      z.object({
+        cid: z.string().regex(INLINE_CID),
+        name: z.string().trim().min(1).max(200),
+        type: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+        /** Base64, no data: prefix. */
+        data: z.string().max(Math.ceil((MAX_UPLOAD_BYTES * 4) / 3) + 8),
+      }),
+    )
+    .max(10)
+    .default([]),
   /** The intro draft: names written [Full Name](LinkedIn URL) go out as links. */
   links: z.boolean().default(false),
 });
@@ -93,7 +107,14 @@ export async function POST(request: NextRequest) {
     mimeType: /^[\w.+-]+\/[\w.+-]+$/.test(a.type) ? a.type : 'application/octet-stream',
     data: Buffer.from(a.data, 'base64'),
   }));
-  if (attachments.reduce((n, a) => n + a.data.length, 0) > MAX_UPLOAD_BYTES) {
+  const inline: InlineImage[] = data.inline.map((i, n) => ({
+    cid: i.cid,
+    filename: i.name.replace(/[^\w. -]+/g, '_') || `image${n + 1}`,
+    mimeType: i.type,
+    data: Buffer.from(i.data, 'base64'),
+  }));
+  const uploadBytes = [...attachments, ...inline].reduce((n, a) => n + a.data.length, 0);
+  if (uploadBytes > MAX_UPLOAD_BYTES) {
     return fail({
       code: 'invalid_input',
       message: 'Attachments can be 7 MB in all from here. Attach bigger files in Gmail.',
@@ -154,6 +175,7 @@ export async function POST(request: NextRequest) {
           threadId: data.threadId ?? null,
           forwardMessageId: data.forwardOf ?? null,
           attachments,
+          inline,
           signatureHtml,
           draftId: data.draftId ?? null,
         });

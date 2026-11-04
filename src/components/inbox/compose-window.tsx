@@ -8,6 +8,7 @@ import {
   Clock,
   Copy,
   ExternalLink,
+  ImagePlus,
   Italic,
   Link as LinkIcon,
   List,
@@ -18,6 +19,7 @@ import {
   Minus,
   Paperclip,
   Send,
+  Smile,
   Trash2,
   Underline,
   Undo2,
@@ -28,6 +30,13 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { readerZone } from '@/components/inbox/snooze-menu';
 import { TemplatesMenu } from '@/components/inbox/templates-menu';
 import { isBlankHtml } from '@/lib/email/compose-html';
+import {
+  hasPhotos,
+  photoBytes,
+  photosToCids,
+  PHOTO_TYPES,
+  withoutPhotos,
+} from '@/lib/email/inline-photos';
 import {
   checkSendAt,
   schedulePresets,
@@ -327,6 +336,114 @@ function usePeopleSuggestions(text: string): { name: string; email: string }[] {
 
 const TOOL =
   'grid size-8 place-items-center rounded text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] disabled:opacity-40';
+
+/** Gmail's emoji picker, the everyday ones: a pick goes in at the caret. */
+const EMOJI = [
+  '😀',
+  '😄',
+  '😊',
+  '🙂',
+  '😉',
+  '😍',
+  '🤩',
+  '😎',
+  '🤔',
+  '😅',
+  '😂',
+  '🙏',
+  '👍',
+  '👎',
+  '👏',
+  '🙌',
+  '💪',
+  '🤝',
+  '👋',
+  '✌️',
+  '❤️',
+  '💚',
+  '💛',
+  '🔥',
+  '✨',
+  '🎉',
+  '🥳',
+  '🚀',
+  '💡',
+  '✅',
+  '❌',
+  '⚡',
+  '⭐',
+  '📈',
+  '📉',
+  '💰',
+  '📅',
+  '📎',
+  '📌',
+  '☕',
+  '🍾',
+  '🏆',
+  '🎯',
+  '🌴',
+  '🌎',
+  '😢',
+  '😬',
+  '🙈',
+  '👀',
+  '💯',
+];
+
+function EmojiMenu({
+  disabled,
+  className,
+  onOpen,
+  onPick,
+}: {
+  disabled?: boolean;
+  className?: string;
+  onOpen: () => void;
+  onPick: (emoji: string) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        if (o) onOpen();
+        setOpen(o);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label="Insert emoji"
+          title="Insert emoji"
+          onMouseDown={onOpen}
+          className={className}
+        >
+          <Smile className="size-4" aria-hidden />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" aria-label="Insert emoji" className="w-72 p-2">
+        <div role="group" aria-label="Emoji" className="grid grid-cols-10 gap-0.5">
+          {EMOJI.map((e) => (
+            <button
+              key={e}
+              type="button"
+              aria-label={`Insert ${e}`}
+              onClick={() => {
+                setOpen(false);
+                onPick(e);
+              }}
+              className="grid size-6 place-items-center rounded text-base hover:bg-[var(--bg-hover)] focus-visible:outline-2 focus-visible:outline-[var(--focus)]"
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /** Gmail's basic formatting bar: bold, italic, underline, link, bulleted and numbered lists. */
 export function FormatBar({
@@ -653,6 +770,7 @@ export function ComposeForm({
   const [sending, setSending] = React.useState(false);
   const editor = React.useRef<HTMLDivElement>(null);
   const fileInput = React.useRef<HTMLInputElement>(null);
+  const photoInput = React.useRef<HTMLInputElement>(null);
   const timer = React.useRef<number | null>(null);
   const saveTimer = React.useRef<number | null>(null);
   const dirty = React.useRef(false);
@@ -694,7 +812,8 @@ export function ComposeForm({
         cc,
         bcc,
         subject,
-        html: html(),
+        // Inserted photos go along at Send; the Gmail draft keeps the words.
+        html: withoutPhotos(html()),
         threadId: seed.threadId ?? null,
       });
       if (!res.ok) {
@@ -753,7 +872,7 @@ export function ComposeForm({
     if (all.length === 0) return 'Add at least one recipient.';
     const bad = all.find((t) => !ADDRESS.test(addressIn(t)));
     if (bad) return `“${bad}” is not an email address.`;
-    if (isBlankHtml(html()) && !seed.forwardOf && !seed.attachMessage) {
+    if (isBlankHtml(html()) && !hasPhotos(html()) && !seed.forwardOf && !seed.attachMessage) {
       return 'Write the email first.';
     }
     return null;
@@ -798,7 +917,17 @@ export function ComposeForm({
             id: seed.scheduledId,
             ...body,
           })
-        : await postJson('/api/inbox/compose', { ...body, draftId: draftRef.current, attachments });
+        : await (async () => {
+            // Inserted photos go inline by Content-ID (multipart/related).
+            const photos = photosToCids(body.html);
+            return postJson('/api/inbox/compose', {
+              ...body,
+              html: photos.html,
+              inline: photos.inline,
+              draftId: draftRef.current,
+              attachments,
+            });
+          })();
       if (res.ok) {
         toast.success('Message sent');
         finish('sent');
@@ -858,7 +987,7 @@ export function ComposeForm({
       toast.error(problem);
       return;
     }
-    if (files.length || seed.attachMessage) {
+    if (files.length || seed.attachMessage || hasPhotos(html())) {
       toast.error('Attachments cannot be scheduled from here yet. Send it now, or remove them.');
       return;
     }
@@ -995,11 +1124,66 @@ export function ComposeForm({
   const addFiles = (list: FileList | null) => {
     if (!list) return;
     const next = [...files, ...Array.from(list)];
-    if (next.reduce((n, f) => n + f.size, 0) > MAX_FILES_BYTES) {
+    if (next.reduce((n, f) => n + f.size, 0) + photoBytes(html()) > MAX_FILES_BYTES) {
       toast.error('Attachments can be 7 MB in all from here. Attach bigger files in Gmail.');
       return;
     }
     setFiles(next);
+  };
+
+  /** Where the caret was in the body, kept while a menu or file picker has focus. */
+  const caret = React.useRef<Range | null>(null);
+  const keepCaret = () => {
+    const sel = window.getSelection();
+    const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+    caret.current =
+      range && editor.current?.contains(range.commonAncestorContainer) ? range.cloneRange() : null;
+  };
+  /** Put the caret back in the body (at the end when it was not there), for an insert. */
+  const restoreCaret = () => {
+    const box = editor.current;
+    if (!box) return;
+    box.focus();
+    const sel = window.getSelection();
+    if (!sel) return;
+    sel.removeAllRanges();
+    if (caret.current) sel.addRange(caret.current);
+    else {
+      const end = document.createRange();
+      end.selectNodeContents(box);
+      end.collapse(false);
+      sel.addRange(end);
+    }
+  };
+
+  const insertEmoji = (emoji: string) => {
+    restoreCaret();
+    document.execCommand('insertText', false, emoji);
+    keepCaret();
+    changed();
+  };
+
+  /** Gmail's Insert photo (inline): shown in the body now, sent inline at Send. */
+  const insertPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    if (!(PHOTO_TYPES as readonly string[]).includes(file.type)) {
+      toast.error('Insert a PNG, JPEG, GIF or WebP photo.');
+      return;
+    }
+    const used = files.reduce((n, f) => n + f.size, 0) + photoBytes(html());
+    if (used + file.size > MAX_FILES_BYTES) {
+      toast.error('Photos and attachments can be 7 MB in all from here.');
+      return;
+    }
+    const data = await readAsBase64(file);
+    restoreCaret();
+    document.execCommand(
+      'insertHTML',
+      false,
+      `<img src="data:${file.type};base64,${data}" alt="${escapeHtml(file.name)}">`,
+    );
+    keepCaret();
+    changed();
   };
 
   const busy = pending || sending;
@@ -1098,7 +1282,7 @@ export function ComposeForm({
           suppressContentEditableWarning
           onInput={changed}
           className={cn(
-            'min-h-40 text-sm leading-relaxed break-words text-[var(--fg)] focus-visible:outline-none [&_a]:text-[var(--accent)] [&_a]:underline [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6',
+            'min-h-40 text-sm leading-relaxed break-words text-[var(--fg)] focus-visible:outline-none [&_a]:text-[var(--accent)] [&_a]:underline [&_img]:inline-block [&_img]:max-w-full [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6',
             inline && 'min-h-28',
           )}
         />
@@ -1246,6 +1430,28 @@ export function ComposeForm({
             >
               <Paperclip className="size-4" aria-hidden />
             </button>
+            <input
+              ref={photoInput}
+              type="file"
+              accept={PHOTO_TYPES.join(',')}
+              className="hidden"
+              onChange={(e) => {
+                void insertPhoto(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
+            <button
+              type="button"
+              aria-label="Insert photo"
+              title="Insert photo"
+              disabled={busy || !canDraft}
+              onMouseDown={keepCaret}
+              onClick={() => photoInput.current?.click()}
+              className={TOOL}
+            >
+              <ImagePlus className="size-4" aria-hidden />
+            </button>
+            <EmojiMenu disabled={busy} className={TOOL} onOpen={keepCaret} onPick={insertEmoji} />
             <TemplatesMenu
               disabled={busy}
               className={TOOL}

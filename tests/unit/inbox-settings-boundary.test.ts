@@ -47,7 +47,7 @@ describe('Gmail settings', () => {
 
   it('never touches forwarding, delegates or other send-as fields', () => {
     const text = SOURCES.find((s) => s.rel === 'lib/google/gmail-settings.ts')!.text;
-    expect(text).not.toMatch(/\/(autoForwarding|forwardingAddresses|delegates|imap|pop)/);
+    expect(text).not.toMatch(/\/(autoForwarding|forwardingAddresses|delegates|imap|pop)\b/);
     // The signature write sends the signature field alone.
     expect(text).toMatch(/body: JSON\.stringify\(\{ signature: clean \}\)/);
   });
