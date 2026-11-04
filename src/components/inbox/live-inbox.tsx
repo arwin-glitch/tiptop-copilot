@@ -33,6 +33,8 @@ import {
 } from '@/components/inbox/compose-window';
 import { InboxNav } from '@/components/inbox/inbox-nav';
 import { InboxSearch } from '@/components/inbox/inbox-search';
+import { CreateFilterDialog, FiltersListDialog } from '@/components/inbox/inbox-filters';
+import type { AdvancedSearch } from '@/lib/email/inbox-folders';
 import { InboxToolbar, type SelectWhich } from '@/components/inbox/inbox-toolbar';
 import { ContextMenu, type MenuItem } from '@/components/inbox/inbox-menus';
 import { ThreadRow } from '@/components/inbox/thread-row';
@@ -273,6 +275,9 @@ export function LiveInbox({
     null,
   );
   const [newLabel, setNewLabel] = React.useState<string | null>(null);
+  /** Create filter's dialog, with the search options it opened from. */
+  const [filterFrom, setFilterFrom] = React.useState<AdvancedSearch | null>(null);
+  const [filtersOpen, setFiltersOpen] = React.useState(false);
   const searchRef = React.useRef<HTMLInputElement>(null);
   /** Changes made here, laid over each list Gmail answers until it has caught up. */
   const pending = React.useRef(new Map<string, PendingChange<LiveThreadRow>>());
@@ -1265,6 +1270,12 @@ export function LiveInbox({
           }}
           searched={Boolean(searched)}
           inputRef={searchRef}
+          timeZone={timeZone}
+          onOpenThread={(row) => {
+            setLinked(row);
+            openRow(row);
+          }}
+          onCreateFilter={setFilterFrom}
         />
       </div>
 
@@ -1399,6 +1410,7 @@ export function LiveInbox({
                   : null
               }
               onShortcuts={() => setHelp(true)}
+              onFilters={() => setFiltersOpen(true)}
               bulk={{
                 ...(inDrafts || inScheduled
                   ? {
@@ -1632,6 +1644,19 @@ export function LiveInbox({
         />
       ) : null}
 
+      <CreateFilterDialog
+        search={filterFrom}
+        onOpenChange={(o) => !o && setFilterFrom(null)}
+        onCreated={(applied) => {
+          if (applied) {
+            void load(
+              { folder, category, q: searched, page, token: tokens.at(-1) },
+              { quiet: true },
+            );
+          }
+        }}
+      />
+      <FiltersListDialog open={filtersOpen} onOpenChange={setFiltersOpen} />
       <Dialog open={newLabel !== null} onOpenChange={(o) => !o && setNewLabel(null)}>
         {newLabel !== null ? (
           <DialogContent title="New label">

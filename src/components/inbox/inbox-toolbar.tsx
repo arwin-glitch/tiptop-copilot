@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Filter,
   FolderInput,
   Inbox as InboxIcon,
   Keyboard,
@@ -91,6 +92,7 @@ export function InboxToolbar({
   setPane,
   onMarkAllRead,
   onShortcuts,
+  onFilters,
 }: {
   rows: readonly LiveThreadRow[];
   checked: ReadonlySet<string>;
@@ -123,6 +125,8 @@ export function InboxToolbar({
   setPane: (p: ReadingPane) => void;
   onMarkAllRead: (() => void) | null;
   onShortcuts: () => void;
+  /** Gmail's filters: view and delete (made from search options › Create filter). */
+  onFilters?: () => void;
 }) {
   const some = checked.size > 0;
   const all = rows.length > 0 && rows.every((r) => checked.has(r.id));
@@ -187,6 +191,9 @@ export function InboxToolbar({
           divider: true,
           onSelect: onShortcuts,
         },
+        ...(onFilters
+          ? [{ id: 'filters', label: 'Filters', icon: Filter, onSelect: onFilters }]
+          : []),
       ];
 
   return (

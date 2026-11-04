@@ -454,7 +454,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'inbox-search',
         title: 'Search all mail',
-        body: 'Type like Gmail, from:jane has:attachment, or open the sliders for more options.',
+        body: 'Type like Gmail or tap a chip. People and recent searches show as you type; the sliders hold Create filter.',
         placement: 'bottom',
       },
       {
