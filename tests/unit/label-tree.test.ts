@@ -19,12 +19,25 @@ describe('labelTree', () => {
     expect(root.children.map((c) => c.name)).toEqual(['@For Team', '@Jobs']);
     const team = root.children[0]!;
     expect(team.depth).toBe(1);
-    expect(team.children.map((c) => c.name)).toEqual(['Acme', 'Beta']);
-    // "Beta" is not a label itself: a parent row so "no" has somewhere to sit.
-    const beta = team.children[1]!;
-    expect(beta.label).toBeNull();
-    expect(beta.children[0]).toMatchObject({ name: 'no', depth: 3, path: '@/@For Team/Beta/no' });
-    expect(beta.children[0]!.label?.id).toBe('Label_4');
+    // "Beta" is not a label itself, so (as in Gmail) it gets no row: its child
+    // shows as "Beta/no" one level up.
+    expect(team.children.map((c) => c.name)).toEqual(['Acme', 'Beta/no']);
+    expect(team.children[1]).toMatchObject({ depth: 2, path: '@/@For Team/Beta/no' });
+    expect(team.children[1]!.label?.id).toBe('Label_4');
+  });
+
+  it('folds missing levels the way Gmail shows them', () => {
+    const tree = labelTree([
+      L('Label_1', '@'),
+      L('Label_2', '@/@Deals to Review/Archive'),
+      L('Label_3', '@/@Deals to Review/Archive/Intro Requests'),
+      L('Label_4', 'Loose/Child'),
+    ]);
+    expect(tree.map((n) => n.name)).toEqual(['@', 'Loose/Child']);
+    const deals = tree[0]!.children[0]!;
+    expect(deals).toMatchObject({ name: '@Deals to Review/Archive', depth: 1 });
+    expect(deals.children[0]).toMatchObject({ name: 'Intro Requests', depth: 2 });
+    expect(tree[1]!.depth).toBe(0);
   });
 
   it('sorts siblings the way Gmail does, numbers in order', () => {
@@ -39,8 +52,9 @@ describe('labelTree', () => {
 
   it('ignores empty parts of a name', () => {
     const tree = labelTree([L('a', 'x//y/'), L('b', '/')]);
-    expect(tree.map((n) => n.path)).toEqual(['x']);
-    expect(tree[0]!.children[0]!.path).toBe('x/y');
+    // "x" is not a label, so the one label shows at the top as "x/y".
+    expect(tree.map((n) => n.path)).toEqual(['x/y']);
+    expect(tree[0]!.name).toBe('x/y');
   });
 });
 

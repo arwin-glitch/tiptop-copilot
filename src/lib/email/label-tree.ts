@@ -3,17 +3,16 @@ import type { MailLabel } from '@/lib/email/inbox-actions';
 /**
  * Gmail nests a label under another by its name: "Clients/Acme" sits under
  * "Clients". This turns the flat label list into that tree for the left nav,
- * where each row shows only its own part of the name ("Acme"). A parent that
- * is not itself a label (Gmail normally makes one, but a mailbox can lack it)
- * still appears, so its children have somewhere to sit; it just can't be
- * opened as a folder.
+ * where each row shows only its own part of the name ("Acme"). A level that
+ * is not itself a label gets no row of its own, as in Gmail: it is folded
+ * into its children, so "a/b/c" with no "a/b" label sits under "a" as "b/c".
  */
 export interface LabelNode {
   /** The full name up to this row ("Clients/Acme"): unique, used as the key. */
   path: string;
   /** This row's own part of the name ("Acme"). */
   name: string;
-  /** The Gmail label at this path, or null for a parent that isn't one. */
+  /** The Gmail label at this path (null only for a childless leftover, never shown). */
   label: MailLabel | null;
   depth: number;
   children: LabelNode[];
@@ -48,12 +47,27 @@ export function labelTree(labels: readonly MailLabel[]): LabelNode[] {
     const node = nodeAt(parts);
     if (!node.label) node.label = label;
   }
+  // Gmail shows no row for a level that isn't a label itself: "a/b/c" with no
+  // "a/b" label sits under "a" as "b/c". Fold each such level into its children.
+  const fold = (list: LabelNode[], depth: number): LabelNode[] =>
+    list.flatMap((n) => {
+      if (n.label || n.children.length === 0) {
+        n.depth = depth;
+        n.children = fold(n.children, depth + 1);
+        return [n];
+      }
+      return fold(
+        n.children.map((c) => ({ ...c, name: `${n.name}/${c.name}` })),
+        depth,
+      );
+    });
+  const tree = fold(roots, 0);
   const sort = (list: LabelNode[]) => {
     list.sort(byName);
     for (const n of list) sort(n.children);
   };
-  sort(roots);
-  return roots;
+  sort(tree);
+  return tree;
 }
 
 /** The paths above a label ("a", "a/b" for "a/b/c"), opened so the current folder is in view. */

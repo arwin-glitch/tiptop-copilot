@@ -472,7 +472,8 @@ function LabelRow({
           className="flex h-full min-w-0 flex-1 items-center gap-2.5 pl-1 text-left disabled:cursor-default"
         >
           <Tag
-            className="size-4 shrink-0"
+            // No colour set in Gmail: Gmail's solid dark-grey tag, not an outline.
+            className={cn('size-4 shrink-0', !color && 'fill-current text-[var(--fg-muted)]')}
             style={color ? { color: color.bg, fill: color.bg } : undefined}
             aria-hidden
           />
