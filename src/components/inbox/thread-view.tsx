@@ -41,6 +41,7 @@ import { ComposeForm, type ComposeEnv, type ComposeSeed } from '@/components/inb
 import type { ComposeDraft } from '@/components/inbox/composer';
 import { LabelMenu } from '@/components/inbox/label-menu';
 import { originalHref, ShowOriginalDialog } from '@/components/inbox/show-original';
+import { SuggestedReplies } from '@/components/inbox/suggested-replies';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { PdfPreview } from '@/components/inbox/pdf-preview';
 import { MenuButton, MoveMenu, type MenuItem } from '@/components/inbox/inbox-menus';
@@ -776,10 +777,16 @@ export function ThreadView({
 
   /** Open the inline composer for a message (the newest by default). */
   const startWrite = React.useCallback(
-    async (kind: WriteKind, message?: LiveMessage, opts: { quiet?: boolean } = {}) => {
+    async (
+      kind: WriteKind,
+      message?: LiveMessage,
+      opts: { quiet?: boolean; html?: string } = {},
+    ) => {
       if (!thread) return;
       const m = message ?? thread.messages.at(-1)!;
       const base = replySeed(kind, thread, m, mailbox, timeZone);
+      // A suggested reply fills the box; the person edits and sends it.
+      if (opts.html) base.html = opts.html;
       setSeedFocus(!opts.quiet);
       if (kind !== 'replyAll' || composeEnv.demo) {
         setSeed(base);
@@ -858,6 +865,7 @@ export function ThreadView({
 
   // The newest message someone else sent: who "Filter messages like these" and Block are about.
   const lastIncoming = [...messages].reverse().find((m) => !m.fromUs) ?? null;
+  const lastIncomingIsLast = Boolean(lastIncoming && lastIncoming === messages.at(-1));
   const moreItems: MenuItem[] = [
     {
       id: 'imp',
@@ -1294,26 +1302,39 @@ export function ThreadView({
               />
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {preparing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-              {(
-                [
-                  ['reply', 'Reply', Reply],
-                  ['replyAll', 'Reply all', ReplyAll],
-                  ['forward', 'Forward', Forward],
-                ] as const
-              ).map(([kind, label, Icon]) => (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={() => void startWrite(kind)}
-                  disabled={preparing}
-                  className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--border-strong)] px-4 text-sm font-medium text-[var(--fg)] hover:bg-[var(--bg-hover)]"
-                >
-                  <Icon className="size-4" aria-hidden /> {label}
-                </button>
-              ))}
-            </div>
+            <>
+              {composeEnv.canSend || composeEnv.demo ? (
+                lastIncomingIsLast && messages.length ? (
+                  <SuggestedReplies
+                    threadId={thread.id}
+                    lastMessageId={messages.at(-1)!.id}
+                    onPick={(text) =>
+                      void startWrite('reply', undefined, { html: textToComposeHtml(text) })
+                    }
+                  />
+                ) : null
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {preparing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+                {(
+                  [
+                    ['reply', 'Reply', Reply],
+                    ['replyAll', 'Reply all', ReplyAll],
+                    ['forward', 'Forward', Forward],
+                  ] as const
+                ).map(([kind, label, Icon]) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => void startWrite(kind)}
+                    disabled={preparing}
+                    className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--border-strong)] px-4 text-sm font-medium text-[var(--fg)] hover:bg-[var(--bg-hover)]"
+                  >
+                    <Icon className="size-4" aria-hidden /> {label}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
         </div>
       ) : null}

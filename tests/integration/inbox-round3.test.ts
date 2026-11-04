@@ -74,6 +74,8 @@ vi.mock('@/lib/services/email-session-auth', async (importOriginal) => ({
 const original = await import('@/app/api/inbox/original/route');
 const compose = await import('@/app/api/inbox/compose/route');
 const taskRoute = await import('@/app/api/inbox/task/route');
+const aiRoute = await import('@/app/api/inbox/ai/route');
+const { DEMO_REPLIES } = await import('@/lib/services/inbox-ai');
 
 async function demoMessage() {
   const list = await listLiveThreads(harness.store, DEMO_IDS.org, { tab: 'primary' });
@@ -196,5 +198,24 @@ describe('Add to Tasks', () => {
       }),
     );
     expect(res.status).toBe(400);
+  });
+});
+
+describe('Suggested replies (Kraken AI)', () => {
+  it('demo: three canned chips, no model call, nothing sent', async () => {
+    const { thread, message } = await demoMessage();
+    const res = await aiRoute.POST(
+      new NextRequest('http://localhost/api/inbox/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'replies', threadId: thread.id }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const { replies } = await res.json();
+    expect(replies).toEqual(message.fromUs ? [] : DEMO_REPLIES);
+    expect(sendComposed).not.toHaveBeenCalled();
+    const usage = await harness.store.list('ai_usage', DEMO_IDS.org);
+    expect(usage.filter((u) => u.operation === 'inbox.suggest_replies')).toHaveLength(0);
   });
 });
