@@ -41,6 +41,13 @@ import {
   TURN_ON_FILTERS_HREF,
 } from '@/components/inbox/inbox-filters';
 import { SignatureDialog } from '@/components/inbox/inbox-settings';
+import {
+  readVacation,
+  turnOffVacation,
+  VacationBanner,
+  VacationDialog,
+} from '@/components/inbox/inbox-vacation';
+import type { VacationSettings } from '@/lib/email/vacation';
 import { useConfirm } from '@/components/ui/confirm';
 import { senderAddress } from '@/lib/email/inbox-filters';
 import { textToComposeHtml } from '@/lib/email/compose-html';
@@ -368,6 +375,18 @@ export function LiveInbox({
   const [filterFrom, setFilterFrom] = React.useState<AdvancedSearch | null>(null);
   const [filtersOpen, setFiltersOpen] = React.useState(false);
   const [signatureOpen, setSignatureOpen] = React.useState(false);
+  const [vacationOpen, setVacationOpen] = React.useState(false);
+  /** Gmail's vacation responder, for the "Vacation responder is ON" banner; null when unknown. */
+  const [vacation, setVacation] = React.useState<VacationSettings | null>(null);
+  React.useEffect(() => {
+    let live = true;
+    void readVacation().then((r) => {
+      if (live && 'vacation' in r) setVacation(r.vacation);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const [confirm, confirmDialog] = useConfirm();
   const searchRef = React.useRef<HTMLInputElement>(null);
   /** Changes made here, laid over each list Gmail answers until it has caught up. */
@@ -1601,6 +1620,13 @@ export function LiveInbox({
         />
       </div>
 
+      <VacationBanner
+        vacation={vacation}
+        onOpen={() => setVacationOpen(true)}
+        onTurnOff={() =>
+          vacation && void turnOffVacation(vacation).then((saved) => saved && setVacation(saved))
+        }
+      />
       {!canAct ? (
         <p className="rounded-md border border-[var(--border)] bg-[var(--bg-raised)] px-3 py-2 text-xs text-[var(--fg-muted)]">
           {canModify
@@ -1733,7 +1759,10 @@ export function LiveInbox({
               }
               onShortcuts={() => setHelp(true)}
               onFilters={() => setFiltersOpen(true)}
-              onSettings={{ signature: () => setSignatureOpen(true) }}
+              onSettings={{
+                signature: () => setSignatureOpen(true),
+                vacation: () => setVacationOpen(true),
+              }}
               undoSend={undoSend}
               setUndoSend={(c) => {
                 setUndoSend(c);
@@ -2041,6 +2070,7 @@ export function LiveInbox({
       />
       <FiltersListDialog open={filtersOpen} onOpenChange={setFiltersOpen} />
       <SignatureDialog open={signatureOpen} onOpenChange={setSignatureOpen} />
+      <VacationDialog open={vacationOpen} onOpenChange={setVacationOpen} onSaved={setVacation} />
       <Dialog open={newLabel !== null} onOpenChange={(o) => !o && setNewLabel(null)}>
         {newLabel !== null ? (
           <DialogContent title="New label">

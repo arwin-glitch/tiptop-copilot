@@ -1,6 +1,7 @@
 import 'server-only';
 import type { DataStore } from '@/lib/db/store';
 import { sanitizeSignatureHtml } from '@/lib/email/signature-html';
+import type { VacationSettings } from '@/lib/email/vacation';
 import { getAccessToken } from '@/lib/google/oauth';
 import { log } from '@/lib/security/redact';
 import type { Integration } from '@/lib/types/domain';
@@ -104,4 +105,76 @@ export async function writeSignature(
     email: current.value.email,
     html: sanitizeSignatureHtml(saved.value.signature ?? clean),
   });
+}
+
+interface GmailVacation {
+  enableAutoReply?: boolean;
+  responseSubject?: string;
+  responseBodyHtml?: string;
+  responseBodyPlainText?: string;
+  restrictToContacts?: boolean;
+  restrictToDomain?: boolean;
+  startTime?: string;
+  endTime?: string;
+}
+
+function fromGmail(v: GmailVacation): VacationSettings {
+  const ms = (s: string | undefined) =>
+    s && /^\d+$/.test(s) ? new Date(Number(s)).toISOString() : null;
+  return {
+    enabled: Boolean(v.enableAutoReply),
+    subject: v.responseSubject ?? '',
+    html: sanitizeSignatureHtml(
+      v.responseBodyHtml ??
+        (v.responseBodyPlainText ?? '')
+          .split('\n')
+          .map((l) => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+          .join('<br>'),
+    ),
+    contactsOnly: Boolean(v.restrictToContacts),
+    domainOnly: Boolean(v.restrictToDomain),
+    start: ms(v.startTime),
+    end: ms(v.endTime),
+  };
+}
+
+/** Gmail's vacation responder as it is now. Needs the settings grant. */
+export async function readVacation(
+  store: DataStore,
+  integration: Integration,
+): Promise<Result<VacationSettings>> {
+  if (!canManageFilters(integration)) {
+    return err('forbidden', 'Mail settings are off. Turn on filters and settings first.');
+  }
+  const res = await call<GmailVacation>(store, integration, '/vacation');
+  return res.ok ? ok(fromGmail(res.value)) : res;
+}
+
+/**
+ * Set the vacation responder: from a person's Save click after the confirm
+ * that says it will auto-reply to incoming mail, or their Turn off click.
+ */
+export async function writeVacation(
+  store: DataStore,
+  integration: Integration,
+  next: VacationSettings,
+): Promise<Result<VacationSettings>> {
+  if (!canManageFilters(integration)) {
+    return err('forbidden', 'Mail settings are off. Turn on filters and settings first.');
+  }
+  const body: GmailVacation = {
+    enableAutoReply: next.enabled,
+    responseSubject: next.subject,
+    responseBodyHtml: sanitizeSignatureHtml(next.html),
+    restrictToContacts: next.contactsOnly,
+    restrictToDomain: next.domainOnly,
+    ...(next.start ? { startTime: String(new Date(next.start).getTime()) } : {}),
+    ...(next.end ? { endTime: String(new Date(next.end).getTime()) } : {}),
+  };
+  const res = await call<GmailVacation>(store, integration, '/vacation', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.ok ? ok(fromGmail(res.value)) : res;
 }

@@ -23,6 +23,8 @@ export type AuditAction =
   | 'inbox.filter_created'
   | 'inbox.filter_deleted'
   | 'inbox.signature_saved'
+  | 'inbox.vacation_on'
+  | 'inbox.vacation_off'
   | 'inbox.sender_blocked'
   | 'inbox.unsubscribed'
   | 'inbox.label_changed'
