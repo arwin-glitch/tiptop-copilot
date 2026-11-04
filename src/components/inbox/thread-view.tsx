@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   Ban,
   Bookmark,
+  CalendarPlus,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -54,6 +55,12 @@ import { readerZone, SnoozeMenu } from '@/components/inbox/snooze-menu';
 import { opensInline } from '@/lib/email/attachment-types';
 import { textToComposeHtml } from '@/lib/email/compose-html';
 import { emlFileName } from '@/lib/email/raw-message';
+import {
+  eventPrefill,
+  PREFILL_PARAM,
+  PREFILL_VALUE,
+  storePrefill,
+} from '@/lib/calendar/inbox-prefill';
 import { unsubscribeHow } from '@/lib/email/unsubscribe';
 import type { LabelChange, MailLabel } from '@/lib/email/inbox-actions';
 import { initialOf, type FolderId } from '@/lib/email/inbox-folders';
@@ -889,6 +896,32 @@ export function ThreadView({
             icon: ListTodo,
             divider: true,
             onSelect: () => void addToTasks(thread.id, () => router.push('/tasks')),
+          },
+        ]
+      : []),
+    ...(thread
+      ? [
+          {
+            id: 'event',
+            label: 'Create event',
+            icon: CalendarPlus,
+            onSelect: () => {
+              const prefill = eventPrefill({
+                subject: thread.subject,
+                participants: thread.messages.flatMap((m) => [
+                  m.from,
+                  ...splitList(m.to),
+                  ...splitList(m.cc),
+                ]),
+                mailbox,
+                threadUrl: `${window.location.origin}/inbox?thread=${thread.id}`,
+              });
+              if (!storePrefill(prefill)) {
+                toast.error('This browser would not hold the event details. Try again.');
+                return;
+              }
+              router.push(`/calendar?${PREFILL_PARAM}=${PREFILL_VALUE}`);
+            },
           },
         ]
       : []),

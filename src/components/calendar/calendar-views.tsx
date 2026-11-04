@@ -28,6 +28,7 @@ import {
   optimisticEvent,
   wallFields,
 } from '@/lib/calendar/draft';
+import { PREFILL_PARAM, PREFILL_VALUE, takePrefill } from '@/lib/calendar/inbox-prefill';
 import {
   duplicateDraft,
   eventOptions,
@@ -493,6 +494,37 @@ export function CalendarViews(props: CalendarViewsProps) {
       : new Date(instantFromFields(date, '09:00', timeZone) ?? Date.now());
     openCreate(newDraft(start, new Date(start.getTime() + 3_600_000), timeZone), 'full');
   };
+
+  // Gmail's "Create event" from the Inbox: the full editor, prefilled (title,
+  // guests, a link back to the thread). Taken once; nothing is saved or
+  // emailed until Save, which asks about emailing guests as always.
+  const prefillTaken = React.useRef(false);
+  React.useEffect(() => {
+    if (prefillTaken.current || params.get(PREFILL_PARAM) !== PREFILL_VALUE) return;
+    prefillTaken.current = true;
+    const prefill = takePrefill();
+    const url = new URL(window.location.href);
+    url.searchParams.delete(PREFILL_PARAM);
+    window.history.replaceState(window.history.state, '', url);
+    if (!prefill) return;
+    const start = new Date(Math.ceil(Date.now() / 1_800_000) * 1_800_000);
+    // After this render: opening the editor sets state of its own.
+    window.setTimeout(
+      () =>
+        openCreate(
+          {
+            ...newDraft(start, new Date(start.getTime() + 1_800_000), timeZone),
+            title: prefill.title,
+            description: prefill.description,
+            guests: prefill.guests,
+          },
+          'full',
+        ),
+      0,
+    );
+    // Once, when the Calendar opens from the Inbox.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
 
   /** `heading` is the editor's own (Duplicate event), kept if it has to reopen. */
   async function saveNew(draft: EventDraft, calendarId: string, heading?: string) {
