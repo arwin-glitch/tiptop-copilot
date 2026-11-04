@@ -18,9 +18,16 @@ import {
   Tag,
   Trash2,
   Bookmark,
+  Eye,
+  EyeOff,
+  FolderPlus,
+  MoreVertical,
+  Palette,
+  Pencil,
   type LucideIcon,
 } from 'lucide-react';
 import { useStoredChoice } from '@/components/inbox/use-stored';
+import { MenuButton, type MenuItem } from '@/components/inbox/inbox-menus';
 import { readDraggedThreads, THREAD_DRAG_TYPE, type MailLabel } from '@/lib/email/inbox-actions';
 import { ancestorPaths, labelTree, type LabelNode } from '@/lib/email/label-tree';
 import type { FolderId, SystemFolder } from '@/lib/email/inbox-folders';
@@ -76,6 +83,11 @@ function useDrop(
   };
 }
 
+/** What a label's menu asks the Inbox for (hide and show stay in this browser). */
+export type LabelAction = 'color' | 'edit' | 'sublabel' | 'remove';
+
+const HIDDEN_KEY = 'kraken.inbox.hiddenLabels';
+
 const DROP_RING = 'outline-2 outline-dashed outline-[var(--accent)] bg-[var(--accent-soft)]';
 
 /** The number Gmail shows beside a folder: unread for Inbox and Spam, a count for Drafts and Scheduled. */
@@ -111,7 +123,10 @@ export function InboxNav({
   canCreateLabel,
   className,
   onDropThreads,
+  onLabelAction,
 }: {
+  /** Gmail's label menu: colour, edit, add sublabel, remove; left out when labels cannot change. */
+  onLabelAction?: (action: LabelAction, label: MailLabel) => void;
   /** A conversation dragged from the list onto a label or onto Inbox or Trash. */
   onDropThreads?: (target: DropTarget, ids: string[]) => void;
   folder: FolderId;
@@ -196,6 +211,7 @@ export function InboxNav({
           unread={nav?.labelUnread}
           onFolder={onFolder}
           onDropThreads={onDropThreads}
+          onLabelAction={onLabelAction}
         />
       )}
     </nav>
@@ -274,6 +290,7 @@ function LabelTreeList({
   unread,
   onFolder,
   onDropThreads,
+  onLabelAction,
 }: {
   labels: readonly MailLabel[];
   folder: FolderId;
@@ -281,8 +298,28 @@ function LabelTreeList({
   unread: Record<string, number> | undefined;
   onFolder: (folder: FolderId) => void;
   onDropThreads?: (target: DropTarget, ids: string[]) => void;
+  onLabelAction?: (action: LabelAction, label: MailLabel) => void;
 }) {
-  const tree = React.useMemo(() => labelTree(labels), [labels]);
+  // Gmail's "Hide in label list", remembered in this browser; the label on screen always shows.
+  const [hiddenStored, setHiddenStored] = useStoredChoice<string>(HIDDEN_KEY, parseCollapsed, '[]');
+  const hidden = React.useMemo(
+    () => new Set<string>(JSON.parse(hiddenStored) as string[]),
+    [hiddenStored],
+  );
+  const [showHidden, setShowHidden] = React.useState(false);
+  const setHidden = (id: string, hide: boolean) => {
+    const next = new Set(hidden);
+    if (hide) next.add(id);
+    else next.delete(id);
+    setHiddenStored(JSON.stringify([...next]));
+  };
+  const hiddenCount = labels.filter((l) => hidden.has(l.id)).length;
+  const shown = React.useMemo(
+    () =>
+      showHidden ? labels : labels.filter((l) => !hidden.has(l.id) || `label:${l.id}` === folder),
+    [labels, hidden, showHidden, folder],
+  );
+  const tree = React.useMemo(() => labelTree(shown), [shown]);
   const [stored, setStored] = useStoredChoice<string>(COLLAPSED_KEY, parseCollapsed, '[]');
   const collapsed = React.useMemo(() => new Set<string>(JSON.parse(stored) as string[]), [stored]);
   const current = folder.startsWith('label:')
@@ -303,14 +340,69 @@ function LabelTreeList({
     onDropThreads,
     toggle,
     isOpen: (path: string) => !collapsed.has(path) || keepOpen.has(path),
+    menuFor: (label: MailLabel): MenuItem[] => {
+      const items: MenuItem[] = [];
+      if (onLabelAction) {
+        items.push(
+          {
+            id: 'color',
+            label: 'Label color',
+            icon: Palette,
+            onSelect: () => onLabelAction('color', label),
+          },
+          { id: 'edit', label: 'Edit', icon: Pencil, onSelect: () => onLabelAction('edit', label) },
+          {
+            id: 'sublabel',
+            label: 'Add sublabel',
+            icon: FolderPlus,
+            onSelect: () => onLabelAction('sublabel', label),
+          },
+        );
+      }
+      const isHidden = hidden.has(label.id);
+      items.push({
+        id: isHidden ? 'show' : 'hide',
+        label: isHidden ? 'Show in label list' : 'Hide in label list',
+        icon: isHidden ? Eye : EyeOff,
+        divider: Boolean(onLabelAction),
+        onSelect: () => setHidden(label.id, !isHidden),
+      });
+      if (onLabelAction) {
+        items.push({
+          id: 'remove',
+          label: 'Remove label',
+          icon: Trash2,
+          divider: true,
+          onSelect: () => onLabelAction('remove', label),
+        });
+      }
+      return items;
+    },
   };
 
   return (
-    <ul className="mt-1 space-y-px" data-label-tree>
-      {tree.map((node) => (
-        <LabelRow key={node.path} node={node} {...shared} />
-      ))}
-    </ul>
+    <>
+      <ul className="mt-1 space-y-px" data-label-tree>
+        {tree.map((node) => (
+          <LabelRow key={node.path} node={node} {...shared} />
+        ))}
+      </ul>
+      {hiddenCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => setShowHidden((v) => !v)}
+          aria-expanded={showHidden}
+          className="mt-1 flex h-8 w-full items-center gap-3 rounded-r-full pr-3 pl-4 text-left text-sm text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]"
+        >
+          {showHidden ? (
+            <ChevronUp className="size-4" aria-hidden />
+          ) : (
+            <ChevronDown className="size-4" aria-hidden />
+          )}
+          {showHidden ? 'Less' : `${hiddenCount} hidden label${hiddenCount === 1 ? '' : 's'}`}
+        </button>
+      ) : null}
+    </>
   );
 }
 
@@ -323,7 +415,9 @@ function LabelRow({
   onDropThreads,
   toggle,
   isOpen,
+  menuFor,
 }: {
+  menuFor: (label: MailLabel) => MenuItem[];
   node: LabelNode;
   folder: FolderId;
   searched: boolean;
@@ -344,7 +438,7 @@ function LabelRow({
       <div
         {...drop.handlers}
         className={cn(
-          'flex h-8 w-full items-center rounded-r-full pr-3 text-sm',
+          'group/label flex h-8 w-full items-center rounded-r-full pr-1 text-sm',
           active
             ? 'bg-[var(--nav-active)] text-[var(--fg)]'
             : 'text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
@@ -391,9 +485,23 @@ function LabelRow({
             {node.name}
           </span>
           {count > 0 ? (
-            <span className="shrink-0 text-xs font-semibold text-[var(--fg)]">{count}</span>
+            <span className="shrink-0 text-xs font-semibold text-[var(--fg)] group-focus-within/label:hidden group-hover/label:hidden">
+              {count}
+            </span>
           ) : null}
         </button>
+        {node.label ? (
+          <MenuButton label={`${node.label.name} options`} items={menuFor(node.label)} align="end">
+            <button
+              type="button"
+              aria-label={`Options for ${node.label.name}`}
+              title="Options"
+              className="grid size-6 shrink-0 place-items-center rounded-full text-[var(--fg-muted)] opacity-0 group-focus-within/label:opacity-100 group-hover/label:opacity-100 hover:bg-[var(--bg-hover)] focus-visible:opacity-100 data-[state=open]:opacity-100"
+            >
+              <MoreVertical className="size-4" aria-hidden />
+            </button>
+          </MenuButton>
+        ) : null}
       </div>
       {node.children.length && open ? (
         <ul className="space-y-px">
@@ -408,6 +516,7 @@ function LabelRow({
               onDropThreads={onDropThreads}
               toggle={toggle}
               isOpen={isOpen}
+              menuFor={menuFor}
             />
           ))}
         </ul>

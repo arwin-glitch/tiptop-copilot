@@ -844,6 +844,58 @@ export async function createLabel(
   return res.ok ? ok({ id: res.value.id, name: res.value.name }) : res;
 }
 
+const OWN_LABEL = /^Label_[0-9A-Za-z]{1,40}$/;
+
+/**
+ * Edit one of the person's own labels (Gmail's label ⋮: Label colour, Edit
+ * name), from a person's click. The colour must be one of Gmail's own
+ * palette pairs (lib/email/label-colors.ts). Never a system label.
+ */
+export async function updateLabel(
+  store: DataStore,
+  integration: Integration,
+  id: string,
+  patch: { name?: string; color?: { bg: string; fg: string } },
+): Promise<Result<{ id: string; name: string }>> {
+  if (!canSend(integration)) return err('forbidden', 'Editing labels needs sending turned on.');
+  if (!OWN_LABEL.test(id)) return err('invalid_input', 'Only your own labels can be edited.');
+  const body: Record<string, unknown> = {};
+  if (patch.name !== undefined) {
+    const clean = patch.name
+      .replace(/[\r\n\t]+/g, ' ')
+      .trim()
+      .slice(0, 225);
+    if (!clean) return err('invalid_input', 'Name the label first.');
+    body.name = clean;
+  }
+  if (patch.color) {
+    body.color = { backgroundColor: patch.color.bg, textColor: patch.color.fg };
+  }
+  if (Object.keys(body).length === 0) return err('invalid_input', 'Nothing to change.');
+  const res = await gmail<{ id: string; name: string }>(store, integration, `/labels/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.ok ? ok({ id: res.value.id, name: res.value.name }) : res;
+}
+
+/**
+ * Gmail's "Remove label", from a person's click and its confirm: Gmail's
+ * labels.delete takes the label off every message and deletes the label.
+ * The mail itself stays where else it is filed; nothing is deleted.
+ */
+export async function deleteLabel(
+  store: DataStore,
+  integration: Integration,
+  id: string,
+): Promise<Result<true>> {
+  if (!canSend(integration)) return err('forbidden', 'Removing labels needs sending turned on.');
+  if (!OWN_LABEL.test(id)) return err('invalid_input', 'Only your own labels can be removed.');
+  const res = await gmail<unknown>(store, integration, `/labels/${id}`, { method: 'DELETE' });
+  return res.ok ? ok(true) : res;
+}
+
 /** A header value, RFC 2047-encoded when it is not plain ASCII (a subject with an em dash). */
 export function encodeHeaderValue(value: string): string {
   const clean = value.replace(/[\r\n]+/g, ' ').trim();

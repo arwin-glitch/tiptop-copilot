@@ -32,7 +32,8 @@ import {
   type ComposeEnv,
   type ComposeSeed,
 } from '@/components/inbox/compose-window';
-import { InboxNav } from '@/components/inbox/inbox-nav';
+import { InboxNav, type LabelAction } from '@/components/inbox/inbox-nav';
+import { LabelColorDialog, LabelRenameDialog } from '@/components/inbox/label-edit';
 import { InboxSearch } from '@/components/inbox/inbox-search';
 import {
   CreateFilterDialog,
@@ -65,6 +66,7 @@ import {
   planLabelChange,
   THREAD_DRAG_TYPE,
   type LabelChange,
+  type MailLabel,
   type PendingChange,
 } from '@/lib/email/inbox-actions';
 import {
@@ -346,6 +348,9 @@ export function LiveInbox({
     null,
   );
   const [newLabel, setNewLabel] = React.useState<string | null>(null);
+  /** The label whose colour or name the label menu is changing. */
+  const [colorFor, setColorFor] = React.useState<MailLabel | null>(null);
+  const [renameFor, setRenameFor] = React.useState<MailLabel | null>(null);
   /** Create filter's dialog, with the search options it opened from. */
   const [filterFrom, setFilterFrom] = React.useState<AdvancedSearch | null>(null);
   const [filtersOpen, setFiltersOpen] = React.useState(false);
@@ -1051,8 +1056,8 @@ export function LiveInbox({
     const data = (await res.json()) as { label: { id: string; name: string } };
     setList((cur) => ({
       ...cur,
-      labelChoices: [...cur.labelChoices, data.label].sort((a, b) =>
-        a.name.localeCompare(b.name, undefined, { numeric: true }),
+      labelChoices: [...cur.labelChoices.filter((l) => l.id !== data.label.id), data.label].sort(
+        (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }),
       ),
     }));
     toast.success(`Label “${data.label.name}” created`);
@@ -1180,6 +1185,59 @@ export function LiveInbox({
     onBlock: canLabel ? (m) => void blockSender(m.from, m.fromName) : null,
     onPhishing: canModify && selected ? () => void reportPhishing(selected.id) : null,
     onUnsubscribe: canModify ? (m) => void unsubscribe(m) : null,
+  };
+
+  /** Gmail's label menu: colour or rename (PATCH), from a pick or Save. */
+  const patchLabel = async (
+    id: string,
+    patch: { name?: string; color?: { bg: string; fg: string } },
+  ) => {
+    const res = await fetch('/api/inbox/labels', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...patch }),
+    });
+    if (!res.ok) {
+      toast.error(await errorMessage(res, 'Gmail did not change that label. Try again.'));
+      return;
+    }
+    const data = (await res.json()) as { labels: MailLabel[] };
+    setList((cur) => ({ ...cur, labelChoices: data.labels }));
+    toast.success(patch.name ? `Label renamed “${patch.name}”` : 'Label color changed');
+    void load({ folder, category, q: searched, page, token: tokens.at(-1) }, { quiet: true });
+  };
+
+  /**
+   * Gmail's "Remove label", after the person confirms: the label comes off
+   * every conversation and is deleted. No mail is deleted.
+   */
+  const removeLabel = async (l: MailLabel) => {
+    const yes = await confirm({
+      title: `Remove label “${l.name}”?`,
+      description:
+        'The label comes off every conversation that has it, and the label is deleted. The conversations themselves stay in your mailbox: no mail is deleted. Any sublabels stay as labels of their own.',
+      confirmLabel: 'Remove label',
+      tone: 'danger',
+    });
+    if (!yes) return;
+    const res = await fetch(`/api/inbox/labels?id=${encodeURIComponent(l.id)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      toast.error(await errorMessage(res, 'Gmail did not remove that label. Try again.'));
+      return;
+    }
+    setList((cur) => ({ ...cur, labelChoices: cur.labelChoices.filter((c) => c.id !== l.id) }));
+    toast.success(`Label “${l.name}” removed`);
+    if (!searched && folder === `label:${l.id}`) goTo({ folder: 'inbox', category: 'primary' });
+    else void load({ folder, category, q: searched, page, token: tokens.at(-1) }, { quiet: true });
+  };
+
+  const onLabelAction = (action: LabelAction, l: MailLabel) => {
+    if (action === 'color') setColorFor(l);
+    else if (action === 'edit') setRenameFor(l);
+    else if (action === 'sublabel') setNewLabel(`${l.name}/`);
+    else void removeLabel(l);
   };
 
   const contextItems = (row: LiveThreadRow): MenuItem[] => {
@@ -1469,6 +1527,7 @@ export function LiveInbox({
       onFolder={(f) => goTo({ folder: f })}
       onCreateLabel={() => setNewLabel('')}
       canCreateLabel={canLabel}
+      onLabelAction={canLabel ? onLabelAction : undefined}
       onDropThreads={
         canModify
           ? (target, ids) => {
@@ -2007,6 +2066,24 @@ export function LiveInbox({
         />
       ))}
 
+      <LabelColorDialog
+        label={colorFor}
+        onClose={() => setColorFor(null)}
+        onPick={(color) => {
+          const id = colorFor!.id;
+          setColorFor(null);
+          void patchLabel(id, { color });
+        }}
+      />
+      <LabelRenameDialog
+        label={renameFor}
+        onClose={() => setRenameFor(null)}
+        onSave={(name) => {
+          const id = renameFor!.id;
+          setRenameFor(null);
+          void patchLabel(id, { name });
+        }}
+      />
       <ShortcutHelp open={help} onOpenChange={setHelp} />
       {confirmDialog}
     </div>
