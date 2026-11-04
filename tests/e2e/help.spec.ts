@@ -61,7 +61,12 @@ const PAGES = [
 ];
 
 /** The tabs with a tour of their own, carded after the pages. */
-const TAB_TOURS = ['Jobs & job board', 'Students & interns', 'Booking assistant'];
+const TAB_TOURS = [
+  'Jobs & job board',
+  'People & companies',
+  'Students & interns',
+  'Booking assistant',
+];
 
 test.describe('help page', () => {
   test('Help sits in the System group and shows a card for every page', async ({ page }) => {
@@ -117,14 +122,18 @@ test.describe('help page', () => {
     expect(newBox && tourBox && newBox.y < tourBox.y).toBe(true);
 
     const days = main.getByRole('list', { name: /^New on / });
-    await expect(days.first()).toHaveAccessibleName('New on Wednesday, Oct 28');
-    await expect(days.first().getByRole('link', { name: /^Calendar: Pick times/ })).toHaveAttribute(
+    await expect(days.first()).toHaveAccessibleName('New on Wednesday, Nov 4');
+    await expect(
+      days.first().getByRole('link', { name: /^People and companies show a status tag/ }),
+    ).toHaveAttribute('href', '/network?tab=people&source=affinity');
+    await expect(days.nth(1)).toHaveAccessibleName('New on Wednesday, Oct 28');
+    await expect(days.nth(1).getByRole('link', { name: /^Calendar: Pick times/ })).toHaveAttribute(
       'href',
       '/calendar',
     );
-    const oct22 = days.nth(1);
+    const oct22 = days.nth(2);
     await expect(oct22).toHaveAccessibleName('New on Thursday, Oct 22');
-    await expect(days.nth(2)).toHaveAccessibleName('New on Wednesday, Oct 21');
+    await expect(days.nth(3)).toHaveAccessibleName('New on Wednesday, Oct 21');
     await expect(oct22.getByRole('link', { name: /^Events: event pages/ })).toHaveAttribute(
       'href',
       '/events',
