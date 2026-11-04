@@ -10,6 +10,34 @@ throughout.
 
 ## [Unreleased]
 
+- **The Inbox, laid out like Gmail.** Gmail's layout in Kraken's emerald
+  and gold: the left nav (Compose; Inbox with its unread count, Starred,
+  Snoozed, Important, Sent, Scheduled, Drafts; All Mail, Spam and Trash
+  under "More"; the person's labels, with "+" to make one), the search bar
+  with Gmail's search options written as Gmail syntax, the toolbar (select
+  menu, refresh, more, bulk actions, "1–50 of N" with newer/older), the
+  Primary/Promotions/Social/Updates/Forums tabs (an empty one hidden), and
+  Gmail's rows: star, important, "Name, me 3", Draft, label chips, subject —
+  snippet, attachment marker, a smart date that hover swaps for archive,
+  delete, read/unread, snooze and label, a right-click menu, and a density
+  and reading-pane setting kept per browser. A conversation shows like
+  Gmail's (avatars, "to me ▾" details, folded older messages, attachment
+  cards with download, print, Reply / Reply all / Forward inline). The
+  compose window opens bottom right (several at once, minimise, full
+  screen), with recipient chips, Cc/Bcc, Gmail's formatting bar, attachments
+  (7 MB), and saves itself to Gmail's Drafts; Nick's real signature is added
+  at Send. New: Drafts, Delete (to Trash, with Undo), Report spam (with
+  Undo), Not spam, Restore, Mark important, Move to, Schedule send (Gmail's
+  presets, in the browser's zone) and the Scheduled folder (edit, send now,
+  cancel back to Drafts), Gmail's full keyboard set with a `?` overlay, and
+  the Gmail app's phone layout with a floating Compose. Nothing is ever
+  deleted for good: Trash and Spam are labels. Scheduled sends are kept in
+  `inbox_scheduled_sends` (migration `20261104000000_inbox_scheduled_sends.sql`,
+  applied by hand; until then Schedule says it needs a database update) and
+  sent once each by the phone-alert job's minute loop, the daily job and the
+  Inbox list (claimed with one conditional update: never twice, never after
+  a cancel), within about 3 minutes from 6 AM to 9 PM Central.
+
 - **The iPhone app, web and server side (D-080).** Kraken now knows when it
   is open in the TipTop Kraken iPhone app (`ios-app/`, a Capacitor shell; its
   user agent carries `TipTopCopilotiOS/<version>`), from the first frame:

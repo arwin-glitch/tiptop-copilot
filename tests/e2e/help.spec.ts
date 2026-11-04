@@ -331,11 +331,9 @@ test.describe('tours and the other overlays', () => {
     await page.keyboard.press('Enter');
     await expect(card(page).getByRole('heading')).not.toHaveText(step);
     await page.keyboard.press('j');
-    await expect(
-      page
-        .getByRole('region', { name: 'Reading pane' })
-        .getByText('Pick a conversation to read it here.'),
-    ).toBeVisible();
+    // Nothing opened underneath: the list is still there, no conversation.
+    await expect(page.getByRole('region', { name: 'Conversations' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Reading pane' })).toBeHidden();
     await page.keyboard.press('Escape');
     await expect(card(page)).toHaveCount(0);
   });

@@ -47,13 +47,13 @@ test('a message id opens its archived thread in the reading pane, and Back puts 
     'href',
     /#all\/0f00000000005301$/,
   );
-  // The list is still there beside it.
-  await expect(
-    page.getByRole('region', { name: 'Conversations' }).getByRole('listitem').first(),
-  ).toBeVisible();
+  // Gmail's default reading pane: the conversation in place of the list.
+  const list = page.getByRole('region', { name: 'Conversations' });
+  await expect(list).toBeHidden();
 
   await pane.getByRole('button', { name: 'Back to the list' }).click();
-  await expect(pane.getByText('Pick a conversation to read it here.')).toBeVisible();
+  await expect(list.getByRole('listitem').first()).toBeVisible();
+  await expect(pane).toBeHidden();
   await expect.poll(() => new URL(page.url()).search).toBe('');
   // Opening by link changed nothing in Gmail.
   expect(modify).toEqual([]);

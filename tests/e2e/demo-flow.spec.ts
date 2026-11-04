@@ -211,7 +211,7 @@ test('13 — without the sending grant, a reply can only be finished in Gmail', 
   await page.goto('/inbox');
   await page.getByRole('button', { name: /Plumbline — construction estimating/ }).click();
   const pane = page.getByRole('region', { name: 'Reading pane' });
-  await pane.getByRole('button', { name: 'Reply' }).click();
+  await pane.getByRole('button', { name: 'Reply', exact: true }).click();
 
   // Demo has no send grant: the only route onward is Gmail, never an in-app Send.
   await expect(pane.getByRole('button', { name: 'Send in Gmail' })).toBeVisible();

@@ -8,6 +8,8 @@ import { expect, test } from '@playwright/test';
 test('Inbox labels a thread, moves it between numbered labels and keeps the change', async ({
   page,
 }) => {
+  // Gmail's "Right of inbox" reading pane, so the list stays beside the open thread.
+  await page.addInitScript(() => window.localStorage.setItem('kraken.inbox.readingPane', 'right'));
   await page.goto('/login');
   await page.getByRole('button', { name: 'Enter demo workspace' }).click();
   await page.waitForURL(/\/today/);
