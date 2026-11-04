@@ -13,6 +13,7 @@ import { recordJobHeartbeat } from '@/lib/services/feed-health';
 import { ensureGmailWatch } from '@/lib/services/gmail-watch';
 import { syncMailbox } from '@/lib/services/inbox';
 import { formatSnoozeCronStatus, wakeDueSnoozes } from '@/lib/services/inbox-snooze';
+import { dispatchDueScheduled, formatScheduledCronStatus } from '@/lib/services/inbox-scheduled';
 import { listPortfolio } from '@/lib/services/portfolio';
 import { ingestPortfolioFromSlack } from '@/lib/services/portfolio-ingest';
 import { refreshPortfolioAsks } from '@/lib/services/portfolio-asks';
@@ -101,6 +102,7 @@ export async function POST(request: NextRequest) {
     campaigns: string;
     notes?: string;
     snooze?: string;
+    scheduled?: string;
     jobs: string;
   }[] = [];
 
@@ -196,6 +198,11 @@ export async function POST(request: NextRequest) {
     // Never throws. Counts only: public log.
     const snoozeStatus = formatSnoozeCronStatus(
       await wakeDueSnoozes(store, organization.id, { demo: env().demoMode }),
+    );
+    // Scheduled Inbox emails that are due (a person picked their time) go out,
+    // each claimed once; a backstop for the minute loop. Never throws.
+    const scheduledStatus = formatScheduledCronStatus(
+      await dispatchDueScheduled(store, organization.id, { demo: env().demoMode }),
     );
 
     // Registers on the first run and renews thereafter. Gmail caps a watch at
@@ -419,6 +426,7 @@ export async function POST(request: NextRequest) {
       campaigns: campaignsStatus,
       notes: notesStatus,
       snooze: snoozeStatus,
+      scheduled: scheduledStatus,
       jobs: jobsStatus,
     });
   }

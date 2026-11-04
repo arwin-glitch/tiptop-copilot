@@ -10,6 +10,7 @@ import { afterResponse } from '@/lib/notes/background';
 import { placeHeldBookingsForAll } from '@/lib/services/booking-manage';
 import { recordJobHeartbeatForAll } from '@/lib/services/feed-health';
 import { settleNotesForAll } from '@/lib/services/notes-bridge';
+import { dispatchDueScheduledForAll } from '@/lib/services/inbox-scheduled';
 import { buildOutbox, recordDelivery, vapidPublicKey } from '@/lib/services/push-alerts';
 
 export const dynamic = 'force-dynamic';
@@ -62,6 +63,10 @@ export async function GET(request: NextRequest) {
   // each checked again first, a Google fault on its own backoff (D-078).
   // Never throws. Visitors' old assistant questions are deleted half-hourly.
   await placeHeldBookingsForAll(getStore()).catch(() => null);
+  // Every tick: scheduled Inbox emails that are due go out, each claimed once
+  // (lib/services/inbox-scheduled.ts). A person's Schedule pick made each one;
+  // this loop is what keeps their time. Never throws.
+  await dispatchDueScheduledForAll(getStore(), { demo: env().demoMode }).catch(() => null);
   if (scope === 'all') await pruneBookingQuestionsForAll(getStore()).catch(() => null);
   if (scope === 'all') await pruneJobsQuestionsForAll(getStore()).catch(() => null);
   if (scope === 'all') await prunePerksQuestionsForAll(getStore()).catch(() => null);

@@ -1519,6 +1519,40 @@ export interface InboxSnooze {
   updated_at: IsoDateTime;
 }
 
+/**
+ * An email a person scheduled from the Inbox's compose window
+ * (supabase/migrations/20261104000000_inbox_scheduled_sends.sql). Gmail's API
+ * has no scheduled send, so Kraken keeps it and sends it at `send_at`:
+ * claimed once ('scheduled' -> 'sending'), then 'sent' or 'failed'; a cancel
+ * is 'cancelled'. Never sent twice, never after a cancel.
+ */
+export interface InboxScheduledSend {
+  id: Uuid;
+  organization_id: Uuid;
+  created_by: Uuid | null;
+  status: 'scheduled' | 'sending' | 'sent' | 'cancelled' | 'failed';
+  send_at: IsoDateTime;
+  to_addresses: string;
+  cc_addresses: string;
+  bcc_addresses: string;
+  subject: string;
+  /** The compose window's body, sanitized (lib/email/compose-html.ts). */
+  body_html: string;
+  signature: 'nick' | 'arwin';
+  /** A reply: the Gmail thread it goes on. */
+  thread_id: string | null;
+  /** A forward: the Gmail message whose attachments go along. */
+  forward_of: string | null;
+  claim_token: string | null;
+  claimed_at: IsoDateTime | null;
+  attempts: number;
+  sent_at: IsoDateTime | null;
+  sent_message_id: string | null;
+  last_error: string | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
 /** Why a held booking is not on the calendar yet (D-078). */
 export type BookingHoldReason =
   'calendar_editing_off' | 'no_main_calendar' | 'calendar_unreachable' | 'calendar_error';

@@ -52,7 +52,12 @@ import { processWide } from '@/lib/util/process-state';
 import { err, ok, type AppError, type Err, type Result } from '@/lib/util/result';
 import { getPrimaryIntegration } from './inbox';
 import { readOpenSnoozes, wakeDueSnoozes } from './inbox-snooze';
-import { countScheduled, listScheduledRows } from './inbox-scheduled';
+import {
+  countScheduled,
+  dispatchDueScheduled,
+  listScheduledRows,
+  scheduleTableReady,
+} from './inbox-scheduled';
 
 /**
  * The Inbox tab, straight from Gmail: the same mailbox, folders, category
@@ -416,6 +421,15 @@ export async function listLiveThreads(
   // indexed read when none are due, and a failure never holds up the list.
   const woke = await wakeDueSnoozes(store, organizationId, { demo: false, integration, now });
   if (woke.woken.length) forgetThreads(woke.woken);
+  // Scheduled emails that came due go out now too (each claimed once, so the
+  // minute loop cannot send one again). A person's Schedule pick made them.
+  const dispatched = await dispatchDueScheduled(store, organizationId, {
+    demo: false,
+    integration,
+    now,
+  });
+  if (dispatched.sent) cache.nav.clear();
+  const scheduleReady = await scheduleTableReady(store, organizationId).catch(() => false);
 
   const search = options.q?.trim();
   const navRead = readNav(store, integration, organizationId, now.getTime()).catch(
@@ -433,6 +447,7 @@ export async function listLiveThreads(
     canLabel: canSend(integration),
     canSnooze: canSend(integration),
     snoozeReady: woke.state !== 'needs_migration',
+    scheduleReady,
     mailbox: integration.account_email ?? null,
     folder: view.folder,
     category: view.category,
@@ -1148,7 +1163,8 @@ async function demoList(
     snoozeReady: open.state === 'ok',
     scheduleReady: scheduled.state === 'ok',
     labelChoices: [...DEMO_MAIL_LABELS],
-    mailbox: null,
+    // The demo's fictional mailbox, so a reply never copies "me".
+    mailbox: DEMO_USER.email,
   };
 }
 

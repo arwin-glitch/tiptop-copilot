@@ -250,6 +250,10 @@ describe('nothing sends on its own', () => {
       'app/api/inbox/drafts/route.ts',
       'app/api/inbox/labels/route.ts',
       'lib/services/inbox-live.ts',
+      // Schedule send: an email a person wrote and picked a time for, sent
+      // once at that time (claimed, so never twice, never after a cancel).
+      'app/api/inbox/scheduled/route.ts',
+      'lib/services/inbox-scheduled.ts',
       // Snooze: takes INBOX off on a tap, and puts INBOX and UNREAD back at
       // the wake time on threads someone snoozed (never sends, never deletes).
       'lib/services/inbox-snooze.ts',

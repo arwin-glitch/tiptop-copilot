@@ -23,8 +23,11 @@ import { SEND_SCOPES } from './send-scopes';
  * - It sends only when a signed-in person taps Send on one email, or taps
  *   Send on a campaign's review screen (which shows the recipient count, the
  *   from-address, the subject and a sample) and keeps its page open while the
- *   batches go. Nothing in the AI tools, the routines or the cron jobs
- *   imports it, and nothing here runs on a schedule.
+ *   batches go. Nothing in the AI tools or the routines imports it, and
+ *   nothing here runs on a schedule of its own. The one timed send is the
+ *   Inbox's Schedule send: an email a person wrote and picked a time for,
+ *   which lib/services/inbox-scheduled.ts sends once at that time (claimed
+ *   so it can never go twice, and never after a cancel).
  * - A reply goes on an existing thread, to the recipients of the draft already
  *   on that thread (or, with no draft, reply-all to the latest message). A new
  *   email or forward (sendNew) goes to the addresses the person typed. Either

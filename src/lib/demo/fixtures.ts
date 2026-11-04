@@ -10,6 +10,7 @@ import {
   DEFAULT_THRESHOLDS,
 } from '@/lib/types/domain';
 import type {
+  InboxScheduledSend,
   AuditEvent,
   BookingRequest,
   BookingSettingsRow,
@@ -2204,12 +2205,48 @@ experiment, not the fundraise timing.`,
     ...demoBooking(now),
     // Inbox snooze: none until the demo user snoozes a thread.
     inbox_snoozes: [],
+    // Inbox schedule send: one fictional email set to go out tomorrow morning.
+    // Demo mode never sends it; it shows what the Scheduled folder looks like.
+    inbox_scheduled_sends: demoScheduledSends(now),
     // The public job board, switched on, over the two demo companies.
     ...demoJobsBoard(now),
     // Events (D-075): fictional pages, sessions and guests.
     ...demoEvents(now),
     ...notesTables,
   };
+}
+
+/* ------------------------------------------------------- schedule send */
+
+function demoScheduledSends(now: Date): InboxScheduledSend[] {
+  const tomorrow8 = new Date(now.getTime() + 86_400_000);
+  tomorrow8.setUTCHours(14, 0, 0, 0); // 8:00 AM Central (standard time)
+  return [
+    {
+      id: '5c4ed000-0000-4000-8000-000000000001',
+      organization_id: ORG,
+      created_by: USER,
+      status: 'scheduled',
+      send_at: tomorrow8.toISOString(),
+      to_addresses: 'maya@ledgerly.demo',
+      cc_addresses: '',
+      bcc_addresses: '',
+      subject: 'Intros for the Series A',
+      body_html:
+        '<div>Hi Maya,</div><div><br></div><div>Three investors said yes to an intro. I will send the notes this afternoon.</div>',
+      signature: 'nick',
+      thread_id: null,
+      forward_of: null,
+      claim_token: null,
+      claimed_at: null,
+      attempts: 0,
+      sent_at: null,
+      sent_message_id: null,
+      last_error: null,
+      created_at: iso(now),
+      updated_at: iso(now),
+    },
+  ];
 }
 
 /* -------------------------------------------------------------- campaigns */
