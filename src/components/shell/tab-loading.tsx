@@ -18,14 +18,17 @@ export function TabLoading({
   header,
   tabs,
   body = 'list',
+  className,
 }: {
   header: PageHeaderText;
+  /** The page shell's own width, when the page is wider than most (the Inbox). */
+  className?: string;
   /** The subtab labels, when the page has a subtab bar. */
   tabs?: readonly string[];
   body?: LoadingBody;
 }) {
   return (
-    <PageShell aria-busy="true">
+    <PageShell aria-busy="true" className={className}>
       <PageHeader title={header.title} subtitle={header.subtitle} eyebrow={header.eyebrow} />
       {tabs && tabs.length > 0 ? <TabBarSkeleton labels={tabs} /> : null}
       <LoadingBodyShape body={body} />
@@ -98,27 +101,31 @@ export function LoadingBodyShape({ body, className }: { body: LoadingBody; class
       );
     case 'inbox':
       return (
-        <div
-          className={cn('grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]', className)}
-          aria-hidden="true"
-        >
-          <Card>
-            <CardContent className="space-y-4 pt-5">
-              <Skeleton className="h-9 w-full" />
+        // The Inbox's Gmail layout: the search bar, then the folder nav beside
+        // the list (toolbar, rows), as Gmail opens with no reading pane split.
+        <div className={cn('space-y-3', className)} aria-hidden="true">
+          <Skeleton className="h-12 w-full rounded-full" />
+          <div className="grid gap-3 lg:grid-cols-[13rem_minmax(0,1fr)]">
+            <div className="hidden space-y-2 lg:block">
+              <Skeleton className="mb-3 h-14 w-36 rounded-2xl" />
               {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="space-y-1.5">
-                  <Skeleton className="h-3.5 w-1/3" />
-                  <Skeleton className="h-3.5 w-5/6" />
-                </div>
+                <Skeleton key={i} className="h-6 w-5/6" />
               ))}
-            </CardContent>
-          </Card>
-          <Card className="hidden lg:block">
-            <CardContent className="pt-5">
-              <Skeleton className="mb-4 h-6 w-2/3" />
-              <SkeletonText lines={8} />
-            </CardContent>
-          </Card>
+            </div>
+            <div className="min-w-0">
+              <Card>
+                <CardContent className="space-y-4 pt-4">
+                  <Skeleton className="h-8 w-full" />
+                  {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                    <div key={i} className="space-y-1.5">
+                      <Skeleton className="h-3.5 w-1/3" />
+                      <Skeleton className="h-3.5 w-5/6" />
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </div>
       );
     case 'form':

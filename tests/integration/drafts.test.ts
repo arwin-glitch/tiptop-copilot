@@ -245,6 +245,10 @@ describe('nothing sends on its own', () => {
       'app/(app)/settings/page.tsx',
       'app/api/inbox/modify/route.ts',
       'app/api/inbox/compose/route.ts',
+      // The compose window's Gmail draft (save, and discard to Trash) and
+      // "Create new label": each from a person's tap; neither sends.
+      'app/api/inbox/drafts/route.ts',
+      'app/api/inbox/labels/route.ts',
       'lib/services/inbox-live.ts',
       // Snooze: takes INBOX off on a tap, and puts INBOX and UNREAD back at
       // the wake time on threads someone snoozed (never sends, never deletes).
@@ -292,14 +296,26 @@ describe('nothing sends on its own', () => {
     expect(writers).toEqual(['lib/google/gmail-send.ts']);
   });
 
-  it('setThreadLabels refuses every system label but read state, star and inbox', async () => {
-    const { setThreadLabels } = await import('@/lib/google/gmail-send');
+  it('setThreadLabels refuses every system label but read state, star, inbox, important, Trash and Spam', async () => {
+    const { setThreadLabels, WRITABLE_LABEL } = await import('@/lib/google/gmail-send');
     const { SEND_SCOPES } = await import('@/lib/google/send-scopes');
     const integration = {
       id: '44444444-4444-4444-8444-444444444444',
       scopes: [...SEND_SCOPES],
     } as unknown as Parameters<typeof setThreadLabels>[1];
-    for (const label of ['TRASH', 'SPAM', 'SENT', 'DRAFT', 'IMPORTANT', 'CATEGORY_PERSONAL']) {
+    // Delete and Report spam are Gmail labels, undone by taking them off:
+    // nothing on this path deletes for good.
+    for (const label of ['UNREAD', 'STARRED', 'INBOX', 'IMPORTANT', 'TRASH', 'SPAM', 'Label_12']) {
+      expect(WRITABLE_LABEL.test(label), label).toBe(true);
+    }
+    for (const label of [
+      'SENT',
+      'DRAFT',
+      'CHAT',
+      'CATEGORY_PERSONAL',
+      'CATEGORY_SOCIAL',
+      'Label_',
+    ]) {
       const res = await setThreadLabels(harness.store, integration, 'abc1234567', {
         add: [label as 'INBOX'],
       });

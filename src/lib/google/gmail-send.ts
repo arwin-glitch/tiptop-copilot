@@ -7,6 +7,7 @@ import type { Integration } from '@/lib/types/domain';
 import { htmlToPlainText } from '@/lib/util/text';
 import { err, ok, type Result } from '@/lib/util/result';
 import { lineWithLinksToHtml, textWithLinks } from '@/lib/email/name-links';
+import { isBlankHtml, sanitizeComposeHtml } from '@/lib/email/compose-html';
 import { SEND_SCOPES } from './send-scopes';
 
 /**
@@ -281,19 +282,32 @@ export function buildReplyMime(input: {
   signatureHtml: string | null;
   /** Names written [Full Name](LinkedIn URL) go out as links (the intro draft). */
   links?: boolean;
+  /** Blind copies: Gmail delivers to them and strips the header from what others see. */
+  bcc?: string;
+  /**
+   * The compose window's formatted body. Sanitized here again whatever the
+   * caller did (compose-html.ts); the plain part is its text.
+   */
+  html?: string | null;
 }): string {
   const boundary = `b_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
   const signatureText = input.signatureHtml ? htmlToPlainText(input.signatureHtml) : '';
-  const plain = input.links ? textWithLinks(input.body.trim()) : input.body.trim();
+  const formatted = input.html ? sanitizeComposeHtml(input.html) : '';
+  const plain = formatted
+    ? htmlToPlainText(formatted).trim()
+    : input.links
+      ? textWithLinks(input.body.trim())
+      : input.body.trim();
   const text = signatureText ? `${plain}\n\n--\n${signatureText}` : plain;
-  const html = `<div dir="ltr">${bodyToHtml(input.body, { links: input.links })}${
+  const html = `<div dir="ltr">${formatted || bodyToHtml(input.body, { links: input.links })}${
     input.signatureHtml ? `<br><div class="gmail_signature">${input.signatureHtml}</div>` : ''
   }</div>`;
   const clean = (v: string) => v.replace(/[\r\n]+/g, ' ').trim();
   const headers = [
     `From: ${clean(input.from)}`,
-    `To: ${encodeAddressHeader(input.to)}`,
+    input.to.trim() ? `To: ${encodeAddressHeader(input.to)}` : '',
     input.cc ? `Cc: ${encodeAddressHeader(input.cc)}` : '',
+    input.bcc ? `Bcc: ${encodeAddressHeader(input.bcc)}` : '',
     `Subject: ${encodeHeaderValue(input.subject)}`,
     input.inReplyTo ? `In-Reply-To: ${clean(input.inReplyTo)}` : '',
     input.references ? `References: ${clean(input.references)}` : '',
@@ -388,8 +402,13 @@ export async function archiveThread(
   return res.ok ? ok(true) : res;
 }
 
-/** The only system labels the inbox may change: read state, star, and inbox (archive / move back). */
-export type InboxLabel = 'UNREAD' | 'STARRED' | 'INBOX';
+/**
+ * The only system labels the inbox may change: read state, star, inbox
+ * (archive / move back), important, and Trash and Spam, which are labels in
+ * Gmail too, so Delete and Report spam are undone by taking them off again.
+ * Nothing here deletes for good: no "Delete forever", no emptying Trash.
+ */
+export type InboxLabel = 'UNREAD' | 'STARRED' | 'INBOX' | 'IMPORTANT' | 'TRASH' | 'SPAM';
 
 /**
  * A label of the person's own (Gmail ids them `Label_…`). The caller checks
@@ -398,12 +417,13 @@ export type InboxLabel = 'UNREAD' | 'STARRED' | 'INBOX';
 export type UserLabelId = `Label_${string}`;
 
 /** Everything this module will put on or take off a thread: no other system label. */
-const WRITABLE_LABEL = /^(UNREAD|STARRED|INBOX|Label_[0-9A-Za-z]{1,40})$/;
+export const WRITABLE_LABEL =
+  /^(UNREAD|STARRED|INBOX|IMPORTANT|TRASH|SPAM|Label_[0-9A-Za-z]{1,40})$/;
 
 /**
  * Add or remove those labels on a whole thread, from a person's tap in the
  * Inbox tab. Refuses without the send grant, and refuses any label id that is
- * neither one of the three above nor a label of the person's own.
+ * neither one of the six above nor a label of the person's own.
  */
 export async function setThreadLabels(
   store: DataStore,
@@ -442,8 +462,17 @@ export function buildNewMime(input: {
   signatureHtml: string | null;
   attachments?: MimeAttachment[];
   links?: boolean;
+  bcc?: string;
+  html?: string | null;
+  /** A reply's headers; empty for a new email. */
+  inReplyTo?: string;
+  references?: string;
 }): string {
-  const reply = buildReplyMime({ ...input, inReplyTo: '', references: '' });
+  const reply = buildReplyMime({
+    ...input,
+    inReplyTo: input.inReplyTo ?? '',
+    references: input.references ?? '',
+  });
   if (!input.attachments?.length) return reply;
   // Re-wrap: the alternative part becomes the first part of a multipart/mixed.
   const split = reply.indexOf('\r\n\r\n');
@@ -477,6 +506,8 @@ export function buildNewMime(input: {
 }
 
 const MAX_FORWARD_BYTES = 20 * 1024 * 1024;
+/** What a compose window may attach on top of a forward's own attachments. */
+export const MAX_UPLOAD_BYTES = 7 * 1024 * 1024;
 
 interface AttachmentPart {
   filename?: string;
@@ -517,30 +548,9 @@ export async function sendNew(
 
   const attachments: MimeAttachment[] = [];
   if (input.forwardMessageId) {
-    const original = await gmail<Message & { payload?: AttachmentPart }>(
-      store,
-      integration,
-      `/messages/${input.forwardMessageId}?format=full`,
-    );
-    if (!original.ok) return original;
-    let total = 0;
-    for (const part of attachmentParts(original.value.payload)) {
-      total += part.body?.size ?? 0;
-      if (total > MAX_FORWARD_BYTES) {
-        return err('invalid_input', 'The attachments are over 20 MB. Forward this one from Gmail.');
-      }
-      const data = await gmail<{ data: string }>(
-        store,
-        integration,
-        `/messages/${input.forwardMessageId}/attachments/${part.body!.attachmentId}`,
-      );
-      if (!data.ok) return data;
-      attachments.push({
-        filename: part.filename!,
-        mimeType: part.mimeType ?? 'application/octet-stream',
-        data: Buffer.from(data.value.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64'),
-      });
-    }
+    const carried = await forwardAttachments(store, integration, input.forwardMessageId);
+    if (!carried.ok) return carried;
+    attachments.push(...carried.value);
   }
 
   const raw = buildNewMime({
@@ -560,6 +570,275 @@ export async function sendNew(
   });
   if (!sent.ok) return sent;
   return ok({ messageId: sent.value.id, threadId: sent.value.threadId });
+}
+
+/** The original's attachments, for a forward. */
+async function forwardAttachments(
+  store: DataStore,
+  integration: Integration,
+  messageId: string,
+): Promise<Result<MimeAttachment[]>> {
+  const original = await gmail<Message & { payload?: AttachmentPart }>(
+    store,
+    integration,
+    `/messages/${messageId}?format=full`,
+  );
+  if (!original.ok) return original;
+  const out: MimeAttachment[] = [];
+  let total = 0;
+  for (const part of attachmentParts(original.value.payload)) {
+    total += part.body?.size ?? 0;
+    if (total > MAX_FORWARD_BYTES) {
+      return err('invalid_input', 'The attachments are over 20 MB. Forward this one from Gmail.');
+    }
+    const data = await gmail<{ data: string }>(
+      store,
+      integration,
+      `/messages/${messageId}/attachments/${part.body!.attachmentId}`,
+    );
+    if (!data.ok) return data;
+    out.push({
+      filename: part.filename!,
+      mimeType: part.mimeType ?? 'application/octet-stream',
+      data: Buffer.from(data.value.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64'),
+    });
+  }
+  return ok(out);
+}
+
+/** An email written in the Inbox's compose window (new, reply, forward, or a draft). */
+export interface ComposedEmail {
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  /** Plain text, used when there is no formatted body. */
+  body: string;
+  /** The formatted body from the compose window; sanitized before it is used. */
+  html?: string | null;
+  /** The thread it replies on, or null for a new email. */
+  threadId?: string | null;
+  /** A forward: this message's attachments go along. */
+  forwardMessageId?: string | null;
+  /** Files attached in the compose window. */
+  attachments?: MimeAttachment[];
+}
+
+/** In-Reply-To and References for a reply on a thread: its newest real message's. */
+async function replyHeaders(
+  store: DataStore,
+  integration: Integration,
+  threadId: string,
+): Promise<Result<{ inReplyTo: string; references: string; threadId: string | null }>> {
+  const thread = await gmail<{ id: string; messages?: Message[] }>(
+    store,
+    integration,
+    `/threads/${threadId}?format=metadata&metadataHeaders=Message-ID&metadataHeaders=References`,
+  );
+  if (!thread.ok) return thread;
+  const latest = (thread.value.messages ?? []).filter((m) => !m.labelIds?.includes('DRAFT')).at(-1);
+  // Only the draft itself on it: a new email, not a reply.
+  if (!latest) return ok({ inReplyTo: '', references: '', threadId: null });
+  const id = header(latest, 'Message-ID');
+  return ok({
+    inReplyTo: id,
+    references: [header(latest, 'References'), id].filter(Boolean).join(' '),
+    threadId: thread.value.id,
+  });
+}
+
+async function composedMime(
+  store: DataStore,
+  integration: Integration,
+  input: ComposedEmail,
+  signatureHtml: string | null,
+  withForward: boolean,
+): Promise<Result<{ raw: string; threadId: string | null }>> {
+  const attachments: MimeAttachment[] = [];
+  if (withForward && input.forwardMessageId) {
+    const carried = await forwardAttachments(store, integration, input.forwardMessageId);
+    if (!carried.ok) return carried;
+    attachments.push(...carried.value);
+  }
+  const uploaded = input.attachments ?? [];
+  if (uploaded.reduce((n, a) => n + a.data.length, 0) > MAX_UPLOAD_BYTES) {
+    return err(
+      'invalid_input',
+      'Attachments can be 7 MB in all from here. Attach bigger files in Gmail.',
+    );
+  }
+  attachments.push(...uploaded);
+  let reply = { inReplyTo: '', references: '', threadId: null as string | null };
+  if (input.threadId) {
+    const found = await replyHeaders(store, integration, input.threadId);
+    if (!found.ok) return found;
+    reply = found.value;
+  }
+  const raw = buildNewMime({
+    from: integration.account_email ?? '',
+    to: input.to,
+    cc: input.cc,
+    bcc: input.bcc,
+    subject: input.subject,
+    body: input.body,
+    html: input.html ?? null,
+    signatureHtml,
+    attachments,
+    inReplyTo: reply.inReplyTo,
+    references: reply.references,
+  });
+  return ok({ raw, threadId: reply.threadId });
+}
+
+/**
+ * Send one email written in the Inbox's compose window, from a person's tap
+ * on Send (or the Schedule they picked, at its time). A reply goes on its
+ * thread with Gmail's reply headers; a forward carries the original's
+ * attachments. With `draftId`, the Gmail draft the window was saving to is
+ * replaced by the finished email and sent (Gmail's own drafts.send), so no
+ * copy is left in Drafts. Refuses without the send grant.
+ */
+export async function sendComposed(
+  store: DataStore,
+  integration: Integration,
+  input: ComposedEmail & { signatureHtml: string | null; draftId?: string | null },
+): Promise<Result<{ messageId: string; threadId: string }>> {
+  if (!canSend(integration)) return err('forbidden', 'Sending is not turned on for this mailbox.');
+  if (!input.to.trim() && !input.cc.trim() && !input.bcc.trim()) {
+    return err('invalid_input', 'Add who it goes to.');
+  }
+  const blank = input.html ? isBlankHtml(sanitizeComposeHtml(input.html)) : !input.body.trim();
+  if (blank && !input.forwardMessageId) return err('invalid_input', 'The email is empty.');
+  const mime = await composedMime(store, integration, input, input.signatureHtml, true);
+  if (!mime.ok) return mime;
+  const message = {
+    raw: b64urlEncode(mime.value.raw),
+    ...(mime.value.threadId ? { threadId: mime.value.threadId } : {}),
+  };
+  if (input.draftId) {
+    const updated = await gmail<unknown>(store, integration, `/drafts/${input.draftId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: input.draftId, message }),
+    });
+    if (updated.ok) {
+      const sent = await gmail<{ id: string; threadId: string }>(
+        store,
+        integration,
+        '/drafts/send',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: input.draftId }),
+        },
+      );
+      if (!sent.ok) return sent;
+      return ok({ messageId: sent.value.id, threadId: sent.value.threadId });
+    }
+    // The draft is gone (sent or removed in Gmail meanwhile): send it as a new email.
+    if (updated.error.code !== 'not_found') return updated;
+  }
+  const sent = await gmail<{ id: string; threadId: string }>(store, integration, '/messages/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(message),
+  });
+  if (!sent.ok) return sent;
+  return ok({ messageId: sent.value.id, threadId: sent.value.threadId });
+}
+
+/**
+ * Save the compose window to Gmail's Drafts: a new draft, or the one it is
+ * already saving to. No signature (that is added at Send, as Gmail does)
+ * and no attachments (attach them again at Send). Refuses without the grant.
+ */
+export async function saveDraft(
+  store: DataStore,
+  integration: Integration,
+  input: ComposedEmail & { draftId?: string | null },
+): Promise<Result<{ draftId: string; messageId: string; threadId: string }>> {
+  if (!canSend(integration)) return err('forbidden', 'Saving drafts needs sending turned on.');
+  const mime = await composedMime(store, integration, { ...input, attachments: [] }, null, false);
+  if (!mime.ok) return mime;
+  const message = {
+    raw: b64urlEncode(mime.value.raw),
+    ...(mime.value.threadId ? { threadId: mime.value.threadId } : {}),
+  };
+  type Saved = { id: string; message: { id: string; threadId: string } };
+  let saved: Result<Saved> | null = null;
+  if (input.draftId) {
+    saved = await gmail<Saved>(store, integration, `/drafts/${input.draftId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: input.draftId, message }),
+    });
+    // Sent or discarded in Gmail meanwhile: start a new draft rather than lose the words.
+    if (!saved.ok && saved.error.code !== 'not_found') return saved;
+  }
+  if (!saved?.ok) {
+    saved = await gmail<Saved>(store, integration, '/drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+  }
+  if (!saved.ok) return saved;
+  return ok({
+    draftId: saved.value.id,
+    messageId: saved.value.message.id,
+    threadId: saved.value.message.threadId,
+  });
+}
+
+/**
+ * Discard a draft the way Gmail's Trash keeps it: its message goes to Trash,
+ * where it can be restored, never deleted for good. Refuses without the grant.
+ */
+export async function trashDraft(
+  store: DataStore,
+  integration: Integration,
+  draftId: string,
+): Promise<Result<true>> {
+  if (!canSend(integration)) return err('forbidden', 'This needs sending turned on.');
+  const draft = await gmail<{ message: { id: string } }>(
+    store,
+    integration,
+    `/drafts/${draftId}?format=minimal`,
+  );
+  if (!draft.ok) return draft;
+  const res = await gmail<unknown>(
+    store,
+    integration,
+    `/messages/${draft.value.message.id}/trash`,
+    {
+      method: 'POST',
+    },
+  );
+  return res.ok ? ok(true) : res;
+}
+
+/** A new label of the person's own, from the Label menu's "Create new". Refuses without the grant. */
+export async function createLabel(
+  store: DataStore,
+  integration: Integration,
+  name: string,
+): Promise<Result<{ id: string; name: string }>> {
+  if (!canSend(integration)) return err('forbidden', 'Creating labels needs sending turned on.');
+  const clean = name
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim()
+    .slice(0, 225);
+  if (!clean) return err('invalid_input', 'Name the label first.');
+  const res = await gmail<{ id: string; name: string }>(store, integration, '/labels', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: clean,
+      labelListVisibility: 'labelShow',
+      messageListVisibility: 'show',
+    }),
+  });
+  return res.ok ? ok({ id: res.value.id, name: res.value.name }) : res;
 }
 
 /** A header value, RFC 2047-encoded when it is not plain ASCII (a subject with an em dash). */

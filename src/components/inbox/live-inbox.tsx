@@ -5,33 +5,38 @@ import { toast } from 'sonner';
 import {
   AlarmClock,
   Archive,
-  ArrowLeft,
   ExternalLink,
   Forward,
   Inbox as InboxIcon,
-  PenSquare,
-  Loader2,
-  MailOpen,
+  Info,
   Mail,
-  RefreshCw,
+  MailOpen,
+  Menu,
+  MessagesSquare,
+  OctagonAlert,
+  PenSquare,
   Reply,
-  Search,
-  Send,
   Star,
   Tag,
-  Undo2,
+  Trash2,
+  Users,
   X,
+  Bookmark,
+  FolderInput,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/form';
-import { swapSignOff } from '@/components/followups/email-session-client';
-import { Composer, type ComposeDraft } from '@/components/inbox/composer';
-import { LabelMenu } from '@/components/inbox/label-menu';
-import { MessageItem, longTime } from '@/components/inbox/message-view';
-import { readerZone, SnoozeMenu } from '@/components/inbox/snooze-menu';
-import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
 import { Notice } from '@/components/ui/feedback';
+import { Composer, type ComposeDraft } from '@/components/inbox/composer';
+import { InboxNav } from '@/components/inbox/inbox-nav';
+import { InboxSearch } from '@/components/inbox/inbox-search';
+import { InboxToolbar, type SelectWhich } from '@/components/inbox/inbox-toolbar';
+import { ContextMenu, type MenuItem } from '@/components/inbox/inbox-menus';
+import { ThreadRow } from '@/components/inbox/thread-row';
+import { useStoredChoice } from '@/components/inbox/use-stored';
+import { ThreadView, gmailUrl } from '@/components/inbox/thread-view';
+import { readerZone } from '@/components/inbox/snooze-menu';
+import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import {
   applyLabelPlan,
   applyPending,
@@ -39,9 +44,22 @@ import {
   PENDING_MS,
   planLabelChange,
   type LabelChange,
-  type MailLabel,
   type PendingChange,
 } from '@/lib/email/inbox-actions';
+import {
+  CATEGORY_NAMES,
+  DENSITY_KEY,
+  folderLabelId,
+  parseDensity,
+  parseReadingPane,
+  READING_PANE_KEY,
+  type ReadingPane,
+  smartDate,
+  type Category,
+  type Density,
+  type FolderId,
+} from '@/lib/email/inbox-folders';
+import { leavesFolder, UNDO_OF, type SystemAction } from '@/lib/email/inbox-modify';
 import {
   INBOX_MESSAGE_PARAM,
   INBOX_OPEN_PARAM,
@@ -50,9 +68,7 @@ import {
 } from '@/lib/email/thread-links';
 import { formatWake } from '@/lib/email/snooze';
 import { cn } from '@/lib/util/cn';
-import { formatDate, formatMonthDay, formatTime, localDateKey } from '@/lib/util/time';
 import type {
-  InboxTab,
   LiveThread,
   LiveThreadList,
   LiveThreadRow,
@@ -62,19 +78,23 @@ import type {
 // The message pieces live in message-view.tsx (Follow-ups shows the full email
 // with them too); these stay importable from here.
 export { longTime, reflow } from '@/components/inbox/message-view';
+export { forwardDraft } from '@/components/inbox/thread-view';
 
-type Signature = 'nick' | 'arwin';
-type Action = 'archive' | 'inbox' | 'read' | 'unread' | 'star' | 'unstar';
+/*
+ * The Inbox's folders as the help page names them: Primary, Promotions,
+ * Social, Updates and Forums are the inbox's tabs; Starred, Snoozed,
+ * Important, Sent, Scheduled, Drafts, All Mail, Spam and Trash sit in the
+ * left nav (inbox-nav.tsx).
+ */
+const CATEGORY_ICON: Record<Category, typeof InboxIcon> = {
+  primary: InboxIcon,
+  promotions: Tag,
+  social: Users,
+  updates: Info,
+  forums: MessagesSquare,
+};
 
-const TABS: { id: InboxTab; label: string }[] = [
-  { id: 'primary', label: 'Primary' },
-  { id: 'other', label: 'Other tabs' },
-  { id: 'starred', label: 'Starred' },
-  { id: 'snoozed', label: 'Snoozed' },
-  { id: 'sent', label: 'Sent' },
-];
-
-const UNDO_SECONDS = 8;
+const PAGE = 50;
 /**
  * The first page is read again this often while the tab is in view, so a
  * change made in Gmail itself shows soon. One thread-list read each time;
@@ -86,12 +106,51 @@ const STALE_ON_RETURN_MS = 20_000;
 /** A quiet re-read this long after the last tap, once Gmail has caught up. */
 const SETTLE_MS = 4_000;
 
-const viewKey = (v: { tab: InboxTab; q: string }) => `${v.tab}|${v.q}`;
+interface View {
+  folder: FolderId;
+  category: Category;
+  q: string;
+  page: number;
+}
+const viewKey = (v: View) => `${v.folder}|${v.category}|${v.q}|${v.page}`;
 
-const gmailUrl = (id: string, mailbox: string | null) =>
-  mailbox
-    ? `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailbox)}#all/${id}`
-    : `https://mail.google.com/mail/#all/${id}`;
+const PATCH: Record<SystemAction, Partial<LiveThreadRow>> = {
+  archive: { inInbox: false },
+  inbox: { inInbox: true, inSpam: false, inTrash: false },
+  read: { unread: false },
+  unread: { unread: true },
+  star: { starred: true },
+  unstar: { starred: false },
+  important: { important: true },
+  unimportant: { important: false },
+  trash: { inTrash: true },
+  untrash: { inTrash: false },
+  restore: { inTrash: false, inInbox: true },
+  spam: { inSpam: true, inInbox: false },
+  notspam: { inSpam: false, inInbox: true },
+};
+
+/** Gmail's toast for an action that moves a conversation, singular and plural. */
+function movedText(action: SystemAction, n: number): string | null {
+  const what = n === 1 ? 'Conversation' : `${n} conversations`;
+  switch (action) {
+    case 'archive':
+      return `${what} archived`;
+    case 'trash':
+      return `${what} moved to Trash`;
+    case 'spam':
+      return `${what} marked as spam`;
+    case 'notspam':
+      return `${what} unmarked as spam and moved to Inbox`;
+    case 'restore':
+    case 'inbox':
+      return `${what} moved to Inbox`;
+    case 'untrash':
+      return `${what} restored`;
+    default:
+      return null;
+  }
+}
 
 async function postJson(url: string, body: unknown): Promise<Response> {
   return fetch(url, {
@@ -116,15 +175,7 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
 
 /** A row's time: the clock today, the day earlier this year, the date before that. */
 export function shortTime(iso: string | null, timeZone: string, now: Date = new Date()): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const day = localDateKey(d, timeZone);
-  const today = localDateKey(now, timeZone);
-  if (day === today) return formatTime(d, timeZone);
-  return day.slice(0, 4) === today.slice(0, 4)
-    ? formatMonthDay(d, timeZone)
-    : formatDate(d, timeZone);
+  return smartDate(iso, timeZone, now);
 }
 
 const isTyping = (target: EventTarget | null) =>
@@ -139,6 +190,14 @@ function forgetThreadParam(): void {
   for (const name of names) url.searchParams.delete(name);
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
 }
+
+/** The folder a "Move to" leaves: the inbox, or the label being looked at. */
+function placeOf(folder: FolderId): string | null {
+  if (folder === 'inbox') return 'INBOX';
+  return folderLabelId(folder);
+}
+
+const NEW_EMAIL: ComposeDraft = { to: '', subject: '', body: '\n\nNick' };
 
 export function LiveInbox({
   initial,
@@ -157,12 +216,15 @@ export function LiveInbox({
    */
   opened?: OpenedThread | null;
 }) {
-  const [tab, setTab] = React.useState<InboxTab>('primary');
+  const [folder, setFolder] = React.useState<FolderId>(initial.folder ?? 'inbox');
+  const [category, setCategory] = React.useState<Category>(initial.category ?? 'primary');
   const [query, setQuery] = React.useState(initialQuery);
   const [searched, setSearched] = React.useState(initialQuery);
   const [list, setList] = React.useState<LiveThreadList>(initial);
+  /** The page token each page was read with; the last is the page on screen. */
+  const [tokens, setTokens] = React.useState<(string | null)[]>([null]);
+  const page = tokens.length - 1;
   const [loading, setLoading] = React.useState(false);
-  const [loadingMore, setLoadingMore] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(opened?.row?.id ?? null);
   // The linked conversation's row, kept apart from the list it may not be in.
   const [linked, setLinked] = React.useState<LiveThreadRow | null>(opened?.row ?? null);
@@ -175,23 +237,33 @@ export function LiveInbox({
   /**
    * Which Label menu the l key opened: the open thread's or the selection's,
    * keyed by what it is for, so a menu never reopens on its own for a later
-   * thread or selection.
+   * thread or selection. Snooze (b) and Move to (v) are keyed the same way.
    */
   const [labelMenu, setLabelMenu] = React.useState<string | null>(null);
-  /** Which Snooze menu the b key opened, keyed the same way as `labelMenu`. */
   const [snoozeMenu, setSnoozeMenu] = React.useState<string | null>(null);
-  /** Older pages are on screen: a quiet re-read of the first page would drop them. */
-  const [extraPages, setExtraPages] = React.useState(false);
+  const [moveMenu, setMoveMenu] = React.useState<string | null>(null);
+  // Density is remembered per browser.
+  const [density, setDensity] = useStoredChoice<Density>(DENSITY_KEY, parseDensity, 'default');
+  // Gmail's reading pane setting: no split (its default), or right of the list.
+  const [pane, setPane] = useStoredChoice<ReadingPane>(READING_PANE_KEY, parseReadingPane, 'none');
+  const split = pane === 'right';
+  const [navOpen, setNavOpen] = React.useState(false);
+  const [context, setContext] = React.useState<{ x: number; y: number; items: MenuItem[] } | null>(
+    null,
+  );
+  const [newLabel, setNewLabel] = React.useState<string | null>(null);
   const searchRef = React.useRef<HTMLInputElement>(null);
   /** Changes made here, laid over each list Gmail answers until it has caught up. */
   const pending = React.useRef(new Map<string, PendingChange<LiveThreadRow>>());
   const lastLoad = React.useRef(0);
   const settleTimer = React.useRef<number | null>(null);
-  const view = React.useRef({ tab, q: searched });
+  /** The newest action's undo, for the z key. */
+  const lastUndo = React.useRef<(() => void) | null>(null);
+  const view = React.useRef<View>({ folder, category, q: searched, page });
   React.useEffect(() => {
-    view.current = { tab, q: searched };
-  }, [tab, searched]);
-  // The first page came with the page itself: a quick tab switch is not stale.
+    view.current = { folder, category, q: searched, page };
+  }, [folder, category, searched, page]);
+  // The first page came with the page itself: a quick folder switch is not stale.
   React.useEffect(() => {
     lastLoad.current = Date.now();
   }, []);
@@ -204,13 +276,19 @@ export function LiveInbox({
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }, [initialQuery]);
   const { canAct, canLabel, canSnooze, mailbox, labelChoices } = list;
+  const canModify = list.canModify ?? canAct;
 
   const load = React.useCallback(
-    async (next: { tab: InboxTab; q: string }, opts: { quiet?: boolean } = {}) => {
+    async (next: View & { token?: string | null }, opts: { quiet?: boolean } = {}) => {
       if (!opts.quiet) setLoading(true);
       lastLoad.current = Date.now();
       try {
-        const params = new URLSearchParams({ tab: next.tab, q: next.q });
+        const params = new URLSearchParams({
+          folder: next.folder,
+          category: next.category,
+          q: next.q,
+        });
+        if (next.token) params.set('pageToken', next.token);
         const res = await fetch(`/api/inbox/threads?${params.toString()}`);
         if (!res.ok) throw new Error(await errorMessage(res, 'Could not load your inbox.'));
         const data = (await res.json()) as LiveThreadList;
@@ -223,10 +301,11 @@ export function LiveInbox({
         if (!opts.quiet) {
           setChecked(new Set());
           setSelectedId(null);
-          setExtraPages(false);
         }
+        return true;
       } catch (e) {
         if (!opts.quiet) toast.error((e as Error).message);
+        return false;
       } finally {
         if (!opts.quiet) setLoading(false);
       }
@@ -235,9 +314,9 @@ export function LiveInbox({
   );
 
   const quietReload = React.useCallback(() => {
-    if (document.visibilityState !== 'visible' || extraPages) return;
+    if (document.visibilityState !== 'visible' || view.current.page > 0) return;
     void load(view.current, { quiet: true });
-  }, [load, extraPages]);
+  }, [load]);
 
   // Keep the first page fresh while the tab is in view, like Gmail does, and
   // read it again on coming back to the tab after a while.
@@ -271,7 +350,7 @@ export function LiveInbox({
   /**
    * Hold a change made here over the lists Gmail answers for a while.
    * `removedFrom` left out keeps the view a thread left; null clears it (the
-   * thread is back in the inbox).
+   * thread is back in the view).
    */
   const hold = React.useCallback(
     (ids: string[], patch: Partial<LiveThreadRow>, removedFrom?: string | null) => {
@@ -291,37 +370,37 @@ export function LiveInbox({
     for (const id of ids) pending.current.delete(id);
   }, []);
 
-  const loadMore = async () => {
+  const goTo = React.useCallback(
+    (next: { folder?: FolderId; category?: Category; q?: string }) => {
+      const v: View = {
+        folder: next.folder ?? folder,
+        category: next.category ?? (next.folder && next.folder !== folder ? 'primary' : category),
+        q: next.q ?? '',
+        page: 0,
+      };
+      setFolder(v.folder);
+      setCategory(v.category);
+      setSearched(v.q);
+      if (next.q === undefined) setQuery('');
+      setTokens([null]);
+      setNavOpen(false);
+      void load(v);
+    },
+    [folder, category, load],
+  );
+
+  const older = () => {
     if (!list.nextPageToken) return;
-    setLoadingMore(true);
-    try {
-      const params = new URLSearchParams({ tab, q: searched, pageToken: list.nextPageToken });
-      const res = await fetch(`/api/inbox/threads?${params.toString()}`);
-      if (!res.ok) throw new Error(await errorMessage(res, 'Could not load older mail.'));
-      const data = (await res.json()) as LiveThreadList;
-      setList((cur) => ({
-        ...data,
-        rows: [...cur.rows, ...data.rows.filter((r) => !cur.rows.some((c) => c.id === r.id))],
-      }));
-      setExtraPages(true);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setLoadingMore(false);
-    }
+    const token = list.nextPageToken;
+    const next = [...tokens, token];
+    setTokens(next);
+    void load({ folder, category, q: searched, page: next.length - 1, token });
   };
-
-  const chooseTab = (next: InboxTab) => {
-    setTab(next);
-    setQuery('');
-    setSearched('');
-    void load({ tab: next, q: '' });
-  };
-
-  const submitSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSearched(query.trim());
-    void load({ tab, q: query.trim() });
+  const newer = () => {
+    if (page === 0) return;
+    const next = tokens.slice(0, -1);
+    setTokens(next);
+    void load({ folder, category, q: searched, page: next.length - 1, token: next.at(-1) ?? null });
   };
 
   const patchRows = React.useCallback((ids: string[], patch: Partial<LiveThreadRow>) => {
@@ -332,31 +411,62 @@ export function LiveInbox({
     setLinked((cur) => (cur && ids.includes(cur.id) ? { ...cur, ...patch } : cur));
   }, []);
 
-  const inInboxView = !searched && (tab === 'primary' || tab === 'other');
+  const rows = list.rows;
+  const index = rows.findIndex((r) => r.id === selectedId);
+  // The list's own row when the linked conversation is in it, else the linked row.
+  const selected = index >= 0 ? rows[index]! : linked && linked.id === selectedId ? linked : null;
 
+  /** Where the reader goes when the open conversation leaves the list. */
+  const advanceFrom = React.useCallback(
+    (ids: string[], how: 'list' | 'next' | 'prev') => {
+      if (!selectedId || !ids.includes(selectedId)) return;
+      if (how === 'list') {
+        setSelectedId(null);
+        return;
+      }
+      const at = rows.findIndex((r) => r.id === selectedId);
+      const step = how === 'next' ? 1 : -1;
+      let i = at + step;
+      while (rows[i] && ids.includes(rows[i]!.id)) i += step;
+      setSelectedId(rows[i]?.id ?? null);
+    },
+    [rows, selectedId],
+  );
+
+  /**
+   * One change from a tap, drawn at once and held over the list until Gmail
+   * catches up; put back if Gmail refuses. A change that takes the
+   * conversation out of the folder on screen (archive, delete, spam...)
+   * offers Undo, which the z key runs too.
+   */
   const act = React.useCallback(
-    async (ids: string[], action: Action, opts: { silent?: boolean } = {}) => {
-      if (!canAct) {
+    async (
+      ids: string[],
+      action: SystemAction,
+      opts: {
+        silent?: boolean;
+        advance?: 'list' | 'next' | 'prev';
+        restore?: LiveThreadRow[];
+      } = {},
+    ): Promise<boolean> => {
+      if (!canModify) {
         toast.error('Changing mail from the app needs sending turned on. Do it in Gmail for now.');
         return false;
       }
+      if (ids.length === 0) return false;
       const before = list.rows;
       const linkedBefore = linked;
-      // Optimistic, then put it back if Gmail refuses.
-      const patch: Partial<LiveThreadRow> =
-        action === 'archive' || action === 'inbox'
-          ? { inInbox: action === 'inbox' }
-          : action === 'read' || action === 'unread'
-            ? { unread: action === 'unread' }
-            : { starred: action === 'star' };
-      if (action === 'archive' && inInboxView) {
+      const patch = PATCH[action];
+      const leaves = !searched && leavesFolder(action, folder);
+      if (leaves) {
         setList((cur) => ({ ...cur, rows: cur.rows.filter((r) => !ids.includes(r.id)) }));
-        if (selectedId && ids.includes(selectedId)) setSelectedId(null);
+        advanceFrom(ids, opts.advance ?? 'list');
         hold(ids, patch, viewKey(view.current));
       } else {
         patchRows(ids, patch);
-        // Moved back to the inbox: an archive held from before no longer hides it there.
-        hold(ids, patch, action === 'inbox' ? null : undefined);
+        // Back in this folder: a removal held from before no longer hides it here.
+        hold(ids, patch, opts.restore ? null : undefined);
+        if (opts.restore) setList((cur) => ({ ...cur, rows: opts.restore! }));
       }
       setChecked(new Set());
 
@@ -369,26 +479,35 @@ export function LiveInbox({
         return false;
       }
       settle();
-      if (action === 'archive' && !opts.silent) {
-        toast.success(ids.length === 1 ? 'Archived' : `${ids.length} archived`, {
-          action: {
-            label: 'Undo',
-            onClick: () => {
-              void postJson('/api/inbox/modify', { ids, action: 'inbox' }).then((r) => {
-                if (r.ok) {
-                  release(ids);
-                  hold(ids, { inInbox: true }, null);
-                  setList((cur) => ({ ...cur, rows: before }));
-                  settle();
-                } else toast.error('Could not move it back. Find it in All Mail in Gmail.');
-              });
-            },
-          },
-        });
+      const text = movedText(action, ids.length);
+      const undoAction = UNDO_OF[action];
+      if (text && undoAction && !opts.silent) {
+        const undo = () => {
+          lastUndo.current = null;
+          // A delete from outside the inbox goes back where it was, not to the inbox.
+          const back =
+            action === 'trash' ? ids.filter((id) => before.find((r) => r.id === id)?.inInbox) : ids;
+          const rest = action === 'trash' ? ids.filter((id) => !back.includes(id)) : [];
+          const undoFor = (list: string[], a: SystemAction) =>
+            list.length
+              ? postJson('/api/inbox/modify', { ids: list, action: a }).then((r) => r.ok)
+              : Promise.resolve(true);
+          void Promise.all([undoFor(back, undoAction), undoFor(rest, 'untrash')]).then(([a, b]) => {
+            if (a && b) {
+              release(ids);
+              hold(ids, { ...PATCH[undoAction], ...(rest.length ? {} : {}) }, null);
+              setList((cur) => ({ ...cur, rows: before }));
+              settle();
+              toast.success('Action undone');
+            } else toast.error('Could not undo that. Find it in Gmail.');
+          });
+        };
+        lastUndo.current = undo;
+        toast.success(text, { action: { label: 'Undo', onClick: undo } });
       }
       return true;
     },
-    [canAct, inInboxView, linked, list.rows, patchRows, selectedId, hold, release, settle],
+    [canModify, list.rows, linked, searched, folder, advanceFrom, hold, patchRows, release, settle],
   );
 
   // Label as: the person's own Gmail labels. Drawn at once, held over the
@@ -447,7 +566,60 @@ export function LiveInbox({
     [canLabel, labelChoices, linked, list.rows, hold, release, settle],
   );
 
-  const snoozedView = !searched && tab === 'snoozed';
+  /** Gmail's "Move to": Trash and Spam are Delete and Report spam; else a label or the inbox. */
+  const move = React.useCallback(
+    async (ids: string[], to: string) => {
+      if (to === 'TRASH') return act(ids, 'trash');
+      if (to === 'SPAM') return act(ids, 'spam');
+      if (!canModify) {
+        toast.error('Moving mail needs sending turned on. Do it in Gmail for now.');
+        return false;
+      }
+      const from = searched ? null : placeOf(folder);
+      const before = list.rows;
+      const leaves = !searched && (folder === 'inbox' || Boolean(folderLabelId(folder)));
+      if (leaves) {
+        setList((cur) => ({ ...cur, rows: cur.rows.filter((r) => !ids.includes(r.id)) }));
+        advanceFrom(ids, 'list');
+        hold(ids, {}, viewKey(view.current));
+      }
+      setChecked(new Set());
+      const res = await postJson('/api/inbox/modify', { ids, action: 'move', to, from });
+      if (!res.ok) {
+        release(ids);
+        setList((cur) => ({ ...cur, rows: before }));
+        toast.error(await errorMessage(res, 'Gmail did not take that. Try again.'));
+        return false;
+      }
+      settle();
+      const name = to === 'INBOX' ? 'Inbox' : (labelNamesFor([to], labelChoices)[0] ?? 'the label');
+      const what = ids.length === 1 ? 'Conversation' : `${ids.length} conversations`;
+      const undo =
+        from !== null
+          ? () => {
+              lastUndo.current = null;
+              void postJson('/api/inbox/modify', { ids, action: 'move', to: from, from: to }).then(
+                (r) => {
+                  if (r.ok) {
+                    release(ids);
+                    setList((cur) => ({ ...cur, rows: before }));
+                    settle();
+                  } else toast.error('Could not undo that. Find it in Gmail.');
+                },
+              );
+            }
+          : null;
+      lastUndo.current = undo;
+      toast.success(
+        `${what} moved to “${name}”`,
+        undo ? { action: { label: 'Undo', onClick: undo } } : undefined,
+      );
+      return true;
+    },
+    [act, canModify, searched, folder, list.rows, advanceFrom, hold, release, settle, labelChoices],
+  );
+
+  const snoozedView = !searched && folder === 'snoozed';
 
   /** Unsnooze: back in the inbox now, out of the Snoozed list. */
   const unsnooze = React.useCallback(
@@ -500,7 +672,7 @@ export function LiveInbox({
       const linkedBefore = linked;
       const iso = wakeAt.toISOString();
       const patch: Partial<LiveThreadRow> = { inInbox: false, snoozedUntil: iso };
-      if (inInboxView) {
+      if (!searched && folder === 'inbox') {
         setList((cur) => ({ ...cur, rows: cur.rows.filter((r) => !ids.includes(r.id)) }));
         if (selectedId && ids.includes(selectedId)) setSelectedId(null);
         hold(ids, patch, viewKey(view.current));
@@ -524,14 +696,14 @@ export function LiveInbox({
       }
       settle();
       const when = formatWake(wakeAt, readerZone(timeZone));
+      const undo = () => {
+        lastUndo.current = null;
+        void unsnooze(ids, { restore: before });
+      };
+      lastUndo.current = undo;
       toast.success(
         ids.length === 1 ? `Snoozed until ${when}` : `${ids.length} snoozed until ${when}`,
-        {
-          action: {
-            label: 'Undo',
-            onClick: () => void unsnooze(ids, { restore: before }),
-          },
-        },
+        { action: { label: 'Undo', onClick: undo } },
       );
       return true;
     },
@@ -539,7 +711,8 @@ export function LiveInbox({
       canSnooze,
       list.rows,
       linked,
-      inInboxView,
+      searched,
+      folder,
       selectedId,
       hold,
       release,
@@ -550,13 +723,21 @@ export function LiveInbox({
     ],
   );
 
-  const open = React.useCallback(
+  const openRow = React.useCallback(
     (row: LiveThreadRow) => {
+      if (row.kind === 'draft') {
+        toast.message('Drafts open in the compose window.');
+        return;
+      }
+      if (row.kind === 'scheduled') {
+        toast.message('Scheduled emails open in the compose window.');
+        return;
+      }
       setSelectedId(row.id);
       setReplyOpen(false);
-      if (row.unread && canAct) void act([row.id], 'read', { silent: true });
+      if (row.unread && canModify) void act([row.id], 'read', { silent: true });
     },
-    [act, canAct],
+    [act, canModify],
   );
 
   const toggleCheck = (id: string) =>
@@ -567,10 +748,25 @@ export function LiveInbox({
       return next;
     });
 
-  const rows = list.rows;
-  const index = rows.findIndex((r) => r.id === selectedId);
-  // The list's own row when the linked conversation is in it, else the linked row.
-  const selected = index >= 0 ? rows[index]! : linked && linked.id === selectedId ? linked : null;
+  const selectWhich = (which: SelectWhich) => {
+    const pick = (f: (r: LiveThreadRow) => boolean) =>
+      setChecked(new Set(rows.filter(f).map((r) => r.id)));
+    switch (which) {
+      case 'all':
+        return pick(() => true);
+      case 'none':
+        return setChecked(new Set());
+      case 'read':
+        return pick((r) => !r.unread);
+      case 'unread':
+        return pick((r) => r.unread);
+      case 'starred':
+        return pick((r) => r.starred);
+      case 'unstarred':
+        return pick((r) => !r.starred);
+    }
+  };
+
   const paneMenu = selected ? `pane:${selected.id}` : null;
   const bulkMenu = checked.size ? `bulk:${[...checked].sort().join(',')}` : null;
 
@@ -585,6 +781,145 @@ export function LiveInbox({
     if (linkedId && selectedId !== linkedId) forgetThreadParam();
   }, [linkedId, selectedId]);
 
+  const openCompose = React.useCallback(() => {
+    setCompose({ title: 'New Message', draft: NEW_EMAIL });
+  }, []);
+
+  /** What the folder on screen offers for a set of rows. */
+  const folderActions = (ids: string[]) => {
+    const inSpam = !searched && folder === 'spam';
+    const inTrash = !searched && folder === 'trash';
+    const own = !searched && (folder === 'drafts' || folder === 'scheduled');
+    const sample = rows.filter((r) => ids.includes(r.id));
+    return {
+      archive:
+        own || inSpam || inTrash || !sample.some((r) => r.inInbox)
+          ? null
+          : () => void act(ids, 'archive'),
+      moveToInbox:
+        !own && !inSpam && !inTrash && sample.length > 0 && sample.every((r) => !r.inInbox)
+          ? () => void act(ids, 'inbox')
+          : null,
+      spam: own || inSpam || inTrash ? null : () => void act(ids, 'spam'),
+      notSpam: inSpam ? () => void act(ids, 'notspam') : null,
+      trash: own || inTrash ? null : () => void act(ids, 'trash'),
+      restore: inTrash ? () => void act(ids, 'restore') : null,
+    };
+  };
+
+  const createLabel = async (name: string) => {
+    const res = await postJson('/api/inbox/labels', { name });
+    if (!res.ok) {
+      toast.error(await errorMessage(res, 'Could not create the label. Try again.'));
+      return;
+    }
+    const data = (await res.json()) as { label: { id: string; name: string } };
+    setList((cur) => ({
+      ...cur,
+      labelChoices: [...cur.labelChoices, data.label].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { numeric: true }),
+      ),
+    }));
+    toast.success(`Label “${data.label.name}” created`);
+  };
+
+  const contextItems = (row: LiveThreadRow): MenuItem[] => {
+    const ids = checked.has(row.id) ? [...checked] : [row.id];
+    const f = folderActions(ids);
+    const items: MenuItem[] = [];
+    if (row.kind !== 'draft' && row.kind !== 'scheduled') {
+      items.push({
+        id: 'reply',
+        label: 'Reply',
+        icon: Reply,
+        onSelect: () => {
+          openRow(row);
+          setReplyOpen(true);
+        },
+      });
+      items.push({
+        id: 'forward',
+        label: 'Forward',
+        icon: Forward,
+        onSelect: () => openRow(row),
+      });
+    }
+    if (f.archive)
+      items.push({
+        id: 'archive',
+        label: 'Archive',
+        icon: Archive,
+        divider: true,
+        onSelect: f.archive,
+      });
+    if (f.moveToInbox)
+      items.push({
+        id: 'inbox',
+        label: 'Move to Inbox',
+        icon: InboxIcon,
+        divider: !f.archive,
+        onSelect: f.moveToInbox,
+      });
+    if (f.trash) items.push({ id: 'trash', label: 'Delete', icon: Trash2, onSelect: f.trash });
+    if (f.restore)
+      items.push({ id: 'restore', label: 'Move to Inbox', icon: InboxIcon, onSelect: f.restore });
+    if (f.spam)
+      items.push({ id: 'spam', label: 'Report spam', icon: OctagonAlert, onSelect: f.spam });
+    if (f.notSpam)
+      items.push({ id: 'notspam', label: 'Not spam', icon: InboxIcon, onSelect: f.notSpam });
+    if (row.kind !== 'draft' && row.kind !== 'scheduled') {
+      items.push({
+        id: 'read',
+        label: row.unread ? 'Mark as read' : 'Mark as unread',
+        icon: row.unread ? MailOpen : Mail,
+        divider: true,
+        onSelect: () => void act(ids, row.unread ? 'read' : 'unread', { silent: true }),
+      });
+      items.push({
+        id: 'important',
+        label: row.important ? 'Mark as not important' : 'Mark as important',
+        icon: Bookmark,
+        onSelect: () =>
+          void act(ids, row.important ? 'unimportant' : 'important', { silent: true }),
+      });
+      items.push({
+        id: 'star',
+        label: row.starred ? 'Remove star' : 'Add star',
+        icon: Star,
+        onSelect: () => void act(ids, row.starred ? 'unstar' : 'star', { silent: true }),
+      });
+      const viaToolbar = (open: (key: string) => void) => () => {
+        const key = `bulk:${[...ids].sort().join(',')}`;
+        setChecked(new Set(ids));
+        // After the selection has drawn the toolbar's menus.
+        window.setTimeout(() => open(key), 0);
+      };
+      if (canSnooze)
+        items.push({
+          id: 'snooze',
+          label: 'Snooze',
+          icon: AlarmClock,
+          divider: true,
+          onSelect: viaToolbar(setSnoozeMenu),
+        });
+      if (canModify)
+        items.push({
+          id: 'move',
+          label: 'Move to',
+          icon: FolderInput,
+          onSelect: viaToolbar(setMoveMenu),
+        });
+      if (canLabel)
+        items.push({
+          id: 'label',
+          label: 'Label as',
+          icon: Tag,
+          onSelect: viaToolbar(setLabelMenu),
+        });
+    }
+    return items;
+  };
+
   // Gmail's keys: j/k move, o/Enter open, e archive, b snooze, s star,
   // Shift+U unread, r reply, l label, u back, / search, x select. Never while something is
   // drawn over the list (the Ask Arwin panel, a tour card, a dialog): a key
@@ -593,27 +928,28 @@ export function LiveInbox({
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return;
       if (keyBelongsToOverlay(e)) return;
-      const move = (delta: number) => {
+      const move1 = (delta: number) => {
         const next = rows[Math.min(rows.length - 1, Math.max(0, index + delta))];
-        if (next) open(next);
+        if (next) openRow(next);
       };
       switch (e.key) {
         case 'j':
-          move(index < 0 ? 0 : 1);
+          move1(index < 0 ? 0 : 1);
           break;
         case 'k':
-          move(-1);
+          move1(-1);
           break;
         case 'o':
         case 'Enter':
-          if (!selected && rows[0]) open(rows[0]);
+          if (!selected && rows[0]) openRow(rows[0]);
           break;
         case 'e':
           if (selected) void act([selected.id], 'archive');
           else if (checked.size) void act([...checked], 'archive');
           break;
         case 's':
-          if (selected) void act([selected.id], selected.starred ? 'unstar' : 'star');
+          if (selected)
+            void act([selected.id], selected.starred ? 'unstar' : 'star', { silent: true });
           break;
         case 'U':
           if (selected) {
@@ -649,7 +985,7 @@ export function LiveInbox({
           break;
         case 'c':
           e.preventDefault();
-          setCompose({ title: 'New email', draft: { to: '', subject: '', body: '\n\nNick' } });
+          openCompose();
           break;
         case 'x':
           if (selected) toggleCheck(selected.id);
@@ -670,88 +1006,61 @@ export function LiveInbox({
     );
   }
 
+  const bulkIds = [...checked];
+  const bulkFolder = folderActions(bulkIds);
+  const inDrafts = !searched && folder === 'drafts';
+  const binView = !searched && (folder === 'spam' || folder === 'trash');
+  const inScheduled = !searched && folder === 'scheduled';
+  const categories = list.nav?.categories ?? ['primary'];
+  const showTabs = !searched && folder === 'inbox' && categories.length > 1;
+
+  const nav = (
+    <InboxNav
+      folder={folder}
+      searched={Boolean(searched)}
+      nav={list.nav}
+      labels={labelChoices}
+      onCompose={() => {
+        setNavOpen(false);
+        openCompose();
+      }}
+      onFolder={(f) => goTo({ folder: f })}
+      onCreateLabel={() => setNewLabel('')}
+      canCreateLabel={canLabel}
+    />
+  );
+
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          size="sm"
-          data-tour="inbox-compose"
-          onClick={() =>
-            setCompose({ title: 'New email', draft: { to: '', subject: '', body: '\n\nNick' } })
-          }
-        >
-          <PenSquare className="size-4" aria-hidden /> Compose
-        </Button>
-        <div
-          role="tablist"
-          aria-label="Mailbox"
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setNavOpen(true)}
+          aria-label="Open folders"
+          // The folders' tour step, on a phone where the nav is a drawer.
           data-tour="inbox-tabs"
-          className="flex flex-wrap gap-1"
+          className="rounded-full p-2.5 text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] lg:hidden"
         >
-          {TABS.map((t) => (
-            <Button
-              key={t.id}
-              role="tab"
-              size="sm"
-              variant={!searched && tab === t.id ? 'primary' : 'secondary'}
-              aria-selected={!searched && tab === t.id}
-              onClick={() => chooseTab(t.id)}
-            >
-              {t.label}
-            </Button>
-          ))}
-        </div>
-        <form
-          onSubmit={submitSearch}
-          data-tour="inbox-search"
-          className="flex min-w-0 flex-1 items-center gap-1"
-        >
-          <label htmlFor="inbox-search" className="sr-only">
-            Search email
-          </label>
-          <div className="relative min-w-0 flex-1">
-            <Search
-              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"
-              aria-hidden
-            />
-            <input
-              id="inbox-search"
-              type="search"
-              ref={searchRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search all mail, like Gmail (from:jane has:attachment)"
-              // The same field edge as every other input (controlBase in
-              // ui/form.tsx): --border-control clears 3:1 (WCAG 1.4.11).
-              className="h-9 w-full rounded-md border border-[var(--border-control)] bg-[var(--bg-raised)] pr-8 pl-8 text-sm text-[var(--fg)] placeholder:text-[var(--fg-subtle)]"
-            />
-            {searched ? (
-              <button
-                type="button"
-                aria-label="Clear search"
-                onClick={() => chooseTab(tab)}
-                className="absolute top-1/2 right-2 -translate-y-1/2 text-[var(--fg-muted)]"
-              >
-                <X className="size-4" aria-hidden />
-              </button>
-            ) : null}
-          </div>
-        </form>
-        <Button
-          size="sm"
-          variant="secondary"
-          aria-label="Refresh"
-          onClick={() => void load({ tab, q: searched })}
-          disabled={loading}
-        >
-          <RefreshCw className={cn('size-4', loading && 'animate-spin')} aria-hidden />
-        </Button>
+          <Menu className="size-5" aria-hidden />
+        </button>
+        <InboxSearch
+          value={query}
+          onChange={setQuery}
+          onSearch={(q) => goTo({ q })}
+          onClear={() => {
+            setQuery('');
+            goTo({ q: '' });
+          }}
+          searched={Boolean(searched)}
+          inputRef={searchRef}
+        />
       </div>
 
       {!canAct ? (
         <p className="rounded-md border border-[var(--border)] bg-[var(--bg-raised)] px-3 py-2 text-xs text-[var(--fg-muted)]">
-          Reading only: archive, star, {canLabel ? '' : 'labels, '}read/unread and Send need sending
-          turned on (Settings › Integrations). Until then, Send opens the email in Gmail.
+          {canModify
+            ? 'Demo mailbox: changes stay here, and nothing is sent.'
+            : 'Reading only: archive, delete, star, labels, read/unread and Send need sending turned on (Settings › Integrations). Until then, Send opens the email in Gmail.'}
         </p>
       ) : null}
 
@@ -796,165 +1105,317 @@ export function LiveInbox({
         </div>
       ) : null}
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-        <section
-          aria-label="Conversations"
-          data-tour="inbox-list"
-          className={cn('min-w-0', selected && 'hidden lg:block')}
-        >
-          {checked.size > 0 ? (
-            <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md bg-[var(--bg-raised)] px-2 py-1.5 text-sm">
-              <span className="text-[var(--fg-muted)]">{checked.size} selected</span>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void act([...checked], 'archive')}
-              >
-                <Archive className="size-4" aria-hidden /> Archive
-              </Button>
-              {canSnooze ? (
-                <SnoozeMenu
-                  timeZone={timeZone}
-                  onSnooze={(at) => void snooze([...checked], at)}
-                  open={snoozeMenu !== null && snoozeMenu === bulkMenu}
-                  onOpenChange={(o) => setSnoozeMenu(o ? bulkMenu : null)}
-                >
-                  <Button size="sm" variant="secondary">
-                    <AlarmClock className="size-4" aria-hidden /> Snooze
-                  </Button>
-                </SnoozeMenu>
-              ) : null}
-              {snoozedView ? (
-                <Button size="sm" variant="secondary" onClick={() => void unsnooze([...checked])}>
-                  <InboxIcon className="size-4" aria-hidden /> Unsnooze
-                </Button>
-              ) : null}
-              <Button size="sm" variant="secondary" onClick={() => void act([...checked], 'read')}>
-                <MailOpen className="size-4" aria-hidden /> Mark read
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void act([...checked], 'unread')}
-              >
-                <Mail className="size-4" aria-hidden /> Mark unread
-              </Button>
-              {canLabel ? (
-                <LabelMenu
-                  choices={labelChoices}
-                  current={rows.filter((r) => checked.has(r.id)).map((r) => r.labelIds)}
-                  onChange={(change) => void label([...checked], change)}
-                  open={labelMenu !== null && labelMenu === bulkMenu}
-                  onOpenChange={(o) => setLabelMenu(o ? bulkMenu : null)}
-                >
-                  <Button size="sm" variant="secondary">
-                    <Tag className="size-4" aria-hidden /> Label
-                  </Button>
-                </LabelMenu>
-              ) : null}
-              <Button size="sm" variant="ghost" onClick={() => setChecked(new Set())}>
-                Clear
-              </Button>
-            </div>
-          ) : null}
-          {snoozedView && list.snoozeReady === false ? (
-            <div className="mb-2">
-              <Notice tone="warn">
-                Snooze needs a database update before it can be used. Nothing else changes.
-              </Notice>
-            </div>
-          ) : null}
-          {rows.length === 0 && !loading ? (
-            <p className="py-8 text-center text-sm text-[var(--fg-subtle)]">
-              {searched
-                ? 'No mail matches that search.'
-                : snoozedView
-                  ? 'Nothing snoozed. Snooze a thread to have it come back later.'
-                  : 'Nothing here. Inbox zero.'}
-            </p>
-          ) : (
-            <ul
-              className={cn(
-                'divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)]',
-                loading && 'opacity-60',
-              )}
-            >
-              {rows.map((row) => (
-                <ThreadRow
-                  key={row.id}
-                  row={row}
-                  timeZone={timeZone}
-                  active={row.id === selectedId}
-                  checked={checked.has(row.id)}
-                  onOpen={() => open(row)}
-                  onCheck={() => toggleCheck(row.id)}
-                  onStar={() => void act([row.id], row.starred ? 'unstar' : 'star')}
-                  onArchive={row.inInbox ? () => void act([row.id], 'archive') : null}
-                  labelChoices={labelChoices}
-                  onLabel={canLabel ? (change) => void label([row.id], change) : null}
-                  onSnooze={canSnooze ? (at) => void snooze([row.id], at) : null}
-                  snoozedUntil={snoozedView ? (row.snoozedUntil ?? null) : null}
-                  onUnsnooze={snoozedView ? () => void unsnooze([row.id]) : null}
-                />
-              ))}
-            </ul>
-          )}
-          {list.nextPageToken ? (
-            <div className="mt-3 flex justify-center">
-              <Button size="sm" variant="secondary" onClick={loadMore} disabled={loadingMore}>
-                {loadingMore ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-                Older mail
-              </Button>
-            </div>
-          ) : null}
-          <p className="mt-3 hidden text-xs text-[var(--fg-subtle)] lg:block">
-            Keys: j/k next and previous · e archive · b snooze · s star · r reply · l label ·
-            Shift+U unread · u back · / search
-          </p>
-        </section>
-
-        <section
-          aria-label="Reading pane"
-          data-tour="inbox-reading"
-          className={cn(
-            'min-w-0 lg:sticky lg:top-[calc(var(--titlebar-h)+1rem)] lg:max-h-[calc(100dvh-2rem-var(--titlebar-h))] lg:self-start lg:overflow-y-auto',
-            !selected && 'hidden lg:block',
-          )}
-        >
-          {selected ? (
-            <ThreadView
-              key={selected.id}
-              row={selected}
-              timeZone={timeZone}
-              initialThread={seed?.id === selected.id ? seed : undefined}
-              canAct={canAct}
-              mailbox={mailbox}
-              replyOpen={replyOpen}
-              setReplyOpen={setReplyOpen}
-              onBack={() => setSelectedId(null)}
-              onAct={(action) => act([selected.id], action)}
-              labelChoices={labelChoices}
-              onLabel={canLabel ? (change) => void label([selected.id], change) : null}
-              labelMenuOpen={labelMenu !== null && labelMenu === paneMenu}
-              setLabelMenuOpen={(o) => setLabelMenu(o ? paneMenu : null)}
-              onSnooze={canSnooze ? (at) => void snooze([selected.id], at) : null}
-              snoozeMenuOpen={snoozeMenu !== null && snoozeMenu === paneMenu}
-              setSnoozeMenuOpen={(o) => setSnoozeMenu(o ? paneMenu : null)}
-              snoozedUntil={snoozedView ? (selected.snoozedUntil ?? null) : null}
-              onUnsnooze={() => void unsnooze([selected.id])}
-              onSent={() => void load({ tab, q: searched }, { quiet: true })}
-              onForward={(draft) => setCompose({ title: 'Forward', draft })}
+      <div className="grid gap-3 lg:grid-cols-[13rem_minmax(0,1fr)]">
+        <div className="hidden lg:block">{nav}</div>
+        {navOpen ? (
+          <div className="fixed inset-0 z-[var(--z-overlay)] lg:hidden" role="presentation">
+            <button
+              type="button"
+              aria-label="Close folders"
+              className="absolute inset-0 bg-[var(--scrim)]"
+              onClick={() => setNavOpen(false)}
             />
-          ) : (
-            <div className="grid h-full min-h-60 place-items-center rounded-[var(--radius-card)] border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--fg-subtle)]">
-              <div>
-                <InboxIcon className="mx-auto mb-2 size-6" aria-hidden />
-                Pick a conversation to read it here.
-              </div>
+            <div className="shadow-overlay absolute inset-y-0 left-0 w-72 max-w-[85vw] overflow-y-auto bg-[var(--bg-raised)] p-3 pt-[calc(var(--titlebar-h)+0.75rem)]">
+              {nav}
             </div>
+          </div>
+        ) : null}
+
+        <div
+          className={cn(
+            'grid min-w-0 gap-3',
+            split && 'xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]',
           )}
-        </section>
+        >
+          <section
+            aria-label="Conversations"
+            data-tour="inbox-list"
+            className={cn(
+              'min-w-0 overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]',
+              selected && (split ? 'hidden xl:block' : 'hidden'),
+            )}
+          >
+            <InboxToolbar
+              rows={rows}
+              checked={checked}
+              onSelect={selectWhich}
+              onRefresh={() =>
+                void load({ folder, category, q: searched, page, token: tokens.at(-1) })
+              }
+              loading={loading}
+              folder={searched ? null : folder}
+              timeZone={timeZone}
+              labelChoices={labelChoices}
+              selectionLabelIds={rows.filter((r) => checked.has(r.id)).map((r) => r.labelIds)}
+              labelMenuOpen={labelMenu !== null && labelMenu === bulkMenu}
+              setLabelMenuOpen={(o) => setLabelMenu(o ? bulkMenu : null)}
+              snoozeMenuOpen={snoozeMenu !== null && snoozeMenu === bulkMenu}
+              setSnoozeMenuOpen={(o) => setSnoozeMenu(o ? bulkMenu : null)}
+              moveMenuOpen={moveMenu !== null && moveMenu === bulkMenu}
+              setMoveMenuOpen={(o) => setMoveMenu(o ? bulkMenu : null)}
+              page={{
+                start: page * PAGE + 1,
+                shown: rows.length,
+                total: list.total ?? null,
+                hasOlder: Boolean(list.nextPageToken),
+                hasNewer: page > 0,
+              }}
+              onOlder={older}
+              onNewer={newer}
+              density={density}
+              setDensity={setDensity}
+              pane={pane}
+              setPane={setPane}
+              onMarkAllRead={
+                canModify && rows.some((r) => r.unread)
+                  ? () =>
+                      void act(
+                        rows.filter((r) => r.unread).map((r) => r.id),
+                        'read',
+                        { silent: true },
+                      )
+                  : null
+              }
+              onShortcuts={() => toast.message('Press ? for keyboard shortcuts.')}
+              bulk={{
+                ...(inDrafts || inScheduled
+                  ? {
+                      archive: null,
+                      moveToInbox: null,
+                      spam: null,
+                      notSpam: null,
+                      trash: null,
+                      restore: null,
+                    }
+                  : bulkFolder),
+                markRead: () => void act(bulkIds, 'read', { silent: true }),
+                markUnread: () => void act(bulkIds, 'unread', { silent: true }),
+                snooze:
+                  canSnooze && !inDrafts && !inScheduled ? (at) => void snooze(bulkIds, at) : null,
+                unsnooze: snoozedView ? () => void unsnooze(bulkIds) : null,
+                label: canLabel && !inDrafts && !inScheduled ? (c) => void label(bulkIds, c) : null,
+                move:
+                  canModify && !inDrafts && !inScheduled ? (to) => void move(bulkIds, to) : null,
+                important: () => void act(bulkIds, 'important', { silent: true }),
+                notImportant: () => void act(bulkIds, 'unimportant', { silent: true }),
+                star: () => void act(bulkIds, 'star', { silent: true }),
+                unstar: () => void act(bulkIds, 'unstar', { silent: true }),
+                discardDrafts: null,
+                cancelScheduled: null,
+              }}
+            />
+            {showTabs ? (
+              <div
+                role="tablist"
+                aria-label="Inbox categories"
+                className="flex border-b border-[var(--border)]"
+              >
+                {categories.map((c) => {
+                  const Icon = CATEGORY_ICON[c];
+                  const active = category === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => goTo({ folder: 'inbox', category: c })}
+                      className={cn(
+                        'flex h-12 min-w-0 flex-1 items-center gap-3 border-b-[3px] px-4 text-sm font-medium sm:max-w-60',
+                        active
+                          ? 'border-[var(--accent)] text-[var(--accent)]'
+                          : 'border-transparent text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
+                      )}
+                    >
+                      <Icon className="size-4 shrink-0" aria-hidden />
+                      <span className="truncate">{CATEGORY_NAMES[c]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            {snoozedView && list.snoozeReady === false ? (
+              <div className="p-2">
+                <Notice tone="warn">
+                  Snooze needs a database update before it can be used. Nothing else changes.
+                </Notice>
+              </div>
+            ) : null}
+            {searched ? (
+              <p className="border-b border-[var(--border)] px-4 py-2 text-xs text-[var(--fg-muted)]">
+                Search results in all mail for <span className="font-mono">{searched}</span>
+              </p>
+            ) : null}
+            {rows.length === 0 && !loading ? (
+              <p className="py-12 text-center text-sm text-[var(--fg-subtle)]">
+                {searched
+                  ? 'No mail matches that search.'
+                  : snoozedView
+                    ? 'Nothing snoozed. Snooze a thread to have it come back later.'
+                    : folder === 'inbox'
+                      ? 'Nothing here. Inbox zero.'
+                      : folder === 'trash'
+                        ? 'No conversations in Trash.'
+                        : folder === 'spam'
+                          ? 'Hooray, no spam here!'
+                          : 'Nothing in this folder.'}
+              </p>
+            ) : (
+              <ul className={cn('@container', loading && 'opacity-60')}>
+                {rows.map((row) => {
+                  const thread = row.kind !== 'draft' && row.kind !== 'scheduled';
+                  return (
+                    <ThreadRow
+                      key={`${row.kind ?? 'thread'}:${row.draftId ?? row.scheduledId ?? row.id}`}
+                      row={row}
+                      timeZone={timeZone}
+                      active={row.id === selectedId}
+                      checked={checked.has(row.id)}
+                      density={density}
+                      labelChoices={labelChoices}
+                      snoozedUntil={snoozedView ? (row.snoozedUntil ?? null) : null}
+                      actions={{
+                        onOpen: () => openRow(row),
+                        onCheck: () => toggleCheck(row.id),
+                        onStar: () =>
+                          void act([row.id], row.starred ? 'unstar' : 'star', { silent: true }),
+                        onImportant: () =>
+                          void act([row.id], row.important ? 'unimportant' : 'important', {
+                            silent: true,
+                          }),
+                        onArchive:
+                          canModify && thread && row.inInbox && !binView
+                            ? () => void act([row.id], 'archive')
+                            : null,
+                        onDelete:
+                          canModify && thread && !(folder === 'trash' && !searched)
+                            ? () => void act([row.id], 'trash')
+                            : null,
+                        onReadToggle:
+                          canModify && thread
+                            ? () =>
+                                void act([row.id], row.unread ? 'read' : 'unread', { silent: true })
+                            : null,
+                        onSnooze:
+                          canSnooze && thread && !snoozedView
+                            ? (at) => void snooze([row.id], at)
+                            : null,
+                        onUnsnooze: snoozedView ? () => void unsnooze([row.id]) : null,
+                        onLabel:
+                          canLabel && thread ? (change) => void label([row.id], change) : null,
+                        onContextMenu: (e) => {
+                          e.preventDefault();
+                          setContext({ x: e.clientX, y: e.clientY, items: contextItems(row) });
+                        },
+                      }}
+                    />
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
+          <section
+            aria-label="Reading pane"
+            data-tour="inbox-reading"
+            className={cn(
+              'min-w-0',
+              split &&
+                'xl:sticky xl:top-[calc(var(--titlebar-h)+1rem)] xl:max-h-[calc(100dvh-2rem-var(--titlebar-h))] xl:self-start xl:overflow-y-auto',
+              !selected && (split ? 'hidden xl:block' : 'hidden'),
+            )}
+          >
+            {selected ? (
+              <ThreadView
+                key={selected.id}
+                row={selected}
+                timeZone={timeZone}
+                initialThread={seed?.id === selected.id ? seed : undefined}
+                canAct={canAct}
+                mailbox={mailbox}
+                replyOpen={replyOpen}
+                setReplyOpen={setReplyOpen}
+                onBack={() => setSelectedId(null)}
+                onAct={(action) => act([selected.id], action)}
+                labelChoices={labelChoices}
+                onLabel={canLabel ? (change) => void label([selected.id], change) : null}
+                labelMenuOpen={labelMenu !== null && labelMenu === paneMenu}
+                setLabelMenuOpen={(o) => setLabelMenu(o ? paneMenu : null)}
+                onSnooze={canSnooze ? (at) => void snooze([selected.id], at) : null}
+                snoozeMenuOpen={snoozeMenu !== null && snoozeMenu === paneMenu}
+                setSnoozeMenuOpen={(o) => setSnoozeMenu(o ? paneMenu : null)}
+                snoozedUntil={snoozedView ? (selected.snoozedUntil ?? null) : null}
+                onUnsnooze={() => void unsnooze([selected.id])}
+                onSent={() => void load({ folder, category, q: searched, page }, { quiet: true })}
+                onForward={(draft) => setCompose({ title: 'Forward', draft })}
+              />
+            ) : (
+              <div className="grid h-full min-h-60 place-items-center rounded-[var(--radius-card)] border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--fg-subtle)]">
+                <div>
+                  <InboxIcon className="mx-auto mb-2 size-6" aria-hidden />
+                  Pick a conversation to read it here.
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
       </div>
+
+      {/* The Gmail app's floating Compose, on a phone. */}
+      <button
+        type="button"
+        onClick={openCompose}
+        aria-label="Compose"
+        data-tour="inbox-compose"
+        className="shadow-overlay fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-[var(--z-header)] inline-flex h-14 items-center gap-2 rounded-2xl bg-[var(--accent-soft)] px-5 text-sm font-semibold text-[var(--accent)] lg:hidden"
+      >
+        <PenSquare className="size-5" aria-hidden /> Compose
+      </button>
+
+      {context ? (
+        <ContextMenu
+          at={{ x: context.x, y: context.y }}
+          items={context.items}
+          onClose={() => setContext(null)}
+        />
+      ) : null}
+
+      <Dialog open={newLabel !== null} onOpenChange={(o) => !o && setNewLabel(null)}>
+        {newLabel !== null ? (
+          <DialogContent title="New label">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const name = newLabel.trim();
+                if (!name) return;
+                setNewLabel(null);
+                void createLabel(name);
+              }}
+            >
+              <label htmlFor="new-label-name" className="text-sm text-[var(--fg-muted)]">
+                Please enter a new label name:
+              </label>
+              <input
+                id="new-label-name"
+                autoFocus
+                value={newLabel}
+                maxLength={225}
+                onChange={(e) => setNewLabel(e.target.value)}
+                className="mt-2 h-9 w-full rounded-md border border-[var(--border-control)] bg-[var(--bg-raised)] px-3 text-sm"
+              />
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={() => setNewLabel(null)}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary" disabled={!newLabel.trim()}>
+                  Create
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        ) : null}
+      </Dialog>
+
       {compose ? (
         <Composer
           key={compose.title + compose.draft.subject}
@@ -962,597 +1423,9 @@ export function LiveInbox({
           initial={compose.draft}
           canSend={canAct}
           onClose={() => setCompose(null)}
-          onSent={() => void load({ tab, q: searched }, { quiet: true })}
+          onSent={() => void load({ folder, category, q: searched, page }, { quiet: true })}
         />
       ) : null}
     </div>
   );
-}
-
-function ThreadRow({
-  row,
-  timeZone,
-  active,
-  checked,
-  onOpen,
-  onCheck,
-  onStar,
-  onArchive,
-  labelChoices,
-  onLabel,
-  onSnooze,
-  snoozedUntil,
-  onUnsnooze,
-}: {
-  row: LiveThreadRow;
-  timeZone: string;
-  active: boolean;
-  checked: boolean;
-  onOpen: () => void;
-  onCheck: () => void;
-  onStar: () => void;
-  onArchive: (() => void) | null;
-  labelChoices: readonly MailLabel[];
-  onLabel: ((change: LabelChange) => void) | null;
-  onSnooze: ((wakeAt: Date) => void) | null;
-  /** On the Snoozed tab: when it comes back, shown in place of the date. */
-  snoozedUntil: string | null;
-  onUnsnooze: (() => void) | null;
-}) {
-  return (
-    <li
-      className={cn(
-        'group relative flex items-start gap-2 px-3 py-2.5',
-        row.unread ? 'bg-[var(--bg-raised)]' : '',
-        // Last, so the j/k selection wins over the unread fill (tailwind-merge
-        // keeps the later background). The gold rule is the 3:1 marker; the
-        // tint on its own is barely 1.2:1 against the list.
-        active
-          ? 'bg-[var(--accent-soft)] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-[var(--gold)]'
-          : 'hover:bg-[var(--bg-hover)]',
-      )}
-    >
-      <input
-        type="checkbox"
-        id={`check-${row.id}`}
-        aria-label={`Select ${row.subject}`}
-        checked={checked}
-        onChange={onCheck}
-        className="mt-1"
-      />
-      <button
-        type="button"
-        onClick={onStar}
-        aria-label={row.starred ? 'Unstar' : 'Star'}
-        aria-pressed={row.starred}
-        className="mt-0.5 text-[var(--fg-subtle)] hover:text-[var(--gold)]"
-      >
-        <Star
-          className={cn('size-4', row.starred && 'fill-[var(--gold)] text-[var(--gold)]')}
-          aria-hidden
-        />
-      </button>
-      <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-        <div className="flex items-baseline gap-2">
-          <span className={cn('min-w-0 flex-1 truncate text-sm', row.unread && 'font-semibold')}>
-            {row.unread ? <span className="sr-only">Unread: </span> : null}
-            {row.who}
-          </span>
-          {snoozedUntil ? (
-            <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-[var(--accent)]">
-              <AlarmClock className="size-3.5" aria-hidden />
-              <span className="sr-only">Snoozed until </span>
-              {formatWake(snoozedUntil, readerZone(timeZone))}
-            </span>
-          ) : (
-            <span
-              className={cn(
-                'shrink-0 text-xs',
-                row.unread ? 'font-semibold' : 'text-[var(--fg-muted)]',
-              )}
-            >
-              {shortTime(row.at, timeZone)}
-            </span>
-          )}
-        </div>
-        <p className={cn('truncate text-sm', row.unread ? 'font-medium' : 'text-[var(--fg)]')}>
-          {row.subject}
-        </p>
-        <p className="truncate text-xs text-[var(--fg-muted)]">{row.snippet}</p>
-        {row.flagged ? (
-          <span className="mt-1 inline-block">
-            <Badge tone="warn">Flagged</Badge>
-          </span>
-        ) : null}
-        {row.labels.length > 0 ? (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {row.labels.map((l) => (
-              <Badge key={l} tone="neutral">
-                {l}
-              </Badge>
-            ))}
-          </div>
-        ) : null}
-      </button>
-      {onLabel ? (
-        <LabelMenu choices={labelChoices} current={[row.labelIds]} onChange={onLabel}>
-          <button
-            type="button"
-            aria-label="Label"
-            className="mt-0.5 text-[var(--fg-subtle)] opacity-100 hover:text-[var(--fg)] lg:opacity-0 lg:group-hover:opacity-100 lg:focus:opacity-100 lg:data-[state=open]:opacity-100"
-          >
-            <Tag className="size-4" aria-hidden />
-          </button>
-        </LabelMenu>
-      ) : null}
-      {onSnooze ? (
-        <SnoozeMenu timeZone={timeZone} onSnooze={onSnooze}>
-          <button
-            type="button"
-            aria-label="Snooze"
-            className="mt-0.5 text-[var(--fg-subtle)] opacity-100 hover:text-[var(--fg)] lg:opacity-0 lg:group-hover:opacity-100 lg:focus:opacity-100 lg:data-[state=open]:opacity-100"
-          >
-            <AlarmClock className="size-4" aria-hidden />
-          </button>
-        </SnoozeMenu>
-      ) : null}
-      {onUnsnooze ? (
-        <button
-          type="button"
-          onClick={onUnsnooze}
-          aria-label="Unsnooze: back to the inbox now"
-          title="Unsnooze"
-          className="mt-0.5 text-[var(--fg-subtle)] opacity-100 hover:text-[var(--fg)] lg:opacity-0 lg:group-hover:opacity-100 lg:focus:opacity-100"
-        >
-          <InboxIcon className="size-4" aria-hidden />
-        </button>
-      ) : null}
-      {onArchive ? (
-        <button
-          type="button"
-          onClick={onArchive}
-          aria-label="Archive"
-          className="mt-0.5 text-[var(--fg-subtle)] opacity-100 hover:text-[var(--fg)] lg:opacity-0 lg:group-hover:opacity-100 lg:focus:opacity-100"
-        >
-          <Archive className="size-4" aria-hidden />
-        </button>
-      ) : null}
-    </li>
-  );
-}
-
-function ThreadView({
-  row,
-  timeZone,
-  initialThread,
-  canAct,
-  mailbox,
-  replyOpen,
-  setReplyOpen,
-  onBack,
-  onAct,
-  labelChoices,
-  onLabel,
-  labelMenuOpen,
-  setLabelMenuOpen,
-  onSnooze,
-  snoozeMenuOpen,
-  setSnoozeMenuOpen,
-  snoozedUntil,
-  onUnsnooze,
-  onSent,
-  onForward,
-}: {
-  row: LiveThreadRow;
-  timeZone: string;
-  /** The conversation already read on the server (a link opened it): shown without a second read. */
-  initialThread?: LiveThread;
-  canAct: boolean;
-  mailbox: string | null;
-  replyOpen: boolean;
-  setReplyOpen: (open: boolean) => void;
-  onBack: () => void;
-  onAct: (action: Action) => Promise<boolean>;
-  labelChoices: readonly MailLabel[];
-  onLabel: ((change: LabelChange) => void) | null;
-  labelMenuOpen: boolean;
-  setLabelMenuOpen: (open: boolean) => void;
-  onSnooze: ((wakeAt: Date) => void) | null;
-  snoozeMenuOpen: boolean;
-  setSnoozeMenuOpen: (open: boolean) => void;
-  /** Opened from the Snoozed tab: when it comes back; Unsnooze replaces Move to inbox. */
-  snoozedUntil: string | null;
-  onUnsnooze: () => void;
-  onSent: () => void;
-  onForward: (draft: ComposeDraft) => void;
-}) {
-  const [thread, setThread] = React.useState<LiveThread | null>(initialThread ?? null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [reloadKey, setReloadKey] = React.useState(0);
-  // Read once on the server already: the first look needs no second read of Gmail.
-  const seeded = React.useRef(Boolean(initialThread));
-
-  React.useEffect(() => {
-    if (seeded.current) {
-      seeded.current = false;
-      return;
-    }
-    let cancelled = false;
-    fetch(`/api/inbox/thread?id=${row.id}`)
-      .then(async (r) => {
-        if (!r.ok) throw new Error(await errorMessage(r, 'Could not open this conversation.'));
-        return ((await r.json()) as { thread: LiveThread }).thread;
-      })
-      .then((t) => {
-        if (!cancelled) {
-          setThread(t);
-          setError(null);
-        }
-      })
-      .catch((e: Error) => {
-        if (!cancelled) setError(e.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [row.id, reloadKey]);
-
-  return (
-    <article className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
-      <header className="flex flex-wrap items-center gap-1 border-b border-[var(--border)] p-2">
-        <Button size="sm" variant="ghost" onClick={onBack} aria-label="Back to the list">
-          <ArrowLeft className="size-4" aria-hidden />
-          <span className="lg:hidden">Back</span>
-        </Button>
-        <div className="flex-1" />
-        {snoozedUntil ? (
-          <Button size="sm" variant="secondary" onClick={onUnsnooze}>
-            <InboxIcon className="size-4" aria-hidden /> Unsnooze
-          </Button>
-        ) : row.inInbox ? (
-          <Button size="sm" variant="secondary" onClick={() => void onAct('archive')}>
-            <Archive className="size-4" aria-hidden /> Archive
-          </Button>
-        ) : (
-          <Button size="sm" variant="secondary" onClick={() => void onAct('inbox')}>
-            <InboxIcon className="size-4" aria-hidden /> Move to inbox
-          </Button>
-        )}
-        {onSnooze ? (
-          <SnoozeMenu
-            timeZone={timeZone}
-            onSnooze={onSnooze}
-            open={snoozeMenuOpen}
-            onOpenChange={setSnoozeMenuOpen}
-          >
-            <Button size="sm" variant="secondary">
-              <AlarmClock className="size-4" aria-hidden /> Snooze
-            </Button>
-          </SnoozeMenu>
-        ) : null}
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => void onAct('unread').then((ok) => ok && onBack())}
-          aria-label="Mark unread"
-        >
-          <Mail className="size-4" aria-hidden />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => void onAct(row.starred ? 'unstar' : 'star')}
-          aria-label={row.starred ? 'Unstar' : 'Star'}
-          aria-pressed={row.starred}
-        >
-          <Star
-            className={cn('size-4', row.starred && 'fill-[var(--gold)] text-[var(--gold)]')}
-            aria-hidden
-          />
-        </Button>
-        {onLabel ? (
-          <LabelMenu
-            choices={labelChoices}
-            current={[row.labelIds]}
-            onChange={onLabel}
-            open={labelMenuOpen}
-            onOpenChange={setLabelMenuOpen}
-          >
-            <Button size="sm" variant="ghost" aria-label="Label">
-              <Tag className="size-4" aria-hidden />
-            </Button>
-          </LabelMenu>
-        ) : null}
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-label="Forward"
-          disabled={!thread}
-          onClick={() => thread && onForward(forwardDraft(thread, timeZone))}
-        >
-          <Forward className="size-4" aria-hidden />
-        </Button>
-        <Button asChild size="sm" variant="ghost">
-          <a
-            href={gmailUrl(row.id, mailbox)}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Open in Gmail"
-          >
-            <ExternalLink className="size-4" aria-hidden />
-          </a>
-        </Button>
-      </header>
-
-      <div className="space-y-3 p-4">
-        <h2 className="text-lg font-semibold text-balance">{thread?.subject ?? row.subject}</h2>
-        {snoozedUntil ? (
-          <p className="flex items-center gap-1.5 text-sm text-[var(--fg-muted)]">
-            <AlarmClock className="size-4 text-[var(--accent)]" aria-hidden />
-            Snoozed until {formatWake(snoozedUntil, readerZone(timeZone))}
-          </p>
-        ) : null}
-        {/* The row's labels, so a change made here shows at once. */}
-        {row.labels.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {row.labels.map((l) => (
-              <Badge key={l} tone="neutral">
-                {l}
-              </Badge>
-            ))}
-          </div>
-        ) : null}
-        {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
-        {!thread && !error ? (
-          <p className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
-            <Loader2 className="size-4 animate-spin" aria-hidden /> Opening…
-          </p>
-        ) : null}
-        {thread ? (
-          <ol className="space-y-2">
-            {thread.messages.map((m, i) => (
-              <MessageItem
-                key={m.id}
-                message={m}
-                timeZone={timeZone}
-                startOpen={i === thread.messages.length - 1}
-              />
-            ))}
-          </ol>
-        ) : null}
-        {thread ? (
-          <ReplyBox
-            threadId={row.id}
-            canSend={canAct}
-            mailbox={mailbox}
-            open={replyOpen}
-            setOpen={setReplyOpen}
-            onSent={() => {
-              setReloadKey((k) => k + 1);
-              onSent();
-            }}
-          />
-        ) : null}
-      </div>
-    </article>
-  );
-}
-
-interface DraftResponse {
-  draft: { body: string } | null;
-  draftError: string | null;
-  canSend: boolean;
-  signatures: { nick: string | null; arwin: string } | null;
-}
-
-function ReplyBox({
-  threadId,
-  canSend,
-  mailbox,
-  open,
-  setOpen,
-  onSent,
-}: {
-  threadId: string;
-  canSend: boolean;
-  mailbox: string | null;
-  open: boolean;
-  setOpen: (open: boolean) => void;
-  onSent: () => void;
-}) {
-  const [loaded, setLoaded] = React.useState<DraftResponse | null>(null);
-  const [body, setBody] = React.useState('');
-  const [signature, setSignature] = React.useState<Signature>('nick');
-  const [countdown, setCountdown] = React.useState(0);
-  const [sending, setSending] = React.useState(false);
-  const [pending, setPending] = React.useState(false);
-  const timer = React.useRef<number | null>(null);
-  const quietOpen = React.useRef(false);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/email-session/draft?id=${threadId}`)
-      .then(async (r) => (r.ok ? ((await r.json()) as DraftResponse) : null))
-      .then((d) => {
-        if (cancelled || !d) return;
-        setLoaded(d);
-        if (d.draft?.body) {
-          setBody(d.draft.body);
-          // Shown, not focused: opening an email must not jump the page to the reply.
-          quietOpen.current = true;
-          setOpen(true);
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      if (timer.current) window.clearInterval(timer.current);
-    };
-  }, [threadId, setOpen]);
-
-  React.useEffect(() => {
-    if (!open) return;
-    if (quietOpen.current) {
-      quietOpen.current = false;
-      return;
-    }
-    document.getElementById(`reply-${threadId}`)?.focus();
-  }, [open, threadId]);
-
-  const send = React.useCallback(async () => {
-    setSending(true);
-    const res = await postJson('/api/email-session/send', { id: threadId, body, signature });
-    setSending(false);
-    if (res.ok) {
-      toast.success('Sent');
-      setBody('');
-      setOpen(false);
-      onSent();
-    } else {
-      toast.error(await errorMessage(res, 'It did not send. Try again.'));
-    }
-  }, [threadId, body, signature, setOpen, onSent]);
-
-  // The send fires from the last tick itself; the ref always holds the newest send.
-  const sendRef = React.useRef(send);
-  React.useEffect(() => {
-    sendRef.current = send;
-  }, [send]);
-
-  const startSend = () => {
-    if (!body.trim()) {
-      toast.error('Write a reply first.');
-      return;
-    }
-    if (!canSend) {
-      window.open(gmailUrl(threadId, mailbox), '_blank', 'noopener');
-      return;
-    }
-    if (signature === 'nick' && loaded && !loaded.signatures?.nick) {
-      toast.error("Nick's signature couldn't be read from Gmail. Try again, or sign as Arwin.");
-      return;
-    }
-    let left = UNDO_SECONDS;
-    setCountdown(left);
-    setPending(true);
-    timer.current = window.setInterval(() => {
-      left -= 1;
-      setCountdown(left);
-      if (left <= 0) {
-        if (timer.current) window.clearInterval(timer.current);
-        timer.current = null;
-        setPending(false);
-        void sendRef.current();
-      }
-    }, 1000);
-  };
-
-  const undo = () => {
-    if (timer.current) window.clearInterval(timer.current);
-    timer.current = null;
-    setPending(false);
-    setCountdown(0);
-  };
-
-  if (!open) {
-    return (
-      <Button variant="secondary" onClick={() => setOpen(true)}>
-        <Reply className="size-4" aria-hidden /> Reply
-      </Button>
-    );
-  }
-
-  const waiting = pending;
-  const sigText = loaded?.signatures?.[signature] ?? null;
-
-  return (
-    <div className="space-y-2 rounded-md border border-[var(--border-strong)] bg-[var(--bg)] p-3">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-medium">Reply all</span>
-        {loaded?.draft ? <Badge tone="ok">Draft from Gmail</Badge> : null}
-        <div className="flex-1" />
-        <span className="text-[var(--fg-muted)]">Sign as</span>
-        {(['nick', 'arwin'] as Signature[]).map((s) => (
-          <Button
-            key={s}
-            size="sm"
-            variant={signature === s ? 'primary' : 'secondary'}
-            aria-pressed={signature === s}
-            onClick={() => {
-              setSignature(s);
-              setBody((b) => swapSignOff(b, s));
-            }}
-          >
-            {s === 'nick' ? 'Nick' : 'Arwin'}
-          </Button>
-        ))}
-      </div>
-      <label htmlFor={`reply-${threadId}`} className="sr-only">
-        Reply
-      </label>
-      <Textarea
-        id={`reply-${threadId}`}
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        rows={8}
-        disabled={waiting || sending}
-        onKeyDown={(e) => {
-          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-            e.preventDefault();
-            startSend();
-          }
-        }}
-      />
-      {sigText ? (
-        <p className="text-xs whitespace-pre-line text-[var(--fg-subtle)]">{sigText}</p>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-2">
-        {waiting ? (
-          <>
-            <span className="text-sm text-[var(--fg-muted)]">Sending in {countdown}s…</span>
-            <Button size="sm" variant="secondary" onClick={undo}>
-              <Undo2 className="size-4" aria-hidden /> Undo
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button size="sm" onClick={startSend} disabled={sending}>
-              {sending ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <Send className="size-4" aria-hidden />
-              )}
-              {canSend ? 'Send' : 'Send in Gmail'}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
-              Close
-            </Button>
-            <span className="text-xs text-[var(--fg-subtle)]">Ctrl+Enter sends</span>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Gmail's forward: the newest message quoted under a header, its attachments carried along. */
-export function forwardDraft(thread: LiveThread, timeZone: string): ComposeDraft {
-  const last = thread.messages.at(-1)!;
-  const header = [
-    '---------- Forwarded message ---------',
-    `From: ${last.from}`,
-    `Date: ${longTime(last.at, timeZone)}`,
-    `Subject: ${thread.subject}`,
-    `To: ${last.to}`,
-    last.cc ? `Cc: ${last.cc}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
-  return {
-    to: '',
-    subject: /^fwd?:/i.test(thread.subject) ? thread.subject : `Fwd: ${thread.subject}`,
-    body: `\n\nNick\n\n${header}\n\n${last.text}`,
-    forwardOf: last.attachments.length ? last.id : null,
-    attachmentNames: last.attachments.map((a) => a.name),
-  };
 }

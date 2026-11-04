@@ -13,6 +13,8 @@ import { cn } from '@/lib/util/cn';
 export const Popover = PopoverPrimitive.Root;
 export const PopoverTrigger = PopoverPrimitive.Trigger;
 export const PopoverClose = PopoverPrimitive.Close;
+/** Positions the panel against something other than its trigger (a whole search bar). */
+export const PopoverAnchor = PopoverPrimitive.Anchor;
 
 export function PopoverContent({
   className,

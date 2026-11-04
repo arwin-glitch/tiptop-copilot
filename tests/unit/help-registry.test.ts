@@ -204,7 +204,8 @@ describe('subtabs', () => {
     const text = (path: string) => readFileSync(join(SRC, ...path.split('/')), 'utf8');
     const where: Record<string, string> = {
       tasks: text('components/tasks/tasks-tabs.tsx'),
-      inbox: text('components/inbox/live-inbox.tsx'),
+      // The folders are the Inbox's left nav; the category tabs are named in live-inbox.tsx.
+      inbox: text('components/inbox/live-inbox.tsx') + text('components/inbox/inbox-nav.tsx'),
       settings: text('app/(app)/settings/page.tsx').replace(/&amp;/g, '&'),
     };
     for (const [id, source] of Object.entries(where)) {

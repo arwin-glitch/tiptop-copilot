@@ -29,7 +29,7 @@ export const PAGE_HEADERS = {
   inbox: {
     title: 'Inbox',
     subtitle:
-      "Nick's Gmail, live: read, reply, archive and star right here. Replies send from his inbox only when someone taps Send, with 8 seconds to undo.",
+      "Nick's Gmail, live and laid out like Gmail. Mail sends from his inbox only when someone taps Send (8 seconds to undo) or picks a Schedule time.",
   },
   calendar: {
     title: 'Calendar',

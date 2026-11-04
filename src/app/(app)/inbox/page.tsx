@@ -6,9 +6,10 @@ import { requireAuth } from '@/lib/auth/session';
 import { inboxThreadParam, wantsGmail } from '@/lib/email/thread-links';
 import { getStore } from '@/lib/runtime';
 import { gmailHrefForLink, listLiveThreads, openFromLink } from '@/lib/services/inbox-live';
+import { INBOX_SHELL } from '@/lib/email/inbox-folders';
 import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell } from '@/components/shell/page-header';
-import { SkeletonText } from '@/components/ui/feedback';
+import { LoadingBodyShape } from '@/components/shell/tab-loading';
 import { LiveInbox } from '@/components/inbox/live-inbox';
 
 export const metadata: Metadata = { title: 'Inbox' };
@@ -28,9 +29,9 @@ export default async function InboxPage({ searchParams }: { searchParams: Search
     if (href) redirect(href);
   }
   return (
-    <PageShell>
+    <PageShell className={INBOX_SHELL}>
       <PageHeader title={PAGE_HEADERS.inbox.title} subtitle={PAGE_HEADERS.inbox.subtitle} />
-      <Suspense fallback={<SkeletonText lines={10} />}>
+      <Suspense fallback={<LoadingBodyShape body="inbox" />}>
         <InboxContent wanted={wanted} query={searchQuery(params.q)} />
       </Suspense>
     </PageShell>

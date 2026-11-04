@@ -66,9 +66,18 @@ export interface InboxThreadMeta {
   lastFromUs: boolean;
   /** The address the thread's first message came from (who started it). */
   firstFromAddress?: string | null;
+  /** Who wrote each message, oldest first (drafts left out), for Gmail's "Name, me 3". */
+  senders?: { name: string; me: boolean }[];
+  /** Who the newest message went to, for the Sent folder's "To: name". */
+  toName?: string;
+  /** A draft sits on the thread (Gmail's red "Draft" in the row). */
+  hasDraft?: boolean;
+  /** Some message is multipart/mixed: it carries an attachment. */
+  hasAttachment?: boolean;
 }
 
 interface Msg {
+  id?: string;
   labelIds?: string[];
   internalDate?: string;
   payload?: { headers?: { name: string; value: string }[] };
@@ -93,16 +102,28 @@ export async function readThreadMeta(
   const res = await gmailGet<{ messages?: Msg[] }>(
     store,
     integration,
-    `/threads/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`,
+    `/threads/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To&metadataHeaders=Content-Type`,
   );
   if (!res.ok) return null;
-  const real = (res.value.messages ?? []).filter((m) => !m.labelIds?.includes('DRAFT'));
+  const all = res.value.messages ?? [];
+  const real = all.filter((m) => !m.labelIds?.includes('DRAFT'));
   const latest = real.at(-1);
   if (!latest) return null;
   const own = (integration.account_email ?? '').toLowerCase();
   const from = header(latest, 'From');
   const labels = [...new Set(real.flatMap((m) => m.labelIds ?? []))];
+  const isOwn = (value: string) => {
+    const addr = /<?([^<>\s"]+@[^<>\s"]+)>?/.exec(value)?.[1]?.toLowerCase();
+    return Boolean(own) && addr === own;
+  };
   return {
+    senders: real.map((m) => ({
+      name: displayName(header(m, 'From')),
+      me: isOwn(header(m, 'From')),
+    })),
+    toName: displayName(header(latest, 'To').split(',')[0] ?? ''),
+    hasDraft: all.some((m) => m.labelIds?.includes('DRAFT')),
+    hasAttachment: real.some((m) => /multipart\/mixed/i.test(header(m, 'Content-Type'))),
     id,
     who: displayName(from),
     subject: header(real[0], 'Subject') || '(no subject)',
@@ -199,23 +220,167 @@ export interface ThreadStub {
   historyId: string;
 }
 
-/** One page of threads for a Gmail search (optionally limited to label ids). */
+/**
+ * One page of threads for a Gmail search (optionally limited to label ids).
+ * `total` is Gmail's own estimate of the whole list (the pager's "of N").
+ * Spam and Trash need `includeSpamTrash`.
+ */
 export async function listThreadPage(
   store: DataStore,
   integration: Integration,
-  options: { q?: string; labelIds?: string[]; pageToken?: string; max?: number },
-): Promise<Result<{ threads: ThreadStub[]; nextPageToken: string | null }>> {
+  options: {
+    q?: string;
+    labelIds?: string[];
+    pageToken?: string;
+    max?: number;
+    includeSpamTrash?: boolean;
+  },
+): Promise<Result<{ threads: ThreadStub[]; nextPageToken: string | null; total?: number }>> {
   const params = new URLSearchParams({ maxResults: String(options.max ?? 50) });
   for (const label of options.labelIds ?? []) params.append('labelIds', label);
   if (options.q) params.set('q', options.q);
   if (options.pageToken) params.set('pageToken', options.pageToken);
-  const res = await gmailGet<{ threads?: ThreadStub[]; nextPageToken?: string }>(
+  if (options.includeSpamTrash) params.set('includeSpamTrash', 'true');
+  const res = await gmailGet<{
+    threads?: ThreadStub[];
+    nextPageToken?: string;
+    resultSizeEstimate?: number;
+  }>(store, integration, `/threads?${params.toString()}`);
+  if (!res.ok) return res;
+  return ok({
+    threads: res.value.threads ?? [],
+    nextPageToken: res.value.nextPageToken ?? null,
+    total: res.value.resultSizeEstimate,
+  });
+}
+
+/** A label's own counts (Gmail's labels.get): threads in it, and how many unread. */
+export async function readLabelCount(
+  store: DataStore,
+  integration: Integration,
+  labelId: string,
+): Promise<{ total: number; unread: number } | null> {
+  const res = await gmailGet<{ threadsTotal?: number; threadsUnread?: number }>(
     store,
     integration,
-    `/threads?${params.toString()}`,
+    `/labels/${encodeURIComponent(labelId)}`,
   );
+  if (!res.ok) return null;
+  return { total: res.value.threadsTotal ?? 0, unread: res.value.threadsUnread ?? 0 };
+}
+
+/** Whether any thread in the inbox carries a category label: an empty category's tab is hidden. */
+export async function inboxCategoryHasMail(
+  store: DataStore,
+  integration: Integration,
+  categoryLabel: string,
+): Promise<boolean> {
+  const res = await gmailGet<{ threads?: { id: string }[] }>(
+    store,
+    integration,
+    `/threads?maxResults=1&labelIds=INBOX&labelIds=${encodeURIComponent(categoryLabel)}`,
+  );
+  return res.ok && (res.value.threads?.length ?? 0) > 0;
+}
+
+/* --------------------------------------------------------------- drafts */
+
+export interface DraftStub {
+  draftId: string;
+  messageId: string;
+  threadId: string;
+  to: string;
+  subject: string;
+  snippet: string;
+  at: string | null;
+}
+
+/** One page of Gmail's drafts, newest first, each with its headline. Read scope only. */
+export async function listDraftPage(
+  store: DataStore,
+  integration: Integration,
+  options: { pageToken?: string; max?: number; q?: string } = {},
+): Promise<Result<{ drafts: DraftStub[]; nextPageToken: string | null; total?: number }>> {
+  const params = new URLSearchParams({ maxResults: String(options.max ?? 50) });
+  if (options.pageToken) params.set('pageToken', options.pageToken);
+  if (options.q) params.set('q', options.q);
+  const list = await gmailGet<{
+    drafts?: { id: string; message: { id: string; threadId: string } }[];
+    nextPageToken?: string;
+    resultSizeEstimate?: number;
+  }>(store, integration, `/drafts?${params.toString()}`);
+  if (!list.ok) return list;
+  const drafts: DraftStub[] = [];
+  const ids = list.value.drafts ?? [];
+  for (let i = 0; i < ids.length; i += 10) {
+    const batch = ids.slice(i, i + 10);
+    const got = await Promise.all(
+      batch.map((d) =>
+        gmailGet<{ id: string; message: Msg & { id: string; threadId: string; snippet?: string } }>(
+          store,
+          integration,
+          `/drafts/${d.id}?format=metadata`,
+        ).catch(() => null),
+      ),
+    );
+    got.forEach((res, j) => {
+      if (!res?.ok) return;
+      const m = res.value.message;
+      drafts.push({
+        draftId: batch[j]!.id,
+        messageId: m.id,
+        threadId: m.threadId,
+        to: header(m, 'To'),
+        subject: header(m, 'Subject'),
+        snippet: m.snippet ?? '',
+        at: m.internalDate ? new Date(Number(m.internalDate)).toISOString() : null,
+      });
+    });
+  }
+  return ok({
+    drafts,
+    nextPageToken: list.value.nextPageToken ?? null,
+    total: list.value.resultSizeEstimate,
+  });
+}
+
+export interface DraftFull {
+  draftId: string;
+  messageId: string;
+  threadId: string;
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  text: string;
+  html: string;
+}
+
+/** One draft whole, to open into the compose window. Read scope only. */
+export async function readDraftFull(
+  store: DataStore,
+  integration: Integration,
+  draftId: string,
+): Promise<Result<DraftFull>> {
+  const res = await gmailGet<{
+    id: string;
+    message: Msg & { id: string; threadId: string; payload?: FullPart };
+  }>(store, integration, `/drafts/${encodeURIComponent(draftId)}?format=full`);
   if (!res.ok) return res;
-  return ok({ threads: res.value.threads ?? [], nextPageToken: res.value.nextPageToken ?? null });
+  const m = res.value.message;
+  const html = findText(m.payload, 'text/html');
+  const plain = findText(m.payload, 'text/plain');
+  return ok({
+    draftId: res.value.id,
+    messageId: m.id,
+    threadId: m.threadId,
+    to: header(m, 'To'),
+    cc: header(m, 'Cc'),
+    bcc: header(m, 'Bcc'),
+    subject: header(m, 'Subject'),
+    text: (plain || htmlToPlainText(html)).replace(/\r\n/g, '\n').trim(),
+    html,
+  });
 }
 
 interface FullPart {

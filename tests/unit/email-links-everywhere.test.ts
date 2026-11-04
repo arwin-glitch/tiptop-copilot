@@ -39,7 +39,7 @@ const ALLOWED: Record<string, { names: string[]; why: string }> = {
     names: ['gmailThreadUrl()'],
     why: "Arwin's rule: the Top priorities card keeps its single Gmail link.",
   },
-  'components/inbox/live-inbox.tsx': {
+  'components/inbox/thread-view.tsx': {
     names: ['a Gmail URL', "Gmail's #all/<id>"],
     why: 'The Inbox is Kraken: its reading pane offers Gmail as the other place, "Try in Gmail" for a link it could not open, and Send in Gmail when sending is off.',
   },

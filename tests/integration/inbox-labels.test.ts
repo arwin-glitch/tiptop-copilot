@@ -158,9 +158,38 @@ describe('labels in demo mode', () => {
     ).toBe(404);
   });
 
-  it('still leaves archive and star off in the demo, and never writes to Gmail', async () => {
-    expect((await call({ ids: [VETRIX], action: 'archive' })).status).toBe(409);
+  it('keeps archive, delete and spam on the demo mailbox, and never writes to Gmail', async () => {
+    expect((await call({ ids: [VETRIX], action: 'archive' })).status).toBe(200);
+    let list = await listLiveThreads(harness.store, DEMO_IDS.org, { folder: 'inbox' });
+    expect(list.rows.some((r) => r.id === VETRIX)).toBe(false);
+    expect((await call({ ids: [VETRIX], action: 'trash' })).status).toBe(200);
+    list = await listLiveThreads(harness.store, DEMO_IDS.org, { folder: 'trash' });
+    expect(list.rows.find((r) => r.id === VETRIX)?.inTrash).toBe(true);
+    expect((await call({ ids: [VETRIX], action: 'restore' })).status).toBe(200);
+    list = await listLiveThreads(harness.store, DEMO_IDS.org, { folder: 'inbox' });
+    expect(list.rows.some((r) => r.id === VETRIX)).toBe(true);
+    expect((await call({ ids: [VETRIX], action: 'spam' })).status).toBe(200);
+    list = await listLiveThreads(harness.store, DEMO_IDS.org, { folder: 'spam' });
+    expect(list.rows.some((r) => r.id === VETRIX)).toBe(true);
+    expect((await call({ ids: [VETRIX], action: 'notspam' })).status).toBe(200);
+    list = await listLiveThreads(harness.store, DEMO_IDS.org, { folder: 'inbox' });
+    expect(list.rows.some((r) => r.id === VETRIX)).toBe(true);
     expect(setThreadLabels).not.toHaveBeenCalled();
+  });
+
+  it('moves a demo thread to a label and back, and refuses an unknown place', async () => {
+    const moved = await call({ ids: [VETRIX], action: 'move', to: 'Label_913', from: 'INBOX' });
+    expect(moved.status).toBe(200);
+    let list = await listLiveThreads(harness.store, DEMO_IDS.org, { folder: 'inbox' });
+    expect(list.rows.some((r) => r.id === VETRIX)).toBe(false);
+    list = await listLiveThreads(harness.store, DEMO_IDS.org, { folder: 'label:Label_913' });
+    expect(list.rows.some((r) => r.id === VETRIX)).toBe(true);
+    const back = await call({ ids: [VETRIX], action: 'move', to: 'INBOX', from: 'Label_913' });
+    expect(back.status).toBe(200);
+    list = await listLiveThreads(harness.store, DEMO_IDS.org, { folder: 'inbox' });
+    expect(list.rows.some((r) => r.id === VETRIX)).toBe(true);
+    expect((await call({ ids: [VETRIX], action: 'move', to: 'TRASH' })).status).toBe(400);
+    expect((await call({ ids: [VETRIX], action: 'move' })).status).toBe(400);
   });
 });
 
@@ -224,6 +253,44 @@ describe('labels against Gmail', () => {
   it('keeps the old actions as they were', async () => {
     await call({ ids: ['aaaa000000000001'], action: 'archive' });
     expect(setThreadLabels.mock.calls[0]?.[3]).toEqual({ remove: ['INBOX'] });
+  });
+
+  it('deletes to Trash and reports spam as labels, each undone by taking it off', async () => {
+    const id = 'aaaa000000000001';
+    for (const [action, change] of [
+      ['trash', { add: ['TRASH'] }],
+      ['restore', { add: ['INBOX'], remove: ['TRASH'] }],
+      ['untrash', { remove: ['TRASH'] }],
+      ['spam', { add: ['SPAM'], remove: ['INBOX'] }],
+      ['notspam', { add: ['INBOX'], remove: ['SPAM'] }],
+      ['important', { add: ['IMPORTANT'] }],
+      ['unimportant', { remove: ['IMPORTANT'] }],
+    ] as const) {
+      setThreadLabels.mockClear();
+      expect((await call({ ids: [id], action })).status, action).toBe(200);
+      expect(setThreadLabels.mock.calls[0]?.[3], action).toEqual(change);
+    }
+  });
+
+  it('refuses a permanent delete: there is no such action', async () => {
+    for (const action of ['delete', 'deleteForever', 'emptyTrash', 'purge']) {
+      expect((await call({ ids: ['aaaa000000000001'], action })).status, action).toBe(400);
+    }
+    expect(setThreadLabels).not.toHaveBeenCalled();
+  });
+
+  it("moves to a label out of the inbox, Gmail's Move to", async () => {
+    const res = await call({
+      ids: ['aaaa000000000001'],
+      action: 'move',
+      to: 'Label_7201',
+      from: 'INBOX',
+    });
+    expect(res.status).toBe(200);
+    expect(setThreadLabels.mock.calls[0]?.[3]).toEqual({
+      add: ['Label_7201'],
+      remove: ['INBOX'],
+    });
   });
 
   it('needs sending turned on', async () => {
