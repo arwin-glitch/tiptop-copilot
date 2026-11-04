@@ -1,6 +1,8 @@
 'use client';
 
 import * as React from 'react';
+import { toast } from 'sonner';
+import { useRouter } from 'next/navigation';
 import {
   AlarmClock,
   Archive,
@@ -21,6 +23,7 @@ import {
   Forward,
   Inbox as InboxIcon,
   Loader2,
+  ListTodo,
   Mail,
   MoreVertical,
   OctagonAlert,
@@ -193,6 +196,29 @@ export function replySeed(
     html: '',
     threadId: thread.id,
   };
+}
+
+/**
+ * Gmail's "Add to Tasks", as a Kraken task linked to the conversation: from
+ * the person's click only, and it changes nothing in Gmail.
+ */
+async function addToTasks(threadId: string, onView: () => void): Promise<void> {
+  try {
+    const res = await fetch('/api/inbox/task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId }),
+    });
+    if (!res.ok) {
+      toast.error(await errorMessage(res, 'Could not add it to Tasks. Try again.'));
+      return;
+    }
+    toast.success('Added to Tasks', {
+      action: { label: 'View', onClick: onView },
+    });
+  } catch {
+    toast.error('Could not reach Kraken. Try again.');
+  }
 }
 
 /** Gmail's "Forward as attachment": a new email with the message attached whole. */
@@ -693,6 +719,7 @@ export function ThreadView({
   /** "3 of 8" and the newer/older arrows; null when the conversation is not in the list. */
   position: { index: number; total: number; onNewer: () => void; onOlder: () => void } | null;
 }) {
+  const router = useRouter();
   const [thread, setThread] = React.useState<LiveThread | null>(initialThread ?? null);
   const labelColors = React.useMemo(() => colorsByName(labelChoices), [labelChoices]);
   const [error, setError] = React.useState<string | null>(null);
@@ -851,6 +878,17 @@ export function ThreadView({
             label: 'Forward as attachment',
             icon: Paperclip,
             onSelect: () => onCompose(attachedSeed(thread, messages.at(-1)!)),
+          },
+        ]
+      : []),
+    ...(thread
+      ? [
+          {
+            id: 'task',
+            label: 'Add to Tasks',
+            icon: ListTodo,
+            divider: true,
+            onSelect: () => void addToTasks(thread.id, () => router.push('/tasks')),
           },
         ]
       : []),

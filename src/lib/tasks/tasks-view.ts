@@ -1,3 +1,4 @@
+import { taskThreadHref } from '@/lib/email/thread-links';
 import type { Task } from '@/lib/types/domain';
 import {
   addDaysToKey,
@@ -247,9 +248,14 @@ export function completedSections<T extends { group: CompletedGroupKey }>(
   };
 }
 
-/** Where a task's title links: its deal, else its portfolio company. */
-export function taskHref(task: Pick<Task, 'deal_id' | 'portfolio_company_id'>): string | null {
+/**
+ * Where a task's title links: its deal, else its portfolio company, else the
+ * Inbox conversation it was added from ("Add to Tasks").
+ */
+export function taskHref(
+  task: Pick<Task, 'deal_id' | 'portfolio_company_id'> & { detail?: string | null },
+): string | null {
   if (task.deal_id) return `/deals/${task.deal_id}`;
   if (task.portfolio_company_id) return `/portfolio/${task.portfolio_company_id}`;
-  return null;
+  return taskThreadHref(task.detail);
 }

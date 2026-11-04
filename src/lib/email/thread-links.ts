@@ -139,3 +139,21 @@ export function parseGmailThreadUrl(
   const authuser = url.searchParams.get('authuser');
   return { id: id.toLowerCase(), mailbox: authuser && authuser.includes('@') ? authuser : null };
 }
+
+/**
+ * A task made from a conversation (the Inbox's "Add to Tasks"): who it came
+ * from, then the Inbox link to it, which the Tasks tab turns into the
+ * title's link (`taskThreadHref`).
+ */
+export function inboxTaskDetail(threadId: string, fromName: string | null): string {
+  const link = copilotThreadHref(threadId) ?? '';
+  const who = fromName?.replace(/\s+/g, ' ').trim().slice(0, 120);
+  return who ? `Email from ${who} · ${link}` : `Email · ${link}`;
+}
+
+/** The Inbox link a task's detail carries (from "Add to Tasks"), or null. */
+export function taskThreadHref(detail: string | null | undefined): string | null {
+  const found = /(?:^|\s)(\/inbox\?thread=[0-9a-f]{10,24})(?=\s|$)/i.exec(detail ?? '')?.[1];
+  const id = emailIdFromInboxHref(found);
+  return id ? copilotThreadHref(id) : null;
+}

@@ -4,12 +4,13 @@ import { createHarness, type Harness } from '../helpers/harness';
 import { DEMO_IDS } from '@/lib/demo/ids';
 import { listLiveThreads, readLiveThread, resetInboxLiveCache } from '@/lib/services/inbox-live';
 import { SEND_SCOPES } from '@/lib/google/send-scopes';
-import type { Integration } from '@/lib/types/domain';
+import type { Integration, Task } from '@/lib/types/domain';
+import { taskHref } from '@/lib/tasks/tasks-view';
 import { ok } from '@/lib/util/result';
 
 /**
  * Gmail parity, last round, in the demo mailbox: Show original and Download
- * message, Forward as attachment. Everything stays in the demo or on stubs;
+ * message, Forward as attachment, Add to Tasks. Everything stays in the demo or on stubs;
  * nothing reaches Gmail.
  */
 
@@ -72,6 +73,7 @@ vi.mock('@/lib/services/email-session-auth', async (importOriginal) => ({
 
 const original = await import('@/app/api/inbox/original/route');
 const compose = await import('@/app/api/inbox/compose/route');
+const taskRoute = await import('@/app/api/inbox/task/route');
 
 async function demoMessage() {
   const list = await listLiveThreads(harness.store, DEMO_IDS.org, { tab: 'primary' });
@@ -164,5 +166,35 @@ describe('Forward as attachment', () => {
     );
     expect(res.status).toBe(409);
     expect(sendComposed).not.toHaveBeenCalled();
+  });
+});
+
+describe('Add to Tasks', () => {
+  it('makes a Kraken task titled by the subject, linked back to the conversation', async () => {
+    const { thread } = await demoMessage();
+    const res = await taskRoute.POST(
+      new NextRequest('http://localhost/api/inbox/task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId: thread.id }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const { taskId } = await res.json();
+    const task = (await harness.store.get('tasks', DEMO_IDS.org, taskId)) as Task;
+    expect(task.title).toBe(thread.subject);
+    expect(task.status).toBe('open');
+    expect(taskHref(task)).toBe(`/inbox?thread=${thread.id}`);
+  });
+
+  it('refuses a body with anything but the conversation id', async () => {
+    const res = await taskRoute.POST(
+      new NextRequest('http://localhost/api/inbox/task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId: '18c0a1b2c3d4e5f6', title: 'x' }),
+      }),
+    );
+    expect(res.status).toBe(400);
   });
 });
