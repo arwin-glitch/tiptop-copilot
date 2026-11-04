@@ -13,6 +13,7 @@ import {
   Download,
   ExternalLink,
   File as FileIcon,
+  FileCode,
   FileImage,
   FileText,
   Filter,
@@ -34,6 +35,7 @@ import {
 import { ComposeForm, type ComposeEnv, type ComposeSeed } from '@/components/inbox/compose-window';
 import type { ComposeDraft } from '@/components/inbox/composer';
 import { LabelMenu } from '@/components/inbox/label-menu';
+import { originalHref, ShowOriginalDialog } from '@/components/inbox/show-original';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { PdfPreview } from '@/components/inbox/pdf-preview';
 import { MenuButton, MoveMenu, type MenuItem } from '@/components/inbox/inbox-menus';
@@ -378,8 +380,14 @@ function MessageCard({
   onPrint,
   onUnreadFromHere,
   sender,
+  onShowOriginal,
+  onDownload,
 }: {
   sender: SenderActions;
+  /** Gmail's "Show original": the source, read-only. */
+  onShowOriginal: () => void;
+  /** Gmail's "Download message": the original as an .eml file. */
+  onDownload: () => void;
   message: LiveMessage;
   open: boolean;
   onToggle: () => void;
@@ -431,6 +439,8 @@ function MessageCard({
     { id: 'replyAll', label: 'Reply all', icon: ReplyAll, onSelect: () => onWrite('replyAll') },
     { id: 'forward', label: 'Forward', icon: Forward, onSelect: () => onWrite('forward') },
     { id: 'print', label: 'Print', icon: Printer, divider: true, onSelect: onPrint },
+    { id: 'original', label: 'Show original', icon: FileCode, onSelect: onShowOriginal },
+    { id: 'download', label: 'Download message', icon: Download, onSelect: onDownload },
     ...(onUnreadFromHere
       ? [{ id: 'unread', label: 'Mark unread from here', icon: Mail, onSelect: onUnreadFromHere }]
       : []),
@@ -659,6 +669,8 @@ export function ThreadView({
   const [seed, setSeed] = React.useState<ComposeSeed | null>(null);
   const [seedFocus, setSeedFocus] = React.useState(true);
   const [preparing, setPreparing] = React.useState(false);
+  /** The message whose original "Show original" is showing. */
+  const [original, setOriginal] = React.useState<string | null>(null);
   // Read once on the server already: the first look needs no second read of Gmail.
   const seeded = React.useRef(Boolean(initialThread));
 
@@ -1091,6 +1103,13 @@ export function ThreadView({
                   canModify ? () => void onAct('unread').then((ok) => ok && onBack()) : null
                 }
                 sender={sender}
+                onShowOriginal={() => setOriginal(m.id)}
+                onDownload={() => {
+                  const a = document.createElement('a');
+                  a.href = originalHref(thread.id, m.id, true);
+                  a.download = '';
+                  a.click();
+                }}
               />
               {fold && i === 0 ? (
                 <li className="relative border-b border-[var(--border)] py-2">
@@ -1175,6 +1194,10 @@ export function ThreadView({
           )}
         </div>
       ) : null}
+      <ShowOriginalDialog
+        target={thread && original ? { threadId: thread.id, messageId: original } : null}
+        onClose={() => setOriginal(null)}
+      />
     </article>
   );
 }

@@ -4,6 +4,7 @@ import { gmailGet, type GmailReadOptions } from '@/lib/google/gmail-get';
 import type { Integration } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
 import { htmlToPlainText } from '@/lib/util/text';
+import { MAX_RAW_BYTES } from '@/lib/email/raw-message';
 
 /**
  * Read-only view of Nick's Gmail inbox for the email session: which threads
@@ -495,6 +496,36 @@ export async function readAttachment(
   if (!res.ok) return res;
   if (!res.value.data) return err('not_found', 'That attachment is empty.');
   return ok(Buffer.from(res.value.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64'));
+}
+
+/**
+ * One message's original RFC 822 source (Show original, Download message,
+ * Forward as attachment). Its size is read first, so a message over
+ * MAX_RAW_BYTES is refused without fetching it. Read scope only.
+ */
+export async function readMessageRaw(
+  store: DataStore,
+  integration: Integration,
+  messageId: string,
+): Promise<Result<Buffer>> {
+  if (!/^[0-9a-f]{10,24}$/i.test(messageId)) return err('invalid_input', 'Unknown message.');
+  const size = await gmailGet<{ sizeEstimate?: number }>(
+    store,
+    integration,
+    `/messages/${messageId}?format=minimal`,
+  );
+  if (!size.ok) return size;
+  if ((size.value.sizeEstimate ?? 0) > MAX_RAW_BYTES) {
+    return err('invalid_input', 'That message is over 10 MB. Open it in Gmail for its original.');
+  }
+  const res = await gmailGet<{ raw?: string }>(
+    store,
+    integration,
+    `/messages/${messageId}?format=raw`,
+  );
+  if (!res.ok) return res;
+  if (!res.value.raw) return err('not_found', 'Gmail sent no source for that message.');
+  return ok(Buffer.from(res.value.raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64'));
 }
 
 export interface FullMessage {
