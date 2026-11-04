@@ -247,9 +247,12 @@ describe('Ctrl+K search', () => {
     const company = results.find((r) => r.kind === 'crm_company');
     expect(company).toMatchObject({
       label: 'Cobaltline',
-      sub: 'cobaltline.example',
       href: `/lists/records/${COBALTLINE}`,
+      // The preview panel reads the record id.
+      recordId: COBALTLINE,
     });
+    // Domain first, then the industry when the record has one.
+    expect(company?.sub).toMatch(/^cobaltline\.example( • .+)?$/);
     const lists = await searchEverything(store, org, 'pipeline');
     expect(lists.filter((r) => r.kind === 'crm_list').map((r) => [r.label, r.href])).toEqual([
       ['Deal Pipeline', `/lists/${DEMO_IDS.crmListDeals}`],

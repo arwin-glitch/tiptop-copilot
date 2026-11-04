@@ -9,6 +9,7 @@ import { fundTwoLpHref } from '@/lib/records-tabs';
 import { log } from '@/lib/security/redact';
 import type {
   CrmList,
+  CrmNote,
   Deal,
   KnowledgeDocument,
   MeetingNote,
@@ -17,6 +18,7 @@ import type {
   Task,
 } from '@/lib/types/domain';
 import { searchRecords } from './crm';
+import { INDUSTRY_LABELS, recordField, TITLE_LABELS } from './search-preview';
 import { readFollowUps } from './follow-ups';
 import { isTeamVisibleNote } from '@/lib/notes/visibility';
 import { canSeeMeeting } from './notes';
@@ -29,7 +31,8 @@ import { canSeeMeeting } from './notes';
  * Results carry an in-app href only.
  *
  * The CRM results come last and the palette shows them as their own "Lists"
- * group. Their tables arrive by a hand-applied migration; until then those
+ * group (companies, people, lists and notes); a company or person carries its
+ * record id, which the palette's preview panel reads. Their tables arrive by a hand-applied migration; until then those
  * sources simply return nothing, like any other source that fails.
  */
 
@@ -43,13 +46,19 @@ export type SearchKind =
   | 'document'
   | 'crm_list'
   | 'crm_company'
-  | 'crm_person';
+  | 'crm_person'
+  | 'crm_note';
 
 export interface SearchResult {
   kind: SearchKind;
   label: string;
   sub: string | null;
   href: string;
+  /**
+   * A CRM company's or person's id: the palette's preview panel reads it
+   * (/api/search/preview). Absent for everything else.
+   */
+  recordId?: string;
 }
 
 const PER_SOURCE = 6;
@@ -143,6 +152,7 @@ export async function searchEverything(
     followUps,
     crmLists,
     crmRecords,
+    crmNotes,
     transcripts,
   ] = await Promise.all([
     safe(
@@ -200,6 +210,15 @@ export async function searchEverything(
     // Ranked (exact name, then prefixes); a Result, so a missing table is an
     // empty source rather than a throw.
     searchRecords(store, organizationId, query, PER_SOURCE).then((r) => (r.ok ? r.value : [])),
+    // Notes by title or text, newest first: a small capped ILIKE like the rest.
+    safe(
+      'crm notes',
+      () =>
+        store.list('crm_notes', organizationId, like(['title', 'content']), {
+          limit: PER_SOURCE,
+          orderBy: [{ field: 'occurred_at', direction: 'desc' }],
+        }) as Promise<CrmNote[]>,
+    ),
     viewer && viewer.organizationId === organizationId
       ? safe('transcripts', () => transcriptResults(store, viewer, query))
       : Promise.resolve([] as SearchResult[]),
@@ -279,11 +298,33 @@ export async function searchEverything(
     });
   }
   for (const record of crmRecords) {
+    const company = record.kind === 'company';
     results.push({
-      kind: record.kind === 'company' ? 'crm_company' : 'crm_person',
+      kind: company ? 'crm_company' : 'crm_person',
       label: record.name,
-      sub: (record.kind === 'company' ? record.domain : record.primary_email) ?? null,
+      sub:
+        [
+          company ? record.domain : record.primary_email,
+          recordField(record, company ? INDUSTRY_LABELS : TITLE_LABELS),
+        ]
+          .filter(Boolean)
+          .join(' • ') || null,
       href: `/lists/records/${record.id}`,
+      recordId: record.id,
+    });
+  }
+  for (const note of crmNotes) {
+    const target = note.record_ids[0];
+    const text = (note.title?.trim() || note.content).replace(/\s+/g, ' ').trim();
+    results.push({
+      kind: 'crm_note',
+      label: text.length > 80 ? `${text.slice(0, 79)}…` : text || 'Note',
+      sub:
+        [note.entity_names.slice(0, 2).join(', '), note.author, note.occurred_at?.slice(0, 10)]
+          .filter(Boolean)
+          .join(' • ') || null,
+      href: target ? `/lists/records/${target}?tab=notes` : '/knowledge?tab=lists',
+      ...(target ? { recordId: target } : {}),
     });
   }
   return results;
