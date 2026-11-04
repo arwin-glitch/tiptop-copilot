@@ -212,6 +212,7 @@ describe('migrations apply in filename order', () => {
     expect(files.length).toBeGreaterThan(0);
     // Pinned so an accidentally-deleted migration is caught. Bump it when a
     // migration legitimately adds a table — most recently
+    // inbox_templates (the compose window's Templates), after
     // inbox_scheduled_sends (the Inbox's Schedule send), after inbox_snoozes
     // (the Inbox's Snooze), after booking_picks
     // (Pick times) and jobs_chat_questions (the job board assistant's AI
@@ -224,7 +225,7 @@ describe('migrations apply in filename order', () => {
     // job_postings), booking_settings and booking_requests (the booking
     // link), campaign_photos, crm_entry_tombstones, desktop_handoffs, the
     // four campaign tables and mcp_tokens.
-    expect(tables.size).toBe(84);
+    expect(tables.size).toBe(85);
   });
 
   it('declares no SQL function before a table it reads', () => {

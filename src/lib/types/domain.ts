@@ -1526,6 +1526,22 @@ export interface InboxSnooze {
  * claimed once ('scheduled' -> 'sending'), then 'sent' or 'failed'; a cancel
  * is 'cancelled'. Never sent twice, never after a cancel.
  */
+/**
+ * A compose template, Gmail's "Templates" (supabase/migrations/20261105000000_inbox_templates.sql).
+ * Saved only from a person's click; inserting one only fills the compose box.
+ */
+export interface InboxTemplate {
+  id: Uuid;
+  organization_id: Uuid;
+  created_by: Uuid | null;
+  name: string;
+  subject: string;
+  /** The compose window's body, sanitized (lib/email/compose-html.ts). */
+  body_html: string;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
 export interface InboxScheduledSend {
   id: Uuid;
   organization_id: Uuid;

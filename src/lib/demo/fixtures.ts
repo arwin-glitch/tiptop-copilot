@@ -11,6 +11,7 @@ import {
 } from '@/lib/types/domain';
 import type {
   InboxScheduledSend,
+  InboxTemplate,
   AuditEvent,
   BookingRequest,
   BookingSettingsRow,
@@ -2208,6 +2209,8 @@ experiment, not the fundraise timing.`,
     // Inbox schedule send: one fictional email set to go out tomorrow morning.
     // Demo mode never sends it; it shows what the Scheduled folder looks like.
     inbox_scheduled_sends: demoScheduledSends(now),
+    // Inbox templates: two fictional ones, so Templates › Insert has something to show.
+    inbox_templates: demoTemplates(now),
     // The public job board, switched on, over the two demo companies.
     ...demoJobsBoard(now),
     // Events (D-075): fictional pages, sessions and guests.
@@ -2217,6 +2220,34 @@ experiment, not the fundraise timing.`,
 }
 
 /* ------------------------------------------------------- schedule send */
+
+/** Two fictional compose templates for the demo Inbox. */
+function demoTemplates(now: Date): InboxTemplate[] {
+  const row = (n: number, name: string, subject: string, body_html: string): InboxTemplate => ({
+    id: `7e3a1000-0000-4000-8000-00000000000${n}`,
+    organization_id: ORG,
+    created_by: USER,
+    name,
+    subject,
+    body_html,
+    created_at: iso(now),
+    updated_at: iso(now),
+  });
+  return [
+    row(
+      1,
+      'Pass, kindly',
+      'Thanks for sending this over',
+      '<div>Hi there,</div><div><br></div><div>Thank you for sharing the deck. It is not a fit for the fund right now, but I would be glad to hear how the round goes.</div>',
+    ),
+    row(
+      2,
+      'Intro request',
+      'Intro: ',
+      '<div>Hi,</div><div><br></div><div>Would you be open to an intro? A short blurb is below.</div>',
+    ),
+  ];
+}
 
 function demoScheduledSends(now: Date): InboxScheduledSend[] {
   const tomorrow8 = new Date(now.getTime() + 86_400_000);

@@ -25,6 +25,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { readerZone } from '@/components/inbox/snooze-menu';
+import { TemplatesMenu } from '@/components/inbox/templates-menu';
 import { isBlankHtml } from '@/lib/email/compose-html';
 import {
   checkSendAt,
@@ -1187,6 +1188,21 @@ export function ComposeForm({
             >
               <Paperclip className="size-4" aria-hidden />
             </button>
+            <TemplatesMenu
+              disabled={busy}
+              className={TOOL}
+              current={() => ({ subject, html: html() })}
+              onInsert={(t) => {
+                // Gmail's Insert template: the subject when there is none yet, the body at the cursor.
+                if (!subject.trim() && t.subject) setSubject(t.subject);
+                const box = editor.current;
+                if (!box) return;
+                box.focus();
+                if (isBlankHtml(box.innerHTML)) box.innerHTML = t.html;
+                else document.execCommand('insertHTML', false, t.html);
+                changed();
+              }}
+            />
           </>
         ) : null}
         <span className="flex items-center gap-1 text-xs">
