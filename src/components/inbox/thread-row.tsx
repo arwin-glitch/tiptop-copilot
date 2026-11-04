@@ -25,8 +25,8 @@ import { cn } from '@/lib/util/cn';
 
 const PAD: Record<Density, string> = {
   compact: 'py-1',
-  default: 'py-1.5 @3xl:py-1.5',
-  comfortable: 'py-2.5 @3xl:py-2.5',
+  default: 'py-1.5 @2xl:py-1.5',
+  comfortable: 'py-2.5 @2xl:py-2.5',
 };
 
 const HOVER_BTN =
@@ -152,7 +152,9 @@ export function ThreadRow({
         'shrink-0 text-xs tabular-nums',
         row.unread ? 'font-bold text-[var(--fg)]' : 'text-[var(--fg-muted)]',
         (snoozedUntil || scheduled) && 'flex items-center gap-1 font-medium text-[var(--accent)]',
-        hasHoverActions && '@3xl:group-focus-within:hidden @3xl:group-hover:hidden',
+        // Hover (a mouse) or keyboard focus swaps the date for the actions; a tap does not.
+        hasHoverActions &&
+          'group-hover:hidden group-has-[:focus-visible]:hidden group-has-[[data-state=open]]:hidden',
       )}
     >
       {snoozedUntil ? <AlarmClock className="size-3.5" aria-hidden /> : null}
@@ -164,7 +166,7 @@ export function ThreadRow({
   );
 
   const hover = hasHoverActions ? (
-    <span className="hidden shrink-0 items-center gap-0.5 @3xl:group-focus-within:flex @3xl:group-hover:flex">
+    <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex group-has-[:focus-visible]:flex group-has-[[data-state=open]]:flex">
       {actions.onArchive ? (
         <button
           type="button"
@@ -236,7 +238,7 @@ export function ThreadRow({
     <li
       onContextMenu={actions.onContextMenu}
       className={cn(
-        'group relative flex items-center gap-1 border-b border-[var(--border)] pr-3 pl-2 @3xl:gap-2',
+        'group relative flex items-center gap-1 border-b border-[var(--border)] pr-3 pl-2 @2xl:gap-2',
         PAD[density],
         row.unread ? 'bg-[var(--bg-raised)]' : 'bg-[var(--bg-sunken)]/40',
         checked && 'bg-[var(--accent-soft)]',
@@ -251,10 +253,10 @@ export function ThreadRow({
       <button
         type="button"
         onClick={actions.onCheck}
-        aria-label={`${checked ? 'Deselect' : 'Select'} ${row.subject}`}
+        aria-label={`${checked ? 'Deselect' : 'Select'} conversation from ${row.who}`}
         aria-pressed={checked}
         className={cn(
-          'mr-1 grid size-9 shrink-0 place-items-center self-start rounded-full text-sm font-semibold @3xl:hidden',
+          'mr-1 grid size-9 shrink-0 place-items-center self-start rounded-full text-sm font-semibold @2xl:hidden',
           checked
             ? 'bg-[var(--accent)] text-[var(--accent-fg)]'
             : 'bg-[var(--nav-active)] text-[var(--accent)]',
@@ -268,7 +270,7 @@ export function ThreadRow({
         aria-label={`Select ${row.subject}`}
         checked={checked}
         onChange={actions.onCheck}
-        className="hidden size-4 shrink-0 @3xl:mx-1.5 @3xl:block"
+        className="hidden size-4 shrink-0 @2xl:mx-1.5 @2xl:block"
       />
       {canMark ? (
         <button
@@ -277,7 +279,7 @@ export function ThreadRow({
           aria-label={row.starred ? 'Unstar' : 'Star'}
           aria-pressed={row.starred}
           title={row.starred ? 'Starred' : 'Not starred'}
-          className="hidden shrink-0 rounded-full p-1 text-[var(--fg-subtle)] hover:text-[var(--gold)] @3xl:block"
+          className="hidden shrink-0 rounded-full p-1 text-[var(--fg-subtle)] hover:text-[var(--gold)] @2xl:block"
         >
           <Star
             className={cn('size-4', row.starred && 'fill-[var(--gold)] text-[var(--gold)]')}
@@ -292,7 +294,7 @@ export function ThreadRow({
           aria-label={row.important ? 'Mark as not important' : 'Mark as important'}
           aria-pressed={row.important}
           title={row.important ? 'Important' : 'Not important'}
-          className="hidden shrink-0 rounded-full p-1 text-[var(--fg-subtle)] hover:text-[var(--gold)] @3xl:block"
+          className="hidden shrink-0 rounded-full p-1 text-[var(--fg-subtle)] hover:text-[var(--gold)] @2xl:block"
         >
           <Bookmark
             className={cn('size-4', row.important && 'fill-[var(--gold)] text-[var(--gold)]')}
@@ -304,15 +306,15 @@ export function ThreadRow({
       <button
         type="button"
         onClick={actions.onOpen}
-        className="flex min-w-0 flex-1 flex-col gap-0.5 text-left @3xl:flex-row @3xl:items-center @3xl:gap-3"
+        className="flex min-w-0 flex-1 flex-col gap-0.5 text-left @2xl:flex-row @2xl:items-center @2xl:gap-3"
       >
         {/* Wide list: sender column. Narrow: the first line, with the date. */}
-        <span className="flex min-w-0 items-baseline gap-2 @3xl:w-48 @3xl:shrink-0">
+        <span className="flex min-w-0 items-baseline gap-2 @2xl:w-48 @2xl:shrink-0">
           <span className="flex min-w-0 flex-1">{sender}</span>
-          <span className="@3xl:hidden">{dateText}</span>
+          <span className="@2xl:hidden">{dateText}</span>
         </span>
         {row.labels.length || row.flagged || row.inSpam || row.inTrash ? (
-          <span className="order-last flex flex-wrap items-center gap-1 @3xl:order-none @3xl:shrink-0 @3xl:flex-nowrap">
+          <span className="order-last flex flex-wrap items-center gap-1 @2xl:order-none @2xl:shrink-0 @2xl:flex-nowrap">
             {chips}
           </span>
         ) : null}
@@ -325,7 +327,7 @@ export function ThreadRow({
               {row.subject}
             </span>
             {row.snippet ? (
-              <span className="hidden text-[var(--fg-muted)] @3xl:inline"> — {row.snippet}</span>
+              <span className="hidden text-[var(--fg-muted)] @2xl:inline"> — {row.snippet}</span>
             ) : null}
           </span>
           {row.hasAttachment ? (
@@ -334,14 +336,14 @@ export function ThreadRow({
               className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--fg-muted)]"
             >
               <Paperclip className="size-3" aria-hidden />
-              <span className="sr-only @3xl:not-sr-only">Attachment</span>
+              <span className="sr-only @2xl:not-sr-only">Attachment</span>
             </span>
           ) : null}
         </span>
-        <span className="truncate text-sm text-[var(--fg-muted)] @3xl:hidden">{row.snippet}</span>
+        <span className="truncate text-sm text-[var(--fg-muted)] @2xl:hidden">{row.snippet}</span>
       </button>
 
-      <span className="hidden @3xl:block">{dateText}</span>
+      <span className="hidden @2xl:block">{dateText}</span>
       {hover}
       {canMark ? (
         <button
@@ -349,7 +351,7 @@ export function ThreadRow({
           onClick={actions.onStar}
           aria-label={row.starred ? 'Unstar' : 'Star'}
           aria-pressed={row.starred}
-          className="self-end rounded-full p-1 text-[var(--fg-subtle)] hover:text-[var(--gold)] @3xl:hidden"
+          className="self-end rounded-full p-1 text-[var(--fg-subtle)] hover:text-[var(--gold)] @2xl:hidden"
         >
           <Star
             className={cn('size-4', row.starred && 'fill-[var(--gold)] text-[var(--gold)]')}
