@@ -30,6 +30,8 @@ import {
   type StrengthBadgeData,
   type StrengthLabel,
 } from '@/lib/network/strength';
+import { contactStatus, signalBars, type ContactStatus } from '@/lib/network/contact-status';
+import { lastTouchSentence, teamConnections, type LastTouch } from '@/lib/network/connections';
 import type { CrmList, CrmListEntry, CrmRecord, CrmValue, Integration } from '@/lib/types/domain';
 import { processWide } from '@/lib/util/process-state';
 import { err, ok, type Result } from '@/lib/util/result';
@@ -685,4 +687,126 @@ export function withGoingCold(
     waiting: snapshot?.waiting ?? [],
     cold,
   };
+}
+
+/* ------------------------------------------------- status and connections */
+
+const teamNameCache = processWide('relationship-team-names', () => ({
+  built: new Map<string, { at: number; names: Map<string, string> }>(),
+}));
+
+/**
+ * Each fund address with the name of the person it belongs to: a member's
+ * profile name for their sign-in address, and Nick's name for all of his
+ * aliases (so his three addresses are one connection, not three). Addresses
+ * nobody is named for keep the address. Five minutes in memory, like the
+ * index; an unreadable members table just means addresses.
+ */
+export async function teamNames(
+  store: DataStore,
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<Map<string, string>> {
+  const hit = teamNameCache.built.get(organizationId);
+  if (hit && now.getTime() - hit.at < TTL_MS && now.getTime() >= hit.at) return hit.names;
+  const names = new Map<string, string>();
+  try {
+    const members = await listOrganizationMembers(store, organizationId);
+    const profiles = await Promise.all(members.map((m) => store.userProfileById(m.user_id)));
+    for (const p of profiles) {
+      const email = p?.email?.trim().toLowerCase();
+      const name = p?.full_name?.trim();
+      if (email && name) names.set(email, name);
+    }
+  } catch {
+    // Addresses stand in for names.
+  }
+  const nick =
+    NICK_ALIASES.map((a) => names.get(a)).find((n): n is string => Boolean(n)) ?? 'Nick Tippmann';
+  for (const alias of NICK_ALIASES) names.set(alias, nick);
+  teamNameCache.built.set(organizationId, { at: now.getTime(), names });
+  return names;
+}
+
+/**
+ * Affinity's relationship columns for one record: status tag, last contact
+ * (when, and who wrote to whom), the team's connections, and the first and
+ * last email and meeting. Plain data, so it can cross to a client component.
+ */
+export interface ContactSummary {
+  status: ContactStatus;
+  lastContactAt: string | null;
+  lastTouch: LastTouch | null;
+  /** "Nick Tippmann sent an email to ada@x.example". */
+  lastTouchText: string | null;
+  /** Teammates who know them, strongest first. */
+  connections: { name: string; bars: number; threads: number; lastAt: string | null }[];
+  score: number;
+  label: StrengthLabel;
+  firstEmailAt: string | null;
+  lastEmailAt: string | null;
+  firstMeetingAt: string | null;
+  lastMeetingAt: string | null;
+  nextMeetingAt: string | null;
+  /** False when there was nothing to match on (no email, no domain). */
+  matchable: boolean;
+}
+
+function summarise(
+  index: RelationshipIndex,
+  record: RecordLike,
+  related: readonly { primary_email: string | null }[],
+  names: ReadonlyMap<string, string>,
+  now: Date,
+): ContactSummary {
+  const { by, addresses } = recordAddresses(index, record, related);
+  const { evidence } = evidenceFor(index, addresses, now);
+  const strength = scoreRelationship(evidence, now);
+  const team = teamConnections(index, addresses, { now, teamNames: names });
+  const lastContactAt = evidence.lastContactAt;
+  return {
+    status: contactStatus(lastContactAt, now),
+    lastContactAt,
+    lastTouch: team.lastTouch,
+    lastTouchText: team.lastTouch ? lastTouchSentence(team.lastTouch, names) : null,
+    connections: team.connections.map((c) => ({
+      name: c.name,
+      bars: signalBars(c.score),
+      threads: c.threads,
+      lastAt: c.lastAt,
+    })),
+    score: strength.score,
+    label: strength.label,
+    firstEmailAt: evidence.firstEmailAt,
+    lastEmailAt: evidence.lastEmailAt,
+    firstMeetingAt: team.firstMeetingAt,
+    lastMeetingAt: evidence.lastMeetingAt,
+    nextMeetingAt: evidence.nextMeetingAt,
+    matchable: by !== 'none',
+  };
+}
+
+/**
+ * Contact summaries for records already read (a page of a list, a search
+ * preview): one cached index, then lookups — never a Gmail call per record.
+ * `related` gives a company's people, where the caller has them.
+ */
+export async function contactSummaries(
+  store: DataStore,
+  organizationId: string,
+  records: readonly (RecordLike & { related?: readonly { primary_email: string | null }[] })[],
+  scope: RelationshipScope,
+): Promise<Result<Record<string, ContactSummary>>> {
+  if (!records.length) return ok({});
+  const now = scope.now ?? new Date();
+  const [loaded, names] = await Promise.all([
+    getRelationshipIndex(store, organizationId, scope),
+    teamNames(store, organizationId, now),
+  ]);
+  if (!loaded.ok) return loaded;
+  const out: Record<string, ContactSummary> = {};
+  for (const record of records) {
+    out[record.id] = summarise(loaded.value, record, record.related ?? [], names, now);
+  }
+  return ok(out);
 }
