@@ -62,6 +62,15 @@ export function ancestorPaths(name: string): string[] {
   return parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/'));
 }
 
+/**
+ * What a chip says, as Gmail shortens a deep label: "@/…/Intro Requests" for
+ * "@/@Deals to Review/Intro Requests"; two levels or fewer stay whole.
+ */
+export function chipText(name: string): string {
+  const parts = name.split('/').filter((p) => p !== '');
+  return parts.length > 2 ? `${parts[0]}/…/${parts[parts.length - 1]}` : name;
+}
+
 /** Label name -> its Gmail colour, for the chips on rows and in a conversation. */
 export function colorsByName(
   labels: readonly MailLabel[],

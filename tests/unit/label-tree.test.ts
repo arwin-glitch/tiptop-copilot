@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ancestorPaths, colorsByName, labelTree } from '@/lib/email/label-tree';
+import { ancestorPaths, chipText, colorsByName, labelTree } from '@/lib/email/label-tree';
 
 const L = (id: string, name: string, color?: { bg: string; fg: string }) =>
   color ? { id, name, color } : { id, name };
@@ -54,5 +54,13 @@ describe('ancestorPaths and colorsByName', () => {
     const map = colorsByName([L('a', 'Red', { bg: '#fb4c2f', fg: '#ffffff' }), L('b', 'Plain')]);
     expect(map.get('Red')).toEqual({ bg: '#fb4c2f', fg: '#ffffff' });
     expect(map.has('Plain')).toBe(false);
+  });
+});
+
+describe('chipText', () => {
+  it('shortens a deep label the way Gmail does', () => {
+    expect(chipText('@/@Deals to Review/Intro Requests')).toBe('@/…/Intro Requests');
+    expect(chipText('@/@Follow up')).toBe('@/@Follow up');
+    expect(chipText('Portfolio')).toBe('Portfolio');
   });
 });

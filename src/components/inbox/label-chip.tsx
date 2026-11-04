@@ -1,3 +1,4 @@
+import { chipText } from '@/lib/email/label-tree';
 import { cn } from '@/lib/util/cn';
 
 /**
@@ -25,7 +26,7 @@ export function LabelChip({
       )}
       style={color ? { backgroundColor: color.bg, color: color.fg } : undefined}
     >
-      {name}
+      {chipText(name)}
     </span>
   );
 }

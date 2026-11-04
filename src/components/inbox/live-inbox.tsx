@@ -1208,6 +1208,8 @@ export function LiveInbox({
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  const [setFillNode, fillHeight] = useFillViewport();
+
   if (list.state === 'not_connected') {
     return (
       <p className="rounded-md border border-[var(--border)] bg-[var(--bg-raised)] p-4 text-sm text-[var(--fg-muted)]">
@@ -1315,8 +1317,18 @@ export function LiveInbox({
         </div>
       ) : null}
 
-      <div className="grid gap-3 lg:grid-cols-[13rem_minmax(0,1fr)]">
-        <div className="hidden lg:block">{nav}</div>
+      {/* On a computer the Inbox fills the window like Gmail: the folders and
+          the list (or the open conversation) each scroll on their own, and
+          the page itself stays put. A phone keeps one scrolling page. */}
+      <div
+        ref={setFillNode}
+        style={fillHeight === null ? undefined : { height: fillHeight }}
+        data-inbox-fill
+        className="grid gap-3 lg:grid-cols-[13rem_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]"
+      >
+        <div className="hidden min-h-0 lg:block lg:overflow-y-auto lg:overscroll-contain lg:pb-4">
+          {nav}
+        </div>
         {navOpen ? (
           <div className="fixed inset-0 z-[var(--z-overlay)] lg:hidden" role="presentation">
             <button
@@ -1333,7 +1345,7 @@ export function LiveInbox({
 
         <div
           className={cn(
-            'grid min-w-0 gap-3',
+            'grid min-h-0 min-w-0 gap-3 lg:grid-rows-[minmax(0,1fr)]',
             split && 'xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]',
           )}
         >
@@ -1341,8 +1353,8 @@ export function LiveInbox({
             aria-label="Conversations"
             data-tour="inbox-list"
             className={cn(
-              'min-w-0 overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]',
-              selected && (split ? 'hidden xl:block' : 'hidden'),
+              'min-w-0 overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)] lg:flex lg:min-h-0 lg:flex-col',
+              selected && (split ? 'hidden lg:hidden xl:flex' : 'hidden lg:hidden'),
             )}
           >
             <InboxToolbar
@@ -1483,7 +1495,12 @@ export function LiveInbox({
                           : 'Nothing in this folder.'}
               </p>
             ) : (
-              <ul className={cn('@container', loading && 'opacity-60')}>
+              <ul
+                className={cn(
+                  '@container lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain',
+                  loading && 'opacity-60',
+                )}
+              >
                 {rows.map((row) => {
                   const thread = row.kind !== 'draft' && row.kind !== 'scheduled';
                   return (
@@ -1541,9 +1558,7 @@ export function LiveInbox({
             aria-label="Reading pane"
             data-tour="inbox-reading"
             className={cn(
-              'min-w-0',
-              split &&
-                'xl:sticky xl:top-[calc(var(--titlebar-h)+1rem)] xl:max-h-[calc(100dvh-2rem-var(--titlebar-h))] xl:self-start xl:overflow-y-auto',
+              'min-w-0 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain',
               !selected && (split ? 'hidden xl:block' : 'hidden'),
             )}
           >
@@ -1680,4 +1695,39 @@ export function LiveInbox({
       <ShortcutHelp open={help} onOpenChange={setHelp} />
     </div>
   );
+}
+
+/**
+ * The Inbox's height on a computer: from where it starts down to the bottom of
+ * the window, so nothing outside it scrolls. Measured, because what sits above
+ * it (the page title, the search bar, a notice) varies; re-measured when the
+ * window or the page above changes. Below `lg` it sets nothing.
+ */
+function useFillViewport(): [(node: HTMLDivElement | null) => void, number | null] {
+  const [height, setHeight] = React.useState<number | null>(null);
+  const [node, setNode] = React.useState<HTMLDivElement | null>(null);
+  React.useLayoutEffect(() => {
+    if (!node) return;
+    const wide = window.matchMedia('(min-width: 64rem)');
+    const measure = () => {
+      if (!wide.matches) {
+        setHeight(null);
+        return;
+      }
+      const top = node.getBoundingClientRect().top + window.scrollY;
+      // A little room below, like Gmail's margin under the list.
+      setHeight(Math.max(360, Math.floor(window.innerHeight - top - 12)));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (node.parentElement) observer.observe(node.parentElement);
+    window.addEventListener('resize', measure);
+    wide.addEventListener('change', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+      wide.removeEventListener('change', measure);
+    };
+  }, [node]);
+  return [setNode, height];
 }

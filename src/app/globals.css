@@ -939,3 +939,12 @@
     var(--elevation-overlay),
     0 0 0 2px var(--focus);
 }
+
+/* The Inbox fills the window on a computer (Gmail-style, its columns scroll on
+   their own), so the page keeps no room below it to scroll into. Unlayered, so
+   it outranks the main column's padding utility. */
+@media (min-width: 64rem) {
+  main:has([data-inbox-fill]) {
+    padding-bottom: 0;
+  }
+}

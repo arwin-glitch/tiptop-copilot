@@ -317,7 +317,8 @@ export function parseDensity(value: string | null | undefined): Density {
 }
 
 /** The Inbox page's width: Gmail uses the whole window, so wider than the other tabs. */
-export const INBOX_SHELL = 'max-w-[100rem]';
+// No bottom padding on a computer: the Inbox fills the window to its bottom edge.
+export const INBOX_SHELL = 'max-w-[100rem] lg:pb-0';
 
 /** Gmail's reading pane setting: the conversation replaces the list, or sits right of it. */
 export const READING_PANES = ['none', 'right'] as const;
