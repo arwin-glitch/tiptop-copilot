@@ -285,7 +285,11 @@ const gmailSender: Sender = async (store, integration, row) => {
     attachments: [],
     signatureHtml,
   });
-  return sent.ok ? ok({ messageId: sent.value.messageId }) : sent;
+  if (sent.ok) return ok({ messageId: sent.value.messageId });
+  // Once the send request has left, a dropped connection or a Gmail error can
+  // still mean the email went out. Never retry it: it is marked failed and the
+  // person is told to check Sent, so an email can never go twice.
+  return err(sent.error.code, sent.error.message);
 };
 
 /** Claim one waiting row for this caller alone. Null when someone else has it, or it was cancelled. */
