@@ -25,6 +25,7 @@ import {
   Inbox as InboxIcon,
   Loader2,
   ListTodo,
+  Languages,
   Mail,
   MoreVertical,
   OctagonAlert,
@@ -56,6 +57,7 @@ import { readerZone, SnoozeMenu } from '@/components/inbox/snooze-menu';
 import { opensInline } from '@/lib/email/attachment-types';
 import { textToComposeHtml } from '@/lib/email/compose-html';
 import { emlFileName } from '@/lib/email/raw-message';
+import { looksEnglish } from '@/lib/email/language';
 import {
   eventPrefill,
   PREFILL_PARAM,
@@ -434,7 +436,10 @@ function MessageCard({
   onShowOriginal,
   onDownload,
   onForwardAttached,
+  threadId,
 }: {
+  /** The conversation, for Translate message. */
+  threadId: string;
   /** Gmail's "Forward as attachment": a new compose window with this email attached. */
   onForwardAttached: (() => void) | null;
   sender: SenderActions;
@@ -455,6 +460,37 @@ function MessageCard({
 }) {
   const [details, setDetails] = React.useState(false);
   const [showQuoted, setShowQuoted] = React.useState(false);
+  // Gmail's Translate message, by Kraken AI: on demand only, toggled back with See original.
+  const [translation, setTranslation] = React.useState<{ language: string; text: string } | null>(
+    null,
+  );
+  const [translated, setTranslated] = React.useState(false);
+  const [translating, setTranslating] = React.useState(false);
+  const foreign = React.useMemo(() => !looksEnglish(m.text), [m.text]);
+  const translate = async () => {
+    if (translation) {
+      setTranslated(true);
+      return;
+    }
+    setTranslating(true);
+    try {
+      const res = await fetch('/api/inbox/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'translate', threadId, messageId: m.id }),
+      });
+      if (!res.ok) {
+        toast.error(await errorMessage(res, 'Kraken could not translate it. Try again.'));
+        return;
+      }
+      setTranslation((await res.json()) as { language: string; text: string });
+      setTranslated(true);
+    } catch {
+      toast.error('Could not reach Kraken. Try again.');
+    } finally {
+      setTranslating(false);
+    }
+  };
   const preview = React.useMemo(() => splitQuoted(reflow(m.text)).main.slice(0, 200), [m.text]);
   const avatar = (
     <span
@@ -503,6 +539,16 @@ function MessageCard({
         ]
       : []),
     { id: 'print', label: 'Print', icon: Printer, divider: true, onSelect: onPrint },
+    ...(foreign
+      ? [
+          {
+            id: 'translate',
+            label: translated ? 'See original language' : 'Translate message',
+            icon: Languages,
+            onSelect: () => (translated ? setTranslated(false) : void translate()),
+          },
+        ]
+      : []),
     { id: 'original', label: 'Show original', icon: FileCode, onSelect: onShowOriginal },
     { id: 'download', label: 'Download message', icon: Download, onSelect: onDownload },
     ...(onUnreadFromHere
@@ -641,13 +687,37 @@ function MessageCard({
         </div>
       </div>
       <div className="mt-3 space-y-2 sm:pl-[3.25rem]">
-        <MessageBody
-          message={m}
-          showQuoted={showQuoted}
-          onToggleQuoted={() => setShowQuoted((q) => !q)}
-          hideRecipients
-          hideAttachments
-        />
+        {translating ? (
+          <p className="flex items-center gap-2 text-xs text-[var(--fg-muted)]">
+            <Loader2 className="size-3.5 animate-spin" aria-hidden /> Translating…
+          </p>
+        ) : null}
+        {translated && translation ? (
+          <div className="space-y-2">
+            <p className="flex flex-wrap items-center gap-2 text-xs text-[var(--fg-muted)]">
+              <Languages className="size-3.5 text-[var(--gold)]" aria-hidden />
+              Translated from {translation.language} by Kraken AI ·
+              <button
+                type="button"
+                onClick={() => setTranslated(false)}
+                className="font-medium text-[var(--accent)] hover:underline"
+              >
+                See original
+              </button>
+            </p>
+            <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+              {translation.text}
+            </p>
+          </div>
+        ) : (
+          <MessageBody
+            message={m}
+            showQuoted={showQuoted}
+            onToggleQuoted={() => setShowQuoted((q) => !q)}
+            hideRecipients
+            hideAttachments
+          />
+        )}
         <AttachmentCards message={m} />
       </div>
     </li>
@@ -1226,6 +1296,7 @@ export function ThreadView({
                 }
                 sender={sender}
                 onShowOriginal={() => setOriginal(m.id)}
+                threadId={thread.id}
                 onForwardAttached={onCompose ? () => onCompose(attachedSeed(thread, m)) : null}
                 onDownload={() => {
                   const a = document.createElement('a');

@@ -219,3 +219,38 @@ describe('Suggested replies (Kraken AI)', () => {
     expect(usage.filter((u) => u.operation === 'inbox.suggest_replies')).toHaveLength(0);
   });
 });
+
+describe('Translate message (Kraken AI)', () => {
+  it('demo: a canned translation, on demand, no model call', async () => {
+    const { thread, message } = await demoMessage();
+    const res = await aiRoute.POST(
+      new NextRequest('http://localhost/api/inbox/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'translate', threadId: thread.id, messageId: message.id }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const out = await res.json();
+    expect(out.language).toBe('Spanish');
+    expect(out.text).toMatch(/^\[Demo translation\]/);
+    const usage = await harness.store.list('ai_usage', DEMO_IDS.org);
+    expect(usage.filter((u) => u.operation === 'inbox.translate')).toHaveLength(0);
+  });
+
+  it('refuses a message that is not in the conversation', async () => {
+    const { thread } = await demoMessage();
+    const res = await aiRoute.POST(
+      new NextRequest('http://localhost/api/inbox/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'translate',
+          threadId: thread.id,
+          messageId: 'ffffffffffffffff',
+        }),
+      }),
+    );
+    expect(res.status).toBe(404);
+  });
+});

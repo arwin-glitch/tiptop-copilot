@@ -78,6 +78,20 @@ export function demoFolderThreads(now: Date): DemoFolderThread[] {
       ],
     },
     {
+      // In Spanish, for Translate message (Kraken AI answers the demo with canned text).
+      id: 'd0e0f00000000007',
+      subject: 'Invitación: encuentro de fundadores en Madrid',
+      labels: ['INBOX', 'CATEGORY_SOCIAL'],
+      messages: [
+        {
+          from: 'Lucía Romero <lucia@redfundadores.demo>',
+          to: DEMO_USER.email,
+          at: ago(14),
+          text: 'Hola, te escribo para invitarte a nuestro encuentro de fundadores en Madrid el próximo mes. Habrá charlas, sesiones de preguntas y una cena con los equipos de la red.\n\nUn saludo,\nLucía',
+        },
+      ],
+    },
+    {
       id: 'd0e0f00000000004',
       subject: 'Re: Coffee next week?',
       labels: ['SENT', 'STARRED'],
