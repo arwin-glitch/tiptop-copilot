@@ -34,6 +34,7 @@ import {
   SCHEDULE_NOT_SET_UP,
 } from '@/lib/email/schedule-send';
 import { formatWake, pickedWakeAt, toDateTimeLocal } from '@/lib/email/snooze';
+import { useUndoSeconds } from '@/components/inbox/use-stored';
 import { cn } from '@/lib/util/cn';
 
 type Signature = 'nick' | 'arwin';
@@ -62,7 +63,6 @@ export interface ComposeSeed {
   signature?: Signature;
 }
 
-export const UNDO_SECONDS = 8;
 /** The compose box is saved to Gmail's Drafts this long after the last change. */
 const AUTOSAVE_MS = 2_500;
 const MAX_FILES_BYTES = 7 * 1024 * 1024;
@@ -598,7 +598,8 @@ export interface ComposeEnv {
 /**
  * The compose box itself: recipient chips (To, and Cc and Bcc on a tap),
  * the subject, Gmail's formatting bar, attachments, Sign as, and Send with
- * its ▾ for Schedule send. Send waits eight seconds with Undo before it goes;
+ * its ▾ for Schedule send. Send waits the Undo Send period (5, 10, 20 or 30
+ * seconds, picked in the Inbox's ⋮ menu) with Undo before it goes;
  * nothing ever sends without that tap, or the Schedule a person picked.
  * The box saves itself to Gmail's Drafts a moment after each change, without
  * a signature, which Send adds (Nick's real Gmail one, never typed).
@@ -625,6 +626,7 @@ export function ComposeForm({
   onDraftSaved?: () => void;
 }) {
   const uid = React.useId();
+  const undoFor = useUndoSeconds();
   const [to, setTo] = React.useState(seed.to);
   const [cc, setCc] = React.useState(seed.cc);
   const [bcc, setBcc] = React.useState(seed.bcc);
@@ -809,7 +811,7 @@ export function ComposeForm({
       toast.error(problem);
       return;
     }
-    let left = UNDO_SECONDS;
+    let left = undoFor;
     setCountdown(left);
     setPending(true);
     timer.current = window.setInterval(() => {
@@ -1260,7 +1262,7 @@ export function ComposeForm({
       </div>
       <p className="px-3 pb-2 text-[11px] text-[var(--fg-subtle)]">
         {signature === 'nick' ? 'Nick’s' : 'Arwin’s'} real Gmail signature is added when it sends.
-        Ctrl+Enter sends · {UNDO_SECONDS}s to undo.
+        Ctrl+Enter sends · {undoFor}s to undo.
       </p>
     </div>
   );

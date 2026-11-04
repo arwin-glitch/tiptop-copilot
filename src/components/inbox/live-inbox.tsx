@@ -94,6 +94,12 @@ import {
   isGmailId,
 } from '@/lib/email/thread-links';
 import { formatWake } from '@/lib/email/snooze';
+import {
+  parseUndoSend,
+  UNDO_SEND_DEFAULT,
+  UNDO_SEND_KEY,
+  type UndoSendChoice,
+} from '@/lib/email/undo-send';
 import { cn } from '@/lib/util/cn';
 import type {
   LiveMessage,
@@ -342,6 +348,12 @@ export function LiveInbox({
   const [density, setDensity] = useStoredChoice<Density>(DENSITY_KEY, parseDensity, 'default');
   // Gmail's reading pane setting: no split (its default), or right of the list.
   const [pane, setPane] = useStoredChoice<ReadingPane>(READING_PANE_KEY, parseReadingPane, 'none');
+  // Gmail's Undo Send period, per browser; the compose box reads the same key.
+  const [undoSend, setUndoSend] = useStoredChoice<UndoSendChoice>(
+    UNDO_SEND_KEY,
+    parseUndoSend,
+    UNDO_SEND_DEFAULT,
+  );
   const split = pane === 'right';
   const [navOpen, setNavOpen] = React.useState(false);
   const [context, setContext] = React.useState<{ x: number; y: number; items: MenuItem[] } | null>(
@@ -1719,6 +1731,11 @@ export function LiveInbox({
               }
               onShortcuts={() => setHelp(true)}
               onFilters={() => setFiltersOpen(true)}
+              undoSend={undoSend}
+              setUndoSend={(c) => {
+                setUndoSend(c);
+                toast.success(`Undo Send: ${c} seconds`);
+              }}
               bulk={{
                 ...(inDrafts || inScheduled
                   ? {

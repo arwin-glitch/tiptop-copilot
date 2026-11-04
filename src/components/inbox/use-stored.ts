@@ -1,6 +1,12 @@
 'use client';
 
 import * as React from 'react';
+import {
+  parseUndoSend,
+  UNDO_SEND_DEFAULT,
+  UNDO_SEND_KEY,
+  undoSeconds,
+} from '@/lib/email/undo-send';
 
 const EVENT = 'kraken-inbox-stored';
 
@@ -47,4 +53,10 @@ export function useStoredChoice<T extends string>(
     [key],
   );
   return [unsaved ?? stored, set];
+}
+
+/** Gmail's "Undo Send" period in seconds, as picked in the Inbox's ⋮ menu (per browser). */
+export function useUndoSeconds(): number {
+  const [choice] = useStoredChoice(UNDO_SEND_KEY, parseUndoSend, UNDO_SEND_DEFAULT);
+  return undoSeconds(choice);
 }

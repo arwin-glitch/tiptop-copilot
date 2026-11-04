@@ -15,10 +15,12 @@ import {
   MailOpen,
   MoreVertical,
   OctagonAlert,
+  PenLine,
   RefreshCw,
   ShieldCheck,
   Tag,
   Trash2,
+  TreePalm,
   Undo2,
 } from 'lucide-react';
 import { LabelMenu } from '@/components/inbox/label-menu';
@@ -33,6 +35,7 @@ import {
   type ReadingPane,
 } from '@/lib/email/inbox-folders';
 import type { LiveThreadRow } from '@/lib/services/inbox-live';
+import { UNDO_SEND_CHOICES, type UndoSendChoice } from '@/lib/email/undo-send';
 import { cn } from '@/lib/util/cn';
 
 const ICON_BTN =
@@ -93,6 +96,9 @@ export function InboxToolbar({
   onMarkAllRead,
   onShortcuts,
   onFilters,
+  undoSend,
+  setUndoSend,
+  onSettings,
 }: {
   rows: readonly LiveThreadRow[];
   checked: ReadonlySet<string>;
@@ -127,6 +133,11 @@ export function InboxToolbar({
   onShortcuts: () => void;
   /** Gmail's filters: view and delete (made from search options › Create filter). */
   onFilters?: () => void;
+  /** Gmail's Undo Send period (per browser). */
+  undoSend?: UndoSendChoice;
+  setUndoSend?: (c: UndoSendChoice) => void;
+  /** Gmail settings Kraken can open: the signature and the vacation responder. */
+  onSettings?: { signature?: () => void; vacation?: () => void };
 }) {
   const some = checked.size > 0;
   const all = rows.length > 0 && rows.every((r) => checked.has(r.id));
@@ -193,6 +204,28 @@ export function InboxToolbar({
         },
         ...(onFilters
           ? [{ id: 'filters', label: 'Filters', icon: Filter, onSelect: onFilters }]
+          : []),
+        ...(onSettings?.signature
+          ? [{ id: 'signature', label: 'Signature', icon: PenLine, onSelect: onSettings.signature }]
+          : []),
+        ...(onSettings?.vacation
+          ? [
+              {
+                id: 'vacation',
+                label: 'Vacation responder',
+                icon: TreePalm,
+                onSelect: onSettings.vacation,
+              },
+            ]
+          : []),
+        ...(undoSend && setUndoSend
+          ? UNDO_SEND_CHOICES.map((c, i) => ({
+              id: `undo-${c}`,
+              label: `Undo Send: ${c} seconds`,
+              checked: undoSend === c,
+              divider: i === 0,
+              onSelect: () => setUndoSend(c),
+            }))
           : []),
       ];
 

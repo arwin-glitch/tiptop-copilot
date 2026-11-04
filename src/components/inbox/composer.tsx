@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/form';
 import { Notice } from '@/components/ui/feedback';
 import { swapSignOff } from '@/components/followups/email-session-client';
+import { useUndoSeconds } from '@/components/inbox/use-stored';
 import { parseAddresses } from '@/lib/email/addresses';
 import { lineWithLinksToHtml, textWithLinks } from '@/lib/email/name-links';
 
@@ -28,8 +29,6 @@ export interface ComposeDraft {
   signature?: Signature;
 }
 
-const UNDO_SECONDS = 8;
-
 const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -45,7 +44,7 @@ function copyHtml(head: string, body: string): string {
 
 /**
  * A Gmail-style compose window: new email, forward, or a prefilled follow-up.
- * Send goes from Nick's inbox through /api/inbox/compose, with 8 seconds to
+ * Send goes from Nick's inbox through /api/inbox/compose, with the Undo Send period (Inbox ⋮ menu) to
  * undo. Without the sending grant it offers Copy instead, never a hidden send.
  */
 export function Composer({
@@ -72,6 +71,7 @@ export function Composer({
   const [sending, setSending] = React.useState(false);
   const timer = React.useRef<number | null>(null);
   const uid = React.useId();
+  const undoFor = useUndoSeconds();
 
   const send = React.useCallback(async () => {
     setSending(true);
@@ -124,7 +124,7 @@ export function Composer({
       toast.error('Write the email first.');
       return;
     }
-    let left = UNDO_SECONDS;
+    let left = undoFor;
     setCountdown(left);
     setPending(true);
     timer.current = window.setInterval(() => {
@@ -330,7 +330,9 @@ export function Composer({
               )}
               Send
             </Button>
-            <span className="text-xs text-[var(--fg-subtle)]">Ctrl+Enter sends · 8s to undo</span>
+            <span className="text-xs text-[var(--fg-subtle)]">
+              Ctrl+Enter sends · {undoFor}s to undo
+            </span>
           </>
         )}
       </div>
