@@ -467,13 +467,13 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'inbox-reading',
         title: 'Read and reply',
-        body: 'Reply, Reply all or Forward; nothing sends until you tap Send. Unsubscribe and Block sit by the sender.',
+        body: 'Tap Send to send; suggested replies only fill the box. ⋮ has Translate, Show original, Add to Tasks, Create event.',
         placement: 'left',
       },
       {
         target: 'inbox-compose',
         title: 'Write a new email',
-        body: "Compose opens Gmail's window, with Templates and contact suggestions. Send's arrow schedules it.",
+        body: "Compose has emoji, inline photos and Templates. Send's arrow schedules. ⋮ holds Signature, Vacation responder and Undo Send.",
         placement: 'bottom',
       },
     ],
