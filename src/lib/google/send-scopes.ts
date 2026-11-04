@@ -14,3 +14,13 @@ export const SEND_SCOPES = ['https://www.googleapis.com/auth/gmail.modify'] as c
  * Google's colours stays on the default read-only calendar scope.
  */
 export const CALENDAR_EDIT_SCOPES = ['https://www.googleapis.com/auth/calendar.events'] as const;
+
+/**
+ * "Turn on filters": Gmail's Create filter from the Inbox's search options,
+ * and the Filters list (view and delete). Only on a person's click: Kraken
+ * never makes, changes or deletes a filter on its own. The basic settings
+ * scope covers filters and labels-in-settings only; it cannot set up
+ * forwarding addresses or delegates (that is gmail.settings.sharing, which
+ * is never asked for), and the filter path itself refuses a forward action.
+ */
+export const FILTER_SCOPES = ['https://www.googleapis.com/auth/gmail.settings.basic'] as const;

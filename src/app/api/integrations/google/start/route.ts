@@ -27,6 +27,11 @@ export const OAUTH_STATE_COOKIE = 'tiptop_oauth_state';
  * asking for the event-editing scope, and back to the Calendar tab after
  * (or to Settings, with `&from=settings`, when it was started there).
  *
+ * `?filters=1` is the Inbox's "Turn on filters" step: the same flow, also
+ * asking for Gmail's basic settings scope (filters), and back to the Inbox
+ * after (or to Settings, with `&from=settings`). Only the Inbox's Create
+ * filter and Filters list use it.
+ *
  * Never from inside the iPhone app, where Google's consent screen cannot
  * finish (lib/ios/computer-only.ts).
  */
@@ -62,6 +67,7 @@ export async function GET(request: NextRequest) {
 
   const send = request.nextUrl.searchParams.get('send') === '1';
   const calendar = request.nextUrl.searchParams.get('calendar') === '1';
+  const filters = request.nextUrl.searchParams.get('filters') === '1';
   const fromSettings = request.nextUrl.searchParams.get('from') === 'settings';
 
   const nonce = randomToken(24);
@@ -73,10 +79,11 @@ export async function GET(request: NextRequest) {
     // A fixed page, never one taken from the request: the callback only
     // honours values on its own list.
     ...(calendar && !fromSettings ? { returnTo: '/calendar' } : {}),
+    ...(filters && !calendar && !fromSettings ? { returnTo: '/inbox' } : {}),
   });
   const state = signedValue(statePayload);
 
-  const url = buildAuthorizationUrl(state, { send, calendar });
+  const url = buildAuthorizationUrl(state, { send, calendar, filters });
   if (!url.ok) {
     return NextResponse.json({ ok: false, error: url.error }, { status: 503 });
   }

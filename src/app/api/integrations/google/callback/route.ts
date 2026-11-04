@@ -163,7 +163,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // "Turn on calendar editing" started on the Calendar tab goes back there.
+  // "Turn on calendar editing" started on the Calendar tab goes back there,
+  // and "Turn on filters" started on the Inbox goes back to the Inbox.
   if (parsed.returnTo && RETURN_PAGES.has(parsed.returnTo)) {
     return NextResponse.redirect(`${env().appUrl}${parsed.returnTo}?connected=google`);
   }
@@ -171,7 +172,7 @@ export async function GET(request: NextRequest) {
 }
 
 /** The only pages a finished connection may return to besides Settings. */
-const RETURN_PAGES = new Set(['/calendar']);
+const RETURN_PAGES = new Set(['/calendar', '/inbox']);
 
 function redirectWithError(message: string): NextResponse {
   const target = new URL('/settings', env().appUrl);

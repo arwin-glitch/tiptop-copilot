@@ -20,6 +20,8 @@ export type AuditAction =
   | 'auth.desktop_signed_in'
   | 'desktop.installer_downloaded'
   | 'integration.connected'
+  | 'inbox.filter_created'
+  | 'inbox.filter_deleted'
   | 'integration.disconnected'
   | 'integration.data_deleted'
   | 'integration.sync_started'

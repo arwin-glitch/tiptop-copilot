@@ -14,6 +14,7 @@ import { configuredCriteria, getActiveThesis } from '@/lib/services/thesis';
 import { googleConfigured } from '@/lib/google/oauth';
 import { canSend } from '@/lib/google/gmail-send';
 import { canEditCalendar } from '@/lib/calendar/edit-access';
+import { canManageFilters } from '@/lib/google/gmail-filters';
 import { PAGE_HEADERS } from '@/lib/shell/page-headers';
 import { PageHeader, PageShell, DataRow } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
@@ -279,6 +280,38 @@ export default async function SettingsPage({
                         className="inline-flex h-9 items-center rounded-md bg-[var(--primary)] px-3.5 text-sm font-medium text-[var(--primary-fg)] hover:bg-[var(--primary-hover)]"
                       >
                         Turn on calendar editing
+                      </a>
+                    </WebOnly>
+                  )}
+                </div>
+              ) : null}
+
+              {integration && !demo ? (
+                <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-[var(--border)] p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">Gmail filters from the Inbox</p>
+                    <p className="text-sm text-[var(--fg-muted)]">
+                      {canManageFilters(integration)
+                        ? 'On. A filter is made or deleted only when someone clicks Create or Delete in the Inbox; never a forward or a delete action.'
+                        : "Off. The Inbox's Create filter needs Google's approval to manage basic mail settings (filters). The mailbox owner turns it on once."}
+                    </p>
+                  </div>
+                  {canManageFilters(integration) ? (
+                    <Badge tone="ok">On</Badge>
+                  ) : (
+                    <WebOnly
+                      serverVersion={desktopVersion}
+                      fallback={
+                        <span className="text-sm text-[var(--fg-muted)]">
+                          Turn this on from Kraken in your web browser.
+                        </span>
+                      }
+                    >
+                      <a
+                        href="/api/integrations/google/start?filters=1&from=settings"
+                        className="inline-flex h-9 items-center rounded-md bg-[var(--primary)] px-3.5 text-sm font-medium text-[var(--primary-fg)] hover:bg-[var(--primary-hover)]"
+                      >
+                        Turn on filters
                       </a>
                     </WebOnly>
                   )}

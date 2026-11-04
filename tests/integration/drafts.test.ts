@@ -212,10 +212,10 @@ describe('nothing sends on its own', () => {
     }
   });
 
-  it('names a write scope in exactly one file: gmail.modify and calendar.events, nothing else', async () => {
+  it('names a write scope in exactly one file: gmail.modify, calendar.events and gmail.settings.basic, nothing else', async () => {
     // Matched as a scope URL, so a deep link to the Gmail UI does not trip it.
     const WRITE_SCOPE =
-      /auth\/(gmail\.(send|compose|modify|insert)|calendar(\.events)?(?!\.readonly))|['"]https:\/\/mail\.google\.com\/['"]/;
+      /auth\/(gmail\.(send|compose|modify|insert|settings\.(basic|sharing))|calendar(\.events)?(?!\.readonly))|['"]https:\/\/mail\.google\.com\/['"]/;
     const files = await walk(SRC);
     const offenders: string[] = [];
     for (const file of files) {
@@ -232,7 +232,16 @@ describe('nothing sends on its own', () => {
     expect([...scopes.CALENDAR_EDIT_SCOPES]).toEqual([
       'https://www.googleapis.com/auth/calendar.events',
     ]);
-    expect(Object.keys(scopes).sort()).toEqual(['CALENDAR_EDIT_SCOPES', 'SEND_SCOPES']);
+    // Gmail filters, asked for only by "Turn on filters". Never the sharing
+    // scope, which can add forwarding addresses and delegates.
+    expect([...scopes.FILTER_SCOPES]).toEqual([
+      'https://www.googleapis.com/auth/gmail.settings.basic',
+    ]);
+    expect(Object.keys(scopes).sort()).toEqual([
+      'CALENDAR_EDIT_SCOPES',
+      'FILTER_SCOPES',
+      'SEND_SCOPES',
+    ]);
   });
 
   it('only the email session, the Inbox tab and Settings can reach the send module', async () => {
@@ -263,6 +272,9 @@ describe('nothing sends on its own', () => {
       // campaign service itself never imports it, so the daily job's reply
       // check cannot reach a send path.
       'lib/campaigns/sender.ts',
+      // Create filter's "Also apply to matching conversations": the Inbox's
+      // own label path, on a person's click on Create, capped (never sends).
+      'lib/services/inbox-filters.ts',
     ]);
     const files = await walk(SRC);
     const importers: string[] = [];
@@ -293,8 +305,11 @@ describe('nothing sends on its own', () => {
       }
       if (MODIFY_ENDPOINT.test(source)) writers.push(rel);
     }
+    // Create filter's "Also apply to matching conversations" is the third:
+    // the filter's own label changes, on the click that creates it.
     expect(callers.sort()).toEqual([
       'app/api/inbox/modify/route.ts',
+      'lib/services/inbox-filters.ts',
       'lib/services/inbox-snooze.ts',
     ]);
     expect(writers).toEqual(['lib/google/gmail-send.ts']);

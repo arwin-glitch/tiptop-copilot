@@ -6,7 +6,7 @@ import type { DataStore } from '@/lib/db/store';
 import type { EncryptedProviderToken, Integration } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
 import { newId } from '@/lib/util/hash';
-import { CALENDAR_EDIT_SCOPES, SEND_SCOPES } from './send-scopes';
+import { CALENDAR_EDIT_SCOPES, FILTER_SCOPES, SEND_SCOPES } from './send-scopes';
 
 /**
  * Google OAuth 2.0 authorization-code flow with encrypted refresh-token
@@ -19,6 +19,10 @@ import { CALENDAR_EDIT_SCOPES, SEND_SCOPES } from './send-scopes';
  * Calendar editing is another (`{ calendar: true }`), started from Settings
  * or the Calendar tab, which adds the event-editing scope; only the Calendar
  * tab's edit routes use it (lib/calendar/write.ts).
+ * Filters are a third (`{ filters: true }`), started from the Inbox's
+ * "Turn on filters" step or Settings, which adds Gmail's basic settings
+ * scope; only the Inbox's Create filter and Filters list use it
+ * (lib/google/gmail-filters.ts).
  */
 
 export const GOOGLE_SCOPES = [
@@ -47,7 +51,7 @@ export function googleConfigured(): boolean {
 
 export function buildAuthorizationUrl(
   state: string,
-  options: { send?: boolean; calendar?: boolean } = {},
+  options: { send?: boolean; calendar?: boolean; filters?: boolean } = {},
 ): Result<string> {
   const e = env();
   if (!googleConfigured()) {
@@ -61,6 +65,7 @@ export function buildAuthorizationUrl(
       ...REQUESTED_SCOPES,
       ...(options.send ? SEND_SCOPES : []),
       ...(options.calendar ? CALENDAR_EDIT_SCOPES : []),
+      ...(options.filters ? FILTER_SCOPES : []),
     ].join(' '),
     access_type: 'offline',
     // Forces a refresh token even when the user has consented before.
