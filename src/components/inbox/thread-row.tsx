@@ -47,6 +47,8 @@ export interface RowActions {
   onUnsnooze: (() => void) | null;
   onLabel: ((change: LabelChange) => void) | null;
   onContextMenu: (e: React.MouseEvent) => void;
+  /** Drag onto a label or folder in the nav (Gmail's drag to label); null when not offered. */
+  onDragStart?: ((e: React.DragEvent) => void) | null;
 }
 
 /**
@@ -240,6 +242,8 @@ export function ThreadRow({
   return (
     <li
       onContextMenu={actions.onContextMenu}
+      draggable={Boolean(actions.onDragStart)}
+      onDragStart={actions.onDragStart ?? undefined}
       className={cn(
         'group relative flex items-center gap-1 border-b border-[var(--border)] pr-3 pl-2 @2xl:gap-2',
         PAD[density],

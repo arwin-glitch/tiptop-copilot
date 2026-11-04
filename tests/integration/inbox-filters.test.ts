@@ -41,6 +41,7 @@ const createFilter = vi.fn(async (..._args: unknown[]) => ok({ id: 'ANe1BmhGfilt
 const listFilters = vi.fn(async (..._args: unknown[]) => ok([]));
 const deleteFilter = vi.fn(async (..._args: unknown[]) => ok(true as const));
 const setThreadLabels = vi.fn(async (..._args: unknown[]) => ok(true as const));
+const createLabel = vi.fn(async (..._args: unknown[]) => ok({ id: 'Label_7299', name: 'Blocked' }));
 const listThreadPage = vi.fn(async (..._args: unknown[]) =>
   ok({
     threads: [
@@ -67,6 +68,7 @@ vi.mock('@/lib/google/gmail-filters', async (importOriginal) => ({
 vi.mock('@/lib/google/gmail-send', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/google/gmail-send')>()),
   setThreadLabels: (...args: unknown[]) => setThreadLabels(...args),
+  createLabel: (...args: unknown[]) => createLabel(...args),
 }));
 
 vi.mock('@/lib/google/gmail-inbox', async (importOriginal) => ({
@@ -92,6 +94,16 @@ vi.mock('@/lib/services/email-session-auth', async (importOriginal) => ({
 
 const filters = await import('@/app/api/inbox/filters/route');
 const suggest = await import('@/app/api/inbox/suggest/route');
+const block = await import('@/app/api/inbox/block/route');
+
+const postBlock = (address: string) =>
+  block.POST(
+    new NextRequest('http://localhost/api/inbox/block', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address }),
+    }),
+  );
 
 const post = (body: unknown) =>
   filters.POST(
@@ -118,7 +130,14 @@ const blankCriteria = {
 beforeEach(async () => {
   live = false;
   scopes = [];
-  for (const m of [createFilter, listFilters, deleteFilter, setThreadLabels, listThreadPage]) {
+  for (const m of [
+    createFilter,
+    listFilters,
+    deleteFilter,
+    setThreadLabels,
+    listThreadPage,
+    createLabel,
+  ]) {
     m.mockClear();
   }
   resetInboxLiveCache();
@@ -277,5 +296,53 @@ describe('filters against Gmail', () => {
     expect((await del('ANe1BmhGfilter01')).status).toBe(200);
     expect(deleteFilter).toHaveBeenCalledTimes(1);
     expect((await del('bad id!')).status).toBe(400);
+  });
+});
+
+describe('Block sender', () => {
+  it('in the demo: makes the Blocked label and a skip-inbox filter, then Unblock deletes it', async () => {
+    const res = await postBlock('Pat Lane <pat@lane-ventures.demo>');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.address).toBe('pat@lane-ventures.demo');
+    expect(createFilter).not.toHaveBeenCalled();
+    expect(createLabel).not.toHaveBeenCalled();
+    const listed = await (await filters.GET()).json();
+    const blocked = listed.labels.find((l: { name: string }) => l.name === 'Blocked');
+    expect(blocked).toBeTruthy();
+    expect(listed.filters).toHaveLength(1);
+    expect(listed.filters[0].criteria).toEqual({ from: 'pat@lane-ventures.demo' });
+    expect(listed.filters[0].action).toEqual({
+      addLabelIds: [blocked.id],
+      removeLabelIds: ['INBOX', 'UNREAD'],
+    });
+    expect((await del(listed.filters[0].id)).status).toBe(200);
+  });
+
+  it('refuses a value with no address', async () => {
+    expect((await postBlock('Just a name')).status).toBe(400);
+  });
+
+  it('live: refuses without the filters opt-in', async () => {
+    live = true;
+    scopes = [...SEND_SCOPES];
+    expect((await postBlock('pat@lane.example')).status).toBe(403);
+    expect(createFilter).not.toHaveBeenCalled();
+  });
+
+  it('live: creates the Blocked label once, then a filter that never adds SPAM or TRASH', async () => {
+    live = true;
+    scopes = [...SEND_SCOPES, ...FILTER_SCOPES];
+    const res = await postBlock('pat@lane.example');
+    expect(res.status).toBe(200);
+    expect(createLabel).toHaveBeenCalledTimes(1);
+    const sent = createFilter.mock.calls[0]![2] as {
+      criteria: unknown;
+      action: { addLabelIds?: string[]; removeLabelIds?: string[] };
+    };
+    expect(sent.criteria).toEqual({ from: 'pat@lane.example' });
+    expect(sent.action.addLabelIds).toEqual(['Label_7299']);
+    expect(sent.action.removeLabelIds).toEqual(['INBOX', 'UNREAD']);
+    expect(JSON.stringify(sent)).not.toMatch(/SPAM|TRASH|forward/);
   });
 });

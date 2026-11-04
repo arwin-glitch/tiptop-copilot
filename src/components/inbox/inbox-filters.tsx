@@ -2,11 +2,12 @@
 
 import * as React from 'react';
 import { toast } from 'sonner';
-import { Filter, Trash2 } from 'lucide-react';
+import { Filter, ShieldOff, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import {
   APPLY_EXISTING_MAX,
+  blockedBy,
   buildFilterBody,
   criteriaFromSearch,
   describeActions,
@@ -408,14 +409,14 @@ function FiltersListBody() {
   }
   const names = new Map(read.labels.map((l) => [l.id, l.name]));
 
-  const remove = async (filterId: string) => {
+  const remove = async (filterId: string, blocked: string | null) => {
     setBusy(filterId);
     try {
       const res = await fetch(`/api/inbox/filters?id=${encodeURIComponent(filterId)}`, {
         method: 'DELETE',
       });
       if (res.ok) {
-        toast.success('Filter deleted');
+        toast.success(blocked ? `Unblocked ${blocked}` : 'Filter deleted');
         setRead((cur) =>
           cur && !('error' in cur)
             ? { ...cur, filters: cur.filters.filter((f) => f.id !== filterId) }
@@ -441,42 +442,57 @@ function FiltersListBody() {
   }
   return (
     <ul className="divide-y divide-[var(--border)]" aria-label="Gmail filters">
-      {read.filters.map((f) => (
-        <li key={f.id} className="flex items-start gap-3 py-3">
-          <div className="min-w-0 flex-1">
-            <p className="font-mono text-xs break-words text-[var(--fg)]">
-              {describeCriteria(f.criteria) || '(any mail)'}
-            </p>
-            <p className="mt-1 text-sm text-[var(--fg-muted)]">
-              {describeActions(f.action, names).join(' · ') || 'No actions'}
-            </p>
-          </div>
-          {confirm === f.id ? (
-            <span className="flex shrink-0 items-center gap-1">
+      {read.filters.map((f) => {
+        const blocked = blockedBy(f, names);
+        return (
+          <li key={f.id} className="flex items-start gap-3 py-3">
+            <div className="min-w-0 flex-1">
+              {blocked ? (
+                <p className="text-xs font-medium text-[var(--danger)]">Blocked sender</p>
+              ) : null}
+              <p className="font-mono text-xs break-words text-[var(--fg)]">
+                {describeCriteria(f.criteria) || '(any mail)'}
+              </p>
+              <p className="mt-1 text-sm text-[var(--fg-muted)]">
+                {describeActions(f.action, names).join(' · ') || 'No actions'}
+              </p>
+            </div>
+            {confirm === f.id ? (
+              <span className="flex shrink-0 items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={busy === f.id}
+                  onClick={() => void remove(f.id, blocked)}
+                >
+                  {blocked ? 'Unblock' : 'Delete filter'}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>
+                  Keep
+                </Button>
+              </span>
+            ) : blocked ? (
               <Button
                 size="sm"
-                variant="danger"
-                disabled={busy === f.id}
-                onClick={() => void remove(f.id)}
+                variant="ghost"
+                aria-label={`Unblock ${blocked}`}
+                onClick={() => setConfirm(f.id)}
               >
-                Delete filter
+                <ShieldOff aria-hidden /> Unblock
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>
-                Keep
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label={`Delete filter ${describeCriteria(f.criteria)}`}
+                onClick={() => setConfirm(f.id)}
+              >
+                <Trash2 aria-hidden /> Delete
               </Button>
-            </span>
-          ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label={`Delete filter ${describeCriteria(f.criteria)}`}
-              onClick={() => setConfirm(f.id)}
-            >
-              <Trash2 aria-hidden /> Delete
-            </Button>
-          )}
-        </li>
-      ))}
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

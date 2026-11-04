@@ -75,6 +75,7 @@ describe('Gmail filters', () => {
       /from ['"][^'"]*services\/inbox-filters['"]/.test(s.text),
     ).map((s) => s.rel);
     expect(services.sort()).toEqual([
+      'app/api/inbox/block/route.ts',
       'app/api/inbox/filters/count/route.ts',
       'app/api/inbox/filters/route.ts',
     ]);
@@ -86,6 +87,7 @@ describe('Gmail filters', () => {
       'lib/google/gmail-filters.ts',
       'lib/services/inbox-filters.ts',
       'app/api/inbox/filters/route.ts',
+      'app/api/inbox/block/route.ts',
     ]) {
       const text = find(rel);
       expect(text, rel).not.toMatch(/forward\s*:/);

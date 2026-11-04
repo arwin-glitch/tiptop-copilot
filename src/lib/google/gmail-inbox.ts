@@ -222,6 +222,29 @@ export async function readMessageHeadline(
 }
 
 /**
+ * One message's sender and unsubscribe headers (List-Unsubscribe and
+ * List-Unsubscribe-Post), re-read before a one-click unsubscribe so the
+ * address posted to is the message's own, never one the browser sent.
+ */
+export async function readUnsubscribeHeaders(
+  store: DataStore,
+  integration: Integration,
+  id: string,
+): Promise<Result<{ from: string; listUnsubscribe: string; listUnsubscribePost: string }>> {
+  const res = await gmailGet<Msg & { id: string }>(
+    store,
+    integration,
+    `/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=List-Unsubscribe&metadataHeaders=List-Unsubscribe-Post`,
+  );
+  if (!res.ok) return res;
+  return ok({
+    from: header(res.value, 'From'),
+    listUnsubscribe: header(res.value, 'List-Unsubscribe'),
+    listUnsubscribePost: header(res.value, 'List-Unsubscribe-Post'),
+  });
+}
+
+/**
  * The thread a message belongs to. `format=minimal` carries ids and labels
  * only, no headers or body. Unlike readMessageHeadline, a failure comes back
  * as the error, so a caller can tell a rate limit from a missing message.
@@ -484,6 +507,9 @@ export interface FullMessage {
   text: string;
   attachments: AttachmentRef[];
   labelIds: string[];
+  /** The List-Unsubscribe and List-Unsubscribe-Post headers, when the sender gave them. */
+  listUnsubscribe?: string;
+  listUnsubscribePost?: string;
 }
 
 export interface FullThread {
@@ -520,6 +546,8 @@ export async function readThreadFull(
         text: (plain || htmlToPlainText(html)).replace(/\r\n/g, '\n').trim(),
         attachments: attachmentRefs(m.payload),
         labelIds: m.labelIds ?? [],
+        listUnsubscribe: header(m, 'List-Unsubscribe'),
+        listUnsubscribePost: header(m, 'List-Unsubscribe-Post'),
       };
     });
   if (messages.length === 0) return err('not_found', 'That conversation has no messages.');

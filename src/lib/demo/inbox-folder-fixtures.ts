@@ -18,7 +18,16 @@ export interface DemoFolderThread {
   subject: string;
   /** Gmail system labels: where it is filed, and its state. */
   labels: string[];
-  messages: { from: string; to: string; cc?: string; at: string; text: string }[];
+  messages: {
+    from: string;
+    to: string;
+    cc?: string;
+    at: string;
+    text: string;
+    /** A mailing list's List-Unsubscribe (and -Post) headers. */
+    listUnsubscribe?: string;
+    listUnsubscribePost?: string;
+  }[];
 }
 
 export function demoFolderThreads(now: Date): DemoFolderThread[] {
@@ -47,6 +56,7 @@ export function demoFolderThreads(now: Date): DemoFolderThread[] {
           to: DEMO_USER.email,
           at: ago(30),
           text: 'Renew this month and keep 20% off for a year.',
+          listUnsubscribe: '<mailto:optout@workspacepro.demo?subject=Remove%20me>',
         },
       ],
     },
@@ -129,6 +139,9 @@ export function demoFolderFullThread(thread: DemoFolderThread): FullThread {
     text: m.text,
     attachments: [],
     labelIds: thread.labels,
+    ...(m.listUnsubscribe
+      ? { listUnsubscribe: m.listUnsubscribe, listUnsubscribePost: m.listUnsubscribePost ?? '' }
+      : {}),
   }));
   return { id: thread.id, subject: thread.subject, labelIds: thread.labels, messages };
 }

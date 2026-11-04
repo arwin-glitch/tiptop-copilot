@@ -5,6 +5,7 @@ import {
   AlarmClock,
   Archive,
   ArrowLeft,
+  Ban,
   Bookmark,
   ChevronDown,
   ChevronLeft,
@@ -14,6 +15,7 @@ import {
   File as FileIcon,
   FileImage,
   FileText,
+  Filter,
   FolderInput,
   Forward,
   Inbox as InboxIcon,
@@ -24,6 +26,7 @@ import {
   Printer,
   Reply,
   ReplyAll,
+  ShieldAlert,
   Star,
   Tag,
   Trash2,
@@ -42,6 +45,7 @@ import {
 import { readerZone, SnoozeMenu } from '@/components/inbox/snooze-menu';
 import { opensInline } from '@/lib/email/attachment-types';
 import { textToComposeHtml } from '@/lib/email/compose-html';
+import { unsubscribeHow } from '@/lib/email/unsubscribe';
 import type { LabelChange, MailLabel } from '@/lib/email/inbox-actions';
 import { initialOf, type FolderId } from '@/lib/email/inbox-folders';
 import type { SystemAction } from '@/lib/email/inbox-modify';
@@ -52,6 +56,29 @@ import { LabelChip } from '@/components/inbox/label-chip';
 import type { LiveMessage, LiveThread, LiveThreadRow } from '@/lib/services/inbox-live';
 
 export type WriteKind = 'reply' | 'replyAll' | 'forward';
+
+/**
+ * What the conversation offers about a message's sender, each only from a
+ * person's click (Block and Report phishing ask once more first). Null when
+ * not offered here.
+ */
+export interface SenderActions {
+  /** "Filter messages like these": Create filter, from that sender. */
+  onFilterLike: ((message: LiveMessage) => void) | null;
+  /** Gmail's "Block": a filter (skip inbox, mark read, "Blocked" label), after a confirm. */
+  onBlock: ((message: LiveMessage) => void) | null;
+  /** "Report phishing": Gmail's API has none, so it is reported as spam, after a confirm. */
+  onPhishing: (() => void) | null;
+  /** Gmail's "Unsubscribe" by the sender: one-click or a prefilled email, after a confirm. */
+  onUnsubscribe: ((message: LiveMessage) => void) | null;
+}
+
+export const NO_SENDER_ACTIONS: SenderActions = {
+  onFilterLike: null,
+  onBlock: null,
+  onPhishing: null,
+  onUnsubscribe: null,
+};
 
 export const gmailUrl = (id: string, mailbox: string | null) =>
   mailbox
@@ -263,7 +290,9 @@ function MessageCard({
   onWrite,
   onPrint,
   onUnreadFromHere,
+  sender,
 }: {
+  sender: SenderActions;
   message: LiveMessage;
   open: boolean;
   onToggle: () => void;
@@ -318,6 +347,37 @@ function MessageCard({
     ...(onUnreadFromHere
       ? [{ id: 'unread', label: 'Mark unread from here', icon: Mail, onSelect: onUnreadFromHere }]
       : []),
+    ...(!m.fromUs && sender.onFilterLike
+      ? [
+          {
+            id: 'filterLike',
+            label: 'Filter messages like this',
+            icon: Filter,
+            divider: true,
+            onSelect: () => sender.onFilterLike?.(m),
+          },
+        ]
+      : []),
+    ...(!m.fromUs && sender.onBlock
+      ? [
+          {
+            id: 'block',
+            label: `Block “${m.fromName}”`,
+            icon: Ban,
+            onSelect: () => sender.onBlock?.(m),
+          },
+        ]
+      : []),
+    ...(!m.fromUs && sender.onPhishing
+      ? [
+          {
+            id: 'phishing',
+            label: 'Report phishing',
+            icon: ShieldAlert,
+            onSelect: () => sender.onPhishing?.(),
+          },
+        ]
+      : []),
   ];
   return (
     <li className="border-b border-[var(--border)] px-4 py-3">
@@ -329,6 +389,26 @@ function MessageCard({
             <span className="truncate text-xs text-[var(--fg-muted)]">
               &lt;{addressOf(m.from)}&gt;
             </span>
+            {!m.fromUs && m.unsubscribe && sender.onUnsubscribe ? (
+              unsubscribeHow(m.unsubscribe) === 'link' ? (
+                <a
+                  href={m.unsubscribe.http!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-medium text-[var(--fg-muted)] underline hover:text-[var(--fg)]"
+                >
+                  Unsubscribe
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => sender.onUnsubscribe?.(m)}
+                  className="text-xs font-medium text-[var(--fg-muted)] underline hover:text-[var(--fg)]"
+                >
+                  Unsubscribe
+                </button>
+              )
+            ) : null}
           </div>
           <button
             type="button"
@@ -448,7 +528,10 @@ export function ThreadView({
   onUnsnooze,
   onSent,
   position,
+  sender = NO_SENDER_ACTIONS,
 }: {
+  /** Filter like these, Block and Report phishing for each message's sender. */
+  sender?: SenderActions;
   row: LiveThreadRow;
   timeZone: string;
   /** The conversation already read on the server (a link opened it): shown without a second read. */
@@ -607,6 +690,8 @@ export function ThreadView({
   const hidden = fold ? messages.slice(1, -2) : [];
   const shown = fold ? [messages[0]!, ...messages.slice(-2)] : messages;
 
+  // The newest message someone else sent: who "Filter messages like these" and Block are about.
+  const lastIncoming = [...messages].reverse().find((m) => !m.fromUs) ?? null;
   const moreItems: MenuItem[] = [
     {
       id: 'imp',
@@ -633,6 +718,37 @@ export function ThreadView({
       icon: Printer,
       onSelect: () => thread && printMessages(thread.subject, thread.messages, timeZone),
     },
+    ...(sender.onFilterLike && lastIncoming
+      ? [
+          {
+            id: 'filterLike',
+            label: 'Filter messages like these',
+            icon: Filter,
+            divider: true,
+            onSelect: () => sender.onFilterLike?.(lastIncoming),
+          },
+        ]
+      : []),
+    ...(sender.onBlock && lastIncoming
+      ? [
+          {
+            id: 'block',
+            label: `Block “${lastIncoming.fromName}”`,
+            icon: Ban,
+            onSelect: () => sender.onBlock?.(lastIncoming),
+          },
+        ]
+      : []),
+    ...(sender.onPhishing && !inSpam && !inTrash
+      ? [
+          {
+            id: 'phishing',
+            label: 'Report phishing',
+            icon: ShieldAlert,
+            onSelect: () => sender.onPhishing?.(),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -887,6 +1003,7 @@ export function ThreadView({
                 onUnreadFromHere={
                   canModify ? () => void onAct('unread').then((ok) => ok && onBack()) : null
                 }
+                sender={sender}
               />
               {fold && i === 0 ? (
                 <li className="relative border-b border-[var(--border)] py-2">

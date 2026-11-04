@@ -146,3 +146,19 @@ export function applyPending<R extends { id: string }>(
       return patch ? { ...r, ...patch } : r;
     });
 }
+
+/** The drag data a conversation row carries onto the nav (Gmail's drag to label). */
+export const THREAD_DRAG_TYPE = 'application/x-kraken-threads';
+
+/** The conversation ids a drop carries, checked; empty when it carries none. */
+export function readDraggedThreads(raw: string): string[] {
+  try {
+    const list: unknown = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((x): x is string => typeof x === 'string' && /^[0-9a-f]{10,24}$/i.test(x))
+      .slice(0, 100);
+  } catch {
+    return [];
+  }
+}

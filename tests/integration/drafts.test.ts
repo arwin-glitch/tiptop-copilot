@@ -275,6 +275,8 @@ describe('nothing sends on its own', () => {
       // Create filter's "Also apply to matching conversations": the Inbox's
       // own label path, on a person's click on Create, capped (never sends).
       'lib/services/inbox-filters.ts',
+      // One-click Unsubscribe reads canSend only, to refuse without the grant.
+      'lib/services/inbox-unsubscribe.ts',
     ]);
     const files = await walk(SRC);
     const importers: string[] = [];

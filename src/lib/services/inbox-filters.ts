@@ -2,6 +2,8 @@ import 'server-only';
 import type { DataStore } from '@/lib/db/store';
 import {
   APPLY_EXISTING_MAX,
+  BLOCKED_LABEL_NAME,
+  blockFilterInput,
   buildFilterBody,
   criteriaQuery,
   existingChange,
@@ -18,6 +20,7 @@ import {
 import { listThreadPage } from '@/lib/google/gmail-inbox';
 import {
   canSend,
+  createLabel,
   setThreadLabels,
   type InboxLabel,
   type UserLabelId,
@@ -27,7 +30,9 @@ import type { Integration } from '@/lib/types/domain';
 import { processWide } from '@/lib/util/process-state';
 import { err, ok, type Result } from '@/lib/util/result';
 import {
+  createDemoLabel,
   demoMatchingIds,
+  forgetLabelNames,
   forgetThreads,
   readLabelChoices,
   setDemoSystemLabels,
@@ -107,6 +112,8 @@ export async function makeFilter(
   demo: boolean,
   integration: Integration | null,
   input: MakeFilterInput,
+  /** Block's own "Blocked" label, just found or made: no second label read. */
+  knownLabel?: string,
 ): Promise<Result<{ filter: GmailFilter; applied: number }>> {
   const built = buildFilterBody(input.criteria, input.actions);
   if (!built.ok) return err('invalid_input', built.message);
@@ -114,7 +121,7 @@ export async function makeFilter(
     return err('forbidden', 'Filters are off. Turn on filters first.');
   }
   // "Apply the label": only one of the person's own labels.
-  if (input.actions.label) {
+  if (input.actions.label && input.actions.label !== knownLabel) {
     const labels = await readLabelChoices(store, demo ? null : integration, { fresh: !demo });
     if (!labels.some((l) => l.id === input.actions.label)) {
       return err('invalid_input', 'Pick one of your labels.');
@@ -237,4 +244,53 @@ export async function countMatching(
   if (!integration) return null;
   const page = await listThreadPage(store, integration, { q, max: 1 });
   return page.ok ? (page.value.total ?? page.value.threads.length) : null;
+}
+
+/**
+ * Gmail's "Block": from a person's click on Block (and its confirm) only.
+ * Gmail's own Block files the sender's mail in Spam; a filter cannot add
+ * SPAM and Kraken never files mail in Trash with one, so this makes the
+ * nearest honest filter instead (lib/email/inbox-filters.ts): from that
+ * address, skip the inbox, mark read, label "Blocked" (made on first use).
+ * Their mail already here gets the same, at most APPLY_EXISTING_MAX.
+ */
+export async function blockSender(
+  store: DataStore,
+  organizationId: string,
+  demo: boolean,
+  integration: Integration | null,
+  address: string,
+): Promise<Result<{ filter: GmailFilter; applied: number; labelId: string }>> {
+  if (!demo && (!integration || !canManageFilters(integration))) {
+    return err('forbidden', 'Blocking needs filters turned on. Turn on filters first.');
+  }
+  let labelId: string;
+  if (demo) {
+    labelId = createDemoLabel(BLOCKED_LABEL_NAME).id;
+  } else {
+    if (!canSend(integration!)) {
+      return err('forbidden', 'Blocking needs sending turned on for its label.');
+    }
+    const labels = await readLabelChoices(store, integration, { fresh: true });
+    const found = labels.find((l) => l.name.toLowerCase() === BLOCKED_LABEL_NAME.toLowerCase());
+    if (found) labelId = found.id;
+    else {
+      const made = await createLabel(store, integration!, BLOCKED_LABEL_NAME);
+      if (!made.ok) return made;
+      labelId = made.value.id;
+      forgetLabelNames();
+    }
+  }
+  const made = await makeFilter(
+    store,
+    organizationId,
+    demo,
+    integration,
+    {
+      ...blockFilterInput(address, labelId),
+      applyExisting: true,
+    },
+    labelId,
+  );
+  return made.ok ? ok({ ...made.value, labelId }) : made;
 }

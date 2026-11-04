@@ -21,7 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useStoredChoice } from '@/components/inbox/use-stored';
-import type { MailLabel } from '@/lib/email/inbox-actions';
+import { readDraggedThreads, THREAD_DRAG_TYPE, type MailLabel } from '@/lib/email/inbox-actions';
 import { ancestorPaths, labelTree, type LabelNode } from '@/lib/email/label-tree';
 import type { FolderId, SystemFolder } from '@/lib/email/inbox-folders';
 import type { InboxNav as NavCounts } from '@/lib/services/inbox-live';
@@ -43,6 +43,40 @@ export const NAV_FOLDERS: { id: SystemFolder; label: string; icon: LucideIcon; m
   ];
 
 const MORE_KEY = 'kraken.inbox.navMore';
+
+/** Where a dragged conversation may land: a label (applies it), or Inbox and Trash (moves it). */
+export type DropTarget = { kind: 'label'; id: string } | { kind: 'folder'; id: 'inbox' | 'trash' };
+
+/** Drag-over and drop handlers for one nav row, and whether a drag is over it now. */
+function useDrop(
+  target: DropTarget | null,
+  onDrop: ((target: DropTarget, ids: string[]) => void) | undefined,
+) {
+  const [over, setOver] = React.useState(false);
+  if (!target || !onDrop) return { over: false, handlers: {} };
+  const carries = (e: React.DragEvent) => e.dataTransfer.types.includes(THREAD_DRAG_TYPE);
+  return {
+    over,
+    handlers: {
+      onDragOver: (e: React.DragEvent) => {
+        if (!carries(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (!over) setOver(true);
+      },
+      onDragLeave: () => setOver(false),
+      onDrop: (e: React.DragEvent) => {
+        setOver(false);
+        if (!carries(e)) return;
+        e.preventDefault();
+        const ids = readDraggedThreads(e.dataTransfer.getData(THREAD_DRAG_TYPE));
+        if (ids.length) onDrop(target, ids);
+      },
+    },
+  };
+}
+
+const DROP_RING = 'outline-2 outline-dashed outline-[var(--accent)] bg-[var(--accent-soft)]';
 
 /** The number Gmail shows beside a folder: unread for Inbox and Spam, a count for Drafts and Scheduled. */
 function countFor(id: SystemFolder, nav: NavCounts | undefined): number | null {
@@ -76,7 +110,10 @@ export function InboxNav({
   onCreateLabel,
   canCreateLabel,
   className,
+  onDropThreads,
 }: {
+  /** A conversation dragged from the list onto a label or onto Inbox or Trash. */
+  onDropThreads?: (target: DropTarget, ids: string[]) => void;
   folder: FolderId;
   /** A search is showing: no folder is current. */
   searched: boolean;
@@ -109,42 +146,16 @@ export function InboxNav({
         <PenSquare className="size-5" aria-hidden /> Compose
       </button>
       <ul className="space-y-px">
-        {NAV_FOLDERS.filter((f) => !f.more || showMore).map((f) => {
-          const active = !searched && folder === f.id;
-          const count = countFor(f.id, nav);
-          const strong = (f.id === 'inbox' || f.id === 'spam') && (count ?? 0) > 0;
-          return (
-            <li key={f.id}>
-              <button
-                type="button"
-                onClick={() => onFolder(f.id)}
-                aria-current={active ? 'page' : undefined}
-                className={cn(
-                  'flex h-8 w-full items-center gap-3 rounded-r-full pr-3 pl-4 text-left text-sm',
-                  active
-                    ? 'bg-[var(--nav-active)] font-semibold text-[var(--fg)]'
-                    : 'text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
-                  strong && 'font-semibold text-[var(--fg)]',
-                )}
-              >
-                <f.icon
-                  className={cn('size-4 shrink-0', active && 'text-[var(--accent)]')}
-                  aria-hidden
-                />
-                <span className="min-w-0 flex-1 truncate">{f.label}</span>
-                {count ? (
-                  <span className="text-xs tabular-nums">
-                    <span className="sr-only">, </span>
-                    {count.toLocaleString('en-US')}
-                    <span className="sr-only">
-                      {f.id === 'inbox' || f.id === 'spam' ? ' unread' : ''}
-                    </span>
-                  </span>
-                ) : null}
-              </button>
-            </li>
-          );
-        })}
+        {NAV_FOLDERS.filter((f) => !f.more || showMore).map((f) => (
+          <FolderRow
+            key={f.id}
+            f={f}
+            active={!searched && folder === f.id}
+            count={countFor(f.id, nav)}
+            onFolder={onFolder}
+            onDropThreads={onDropThreads}
+          />
+        ))}
         <li>
           <button
             type="button"
@@ -184,9 +195,58 @@ export function InboxNav({
           searched={searched}
           unread={nav?.labelUnread}
           onFolder={onFolder}
+          onDropThreads={onDropThreads}
         />
       )}
     </nav>
+  );
+}
+
+function FolderRow({
+  f,
+  active,
+  count,
+  onFolder,
+  onDropThreads,
+}: {
+  f: (typeof NAV_FOLDERS)[number];
+  active: boolean;
+  count: number | null;
+  onFolder: (folder: FolderId) => void;
+  onDropThreads?: (target: DropTarget, ids: string[]) => void;
+}) {
+  const strong = (f.id === 'inbox' || f.id === 'spam') && (count ?? 0) > 0;
+  const drop = useDrop(
+    f.id === 'inbox' || f.id === 'trash' ? { kind: 'folder', id: f.id } : null,
+    onDropThreads,
+  );
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onFolder(f.id)}
+        aria-current={active ? 'page' : undefined}
+        {...drop.handlers}
+        className={cn(
+          'flex h-8 w-full items-center gap-3 rounded-r-full pr-3 pl-4 text-left text-sm',
+          active
+            ? 'bg-[var(--nav-active)] font-semibold text-[var(--fg)]'
+            : 'text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
+          strong && 'font-semibold text-[var(--fg)]',
+          drop.over && DROP_RING,
+        )}
+      >
+        <f.icon className={cn('size-4 shrink-0', active && 'text-[var(--accent)]')} aria-hidden />
+        <span className="min-w-0 flex-1 truncate">{f.label}</span>
+        {count ? (
+          <span className="text-xs tabular-nums">
+            <span className="sr-only">, </span>
+            {count.toLocaleString('en-US')}
+            <span className="sr-only">{f.id === 'inbox' || f.id === 'spam' ? ' unread' : ''}</span>
+          </span>
+        ) : null}
+      </button>
+    </li>
   );
 }
 
@@ -213,12 +273,14 @@ function LabelTreeList({
   searched,
   unread,
   onFolder,
+  onDropThreads,
 }: {
   labels: readonly MailLabel[];
   folder: FolderId;
   searched: boolean;
   unread: Record<string, number> | undefined;
   onFolder: (folder: FolderId) => void;
+  onDropThreads?: (target: DropTarget, ids: string[]) => void;
 }) {
   const tree = React.useMemo(() => labelTree(labels), [labels]);
   const [stored, setStored] = useStoredChoice<string>(COLLAPSED_KEY, parseCollapsed, '[]');
@@ -233,77 +295,123 @@ function LabelTreeList({
     else next.add(path);
     setStored(JSON.stringify([...next]));
   };
-
-  const row = (node: LabelNode): React.ReactNode => {
-    const open = !collapsed.has(node.path) || keepOpen.has(node.path);
-    const id: FolderId | null = node.label ? `label:${node.label.id}` : null;
-    const active = !searched && id !== null && folder === id;
-    const count = node.label ? (unread?.[node.label.id] ?? 0) : 0;
-    const color = node.label?.color;
-    return (
-      <li key={node.path}>
-        <div
-          className={cn(
-            'flex h-8 w-full items-center rounded-r-full pr-3 text-sm',
-            active
-              ? 'bg-[var(--nav-active)] text-[var(--fg)]'
-              : 'text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
-          )}
-          style={{ paddingLeft: `${0.25 + node.depth * 1}rem` }}
-        >
-          {node.children.length ? (
-            <button
-              type="button"
-              onClick={() => toggle(node.path)}
-              aria-expanded={open}
-              aria-label={`${open ? 'Collapse' : 'Expand'} ${node.name}`}
-              className="grid size-5 shrink-0 place-items-center rounded-full hover:bg-[var(--bg-hover)]"
-            >
-              {open ? (
-                <ChevronDown className="size-3.5" aria-hidden />
-              ) : (
-                <ChevronRight className="size-3.5" aria-hidden />
-              )}
-            </button>
-          ) : (
-            <span className="size-5 shrink-0" aria-hidden />
-          )}
-          <button
-            type="button"
-            disabled={id === null}
-            onClick={() => id && onFolder(id)}
-            aria-current={active ? 'page' : undefined}
-            title={node.label?.name ?? node.path}
-            className="flex h-full min-w-0 flex-1 items-center gap-2.5 pl-1 text-left disabled:cursor-default"
-          >
-            <Tag
-              className="size-4 shrink-0"
-              style={color ? { color: color.bg, fill: color.bg } : undefined}
-              aria-hidden
-            />
-            <span
-              className={cn(
-                'min-w-0 flex-1 truncate',
-                (count > 0 || active) && 'font-semibold text-[var(--fg)]',
-              )}
-            >
-              {node.name}
-            </span>
-            {count > 0 ? (
-              <span className="shrink-0 text-xs font-semibold text-[var(--fg)]">{count}</span>
-            ) : null}
-          </button>
-        </div>
-        {node.children.length && open ? (
-          <ul className="space-y-px">{node.children.map(row)}</ul>
-        ) : null}
-      </li>
-    );
+  const shared = {
+    folder,
+    searched,
+    unread,
+    onFolder,
+    onDropThreads,
+    toggle,
+    isOpen: (path: string) => !collapsed.has(path) || keepOpen.has(path),
   };
 
   return (
     <ul className="mt-1 space-y-px" data-label-tree>
-      {tree.map(row)}
+      {tree.map((node) => (
+        <LabelRow key={node.path} node={node} {...shared} />
+      ))}
     </ul>
+  );
+}
+
+function LabelRow({
+  node,
+  folder,
+  searched,
+  unread,
+  onFolder,
+  onDropThreads,
+  toggle,
+  isOpen,
+}: {
+  node: LabelNode;
+  folder: FolderId;
+  searched: boolean;
+  unread: Record<string, number> | undefined;
+  onFolder: (folder: FolderId) => void;
+  onDropThreads?: (target: DropTarget, ids: string[]) => void;
+  toggle: (path: string) => void;
+  isOpen: (path: string) => boolean;
+}) {
+  const open = isOpen(node.path);
+  const id: FolderId | null = node.label ? `label:${node.label.id}` : null;
+  const active = !searched && id !== null && folder === id;
+  const count = node.label ? (unread?.[node.label.id] ?? 0) : 0;
+  const color = node.label?.color;
+  const drop = useDrop(node.label ? { kind: 'label', id: node.label.id } : null, onDropThreads);
+  return (
+    <li>
+      <div
+        {...drop.handlers}
+        className={cn(
+          'flex h-8 w-full items-center rounded-r-full pr-3 text-sm',
+          active
+            ? 'bg-[var(--nav-active)] text-[var(--fg)]'
+            : 'text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]',
+          drop.over && DROP_RING,
+        )}
+        style={{ paddingLeft: `${0.25 + node.depth * 1}rem` }}
+      >
+        {node.children.length ? (
+          <button
+            type="button"
+            onClick={() => toggle(node.path)}
+            aria-expanded={open}
+            aria-label={`${open ? 'Collapse' : 'Expand'} ${node.name}`}
+            className="grid size-5 shrink-0 place-items-center rounded-full hover:bg-[var(--bg-hover)]"
+          >
+            {open ? (
+              <ChevronDown className="size-3.5" aria-hidden />
+            ) : (
+              <ChevronRight className="size-3.5" aria-hidden />
+            )}
+          </button>
+        ) : (
+          <span className="size-5 shrink-0" aria-hidden />
+        )}
+        <button
+          type="button"
+          disabled={id === null}
+          onClick={() => id && onFolder(id)}
+          aria-current={active ? 'page' : undefined}
+          title={node.label?.name ?? node.path}
+          className="flex h-full min-w-0 flex-1 items-center gap-2.5 pl-1 text-left disabled:cursor-default"
+        >
+          <Tag
+            className="size-4 shrink-0"
+            style={color ? { color: color.bg, fill: color.bg } : undefined}
+            aria-hidden
+          />
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate',
+              (count > 0 || active) && 'font-semibold text-[var(--fg)]',
+            )}
+          >
+            {node.name}
+          </span>
+          {count > 0 ? (
+            <span className="shrink-0 text-xs font-semibold text-[var(--fg)]">{count}</span>
+          ) : null}
+        </button>
+      </div>
+      {node.children.length && open ? (
+        <ul className="space-y-px">
+          {node.children.map((child) => (
+            <LabelRow
+              key={child.path}
+              node={child}
+              folder={folder}
+              searched={searched}
+              unread={unread}
+              onFolder={onFolder}
+              onDropThreads={onDropThreads}
+              toggle={toggle}
+              isOpen={isOpen}
+            />
+          ))}
+        </ul>
+      ) : null}
+    </li>
   );
 }

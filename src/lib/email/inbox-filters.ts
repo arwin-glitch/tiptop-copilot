@@ -251,3 +251,57 @@ export function describeActions(
   if (a.forward) out.push('Forwards mail (set in Gmail)');
   return out;
 }
+
+/*
+ * Gmail's "Block sender". Gmail itself files a blocked sender's mail in Spam,
+ * but a filter cannot put SPAM on mail (the API refuses it) and Kraken never
+ * files mail in Trash with a filter. So Kraken's Block is the closest honest
+ * filter: from that address, skip the inbox, mark as read, and apply the
+ * label "Blocked" (made on first use). Unblock deletes that filter.
+ */
+
+/** The label Kraken's Block puts on a blocked sender's mail. */
+export const BLOCKED_LABEL_NAME = 'Blocked';
+
+const PLAIN_ADDRESS = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/;
+
+/** The bare address in "Jane <jane@x.com>" or "jane@x.com", lowercased; null if none. */
+export function senderAddress(value: string): string | null {
+  const inner = /<([^<>]+)>/.exec(value)?.[1] ?? value;
+  const address = inner.trim().toLowerCase();
+  return PLAIN_ADDRESS.test(address) ? address : null;
+}
+
+/** Block's filter: from the address, skip the inbox, mark read, the Blocked label (if any). */
+export function blockFilterInput(
+  address: string,
+  blockedLabelId: string,
+): { criteria: FilterCriteria; actions: FilterActions } {
+  return {
+    criteria: {
+      from: address,
+      to: '',
+      subject: '',
+      hasWords: '',
+      doesntHave: '',
+      hasAttachment: false,
+    },
+    actions: { ...NO_ACTIONS, skipInbox: true, markRead: true, label: blockedLabelId },
+  };
+}
+
+/** Whether a listed filter is one Block made (so the list offers Unblock): who it blocks, or null. */
+export function blockedBy(
+  filter: GmailFilter,
+  labelNames: ReadonlyMap<string, string>,
+): string | null {
+  const c = filter.criteria ?? {};
+  const keys = Object.keys(c).filter((k) => (c as Record<string, unknown>)[k] !== undefined);
+  if (keys.length !== 1 || keys[0] !== 'from' || !c.from) return null;
+  const a = filter.action ?? {};
+  const remove = a.removeLabelIds ?? [];
+  const add = a.addLabelIds ?? [];
+  if (a.forward || !remove.includes('INBOX') || !remove.includes('UNREAD')) return null;
+  if (add.length !== 1 || labelNames.get(add[0]!) !== BLOCKED_LABEL_NAME) return null;
+  return c.from;
+}

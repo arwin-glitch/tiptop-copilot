@@ -22,6 +22,7 @@ import {
   Users,
   X,
   Bookmark,
+  Filter,
   FolderInput,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -33,14 +34,26 @@ import {
 } from '@/components/inbox/compose-window';
 import { InboxNav } from '@/components/inbox/inbox-nav';
 import { InboxSearch } from '@/components/inbox/inbox-search';
-import { CreateFilterDialog, FiltersListDialog } from '@/components/inbox/inbox-filters';
-import type { AdvancedSearch } from '@/lib/email/inbox-folders';
+import {
+  CreateFilterDialog,
+  FiltersListDialog,
+  TURN_ON_FILTERS_HREF,
+} from '@/components/inbox/inbox-filters';
+import { useConfirm } from '@/components/ui/confirm';
+import { senderAddress } from '@/lib/email/inbox-filters';
+import { textToComposeHtml } from '@/lib/email/compose-html';
+import { unsubscribeHow } from '@/lib/email/unsubscribe';
 import { InboxToolbar, type SelectWhich } from '@/components/inbox/inbox-toolbar';
 import { ContextMenu, type MenuItem } from '@/components/inbox/inbox-menus';
 import { ThreadRow } from '@/components/inbox/thread-row';
 import { useStoredChoice } from '@/components/inbox/use-stored';
 import { ShortcutHelp } from '@/components/inbox/shortcut-help';
-import { ThreadView, gmailUrl, type WriteKind } from '@/components/inbox/thread-view';
+import {
+  ThreadView,
+  gmailUrl,
+  type SenderActions,
+  type WriteKind,
+} from '@/components/inbox/thread-view';
 import { readerZone } from '@/components/inbox/snooze-menu';
 import { keyBelongsToOverlay } from '@/components/shell/page-hotkeys';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
@@ -50,18 +63,21 @@ import {
   labelNamesFor,
   PENDING_MS,
   planLabelChange,
+  THREAD_DRAG_TYPE,
   type LabelChange,
   type PendingChange,
 } from '@/lib/email/inbox-actions';
 import {
   CATEGORY_NAMES,
   DENSITY_KEY,
+  EMPTY_SEARCH,
   folderLabelId,
   parseDensity,
   parseReadingPane,
   READING_PANE_KEY,
   type ReadingPane,
   smartDate,
+  type AdvancedSearch,
   type Category,
   type Density,
   type FolderId,
@@ -78,6 +94,7 @@ import {
 import { formatWake } from '@/lib/email/snooze';
 import { cn } from '@/lib/util/cn';
 import type {
+  LiveMessage,
   LiveThread,
   LiveThreadList,
   LiveThreadRow,
@@ -169,6 +186,51 @@ async function postJson(url: string, body: unknown): Promise<Response> {
   });
 }
 
+/** The modify route takes this many conversations a request (its own cap). */
+const MODIFY_CHUNK = 100;
+
+/**
+ * A change to many conversations, a chunk at a time (Select all in a big
+ * folder), with a progress toast once it passes one chunk. Answers the last
+ * failed chunk's response, or the last one when all went through.
+ */
+async function postModify(body: { ids: string[] } & Record<string, unknown>): Promise<Response> {
+  const { ids } = body;
+  if (ids.length <= MODIFY_CHUNK) return postJson('/api/inbox/modify', body);
+  const progress = toast.loading(`Working… 0 of ${ids.length.toLocaleString('en-US')}`);
+  let last: Response | null = null;
+  try {
+    for (let i = 0; i < ids.length; i += MODIFY_CHUNK) {
+      last = await postJson('/api/inbox/modify', { ...body, ids: ids.slice(i, i + MODIFY_CHUNK) });
+      if (!last.ok) return last;
+      const done = Math.min(ids.length, i + MODIFY_CHUNK);
+      toast.loading(
+        `Working… ${done.toLocaleString('en-US')} of ${ids.length.toLocaleString('en-US')}`,
+        { id: progress },
+      );
+    }
+  } finally {
+    toast.dismiss(progress);
+  }
+  return last!;
+}
+
+/** A folder's name as the select-all banner says it. */
+function placeName(folder: FolderId, labels: readonly { id: string; name: string }[]): string {
+  const label = folderLabelId(folder);
+  if (label) return labels.find((l) => l.id === label)?.name ?? 'this label';
+  const names: Record<string, string> = {
+    inbox: 'Inbox',
+    starred: 'Starred',
+    important: 'Important',
+    sent: 'Sent',
+    all: 'All Mail',
+    spam: 'Spam',
+    trash: 'Trash',
+  };
+  return names[folder] ?? 'this folder';
+}
+
 async function errorMessage(res: Response, fallback: string): Promise<string> {
   const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
   return j?.error?.message ?? fallback;
@@ -253,6 +315,15 @@ export function LiveInbox({
     opened?.error !== undefined ? { requested: opened.requested, error: opened.error } : null,
   );
   const [checked, setChecked] = React.useState<Set<string>>(new Set());
+  /**
+   * Gmail's "Select all N conversations in Inbox": every id in the folder or
+   * search (capped), once the person asked for it; null otherwise. It holds
+   * only while the whole page stays checked.
+   */
+  const [allMatching, setAllMatching] = React.useState<{ ids: string[]; capped: boolean } | null>(
+    null,
+  );
+  const [selectingAll, setSelectingAll] = React.useState(false);
   /** The inline composer a key or a menu asked the open conversation for. */
   const [write, setWrite] = React.useState<WriteKind | null>(null);
   const [composes, setComposes] = React.useState<ComposeSeed[]>([]);
@@ -278,6 +349,7 @@ export function LiveInbox({
   /** Create filter's dialog, with the search options it opened from. */
   const [filterFrom, setFilterFrom] = React.useState<AdvancedSearch | null>(null);
   const [filtersOpen, setFiltersOpen] = React.useState(false);
+  const [confirm, confirmDialog] = useConfirm();
   const searchRef = React.useRef<HTMLInputElement>(null);
   /** Changes made here, laid over each list Gmail answers until it has caught up. */
   const pending = React.useRef(new Map<string, PendingChange<LiveThreadRow>>());
@@ -438,6 +510,8 @@ export function LiveInbox({
   }, []);
 
   const rows = list.rows;
+  const wholePage = rows.length > 0 && rows.every((r) => checked.has(r.id));
+  if (allMatching && !wholePage) setAllMatching(null);
   const index = rows.findIndex((r) => r.id === selectedId);
   // The list's own row when the linked conversation is in it, else the linked row.
   const selected = index >= 0 ? rows[index]! : linked && linked.id === selectedId ? linked : null;
@@ -473,6 +547,8 @@ export function LiveInbox({
         silent?: boolean;
         advance?: 'list' | 'next' | 'prev';
         restore?: LiveThreadRow[];
+        /** The toast's words, when not Gmail's usual ones (Report phishing). */
+        text?: string;
       } = {},
     ): Promise<boolean> => {
       if (!canModify) {
@@ -496,7 +572,7 @@ export function LiveInbox({
       }
       setChecked(new Set());
 
-      const res = await postJson('/api/inbox/modify', { ids, action });
+      const res = await postModify({ ids, action });
       if (!res.ok) {
         release(ids);
         setList((cur) => ({ ...cur, rows: before }));
@@ -505,7 +581,7 @@ export function LiveInbox({
         return false;
       }
       settle();
-      const text = movedText(action, ids.length);
+      const text = opts.text ?? movedText(action, ids.length);
       const undoAction = UNDO_OF[action];
       if (text && undoAction && !opts.silent) {
         const undo = () => {
@@ -516,7 +592,7 @@ export function LiveInbox({
           const rest = action === 'trash' ? ids.filter((id) => !back.includes(id)) : [];
           const undoFor = (list: string[], a: SystemAction) =>
             list.length
-              ? postJson('/api/inbox/modify', { ids: list, action: a }).then((r) => r.ok)
+              ? postModify({ ids: list, action: a }).then((r) => r.ok)
               : Promise.resolve(true);
           void Promise.all([undoFor(back, undoAction), undoFor(rest, 'untrash')]).then(([a, b]) => {
             if (a && b) {
@@ -565,7 +641,7 @@ export function LiveInbox({
       // The route gets what was tapped, not the plan: it plans again against
       // Gmail's own label list, and a numbered family's full removal list
       // could pass the per-change cap the route holds a tap to.
-      const res = await postJson('/api/inbox/modify', {
+      const res = await postModify({
         ids,
         action: 'label',
         add: change.add,
@@ -610,7 +686,7 @@ export function LiveInbox({
         hold(ids, {}, viewKey(view.current));
       }
       setChecked(new Set());
-      const res = await postJson('/api/inbox/modify', { ids, action: 'move', to, from });
+      const res = await postModify({ ids, action: 'move', to, from });
       if (!res.ok) {
         release(ids);
         setList((cur) => ({ ...cur, rows: before }));
@@ -624,15 +700,13 @@ export function LiveInbox({
         from !== null
           ? () => {
               lastUndo.current = null;
-              void postJson('/api/inbox/modify', { ids, action: 'move', to: from, from: to }).then(
-                (r) => {
-                  if (r.ok) {
-                    release(ids);
-                    setList((cur) => ({ ...cur, rows: before }));
-                    settle();
-                  } else toast.error('Could not undo that. Find it in Gmail.');
-                },
-              );
+              void postModify({ ids, action: 'move', to: from, from: to }).then((r) => {
+                if (r.ok) {
+                  release(ids);
+                  setList((cur) => ({ ...cur, rows: before }));
+                  settle();
+                } else toast.error('Could not undo that. Find it in Gmail.');
+              });
             }
           : null;
       lastUndo.current = undo;
@@ -947,7 +1021,7 @@ export function LiveInbox({
   };
 
   /** What the folder on screen offers for a set of rows. */
-  const folderActions = (ids: string[]) => {
+  const folderActions = (ids: string[], targets: string[] = ids) => {
     const inSpam = !searched && folder === 'spam';
     const inTrash = !searched && folder === 'trash';
     const own = !searched && (folder === 'drafts' || folder === 'scheduled');
@@ -956,15 +1030,15 @@ export function LiveInbox({
       archive:
         own || inSpam || inTrash || !sample.some((r) => r.inInbox)
           ? null
-          : () => void act(ids, 'archive'),
+          : () => void act(targets, 'archive'),
       moveToInbox:
         !own && !inSpam && !inTrash && sample.length > 0 && sample.every((r) => !r.inInbox)
-          ? () => void act(ids, 'inbox')
+          ? () => void act(targets, 'inbox')
           : null,
-      spam: own || inSpam || inTrash ? null : () => void act(ids, 'spam'),
-      notSpam: inSpam ? () => void act(ids, 'notspam') : null,
-      trash: own || inTrash ? null : () => void act(ids, 'trash'),
-      restore: inTrash ? () => void act(ids, 'restore') : null,
+      spam: own || inSpam || inTrash ? null : () => void act(targets, 'spam'),
+      notSpam: inSpam ? () => void act(targets, 'notspam') : null,
+      trash: own || inTrash ? null : () => void act(targets, 'trash'),
+      restore: inTrash ? () => void act(targets, 'restore') : null,
     };
   };
 
@@ -982,6 +1056,130 @@ export function LiveInbox({
       ),
     }));
     toast.success(`Label “${data.label.name}” created`);
+  };
+
+  /**
+   * Gmail's "Block": after the person confirms, one Gmail filter for that
+   * address (skip inbox, mark read, label "Blocked"); their mail already here
+   * gets the same. Gmail's own Block sends mail to Spam, which a filter cannot
+   * do, and the dialog says so. Unblock is in the Filters list.
+   */
+  const blockSender = async (from: string, name: string) => {
+    const address = senderAddress(from);
+    if (!address) {
+      toast.error('That sender has no address to block.');
+      return;
+    }
+    const yes = await confirm({
+      title: `Block ${name}?`,
+      description: `New mail from ${address} will skip your inbox, be marked as read and get the label “Blocked”. Their mail already here gets the same. (Gmail's own Block sends it to Spam; a filter cannot do that.) Unblock any time from Filters.`,
+      confirmLabel: 'Block',
+      tone: 'danger',
+    });
+    if (!yes) return;
+    const res = await postJson('/api/inbox/block', { address });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => null)) as {
+        error?: { code?: string; message?: string };
+      } | null;
+      const message = j?.error?.message ?? 'Gmail did not take that. Try again.';
+      if (j?.error?.code === 'forbidden' && /filters/i.test(message)) {
+        toast.error(message, {
+          action: {
+            label: 'Turn on filters',
+            onClick: () => window.location.assign(TURN_ON_FILTERS_HREF),
+          },
+        });
+      } else toast.error(message);
+      return;
+    }
+    const data = (await res.json()) as { applied: number };
+    toast.success(
+      data.applied > 1
+        ? `Blocked ${address}. ${data.applied} conversations moved out of the inbox.`
+        : `Blocked ${address}`,
+      { action: { label: 'Filters', onClick: () => setFiltersOpen(true) } },
+    );
+    if (!searched && folder === 'inbox') setSelectedId(null);
+    void load({ folder, category, q: searched, page, token: tokens.at(-1) }, { quiet: true });
+  };
+
+  /**
+   * Gmail's "Unsubscribe", after a confirm naming the sender: the sender's
+   * one-click unsubscribe (RFC 8058, posted by the server to the address in
+   * the message's own header), or their unsubscribe email opened prefilled
+   * in a compose window, which sends only when the person clicks Send. A
+   * plain link opens straight in a new tab (thread-view.tsx).
+   */
+  const unsubscribe = async (m: LiveMessage) => {
+    const options = m.unsubscribe;
+    if (!options) return;
+    const how = unsubscribeHow(options);
+    const address = senderAddress(m.from) ?? m.from;
+    const yes = await confirm({
+      title: `Unsubscribe from ${m.fromName}?`,
+      description:
+        how === 'one-click'
+          ? `Kraken asks ${address} to stop sending you mail, using their one-click unsubscribe. It can take a few days to stop.`
+          : `Opens the unsubscribe email ${m.fromName} asks for, to ${options.mailto!.to}. Nothing goes until you click Send.`,
+      confirmLabel: how === 'one-click' ? 'Unsubscribe' : 'Write the email',
+    });
+    if (!yes) return;
+    if (how === 'email' || !options.http) {
+      const mail = options.mailto!;
+      addWindow({
+        ...newEmail(),
+        to: mail.to,
+        subject: mail.subject,
+        html: mail.body ? textToComposeHtml(mail.body) : '',
+      });
+      return;
+    }
+    const res = await postJson('/api/inbox/unsubscribe', { messageId: m.id });
+    if (!res.ok) {
+      toast.error(await errorMessage(res, 'The sender did not take that. Try their link.'));
+      return;
+    }
+    toast.success(`Unsubscribed from ${m.fromName}`);
+  };
+
+  /**
+   * Gmail's "Report phishing". Gmail's API has no phishing report, so after
+   * the person confirms it is reported as spam (out of the inbox, into Spam,
+   * Undo on the toast), and the words say exactly that.
+   */
+  const reportPhishing = async (id: string) => {
+    const yes = await confirm({
+      title: 'Report phishing?',
+      description:
+        "Gmail's API has no phishing report, so Kraken reports this as spam: it moves to Spam, and Undo puts it back. To send Google a phishing report, use Report phishing in Gmail itself.",
+      confirmLabel: 'Report as spam',
+      tone: 'danger',
+    });
+    if (yes) void act([id], 'spam', { text: 'Reported as spam' });
+  };
+
+  /** "Filter messages like these": Create filter, from the sender. */
+  const filterLike = (from: string) =>
+    setFilterFrom({ ...EMPTY_SEARCH, from: senderAddress(from) ?? from.trim() });
+
+  /** The same from a row: the conversation is read for who last wrote to us. */
+  const filterLikeThread = async (id: string) => {
+    const res = await fetch(`/api/inbox/thread?id=${encodeURIComponent(id)}`);
+    if (!res.ok) {
+      toast.error(await errorMessage(res, 'Could not open this conversation.'));
+      return;
+    }
+    const { thread } = (await res.json()) as { thread: LiveThread };
+    const from = [...thread.messages].reverse().find((m) => !m.fromUs) ?? thread.messages.at(-1);
+    if (from) filterLike(from.from);
+  };
+
+  const senderActions: SenderActions = {
+    onFilterLike: (m) => filterLike(m.from),
+    onBlock: canLabel ? (m) => void blockSender(m.from, m.fromName) : null,
+    onPhishing: canModify && selected ? () => void reportPhishing(selected.id) : null,
+    onUnsubscribe: canModify ? (m) => void unsubscribe(m) : null,
   };
 
   const contextItems = (row: LiveThreadRow): MenuItem[] => {
@@ -1080,6 +1278,13 @@ export function LiveInbox({
           icon: Tag,
           onSelect: viaToolbar(setLabelMenu),
         });
+      items.push({
+        id: 'filterLike',
+        label: 'Filter messages like these',
+        icon: Filter,
+        divider: true,
+        onSelect: () => void filterLikeThread(row.id),
+      });
     }
     return items;
   };
@@ -1223,8 +1428,28 @@ export function LiveInbox({
     );
   }
 
-  const bulkIds = [...checked];
-  const bulkFolder = folderActions(bulkIds);
+  const bulkIds = allMatching ? allMatching.ids : [...checked];
+  const bulkFolder = folderActions([...checked], bulkIds);
+  const ownList =
+    !searched && (folder === 'drafts' || folder === 'scheduled' || folder === 'snoozed');
+  const offerSelectAll =
+    wholePage && !ownList && !allMatching && (Boolean(list.nextPageToken) || page > 0);
+  const where = searched ? 'this search' : placeName(folder, labelChoices);
+  const selectAllMatching = async () => {
+    setSelectingAll(true);
+    try {
+      const params = new URLSearchParams({ folder, category, q: searched });
+      const res = await fetch(`/api/inbox/threads/ids?${params.toString()}`);
+      if (!res.ok) {
+        toast.error(await errorMessage(res, 'Could not select them all. Try again.'));
+        return;
+      }
+      const data = (await res.json()) as { ids: string[]; capped: boolean };
+      setAllMatching({ ids: [...new Set([...checked, ...data.ids])], capped: data.capped });
+    } finally {
+      setSelectingAll(false);
+    }
+  };
   const inDrafts = !searched && folder === 'drafts';
   const binView = !searched && (folder === 'spam' || folder === 'trash');
   const inScheduled = !searched && folder === 'scheduled';
@@ -1244,6 +1469,16 @@ export function LiveInbox({
       onFolder={(f) => goTo({ folder: f })}
       onCreateLabel={() => setNewLabel('')}
       canCreateLabel={canLabel}
+      onDropThreads={
+        canModify
+          ? (target, ids) => {
+              if (target.kind === 'label') {
+                if (canLabel) void label(ids, { add: [target.id], remove: [] });
+              } else if (target.id === 'trash') void act(ids, 'trash');
+              else void move(ids, 'INBOX');
+            }
+          : undefined
+      }
     />
   );
 
@@ -1425,7 +1660,9 @@ export function LiveInbox({
                 markRead: () => void act(bulkIds, 'read', { silent: true }),
                 markUnread: () => void act(bulkIds, 'unread', { silent: true }),
                 snooze:
-                  canSnooze && !inDrafts && !inScheduled ? (at) => void snooze(bulkIds, at) : null,
+                  canSnooze && !inDrafts && !inScheduled && !allMatching
+                    ? (at) => void snooze(bulkIds, at)
+                    : null,
                 unsnooze: snoozedView ? () => void unsnooze(bulkIds) : null,
                 label: canLabel && !inDrafts && !inScheduled ? (c) => void label(bulkIds, c) : null,
                 move:
@@ -1472,6 +1709,45 @@ export function LiveInbox({
                   );
                 })}
               </div>
+            ) : null}
+            {offerSelectAll || allMatching ? (
+              <p
+                role="status"
+                className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-b border-[var(--border)] bg-[var(--accent-soft)] px-4 py-2 text-center text-sm"
+              >
+                {allMatching ? (
+                  <>
+                    <span>
+                      All {allMatching.ids.length.toLocaleString('en-US')} conversations in {where}{' '}
+                      are selected
+                      {allMatching.capped ? ' (Kraken acts on at most the first 2,000)' : ''}.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setChecked(new Set())}
+                      className="font-medium text-[var(--accent)] hover:underline"
+                    >
+                      Clear selection
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span>All {rows.length} conversations on this page are selected.</span>
+                    <button
+                      type="button"
+                      disabled={selectingAll}
+                      onClick={() => void selectAllMatching()}
+                      className="font-medium text-[var(--accent)] hover:underline disabled:opacity-60"
+                    >
+                      {selectingAll
+                        ? 'Selecting…'
+                        : list.total
+                          ? `Select all ${list.total.toLocaleString('en-US')} conversations in ${where}`
+                          : `Select all conversations in ${where}`}
+                    </button>
+                  </>
+                )}
+              </p>
             ) : null}
             {inScheduled ? (
               <div className="border-b border-[var(--border)] p-2">
@@ -1558,6 +1834,19 @@ export function LiveInbox({
                           e.preventDefault();
                           setContext({ x: e.clientX, y: e.clientY, items: contextItems(row) });
                         },
+                        // Gmail's drag onto a label (or Inbox, Trash) in the nav.
+                        onDragStart:
+                          canModify && thread
+                            ? (e) => {
+                                const ids = checked.has(row.id) ? [...checked] : [row.id];
+                                e.dataTransfer.effectAllowed = 'move';
+                                e.dataTransfer.setData(THREAD_DRAG_TYPE, JSON.stringify(ids));
+                                e.dataTransfer.setData(
+                                  'text/plain',
+                                  ids.length === 1 ? row.subject : `${ids.length} conversations`,
+                                );
+                              }
+                            : null,
                       }}
                     />
                   );
@@ -1601,6 +1890,7 @@ export function LiveInbox({
                 snoozedUntil={snoozedView ? (selected.snoozedUntil ?? null) : null}
                 onUnsnooze={() => void unsnooze([selected.id])}
                 onSent={() => void load({ folder, category, q: searched, page }, { quiet: true })}
+                sender={senderActions}
                 position={
                   index >= 0
                     ? {
@@ -1718,6 +2008,7 @@ export function LiveInbox({
       ))}
 
       <ShortcutHelp open={help} onOpenChange={setHelp} />
+      {confirmDialog}
     </div>
   );
 }

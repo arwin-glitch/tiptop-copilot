@@ -51,6 +51,7 @@ import type { EmailMessage, EmailThread, Integration } from '@/lib/types/domain'
 import { log } from '@/lib/security/redact';
 import { scanForInjection } from '@/lib/security/injection';
 import { processWide } from '@/lib/util/process-state';
+import { parseUnsubscribe, type UnsubscribeOptions } from '@/lib/email/unsubscribe';
 import { err, ok, type AppError, type Err, type Result } from '@/lib/util/result';
 import { getPrimaryIntegration } from './inbox';
 import { readOpenSnoozes, wakeDueSnoozes } from './inbox-snooze';
@@ -173,6 +174,8 @@ export interface LiveMessage {
   attachments: AttachmentRef[];
   fromUs: boolean;
   flagged: boolean;
+  /** How the sender lets you unsubscribe (List-Unsubscribe), when they do. */
+  unsubscribe?: UnsubscribeOptions | null;
 }
 
 export interface LiveThread {
@@ -218,6 +221,67 @@ export function resetInboxLiveCache(): void {
   cache.suggest.clear();
   demoState.system.clear();
   demoState.drafts = null;
+  demoLabelState.list = [...DEMO_MAIL_LABELS];
+  demoLabelState.seq = 0;
+}
+
+/**
+ * The demo mailbox's own labels: the fictional fixtures to start, then any
+ * made, renamed, recoloured or removed from the Inbox (this process alone;
+ * nothing reaches Gmail).
+ */
+const demoLabelState = processWide('inbox-live-demo-labels', () => ({
+  list: [...DEMO_MAIL_LABELS] as MailLabel[],
+  seq: 0,
+}));
+
+const byLabelName = (a: MailLabel, b: MailLabel) =>
+  a.name.localeCompare(b.name, undefined, { numeric: true });
+
+/** The demo's labels now, sorted as Gmail sorts them. */
+export function demoLabelList(): MailLabel[] {
+  return [...demoLabelState.list].sort(byLabelName);
+}
+
+/** A new demo label (Create new label, Add sublabel, Block's "Blocked"). */
+export function createDemoLabel(name: string): MailLabel {
+  const same = demoLabelState.list.find((l) => l.name.toLowerCase() === name.toLowerCase());
+  if (same) return same;
+  const label: MailLabel = { id: `Label_95${++demoLabelState.seq}`, name };
+  demoLabelState.list = [...demoLabelState.list, label];
+  return label;
+}
+
+/**
+ * Rename or recolour a demo label. A rename carries its sublabels along,
+ * as Gmail's does ("Deal flow/Intro requests" follows "Deal flow").
+ */
+export function updateDemoLabel(
+  id: string,
+  patch: { name?: string; color?: { bg: string; fg: string } | null },
+): MailLabel | null {
+  const found = demoLabelState.list.find((l) => l.id === id);
+  if (!found) return null;
+  const oldName = found.name;
+  demoLabelState.list = demoLabelState.list.map((l) => {
+    if (l.id === id) {
+      const next: MailLabel = { id: l.id, name: patch.name ?? l.name };
+      const color = patch.color === undefined ? l.color : patch.color;
+      return color ? { ...next, color } : next;
+    }
+    if (patch.name && l.name.startsWith(`${oldName}/`)) {
+      return { ...l, name: `${patch.name}${l.name.slice(oldName.length)}` };
+    }
+    return l;
+  });
+  return demoLabelState.list.find((l) => l.id === id) ?? null;
+}
+
+/** Remove a demo label: the label goes, the mail stays (as Gmail's labels.delete). */
+export function removeDemoLabel(id: string): boolean {
+  const before = demoLabelState.list.length;
+  demoLabelState.list = demoLabelState.list.filter((l) => l.id !== id);
+  return demoLabelState.list.length < before;
 }
 
 /**
@@ -272,7 +336,7 @@ export async function readLabelChoices(
   integration: Integration | null,
   options: { fresh?: boolean; now?: Date } = {},
 ): Promise<MailLabel[]> {
-  if (isDemoMode()) return [...DEMO_MAIL_LABELS];
+  if (isDemoMode()) return demoLabelList();
   if (!integration) return [];
   const now = (options.now ?? new Date()).getTime();
   return choicesOf(
@@ -509,6 +573,60 @@ export async function listLiveThreads(
   return { ...listed, ...base, nav: await navRead };
 }
 
+/** Gmail's "Select all conversations that match": at most this many at once. */
+export const SELECT_ALL_MAX = 2_000;
+
+/**
+ * Every conversation id in a folder or a search, for Gmail's "Select all N
+ * conversations": threads.list paged (ids only, no thread reads), capped at
+ * SELECT_ALL_MAX. Read-only; the actions then go through the modify route,
+ * a chunk at a time. Drafts, Scheduled and Snoozed are not offered.
+ */
+export async function matchingThreadIds(
+  store: DataStore,
+  organizationId: string,
+  options: ListOptions,
+): Promise<Result<{ ids: string[]; capped: boolean }>> {
+  const view = resolveView(options);
+  const search = options.q?.trim() ?? '';
+  if (!search && ['drafts', 'scheduled', 'snoozed'].includes(view.folder)) {
+    return err('invalid_input', 'That folder has no select-all.');
+  }
+  if (isDemoMode()) {
+    const list = await demoList(store, organizationId, {
+      ...options,
+      ...view,
+      now: options.now ?? new Date(),
+    });
+    const ids = list.rows.map((r) => r.id);
+    return ok({ ids: ids.slice(0, SELECT_ALL_MAX), capped: ids.length > SELECT_ALL_MAX });
+  }
+  const integration = await getPrimaryIntegration(store, organizationId).catch(() => null);
+  if (!integration || integration.status === 'disconnected') {
+    return err('not_found', 'No mailbox is connected.');
+  }
+  const query = folderQuery(view.folder, view.category) ?? { labelIds: ['INBOX'] };
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  do {
+    const page = await listThreadPage(store, integration, {
+      q: search || query.q,
+      labelIds: search ? [] : query.labelIds,
+      includeSpamTrash: search ? false : query.includeSpamTrash,
+      pageToken,
+      max: 500,
+    });
+    if (!page.ok) return page;
+    ids.push(...page.value.threads.map((t) => t.id));
+    pageToken = page.value.nextPageToken ?? undefined;
+  } while (pageToken && ids.length < SELECT_ALL_MAX);
+  const unique = [...new Set(ids)];
+  return ok({
+    ids: unique.slice(0, SELECT_ALL_MAX),
+    capped: unique.length > SELECT_ALL_MAX || Boolean(pageToken),
+  });
+}
+
 async function gmailList(
   store: DataStore,
   integration: Integration,
@@ -696,7 +814,7 @@ async function scheduledList(
     rows: listed.rows,
     nextPageToken: null,
     total: listed.rows.length,
-    labelChoices: integration ? choicesOf(integration, names) : [...DEMO_MAIL_LABELS],
+    labelChoices: integration ? choicesOf(integration, names) : demoLabelList(),
     scheduleReady: listed.state === 'ok',
   };
 }
@@ -739,6 +857,7 @@ export function toLiveThread(
       // The address itself, never a substring of the header: a lookalike is not us.
       fromUs: isFromMailbox(m.from, mailbox),
       flagged: scanForInjection(m.text).flagged,
+      unsubscribe: parseUnsubscribe(m.listUnsubscribe, m.listUnsubscribePost),
     })),
   };
 }
@@ -1103,7 +1222,7 @@ export async function demoMatchingIds(
 
 const demoId = (thread: EmailThread) => thread.id.replace(/-/g, '').slice(-16);
 
-const DEMO_LABEL_NAMES = new Map(DEMO_MAIL_LABELS.map((l) => [l.id, l.name]));
+const demoLabelNames = () => new Map(demoLabelList().map((l) => [l.id, l.name]));
 
 /** A demo thread's own labels: every one any of its messages carries. */
 function demoLabelIds(list: readonly EmailMessage[]): string[] {
@@ -1199,7 +1318,7 @@ async function demoConversations(
       at: last.sent_at,
       ...flags,
       hasAttachment: list.some((m) => m.has_attachments),
-      labels: userLabels(labelIds, DEMO_LABEL_NAMES),
+      labels: userLabels(labelIds, demoLabelNames()),
       labelIds,
       lastFromUs: false,
       flagged: list.some((m) => m.injection_flagged),
@@ -1400,7 +1519,7 @@ async function demoList(
     canSnooze: true,
     snoozeReady: open.state === 'ok',
     scheduleReady: scheduled.state === 'ok',
-    labelChoices: [...DEMO_MAIL_LABELS],
+    labelChoices: demoLabelList(),
     // The demo's fictional mailbox, so a reply never copies "me".
     mailbox: DEMO_USER.email,
   };
