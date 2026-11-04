@@ -168,8 +168,14 @@ export function MessageBody({
   showQuoted: quotedShown,
   onToggleQuoted,
   sender,
+  hideRecipients = false,
+  hideAttachments = false,
 }: {
   message: ShownMessage;
+  /** The Inbox's conversation shows who it went to in its own header ("to me ▾"). */
+  hideRecipients?: boolean;
+  /** …and its attachments as cards of its own. */
+  hideAttachments?: boolean;
   clampLines?: number;
   showQuoted?: boolean;
   onToggleQuoted?: () => void;
@@ -233,6 +239,7 @@ export function MessageBody({
     <>
       <p
         ref={toRef}
+        hidden={hideRecipients}
         id={toggle && !clampable ? toId : undefined}
         title={foldTo && toOverflows ? recipients : undefined}
         className={cn('text-xs text-[var(--fg-subtle)]', foldTo ? 'truncate' : 'break-words')}
@@ -318,7 +325,7 @@ export function MessageBody({
           {expanded ? 'Show less' : more}
         </Button>
       ) : null}
-      {m.attachments.length > 0 ? (
+      {m.attachments.length > 0 && !hideAttachments ? (
         <div className="flex flex-wrap gap-1.5">
           {m.attachments.map((a, i) =>
             a.id ? (

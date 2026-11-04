@@ -1,107 +1,491 @@
 'use client';
 
 import * as React from 'react';
-import { toast } from 'sonner';
 import {
   AlarmClock,
   Archive,
   ArrowLeft,
+  Bookmark,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Download,
   ExternalLink,
+  File as FileIcon,
+  FileImage,
+  FileText,
+  FolderInput,
   Forward,
   Inbox as InboxIcon,
   Loader2,
   Mail,
+  MoreVertical,
+  OctagonAlert,
+  Printer,
   Reply,
-  Send,
+  ReplyAll,
   Star,
   Tag,
-  Undo2,
+  Trash2,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/form';
-import { swapSignOff } from '@/components/followups/email-session-client';
+import { ComposeForm, type ComposeEnv, type ComposeSeed } from '@/components/inbox/compose-window';
 import type { ComposeDraft } from '@/components/inbox/composer';
 import { LabelMenu } from '@/components/inbox/label-menu';
-import { MessageItem, longTime } from '@/components/inbox/message-view';
+import { MenuButton, MoveMenu, type MenuItem } from '@/components/inbox/inbox-menus';
+import {
+  MessageBody,
+  fileSize,
+  longTime,
+  reflow,
+  splitQuoted,
+} from '@/components/inbox/message-view';
 import { readerZone, SnoozeMenu } from '@/components/inbox/snooze-menu';
+import { opensInline } from '@/lib/email/attachment-types';
+import { textToComposeHtml } from '@/lib/email/compose-html';
 import type { LabelChange, MailLabel } from '@/lib/email/inbox-actions';
+import { initialOf, type FolderId } from '@/lib/email/inbox-folders';
 import type { SystemAction } from '@/lib/email/inbox-modify';
 import { formatWake } from '@/lib/email/snooze';
 import { cn } from '@/lib/util/cn';
-import type { LiveThread, LiveThreadRow } from '@/lib/services/inbox-live';
+import type { LiveMessage, LiveThread, LiveThreadRow } from '@/lib/services/inbox-live';
 
-type Signature = 'nick' | 'arwin';
-type Action = SystemAction;
-
-const UNDO_SECONDS = 8;
+export type WriteKind = 'reply' | 'replyAll' | 'forward';
 
 export const gmailUrl = (id: string, mailbox: string | null) =>
   mailbox
     ? `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailbox)}#all/${id}`
     : `https://mail.google.com/mail/#all/${id}`;
 
-async function postJson(url: string, body: unknown): Promise<Response> {
-  return fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-}
-
 async function errorMessage(res: Response, fallback: string): Promise<string> {
   const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
   return j?.error?.message ?? fallback;
 }
 
+const ICON_BTN =
+  'inline-grid size-9 place-items-center rounded-full text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] focus-visible:outline-2 focus-visible:outline-[var(--focus)] disabled:opacity-40';
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** "Jane Doe <jane@x.com>" -> "jane@x.com". */
+function addressOf(value: string): string {
+  return (/<([^<>\s]+@[^<>\s]+)>/.exec(value)?.[1] ?? value).trim().toLowerCase();
+}
+
+function splitList(value: string): string[] {
+  return value
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function nameOf(value: string): string {
+  const named = /^\s*"?([^"<]+?)"?\s*</.exec(value)?.[1]?.trim();
+  if (named) return named;
+  return addressOf(value).split('@')[0] ?? value;
+}
+
+/** Gmail's "to me, Sam" line: the mailbox reads as "me". */
+function toLine(m: LiveMessage, mailbox: string | null): string {
+  const own = (mailbox ?? '').toLowerCase();
+  const names = [...splitList(m.to), ...splitList(m.cc)].map((r) =>
+    own && addressOf(r) === own ? 'me' : nameOf(r),
+  );
+  return names.length ? names.join(', ') : 'undisclosed recipients';
+}
+
+/** "(2 hours ago)" for the message header, like Gmail's. */
+function ago(iso: string | null): string {
+  if (!iso) return '';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const m = Math.round(ms / 60_000);
+  if (m < 1) return '(just now)';
+  if (m < 60) return `(${m} minute${m === 1 ? '' : 's'} ago)`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `(${h} hour${h === 1 ? '' : 's'} ago)`;
+  const d = Math.round(h / 24);
+  return d <= 30 ? `(${d} day${d === 1 ? '' : 's'} ago)` : '';
+}
+
+/** Gmail's reply headers and recipients for one message. */
+export function replySeed(
+  kind: WriteKind,
+  thread: LiveThread,
+  message: LiveMessage,
+  mailbox: string | null,
+  timeZone: string,
+): ComposeSeed {
+  const own = (mailbox ?? '').toLowerCase();
+  const isOwn = (r: string) => Boolean(own) && addressOf(r) === own;
+  const subject = thread.subject;
+  if (kind === 'forward') {
+    const header = [
+      '---------- Forwarded message ---------',
+      `From: ${message.from}`,
+      `Date: ${longTime(message.at, timeZone)}`,
+      `Subject: ${subject}`,
+      `To: ${message.to}`,
+      message.cc ? `Cc: ${message.cc}` : '',
+    ].filter(Boolean);
+    return {
+      key: `fwd-${message.id}-${Date.now()}`,
+      mode: 'forward',
+      to: '',
+      cc: '',
+      bcc: '',
+      subject: /^fwd?:/i.test(subject) ? subject : `Fwd: ${subject}`,
+      html: `<div><br></div>${textToComposeHtml([...header, '', message.text].join('\n'))}`,
+      forwardOf: message.attachments.length ? message.id : null,
+      forwardNames: message.attachments.map((a) => a.name),
+    };
+  }
+  // Answering our own message goes to whoever it went to, as in Gmail.
+  const to = message.fromUs ? splitList(message.to) : [message.from];
+  const cc =
+    kind === 'replyAll'
+      ? [...(message.fromUs ? [] : splitList(message.to)), ...splitList(message.cc)].filter(
+          (r) => !isOwn(r) && !to.some((t) => addressOf(t) === addressOf(r)),
+        )
+      : [];
+  return {
+    key: `${kind}-${message.id}-${Date.now()}`,
+    mode: kind,
+    to: to.join(', '),
+    cc: [...new Set(cc)].join(', '),
+    bcc: '',
+    subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`,
+    html: '',
+    threadId: thread.id,
+  };
+}
+
+/** The conversation (or one message of it) in a new window, ready to print. Text only. */
+function printMessages(subject: string, messages: LiveMessage[], timeZone: string): void {
+  const w = window.open('', '_blank', 'noopener=no,width=800,height=900');
+  if (!w) return;
+  const body = messages
+    .map(
+      (m) =>
+        `<section><p class="h"><b>${escapeHtml(m.fromName)}</b> &lt;${escapeHtml(
+          addressOf(m.from),
+        )}&gt;<span>${escapeHtml(longTime(m.at, timeZone))}</span></p><p class="t">To: ${escapeHtml(
+          m.to,
+        )}${m.cc ? `<br>Cc: ${escapeHtml(m.cc)}` : ''}</p><pre>${escapeHtml(m.text)}</pre></section>`,
+    )
+    .join('');
+  w.document.write(
+    `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title><style>body{font:14px/1.5 system-ui,sans-serif;margin:32px;color:#111}h1{font-size:20px}section{border-top:1px solid #ccc;padding:12px 0}.h{display:flex;justify-content:space-between;margin:0}.h span{color:#555}.t{color:#555;margin:4px 0 8px}pre{white-space:pre-wrap;font:inherit}</style></head><body><h1>${escapeHtml(subject)}</h1>${body}</body></html>`,
+  );
+  w.document.close();
+  w.focus();
+  w.print();
+}
+
+function AttachmentCards({ message }: { message: LiveMessage }) {
+  if (message.attachments.length === 0) return null;
+  return (
+    <div className="mt-3 border-t border-[var(--border)] pt-3">
+      <p className="mb-2 text-xs font-medium text-[var(--fg-muted)]">
+        {message.attachments.length} attachment{message.attachments.length === 1 ? '' : 's'}
+      </p>
+      <ul className="flex flex-wrap gap-2">
+        {message.attachments.map((a, i) => {
+          const Icon = a.mimeType.startsWith('image/')
+            ? FileImage
+            : /pdf|text|document|sheet|presentation/.test(a.mimeType)
+              ? FileText
+              : FileIcon;
+          const href = a.id
+            ? `/api/inbox/attachment?${new URLSearchParams({
+                m: message.id,
+                a: a.id,
+                name: a.name,
+                type: a.mimeType,
+              }).toString()}`
+            : null;
+          return (
+            <li
+              key={`${a.id}|${a.name}|${i}`}
+              className="group/att relative flex w-44 flex-col overflow-hidden rounded-md border border-[var(--border)] bg-[var(--bg-sunken)]"
+            >
+              <div className="grid h-20 place-items-center text-[var(--fg-subtle)]">
+                <Icon className="size-8" aria-hidden />
+              </div>
+              <div className="flex items-center gap-2 border-t border-[var(--border)] bg-[var(--bg-raised)] px-2 py-1.5">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-medium" title={a.name}>
+                    {a.name}
+                  </span>
+                  <span className="block text-[11px] text-[var(--fg-subtle)]">
+                    {fileSize(a.size)}
+                  </span>
+                </span>
+                {href ? (
+                  <a
+                    href={href}
+                    {...(opensInline(a.mimeType)
+                      ? { target: '_blank', rel: 'noopener noreferrer' }
+                      : { download: a.name })}
+                    aria-label={`Download ${a.name}`}
+                    title="Download"
+                    className="rounded-full p-1 text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]"
+                  >
+                    <Download className="size-4" aria-hidden />
+                  </a>
+                ) : (
+                  <span
+                    title="Attachments open only on the real mailbox."
+                    className="text-[11px] text-[var(--fg-subtle)]"
+                  >
+                    demo
+                  </span>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function MessageCard({
+  message: m,
+  open,
+  onToggle,
+  timeZone,
+  mailbox,
+  starred,
+  onStar,
+  onWrite,
+  onPrint,
+  onUnreadFromHere,
+}: {
+  message: LiveMessage;
+  open: boolean;
+  onToggle: () => void;
+  timeZone: string;
+  mailbox: string | null;
+  starred: boolean;
+  onStar: (() => void) | null;
+  onWrite: (kind: WriteKind) => void;
+  onPrint: () => void;
+  onUnreadFromHere: (() => void) | null;
+}) {
+  const [details, setDetails] = React.useState(false);
+  const [showQuoted, setShowQuoted] = React.useState(false);
+  const preview = React.useMemo(() => splitQuoted(reflow(m.text)).main.slice(0, 200), [m.text]);
+  const avatar = (
+    <span
+      aria-hidden
+      className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--nav-active)] text-sm font-semibold text-[var(--accent)]"
+    >
+      {initialOf(m.fromName)}
+    </span>
+  );
+  if (!open) {
+    return (
+      <li className="border-b border-[var(--border)]">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={false}
+          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[var(--bg-hover)]"
+        >
+          {avatar}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold">
+              {m.fromName}
+              {m.fromUs ? <span className="ml-1 text-xs font-normal">(me)</span> : null}
+            </span>
+            <span className="block truncate text-sm text-[var(--fg-muted)]">{preview}</span>
+          </span>
+          <span className="shrink-0 text-xs text-[var(--fg-muted)]">
+            {longTime(m.at, timeZone)}
+          </span>
+        </button>
+      </li>
+    );
+  }
+  const items: MenuItem[] = [
+    { id: 'reply', label: 'Reply', icon: Reply, onSelect: () => onWrite('reply') },
+    { id: 'replyAll', label: 'Reply all', icon: ReplyAll, onSelect: () => onWrite('replyAll') },
+    { id: 'forward', label: 'Forward', icon: Forward, onSelect: () => onWrite('forward') },
+    { id: 'print', label: 'Print', icon: Printer, divider: true, onSelect: onPrint },
+    ...(onUnreadFromHere
+      ? [{ id: 'unread', label: 'Mark unread from here', icon: Mail, onSelect: onUnreadFromHere }]
+      : []),
+  ];
+  return (
+    <li className="border-b border-[var(--border)] px-4 py-3">
+      <div className="flex items-start gap-3">
+        {avatar}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <span className="text-sm font-semibold">{m.fromName}</span>
+            <span className="truncate text-xs text-[var(--fg-muted)]">
+              &lt;{addressOf(m.from)}&gt;
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDetails((d) => !d)}
+            aria-expanded={details}
+            className="inline-flex max-w-full items-center gap-0.5 text-xs text-[var(--fg-muted)] hover:text-[var(--fg)]"
+          >
+            <span className="truncate">to {toLine(m, mailbox)}</span>
+            <ChevronDown className="size-3.5 shrink-0" aria-hidden />
+            <span className="sr-only">Show details</span>
+          </button>
+          {details ? (
+            <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 rounded-md border border-[var(--border)] bg-[var(--bg-sunken)] p-2 text-xs">
+              <dt className="text-right text-[var(--fg-muted)]">from:</dt>
+              <dd className="break-words">{m.from}</dd>
+              <dt className="text-right text-[var(--fg-muted)]">to:</dt>
+              <dd className="break-words">{m.to || '(hidden)'}</dd>
+              {m.cc ? (
+                <>
+                  <dt className="text-right text-[var(--fg-muted)]">cc:</dt>
+                  <dd className="break-words">{m.cc}</dd>
+                </>
+              ) : null}
+              <dt className="text-right text-[var(--fg-muted)]">date:</dt>
+              <dd>{longTime(m.at, timeZone)}</dd>
+            </dl>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <span className="hidden text-xs text-[var(--fg-muted)] sm:inline">
+            {longTime(m.at, timeZone)} {ago(m.at)}
+          </span>
+          {onStar ? (
+            <button
+              type="button"
+              onClick={onStar}
+              aria-label={starred ? 'Unstar' : 'Star'}
+              aria-pressed={starred}
+              className={ICON_BTN}
+            >
+              <Star
+                className={cn('size-4', starred && 'fill-[var(--gold)] text-[var(--gold)]')}
+                aria-hidden
+              />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => onWrite('reply')}
+            aria-label={`Reply to ${m.fromName}`}
+            title="Reply"
+            className={ICON_BTN}
+          >
+            <Reply className="size-4" aria-hidden />
+          </button>
+          <MenuButton label="Message actions" items={items} align="end">
+            <button type="button" aria-label="More message actions" className={ICON_BTN}>
+              <MoreVertical className="size-4" aria-hidden />
+            </button>
+          </MenuButton>
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label="Collapse message"
+            className="sr-only focus:not-sr-only"
+          >
+            Collapse
+          </button>
+        </div>
+      </div>
+      <div className="mt-3 space-y-2 sm:pl-[3.25rem]">
+        <MessageBody
+          message={m}
+          showQuoted={showQuoted}
+          onToggleQuoted={() => setShowQuoted((q) => !q)}
+          hideRecipients
+          hideAttachments
+        />
+        <AttachmentCards message={m} />
+      </div>
+    </li>
+  );
+}
+
+/**
+ * One conversation, laid out like Gmail's: the toolbar (back, archive,
+ * report spam, delete, mark unread, snooze, move to, label, more, and the
+ * "3 of 8" arrows), the subject with its label chips and Print, each message
+ * as a card (avatar, sender, "to me ▾" details, date, star, reply and its
+ * own menu), the older ones folded behind "N older messages", attachments as
+ * cards, and Reply, Reply all and Forward at the bottom, which open Gmail's
+ * inline composer here. Nothing sends until a person taps Send.
+ */
 export function ThreadView({
   row,
   timeZone,
   initialThread,
-  canAct,
+  canModify,
   mailbox,
-  replyOpen,
-  setReplyOpen,
+  folder,
+  write,
+  setWrite,
+  composeEnv,
   onBack,
   onAct,
   labelChoices,
   onLabel,
   labelMenuOpen,
   setLabelMenuOpen,
+  onMove,
+  moveMenuOpen,
+  setMoveMenuOpen,
   onSnooze,
   snoozeMenuOpen,
   setSnoozeMenuOpen,
   snoozedUntil,
   onUnsnooze,
   onSent,
-  onForward,
+  position,
 }: {
   row: LiveThreadRow;
   timeZone: string;
   /** The conversation already read on the server (a link opened it): shown without a second read. */
   initialThread?: LiveThread;
-  canAct: boolean;
+  canModify: boolean;
   mailbox: string | null;
-  replyOpen: boolean;
-  setReplyOpen: (open: boolean) => void;
+  /** The folder on screen (null during a search), for which actions the toolbar offers. */
+  folder: FolderId | null;
+  /** The inline composer the keys (r, a, f) or the buttons asked for. */
+  write: WriteKind | null;
+  setWrite: (kind: WriteKind | null) => void;
+  composeEnv: ComposeEnv;
   onBack: () => void;
-  onAct: (action: Action) => Promise<boolean>;
+  onAct: (action: SystemAction) => Promise<boolean>;
   labelChoices: readonly MailLabel[];
   onLabel: ((change: LabelChange) => void) | null;
   labelMenuOpen: boolean;
   setLabelMenuOpen: (open: boolean) => void;
+  onMove: ((to: string) => void) | null;
+  moveMenuOpen: boolean;
+  setMoveMenuOpen: (open: boolean) => void;
   onSnooze: ((wakeAt: Date) => void) | null;
   snoozeMenuOpen: boolean;
   setSnoozeMenuOpen: (open: boolean) => void;
-  /** Opened from the Snoozed tab: when it comes back; Unsnooze replaces Move to inbox. */
+  /** Opened from the Snoozed folder: when it comes back; Unsnooze replaces Archive. */
   snoozedUntil: string | null;
   onUnsnooze: () => void;
   onSent: () => void;
-  onForward: (draft: ComposeDraft) => void;
+  /** "3 of 8" and the newer/older arrows; null when the conversation is not in the list. */
+  position: { index: number; total: number; onNewer: () => void; onOlder: () => void } | null;
 }) {
   const [thread, setThread] = React.useState<LiveThread | null>(initialThread ?? null);
   const [error, setError] = React.useState<string | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
+  const [openIds, setOpenIds] = React.useState<Set<string>>(new Set());
+  const [showOlder, setShowOlder] = React.useState(false);
+  const [seed, setSeed] = React.useState<ComposeSeed | null>(null);
+  const [seedFocus, setSeedFocus] = React.useState(true);
+  const [preparing, setPreparing] = React.useState(false);
   // Read once on the server already: the first look needs no second read of Gmail.
   const seeded = React.useRef(Boolean(initialThread));
 
@@ -130,27 +514,215 @@ export function ThreadView({
     };
   }, [row.id, reloadKey]);
 
+  // The newest message and any unread ones start open, as in Gmail.
+  const lastId = thread?.messages.at(-1)?.id ?? null;
+  const [openedFor, setOpenedFor] = React.useState<string | null>(null);
+  if (thread && openedFor !== thread.id + lastId) {
+    setOpenedFor(thread.id + lastId);
+    setOpenIds(new Set(lastId ? [lastId] : []));
+  }
+
+  /** Open the inline composer for a message (the newest by default). */
+  const startWrite = React.useCallback(
+    async (kind: WriteKind, message?: LiveMessage, opts: { quiet?: boolean } = {}) => {
+      if (!thread) return;
+      const m = message ?? thread.messages.at(-1)!;
+      const base = replySeed(kind, thread, m, mailbox, timeZone);
+      setSeedFocus(!opts.quiet);
+      if (kind !== 'replyAll' || composeEnv.demo) {
+        setSeed(base);
+        setWrite(kind);
+        return;
+      }
+      // Reply all starts from the draft already on the thread in Gmail, if any.
+      setPreparing(true);
+      try {
+        const r = await fetch(`/api/email-session/draft?id=${thread.id}`);
+        const d = r.ok
+          ? ((await r.json()) as {
+              draft: { draftId: string | null; to: string; cc: string; body: string } | null;
+            })
+          : null;
+        const draft = d?.draft;
+        setSeed(
+          draft
+            ? {
+                ...base,
+                to: draft.to || base.to,
+                cc: draft.cc,
+                html: draft.body ? textToComposeHtml(draft.body) : '',
+                draftId: draft.draftId,
+              }
+            : base,
+        );
+        setWrite('replyAll');
+      } finally {
+        setPreparing(false);
+      }
+    },
+    [thread, mailbox, timeZone, composeEnv.demo, setWrite],
+  );
+
+  // A key asked for a composer (r, a, f): open it once the thread is here.
+  React.useEffect(() => {
+    if (!write || !thread || (seed && seed.mode === write) || preparing) return;
+    // After this render: opening it sets state of its own.
+    const t = window.setTimeout(() => void startWrite(write), 0);
+    return () => window.clearTimeout(t);
+  }, [write, thread, seed, preparing, startWrite]);
+
+  // A Gmail draft already on the thread opens as Reply all, shown but not focused.
+  const checkedDraft = React.useRef(false);
+  React.useEffect(() => {
+    if (!thread || checkedDraft.current || composeEnv.demo || !composeEnv.canSend) return;
+    checkedDraft.current = true;
+    let cancelled = false;
+    fetch(`/api/email-session/draft?id=${thread.id}`)
+      .then(async (r) =>
+        r.ok ? ((await r.json()) as { draft: { draftId: string | null } }) : null,
+      )
+      .then((d) => {
+        if (!cancelled && d?.draft?.draftId && !seed)
+          void startWrite('replyAll', undefined, { quiet: true });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [thread, composeEnv.demo, composeEnv.canSend, seed, startWrite]);
+
+  const closeWrite = () => {
+    setSeed(null);
+    setWrite(null);
+  };
+
+  const inSpam = folder === 'spam' || Boolean(row.inSpam);
+  const inTrash = folder === 'trash' || Boolean(row.inTrash);
+  const messages = thread?.messages ?? [];
+  // Gmail folds the middle of a long conversation: the first, "N older", then the last two.
+  const fold = !showOlder && messages.length >= 5;
+  const hidden = fold ? messages.slice(1, -2) : [];
+  const shown = fold ? [messages[0]!, ...messages.slice(-2)] : messages;
+
+  const moreItems: MenuItem[] = [
+    {
+      id: 'imp',
+      label: row.important ? 'Mark as not important' : 'Mark as important',
+      icon: Bookmark,
+      onSelect: () => void onAct(row.important ? 'unimportant' : 'important'),
+    },
+    {
+      id: 'star',
+      label: row.starred ? 'Remove star' : 'Add star',
+      icon: Star,
+      onSelect: () => void onAct(row.starred ? 'unstar' : 'star'),
+    },
+    {
+      id: 'fwd',
+      label: 'Forward',
+      icon: Forward,
+      divider: true,
+      onSelect: () => void startWrite('forward'),
+    },
+    {
+      id: 'print',
+      label: 'Print all',
+      icon: Printer,
+      onSelect: () => thread && printMessages(thread.subject, thread.messages, timeZone),
+    },
+  ];
+
   return (
-    <article className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
-      <header className="flex flex-wrap items-center gap-1 border-b border-[var(--border)] p-2">
-        <Button size="sm" variant="ghost" onClick={onBack} aria-label="Back to the list">
+    <article className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
+      <header
+        role="toolbar"
+        aria-label="Conversation actions"
+        className="flex flex-wrap items-center gap-0.5 border-b border-[var(--border)] px-2 py-1"
+      >
+        <button type="button" onClick={onBack} aria-label="Back to the list" className={ICON_BTN}>
           <ArrowLeft className="size-4" aria-hidden />
-          <span className="lg:hidden">Back</span>
-        </Button>
-        <div className="flex-1" />
-        {snoozedUntil ? (
-          <Button size="sm" variant="secondary" onClick={onUnsnooze}>
-            <InboxIcon className="size-4" aria-hidden /> Unsnooze
-          </Button>
-        ) : row.inInbox ? (
-          <Button size="sm" variant="secondary" onClick={() => void onAct('archive')}>
-            <Archive className="size-4" aria-hidden /> Archive
-          </Button>
-        ) : (
-          <Button size="sm" variant="secondary" onClick={() => void onAct('inbox')}>
-            <InboxIcon className="size-4" aria-hidden /> Move to inbox
-          </Button>
-        )}
+        </button>
+        {canModify ? (
+          <>
+            {snoozedUntil ? (
+              <button
+                type="button"
+                onClick={onUnsnooze}
+                className="h-8 rounded-md px-2 text-sm font-medium hover:bg-[var(--bg-hover)]"
+              >
+                Unsnooze
+              </button>
+            ) : inTrash ? (
+              <button
+                type="button"
+                onClick={() => void onAct('restore')}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium hover:bg-[var(--bg-hover)]"
+              >
+                <InboxIcon className="size-4" aria-hidden /> Move to inbox
+              </button>
+            ) : inSpam ? (
+              <button
+                type="button"
+                onClick={() => void onAct('notspam')}
+                className="h-8 rounded-md px-2 text-sm font-medium hover:bg-[var(--bg-hover)]"
+              >
+                Not spam
+              </button>
+            ) : row.inInbox ? (
+              <button
+                type="button"
+                onClick={() => void onAct('archive')}
+                aria-label="Archive"
+                title="Archive"
+                className={ICON_BTN}
+              >
+                <Archive className="size-4" aria-hidden />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void onAct('inbox')}
+                aria-label="Move to inbox"
+                title="Move to inbox"
+                className={ICON_BTN}
+              >
+                <InboxIcon className="size-4" aria-hidden />
+              </button>
+            )}
+            {!inSpam && !inTrash ? (
+              <button
+                type="button"
+                onClick={() => void onAct('spam')}
+                aria-label="Report spam"
+                title="Report spam"
+                className={ICON_BTN}
+              >
+                <OctagonAlert className="size-4" aria-hidden />
+              </button>
+            ) : null}
+            {!inTrash ? (
+              <button
+                type="button"
+                onClick={() => void onAct('trash')}
+                aria-label="Delete"
+                title="Delete"
+                className={ICON_BTN}
+              >
+                <Trash2 className="size-4" aria-hidden />
+              </button>
+            ) : null}
+            <span className="mx-1 h-5 w-px bg-[var(--border)]" aria-hidden />
+            <button
+              type="button"
+              onClick={() => void onAct('unread').then((ok) => ok && onBack())}
+              aria-label="Mark unread"
+              title="Mark as unread"
+              className={ICON_BTN}
+            >
+              <Mail className="size-4" aria-hidden />
+            </button>
+          </>
+        ) : null}
         {onSnooze ? (
           <SnoozeMenu
             timeZone={timeZone}
@@ -158,31 +730,26 @@ export function ThreadView({
             open={snoozeMenuOpen}
             onOpenChange={setSnoozeMenuOpen}
           >
-            <Button size="sm" variant="secondary">
-              <AlarmClock className="size-4" aria-hidden /> Snooze
-            </Button>
+            <button type="button" aria-label="Snooze" title="Snooze" className={ICON_BTN}>
+              <AlarmClock className="size-4" aria-hidden />
+            </button>
           </SnoozeMenu>
         ) : null}
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => void onAct('unread').then((ok) => ok && onBack())}
-          aria-label="Mark unread"
-        >
-          <Mail className="size-4" aria-hidden />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => void onAct(row.starred ? 'unstar' : 'star')}
-          aria-label={row.starred ? 'Unstar' : 'Star'}
-          aria-pressed={row.starred}
-        >
-          <Star
-            className={cn('size-4', row.starred && 'fill-[var(--gold)] text-[var(--gold)]')}
-            aria-hidden
-          />
-        </Button>
+        {onMove ? (
+          <MoveMenu
+            labels={labelChoices}
+            current={
+              folder === 'inbox' ? 'INBOX' : folder?.startsWith('label:') ? folder.slice(6) : null
+            }
+            onMove={onMove}
+            open={moveMenuOpen}
+            onOpenChange={setMoveMenuOpen}
+          >
+            <button type="button" aria-label="Move to" title="Move to" className={ICON_BTN}>
+              <FolderInput className="size-4" aria-hidden />
+            </button>
+          </MoveMenu>
+        ) : null}
         {onLabel ? (
           <LabelMenu
             choices={labelChoices}
@@ -191,284 +758,226 @@ export function ThreadView({
             open={labelMenuOpen}
             onOpenChange={setLabelMenuOpen}
           >
-            <Button size="sm" variant="ghost" aria-label="Label">
+            <button type="button" aria-label="Label" title="Label as" className={ICON_BTN}>
               <Tag className="size-4" aria-hidden />
-            </Button>
+            </button>
           </LabelMenu>
         ) : null}
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-label="Forward"
-          disabled={!thread}
-          onClick={() => thread && onForward(forwardDraft(thread, timeZone))}
-        >
-          <Forward className="size-4" aria-hidden />
-        </Button>
-        <Button asChild size="sm" variant="ghost">
+        {canModify ? (
+          <MenuButton label="More" items={moreItems}>
+            <button type="button" aria-label="More" title="More" className={ICON_BTN}>
+              <MoreVertical className="size-4" aria-hidden />
+            </button>
+          </MenuButton>
+        ) : null}
+        <span className="ml-auto flex items-center gap-0.5">
+          {position ? (
+            <>
+              <span className="hidden px-1 text-xs text-[var(--fg-muted)] tabular-nums sm:inline">
+                {position.index + 1} of {position.total}
+              </span>
+              <button
+                type="button"
+                onClick={position.onNewer}
+                disabled={position.index <= 0}
+                aria-label="Newer"
+                title="Newer"
+                className={ICON_BTN}
+              >
+                <ChevronLeft className="size-4" aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={position.onOlder}
+                disabled={position.index >= position.total - 1}
+                aria-label="Older"
+                title="Older"
+                className={ICON_BTN}
+              >
+                <ChevronRight className="size-4" aria-hidden />
+              </button>
+            </>
+          ) : null}
           <a
             href={gmailUrl(row.id, mailbox)}
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Open in Gmail"
+            title="Open in Gmail"
+            className={ICON_BTN}
           >
             <ExternalLink className="size-4" aria-hidden />
           </a>
-        </Button>
+        </span>
       </header>
 
-      <div className="space-y-3 p-4">
-        <h2 className="text-lg font-semibold text-balance">{thread?.subject ?? row.subject}</h2>
-        {snoozedUntil ? (
-          <p className="flex items-center gap-1.5 text-sm text-[var(--fg-muted)]">
-            <AlarmClock className="size-4 text-[var(--accent)]" aria-hidden />
-            Snoozed until {formatWake(snoozedUntil, readerZone(timeZone))}
-          </p>
-        ) : null}
-        {/* The row's labels, so a change made here shows at once. */}
-        {row.labels.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
+      <div className="flex items-start gap-3 px-4 pt-4 pb-2 sm:pl-[4.25rem]">
+        <div className="min-w-0 flex-1">
+          <h2 className="inline text-xl text-balance">{thread?.subject ?? row.subject}</h2>
+          {/* The row's chips, so a change made here shows at once. */}
+          <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
+            {row.inInbox && !inTrash && !inSpam ? (
+              <span className="rounded bg-[var(--neutral-soft)] px-1.5 text-xs text-[var(--fg-muted)]">
+                Inbox
+              </span>
+            ) : null}
+            {inSpam ? (
+              <span className="rounded bg-[var(--danger-soft)] px-1.5 text-xs text-[var(--danger)]">
+                Spam
+              </span>
+            ) : null}
+            {inTrash ? (
+              <span className="rounded bg-[var(--neutral-soft)] px-1.5 text-xs text-[var(--fg-muted)]">
+                Trash
+              </span>
+            ) : null}
             {row.labels.map((l) => (
-              <Badge key={l} tone="neutral">
+              <span
+                key={l}
+                className="rounded border border-[var(--border)] bg-[var(--neutral-soft)] px-1.5 text-xs text-[var(--fg-muted)]"
+              >
                 {l}
-              </Badge>
+              </span>
             ))}
-          </div>
-        ) : null}
-        {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
-        {!thread && !error ? (
-          <p className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
-            <Loader2 className="size-4 animate-spin" aria-hidden /> Opening…
-          </p>
-        ) : null}
-        {thread ? (
-          <ol className="space-y-2">
-            {thread.messages.map((m, i) => (
-              <MessageItem
-                key={m.id}
-                message={m}
-                timeZone={timeZone}
-                startOpen={i === thread.messages.length - 1}
-              />
-            ))}
-          </ol>
-        ) : null}
-        {thread ? (
-          <ReplyBox
-            threadId={row.id}
-            canSend={canAct}
-            mailbox={mailbox}
-            open={replyOpen}
-            setOpen={setReplyOpen}
-            onSent={() => {
-              setReloadKey((k) => k + 1);
-              onSent();
-            }}
-          />
-        ) : null}
+          </span>
+          {snoozedUntil ? (
+            <p className="mt-1 flex items-center gap-1.5 text-sm text-[var(--fg-muted)]">
+              <AlarmClock className="size-4 text-[var(--accent)]" aria-hidden />
+              Snoozed until {formatWake(snoozedUntil, readerZone(timeZone))}
+            </p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          aria-label="Print all"
+          title="Print all"
+          disabled={!thread}
+          onClick={() => thread && printMessages(thread.subject, thread.messages, timeZone)}
+          className={ICON_BTN}
+        >
+          <Printer className="size-4" aria-hidden />
+        </button>
       </div>
+
+      {error ? <p className="px-4 py-2 text-sm text-[var(--danger)]">{error}</p> : null}
+      {!thread && !error ? (
+        <p className="flex items-center gap-2 px-4 py-4 text-sm text-[var(--fg-muted)]">
+          <Loader2 className="size-4 animate-spin" aria-hidden /> Opening…
+        </p>
+      ) : null}
+      {thread ? (
+        <ol aria-label="Messages" className="border-t border-[var(--border)]">
+          {shown.map((m, i) => (
+            <React.Fragment key={m.id}>
+              <MessageCard
+                message={m}
+                open={openIds.has(m.id)}
+                onToggle={() =>
+                  setOpenIds((cur) => {
+                    const next = new Set(cur);
+                    if (next.has(m.id)) next.delete(m.id);
+                    else next.add(m.id);
+                    return next;
+                  })
+                }
+                timeZone={timeZone}
+                mailbox={mailbox}
+                starred={row.starred}
+                onStar={canModify ? () => void onAct(row.starred ? 'unstar' : 'star') : null}
+                onWrite={(kind) => void startWrite(kind, m)}
+                onPrint={() => printMessages(thread.subject, [m], timeZone)}
+                onUnreadFromHere={
+                  canModify ? () => void onAct('unread').then((ok) => ok && onBack()) : null
+                }
+              />
+              {fold && i === 0 ? (
+                <li className="relative border-b border-[var(--border)] py-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowOlder(true)}
+                    className="relative z-[1] ml-4 grid size-10 place-items-center rounded-full border border-[var(--border-strong)] bg-[var(--bg-raised)] text-sm font-medium text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]"
+                    aria-label={`${hidden.length} older messages`}
+                    title={`${hidden.length} older messages`}
+                  >
+                    {hidden.length}
+                  </button>
+                </li>
+              ) : null}
+            </React.Fragment>
+          ))}
+        </ol>
+      ) : null}
+
+      {thread ? (
+        <div className="px-4 py-4 sm:pl-[4.25rem]">
+          {seed ? (
+            <div className="shadow-raised overflow-hidden rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg)]">
+              <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-1.5 text-xs text-[var(--fg-muted)]">
+                {seed.mode === 'forward' ? (
+                  <Forward className="size-3.5" aria-hidden />
+                ) : seed.mode === 'replyAll' ? (
+                  <ReplyAll className="size-3.5" aria-hidden />
+                ) : (
+                  <Reply className="size-3.5" aria-hidden />
+                )}
+                <span className="font-medium">
+                  {seed.mode === 'forward'
+                    ? 'Forward'
+                    : seed.mode === 'replyAll'
+                      ? 'Reply all'
+                      : 'Reply'}
+                </span>
+                {seed.draftId ? (
+                  <span className="rounded bg-[var(--ok-soft)] px-1.5 text-[var(--ok)]">
+                    Draft from Gmail
+                  </span>
+                ) : null}
+              </div>
+              <ComposeForm
+                key={seed.key}
+                seed={seed}
+                env={{ ...composeEnv, gmailHref: gmailUrl(row.id, mailbox) }}
+                inline
+                focusOnOpen={seedFocus}
+                onDone={(what) => {
+                  closeWrite();
+                  if (what === 'sent' || what === 'scheduled') {
+                    setReloadKey((k) => k + 1);
+                    onSent();
+                  }
+                }}
+                onClose={closeWrite}
+              />
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {preparing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+              {(
+                [
+                  ['reply', 'Reply', Reply],
+                  ['replyAll', 'Reply all', ReplyAll],
+                  ['forward', 'Forward', Forward],
+                ] as const
+              ).map(([kind, label, Icon]) => (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => void startWrite(kind)}
+                  disabled={preparing}
+                  className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--border-strong)] px-4 text-sm font-medium text-[var(--fg)] hover:bg-[var(--bg-hover)]"
+                >
+                  <Icon className="size-4" aria-hidden /> {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
     </article>
   );
 }
 
-interface DraftResponse {
-  draft: { body: string } | null;
-  draftError: string | null;
-  canSend: boolean;
-  signatures: { nick: string | null; arwin: string } | null;
-}
-
-function ReplyBox({
-  threadId,
-  canSend,
-  mailbox,
-  open,
-  setOpen,
-  onSent,
-}: {
-  threadId: string;
-  canSend: boolean;
-  mailbox: string | null;
-  open: boolean;
-  setOpen: (open: boolean) => void;
-  onSent: () => void;
-}) {
-  const [loaded, setLoaded] = React.useState<DraftResponse | null>(null);
-  const [body, setBody] = React.useState('');
-  const [signature, setSignature] = React.useState<Signature>('nick');
-  const [countdown, setCountdown] = React.useState(0);
-  const [sending, setSending] = React.useState(false);
-  const [pending, setPending] = React.useState(false);
-  const timer = React.useRef<number | null>(null);
-  const quietOpen = React.useRef(false);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/email-session/draft?id=${threadId}`)
-      .then(async (r) => (r.ok ? ((await r.json()) as DraftResponse) : null))
-      .then((d) => {
-        if (cancelled || !d) return;
-        setLoaded(d);
-        if (d.draft?.body) {
-          setBody(d.draft.body);
-          // Shown, not focused: opening an email must not jump the page to the reply.
-          quietOpen.current = true;
-          setOpen(true);
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      if (timer.current) window.clearInterval(timer.current);
-    };
-  }, [threadId, setOpen]);
-
-  React.useEffect(() => {
-    if (!open) return;
-    if (quietOpen.current) {
-      quietOpen.current = false;
-      return;
-    }
-    document.getElementById(`reply-${threadId}`)?.focus();
-  }, [open, threadId]);
-
-  const send = React.useCallback(async () => {
-    setSending(true);
-    const res = await postJson('/api/email-session/send', { id: threadId, body, signature });
-    setSending(false);
-    if (res.ok) {
-      toast.success('Sent');
-      setBody('');
-      setOpen(false);
-      onSent();
-    } else {
-      toast.error(await errorMessage(res, 'It did not send. Try again.'));
-    }
-  }, [threadId, body, signature, setOpen, onSent]);
-
-  // The send fires from the last tick itself; the ref always holds the newest send.
-  const sendRef = React.useRef(send);
-  React.useEffect(() => {
-    sendRef.current = send;
-  }, [send]);
-
-  const startSend = () => {
-    if (!body.trim()) {
-      toast.error('Write a reply first.');
-      return;
-    }
-    if (!canSend) {
-      window.open(gmailUrl(threadId, mailbox), '_blank', 'noopener');
-      return;
-    }
-    if (signature === 'nick' && loaded && !loaded.signatures?.nick) {
-      toast.error("Nick's signature couldn't be read from Gmail. Try again, or sign as Arwin.");
-      return;
-    }
-    let left = UNDO_SECONDS;
-    setCountdown(left);
-    setPending(true);
-    timer.current = window.setInterval(() => {
-      left -= 1;
-      setCountdown(left);
-      if (left <= 0) {
-        if (timer.current) window.clearInterval(timer.current);
-        timer.current = null;
-        setPending(false);
-        void sendRef.current();
-      }
-    }, 1000);
-  };
-
-  const undo = () => {
-    if (timer.current) window.clearInterval(timer.current);
-    timer.current = null;
-    setPending(false);
-    setCountdown(0);
-  };
-
-  if (!open) {
-    return (
-      <Button variant="secondary" onClick={() => setOpen(true)}>
-        <Reply className="size-4" aria-hidden /> Reply
-      </Button>
-    );
-  }
-
-  const waiting = pending;
-  const sigText = loaded?.signatures?.[signature] ?? null;
-
-  return (
-    <div className="space-y-2 rounded-md border border-[var(--border-strong)] bg-[var(--bg)] p-3">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-medium">Reply all</span>
-        {loaded?.draft ? <Badge tone="ok">Draft from Gmail</Badge> : null}
-        <div className="flex-1" />
-        <span className="text-[var(--fg-muted)]">Sign as</span>
-        {(['nick', 'arwin'] as Signature[]).map((s) => (
-          <Button
-            key={s}
-            size="sm"
-            variant={signature === s ? 'primary' : 'secondary'}
-            aria-pressed={signature === s}
-            onClick={() => {
-              setSignature(s);
-              setBody((b) => swapSignOff(b, s));
-            }}
-          >
-            {s === 'nick' ? 'Nick' : 'Arwin'}
-          </Button>
-        ))}
-      </div>
-      <label htmlFor={`reply-${threadId}`} className="sr-only">
-        Reply
-      </label>
-      <Textarea
-        id={`reply-${threadId}`}
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        rows={8}
-        disabled={waiting || sending}
-        onKeyDown={(e) => {
-          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-            e.preventDefault();
-            startSend();
-          }
-        }}
-      />
-      {sigText ? (
-        <p className="text-xs whitespace-pre-line text-[var(--fg-subtle)]">{sigText}</p>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-2">
-        {waiting ? (
-          <>
-            <span className="text-sm text-[var(--fg-muted)]">Sending in {countdown}s…</span>
-            <Button size="sm" variant="secondary" onClick={undo}>
-              <Undo2 className="size-4" aria-hidden /> Undo
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button size="sm" onClick={startSend} disabled={sending}>
-              {sending ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <Send className="size-4" aria-hidden />
-              )}
-              {canSend ? 'Send' : 'Send in Gmail'}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
-              Close
-            </Button>
-            <span className="text-xs text-[var(--fg-subtle)]">Ctrl+Enter sends</span>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Gmail's forward: the newest message quoted under a header, its attachments carried along. */
+/** Gmail's forward for the other tabs' compose window: the newest message quoted under a header. */
 export function forwardDraft(thread: LiveThread, timeZone: string): ComposeDraft {
   const last = thread.messages.at(-1)!;
   const header = [
