@@ -13,7 +13,9 @@ test('Inbox opens a conversation in the reading pane and offers a reply', async 
   const firstSubject =
     (await rows.first().locator('[data-row-subject]').textContent())?.trim() ?? '';
 
-  // j opens the first conversation, like Gmail.
+  // j opens the first conversation, like Gmail. The keys listen once the page has
+  // hydrated; a warm server paints the rows before that, so wait for it.
+  await page.waitForLoadState('networkidle');
   await page.keyboard.press('j');
   const pane = page.getByRole('region', { name: 'Reading pane' });
   await expect(pane.getByRole('heading', { level: 2 })).toHaveText(firstSubject);
