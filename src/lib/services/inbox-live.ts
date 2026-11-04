@@ -1055,13 +1055,19 @@ export async function gmailHrefForLink(
   return gmailThreadUrl(id, integration?.account_email ?? null);
 }
 
-function decodeEntities(text: string): string {
+/**
+ * A Gmail snippet as plain text: entities decoded, then any markup a sender
+ * put in the text itself ("<b>gtm</b>") dropped, so a row never shows tags.
+ */
+export function decodeEntities(text: string): string {
   return text
     .replace(/&#39;/g, "'")
     .replace(/&quot;/g, '"')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&');
+    .replace(/&amp;/g, '&')
+    .replace(/<\/?[a-z][a-z0-9]*(?:\s[^<>]*)?\/?>/gi, '')
+    .replace(/\s{2,}/g, ' ');
 }
 
 /* ------------------------------------------------------------ demo mode */
@@ -1146,7 +1152,11 @@ export async function suggestConversations(
   const hit = cache.suggest.get(cacheKey);
   if (hit && now.getTime() - hit.at < SUGGEST_TTL_MS) return hit.rows;
   const page = await listThreadPage(store, integration, { q, max: SUGGEST_THREADS });
-  if (!page.ok) return [];
+  if (!page.ok) {
+    // The box still shows matches from the list already loaded (client side).
+    log.warn('Inbox type-ahead: Gmail search failed', { code: page.error.code });
+    return [];
+  }
   const key = (t: { id: string; historyId: string }) => `${t.id}:${t.historyId}`;
   const missing = page.value.threads.filter((t) => !cache.meta.has(key(t)));
   const metas = await Promise.all(

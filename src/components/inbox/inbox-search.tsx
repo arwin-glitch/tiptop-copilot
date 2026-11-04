@@ -61,6 +61,7 @@ export function InboxSearch({
   onOpenThread,
   onCreateFilter,
   timeZone,
+  loadedRows = [],
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -74,6 +75,8 @@ export function InboxSearch({
   /** Create filter, from the search options, with what they hold. */
   onCreateFilter: (form: AdvancedSearch) => void;
   timeZone: string;
+  /** The conversations already on screen: matched at once as you type, like Gmail. */
+  loadedRows?: readonly LiveThreadRow[];
 }) {
   const [open, setOpen] = React.useState(false);
   const [form, setForm] = React.useState<AdvancedSearch>(() => parseGmailQuery(''));
@@ -127,10 +130,17 @@ export function InboxSearch({
         .filter((h) => h.toLowerCase().includes(typed.toLowerCase()) && h !== typed)
         .slice(0, 3)
     : history;
+  // Conversations: matches from the list already loaded show at once; Gmail's
+  // own search results join them when they arrive. One row per conversation.
+  const localThreads = React.useMemo(
+    () => (typed ? matchLoadedRows(loadedRows, typed) : []),
+    [loadedRows, typed],
+  );
+  const threads = mergeThreads(localThreads, suggestions?.threads ?? []);
   const items: Item[] = [
     ...matchingHistory.map((q) => ({ kind: 'history' as const, q })),
     ...(suggestions?.people ?? []).map((person) => ({ kind: 'person' as const, person })),
-    ...(suggestions?.threads ?? []).map((row) => ({ kind: 'thread' as const, row })),
+    ...threads.map((row) => ({ kind: 'thread' as const, row })),
   ];
   const activeItem = active >= 0 && active < items.length ? items[active] : null;
 
@@ -548,4 +558,40 @@ export function InboxSearch({
       </PopoverContent>
     </Popover>
   );
+}
+
+/** Conversations in the type-ahead, at most. */
+const MAX_THREAD_SUGGESTIONS = 6;
+
+/**
+ * Loaded conversations whose sender, subject or preview holds every word
+ * typed (any order, any case). Gmail syntax ("from:x") is left to Gmail.
+ */
+export function matchLoadedRows(rows: readonly LiveThreadRow[], text: string): LiveThreadRow[] {
+  if (/\w+:/.test(text)) return [];
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  return rows
+    .filter((r) => (r.kind ?? 'thread') === 'thread')
+    .filter((r) => {
+      const hay = `${r.who} ${r.subject} ${r.snippet}`.toLowerCase();
+      return words.every((w) => hay.includes(w));
+    })
+    .slice(0, MAX_THREAD_SUGGESTIONS);
+}
+
+/** Loaded matches first, then Gmail's; one row per conversation id. */
+export function mergeThreads(
+  first: readonly LiveThreadRow[],
+  then: readonly LiveThreadRow[],
+): LiveThreadRow[] {
+  const seen = new Set<string>();
+  const out: LiveThreadRow[] = [];
+  for (const r of [...first, ...then]) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    out.push(r);
+    if (out.length >= MAX_THREAD_SUGGESTIONS) break;
+  }
+  return out;
 }

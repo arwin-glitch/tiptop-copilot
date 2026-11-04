@@ -1583,6 +1583,7 @@ export function LiveInbox({
             openRow(row);
           }}
           onCreateFilter={setFilterFrom}
+          loadedRows={list.rows}
         />
       </div>
 
