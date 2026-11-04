@@ -78,6 +78,9 @@ describe('a person’s profile', () => {
   it('scores a well-kept founder relationship as Strong, with the evidence', async () => {
     const r = await profileOf(ADA);
     expect(r.matched).toEqual({ by: 'emails', addresses: 1, matchable: true });
+    // The Activity tab's list is the timeline, unabridged.
+    expect(r.activity.length).toBeGreaterThanOrEqual(r.timeline.length);
+    expect(r.activity.slice(0, r.timeline.length)).toEqual(r.timeline);
     expect(r.evidence).toMatchObject({
       threads: 5,
       twoWayThreads: 5,

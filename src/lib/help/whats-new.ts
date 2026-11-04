@@ -28,6 +28,11 @@ export const WHATS_NEW: readonly WhatsNewItem[] = [
   {
     date: '2026-11-04',
     page: 'network',
+    text: 'Profiles have tabs: Overview, Connections with signal bars, Activity with a weekly chart, Notes.',
+  },
+  {
+    date: '2026-11-04',
+    page: 'network',
     text: 'People and companies show a status tag, connections and last contact, with filters.',
     href: '/network?tab=people&source=affinity',
     tour: 'people-directory',

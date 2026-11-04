@@ -294,6 +294,12 @@ test('a profile shows every list a company is on and all its notes', async ({ pa
   }
   await expect(lists.getByText(/Seed extension/)).toBeVisible();
 
+  // Notes have their own tab on the profile.
+  await page
+    .getByRole('navigation', { name: 'Profile sections' })
+    .getByRole('link', { name: /^Notes/ })
+    .click();
+  await page.waitForURL(/tab=notes/);
   const notes = page.getByRole('region', { name: 'Notes' });
   await expect(notes.getByText('Board update')).toBeVisible();
   await expect(notes.getByText(/ARR up to \$1\.1M/)).toBeVisible();

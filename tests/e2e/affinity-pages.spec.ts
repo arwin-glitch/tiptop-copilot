@@ -232,6 +232,11 @@ test('Network gains investors, providers, operators, events and Affinity people'
   await expect(people).toContainText('Celeste Varga');
   await people.getByRole('link', { name: 'Celeste Varga' }).click();
   await page.waitForURL(/\/lists\/records\//);
+  await page
+    .getByRole('navigation', { name: 'Profile sections' })
+    .getByRole('link', { name: /^Notes/ })
+    .click();
+  await page.waitForURL(/tab=notes/);
   await expect(page.getByRole('region', { name: 'Notes' })).toContainText('LP call');
 });
 

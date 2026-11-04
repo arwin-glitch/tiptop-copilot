@@ -66,6 +66,12 @@ test('a company’s profile shows who Nick knows there and who can intro', async
     page.getByRole('region', { name: 'Relationship' }).locator('[data-strength="strong"]'),
   ).toBeVisible();
 
+  // Who can intro sits on the profile's Connections tab.
+  await page
+    .getByRole('navigation', { name: 'Profile sections' })
+    .getByRole('link', { name: 'Connections' })
+    .click();
+  await page.waitForURL(/tab=connections/);
   const intro = page.getByRole('region', { name: 'Who can intro' });
   await expect(intro.getByRole('link', { name: 'Ada Brennan' })).toHaveAttribute('href', ADA);
   await expect(intro.getByText('Cyrus Vale', { exact: true })).toBeVisible();

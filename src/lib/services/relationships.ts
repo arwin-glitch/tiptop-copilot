@@ -69,6 +69,8 @@ import {
 const TTL_MS = 5 * 60_000;
 const MESSAGE_LIMIT = 2000;
 const TIMELINE_MAX = 8;
+/** Threads and meetings the profile's Activity tab lists. */
+const ACTIVITY_MAX = 200;
 const PEOPLE_MAX = 10;
 const INTRODUCERS_MAX = 5;
 /** Ids the list columns ask about in one request: one page of a list. */
@@ -285,6 +287,8 @@ export interface RecordRelationship {
   smart: SmartFields;
   goingCold: boolean;
   timeline: TimelineItem[];
+  /** The same, much longer (up to ACTIVITY_MAX): the profile's Activity tab. */
+  activity: TimelineItem[];
   /** For a company, its people; for a person, colleagues at their company. Strongest first. */
   people: RelatedPerson[];
   introducers: Introducer[];
@@ -297,6 +301,7 @@ export interface RecordRelationship {
 function timelineOf(
   detail: EvidenceDetail,
   accountEmail: string | null | undefined,
+  max = TIMELINE_MAX,
 ): TimelineItem[] {
   const threads: TimelineItem[] = detail.threads.map((t) => ({
     kind: 'thread',
@@ -326,7 +331,7 @@ function timelineOf(
   const past = [...threads, ...meetings.filter((m) => !m.upcoming)].sort(
     (a, b) => b.at.localeCompare(a.at) || a.key.localeCompare(b.key),
   );
-  return [...upcoming.slice(0, 1), ...past].slice(0, TIMELINE_MAX);
+  return [...upcoming.slice(0, 1), ...past].slice(0, max);
 }
 
 function peopleOf(
@@ -482,6 +487,7 @@ export async function getRecordRelationship(
     }),
     goingCold: isGoingCold(strength, detail.evidence),
     timeline: timelineOf(detail, scope.accountEmail),
+    activity: timelineOf(detail, scope.accountEmail, ACTIVITY_MAX),
     people,
     introducers,
     introTarget: target,

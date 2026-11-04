@@ -32,17 +32,20 @@ import { CrmBreadcrumb } from '@/components/lists/crm-breadcrumb';
 import { CrmNotesPanel } from '@/components/lists/crm-notes-panel';
 import { AddRecordToListButton } from '@/components/lists/record-dialogs';
 import { ExportNotesLink } from '@/components/lists/export-notes-link';
-import { MeetingNoteList } from '@/components/meetings/meeting-note-list';
 import { CrmValueView } from '@/components/lists/crm-value';
 import { RelationshipPanel, WhoCanIntro } from '@/components/network/record-relationship';
 import { KeepInTouchCard } from '@/components/network/keep-in-touch-card';
 import { RecordIntroductions } from '@/components/network/record-introductions';
+import { RecordActivity, RecordConnections } from '@/components/network/record-tabs';
+import { PageTabs } from '@/components/ui/page-tabs';
+import { resolveTab } from '@/lib/util/page-tabs';
+import { PROFILE_TAB_KEYS, PROFILE_TABS } from '@/lib/records-tabs';
 import { DataRow, PageHeader, PageShell, SectionHeading } from '@/components/shell/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { ErrorState, SkeletonText } from '@/components/ui/feedback';
 import { NotConfigured } from '@/components/ui/not-configured';
-import type { CrmRecord, CrmValue } from '@/lib/types/domain';
+import type { CrmValue } from '@/lib/types/domain';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,15 +61,26 @@ export async function generateMetadata({
 }
 
 /**
- * A company's or person's profile: who they are, every list they are on and
- * where they stand on each, every note, and — for a company Kraken already
- * tracks as a deal or a portfolio company — a link across to it. A member can
- * put the record on a list ("Add to list") and add notes here; notes written
- * in Kraken can be edited and deleted, Affinity's say why they cannot while
- * the sync runs. A list's own values are changed on the list.
+ * A company's or person's profile, Affinity-style, in subtabs rather than one
+ * long page: Overview (relationship, every list they are on and where they
+ * stand, keep-in-touch reminder, the deal or portfolio company Kraken tracks,
+ * details), Connections (who on the team knows them, the people there we
+ * know, who can intro), Activity (every email, meeting and meeting note,
+ * newest first, with a weekly chart) and Notes. The status tag and last
+ * contact sit under the name on every tab. A member can put the record on a
+ * list ("Add to list") and add notes; notes written in Kraken can be edited
+ * and deleted, Affinity's say why they cannot while the sync runs. A list's
+ * own values are changed on the list.
  */
-export default async function RecordProfilePage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default async function RecordProfilePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const tab = resolveTab(query.tab, PROFILE_TAB_KEYS, 'overview');
   const auth = await requireAuth();
   const store = getStore();
   const org = auth.organizationId;
@@ -119,13 +133,25 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
       .map(({ list }) => list.id),
   );
   const copilot = links.ok ? links.value : [];
-  // Started once, awaited by the Relationship and "Who can intro" panels as they stream in.
+  // Started once, awaited by the panels of the open tab as they stream in.
+  // The index behind it is cached for minutes, so switching tabs is cheap.
   const relationship = getRecordRelationship(
     store,
     org,
     { record, memberships, related, timeZone: timezone },
     relationshipScope(auth.profile.email, integration),
   );
+  const meetingNotes =
+    tab === 'activity'
+      ? notesForRecord(
+          store,
+          org,
+          record,
+          record.kind === 'company'
+            ? related.map((r) => r.primary_email).filter((e): e is string => Boolean(e))
+            : [],
+        ).catch(() => null)
+      : Promise.resolve(null);
   // The status tag and last contact under the name, streamed in after the header.
   const contactLine = contactSummaries(
     store,
@@ -227,69 +253,207 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
         }
       />
 
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-        <div className="min-w-0 space-y-8">
-          <Suspense fallback={<SkeletonText lines={6} />}>
-            <RelationshipPanel relationship={relationship} kind={record.kind} timezone={timezone} />
-          </Suspense>
+      <PageTabs
+        label="Profile sections"
+        path={`/lists/records/${record.id}`}
+        tabs={PROFILE_TABS.map((t) => ({
+          key: t.key,
+          label: t.label,
+          count: t.key === 'notes' ? notes.length : undefined,
+        }))}
+        active={tab}
+        defaultKey="overview"
+      />
 
-          <section aria-labelledby="profile-lists">
-            <SectionHeading count={memberships.length}>
-              <span id="profile-lists">Lists</span>
-            </SectionHeading>
-            {memberships.length === 0 ? (
-              <p className="text-sm text-[var(--fg-subtle)]">
-                Not on any list. {isCompany ? 'Companies' : 'People'} arrive on lists through an
-                Affinity import, “Add entry” on a list, or “Add to list” above.
-              </p>
-            ) : (
-              <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
-                {memberships.map(({ entry, list }) => {
-                  const status = statusFieldOf(list);
-                  const value = status ? entry.values[status.key] : undefined;
-                  // The entry's own name when it differs (a deal's "Seed
-                  // extension"), then its first two filled-in fields.
-                  const facts = [
-                    entry.title !== record.name ? entry.title : null,
-                    ...list.fields
-                      .filter(
-                        (f) =>
-                          f.key !== status?.key &&
-                          !isEmpty(entry.values[f.key]) &&
-                          (!lpLists.has(list.id) || isFundIiField(f)),
-                      )
-                      .slice(0, 2)
-                      .map((f) => `${f.name}: ${formatCrmValue(f, entry.values[f.key], timezone)}`),
-                    list.archived ? 'archived list' : null,
-                  ].filter(Boolean);
-                  return (
-                    <li key={entry.id} className="px-4 py-3">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <Link
-                          href={`/lists/${list.id}?q=${encodeURIComponent(entry.title)}`}
-                          className="font-medium underline-offset-2 hover:underline"
-                        >
-                          {list.name}
-                        </Link>
-                        {status ? (
-                          <span className="flex items-center gap-2">
-                            <span className="text-mini text-[var(--fg-subtle)]">{status.name}</span>
-                            <CrmValueView field={status} value={value} timezone={timezone} />
+      {tab === 'overview' ? (
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+          <div className="min-w-0 space-y-8">
+            <Suspense fallback={<SkeletonText lines={6} />}>
+              <RelationshipPanel
+                relationship={relationship}
+                kind={record.kind}
+                timezone={timezone}
+              />
+            </Suspense>
+
+            <section aria-labelledby="profile-lists">
+              <SectionHeading count={memberships.length}>
+                <span id="profile-lists">Lists</span>
+              </SectionHeading>
+              {memberships.length === 0 ? (
+                <p className="text-sm text-[var(--fg-subtle)]">
+                  Not on any list. {isCompany ? 'Companies' : 'People'} arrive on lists through an
+                  Affinity import, “Add entry” on a list, or “Add to list” above.
+                </p>
+              ) : (
+                <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)]">
+                  {memberships.map(({ entry, list }) => {
+                    const status = statusFieldOf(list);
+                    const value = status ? entry.values[status.key] : undefined;
+                    // The entry's own name when it differs (a deal's "Seed
+                    // extension"), then its first two filled-in fields.
+                    const facts = [
+                      entry.title !== record.name ? entry.title : null,
+                      ...list.fields
+                        .filter(
+                          (f) =>
+                            f.key !== status?.key &&
+                            !isEmpty(entry.values[f.key]) &&
+                            (!lpLists.has(list.id) || isFundIiField(f)),
+                        )
+                        .slice(0, 2)
+                        .map(
+                          (f) => `${f.name}: ${formatCrmValue(f, entry.values[f.key], timezone)}`,
+                        ),
+                      list.archived ? 'archived list' : null,
+                    ].filter(Boolean);
+                    return (
+                      <li key={entry.id} className="px-4 py-3">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <Link
+                            href={`/lists/${list.id}?q=${encodeURIComponent(entry.title)}`}
+                            className="font-medium underline-offset-2 hover:underline"
+                          >
+                            {list.name}
+                          </Link>
+                          {status ? (
+                            <span className="flex items-center gap-2">
+                              <span className="text-mini text-[var(--fg-subtle)]">
+                                {status.name}
+                              </span>
+                              <CrmValueView field={status} value={value} timezone={timezone} />
+                            </span>
+                          ) : null}
+                        </div>
+                        {facts.length ? (
+                          <p className="text-mini mt-0.5 text-[var(--fg-muted)]">
+                            {facts.join(' · ')}
+                          </p>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+          </div>
+
+          <aside className="min-w-0 space-y-6">
+            <Suspense fallback={<SkeletonText lines={4} />}>
+              <KeepInTouchCard
+                record={record}
+                organizationId={org}
+                timezone={timezone}
+                canEdit={canWrite}
+              />
+            </Suspense>
+
+            {isCompany ? (
+              <section aria-labelledby="profile-copilot">
+                <SectionHeading>
+                  <span id="profile-copilot">In Kraken</span>
+                </SectionHeading>
+                {copilot.length === 0 ? (
+                  <p className="text-sm text-[var(--fg-subtle)]">
+                    {links.ok
+                      ? 'Not in Deals or Portfolio under this domain or name.'
+                      : 'Deals and Portfolio could not be checked just now.'}
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {copilot.map((link) => (
+                      <li key={`${link.kind}-${link.id}`}>
+                        <CopilotLinkCard link={link} stageLabels={stageLabels} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            ) : null}
+
+            {details.length > 0 ? (
+              <section aria-labelledby="profile-details">
+                <SectionHeading>
+                  <span id="profile-details">Details</span>
+                </SectionHeading>
+                <Card>
+                  <CardContent className="pt-2 pb-2">
+                    <dl className="divide-y divide-[var(--border)]">
+                      {details.map(([label, value]) => (
+                        <DataRow key={label} label={label} className="sm:grid-cols-[120px_1fr]">
+                          <CrmValueView
+                            field={{ type: 'text' }}
+                            value={value}
+                            timezone={timezone}
+                          />
+                        </DataRow>
+                      ))}
+                    </dl>
+                  </CardContent>
+                </Card>
+              </section>
+            ) : null}
+          </aside>
+        </div>
+      ) : null}
+
+      {tab === 'connections' ? (
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+          <div className="min-w-0">
+            <Suspense fallback={<SkeletonText lines={6} />}>
+              <RecordConnections
+                contact={contactLine}
+                relationship={relationship}
+                kind={record.kind}
+                timezone={timezone}
+              />
+            </Suspense>
+          </div>
+          <aside className="min-w-0 space-y-6">
+            <Suspense fallback={<SkeletonText lines={4} />}>
+              <WhoCanIntro relationship={relationship} record={record} />
+            </Suspense>
+
+            <Suspense fallback={null}>
+              <RecordIntroductions record={record} organizationId={org} timezone={timezone} />
+            </Suspense>
+
+            {related.length > 0 ? (
+              <section aria-labelledby="profile-related">
+                <SectionHeading count={related.length}>
+                  <span id="profile-related">{isCompany ? 'People' : 'Companies'}</span>
+                </SectionHeading>
+                <ul className="space-y-1">
+                  {related.map((r) => (
+                    <li key={r.id}>
+                      <Link
+                        href={`/lists/records/${r.id}`}
+                        className="block rounded-md px-2 py-1.5 text-sm hover:bg-[var(--bg-hover)]"
+                      >
+                        <span className="font-medium">{r.name}</span>
+                        {r.primary_email || r.domain ? (
+                          <span className="text-mini block truncate text-[var(--fg-muted)]">
+                            {r.primary_email ?? r.domain}
                           </span>
                         ) : null}
-                      </div>
-                      {facts.length ? (
-                        <p className="text-mini mt-0.5 text-[var(--fg-muted)]">
-                          {facts.join(' · ')}
-                        </p>
-                      ) : null}
+                      </Link>
                     </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+          </aside>
+        </div>
+      ) : null}
 
+      {tab === 'activity' ? (
+        <Suspense fallback={<SkeletonText lines={8} />}>
+          <RecordActivity relationship={relationship} notes={meetingNotes} timezone={timezone} />
+        </Suspense>
+      ) : null}
+
+      {tab === 'notes' ? (
+        <div className="max-w-3xl">
           <section aria-labelledby="profile-notes">
             <SectionHeading
               count={notes.length}
@@ -311,145 +475,9 @@ export default async function RecordProfilePage({ params }: { params: Promise<{ 
               empty="No notes yet. Add one above, or bring them across with an Affinity notes export."
             />
           </section>
-
-          <Suspense fallback={<SkeletonText lines={3} />}>
-            <RecordMeetings
-              organizationId={org}
-              record={record}
-              relatedEmails={
-                isCompany
-                  ? related.map((r) => r.primary_email).filter((e): e is string => Boolean(e))
-                  : []
-              }
-              timezone={timezone}
-            />
-          </Suspense>
         </div>
-
-        <aside className="min-w-0 space-y-6">
-          <Suspense fallback={<SkeletonText lines={4} />}>
-            <KeepInTouchCard
-              record={record}
-              organizationId={org}
-              timezone={timezone}
-              canEdit={canWrite}
-            />
-          </Suspense>
-
-          {isCompany ? (
-            <section aria-labelledby="profile-copilot">
-              <SectionHeading>
-                <span id="profile-copilot">In Kraken</span>
-              </SectionHeading>
-              {copilot.length === 0 ? (
-                <p className="text-sm text-[var(--fg-subtle)]">
-                  {links.ok
-                    ? 'Not in Deals or Portfolio under this domain or name.'
-                    : 'Deals and Portfolio could not be checked just now.'}
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {copilot.map((link) => (
-                    <li key={`${link.kind}-${link.id}`}>
-                      <CopilotLinkCard link={link} stageLabels={stageLabels} />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ) : null}
-
-          <Suspense fallback={<SkeletonText lines={4} />}>
-            <WhoCanIntro relationship={relationship} record={record} />
-          </Suspense>
-
-          <Suspense fallback={null}>
-            <RecordIntroductions record={record} organizationId={org} timezone={timezone} />
-          </Suspense>
-
-          {related.length > 0 ? (
-            <section aria-labelledby="profile-related">
-              <SectionHeading count={related.length}>
-                <span id="profile-related">{isCompany ? 'People' : 'Companies'}</span>
-              </SectionHeading>
-              <ul className="space-y-1">
-                {related.map((r) => (
-                  <li key={r.id}>
-                    <Link
-                      href={`/lists/records/${r.id}`}
-                      className="block rounded-md px-2 py-1.5 text-sm hover:bg-[var(--bg-hover)]"
-                    >
-                      <span className="font-medium">{r.name}</span>
-                      {r.primary_email || r.domain ? (
-                        <span className="text-mini block truncate text-[var(--fg-muted)]">
-                          {r.primary_email ?? r.domain}
-                        </span>
-                      ) : null}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
-          {details.length > 0 ? (
-            <section aria-labelledby="profile-details">
-              <SectionHeading>
-                <span id="profile-details">Details</span>
-              </SectionHeading>
-              <Card>
-                <CardContent className="pt-2 pb-2">
-                  <dl className="divide-y divide-[var(--border)]">
-                    {details.map(([label, value]) => (
-                      <DataRow key={label} label={label} className="sm:grid-cols-[120px_1fr]">
-                        <CrmValueView field={{ type: 'text' }} value={value} timezone={timezone} />
-                      </DataRow>
-                    ))}
-                  </dl>
-                </CardContent>
-              </Card>
-            </section>
-          ) : null}
-        </aside>
-      </div>
+      ) : null}
     </PageShell>
-  );
-}
-
-/**
- * Meetings with this person or company (D-076): Granola's notes and Kraken's
- * own (once shared with the team), matched by address, or for a company by
- * its domain and its people's addresses. Streams in after the profile.
- */
-async function RecordMeetings({
-  organizationId,
-  record,
-  relatedEmails,
-  timezone,
-}: {
-  organizationId: string;
-  record: Pick<CrmRecord, 'kind' | 'domain' | 'emails'>;
-  relatedEmails: string[];
-  timezone: string;
-}) {
-  const notes = await notesForRecord(getStore(), organizationId, record, relatedEmails).catch(
-    () => null,
-  );
-  return (
-    <section aria-labelledby="profile-meetings" data-profile-meetings="">
-      <SectionHeading count={notes?.length}>
-        <span id="profile-meetings">Meetings</span>
-      </SectionHeading>
-      {notes === null ? (
-        <p className="text-sm text-[var(--fg-subtle)]">Meeting notes could not be read just now.</p>
-      ) : (
-        <MeetingNoteList
-          notes={notes}
-          timezone={timezone}
-          empty="No meeting notes with them yet. Granola's notes and meetings recorded in Kraken (shared with the team) show here."
-        />
-      )}
-    </section>
   );
 }
 

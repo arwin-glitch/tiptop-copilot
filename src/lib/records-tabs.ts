@@ -494,3 +494,34 @@ export function fundTwoLpHref(stage: LpStage): string {
     FUND_II_TABS.defaultKey,
   );
 }
+
+/**
+ * A company's or person's profile (`/lists/records/[id]`), Affinity-style:
+ * subtabs instead of one long page. Overview is the bare URL.
+ */
+export const PROFILE_TABS = [
+  {
+    key: 'overview',
+    label: 'Overview',
+    blurb:
+      'Relationship strength, every list they are on and their status there, keep in touch, and details.',
+  },
+  {
+    key: 'connections',
+    label: 'Connections',
+    blurb: 'Who on the team knows them and how well, the people there we know, and who can intro.',
+  },
+  {
+    key: 'activity',
+    label: 'Activity',
+    blurb: 'Every email, meeting and meeting note with them, newest first, with a weekly chart.',
+  },
+  {
+    key: 'notes',
+    label: 'Notes',
+    blurb: 'Notes on them, from Affinity and written in Kraken.',
+  },
+] as const satisfies readonly PageTabDef[];
+
+export type ProfileTabKey = (typeof PROFILE_TABS)[number]['key'];
+export const PROFILE_TAB_KEYS: readonly ProfileTabKey[] = PROFILE_TABS.map((t) => t.key);

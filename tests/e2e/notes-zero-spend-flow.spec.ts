@@ -137,7 +137,8 @@ const FLOWS: Flow[] = [
     calendarNamed: 'Maya Chen',
     pages: [
       [`/portfolio/${LEDGERLY}`, null],
-      [`/lists/records/${MAYA_RECORD}`, null],
+      // Meeting notes are on the profile's Activity tab.
+      [`/lists/records/${MAYA_RECORD}?tab=activity`, null],
     ],
     task: 'Send Acme the hardware pricing notes (phone run)',
   },

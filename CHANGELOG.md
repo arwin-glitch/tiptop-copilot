@@ -10,6 +10,27 @@ throughout.
 
 ## [Unreleased]
 
+- **People and companies, the Affinity way.** Every person and company
+  carries a relationship status tag worked out from mail and calendar Kraken
+  already syncs: Recently contacted (last email either way or meeting held
+  within 30 days), Losing touch (31 to 120 days), Lost touch (more than 120)
+  and Never contacted (nothing on record); the thresholds live once in
+  `lib/network/contact-status.ts`. Ctrl+K / Cmd+K opens on recent searches
+  (this browser only) and previews the highlighted company or person on the
+  right: list or pipeline, status tag, owner, status, amount (never on LP
+  lists), counts of notes, connections and reminders, and the last contact
+  in words ("Nick Tippmann sent an email to …"); it now finds CRM notes too.
+  Network → People adds All People (From Affinity) and Companies with
+  Connections ("Nick Tippmann & 2 more"), Last contact (green recent, amber
+  older, muted lost), first email and last meeting, filters for status,
+  "contacted within N days" and "not for more than N days (or never)", and
+  sorting by any date column, all held in the URL. Profiles get subtabs
+  instead of one long page: Overview, Connections (who on the team knows
+  them, with signal bars from frequency and recency; the people there we
+  know; who can intro), Activity (every email, meeting and meeting note,
+  newest first, with a 12-week chart) and Notes. All computed from the
+  cached relationship index: no migration, no Gmail call per keystroke.
+
 - **The Inbox, laid out like Gmail.** Gmail's layout in Kraken's emerald
   and gold: the left nav (Compose; Inbox with its unread count, Starred,
   Snoozed, Important, Sent, Scheduled, Drafts; All Mail, Spam and Trash

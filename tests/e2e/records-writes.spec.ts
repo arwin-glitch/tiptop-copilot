@@ -216,6 +216,11 @@ test('a new person is opened, not copied, when the CRM already has them', async 
     page.getByRole('region', { name: 'Lists' }).getByRole('link', { name: 'Demo Picnic Guests' }),
   ).toBeVisible();
 
+  await page
+    .getByRole('navigation', { name: 'Profile sections' })
+    .getByRole('link', { name: /^Notes/ })
+    .click();
+  await page.waitForURL(/tab=notes/);
   const notes = page.getByRole('region', { name: 'Notes' });
   await notes.getByRole('textbox', { name: 'New note' }).fill('Met at the community meetup.');
   await notes.getByRole('button', { name: 'Add note' }).click();
