@@ -448,7 +448,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'inbox-tabs',
         title: 'Mail folders',
-        body: 'Inbox, Starred, Snoozed, Sent, Scheduled, Drafts, Spam, Trash and your own labels.',
+        body: "Folders and your labels. Drag a conversation onto a label; a label's ⋮ colours, renames or hides it.",
         placement: 'right',
       },
       {
@@ -460,20 +460,20 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'inbox-list',
         title: 'Conversations',
-        body: 'Hover a row to archive, delete, snooze or label. Right-click for more. Press ? for keys.',
+        body: 'Hover a row to archive, delete, snooze or label. Right-click for more; check all to select every match.',
         placement: 'right',
         grand: true,
       },
       {
         target: 'inbox-reading',
         title: 'Read and reply',
-        body: 'The open email shows here. Reply, Reply all or Forward; nothing sends until you tap Send.',
+        body: 'Reply, Reply all or Forward; nothing sends until you tap Send. Unsubscribe and Block sit by the sender.',
         placement: 'left',
       },
       {
         target: 'inbox-compose',
         title: 'Write a new email',
-        body: "Compose opens Gmail's window. Send's arrow schedules it for later instead.",
+        body: "Compose opens Gmail's window, with Templates and contact suggestions. Send's arrow schedules it.",
         placement: 'bottom',
       },
     ],
