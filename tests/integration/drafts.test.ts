@@ -237,9 +237,22 @@ describe('nothing sends on its own', () => {
     expect([...scopes.FILTER_SCOPES]).toEqual([
       'https://www.googleapis.com/auth/gmail.settings.basic',
     ]);
+    // A member's own Google for Spaces (D-081): read-only, exactly these,
+    // and none of them a write scope.
+    expect([...scopes.MEMBER_READ_SCOPES]).toEqual([
+      'openid',
+      'https://www.googleapis.com/auth/userinfo.email',
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/calendar.readonly',
+    ]);
+    for (const scope of scopes.MEMBER_READ_SCOPES) {
+      expect(scope).not.toMatch(WRITE_SCOPE);
+      expect(scope).toMatch(/^openid$|\.readonly$|\/userinfo\.email$/);
+    }
     expect(Object.keys(scopes).sort()).toEqual([
       'CALENDAR_EDIT_SCOPES',
       'FILTER_SCOPES',
+      'MEMBER_READ_SCOPES',
       'SEND_SCOPES',
     ]);
   });

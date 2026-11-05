@@ -6,7 +6,12 @@ import type { DataStore } from '@/lib/db/store';
 import type { EncryptedProviderToken, Integration } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
 import { newId } from '@/lib/util/hash';
-import { CALENDAR_EDIT_SCOPES, FILTER_SCOPES, SEND_SCOPES } from './send-scopes';
+import {
+  CALENDAR_EDIT_SCOPES,
+  FILTER_SCOPES,
+  MEMBER_READ_SCOPES,
+  SEND_SCOPES,
+} from './send-scopes';
 
 /**
  * Google OAuth 2.0 authorization-code flow with encrypted refresh-token
@@ -23,6 +28,10 @@ import { CALENDAR_EDIT_SCOPES, FILTER_SCOPES, SEND_SCOPES } from './send-scopes'
  * "Turn on filters" step or Settings, which adds Gmail's basic settings
  * scope; only the Inbox's Create filter and Filters list use it
  * (lib/google/gmail-filters.ts).
+ * A member's own Google for Spaces is a fourth (`{ member: true }`): exactly
+ * MEMBER_READ_SCOPES (read-only), never combined with the others and never
+ * with include_granted_scopes, so an earlier grant on that account cannot
+ * ride along (D-081).
  */
 
 export const GOOGLE_SCOPES = [
@@ -51,11 +60,25 @@ export function googleConfigured(): boolean {
 
 export function buildAuthorizationUrl(
   state: string,
-  options: { send?: boolean; calendar?: boolean; filters?: boolean } = {},
+  options: { send?: boolean; calendar?: boolean; filters?: boolean; member?: boolean } = {},
 ): Result<string> {
   const e = env();
   if (!googleConfigured()) {
     return err('not_configured', 'Google OAuth client is not configured.');
+  }
+  if (options.member) {
+    const member = new URLSearchParams({
+      client_id: e.googleClientId!,
+      redirect_uri: e.googleRedirectUri,
+      response_type: 'code',
+      scope: MEMBER_READ_SCOPES.join(' '),
+      access_type: 'offline',
+      // Pick the account each time: the browser may be signed in to the main mailbox.
+      prompt: 'consent select_account',
+      include_granted_scopes: 'false',
+      state,
+    });
+    return ok(`${AUTH_ENDPOINT}?${member.toString()}`);
   }
   const params = new URLSearchParams({
     client_id: e.googleClientId!,
@@ -74,6 +97,31 @@ export function buildAuthorizationUrl(
     state,
   });
   return ok(`${AUTH_ENDPOINT}?${params.toString()}`);
+}
+
+const MEMBER_ALLOWED = new Set<string>([
+  ...MEMBER_READ_SCOPES,
+  // Google may echo the short names for the identity scopes.
+  'email',
+  'https://www.googleapis.com/auth/userinfo.profile',
+  'profile',
+]);
+
+/**
+ * Whether a grant for a member's Spaces connection is read-only: every scope
+ * Google granted is on MEMBER_READ_SCOPES (or an identity scope), and Gmail
+ * read is there. Anything else (a send, modify, settings or calendar-edit
+ * scope) and the connection is refused, not stored.
+ */
+export function isMemberReadOnlyGrant(granted: readonly string[]): boolean {
+  if (!granted.length) return false;
+  if (!granted.every((s) => MEMBER_ALLOWED.has(s))) return false;
+  return granted.includes('https://www.googleapis.com/auth/gmail.readonly');
+}
+
+/** The granted scopes a member connection keeps on its row: the read-only list, nothing else. */
+export function memberScopesKept(granted: readonly string[]): string[] {
+  return MEMBER_READ_SCOPES.filter((s) => granted.includes(s));
 }
 
 interface TokenResponse {

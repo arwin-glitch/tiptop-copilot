@@ -1,4 +1,5 @@
 import { demoSpaces } from './spaces-fixtures';
+import { demoMemberIntegration } from './space-member-fixtures';
 import { joinPages } from '@/lib/documents/pages';
 import { demoJobsBoard } from './jobs-board-fixtures';
 import { proofJudgeAfter } from '@/lib/tasks/proof';
@@ -437,6 +438,8 @@ export function buildDemoDb(now: Date = new Date()): DemoDb {
       created_at: daysAgo(now, 30),
       updated_at: nowIso,
     },
+    // The teammate's own Google, read-only, for the Spaces they accepted (D-081).
+    demoMemberIntegration(now),
   ];
 
   /* --------------------------------------------------------------- email */

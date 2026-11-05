@@ -48,7 +48,13 @@ export interface UserProfile {
 
 /* ------------------------------------------------------------ integrations */
 
-export type IntegrationProvider = 'google';
+/**
+ * 'google' is the workspace's one mailbox (the primary integration: Inbox,
+ * sending, filters, sync). 'google_space' is a member's own Google, connected
+ * read-only to contribute to the Spaces they accepted, and read by
+ * lib/services/space-member-mail.ts alone (D-081).
+ */
+export type IntegrationProvider = 'google' | 'google_space';
 export type IntegrationKind = 'gmail' | 'calendar';
 export type IntegrationStatus = 'connected' | 'disconnected' | 'needs_reauth' | 'error';
 

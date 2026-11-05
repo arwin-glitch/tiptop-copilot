@@ -140,7 +140,8 @@ export async function fundAddresses(store: DataStore, organizationId: string): P
     ...new Set(
       [
         ...profiles.map((p) => p?.email ?? null),
-        ...integrations.map((i) => i.account_email),
+        // The workspace mailbox only: a member's own Spaces connection is theirs (D-081).
+        ...integrations.filter((i) => i.provider === 'google').map((i) => i.account_email),
         ...NICK_ALIASES,
       ]
         .filter((a): a is string => typeof a === 'string')

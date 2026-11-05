@@ -9,6 +9,7 @@ import { log } from '@/lib/security/redact';
 import { getStore } from '@/lib/runtime';
 import { placeHeldBookings } from '@/lib/services/booking-manage';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
+import { saveMemberConnection } from '@/lib/services/space-member-mail';
 import type { Integration } from '@/lib/types/domain';
 import { newId } from '@/lib/util/hash';
 import { OAUTH_STATE_COOKIE } from '../start/route';
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest) {
     organizationId: string;
     issuedAt: number;
     returnTo?: string;
+    member?: boolean;
   };
   try {
     parsed = JSON.parse(payload);
@@ -81,9 +83,35 @@ export async function GET(request: NextRequest) {
   }
 
   const accountEmail = await fetchAccountEmail(tokens.value.access_token);
-  const grantedScopes = tokens.value.scope?.split(' ') ?? [...REQUESTED_SCOPES];
 
   const store = getStore();
+
+  // "Connect your Google to contribute" (Spaces): the member's own connection,
+  // read-only, stored beside the main mailbox. The primary integration is not
+  // read for writing, changed or replaced on this path (D-081).
+  if (parsed.member === true) {
+    const saved = await saveMemberConnection(store, {
+      organizationId: auth.value.organizationId,
+      userId: auth.value.userId,
+      accountEmail,
+      // No fallback here: a grant Google did not describe is not stored.
+      grantedScopes: tokens.value.scope?.split(' ').filter(Boolean) ?? [],
+      tokens: {
+        accessToken: tokens.value.access_token,
+        refreshToken: tokens.value.refresh_token,
+        expiresInSeconds: tokens.value.expires_in,
+      },
+    });
+    if (!saved.ok) return redirectWithError(saved.error.message);
+    const back = parsed.returnTo && MEMBER_RETURN.test(parsed.returnTo) ? parsed.returnTo : null;
+    return NextResponse.redirect(
+      back
+        ? `${env().appUrl}${back}?tab=members&connected=google`
+        : `${env().appUrl}/settings?tab=integrations&connected=google`,
+    );
+  }
+
+  const grantedScopes = tokens.value.scope?.split(' ') ?? [...REQUESTED_SCOPES];
   const existing = await getPrimaryIntegration(store, auth.value.organizationId);
   // Reconnecting (for example "Turn on sending") must upgrade the mailbox that
   // is already connected, never swap in a different Google account by mistake.
@@ -173,6 +201,9 @@ export async function GET(request: NextRequest) {
 
 /** The only pages a finished connection may return to besides Settings. */
 const RETURN_PAGES = new Set(['/calendar', '/inbox']);
+
+/** Where a member connection may return: the Space it was started from. */
+const MEMBER_RETURN = /^\/spaces\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function redirectWithError(message: string): NextResponse {
   const target = new URL('/settings', env().appUrl);

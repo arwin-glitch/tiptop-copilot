@@ -24,3 +24,19 @@ export const CALENDAR_EDIT_SCOPES = ['https://www.googleapis.com/auth/calendar.e
  * is never asked for), and the filter path itself refuses a forward action.
  */
 export const FILTER_SCOPES = ['https://www.googleapis.com/auth/gmail.settings.basic'] as const;
+
+/**
+ * "Connect your Google to contribute" (Spaces): a member's own Google,
+ * READ-ONLY, and nothing else. Pinned here beside the write scopes so the
+ * test that pins them proves this list holds no write scope and never grows
+ * one. A member connection never asks for sending, calendar editing or
+ * filters; the OAuth builder sends exactly this list for it, without
+ * include_granted_scopes, and the callback refuses a grant that carries
+ * anything outside it (D-081).
+ */
+export const MEMBER_READ_SCOPES = [
+  'openid',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/calendar.readonly',
+] as const;

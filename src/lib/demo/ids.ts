@@ -123,6 +123,8 @@ export const DEMO_IDS = {
 
   // Integrations
   integrationGoogle: id(1400),
+  // The demo teammate's own Google, connected read-only for Spaces (fictional).
+  integrationTeammateSpaces: id(1401),
 
   // CRM lists (records, entries and notes are numbered: see demoCrmId)
   crmListDeals: id(1600),

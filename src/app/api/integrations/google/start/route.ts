@@ -13,6 +13,8 @@ export const dynamic = 'force-dynamic';
 
 export const OAUTH_STATE_COOKIE = 'tiptop_oauth_state';
 
+const SPACE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Begin the "Connect Google Workspace" flow.
  *
@@ -31,6 +33,11 @@ export const OAUTH_STATE_COOKIE = 'tiptop_oauth_state';
  * asking for Gmail's basic settings scope (filters), and back to the Inbox
  * after (or to Settings, with `&from=settings`). Only the Inbox's Create
  * filter and Filters list use it.
+ *
+ * `?member=1` is "Connect your Google to contribute" (Spaces): a member's
+ * OWN Google, read-only (MEMBER_READ_SCOPES alone), stored as their own
+ * connection beside the main mailbox and never in its place (D-081). Back to
+ * the Space it was started from (`&space=<id>`), else to Settings.
  *
  * Never from inside the iPhone app, where Google's consent screen cannot
  * finish (lib/ios/computer-only.ts).
@@ -69,6 +76,9 @@ export async function GET(request: NextRequest) {
   const calendar = request.nextUrl.searchParams.get('calendar') === '1';
   const filters = request.nextUrl.searchParams.get('filters') === '1';
   const fromSettings = request.nextUrl.searchParams.get('from') === 'settings';
+  const member = request.nextUrl.searchParams.get('member') === '1';
+  const space = request.nextUrl.searchParams.get('space') ?? '';
+  const memberReturn = SPACE_ID.test(space) ? `/spaces/${space.toLowerCase()}` : '/settings';
 
   const nonce = randomToken(24);
   const statePayload = JSON.stringify({
@@ -78,12 +88,17 @@ export async function GET(request: NextRequest) {
     issuedAt: Date.now(),
     // A fixed page, never one taken from the request: the callback only
     // honours values on its own list.
-    ...(calendar && !fromSettings ? { returnTo: '/calendar' } : {}),
-    ...(filters && !calendar && !fromSettings ? { returnTo: '/inbox' } : {}),
+    ...(member
+      ? { member: true, returnTo: memberReturn }
+      : {
+          ...(calendar && !fromSettings ? { returnTo: '/calendar' } : {}),
+          ...(filters && !calendar && !fromSettings ? { returnTo: '/inbox' } : {}),
+        }),
   });
   const state = signedValue(statePayload);
 
-  const url = buildAuthorizationUrl(state, { send, calendar, filters });
+  // A member connection asks for the read-only scopes alone, never with the others.
+  const url = buildAuthorizationUrl(state, member ? { member: true } : { send, calendar, filters });
   if (!url.ok) {
     return NextResponse.json({ ok: false, error: url.error }, { status: 503 });
   }
