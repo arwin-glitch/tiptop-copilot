@@ -10,6 +10,22 @@ throughout.
 
 ## [Unreleased]
 
+- **Spaces: your own Google, read-only (D-081).** A member who is not the
+  mailbox owner can "Connect your Google to contribute" (a Space's Members
+  tab, or Settings › Integrations › Your Google (for Spaces)). Google is asked
+  for gmail.readonly and calendar.readonly only (MEMBER_READ_SCOPES, pinned
+  beside the write scopes), stored as that member's own connection
+  (provider `google_space`) beside the main mailbox, which is untouched. Their
+  mail and meetings are read live, only for Spaces they accepted, only items
+  matching each Space's rules, minus hidden items, shown only to that Space's
+  members and labelled "from Riley's mail". Never synced, never in the Inbox,
+  Today, Follow-ups, Tasks, Ask Arwin, digests, routines or search (a source
+  scan enforces it). Links open their own Gmail (authuser) or a read-only
+  viewer inside the Space. Leaving, declining or disconnecting (revoked at
+  Google, row deleted) stops it at once. Needs
+  `supabase/migrations/20261107000000_space_member_google.sql` applied by
+  hand; until then connecting says it needs a database update.
+
 - **Spaces.** A shared home for one client or project, under Records: a name
   and rules (company domains, people's addresses, keywords) gather the
   matching emails (searched live in Gmail, read-only), meetings and meeting

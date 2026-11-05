@@ -9,6 +9,9 @@ import { expect, test, type Page } from '@playwright/test';
 
 // demoSpaceId('space', 0) = 2400, in hex.
 const LEDGERLY = '/spaces/00000000-0000-4000-8000-000000000960';
+// demoSpaceId('space', 1): Stonebridge Ops, which the demo teammate accepted
+// with their own (fictional) Google connected read-only.
+const STONEBRIDGE = '/spaces/00000000-0000-4000-8000-000000000961';
 
 async function enterDemo(page: Page) {
   await page.goto('/login');
@@ -104,4 +107,68 @@ test('makes a new Space by hand', async ({ page }) => {
   await expect(page.getByText(/Matches northwind\.demo/)).toBeVisible();
   await page.goto('/spaces');
   await expect(page.getByRole('link', { name: /Northwind Labs/ })).toBeVisible();
+});
+
+test("merges a contributor's own mail and meetings, labelled theirs", async ({ page }) => {
+  await page.goto(`${STONEBRIDGE}?tab=emails`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Stonebridge Ops' })).toBeVisible();
+  const chips = page.getByRole('navigation', { name: 'Mailboxes' });
+  await expect(chips.getByRole('link', { name: 'All mailboxes' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(chips.getByRole('link', { name: "Riley's mail" })).toBeVisible();
+  const rows = page.locator('[data-tour="space-emails"] li');
+  const theirs = rows.filter({ hasText: "from Riley's mail" });
+  await expect(theirs).toHaveCount(2);
+  await expect(rows.filter({ hasText: 'main mailbox' }).first()).toBeVisible();
+  // Nothing outside the rules from their mailbox.
+  await expect(page.getByText('Dentist appointment reminder')).toHaveCount(0);
+  const shortlist = theirs.filter({ hasText: 'engineer shortlist' });
+  // Their Gmail, in their own account; never the Inbox.
+  await expect(shortlist.getByRole('link', { name: /Open in Gmail/ })).toHaveAttribute(
+    'href',
+    /authuser=riley%40fund\.demo#all\/a1b2c3d4e5f60001/,
+  );
+  await expect(shortlist.locator('a[href*="/inbox"]')).toHaveCount(0);
+  await shortlist.getByRole('link', { name: /Open in Kraken/ }).click();
+  await expect(page).toHaveURL(/\/spaces\/[0-9a-f-]{36}\/email\?item=m\./);
+  await expect(page.getByText(/From Riley's mail · read-only/)).toBeVisible();
+  await expect(page.getByTestId('space-email-messages').locator('li')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: /reply|archive|send/i })).toHaveCount(0);
+
+  await page.goto(`${STONEBRIDGE}?tab=meetings`);
+  const sync = page.locator('[data-tour="space-meetings"] li', {
+    hasText: 'Stonebridge hiring sync',
+  });
+  await expect(sync).toContainText("from Riley's calendar");
+  await expect(page.getByText('Gym', { exact: true })).toHaveCount(0);
+});
+
+test('shows who contributes on Members, and Ledgerly keeps an invitee out', async ({ page }) => {
+  await page.goto(`${STONEBRIDGE}?tab=members`);
+  const riley = page.locator('[data-tour="space-members"] li', { hasText: 'Riley Moreno' });
+  await expect(riley.getByTestId('contribution')).toHaveText('Connected');
+  const nick = page.locator('[data-tour="space-members"] li', { hasText: '(you)' });
+  await expect(nick.getByTestId('contribution')).toHaveText('Main mailbox');
+  // Only your own connection has a Disconnect, and the main mailbox has none.
+  await expect(page.getByRole('button', { name: /Disconnect/ })).toHaveCount(0);
+
+  // Riley is only invited to Ledgerly: none of their mail or meetings there.
+  await page.goto(`${LEDGERLY}?tab=emails`);
+  // (Its one demo email was hidden by an earlier test: the tab itself is enough.)
+  await expect(page.locator('[data-tour="space-emails"]')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Mailboxes' })).toHaveCount(0);
+  await expect(page.getByText("from Riley's mail")).toHaveCount(0);
+  await expect(page.getByText('Ledgerly hiring panel availability')).toHaveCount(0);
+  await page.goto(`${LEDGERLY}?tab=meetings`);
+  await expect(page.getByText('Ledgerly VP Sales panel')).toHaveCount(0);
+});
+
+test('Settings shows your own Google for Spaces', async ({ page }) => {
+  await page.goto('/settings?tab=integrations');
+  const card = page.locator('[data-tour="settings-spaces-google"]');
+  await expect(card.getByRole('heading', { name: 'Your Google (for Spaces)' })).toBeVisible();
+  await expect(card).toContainText('Main mailbox');
+  await expect(card).toContainText('read-only');
 });

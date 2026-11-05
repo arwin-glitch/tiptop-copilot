@@ -71,10 +71,14 @@ describe('who sees a Space', () => {
   it('is members only: the owner and the invited, never the rest of the workspace', async () => {
     expect(await spacesReady(harness.store, DEMO_IDS.org)).toBe(true);
     const mine = await listMySpaces(harness.store, owner());
-    expect(mine.ok && mine.value.map((a) => a.space.name)).toEqual(['Ledgerly']);
+    expect(mine.ok && mine.value.map((a) => a.space.name).sort()).toEqual([
+      'Ledgerly',
+      'Stonebridge Ops',
+    ]);
     const invited = await listMySpaces(harness.store, teammate());
-    expect(invited.ok && invited.value[0]?.invited).toBe(true);
-    expect(invited.ok && invited.value[0]?.canView).toBe(false);
+    const ledgerly = invited.ok ? invited.value.find((a) => a.space.id === LEDGERLY) : undefined;
+    expect(ledgerly?.invited).toBe(true);
+    expect(ledgerly?.canView).toBe(false);
     const other = await listMySpaces(harness.store, outsider());
     expect(other.ok && other.value).toEqual([]);
     const denied = await getSpaceAccess(harness.store, outsider(), LEDGERLY);
@@ -97,7 +101,7 @@ describe('what is in a Space', () => {
     const cards = await spaceCards(harness.store, owner());
     expect(cards.ok).toBe(true);
     if (!cards.ok) return;
-    const card = cards.value[0]!;
+    const card = cards.value.find((c) => c.id === LEDGERLY)!;
     expect(card.counts?.emails).toBeGreaterThan(0);
     expect(card.counts?.meetings).toBeGreaterThan(0);
     expect(card.others).toBe(0);

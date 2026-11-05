@@ -347,9 +347,6 @@ export function MembersPanel({
                 {CONTRIBUTION[m.contribution].label}
               </Badge>
             ) : null}
-            {m.isMe && m.contribution === 'none' && canConnect ? (
-              <ConnectSpaceGoogle spaceId={spaceId} />
-            ) : null}
             {m.isMe && m.contribution === 'paused' && canConnect ? (
               <ConnectSpaceGoogle spaceId={spaceId} label="Reconnect" variant="secondary" />
             ) : null}

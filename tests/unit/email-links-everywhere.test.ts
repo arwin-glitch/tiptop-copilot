@@ -57,7 +57,11 @@ const ALLOWED: Record<string, { names: string[]; why: string }> = {
   },
   'app/(app)/spaces/[id]/page.tsx': {
     names: ['gmailThreadUrl()'],
-    why: "A Space member's own mailbox: the Inbox reads only the main one, so Gmail is the one place it opens. The main mailbox's rows use ThreadLinks.",
+    why: "A Space member's own mailbox (D-081): the Inbox reads only the main one, so its rows offer the Space's read-only viewer and their own Gmail. The main mailbox's rows use ThreadLinks.",
+  },
+  'app/(app)/spaces/[id]/email/page.tsx': {
+    names: ['gmailThreadUrl()'],
+    why: "The Space's read-only viewer of a member's own email (D-081): it is the Kraken place, and Gmail (their own account) the other.",
   },
   'app/(app)/today/page.tsx': {
     names: ['gmailMessageHref()'],

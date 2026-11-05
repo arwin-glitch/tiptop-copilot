@@ -4657,3 +4657,41 @@ Account. Alerts go to every phone in the organization, as before,
 so Arwin's app gets Nick's alerts while it is on. The on-device checks (the
 status bar strip, the return link, a tap launching the app, a meeting link
 handed to the meeting app, the share sheet) are in ios-app/README.md.
+
+### D-081 — A member's own Google for Spaces: read-only, its own provider, read in one module
+
+**Context.** Spaces gather a client's mail and meetings from the workspace's
+one Google connection (the primary, provider `google`). Members who are not
+the mailbox owner (an EA, a partner) have mail about the same clients in
+their own accounts. Every reader of the primary picks "the newest `google`
+row", so a second `google` row would have taken over the Inbox, sending and
+filters.
+
+**Decision.** A member connects their own Google with `?member=1` on the
+existing OAuth start/callback: exactly `MEMBER_READ_SCOPES` (openid,
+userinfo.email, gmail.readonly, calendar.readonly; pinned in
+`lib/google/send-scopes.ts`), no `include_granted_scopes`, and the callback
+refuses any grant with more, and the main mailbox's own account. It is stored
+as provider `google_space`, user_id = the member (one per member per
+organization, the existing unique key), tokens encrypted exactly as the
+primary's. Migration `20261107000000_space_member_google.sql` adds the enum
+value, a check that such a row lists only read scopes, and RLS so a member
+sees only their own connection row.
+
+`lib/services/space-member-mail.ts` is the only module that reads one. It
+reads live (never syncs or stores): for a Space whose membership row for that
+member is `accepted` (worked out on each request), items matching the
+Space's rules (Gmail search, then the same local check as synced mail),
+minus hidden items, shown on that Space's pages only. Item ids carry the
+member (`m.<user>.<id>`), so Hide is per item for its owner. Links open their
+own Gmail (`authuser`) or a read-only viewer inside the Space, never the
+Inbox. Space action suggestions skip a member's mail (an added suggestion
+becomes a workspace task). Leaving, declining, being removed or disconnecting
+(revoked at Google, tokens and row deleted) stops it at once; caches are
+keyed per member and connection and forgotten.
+
+**Enforced by** `tests/unit/space-member-boundary.test.ts` (source scan: no
+other file names the provider or imports the module beyond the Space pages,
+actions, OAuth routes and Settings; every other integrations read filters on
+`google`), the scope pin in `tests/integration/drafts.test.ts`, and
+`tests/integration/space-member-google.test.ts`.

@@ -28,6 +28,12 @@ export const WHATS_NEW: readonly WhatsNewItem[] = [
   {
     date: '2026-11-05',
     page: 'spaces',
+    text: 'Spaces: connect your own Google, read-only, so your mail and meetings about a Space join it.',
+    href: '/spaces',
+  },
+  {
+    date: '2026-11-05',
+    page: 'spaces',
     text: 'Spaces: one home per client or project, with its emails, meetings, action items and Ask.',
     href: '/spaces',
   },

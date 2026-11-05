@@ -881,7 +881,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'spaces-list',
         title: 'Your Spaces',
-        body: 'Each card counts emails, meetings and open items. Open one for its tabs, Ask and members.',
+        body: 'Each card counts emails, meetings and open items, yours too once you connect your Google.',
         placement: 'top',
         grand: true,
       },
@@ -913,7 +913,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         key: 'integrations',
         label: 'Integrations',
-        blurb: 'Google, and importing from Affinity.',
+        blurb: 'Google, your own Google for Spaces, and importing from Affinity.',
         href: tabHref('/settings', 'integrations', 'thesis'),
       },
       {
