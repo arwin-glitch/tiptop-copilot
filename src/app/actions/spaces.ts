@@ -7,6 +7,7 @@ import { rateLimit } from '@/lib/security/limits';
 import { rulesFromForm } from '@/lib/spaces/rules';
 import { askSpace, SUMMARY_QUESTION, type SpaceAnswer } from '@/lib/services/space-ask';
 import { addSpaceTask, itemOwner } from '@/lib/services/space-content';
+import { disconnectMemberConnection } from '@/lib/services/space-member-mail';
 import {
   answerInvite,
   createSpace,
@@ -230,4 +231,19 @@ export async function askSpaceAction(
     await askSpace(store, auth, access.value, summary ? SUMMARY_QUESTION : question, { summary }),
     (a) => a,
   );
+}
+
+/**
+ * Disconnects the signed-in person's own Google for Spaces (D-081): revoked
+ * at Google, tokens and row deleted, and their items leave every Space at
+ * once. Only ever their own connection; the main mailbox is never touched.
+ */
+export async function disconnectSpaceGoogleAction(): Promise<
+  ActionResult<{ revokedRemotely: boolean }>
+> {
+  const { auth, limited } = await signedIn('google', 10);
+  if (!limited.ok) return fail(limited.error);
+  return from(await disconnectMemberConnection(getStore(), auth), (v) => ({
+    revokedRemotely: v.revokedRemotely,
+  }));
 }

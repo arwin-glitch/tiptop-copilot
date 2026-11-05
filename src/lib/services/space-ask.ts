@@ -139,7 +139,14 @@ export async function askSpace(
   const picked = pickSources(items, question);
   const sources = picked.map((c) => c.source);
 
-  const cacheKey = `${access.space.id}:${access.hidden.length}:${access.rules.length}`;
+  // Whose mailboxes are read is in the key: a member who leaves, declines or
+  // disconnects never lingers in a kept summary (D-081).
+  const accepted = access.members
+    .filter((m) => m.status === 'accepted')
+    .map((m) => m.user_id)
+    .sort()
+    .join(',');
+  const cacheKey = `${access.space.id}:${access.hidden.length}:${access.rules.length}:${accepted}:${items.sourcesKey}`;
   if (summary) {
     const hit = cache.summaries.get(cacheKey);
     if (hit && now.getTime() - hit.at < SUMMARY_TTL_MS) return ok(hit.answer);

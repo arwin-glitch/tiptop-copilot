@@ -6,6 +6,8 @@ import { hasRole, requireAuth } from '@/lib/auth/session';
 import { env, envLimits, isDemoMode } from '@/lib/config/env';
 import { getStore } from '@/lib/runtime';
 import { getPrimaryIntegration } from '@/lib/services/inbox';
+import { myMemberConnection } from '@/lib/services/space-member-mail';
+import { ConnectSpaceGoogle, DisconnectSpaceGoogle } from '@/components/spaces/space-controls';
 import { listMcpTokens } from '@/lib/services/mcp-tokens';
 import { err } from '@/lib/util/result';
 import { iosAlertsStatus, vapidPublicKey } from '@/lib/services/push-alerts';
@@ -78,6 +80,7 @@ export default async function SettingsPage({
     desktopComputers,
     booking,
     notes,
+    spacesGoogle,
   ] = await Promise.all([
     getActiveThesis(store, auth.organizationId, auth.userId),
     getPrimaryIntegration(store, auth.organizationId),
@@ -106,6 +109,8 @@ export default async function SettingsPage({
     }),
     // Kraken Notes (D-076): its tab shows only once the server switch is not off.
     notesAccess(store, auth).catch(() => null),
+    // Your own Google for Spaces (D-081): never a token, only the address and state.
+    myMemberConnection(store, auth).catch(() => null),
   ]);
   const limits = envLimits();
   // No paid AI key means nothing here can spend: AI answers come from the
@@ -362,6 +367,78 @@ export default async function SettingsPage({
                   iosVersion={iosVersion}
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="mt-4" data-tour="settings-spaces-google">
+            <CardHeader>
+              <div>
+                <CardTitle as="h2">Your Google (for Spaces)</CardTitle>
+                <p className="mt-1 text-sm text-[var(--fg-muted)]">
+                  Your own Gmail and Calendar, read-only, to contribute to the Spaces you accepted.
+                  Kraken reads only the mail and meetings matching each of those Spaces, shows them
+                  only to its members, and never puts them in the Inbox, Today, Tasks, Ask Arwin or
+                  search. It never sends, labels or changes anything. The main mailbox above stays
+                  as it is.
+                </p>
+              </div>
+              {spacesGoogle?.connection ? (
+                <Badge tone={spacesGoogle.connection.status === 'connected' ? 'ok' : 'warn'}>
+                  {spacesGoogle.connection.status === 'connected' ? 'Connected' : 'Paused'}
+                </Badge>
+              ) : spacesGoogle?.isMainMailbox ? (
+                <Badge tone="accent">Main mailbox</Badge>
+              ) : (
+                <Badge tone="neutral">Not connected</Badge>
+              )}
+            </CardHeader>
+            <CardContent>
+              {spacesGoogle?.connection ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="min-w-0 flex-1 text-sm">
+                    {spacesGoogle.connection.email ?? 'Your Google account'}
+                    <span className="text-[var(--fg-muted)]">
+                      {' '}
+                      · since {formatDateTime(spacesGoogle.connection.since, auth.profile.timezone)}
+                      {spacesGoogle.connection.status === 'paused'
+                        ? ' · Google stopped answering for it: reconnect'
+                        : ''}
+                    </span>
+                  </p>
+                  {spacesGoogle.connection.status === 'paused' && !demo && googleConfigured() ? (
+                    <ConnectSpaceGoogle label="Reconnect" variant="secondary" />
+                  ) : null}
+                  <DisconnectSpaceGoogle email={spacesGoogle.connection.email} />
+                </div>
+              ) : spacesGoogle?.isMainMailbox ? (
+                <p className="text-sm text-[var(--fg-muted)]">
+                  Your mailbox is the main one: its matching mail and meetings are already in your
+                  Spaces.
+                </p>
+              ) : demo ? (
+                <p className="text-sm text-[var(--fg-muted)]">
+                  Demo mode: no Google account can be connected. The demo teammate&apos;s fictional
+                  mailbox shows how it looks in the Stonebridge Ops Space.
+                </p>
+              ) : !googleConfigured() ? (
+                <p className="text-sm text-[var(--fg-muted)]">Google OAuth is not configured.</p>
+              ) : !spacesGoogle?.ready ? (
+                <p className="text-sm text-[var(--fg-muted)]">
+                  Contributing your own Google needs a database update first. Nothing else changes.
+                </p>
+              ) : (
+                <WebOnly
+                  serverVersion={desktopVersion}
+                  iosServerVersion={iosVersion}
+                  fallback={
+                    <span className="text-sm text-[var(--fg-muted)]">
+                      Connect from Kraken in your web browser.
+                    </span>
+                  }
+                >
+                  <ConnectSpaceGoogle />
+                </WebOnly>
+              )}
             </CardContent>
           </Card>
 

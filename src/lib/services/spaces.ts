@@ -24,6 +24,13 @@ import type {
 import { newId } from '@/lib/util/hash';
 import { err, ok, type Result } from '@/lib/util/result';
 import { getPrimaryIntegration } from './inbox';
+import {
+  contributionStatus,
+  forgetMember,
+  listMemberConnections,
+  type ContributionStatus,
+  type Contributor,
+} from './space-member-mail';
 import { isPersonalDomain } from './warm-paths';
 
 /**
@@ -451,6 +458,7 @@ export async function answerInvite(
     accepted_at: answer === 'accept' ? stamp : null,
     updated_at: stamp,
   });
+  forgetMember(viewer.userId);
   return ok(row as SpaceMember);
 }
 
@@ -482,6 +490,9 @@ export async function removeMember(
   await store.removeWhere('space_hidden_items', org, {
     eq: { space_id: spaceId, user_id: userId },
   });
+  // Their mailbox is no longer read for this Space: the next read leaves them
+  // out (they are no longer accepted), and nothing kept for them lingers.
+  forgetMember(userId);
   await recordAudit(store, {
     organizationId: org,
     userId: viewer.userId,
@@ -503,12 +514,22 @@ export interface Contributors {
    * brought them in by making it.
    */
   primaryOwner: string;
-  /** Members who accepted and have a Google connection of their own, beside the primary. */
-  extra: { userId: string; integration: Integration }[];
-  /** People whose own calendar entries stay out (connected, but not in the Space or not accepted). */
-  excludedUsers: Set<string>;
+  /**
+   * Members whose membership is `accepted` (or the owner) and who connected
+   * their own Google for Spaces (D-081): their matching mail and meetings
+   * come in, read by space-member-mail.ts. Worked out from the membership
+   * rows of this request, so declining, leaving or being removed stops it at
+   * once.
+   */
+  extra: Contributor[];
+  /** Each accepted member's contribution: Connected, Paused (reconnect) or none. */
+  status: Map<string, ContributionStatus | 'main'>;
   /** Accepted members with no Google connection of their own: "connect your Google to contribute". */
   withoutMailbox: string[];
+  /** Whether member connections can be stored yet (the migration has run). */
+  memberReady: boolean;
+  /** Changes whenever whose mailboxes are read changes: for the caches keyed on a Space. */
+  key: string;
 }
 
 export async function spaceContributors(
@@ -516,32 +537,42 @@ export async function spaceContributors(
   access: Pick<SpaceAccess, 'space' | 'members'>,
 ): Promise<Contributors> {
   const org = access.space.organization_id;
-  const [primary, integrations] = await Promise.all([
+  const [primary, members] = await Promise.all([
     getPrimaryIntegration(store, org).catch(() => null),
-    (
-      store.list('integrations', org, { eq: { provider: 'google' } }) as Promise<Integration[]>
-    ).catch(() => [] as Integration[]),
+    listMemberConnections(store, org).catch(() => ({ ready: false, rows: [] as Integration[] })),
   ]);
   const accepted = new Set(
     access.members.filter((m) => m.status === 'accepted').map((m) => m.user_id),
   );
   accepted.add(access.space.created_by);
-  const own = integrations.filter(
-    (i) => i.id !== primary?.id && i.status !== 'disconnected' && i.kinds.includes('gmail'),
-  );
-  const extra = own
-    .filter((i) => accepted.has(i.user_id))
-    .map((integration) => ({ userId: integration.user_id, integration }));
-  const excludedUsers = new Set(own.filter((i) => !accepted.has(i.user_id)).map((i) => i.user_id));
+  const status = new Map<string, ContributionStatus | 'main'>();
+  const extra: Contributor[] = [];
+  for (const row of members.rows) {
+    // Only an accepted member's own connection, and never the main mailbox again.
+    if (!accepted.has(row.user_id) || row.id === primary?.id) continue;
+    if (
+      primary?.account_email &&
+      row.account_email?.toLowerCase() === primary.account_email.toLowerCase()
+    )
+      continue;
+    const s = contributionStatus(row);
+    status.set(row.user_id, s);
+    if (s === 'connected') extra.push({ userId: row.user_id, integration: row });
+  }
   const primaryOwner =
     primary && accepted.has(primary.user_id) ? primary.user_id : access.space.created_by;
-  const withMailbox = new Set([primaryOwner, ...extra.map((e) => e.userId)]);
+  if (!status.has(primaryOwner)) status.set(primaryOwner, 'main');
   return {
     primary,
     primaryOwner,
     extra,
-    excludedUsers,
-    withoutMailbox: [...accepted].filter((u) => !withMailbox.has(u)),
+    status,
+    withoutMailbox: [...accepted].filter((u) => !status.has(u)),
+    memberReady: members.ready,
+    key: extra
+      .map((e) => `${e.userId}:${e.integration.id}`)
+      .sort()
+      .join(','),
   };
 }
 

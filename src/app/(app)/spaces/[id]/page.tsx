@@ -2,8 +2,10 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
-import { ArrowLeft, CalendarDays, FileText, Lock, Mail } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ExternalLink, FileText, Lock, Mail, Eye } from 'lucide-react';
 import { requireAuth } from '@/lib/auth/session';
+import { isDemoMode } from '@/lib/config/env';
+import { googleConfigured } from '@/lib/google/oauth';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
 import { SPACE_TABS, spaceTabHref } from '@/lib/records-tabs';
@@ -14,12 +16,16 @@ import {
   spaceEmailPage,
   spaceItems,
   spaceTasks,
+  type SpaceEmailPage,
 } from '@/lib/services/space-content';
+
+type SpaceEmailPageMailbox = SpaceEmailPage['mailboxes'][number];
 import {
   getSpaceAccess,
   spaceContributors,
   teamPeople,
   type SpaceAccess,
+  type TeamPerson,
 } from '@/lib/services/spaces';
 import type { AuthContext } from '@/lib/auth/session';
 import { resolveTab, single } from '@/lib/util/page-tabs';
@@ -35,6 +41,7 @@ import {
   ActionItems,
   HideItemButton,
   InviteAnswer,
+  ConnectSpaceGoogle,
   MembersPanel,
   SpaceAsk,
   type MemberRow,
@@ -174,15 +181,79 @@ async function InviteCard({ access }: { access: SpaceAccess }) {
 const canHide = (access: SpaceAccess, auth: Pick<AuthContext, 'userId'>, owner: string) =>
   access.isOwner || owner === auth.userId;
 
+/** "Riley's" from a teammate's name; "your" for the viewer. */
+function whose(owner: string, team: TeamPerson[], auth: Pick<AuthContext, 'userId'>): string {
+  if (owner === auth.userId) return 'your';
+  const name = team.find((p) => p.userId === owner)?.name ?? 'a member';
+  return `${name.split(/\s+/)[0] ?? name}'s`;
+}
+
+/**
+ * The two places to read a contributor's email (D-081): Kraken's read-only
+ * viewer, scoped to this Space, and Gmail in their own account (authuser =
+ * their address). Never the Inbox, which reads the main mailbox alone.
+ */
+function ContributorThreadLinks({
+  spaceId,
+  itemId,
+  threadId,
+  mailbox,
+  label,
+}: {
+  spaceId: string;
+  itemId: string;
+  threadId: string;
+  mailbox: string | null;
+  label: string;
+}) {
+  const gmail = gmailThreadUrl(threadId, mailbox);
+  const icon =
+    'inline-flex size-8 items-center justify-center rounded-md text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] sm:size-7';
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      <Link
+        href={`/spaces/${spaceId}/email?item=${encodeURIComponent(itemId)}`}
+        aria-label={`Open in Kraken: ${label}`}
+        title="Read it here (read-only)"
+        className={icon}
+      >
+        <Eye className="size-4" aria-hidden="true" />
+      </Link>
+      {gmail ? (
+        <a
+          href={gmail}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Open in Gmail: ${label}`}
+          title="Open in their Gmail"
+          className={icon}
+        >
+          <ExternalLink className="size-4" aria-hidden="true" />
+        </a>
+      ) : null}
+    </span>
+  );
+}
+
+/** Whose mailbox a row came from, once more than one mailbox is read. */
+function SourceTag({ text }: { text: string }) {
+  return (
+    <span className="ml-1.5 rounded-full border border-[var(--border)] bg-[var(--accent-soft)] px-1.5 py-px text-[10px] font-medium text-[var(--accent)]">
+      {text}
+    </span>
+  );
+}
+
 /* -------------------------------------------------------------- overview */
 
 async function OverviewTab({ access }: { access: SpaceAccess }) {
   const auth = await requireAuth();
   const store = getStore();
   const now = new Date();
-  const [items, tasks] = await Promise.all([
+  const [items, tasks, team] = await Promise.all([
     spaceItems(store, access, now),
     spaceTasks(store, access),
+    teamPeople(store, auth.organizationId),
   ]);
   const recent = recentActivity(items);
   // Invited people see nothing until they accept: until then it is only the owner's.
@@ -219,6 +290,9 @@ async function OverviewTab({ access }: { access: SpaceAccess }) {
       <p className="text-xs text-[var(--fg-muted)]">
         {last ? `Last activity ${relativeTime(last, now)}.` : 'No activity yet.'} Counts are from
         the mail and calendar Kraken has synced
+        {items.threads.some((t) => t.member) || items.meetings.some((m) => m.fromMember)
+          ? ", and members' own connected mailboxes"
+          : ''}
         {items.hiddenCount ? `; ${items.hiddenCount} hidden by members` : ''}.
       </p>
       <section aria-labelledby="space-summary">
@@ -258,7 +332,15 @@ async function OverviewTab({ access }: { access: SpaceAccess }) {
                     {formatDateTime(r.at, tz)} · {r.detail}
                   </p>
                 </div>
-                {r.kind === 'email' ? (
+                {r.kind === 'email' && r.member ? (
+                  <ContributorThreadLinks
+                    spaceId={access.space.id}
+                    itemId={r.id}
+                    threadId={r.member.threadId}
+                    mailbox={r.member.mailbox}
+                    label={`${r.title} (from ${whose(r.owner, team, auth)} mail)`}
+                  />
+                ) : r.kind === 'email' ? (
                   <ThreadLinks id={r.id} mailbox={null} label={r.title} variant="icons" />
                 ) : null}
               </li>
@@ -280,10 +362,21 @@ async function OverviewTab({ access }: { access: SpaceAccess }) {
 
 async function EmailsTab({ access, query }: { access: SpaceAccess; query: Params }) {
   const auth = await requireAuth();
-  const page = await spaceEmailPage(getStore(), access, {
-    pageToken: single(query.page) ?? null,
-    mailbox: single(query.mailbox) ?? null,
-  });
+  const store = getStore();
+  const [page, team] = await Promise.all([
+    spaceEmailPage(store, access, {
+      pageToken: single(query.page) ?? null,
+      mailbox: single(query.mailbox) ?? null,
+    }),
+    teamPeople(store, auth.organizationId),
+  ]);
+  const several = page.mailboxes.length > 1;
+  const chipLabel = (m: SpaceEmailPageMailbox) =>
+    m.key === 'all'
+      ? 'All mailboxes'
+      : m.key === 'primary'
+        ? `Main mailbox (${m.label})`
+        : `${whose(m.userId ?? '', team, auth).replace(/^your$/, 'Your')} mail`;
   const base = spaceTabHref(access.space.id, 'emails');
   const href = (extra: Record<string, string>) => {
     const qs = new URLSearchParams(extra);
@@ -296,11 +389,11 @@ async function EmailsTab({ access, query }: { access: SpaceAccess; query: Params
           {page.mailboxes.map((m) => (
             <Link
               key={m.key}
-              href={m.key === 'primary' ? base : href({ mailbox: m.key })}
+              href={m.key === page.mailboxes[0]!.key ? base : href({ mailbox: m.key })}
               aria-current={m.key === page.mailbox ? 'page' : undefined}
               className="rounded-full border border-[var(--border)] px-3 py-1 text-xs aria-[current=page]:border-[var(--accent)] aria-[current=page]:text-[var(--accent)]"
             >
-              {m.label}
+              {chipLabel(m)}
             </Link>
           ))}
         </nav>
@@ -323,6 +416,12 @@ async function EmailsTab({ access, query }: { access: SpaceAccess; query: Params
         />
       ) : page.rows.length ? (
         <>
+          {page.unavailable.length ? (
+            <Notice tone="warn">
+              {page.unavailable.map((u) => whose(u, team, auth)).join(', ')} mailbox could not be
+              read just now; the rest is here.
+            </Notice>
+          ) : null}
           <p className="text-xs text-[var(--fg-muted)]">
             {page.total !== null
               ? `About ${page.total.toLocaleString('en-US')} conversations in Gmail`
@@ -332,7 +431,7 @@ async function EmailsTab({ access, query }: { access: SpaceAccess; query: Params
           </p>
           <ul className="divide-y divide-[var(--border)] rounded-[var(--radius-card)] border border-[var(--border)]">
             {page.rows.map((row) => (
-              <li key={row.id} className="flex flex-wrap items-start gap-3 px-3 py-2.5">
+              <li key={row.itemId} className="flex flex-wrap items-start gap-3 px-3 py-2.5">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">
                     <span className={row.unread ? 'font-semibold' : 'font-medium'}>{row.who}</span>
@@ -340,6 +439,11 @@ async function EmailsTab({ access, query }: { access: SpaceAccess; query: Params
                       <span className="text-[var(--fg-muted)]"> {row.count}</span>
                     ) : null}
                     <span className="text-[var(--fg-muted)]"> · {row.subject}</span>
+                    {!row.primary ? (
+                      <SourceTag text={`from ${whose(row.owner, team, auth)} mail`} />
+                    ) : several ? (
+                      <SourceTag text="main mailbox" />
+                    ) : null}
                   </p>
                   <p className="truncate text-xs text-[var(--fg-muted)]">
                     {row.at ? `${relativeTime(row.at)} · ` : null}
@@ -348,22 +452,26 @@ async function EmailsTab({ access, query }: { access: SpaceAccess; query: Params
                 </div>
                 <div className="flex items-center gap-1">
                   {row.primary ? (
-                    <ThreadLinks id={row.id} mailbox={null} label={row.subject} variant="icons" />
+                    <ThreadLinks
+                      id={row.threadId}
+                      mailbox={null}
+                      label={row.subject}
+                      variant="icons"
+                    />
                   ) : (
-                    <a
-                      href={gmailThreadUrl(row.id, row.mailbox) ?? '#'}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-[var(--accent)] underline"
-                    >
-                      Open in Gmail
-                    </a>
+                    <ContributorThreadLinks
+                      spaceId={access.space.id}
+                      itemId={row.itemId}
+                      threadId={row.threadId}
+                      mailbox={row.mailbox}
+                      label={`${row.subject} (from ${whose(row.owner, team, auth)} mail)`}
+                    />
                   )}
                   {canHide(access, auth, row.owner) ? (
                     <HideItemButton
                       spaceId={access.space.id}
                       kind="email"
-                      id={row.id}
+                      id={row.itemId}
                       label={row.subject}
                     />
                   ) : null}
@@ -371,6 +479,15 @@ async function EmailsTab({ access, query }: { access: SpaceAccess; query: Params
               </li>
             ))}
           </ul>
+          {page.morePrimary ? (
+            <div className="flex justify-end">
+              <Button asChild size="sm" variant="secondary">
+                <Link href={href({ page: page.morePrimary, mailbox: 'primary' })}>
+                  More from the main mailbox
+                </Link>
+              </Button>
+            </div>
+          ) : null}
           {page.nextPageToken ? (
             <div className="flex justify-end">
               <Button asChild size="sm" variant="secondary">
@@ -400,7 +517,11 @@ async function EmailsTab({ access, query }: { access: SpaceAccess; query: Params
 
 async function MeetingsTab({ access }: { access: SpaceAccess }) {
   const auth = await requireAuth();
-  const items = await spaceItems(getStore(), access);
+  const store = getStore();
+  const [items, team] = await Promise.all([
+    spaceItems(store, access),
+    teamPeople(store, auth.organizationId),
+  ]);
   const tz = auth.profile.timezone;
   const upcoming = items.meetings.filter((m) => m.upcoming).reverse();
   const past = items.meetings.filter((m) => !m.upcoming).slice(0, 50);
@@ -415,7 +536,12 @@ async function MeetingsTab({ access }: { access: SpaceAccess }) {
             {[...upcoming, ...past].map((m) => (
               <li key={m.id} className="flex items-start gap-3 px-3 py-2.5">
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{m.title}</p>
+                  <p className="text-sm font-medium">
+                    {m.title}
+                    {m.fromMember ? (
+                      <SourceTag text={`from ${whose(m.owner, team, auth)} calendar`} />
+                    ) : null}
+                  </p>
                   <p className="text-xs text-[var(--fg-muted)]">
                     {m.upcoming ? 'Coming up · ' : null}
                     {formatDateTime(m.at, tz)}
@@ -434,9 +560,7 @@ async function MeetingsTab({ access }: { access: SpaceAccess }) {
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-sm text-[var(--fg-muted)]">
-            No synced meetings match this Space.
-          </p>
+          <p className="mt-2 text-sm text-[var(--fg-muted)]">No meetings match this Space.</p>
         )}
       </section>
       <section aria-labelledby="space-notes-heading" className="min-w-0">
@@ -572,14 +696,14 @@ async function MembersTab({ access }: { access: SpaceAccess }) {
       email: byId.get(m.user_id)?.email ?? null,
       role: m.role,
       status: m.status,
-      mailbox:
-        m.user_id === who.primaryOwner
-          ? 'main'
-          : who.extra.some((e) => e.userId === m.user_id)
-            ? 'own'
-            : 'none',
+      // Only someone in the Space contributes anything.
+      contribution:
+        m.status === 'accepted' || m.role === 'owner'
+          ? (who.status.get(m.user_id) ?? 'none')
+          : null,
       isMe: m.user_id === auth.userId,
     }));
+  const canConnect = !isDemoMode() && googleConfigured() && who.memberReady;
   const active = new Set(
     access.members
       .filter((m) => m.status === 'invited' || m.status === 'accepted')
@@ -603,6 +727,7 @@ async function MembersTab({ access }: { access: SpaceAccess }) {
           members={rows}
           invitable={invitable}
           canManage={access.canManage}
+          canConnect={canConnect}
         />
       </section>
       <section aria-labelledby="space-privacy-heading" className="min-w-0 space-y-3">
@@ -614,10 +739,27 @@ async function MembersTab({ access }: { access: SpaceAccess }) {
           person accepts before anything of theirs comes in. Anyone can hide their own emails and
           meetings, and removing someone takes their items out.
         </p>
+        <p className="text-sm text-[var(--fg-muted)]">
+          Connecting your own Google is read-only: Kraken reads only the mail and meetings matching
+          the Spaces you accepted, shows them only to those Spaces&apos; members, and never puts
+          them in the Inbox, Today, Tasks, Ask Arwin or search. Leave a Space or disconnect and they
+          are gone at once.
+        </p>
         {who.withoutMailbox.includes(auth.userId) ? (
           <Notice>
-            Connect your Google to contribute your own emails and meetings. Until then you can see
-            everything in the Space.
+            <span className="block">
+              Connect your Google to contribute your own emails and meetings. Until then you can see
+              everything in the Space.
+            </span>
+            {canConnect ? (
+              <span className="mt-2 block">
+                <ConnectSpaceGoogle spaceId={access.space.id} />
+              </span>
+            ) : !who.memberReady && !isDemoMode() ? (
+              <span className="mt-1 block text-xs">
+                Contributing needs a database update first. Nothing else changes.
+              </span>
+            ) : null}
           </Notice>
         ) : null}
         <div>
@@ -631,8 +773,9 @@ async function MembersTab({ access }: { access: SpaceAccess }) {
                       ? 'Email'
                       : h.item_kind === 'meeting'
                         ? 'Meeting'
-                        : 'Note'}{' '}
-                    · {relativeTime(h.created_at)}
+                        : 'Note'}
+                    {h.item_id.startsWith('m.') ? " from a member's mailbox" : ''} ·{' '}
+                    {relativeTime(h.created_at)}
                   </span>
                   <HideItemButton
                     spaceId={access.space.id}

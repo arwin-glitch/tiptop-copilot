@@ -18,6 +18,7 @@ import type {
   Deal,
   EmailMessage,
   EmailThread,
+  Integration,
   MeetingNote,
   PortfolioCompany,
   Space,
@@ -39,6 +40,16 @@ import {
   type SpaceAccess,
   type SpaceViewer,
 } from './spaces';
+import {
+  listMemberConnections,
+  memberMeetings,
+  memberThreads,
+  parseMemberItemId,
+  readMemberThread,
+  type Contributor,
+  type MemberMessage,
+  type MemberThread,
+} from './space-member-mail';
 import { normalizeTitle } from './task-ingest';
 import { isPersonalDomain, registrableDomain } from './warm-paths';
 
@@ -52,6 +63,11 @@ import { isPersonalDomain, registrableDomain } from './warm-paths';
  * kept two minutes and shared by every Space), never Gmail. Only the Emails
  * tab searches Gmail live, one page at a time, through the Inbox's own
  * search and thread cache. Every item a member hid is left out everywhere.
+ *
+ * Beside the main mailbox, each member who accepted the Space and connected
+ * their own Google contributes their matching mail and meetings, read live by
+ * space-member-mail.ts (the one module that reads a member's connection) and
+ * labelled as theirs (D-081). Nothing of theirs is synced or stored.
  *
  * Read-only toward mail and calendars: nothing here sends, labels, archives
  * or changes anything. Action items are Kraken tasks, added from a person's
@@ -145,6 +161,11 @@ export interface SpaceThread {
   /** Whose it is in this Space (the user id), for Hide. */
   owner: string;
   lastFromUs: boolean;
+  /**
+   * From a member's own mailbox (D-081): their address (Gmail's authuser) and
+   * the thread's id there. Null for the main mailbox's, which open in the Inbox.
+   */
+  member: { mailbox: string | null; threadId: string } | null;
 }
 
 export interface SpaceMeeting {
@@ -154,6 +175,8 @@ export interface SpaceMeeting {
   upcoming: boolean;
   people: string[];
   owner: string;
+  /** From a member's own calendar (D-081); false for the main one. */
+  fromMember: boolean;
 }
 
 export interface SpaceNote {
@@ -174,18 +197,83 @@ export interface SpaceItems {
   notes: SpaceNote[];
   /** How many of each a member hid. */
   hiddenCount: number;
+  /** Contributors whose mailbox could not be read just now (paused or erroring), by user id. */
+  unavailable: string[];
+  /** Changes whenever whose mailboxes are read changes (caches keyed on a Space use it). */
+  sourcesKey: string;
 }
 
 const personName = (name: string | null | undefined, email: string) =>
   name?.trim() || email.split('@')[0] || email;
 
-function eventOwner(event: CalendarEvent, who: Contributors): string | null {
-  if (who.excludedUsers.has(event.user_id)) return null;
-  const extra = who.extra.find((e) => e.userId === event.user_id);
-  return extra ? extra.userId : who.primaryOwner;
+/** The synced calendar is the main mailbox's: its events are the primary owner's. */
+function eventOwner(_event: CalendarEvent, who: Contributors): string {
+  return who.primaryOwner;
 }
 
-/** Everything in a Space from what Kraken has synced, newest first, hidden items left out. */
+interface MemberItems {
+  threads: SpaceThread[];
+  meetings: SpaceMeeting[];
+  unavailable: string[];
+}
+
+/**
+ * The accepted contributors' own matching mail and meetings (D-081), read by
+ * space-member-mail.ts. Only the contributors passed in (accepted members
+ * with a connection, worked out on this request) are read; a failure reads
+ * as nothing from them, never as an error for the Space.
+ */
+async function contributorItems(
+  store: DataStore,
+  set: SpaceRuleSet,
+  extra: readonly Contributor[],
+  now: Date,
+): Promise<MemberItems> {
+  const out: MemberItems = { threads: [], meetings: [], unavailable: [] };
+  const reads = await Promise.all(
+    extra.map(async (c) => {
+      const [mail, cal] = await Promise.all([
+        memberThreads(store, set, c, now).catch(() => ({ state: 'error' as const, rows: [] })),
+        memberMeetings(store, set, c, now).catch(() => ({ state: 'error' as const, rows: [] })),
+      ]);
+      return { c, mail, cal };
+    }),
+  );
+  for (const { c, mail, cal } of reads) {
+    if (mail.state !== 'ok' || cal.state !== 'ok') out.unavailable.push(c.userId);
+    for (const t of mail.rows) {
+      out.threads.push({
+        id: t.itemId,
+        subject: t.subject,
+        at: t.at,
+        who: t.who,
+        messages: t.messages,
+        snippet: t.snippet,
+        owner: t.owner,
+        lastFromUs: t.lastFromUs,
+        member: { mailbox: t.mailbox, threadId: t.threadId },
+      });
+    }
+    for (const m of cal.rows) {
+      out.meetings.push({
+        id: m.itemId,
+        title: m.title,
+        at: m.at,
+        upcoming: m.upcoming,
+        people: m.people,
+        owner: m.owner,
+        fromMember: true,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Everything in a Space, newest first, hidden items left out: what Kraken
+ * synced from the main mailbox, and each accepted contributor's own matching
+ * mail and meetings.
+ */
 export async function spaceItems(
   store: DataStore,
   access: SpaceAccess,
@@ -196,7 +284,24 @@ export async function spaceItems(
     scanFor(store, org, now),
     spaceContributors(store, access),
   ]);
-  return itemsFrom(scan, access.set, hiddenSet(access), who, now);
+  const hidden = hiddenSet(access);
+  const base = itemsFrom(scan, access.set, hidden, who, now);
+  if (!who.extra.length) return base;
+  const more = await contributorItems(store, access.set, who.extra, now);
+  let hiddenCount = base.hiddenCount;
+  const keep = <T extends { id: string }>(kind: 'email' | 'meeting', rows: T[]) =>
+    rows.filter((r) => {
+      if (!hidden.has(hiddenKey(kind, r.id))) return true;
+      hiddenCount++;
+      return false;
+    });
+  const threads = [...base.threads, ...keep('email', more.threads)].sort((a, b) =>
+    b.at.localeCompare(a.at),
+  );
+  const meetings = [...base.meetings, ...keep('meeting', more.meetings)].sort((a, b) =>
+    b.at.localeCompare(a.at),
+  );
+  return { ...base, threads, meetings, hiddenCount, unavailable: more.unavailable };
 }
 
 function itemsFrom(
@@ -228,6 +333,7 @@ function itemsFrom(
       snippet: last.snippet,
       owner: who.primaryOwner,
       lastFromUs: scan.own.has(last.from_address.toLowerCase()),
+      member: null,
     });
   }
   const nowMs = now.getTime();
@@ -235,7 +341,6 @@ function itemsFrom(
   for (const event of scan.events) {
     if (!meetingMatches({ title: event.title, attendees: event.attendees }, set)) continue;
     const owner = eventOwner(event, who);
-    if (!owner) continue;
     if (hidden.has(hiddenKey('meeting', event.id))) {
       hiddenCount++;
       continue;
@@ -249,6 +354,7 @@ function itemsFrom(
         .filter((a) => !scan.own.has(a.email.toLowerCase()))
         .map((a) => personName(a.name, a.email)),
       owner,
+      fromMember: false,
     });
   }
   const notes: SpaceNote[] = [];
@@ -278,7 +384,7 @@ function itemsFrom(
   threads.sort((a, b) => b.at.localeCompare(a.at));
   meetings.sort((a, b) => b.at.localeCompare(a.at));
   notes.sort((a, b) => b.at.localeCompare(a.at));
-  return { threads, meetings, notes, hiddenCount };
+  return { threads, meetings, notes, hiddenCount, unavailable: [], sourcesKey: who.key };
 }
 
 /** Whose an item is, for Hide: null when it is not in the Space at all. */
@@ -289,9 +395,16 @@ export async function itemOwner(
   id: string,
 ): Promise<string | null> {
   const who = await spaceContributors(store, access);
+  // A contributor's item names them in its id: theirs while they still
+  // contribute to this Space (accepted, connected), else nobody's.
+  const member = parseMemberItemId(id);
+  if (member) {
+    if (kind === 'note') return null;
+    return who.extra.some((e) => e.userId === member.userId) ? member.userId : null;
+  }
   if (kind === 'email') {
     // A thread from the Emails tab's live search may be older than the scan:
-    // it is the primary mailbox's unless it came from a member's own.
+    // without a member's prefix it is the main mailbox's.
     return who.primaryOwner;
   }
   const scan = await scanFor(store, access.space.organization_id, new Date());
@@ -322,8 +435,9 @@ export interface SpaceCard {
   counts: SpaceCounts | null;
 }
 
-function countsKey(access: SpaceAccess): string {
+function countsKey(access: SpaceAccess, connections: string): string {
   const parts = [
+    connections,
     access.space.id,
     access.space.updated_at,
     ...access.rules.map((r) => `${r.kind}:${r.value}`).sort(),
@@ -353,16 +467,28 @@ export async function spaceCards(
   const spaces = await listMySpaces(store, viewer);
   if (!spaces.ok) return spaces;
   const viewable = spaces.value.filter((a) => a.canView);
-  const tasks = await openTasks(
-    store,
-    viewer.organizationId,
-    viewable.map((a) => a.space.id),
-  );
+  const [tasks, members] = await Promise.all([
+    openTasks(
+      store,
+      viewer.organizationId,
+      viewable.map((a) => a.space.id),
+    ),
+    listMemberConnections(store, viewer.organizationId).catch(() => ({
+      ready: false,
+      rows: [] as Integration[],
+    })),
+  ]);
+  // Whose mailboxes are connected, in each card's cache key: a disconnect (or a
+  // reconnect, which is a new row) changes the counts at once.
+  const connections = members.rows
+    .map((r) => `${r.user_id}:${r.id}:${r.status}`)
+    .sort()
+    .join(',');
   const cards: SpaceCard[] = [];
   for (const access of spaces.value) {
     let counts: SpaceCounts | null = null;
     if (access.canView) {
-      const key = countsKey(access);
+      const key = countsKey(access, connections);
       const hit = cache.counts.get(key);
       const open = tasks.filter((t) => t.space_id === access.space.id).length;
       if (hit && now.getTime() - hit.at < TTL_MS) {
@@ -405,7 +531,15 @@ export function lastActivity(items: SpaceItems, now: Date): string | null {
 }
 
 export type RecentItem =
-  | { kind: 'email'; at: string; title: string; detail: string; id: string }
+  | {
+      kind: 'email';
+      at: string;
+      title: string;
+      detail: string;
+      id: string;
+      member: SpaceThread['member'];
+      owner: string;
+    }
   | { kind: 'meeting'; at: string; title: string; detail: string; id: string; upcoming: boolean }
   | { kind: 'note'; at: string; title: string; detail: string; id: string; href: string | null };
 
@@ -430,6 +564,8 @@ export function recentActivity(items: SpaceItems): RecentItem[] {
       title: t.subject,
       detail: `${t.who}${t.messages > 1 ? ` · ${t.messages} messages` : ''}`,
       id: t.id,
+      member: t.member,
+      owner: t.owner,
     })),
     ...items.meetings
       .filter((m) => !m.upcoming)
@@ -455,9 +591,24 @@ export function recentActivity(items: SpaceItems): RecentItem[] {
 
 /* ------------------------------------------------------------ emails ---- */
 
-export interface SpaceEmailRow extends LiveThreadRow {
+export interface SpaceEmailRow {
+  /** The id in the Space: Hide uses it (a contributor's carries their user id). */
+  itemId: string;
+  /** The Gmail thread id in the mailbox it came from. */
+  threadId: string;
+  who: string;
+  subject: string;
+  snippet: string;
+  at: string | null;
+  unread: boolean;
+  count: number | null;
+  /** Whose it is in this Space (the user id), for Hide and its label. */
   owner: string;
-  /** Read from a member's own mailbox: it opens in Gmail (the Inbox reads the primary one). */
+  /**
+   * Read from a member's own mailbox (D-081): their address, for Gmail's
+   * authuser. Such a row opens in Gmail or the Space's read-only viewer, never
+   * the Inbox (which reads the main mailbox alone). Null for the main one.
+   */
   mailbox: string | null;
   primary: boolean;
 }
@@ -469,61 +620,163 @@ export interface SpaceEmailPage {
   total: number | null;
   hidden: number;
   message?: string;
-  /** The mailboxes searched, for the chips: the primary first. */
-  mailboxes: { key: string; label: string; userId: string }[];
+  /**
+   * The mailboxes, for the chips: All (when members contribute), the main
+   * one, then each contributor's (keyed by their user id).
+   */
+  mailboxes: { key: string; label: string; userId: string | null }[];
   mailbox: string;
+  /** On All: the main mailbox's next page, opened on its own chip. */
+  morePrimary: string | null;
+  /** Contributors whose mailbox could not be read just now. */
+  unavailable: string[];
+}
+
+function primaryRow(r: LiveThreadRow, owner: string): SpaceEmailRow {
+  return {
+    itemId: r.id,
+    threadId: r.id,
+    who: r.who,
+    subject: r.subject,
+    snippet: r.snippet,
+    at: r.at,
+    unread: r.unread,
+    count: r.count ?? null,
+    owner,
+    mailbox: null,
+    primary: true,
+  };
+}
+
+function memberRow(t: MemberThread): SpaceEmailRow {
+  return {
+    itemId: t.itemId,
+    threadId: t.threadId,
+    who: t.who,
+    subject: t.subject,
+    snippet: t.snippet,
+    at: t.at,
+    unread: false,
+    count: t.messages,
+    owner: t.owner,
+    mailbox: t.mailbox,
+    primary: false,
+  };
 }
 
 /**
- * One page of the Space's mail, searched live in Gmail with the Space's
- * rules (`from:domain OR to:domain OR keyword`). The primary mailbox by
- * default; `mailbox` picks a member's own once they accepted. Read-only.
+ * One page of the Space's mail. The main mailbox is searched live in Gmail
+ * with the Space's rules (`from:domain OR to:domain OR keyword`), through the
+ * Inbox's own search; each accepted contributor's own mailbox through
+ * space-member-mail.ts (D-081). "All" (the default once someone contributes)
+ * merges the main mailbox's first page with each contributor's matching
+ * threads, newest first, each row saying whose mailbox it came from; a chip
+ * shows one mailbox alone. Hidden items are left out. Read-only.
  */
 export async function spaceEmailPage(
   store: DataStore,
   access: SpaceAccess,
   options: { pageToken?: string | null; mailbox?: string | null; now?: Date } = {},
 ): Promise<SpaceEmailPage> {
+  const now = options.now ?? new Date();
   const who = await spaceContributors(store, access);
   const mailboxes = [
+    ...(who.extra.length ? [{ key: 'all', label: 'All', userId: null }] : []),
     {
       key: 'primary',
       label: who.primary?.account_email ?? 'Main mailbox',
       userId: who.primaryOwner,
     },
     ...who.extra.map((e) => ({
-      key: e.integration.id,
+      key: e.userId,
       label: e.integration.account_email ?? 'Member mailbox',
       userId: e.userId,
     })),
   ];
-  const pick = mailboxes.find((m) => m.key === options.mailbox) ?? mailboxes[0]!;
-  const base = { mailboxes, mailbox: pick.key, hidden: 0 };
+  const pick =
+    mailboxes.find((m) => m.key === options.mailbox) ??
+    (options.pageToken ? mailboxes.find((m) => m.key === 'primary') : null) ??
+    mailboxes[0]!;
+  const base = {
+    mailboxes,
+    mailbox: pick.key,
+    hidden: 0,
+    morePrimary: null,
+    unavailable: [] as string[],
+  };
   const q = gmailQuery(access.set);
   if (!q) return { ...base, state: 'no_rules', rows: [], nextPageToken: null, total: 0 };
-  const integration =
-    pick.key === 'primary'
-      ? who.primary
-      : (who.extra.find((e) => e.integration.id === pick.key)?.integration ?? null);
-  const page = await searchMailbox(store, access.space.organization_id, integration, q, {
-    pageToken: options.pageToken,
-    now: options.now,
-  });
   const hidden = hiddenSet(access);
-  const rows = page.rows.filter((r) => !hidden.has(hiddenKey('email', r.id)));
+  const visible = (rows: SpaceEmailRow[]) => {
+    const kept = rows.filter((r) => !hidden.has(hiddenKey('email', r.itemId)));
+    return { kept, hiddenHere: rows.length - kept.length };
+  };
+
+  // One contributor's mailbox alone.
+  const contributor = who.extra.find((e) => e.userId === pick.key);
+  if (contributor) {
+    const read = await memberThreads(store, access.set, contributor, now);
+    const { kept, hiddenHere } = visible(read.rows.map(memberRow));
+    return {
+      ...base,
+      state: read.state === 'ok' ? 'ok' : 'error',
+      message:
+        read.state === 'paused'
+          ? 'Their Google connection is paused: they can reconnect it from the Members tab.'
+          : read.state === 'error'
+            ? 'Their mailbox could not be searched just now. Try again in a minute.'
+            : undefined,
+      rows: kept,
+      hidden: hiddenHere,
+      nextPageToken: null,
+      total: read.rows.length,
+      unavailable: read.state === 'ok' ? [] : [contributor.userId],
+    };
+  }
+
+  const page = await searchMailbox(store, access.space.organization_id, who.primary, q, {
+    pageToken: pick.key === 'primary' ? options.pageToken : null,
+    now,
+  });
+  const primaryRows = page.rows.map((r) => primaryRow(r, who.primaryOwner));
+  if (pick.key === 'primary') {
+    const { kept, hiddenHere } = visible(primaryRows);
+    return {
+      ...base,
+      state: page.state,
+      message: page.message,
+      nextPageToken: page.nextPageToken,
+      total: page.total,
+      hidden: hiddenHere,
+      rows: kept,
+    };
+  }
+
+  // All: the main mailbox's first page and every contributor's matches, merged.
+  const reads = await Promise.all(
+    who.extra.map((c) =>
+      memberThreads(store, access.set, c, now)
+        .then((r) => ({ c, r }))
+        .catch(() => ({ c, r: { state: 'error' as const, rows: [] as MemberThread[] } })),
+    ),
+  );
+  const merged = [
+    ...(page.state === 'ok' ? primaryRows : []),
+    ...reads.flatMap(({ r }) => r.rows.map(memberRow)),
+  ].sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
+  const { kept, hiddenHere } = visible(merged);
+  const memberTotal = reads.reduce((n, { r }) => n + r.rows.length, 0);
   return {
     ...base,
-    state: page.state,
+    // The Space still shows its contributors' mail when the main search fails.
+    state: page.state === 'ok' || kept.length ? 'ok' : page.state,
     message: page.message,
-    nextPageToken: page.nextPageToken,
-    total: page.total,
-    hidden: page.rows.length - rows.length,
-    rows: rows.map((r) => ({
-      ...r,
-      owner: pick.userId,
-      mailbox: pick.key === 'primary' ? null : (integration?.account_email ?? null),
-      primary: pick.key === 'primary',
-    })),
+    nextPageToken: null,
+    morePrimary: page.state === 'ok' ? page.nextPageToken : null,
+    total: page.total !== null ? page.total + memberTotal : null,
+    hidden: hiddenHere,
+    rows: kept,
+    unavailable: reads.filter(({ r }) => r.state !== 'ok').map(({ c }) => c.userId),
   };
 }
 
@@ -659,7 +912,9 @@ export async function actionSuggestions(
     }
   }
   const cutoff = now.getTime() - 14 * 24 * 60 * 60_000;
-  for (const t of items.threads.slice(0, 30)) {
+  // Only the main mailbox's threads: a suggestion becomes a workspace task
+  // once added, and a member's own mail never leaves the Space (D-081).
+  for (const t of items.threads.filter((x) => !x.member).slice(0, 30)) {
     if (t.lastFromUs || Date.parse(t.at) < cutoff) continue;
     push({
       title: `Reply to ${t.who}: ${t.subject}`.slice(0, 140),
@@ -878,4 +1133,44 @@ export async function seedFrom(
     sourceKind: record.kind === 'company' ? 'company' : 'person',
     sourceRef: record.id,
   };
+}
+
+/* --------------------------------------------- a contributor's email ---- */
+
+export interface SpaceMemberEmail {
+  owner: string;
+  mailbox: string | null;
+  threadId: string;
+  subject: string;
+  messages: MemberMessage[];
+}
+
+/**
+ * One contributor's email for the Space's read-only viewer (D-081): only
+ * while they contribute to this Space (accepted, connected), only a thread
+ * matching its rules, and never one somebody hid. Anything else reads as not
+ * found. Read-only: nothing changes in their Gmail.
+ */
+export async function spaceMemberEmail(
+  store: DataStore,
+  access: SpaceAccess,
+  itemId: string,
+): Promise<Result<SpaceMemberEmail>> {
+  const notFound = err('not_found', 'That email is not in this Space.');
+  if (!access.canView) return err('forbidden', 'Accept the invite first.');
+  const parsed = parseMemberItemId(itemId);
+  if (!parsed) return notFound;
+  if (hiddenSet(access).has(hiddenKey('email', itemId))) return notFound;
+  const who = await spaceContributors(store, access);
+  const contributor = who.extra.find((e) => e.userId === parsed.userId);
+  if (!contributor) return notFound;
+  const thread = await readMemberThread(store, access.set, contributor, parsed.rawId);
+  if (!thread.ok) return thread;
+  return ok({
+    owner: contributor.userId,
+    mailbox: contributor.integration.account_email,
+    threadId: parsed.rawId,
+    subject: thread.value.subject,
+    messages: thread.value.messages,
+  });
 }

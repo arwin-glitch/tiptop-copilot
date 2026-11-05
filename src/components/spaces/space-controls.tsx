@@ -2,17 +2,19 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, EyeOff, Eye, Sparkles, UserPlus, X } from 'lucide-react';
+import { Check, EyeOff, Eye, Link2, Sparkles, Unlink, UserPlus, X } from 'lucide-react';
 import {
   addSpaceTaskAction,
   answerSpaceInviteAction,
   askSpaceAction,
   createSpaceAction,
+  disconnectSpaceGoogleAction,
   inviteSpaceMemberAction,
   removeSpaceMemberAction,
   setSpaceItemHiddenAction,
 } from '@/app/actions/spaces';
 import { updateTaskStatusAction } from '@/app/actions';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input, Label, Select, Textarea } from '@/components/ui/form';
 import { PlainText } from '@/components/ui/feedback';
@@ -147,15 +149,119 @@ export function InviteAnswer({ spaceId }: { spaceId: string }) {
   );
 }
 
+export type Contribution = 'main' | 'connected' | 'paused' | 'none';
+
 export interface MemberRow {
   userId: string;
   name: string;
   email: string | null;
   role: 'owner' | 'member';
   status: 'invited' | 'accepted' | 'declined' | 'left';
-  /** Contributing: their own mailbox is connected; null when not known (the owner's is the main one). */
-  mailbox: 'main' | 'own' | 'none' | null;
+  /**
+   * What they contribute (D-081): the main mailbox; their own Google,
+   * Connected or Paused (Google stopped answering: reconnect); or nothing yet.
+   * Null for someone not in the Space (invited, declined, left).
+   */
+  contribution: Contribution | null;
   isMe: boolean;
+}
+
+const CONTRIBUTION: Record<
+  Contribution,
+  { label: string; tone: 'ok' | 'warn' | 'neutral' | 'accent'; title: string }
+> = {
+  main: {
+    label: 'Main mailbox',
+    tone: 'accent',
+    title: 'The workspace mailbox: its matching mail and meetings are in the Space.',
+  },
+  connected: {
+    label: 'Connected',
+    tone: 'ok',
+    title: 'Their own Google, read-only: only mail and meetings matching this Space come in.',
+  },
+  paused: {
+    label: 'Paused',
+    tone: 'warn',
+    title: 'Google stopped answering for their connection. They can reconnect it.',
+  },
+  none: {
+    label: 'Not connected',
+    tone: 'neutral',
+    title: 'They see everything in the Space; their own mail is not in it.',
+  },
+};
+
+/** Where "Connect your Google to contribute" starts: Google's consent, read-only scopes only. */
+export function memberConnectHref(spaceId?: string): string {
+  return `/api/integrations/google/start?member=1${spaceId ? `&space=${spaceId}` : ''}`;
+}
+
+/** "Connect your Google to contribute": a link to Google's consent (read-only). */
+export function ConnectSpaceGoogle({
+  spaceId,
+  label = 'Connect your Google to contribute',
+  variant = 'primary',
+}: {
+  spaceId?: string;
+  label?: string;
+  variant?: 'primary' | 'secondary';
+}) {
+  return (
+    <Button asChild size="sm" variant={variant}>
+      <a href={memberConnectHref(spaceId)}>
+        <Link2 aria-hidden="true" />
+        {label}
+      </a>
+    </Button>
+  );
+}
+
+/**
+ * Disconnects your own Google for Spaces: revoked at Google, deleted here,
+ * and your items leave every Space at once. Asks once before it does.
+ */
+export function DisconnectSpaceGoogle({ email }: { email?: string | null }) {
+  const { pending, error, run } = useAct();
+  const [sure, setSure] = React.useState(false);
+  return (
+    <span className="inline-flex flex-col items-start">
+      {sure ? (
+        <span className="inline-flex flex-wrap items-center gap-2">
+          <span className="text-xs text-[var(--fg-muted)]">
+            Disconnect {email ?? 'your Google'}? Your items leave every Space.
+          </span>
+          <Button
+            size="sm"
+            variant="danger"
+            loading={pending}
+            onClick={() =>
+              run(
+                () => disconnectSpaceGoogleAction(),
+                () => setSure(false),
+              )
+            }
+          >
+            Disconnect
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSure(false)}>
+            Cancel
+          </Button>
+        </span>
+      ) : (
+        <Button
+          size="sm"
+          variant="secondary"
+          aria-label="Disconnect your Google from Spaces"
+          onClick={() => setSure(true)}
+        >
+          <Unlink aria-hidden="true" />
+          Disconnect
+        </Button>
+      )}
+      <ErrorLine error={error} />
+    </span>
+  );
 }
 
 export function MembersPanel({
@@ -163,11 +269,14 @@ export function MembersPanel({
   members,
   invitable,
   canManage,
+  canConnect = false,
 }: {
   spaceId: string;
   members: MemberRow[];
   invitable: { userId: string; name: string }[];
   canManage: boolean;
+  /** Member connections can be made here (Google is set up, not the demo, migration run). */
+  canConnect?: boolean;
 }) {
   const { pending, error, run } = useAct();
   const [chosen, setPick] = React.useState(invitable[0]?.userId ?? '');
@@ -227,15 +336,26 @@ export function MembersPanel({
                       : m.status === 'declined'
                         ? 'Declined'
                         : 'Left'}
-                {m.status === 'accepted' || m.role === 'owner'
-                  ? m.mailbox === 'main'
-                    ? ' · contributes the main mailbox'
-                    : m.mailbox === 'own'
-                      ? ' · contributes their own mailbox'
-                      : ' · connect your Google to contribute'
-                  : null}
               </p>
             </div>
+            {m.contribution ? (
+              <Badge
+                tone={CONTRIBUTION[m.contribution].tone}
+                title={CONTRIBUTION[m.contribution].title}
+                data-testid="contribution"
+              >
+                {CONTRIBUTION[m.contribution].label}
+              </Badge>
+            ) : null}
+            {m.isMe && m.contribution === 'none' && canConnect ? (
+              <ConnectSpaceGoogle spaceId={spaceId} />
+            ) : null}
+            {m.isMe && m.contribution === 'paused' && canConnect ? (
+              <ConnectSpaceGoogle spaceId={spaceId} label="Reconnect" variant="secondary" />
+            ) : null}
+            {m.isMe && (m.contribution === 'connected' || m.contribution === 'paused') ? (
+              <DisconnectSpaceGoogle email={m.email} />
+            ) : null}
             {m.role !== 'owner' &&
             (canManage || m.isMe) &&
             m.status !== 'declined' &&
