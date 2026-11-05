@@ -1,3 +1,4 @@
+import { listMySpaces } from './spaces';
 import 'server-only';
 import type { AuthContext } from '@/lib/auth/session';
 import type { DataStore } from '@/lib/db/store';
@@ -47,7 +48,8 @@ export type SearchKind =
   | 'crm_list'
   | 'crm_company'
   | 'crm_person'
-  | 'crm_note';
+  | 'crm_note'
+  | 'space';
 
 export interface SearchResult {
   kind: SearchKind;
@@ -154,6 +156,7 @@ export async function searchEverything(
     crmRecords,
     crmNotes,
     transcripts,
+    spaces,
   ] = await Promise.all([
     safe(
       'deals',
@@ -222,6 +225,18 @@ export async function searchEverything(
     viewer && viewer.organizationId === organizationId
       ? safe('transcripts', () => transcriptResults(store, viewer, query))
       : Promise.resolve([] as SearchResult[]),
+    // Spaces are members only: just the ones this person is in or invited to.
+    viewer
+      ? listMySpaces(store, viewer)
+          .then((r) =>
+            r.ok
+              ? r.value
+                  .filter((a) => a.space.name.toLowerCase().includes(needle))
+                  .slice(0, PER_SOURCE)
+              : [],
+          )
+          .catch(() => [])
+      : Promise.resolve([]),
   ]);
 
   const results: SearchResult[] = [];
@@ -325,6 +340,14 @@ export async function searchEverything(
           .join(' • ') || null,
       href: target ? `/lists/records/${target}?tab=notes` : '/knowledge?tab=lists',
       ...(target ? { recordId: target } : {}),
+    });
+  }
+  for (const access of spaces) {
+    results.push({
+      kind: 'space',
+      label: access.space.name,
+      sub: access.invited ? 'Space · invite waiting' : 'Space',
+      href: `/spaces/${access.space.id}`,
     });
   }
   return results;

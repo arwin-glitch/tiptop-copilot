@@ -859,6 +859,47 @@ export const HELP_PAGES: readonly HelpPage[] = [
     ],
   },
   {
+    id: 'spaces',
+    name: 'Spaces',
+    href: '/spaces',
+    purpose: 'One home per client or project: its emails, meetings, action items, and answers.',
+    // Each Space has its own tabs (SPACE_TABS) on its page, /spaces/<id>; none
+    // has a URL of its own here, and "Emails" would answer the Inbox's questions.
+    subtabs: [],
+    steps: [
+      navStep(
+        '/spaces',
+        'Spaces',
+        'A Space gathers one client or project: its emails, meetings, notes and action items.',
+      ),
+      {
+        target: 'spaces-new',
+        title: 'Make a Space',
+        body: 'Name it, then add a company domain, people or keywords. Only you see it until you invite.',
+        placement: 'bottom',
+      },
+      {
+        target: 'spaces-list',
+        title: 'Your Spaces',
+        body: 'Each card counts emails, meetings and open items. Open one for its tabs, Ask and members.',
+        placement: 'top',
+        grand: true,
+      },
+      {
+        target: 'spaces-suggested',
+        title: 'Suggested Spaces',
+        body: 'Companies you email and meet often. Making one is always your click.',
+        placement: 'left',
+      },
+    ],
+    sketch: [
+      ...header('spaces-new'),
+      { x: 1, y: 4, w: 16, h: 11, tone: 'card', pin: 'spaces-list' },
+      ...lines(2, 5, 12, 4),
+      { x: 18, y: 4, w: 5, h: 11, tone: 'card', pin: 'spaces-suggested' },
+    ],
+  },
+  {
     id: 'settings',
     name: 'Settings',
     href: '/settings',

@@ -11,6 +11,7 @@ import {
   GraduationCap,
   Inbox,
   Landmark,
+  Layers,
   ListChecks,
   MailCheck,
   MessageCircleMore,
@@ -31,6 +32,7 @@ import {
  * tour (HELP_SECTIONS) have icons of their own.
  */
 export const HELP_ICONS: Record<string, LucideIcon> = {
+  spaces: Layers,
   today: Sun,
   'follow-ups': MailCheck,
   tasks: CheckSquare,

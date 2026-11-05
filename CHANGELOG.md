@@ -10,6 +10,19 @@ throughout.
 
 ## [Unreleased]
 
+- **Spaces.** A shared home for one client or project, under Records: a name
+  and rules (company domains, people's addresses, keywords) gather the
+  matching emails (searched live in Gmail, read-only), meetings and meeting
+  notes, with action items and owners, add-only suggestions from the Space's
+  notes and waiting threads, a summary and Questions answered only from the
+  Space (Kraken's AI path with the budget checks; the demo spends nothing),
+  and Suggested Spaces from companies you email and meet often. Members only:
+  invitees accept before anything of theirs comes in, anyone can hide their
+  own items, and removing someone takes theirs out. "Make a Space" on
+  profiles and deals; Ctrl+K finds Spaces. Needs
+  `supabase/migrations/20261106000000_spaces.sql` applied by hand; until then
+  the tab says it needs a database update.
+
 - **People and companies, the Affinity way.** Every person and company
   carries a relationship status tag worked out from mail and calendar Kraken
   already syncs: Recently contacted (last email either way or meeting held

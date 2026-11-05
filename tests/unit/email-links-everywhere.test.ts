@@ -55,6 +55,10 @@ const ALLOWED: Record<string, { names: string[]; why: string }> = {
     names: ['gmailMessageHref()'],
     why: 'Builds the "Seen sent" proof link, drawn through ThreadLinksForHref.',
   },
+  'app/(app)/spaces/[id]/page.tsx': {
+    names: ['gmailThreadUrl()'],
+    why: "A Space member's own mailbox: the Inbox reads only the main one, so Gmail is the one place it opens. The main mailbox's rows use ThreadLinks.",
+  },
   'app/(app)/today/page.tsx': {
     names: ['gmailMessageHref()'],
     why: 'Builds the proof check view; its link is drawn through ThreadLinksForHref.',
@@ -68,6 +72,7 @@ const DRAWS_THREAD_LINKS = [
   'app/(app)/fund-ii/page.tsx',
   'app/(app)/portfolio/page.tsx',
   'app/(app)/portfolio/[id]/page.tsx',
+  'app/(app)/spaces/[id]/page.tsx',
   'app/(app)/today/page.tsx',
   'components/ask/linked-text.tsx',
   'components/calendar/event-panel.tsx',

@@ -26,6 +26,12 @@ export interface WhatsNewItem {
 
 export const WHATS_NEW: readonly WhatsNewItem[] = [
   {
+    date: '2026-11-05',
+    page: 'spaces',
+    text: 'Spaces: one home per client or project, with its emails, meetings, action items and Ask.',
+    href: '/spaces',
+  },
+  {
     date: '2026-11-04',
     page: 'network',
     text: 'Profiles have tabs: Overview, Connections with signal bars, Activity with a weekly chart, Notes.',

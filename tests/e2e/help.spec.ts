@@ -55,6 +55,7 @@ const PAGES = [
   'Network',
   'Reports',
   'Knowledge',
+  'Spaces',
   'Settings',
   'Download',
   'Ask Arwin',
@@ -122,18 +123,23 @@ test.describe('help page', () => {
     expect(newBox && tourBox && newBox.y < tourBox.y).toBe(true);
 
     const days = main.getByRole('list', { name: /^New on / });
-    await expect(days.first()).toHaveAccessibleName('New on Wednesday, Nov 4');
+    await expect(days.first()).toHaveAccessibleName('New on Thursday, Nov 5');
+    await expect(days.first().getByRole('link', { name: /^Spaces: one home/ })).toHaveAttribute(
+      'href',
+      '/spaces',
+    );
+    await expect(days.nth(1)).toHaveAccessibleName('New on Wednesday, Nov 4');
     await expect(
-      days.first().getByRole('link', { name: /^People and companies show a status tag/ }),
+      days.nth(1).getByRole('link', { name: /^People and companies show a status tag/ }),
     ).toHaveAttribute('href', '/network?tab=people&source=affinity');
-    await expect(days.nth(1)).toHaveAccessibleName('New on Wednesday, Oct 28');
-    await expect(days.nth(1).getByRole('link', { name: /^Calendar: Pick times/ })).toHaveAttribute(
+    await expect(days.nth(2)).toHaveAccessibleName('New on Wednesday, Oct 28');
+    await expect(days.nth(2).getByRole('link', { name: /^Calendar: Pick times/ })).toHaveAttribute(
       'href',
       '/calendar',
     );
-    const oct22 = days.nth(2);
+    const oct22 = days.nth(3);
     await expect(oct22).toHaveAccessibleName('New on Thursday, Oct 22');
-    await expect(days.nth(3)).toHaveAccessibleName('New on Wednesday, Oct 21');
+    await expect(days.nth(4)).toHaveAccessibleName('New on Wednesday, Oct 21');
     await expect(oct22.getByRole('link', { name: /^Events: event pages/ })).toHaveAttribute(
       'href',
       '/events',
@@ -254,15 +260,15 @@ test.describe('guided tours', () => {
     await page.goto('/help');
     await page.getByRole('link', { name: 'Take the 2-minute tour' }).click();
     await page.waitForURL(/\/today$/);
-    await expectStep(page, /1 of 19/, 'Every page, one menu');
+    await expectStep(page, /1 of 20/, 'Every page, one menu');
     await next(page).click();
-    await expectStep(page, /Today · 2 of 19/i, 'Your top priorities');
+    await expectStep(page, /Today · 2 of 20/i, 'Your top priorities');
     await next(page).click();
     await page.waitForURL(/\/follow-ups$/);
-    await expectStep(page, /Follow-ups · 3 of 19/i, 'Clear email, one by one');
+    await expectStep(page, /Follow-ups · 3 of 20/i, 'Clear email, one by one');
     await card(page).getByRole('button', { name: 'Back' }).click();
     await page.waitForURL(/\/today$/);
-    await expectStep(page, /Today · 2 of 19/i, 'Your top priorities');
+    await expectStep(page, /Today · 2 of 20/i, 'Your top priorities');
     await page.keyboard.press('Escape');
     await expect(card(page)).toHaveCount(0);
   });

@@ -23,7 +23,8 @@ interface Result {
     | 'crm_list'
     | 'crm_company'
     | 'crm_person'
-    | 'crm_note';
+    | 'crm_note'
+    | 'space';
   label: string;
   sub: string | null;
   href: string;
@@ -42,6 +43,7 @@ const KIND_LABEL: Record<Result['kind'], string> = {
   crm_company: 'Company',
   crm_person: 'Person',
   crm_note: 'Note',
+  space: 'Space',
 };
 
 /** The CRM's results, shown as a group of their own under a "Lists" heading. */

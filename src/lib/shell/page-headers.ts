@@ -71,6 +71,11 @@ export const PAGE_HEADERS = {
     subtitle:
       'Thesis documents, memos, pass notes, market maps, your network, and everything carried over from Affinity. Retrieval is full-text over Postgres, with page-level citations.',
   },
+  spaces: {
+    title: 'Spaces',
+    subtitle:
+      'One home per client or project: its emails, meetings and notes, action items and who owns them, and answers about any of it. Only the people in a Space see it.',
+  },
   settings: {
     title: 'Settings',
     subtitle:

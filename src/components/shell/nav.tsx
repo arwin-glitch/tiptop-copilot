@@ -14,6 +14,7 @@ import {
   Download,
   Inbox,
   Landmark,
+  Layers,
   LifeBuoy,
   MailCheck,
   Newspaper,
@@ -68,6 +69,8 @@ export const NAV_ITEMS = [
   { href: '/network', label: 'Network', icon: Users },
   { href: '/updates', label: 'Reports', icon: Newspaper },
   { href: '/knowledge', label: 'Knowledge', icon: BookOpen, also: ['/lists'] },
+  // One client or project in one place: its mail, meetings, action items, Ask.
+  { href: '/spaces', label: 'Spaces', icon: Layers },
   { href: '/settings', label: 'Settings', icon: Settings },
   // What every page holds, and a guided tour of each (lib/help/registry.ts).
   { href: '/help', label: 'Help', icon: LifeBuoy },
@@ -94,7 +97,7 @@ const GROUPS: { label: string; hrefs: string[] }[] = [
   },
   {
     label: 'Records',
-    hrefs: ['/portfolio', '/fund-ii', '/meetings', '/network', '/updates', '/knowledge'],
+    hrefs: ['/portfolio', '/fund-ii', '/meetings', '/network', '/updates', '/knowledge', '/spaces'],
   },
   { label: 'System', hrefs: ['/settings', '/help', '/download'] },
 ];

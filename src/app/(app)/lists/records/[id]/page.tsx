@@ -31,6 +31,7 @@ import { getActiveThesis } from '@/lib/services/thesis';
 import { CrmBreadcrumb } from '@/components/lists/crm-breadcrumb';
 import { CrmNotesPanel } from '@/components/lists/crm-notes-panel';
 import { AddRecordToListButton } from '@/components/lists/record-dialogs';
+import { Button } from '@/components/ui/button';
 import { ExportNotesLink } from '@/components/lists/export-notes-link';
 import { CrmValueView } from '@/components/lists/crm-value';
 import { RelationshipPanel, WhoCanIntro } from '@/components/network/record-relationship';
@@ -189,11 +190,18 @@ export default async function RecordProfilePage({
         title={record.name}
         actions={
           canWrite ? (
-            <AddRecordToListButton
-              recordId={record.id}
-              recordName={record.name}
-              kind={record.kind}
-            />
+            <>
+              <AddRecordToListButton
+                recordId={record.id}
+                recordName={record.name}
+                kind={record.kind}
+              />
+              <Button asChild variant="secondary" size="sm">
+                <Link href={`/spaces?from=record:${record.id}`} prefetch={false}>
+                  Make a Space
+                </Link>
+              </Button>
+            </>
           ) : null
         }
         meta={

@@ -18,6 +18,7 @@ import {
   MEETINGS_TABS,
   NETWORK_TABS,
   PORTFOLIO_TABS,
+  SPACE_TABS,
   RECORDS_TABS,
   STUDENTS_HREF,
   UPDATES_TABS,
@@ -69,7 +70,14 @@ describe('tabHref', () => {
 });
 
 /** Every page with a subtab bar: the Records pages, Deals, Diagnostics and Ask. */
-const TABBED_PAGES = [DEALS_TABS, DIAGNOSTICS_TABS, ASK_TABS, EVENTS_LIBRARY_TABS, ...RECORDS_TABS];
+const TABBED_PAGES = [
+  DEALS_TABS,
+  DIAGNOSTICS_TABS,
+  ASK_TABS,
+  EVENTS_LIBRARY_TABS,
+  SPACE_TABS,
+  ...RECORDS_TABS,
+];
 
 describe('the Records pages', () => {
   it('each open on a default that is one of their tabs', () => {
@@ -102,6 +110,7 @@ describe('the Records pages', () => {
       'Network',
       'Reports',
       'Knowledge',
+      'Spaces',
       'Settings',
     ];
     for (const page of TABBED_PAGES) {

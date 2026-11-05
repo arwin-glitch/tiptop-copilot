@@ -387,6 +387,60 @@ export const ASK_TABS = define({
 });
 
 /**
+ * One Space's page (`/spaces/[id]`): its sections behind subtabs, never one
+ * long page. `path` is the list; each Space's bar uses its own path. Not
+ * "Meetings" (the nav's name, which Playwright would match by substring):
+ * the calendar and notes tab is "Meeting log".
+ */
+export const SPACE_TABS = define({
+  path: '/spaces',
+  page: 'Spaces',
+  navLabel: 'Space sections',
+  defaultKey: 'overview',
+  tabs: [
+    {
+      key: 'overview',
+      label: 'Overview',
+      blurb: 'Counts, a short summary on demand, and the newest emails, meetings and notes.',
+    },
+    {
+      key: 'emails',
+      label: 'Emails',
+      blurb:
+        "The Space's mail, searched live in Gmail with its rules, a page at a time. Each opens in the Inbox or Gmail.",
+    },
+    {
+      key: 'meetings',
+      label: 'Meeting log',
+      blurb: 'Calendar meetings with its people, and the meeting notes about it.',
+    },
+    {
+      key: 'items',
+      label: 'Action items',
+      blurb:
+        'Tasks linked to the Space with owner and due date, and suggestions from its emails and notes to add.',
+    },
+    {
+      key: 'ask',
+      // Not "Ask": that is Ask Arwin's name, which the suite looks up by substring.
+      label: 'Questions',
+      blurb: 'Ask a question about the Space; answers use only its emails and notes.',
+    },
+    {
+      key: 'members',
+      label: 'Members',
+      blurb:
+        'Who is in it. Invite colleagues; each accepts before anything of theirs comes in, and anyone can hide their own items.',
+    },
+  ],
+});
+
+/** The URL of one Space's tab: the bare Space for Overview. */
+export function spaceTabHref(spaceId: string, tab: string): string {
+  return tabHref(`/spaces/${spaceId}`, tab, SPACE_TABS.defaultKey);
+}
+
+/**
  * Students & interns, on Network. It started on Portfolio, so an old
  * `/portfolio?tab=students` link redirects here.
  */

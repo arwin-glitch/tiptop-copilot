@@ -215,6 +215,11 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
               </>
             ) : null}
             <ExportMemoButton dealId={deal.id} companyName={deal.company_name} />
+            <Button asChild variant="secondary" size="sm">
+              <Link href={`/spaces?from=deal:${deal.id}`} prefetch={false}>
+                Make a Space
+              </Link>
+            </Button>
             {aiAvailable ? <ReanalyzeButton dealId={deal.id} /> : null}
           </>
         }
