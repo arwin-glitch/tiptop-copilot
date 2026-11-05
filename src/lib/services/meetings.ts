@@ -250,6 +250,14 @@ async function recentNotes(store: DataStore, organizationId: string): Promise<Me
   return visibleNotes(store, organizationId, rows);
 }
 
+/** The recent notes the whole team may see (a Space's Meetings tab and Ask read these). */
+export async function recentTeamNotes(
+  store: DataStore,
+  organizationId: string,
+): Promise<MeetingNote[]> {
+  return recentNotes(store, organizationId);
+}
+
 function attendeeDomains(note: MeetingNote): Set<string> {
   const domains = new Set<string>();
   for (const attendee of note.attendees) {

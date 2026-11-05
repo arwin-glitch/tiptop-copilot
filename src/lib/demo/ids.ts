@@ -164,3 +164,8 @@ export function demoGlanceId(kind: 'task' | 'audit', n: number): string {
 export function demoCampaignId(kind: 'recipient' | 'event', n: number): string {
   return id({ recipient: 2100, event: 2200 }[kind] + n);
 }
+
+/** Spaces fixture ids: Spaces 2400–2419, rules 2420–2459, members 2460–2499. */
+export function demoSpaceId(kind: 'space' | 'rule' | 'member', n: number): string {
+  return id({ space: 2400, rule: 2420, member: 2460 }[kind] + n);
+}

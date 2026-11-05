@@ -48,6 +48,10 @@ import type {
   GeneratedDraft,
   InboxScheduledSend,
   InboxTemplate,
+  Space,
+  SpaceHiddenItem,
+  SpaceMember,
+  SpaceRule,
   InboxSnooze,
   Integration,
   JobBoardSettings,
@@ -172,6 +176,11 @@ export interface TableMap {
   inbox_scheduled_sends: InboxScheduledSend;
   // Inbox compose templates (supabase/migrations/20261105000000_inbox_templates.sql).
   inbox_templates: InboxTemplate;
+  // Spaces (supabase/migrations/20261106000000_spaces.sql).
+  spaces: Space;
+  space_rules: SpaceRule;
+  space_members: SpaceMember;
+  space_hidden_items: SpaceHiddenItem;
   job_board_settings: JobBoardSettings;
   job_companies: JobCompany;
   job_postings: JobPosting;

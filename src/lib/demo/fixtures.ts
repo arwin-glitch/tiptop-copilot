@@ -1,3 +1,4 @@
+import { demoSpaces } from './spaces-fixtures';
 import { joinPages } from '@/lib/documents/pages';
 import { demoJobsBoard } from './jobs-board-fixtures';
 import { proofJudgeAfter } from '@/lib/tasks/proof';
@@ -2211,6 +2212,7 @@ experiment, not the fundraise timing.`,
     inbox_scheduled_sends: demoScheduledSends(now),
     // Inbox templates: two fictional ones, so Templates › Insert has something to show.
     inbox_templates: demoTemplates(now),
+    ...demoSpaces(now),
     // The public job board, switched on, over the two demo companies.
     ...demoJobsBoard(now),
     // Events (D-075): fictional pages, sessions and guests.

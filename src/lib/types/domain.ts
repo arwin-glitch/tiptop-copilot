@@ -493,6 +493,69 @@ export interface Task {
   completed_at: IsoDateTime | null;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
+  /** The Space this action item belongs to (20261106000000_spaces.sql); absent before it. */
+  space_id?: Uuid | null;
+}
+
+/* ----------------------------------------------------------------- spaces */
+//
+// Spaces (supabase/migrations/20261106000000_spaces.sql): a shared home for
+// one client or project. Service: lib/services/spaces.ts. Read-only toward
+// mail and calendars.
+
+export type SpaceSourceKind = 'manual' | 'suggested' | 'company' | 'person' | 'deal';
+
+export interface Space {
+  id: Uuid;
+  organization_id: Uuid;
+  name: string;
+  description: string | null;
+  source_kind: SpaceSourceKind;
+  source_ref: string | null;
+  /** The owner. */
+  created_by: Uuid;
+  archived_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export type SpaceRuleKind = 'domain' | 'email' | 'keyword';
+
+export interface SpaceRule {
+  id: Uuid;
+  organization_id: Uuid;
+  space_id: Uuid;
+  kind: SpaceRuleKind;
+  value: string;
+  created_at: IsoDateTime;
+}
+
+export type SpaceMemberStatus = 'invited' | 'accepted' | 'declined' | 'left';
+
+export interface SpaceMember {
+  id: Uuid;
+  organization_id: Uuid;
+  space_id: Uuid;
+  user_id: Uuid;
+  role: 'owner' | 'member';
+  status: SpaceMemberStatus;
+  invited_by: Uuid | null;
+  accepted_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export type SpaceItemKind = 'email' | 'meeting' | 'note' | 'suggestion';
+
+export interface SpaceHiddenItem {
+  id: Uuid;
+  organization_id: Uuid;
+  space_id: Uuid;
+  /** Who hid it. */
+  user_id: Uuid;
+  item_kind: SpaceItemKind;
+  item_id: string;
+  created_at: IsoDateTime;
 }
 
 /* -------------------------------------------------------------- portfolio */

@@ -573,6 +573,45 @@ export async function listLiveThreads(
   return { ...listed, ...base, nav: await navRead };
 }
 
+/**
+ * One page of a search across a mailbox, read-only, for a Space's Emails
+ * tab: the same Gmail search and thread cache as the Inbox's search box, but
+ * none of the list's side effects (no snooze waking, no scheduled sends going
+ * out). Any connected mailbox, so a Space member's own can be searched once
+ * they accept; the demo searches its fictional mailbox.
+ */
+export async function searchMailbox(
+  store: DataStore,
+  organizationId: string,
+  integration: Integration | null,
+  q: string,
+  options: { pageToken?: string | null; now?: Date } = {},
+): Promise<{
+  state: 'ok' | 'not_connected' | 'error';
+  rows: LiveThreadRow[];
+  nextPageToken: string | null;
+  total: number | null;
+  message?: string;
+}> {
+  const now = options.now ?? new Date();
+  const view = { folder: 'inbox' as FolderId, category: 'primary' as Category };
+  if (isDemoMode()) {
+    const list = await demoList(store, organizationId, { ...view, q, now });
+    return { state: 'ok', rows: list.rows, nextPageToken: null, total: list.rows.length };
+  }
+  if (!integration || integration.status === 'disconnected') {
+    return { state: 'not_connected', rows: [], nextPageToken: null, total: null };
+  }
+  const listed = await gmailList(store, integration, view, q, options.pageToken ?? null, now);
+  return {
+    state: listed.state,
+    rows: listed.rows,
+    nextPageToken: listed.nextPageToken,
+    total: 'total' in listed ? (listed.total ?? null) : null,
+    message: 'message' in listed ? listed.message : undefined,
+  };
+}
+
 /** Gmail's "Select all conversations that match": at most this many at once. */
 export const SELECT_ALL_MAX = 2_000;
 
