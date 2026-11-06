@@ -26,6 +26,12 @@ export interface WhatsNewItem {
 
 export const WHATS_NEW: readonly WhatsNewItem[] = [
   {
+    date: '2026-11-06',
+    page: 'spaces',
+    text: 'Spaces in Gmail too: each Space gets its own label under "Kraken Spaces", on every email it matches.',
+    href: '/spaces',
+  },
+  {
     date: '2026-11-05',
     page: 'spaces',
     text: 'Spaces: connect your own Google, read-only, so your mail and meetings about a Space join it.',

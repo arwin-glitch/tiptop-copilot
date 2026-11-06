@@ -946,6 +946,109 @@ export async function deleteLabel(
   return res.ok ? ok(true) : res;
 }
 
+/* ----------------------------------------------- Space labels (D-082) -- */
+
+/** One of the person's own labels, by id and full name ("Kraken Spaces/Athena"). */
+export interface OwnLabel {
+  id: string;
+  name: string;
+}
+
+/** The mailbox's own labels (no system ones), for the Space labels to find theirs by name. */
+export async function listOwnLabels(
+  store: DataStore,
+  integration: Integration,
+): Promise<Result<OwnLabel[]>> {
+  const res = await gmail<{ labels?: { id: string; name: string; type?: string }[] }>(
+    store,
+    integration,
+    '/labels',
+  );
+  if (!res.ok) return res;
+  return ok(
+    (res.value.labels ?? [])
+      .filter((l) => OWN_LABEL.test(l.id))
+      .map((l) => ({ id: l.id, name: l.name })),
+  );
+}
+
+/**
+ * A new label with a colour from Gmail's own palette, for a Space's label and
+ * the "Kraken Spaces" parent above them. Refuses without the grant.
+ */
+export async function createColoredLabel(
+  store: DataStore,
+  integration: Integration,
+  name: string,
+  color: { bg: string; fg: string },
+): Promise<Result<OwnLabel>> {
+  const made = await createLabel(store, integration, name);
+  if (!made.ok) return made;
+  // A colour Gmail refuses leaves the label plain; it is still made.
+  await updateLabel(store, integration, made.value.id, { color }).catch(() => null);
+  return made;
+}
+
+/**
+ * Message ids (with their thread) matching a Gmail search, or carrying one
+ * label, newest first, up to `max`. Read-only: the Space labels compare what
+ * matches with what is labelled. `capped` says more were left unread.
+ */
+export async function listMessageRefs(
+  store: DataStore,
+  integration: Integration,
+  by: { q: string } | { labelId: string },
+  max: number,
+): Promise<Result<{ refs: { id: string; threadId: string }[]; capped: boolean }>> {
+  const refs: { id: string; threadId: string }[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({ maxResults: '500' });
+    if ('q' in by) params.set('q', by.q);
+    else if (OWN_LABEL.test(by.labelId)) params.set('labelIds', by.labelId);
+    else return err('invalid_input', 'Only your own labels can be listed.');
+    if (pageToken) params.set('pageToken', pageToken);
+    const page = await gmail<{
+      messages?: { id: string; threadId: string }[];
+      nextPageToken?: string;
+    }>(store, integration, `/messages?${params.toString()}`);
+    if (!page.ok) return page;
+    refs.push(...(page.value.messages ?? []));
+    pageToken = page.value.nextPageToken;
+  } while (pageToken && refs.length < max);
+  return ok({ refs: refs.slice(0, max), capped: Boolean(pageToken) || refs.length > max });
+}
+
+/**
+ * Put one of the person's own labels on, or take it off, many messages at
+ * once (Gmail's batchModify, 1000 a call). Only a `Label_…` id: never a
+ * system label, so this cannot archive, read, star, trash or spam anything.
+ */
+export async function setLabelOnMessages(
+  store: DataStore,
+  integration: Integration,
+  labelId: string,
+  ids: string[],
+  on: boolean,
+): Promise<Result<number>> {
+  if (!canSend(integration)) return err('forbidden', 'Labelling needs sending turned on.');
+  if (!OWN_LABEL.test(labelId)) return err('invalid_input', 'Only your own labels can be set.');
+  let done = 0;
+  for (let i = 0; i < ids.length; i += 1000) {
+    const chunk = ids.slice(i, i + 1000);
+    const res = await gmail<unknown>(store, integration, '/messages/batchModify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(
+        on ? { ids: chunk, addLabelIds: [labelId] } : { ids: chunk, removeLabelIds: [labelId] },
+      ),
+    });
+    if (!res.ok) return done ? ok(done) : res;
+    done += chunk.length;
+  }
+  return ok(done);
+}
+
 /** A header value, RFC 2047-encoded when it is not plain ASCII (a subject with an em dash). */
 export function encodeHeaderValue(value: string): string {
   const clean = value.replace(/[\r\n]+/g, ' ').trim();

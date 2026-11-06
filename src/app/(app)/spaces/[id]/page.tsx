@@ -8,6 +8,13 @@ import { isDemoMode } from '@/lib/config/env';
 import { googleConfigured } from '@/lib/google/oauth';
 import { gmailThreadUrl } from '@/lib/deals/links';
 import { getStore } from '@/lib/runtime';
+import { afterResponse } from '@/lib/notes/background';
+import { getPrimaryIntegration } from '@/lib/services/inbox';
+import {
+  spaceLabelName,
+  spaceLabelsEnabled,
+  syncSpaceLabel,
+} from '@/lib/services/space-gmail-labels';
 import { SPACE_TABS, spaceTabHref } from '@/lib/records-tabs';
 import {
   actionSuggestions,
@@ -87,6 +94,13 @@ export default async function SpacePage({ params, searchParams }: Props) {
     );
   }
   const a = access.value;
+  if (a.canView) {
+    // The Space's Gmail label (D-082), after the page has answered; at most
+    // every ten minutes per Space. Never in the demo.
+    await afterResponse('label the Space in Gmail', () =>
+      syncSpaceLabel(getStore(), { space: a.space, rules: a.rules, hidden: a.hidden }),
+    );
+  }
   const tab = resolveTab(
     query.tab,
     SPACE_TABS.tabs.map((t) => t.key),
@@ -262,6 +276,10 @@ async function OverviewTab({ access }: { access: SpaceAccess }) {
   ).length;
   const last = lastActivity(items, now);
   const tz = auth.profile.timezone;
+  const primary = isDemoMode()
+    ? null
+    : await getPrimaryIntegration(store, auth.organizationId).catch(() => null);
+  const gmailLabel = spaceLabelName(access.space.name);
   return (
     <div className="space-y-5" data-tour="space-overview">
       {others === 0 ? (
@@ -295,6 +313,31 @@ async function OverviewTab({ access }: { access: SpaceAccess }) {
           : ''}
         {items.hiddenCount ? `; ${items.hiddenCount} hidden by members` : ''}.
       </p>
+      {primary ? (
+        <p className="inline-flex flex-wrap items-center gap-1.5 text-xs text-[var(--fg-muted)]">
+          <Mail className="size-3.5 text-[var(--accent)]" aria-hidden="true" />
+          {spaceLabelsEnabled(primary) ? (
+            <>
+              In Gmail, its mail is filed under the label
+              <a
+                href={`https://mail.google.com/mail/?authuser=${encodeURIComponent(primary.account_email ?? '')}#label/${encodeURIComponent(gmailLabel).replace(/%20/g, '+')}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 rounded-full bg-[#16a766] px-2 py-0.5 font-medium text-white hover:opacity-90"
+              >
+                {gmailLabel}
+                <ExternalLink className="size-3" aria-hidden="true" />
+              </a>
+              , kept up to date every half hour.
+            </>
+          ) : (
+            <>
+              To file this Space&apos;s mail under a Gmail label too, turn on sending for the main
+              mailbox in Settings → Integrations.
+            </>
+          )}
+        </p>
+      ) : null}
       <section aria-labelledby="space-summary">
         <h2 id="space-summary" className="sr-only">
           Summary
@@ -426,8 +469,8 @@ async function EmailsTab({ access, query }: { access: SpaceAccess; query: Params
             {page.total !== null
               ? `About ${page.total.toLocaleString('en-US')} conversations in Gmail`
               : 'Conversations in Gmail'}
-            {page.hidden ? ` · ${page.hidden} hidden on this page` : ''}. Read-only: nothing here
-            changes your mail.
+            {page.hidden ? ` · ${page.hidden} hidden on this page` : ''}. Nothing here changes your
+            mail; the main mailbox only gets the Space&apos;s own Gmail label.
           </p>
           <ul className="divide-y divide-[var(--border)] rounded-[var(--radius-card)] border border-[var(--border)]">
             {page.rows.map((row) => (

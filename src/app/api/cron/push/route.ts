@@ -11,6 +11,7 @@ import { placeHeldBookingsForAll } from '@/lib/services/booking-manage';
 import { recordJobHeartbeatForAll } from '@/lib/services/feed-health';
 import { settleNotesForAll } from '@/lib/services/notes-bridge';
 import { dispatchDueScheduledForAll } from '@/lib/services/inbox-scheduled';
+import { syncSpaceLabelsForAll } from '@/lib/services/space-gmail-labels';
 import { buildOutbox, recordDelivery, vapidPublicKey } from '@/lib/services/push-alerts';
 
 export const dynamic = 'force-dynamic';
@@ -67,6 +68,11 @@ export async function GET(request: NextRequest) {
   // (lib/services/inbox-scheduled.ts). A person's Schedule pick made each one;
   // this loop is what keeps their time. Never throws.
   await dispatchDueScheduledForAll(getStore(), { demo: env().demoMode }).catch(() => null);
+  // Every half hour: each Space's Gmail label (D-082) picks up new mail, so
+  // it is filed in Gmail without anyone opening Kraken. After the answer.
+  if (scope === 'all') {
+    await afterResponse('label Spaces in Gmail', () => syncSpaceLabelsForAll(getStore()));
+  }
   if (scope === 'all') await pruneBookingQuestionsForAll(getStore()).catch(() => null);
   if (scope === 'all') await pruneJobsQuestionsForAll(getStore()).catch(() => null);
   if (scope === 'all') await prunePerksQuestionsForAll(getStore()).catch(() => null);

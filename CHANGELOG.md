@@ -10,6 +10,16 @@ throughout.
 
 ## [Unreleased]
 
+- **Spaces in Gmail (D-082).** Like Fyxer, every Space is also a label in the
+  main mailbox, nested under one green "Kraken Spaces" parent
+  ("Kraken Spaces/Athena Design"), on every message its rules match. Kept
+  equal to the rules: made with the Space, refreshed when it is edited, when
+  its page is opened (at most every ten minutes) and every half hour from the
+  push job; mail that stops matching or is hidden from the Space loses it;
+  renaming a Space renames the label, deleting it removes the label (the mail
+  stays). Only labels it made, never a system label, only with the main
+  mailbox's send grant; a member's own Google stays read-only. No migration.
+
 - **Spaces: your own Google, read-only (D-081).** A member who is not the
   mailbox owner can "Connect your Google to contribute" (a Space's Members
   tab, or Settings › Integrations › Your Google (for Spaces)). Google is asked

@@ -341,7 +341,8 @@ export async function updateSpace(
 /**
  * Deletes a Space: its rules, members and hidden items go with it (the
  * database cascades; the demo store is cleared here). Its action items stay
- * as ordinary tasks. Nothing in Gmail or the calendar changes.
+ * as ordinary tasks. Its Gmail label is removed by the action afterwards
+ * (space-gmail-labels.ts, D-082); the mail and the calendar stay as they are.
  */
 export async function deleteSpace(
   store: DataStore,

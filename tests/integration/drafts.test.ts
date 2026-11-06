@@ -290,6 +290,10 @@ describe('nothing sends on its own', () => {
       'lib/services/inbox-filters.ts',
       // One-click Unsubscribe reads canSend only, to refuse without the grant.
       'lib/services/inbox-unsubscribe.ts',
+      // Spaces in Gmail (D-082): each Space's own label under "Kraken
+      // Spaces", on the mail its rules match. Own Label_ ids only (never a
+      // system label), never sends.
+      'lib/services/space-gmail-labels.ts',
     ]);
     const files = await walk(SRC);
     const importers: string[] = [];

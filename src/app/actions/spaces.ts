@@ -3,6 +3,12 @@
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
+import { afterResponse } from '@/lib/notes/background';
+import {
+  removeSpaceLabel,
+  spaceLabelInput,
+  syncSpaceLabel,
+} from '@/lib/services/space-gmail-labels';
 import { rateLimit } from '@/lib/security/limits';
 import { rulesFromForm } from '@/lib/spaces/rules';
 import { askSpace, SUMMARY_QUESTION, type SpaceAnswer } from '@/lib/services/space-ask';
@@ -26,8 +32,21 @@ import type { ActionResult } from './index';
  * lib/services/spaces*.ts. Every action is signed in, rate-limited and
  * returns a Result, never a throw. Membership is checked in the services on
  * every call: a Space the person is not in reads as not found. Nothing here
- * sends, labels or changes mail.
+ * sends or changes mail; the one write is the Space's own Gmail label
+ * (space-gmail-labels.ts, D-082), made, renamed or removed after a Space is
+ * made, edited or deleted.
  */
+
+/** After answering: bring the Space's Gmail label up to date (D-082). */
+async function relabel(
+  space: { id: string; name: string; organization_id: string },
+  previousName?: string,
+) {
+  const store = getStore();
+  await afterResponse('label the Space in Gmail', async () =>
+    syncSpaceLabel(store, await spaceLabelInput(store, space), { force: true, previousName }),
+  );
+}
 
 const ID = z.uuid();
 const RULES = z.object({
@@ -82,6 +101,7 @@ export async function createSpaceAction(input: {
     sourceKind: parsed.data.sourceKind,
     sourceRef: parsed.data.sourceRef,
   });
+  if (made.ok) await relabel(made.value);
   return from(made, (s) => ({ id: s.id }));
 }
 
@@ -109,11 +129,16 @@ export async function updateSpaceAction(
     parsed.data.keywords !== undefined;
   const { rules, invalid } = rulesFromForm(parsed.data);
   if (invalid.length) return bad(`These could not be read: ${invalid.slice(0, 5).join(', ')}`);
+  const before = await getSpaceAccess(getStore(), auth, spaceId);
   const updated = await updateSpace(getStore(), auth, spaceId, {
     name: parsed.data.name,
     description: parsed.data.description,
     rules: touchesRules ? rules : undefined,
   });
+  if (updated.ok) {
+    const previous = before.ok ? before.value.space.name : undefined;
+    await relabel(updated.value, previous !== updated.value.name ? previous : undefined);
+  }
   return from(updated, (s) => ({ id: s.id }));
 }
 
@@ -121,7 +146,16 @@ export async function deleteSpaceAction(spaceId: string): Promise<ActionResult<t
   const { auth, limited } = await signedIn('write', 30);
   if (!limited.ok) return fail(limited.error);
   if (!ID.safeParse(spaceId).success) return bad('Unknown Space.');
-  return from(await deleteSpace(getStore(), auth, spaceId), () => true as const);
+  const store = getStore();
+  const before = await getSpaceAccess(store, auth, spaceId);
+  const deleted = await deleteSpace(store, auth, spaceId);
+  if (deleted.ok && before.ok) {
+    const name = before.value.space.name;
+    await afterResponse('remove the Space label from Gmail', () =>
+      removeSpaceLabel(store, auth.organizationId, name),
+    );
+  }
+  return from(deleted, () => true as const);
 }
 
 export async function inviteSpaceMemberAction(

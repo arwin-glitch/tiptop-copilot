@@ -56,8 +56,8 @@ const ALLOWED: Record<string, { names: string[]; why: string }> = {
     why: 'Builds the "Seen sent" proof link, drawn through ThreadLinksForHref.',
   },
   'app/(app)/spaces/[id]/page.tsx': {
-    names: ['gmailThreadUrl()'],
-    why: "A Space member's own mailbox (D-081): the Inbox reads only the main one, so its rows offer the Space's read-only viewer and their own Gmail. The main mailbox's rows use ThreadLinks.",
+    names: ['gmailThreadUrl()', 'a Gmail URL'],
+    why: "A Space member's own mailbox (D-081): the Inbox reads only the main one, so its rows offer the Space's read-only viewer and their own Gmail. The main mailbox's rows use ThreadLinks. The Gmail URL is the Space's own label in Gmail (D-082), a folder, not an email.",
   },
   'app/(app)/spaces/[id]/email/page.tsx': {
     names: ['gmailThreadUrl()'],

@@ -22,7 +22,8 @@ import { cn } from '@/lib/util/cn';
 
 /**
  * The small interactive pieces of the Spaces pages. Each calls one server
- * action and refreshes the page; none sends, labels or changes mail.
+ * action and refreshes the page; none sends or changes mail (the Space's own
+ * Gmail label is space-gmail-labels.ts, D-082).
  */
 
 function useAct() {

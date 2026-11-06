@@ -4695,3 +4695,26 @@ other file names the provider or imports the module beyond the Space pages,
 actions, OAuth routes and Settings; every other integrations read filters on
 `google`), the scope pin in `tests/integration/drafts.test.ts`, and
 `tests/integration/space-member-google.test.ts`.
+
+### D-082 — Spaces in Gmail: one label per Space under "Kraken Spaces"
+
+**Context.** Fyxer files each Space's mail under a Gmail label
+("(New) Spaces/Athena"), so the Space is a folder in Gmail too. Arwin asked
+for the same.
+
+**Decision.** `lib/services/space-gmail-labels.ts` keeps one label per Space
+in the main mailbox, `Kraken Spaces/<name>` (a "/" in the name becomes "-"),
+under a parent `Kraken Spaces`, both Gmail-palette green, found by name (no
+column, no migration). Each run lists messages matching the Space's Gmail
+query (newest 5,000) and messages carrying the label, adds the label to the
+difference and takes it off mail that no longer matches or was hidden from
+the Space (with the search capped, only hidden mail loses it). Writes go
+through `setLabelOnMessages` (batchModify, own `Label_` ids only, send grant
+required), so it can never archive, read, star, trash or spam. Runs after
+create/edit (forced, renaming via the previous name), on the Space page
+(after the response, throttled ten minutes per Space) and every half hour
+from the push job. Deleting a Space deletes its label (labels.delete; mail
+stays). A member's own Google (D-081) is never labelled: it stays read-only.
+Never in the demo.
+
+**Enforced by** `tests/unit/space-gmail-labels.test.ts`.
