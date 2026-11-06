@@ -23,6 +23,8 @@ import { INDUSTRY_LABELS, recordField, TITLE_LABELS } from './search-preview';
 import { readFollowUps } from './follow-ups';
 import { isTeamVisibleNote } from '@/lib/notes/visibility';
 import { canSeeMeeting } from './notes';
+import { getRelationshipIndex } from './relationships';
+import { isPerson, nameFor, type RelationshipIndex } from '@/lib/network/evidence';
 
 /**
  * One search box across the app: deals, portfolio companies, Fund II LPs,
@@ -71,6 +73,63 @@ const CRM_LIST_KIND: Record<CrmList['entity_type'], string> = {
   person: 'Person list',
 };
 const MAX_QUERY = 80;
+/**
+ * The longest one source may hold the box up. A source still running then
+ * (an unindexed notes scan, a cold mail index) is left out of this answer
+ * rather than making every other result wait.
+ */
+export const SOURCE_WAIT_MS = 2_500;
+
+function within<T>(promise: Promise<T>, fallback: T, ms = SOURCE_WAIT_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([promise.catch(() => fallback), late]).finally(() => clearTimeout(timer));
+}
+
+/** Lowercase with every space and dot dropped: "GTM Fund" and "gtmfund" meet. */
+export const squash = (text: string) => text.toLowerCase().replace(/[\s.]+/g, '');
+
+/**
+ * Everyone Nick's mail and calendar have seen whose name or address matches,
+ * as Affinity finds a person you have only emailed. Strongest (most threads
+ * and meetings) first; the fund's own addresses and automated senders never.
+ */
+export function mailPeopleMatching(
+  index: RelationshipIndex,
+  query: string,
+  limit = PER_SOURCE,
+): { email: string; name: string | null; threads: number; meetings: number }[] {
+  const needle = query.trim().toLowerCase();
+  const flat = squash(query);
+  if (flat.length < 2) return [];
+  const hits: {
+    email: string;
+    name: string | null;
+    threads: number;
+    meetings: number;
+    rank: number;
+  }[] = [];
+  for (const [email, entry] of index.byAddress) {
+    if (!isPerson(index, email)) continue;
+    const name = nameFor(index, email);
+    const hay = `${name ?? ''} ${email}`.toLowerCase();
+    if (!hay.includes(needle) && !squash(hay).includes(flat)) continue;
+    const lowerName = (name ?? '').toLowerCase();
+    const rank =
+      lowerName === needle || email === needle
+        ? 0
+        : lowerName.startsWith(needle) || lowerName.split(/\s+/).some((w) => w.startsWith(needle))
+          ? 1
+          : 2;
+    hits.push({ email, name, threads: entry.threads.size, meetings: entry.meetings.size, rank });
+  }
+  return hits
+    .sort((a, b) => a.rank - b.rank || b.threads + b.meetings - (a.threads + a.meetings))
+    .slice(0, limit)
+    .map(({ rank: _rank, ...rest }) => rest);
+}
 
 /**
  * Lines of Kraken Notes transcripts that match (D-076), for someone with
@@ -133,15 +192,22 @@ export async function searchEverything(
   const query = rawQuery.trim().slice(0, MAX_QUERY);
   if (query.length < 2) return [];
   const needle = query.toLowerCase();
+  // "GTM Fund" should find "GTMfund": with spaces in the query, the names are
+  // searched with them taken out as well.
+  const joined = /\s/.test(query) ? query.replace(/\s+/g, '') : null;
   const like = (columns: string[]) => ({ textSearch: { columns, query } });
 
   const safe = async <T>(label: string, run: () => Promise<T[]>): Promise<T[]> => {
     try {
-      return await run();
+      return await within(run(), [] as T[]);
     } catch {
       log.warn('Search source failed', { source: label });
       return [];
     }
+  };
+  const records = async (term: string) => {
+    const r = await searchRecords(store, organizationId, term, PER_SOURCE);
+    return r.ok ? r.value : [];
   };
 
   const [
@@ -157,6 +223,7 @@ export async function searchEverything(
     crmNotes,
     transcripts,
     spaces,
+    mailPeople,
   ] = await Promise.all([
     safe(
       'deals',
@@ -179,14 +246,18 @@ export async function searchEverything(
           limit: PER_SOURCE,
         }) as Promise<NetworkContact[]>,
     ),
-    safe('meetings', () =>
-      (
-        store.list('meeting_notes', organizationId, like(['title']), {
-          limit: PER_SOURCE,
-          orderBy: [{ field: 'occurred_at', direction: 'desc' }],
-        }) as Promise<MeetingNote[]>
-      ).then((rows) => rows.filter((note) => isTeamVisibleNote(note))),
-    ),
+    safe('meetings', async () => {
+      const titled = (term: string) =>
+        store.list(
+          'meeting_notes',
+          organizationId,
+          { textSearch: { columns: ['title'], query: term } },
+          { limit: PER_SOURCE, orderBy: [{ field: 'occurred_at', direction: 'desc' }] },
+        ) as Promise<MeetingNote[]>;
+      const rows = (await Promise.all([titled(query), joined ? titled(joined) : []])).flat();
+      const byId = new Map(rows.map((note) => [note.id, note]));
+      return [...byId.values()].filter((note) => isTeamVisibleNote(note)).slice(0, PER_SOURCE);
+    }),
     safe(
       'tasks',
       () =>
@@ -212,7 +283,10 @@ export async function searchEverything(
     ),
     // Ranked (exact name, then prefixes); a Result, so a missing table is an
     // empty source rather than a throw.
-    searchRecords(store, organizationId, query, PER_SOURCE).then((r) => (r.ok ? r.value : [])),
+    safe('crm records', async () => {
+      const rows = (await Promise.all([records(query), joined ? records(joined) : []])).flat();
+      return [...new Map(rows.map((r) => [r.id, r])).values()].slice(0, PER_SOURCE);
+    }),
     // Notes by title or text, newest first: a small capped ILIKE like the rest.
     safe(
       'crm notes',
@@ -237,6 +311,12 @@ export async function searchEverything(
           )
           .catch(() => [])
       : Promise.resolve([]),
+    // People from Nick's own mail and calendar, met or only emailed. The
+    // index is cached for five minutes; a cold build is not waited for.
+    safe('mail people', async () => {
+      const index = await getRelationshipIndex(store, organizationId, { ownAddresses: [] });
+      return index.ok ? mailPeopleMatching(index.value, query) : [];
+    }),
   ]);
 
   const results: SearchResult[] = [];
@@ -273,6 +353,27 @@ export async function searchEverything(
       label: c.full_name,
       sub: [c.title, c.company].filter(Boolean).join(' · ') || null,
       href: `/network?q=${encodeURIComponent(c.full_name)}`,
+    });
+  }
+  // Someone already shown from the lists or the contacts is not shown twice.
+  const shown = new Set<string>();
+  for (const c of people) if (c.email) shown.add(c.email.toLowerCase());
+  for (const r of crmRecords) for (const e of r.emails ?? []) shown.add(e.toLowerCase());
+  for (const p of mailPeople) {
+    if (shown.has(p.email)) continue;
+    const seen = [
+      p.threads ? `${p.threads} email${p.threads === 1 ? '' : 's'}` : null,
+      p.meetings ? `${p.meetings} meeting${p.meetings === 1 ? '' : 's'}` : null,
+    ]
+      .filter(Boolean)
+      .join(', ');
+    results.push({
+      kind: 'person',
+      label: p.name ?? p.email,
+      sub: [p.name ? p.email : null, seen ? `From your mail · ${seen}` : 'From your mail']
+        .filter(Boolean)
+        .join(' · '),
+      href: `/network?tab=people&source=mail&q=${encodeURIComponent(p.email)}`,
     });
   }
   for (const m of meetings) {
