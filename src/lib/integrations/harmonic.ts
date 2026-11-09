@@ -14,7 +14,7 @@ import { log } from '@/lib/security/redact';
  */
 
 export const HARMONIC_BASE = 'https://api.harmonic.ai';
-const TIMEOUT_MS = 2_000;
+const TIMEOUT_MS = 2_400;
 const CACHE_MS = 10 * 60_000;
 const CACHE_MAX = 300;
 
@@ -90,10 +90,9 @@ export async function harmonicTypeahead(
       const body = (await call('/search/typeahead', {
         query: q,
         search_type: type,
-        size: String(size),
       })) as { results?: TypeaheadRow[] } | null;
       if (!body) failed = true;
-      return Array.isArray(body?.results) ? body.results : [];
+      return Array.isArray(body?.results) ? body.results.slice(0, size) : [];
     } catch (error) {
       failed = true;
       log.warn('Harmonic search failed', {
@@ -117,6 +116,54 @@ export async function harmonicTypeahead(
     if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value as string);
   }
   return hits;
+}
+
+/**
+ * What Harmonic answers for one query, for the signed-in check route: status
+ * codes, counts and the first result's URN and text. Never the key.
+ */
+export async function harmonicCheck(query: string): Promise<Record<string, unknown>> {
+  const key = env().harmonicApiKey;
+  if (!key) return { configured: false };
+  const out: Record<string, unknown> = { configured: true };
+  for (const type of ['PERSON', 'COMPANY'] as const) {
+    const started = Date.now();
+    try {
+      const res = await fetch(
+        `${HARMONIC_BASE}/search/typeahead?${new URLSearchParams({ query, search_type: type })}`,
+        {
+          headers: { apikey: key, accept: 'application/json' },
+          signal: AbortSignal.timeout(8_000),
+          cache: 'no-store',
+        },
+      );
+      const raw = await res.text();
+      let body: unknown = null;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        // Not JSON; the length below says enough.
+      }
+      const results = (obj(body)?.results as unknown[] | undefined) ?? [];
+      const first = obj(results[0]);
+      out[type] = {
+        status: res.status,
+        ms: Date.now() - started,
+        count: Array.isArray(results) ? results.length : null,
+        keys: first ? Object.keys(first) : obj(body) ? Object.keys(obj(body)!) : null,
+        firstUrn: first?.entity_urn ?? null,
+        firstText: first?.text ?? null,
+        firstAlt: first?.alt_text ?? null,
+        error: res.ok ? null : raw.slice(0, 200),
+      };
+    } catch (error) {
+      out[type] = {
+        error: error instanceof Error ? error.name : 'unknown',
+        ms: Date.now() - started,
+      };
+    }
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------- profiles */
