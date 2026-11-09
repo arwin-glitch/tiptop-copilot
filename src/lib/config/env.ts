@@ -109,6 +109,13 @@ export interface AppEnv {
    */
   affinityApiKey: string | undefined;
   /**
+   * Harmonic's API key (TipTop's people and company data plan), so Ctrl+K
+   * finds people and companies nobody has met yet (lib/integrations/harmonic.ts).
+   * Read only on the server and sent only to api.harmonic.ai. Unset means
+   * search shows only what Kraken already knows.
+   */
+  harmonicApiKey: string | undefined;
+  /**
    * Full Pub/Sub topic name for Gmail push, e.g.
    * `projects/tiptop-copilot/topics/gmail-push`. Unset means no push
    * registration is attempted and the mailbox is synced on the daily schedule
@@ -493,6 +500,7 @@ export function env(): AppEnv {
     granolaSigningSecret: str('GRANOLA_SIGNING_SECRET'),
     granolaApiKey: str('GRANOLA_API_KEY'),
     affinityApiKey: str('AFFINITY_API_KEY'),
+    harmonicApiKey: str('HARMONIC_API_KEY'),
     gmailPushTopic: str('GMAIL_PUSH_TOPIC'),
     demoDataDir: str('DEMO_DATA_DIR') ?? '.demo-data',
     briefingBridgeToken: str('BRIEFING_BRIDGE_TOKEN'),
@@ -873,6 +881,17 @@ export function capabilityReport(
       ? 'Set. Every list, record and note in Affinity is copied into the CRM each morning (also "Sync now" on Knowledge → Affinity import).'
       : 'Not set. Affinity is not synced; CSV exports can still be imported by hand on Knowledge → Affinity import.',
     variables: ['AFFINITY_API_KEY'],
+    required: false,
+  });
+
+  checks.push({
+    key: 'harmonic',
+    label: 'Harmonic in search',
+    status: has(e.harmonicApiKey) ? 'ready' : 'optional-missing',
+    detail: has(e.harmonicApiKey)
+      ? 'Set. Ctrl+K also finds people and companies from Harmonic, met or not.'
+      : 'Not set. Ctrl+K finds only people and companies Kraken already knows.',
+    variables: ['HARMONIC_API_KEY'],
     required: false,
   });
 

@@ -24,6 +24,7 @@ import { readFollowUps } from './follow-ups';
 import { isTeamVisibleNote } from '@/lib/notes/visibility';
 import { canSeeMeeting } from './notes';
 import { getRelationshipIndex } from './relationships';
+import { harmonicTypeahead } from '@/lib/integrations/harmonic';
 import { isPerson, nameFor, type RelationshipIndex } from '@/lib/network/evidence';
 
 /**
@@ -51,7 +52,9 @@ export type SearchKind =
   | 'crm_company'
   | 'crm_person'
   | 'crm_note'
-  | 'space';
+  | 'space'
+  | 'harmonic_person'
+  | 'harmonic_company';
 
 export interface SearchResult {
   kind: SearchKind;
@@ -224,6 +227,7 @@ export async function searchEverything(
     transcripts,
     spaces,
     mailPeople,
+    harmonic,
   ] = await Promise.all([
     safe(
       'deals',
@@ -317,6 +321,9 @@ export async function searchEverything(
       const index = await getRelationshipIndex(store, organizationId, { ownAddresses: [] });
       return index.ok ? mailPeopleMatching(index.value, query) : [];
     }),
+    // Harmonic: people and companies nobody has met yet, as Affinity finds
+    // them. Nothing without HARMONIC_API_KEY.
+    safe('harmonic', () => harmonicTypeahead(query)),
   ]);
 
   const results: SearchResult[] = [];
@@ -441,6 +448,17 @@ export async function searchEverything(
           .join(' • ') || null,
       href: target ? `/lists/records/${target}?tab=notes` : '/knowledge?tab=lists',
       ...(target ? { recordId: target } : {}),
+    });
+  }
+  // Harmonic last, as its own group, leaving out anyone already shown by name.
+  const named = new Set(results.map((r) => r.label.trim().toLowerCase()));
+  for (const h of harmonic) {
+    if (named.has(h.name.toLowerCase())) continue;
+    results.push({
+      kind: h.kind === 'person' ? 'harmonic_person' : 'harmonic_company',
+      label: h.name,
+      sub: h.sub,
+      href: `/network/harmonic?kind=${h.kind}&id=${encodeURIComponent(h.id)}`,
     });
   }
   for (const access of spaces) {

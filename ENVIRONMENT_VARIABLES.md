@@ -361,6 +361,18 @@ as `BRIEFING_BRIDGE_TOKEN`. The routine's prompt carries the same Ask Arwin
 persona block as the in-app prompt (`ASK_ARWIN_PERSONA`, D-059), so answers
 sound the same whichever path writes them.
 
+### `HARMONIC_API_KEY`
+
+Harmonic's API key (TipTop's people and company data plan). With it, Ctrl+K
+also finds people and companies nobody at the fund has met yet, in a
+"Harmonic · not met yet" group, and each opens a short profile at
+`/network/harmonic` (`lib/integrations/harmonic.ts`).
+
+To set it: in Harmonic (console.harmonic.ai), an admin opens **Settings → API**
+and creates a key; in Render, **tiptop-copilot → Environment → add
+`HARMONIC_API_KEY`**. Unset, search shows only what Kraken already knows. The
+key is read only on the server and sent only to api.harmonic.ai.
+
 ### `AFFINITY_API_KEY`
 
 Affinity's API key, for the daily Affinity sync that copies every list,

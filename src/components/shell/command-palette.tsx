@@ -24,7 +24,9 @@ interface Result {
     | 'crm_company'
     | 'crm_person'
     | 'crm_note'
-    | 'space';
+    | 'space'
+    | 'harmonic_person'
+    | 'harmonic_company';
   label: string;
   sub: string | null;
   href: string;
@@ -44,11 +46,18 @@ const KIND_LABEL: Record<Result['kind'], string> = {
   crm_person: 'Person',
   crm_note: 'Note',
   space: 'Space',
+  harmonic_person: 'Person · Harmonic',
+  harmonic_company: 'Company · Harmonic',
 };
 
 /** The CRM's results, shown as a group of their own under a "Lists" heading. */
 function inListsGroup(result: Result): boolean {
   return result.kind.startsWith('crm_');
+}
+
+/** People and companies from Harmonic, met or not: a group of their own, last. */
+function inHarmonicGroup(result: Result): boolean {
+  return result.kind.startsWith('harmonic_');
 }
 
 /* ---------------------------------------------------------------- recents */
@@ -193,9 +202,10 @@ export function CommandPalette({
   // Read from this browser's storage while the palette is open and empty.
   const recents = open && !searching ? readRecents() : [];
   const shown = searching ? results : [];
-  const general = shown.filter((r) => !inListsGroup(r));
+  const general = shown.filter((r) => !inListsGroup(r) && !inHarmonicGroup(r));
   const lists = shown.filter(inListsGroup);
-  const ordered = searching ? [...general, ...lists] : recents;
+  const harmonic = shown.filter(inHarmonicGroup);
+  const ordered = searching ? [...general, ...lists, ...harmonic] : recents;
   const current = ordered[Math.min(active, ordered.length - 1)];
 
   const go = (result: Result | undefined) => {
@@ -304,6 +314,28 @@ export function CommandPalette({
                       </ul>
                     </li>
                   ) : null}
+                  {harmonic.length > 0 ? (
+                    <li role="group" aria-labelledby="search-group-harmonic">
+                      <p
+                        id="search-group-harmonic"
+                        role="presentation"
+                        className="text-micro px-2.5 pt-3 pb-1 font-medium tracking-wider text-[var(--fg-subtle)] uppercase"
+                      >
+                        Harmonic · not met yet
+                      </p>
+                      <ul role="none" className="space-y-0.5">
+                        {harmonic.map((r, k) => (
+                          <ResultOption
+                            key={`${r.kind}-${r.href}-${r.label}`}
+                            result={r}
+                            active={general.length + lists.length + k === active}
+                            onHover={() => setActive(general.length + lists.length + k)}
+                            onPick={() => go(r)}
+                          />
+                        ))}
+                      </ul>
+                    </li>
+                  ) : null}
                 </ul>
               )}
               {searching && !loading && shown.length === 0 ? (
@@ -377,7 +409,10 @@ function initials(label: string): string {
 
 function Avatar({ result }: { result: Result }) {
   const company =
-    result.kind === 'crm_company' || result.kind === 'portfolio' || result.kind === 'deal';
+    result.kind === 'crm_company' ||
+    result.kind === 'harmonic_company' ||
+    result.kind === 'portfolio' ||
+    result.kind === 'deal';
   return (
     <span
       aria-hidden
