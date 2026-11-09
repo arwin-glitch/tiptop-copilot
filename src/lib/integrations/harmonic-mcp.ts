@@ -36,10 +36,13 @@ import { err, ok, type Result } from '@/lib/util/result';
 export const HARMONIC_MCP_URL = 'https://mcp.api.harmonic.ai/';
 export const HARMONIC_STATE_COOKIE = 'kraken_harmonic_oauth';
 
-const AUTHORIZE_URL = 'https://mcp.api.harmonic.ai/authorize';
-const TOKEN_URL = 'https://mcp.api.harmonic.ai/token';
-const REGISTER_URL = 'https://mcp.api.harmonic.ai/register';
-const SCOPE = 'read';
+// Harmonic's new sign-in (login.harmonic.ai), named by the MCP server's
+// protected-resource metadata; the old mcp.api.harmonic.ai/authorize flow
+// refuses accounts on the new sign-in.
+const AUTHORIZE_URL = 'https://login.harmonic.ai/oauth2/authorize';
+const TOKEN_URL = 'https://login.harmonic.ai/oauth2/token';
+const REGISTER_URL = 'https://login.harmonic.ai/oauth2/register';
+const SCOPE = 'openid profile email offline_access';
 const HTTP_TIMEOUT_MS = 8_000;
 const PENDING_TTL_MS = 10 * 60_000;
 const REFRESH_LEEWAY_MS = 60_000;

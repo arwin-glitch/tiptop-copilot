@@ -173,7 +173,7 @@ describe('connect', () => {
     const { start, finish } = await connect();
     expect(finish.ok).toBe(true);
     const url = new URL(start.url);
-    expect(url.origin + url.pathname).toBe('https://mcp.api.harmonic.ai/authorize');
+    expect(url.origin + url.pathname).toBe('https://login.harmonic.ai/oauth2/authorize');
     expect(url.searchParams.get('code_challenge_method')).toBe('S256');
     expect(url.searchParams.get('resource')).toBe('https://mcp.api.harmonic.ai/');
     expect(start.cookieValue).not.toContain('secret-fake-1');
