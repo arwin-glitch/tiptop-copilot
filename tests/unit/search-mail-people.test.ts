@@ -56,3 +56,30 @@ describe('Ctrl+K people from the mail', () => {
     expect(mailPeopleMatching(index, ' a ')).toEqual([]);
   });
 });
+
+describe('Ctrl+K people from the mail, several words', () => {
+  const words = {
+    ...index,
+    byAddress: new Map([
+      ['lena@nordvik.example', entry('Lena Nordvik', 2)],
+      ['lena.bright@other.example', entry('Lena Bright', 1)],
+      ['kai@bright.example', entry('Kai Holm', 30)],
+      ['sam@nowhere.example', entry('Sam Ide', 40)],
+    ]),
+  } as unknown as RelationshipIndex;
+
+  it('ranks every word above some words, and leaves out none-of-them', () => {
+    const hits = mailPeopleMatching(words, 'Lena Bright');
+    expect(hits.map((h) => h.email)).toEqual([
+      'lena.bright@other.example',
+      'kai@bright.example',
+      'lena@nordvik.example',
+    ]);
+  });
+
+  it('ranks all words above any word even when the any-word match is stronger', () => {
+    const hits = mailPeopleMatching(words, 'nordvik lena');
+    expect(hits[0]?.email).toBe('lena@nordvik.example');
+    expect(hits.map((h) => h.email)).not.toContain('sam@nowhere.example');
+  });
+});

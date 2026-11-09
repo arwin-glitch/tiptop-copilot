@@ -66,6 +66,13 @@ export interface SearchResult {
    * (/api/search/preview). Absent for everything else.
    */
   recordId?: string;
+  /**
+   * The query's words (lowercased) that the label or sub contains, for the
+   * palette to bold. Empty when none of them appears there.
+   */
+  matched?: string[];
+  /** A company's bare domain, for a logo; deals, portfolio and CRM companies only. */
+  domain?: string | null;
 }
 
 const PER_SOURCE = 6;
@@ -94,6 +101,52 @@ function within<T>(promise: Promise<T>, fallback: T, ms = SOURCE_WAIT_MS): Promi
 /** Lowercase with every space and dot dropped: "GTM Fund" and "gtmfund" meet. */
 export const squash = (text: string) => text.toLowerCase().replace(/[\s.]+/g, '');
 
+/** Most words a query is split into: one store call per word, in parallel. */
+const MAX_WORDS = 4;
+
+/**
+ * The query's words, lowercased, as Affinity searches: split on spaces, words
+ * of one letter dropped, repeats dropped, at most four. "Harmony Nordgren"
+ * becomes ["harmony", "nordgren"]; one word means the plain search.
+ */
+export function queryWords(query: string): string[] {
+  const words = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length >= 2);
+  return [...new Set(words)].slice(0, MAX_WORDS);
+}
+
+/**
+ * How well a text meets a query: above every word count when it holds the
+ * whole phrase (spaces in or out), otherwise how many of the words it holds.
+ */
+function scoreText(text: string, needle: string, words: string[]): number {
+  const hay = text.toLowerCase();
+  if (hay.includes(needle) || squash(hay).includes(squash(needle))) return words.length + 1;
+  return words.filter((w) => hay.includes(w)).length;
+}
+
+/**
+ * Rows merged from a phrase search and one search per word: each once (first
+ * sighting wins), the whole phrase first, then every word, then more words
+ * before fewer. Sorting is stable, so within a tier a source keeps its order.
+ */
+function rankByWords<T>(
+  rows: T[],
+  text: (row: T) => string,
+  key: (row: T) => string,
+  needle: string,
+  words: string[],
+): T[] {
+  const byKey = new Map<string, T>();
+  for (const row of rows) if (!byKey.has(key(row))) byKey.set(key(row), row);
+  return [...byKey.values()]
+    .map((row, i) => ({ row, i, score: scoreText(text(row), needle, words) }))
+    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .map((x) => x.row);
+}
+
 /**
  * Everyone Nick's mail and calendar have seen whose name or address matches,
  * as Affinity finds a person you have only emailed. Strongest (most threads
@@ -107,6 +160,10 @@ export function mailPeopleMatching(
   const needle = query.trim().toLowerCase();
   const flat = squash(query);
   if (flat.length < 2) return [];
+  // Several words: a name or address holding the whole phrase ranks 0-2 as
+  // before, then one holding every word (3), then fewer words (4 and down).
+  const words = queryWords(query);
+  const multi = words.length > 1;
   const hits: {
     email: string;
     name: string | null;
@@ -118,14 +175,22 @@ export function mailPeopleMatching(
     if (!isPerson(index, email)) continue;
     const name = nameFor(index, email);
     const hay = `${name ?? ''} ${email}`.toLowerCase();
-    if (!hay.includes(needle) && !squash(hay).includes(flat)) continue;
-    const lowerName = (name ?? '').toLowerCase();
-    const rank =
-      lowerName === needle || email === needle
-        ? 0
-        : lowerName.startsWith(needle) || lowerName.split(/\s+/).some((w) => w.startsWith(needle))
-          ? 1
-          : 2;
+    const phrase = hay.includes(needle) || squash(hay).includes(flat);
+    let rank: number;
+    if (phrase) {
+      const lowerName = (name ?? '').toLowerCase();
+      rank =
+        lowerName === needle || email === needle
+          ? 0
+          : lowerName.startsWith(needle) || lowerName.split(/\s+/).some((w) => w.startsWith(needle))
+            ? 1
+            : 2;
+    } else {
+      if (!multi) continue;
+      const held = words.filter((w) => hay.includes(w)).length;
+      if (held === 0) continue;
+      rank = 3 + (words.length - held);
+    }
     hits.push({ email, name, threads: entry.threads.size, meetings: entry.meetings.size, rank });
   }
   return hits
@@ -198,7 +263,29 @@ export async function searchEverything(
   // "GTM Fund" should find "GTMfund": with spaces in the query, the names are
   // searched with them taken out as well.
   const joined = /\s/.test(query) ? query.replace(/\s+/g, '') : null;
-  const like = (columns: string[]) => ({ textSearch: { columns, query } });
+  const like = (columns: string[], term = query) => ({ textSearch: { columns, query: term } });
+  // Several words: each source also finds rows holding any one word, then
+  // ranks them (whole phrase, every word, more words, fewer). One word: the
+  // plain phrase search, exactly as before.
+  const words = queryWords(query);
+  const multi = words.length > 1;
+  const rank = <T>(rows: T[], text: (row: T) => string, key: (row: T) => string) =>
+    rankByWords(rows, text, key, needle, words);
+  /**
+   * One store call for the phrase, plus (several words) one per word in
+   * parallel, each held to the source wait, merged and ranked.
+   */
+  const wide = async <T extends { id: string }>(
+    run: (term: string, limit: number) => Promise<T[]>,
+    text: (row: T) => string,
+  ): Promise<T[]> => {
+    if (!multi) return run(query, PER_SOURCE);
+    const lists = await Promise.all([
+      within(run(query, PER_SOURCE), [] as T[]),
+      ...words.map((w) => within(run(w, PER_SOURCE * 2), [] as T[])),
+    ]);
+    return rank(lists.flat(), text, (r) => r.id).slice(0, PER_SOURCE);
+  };
 
   const safe = async <T>(label: string, run: () => Promise<T[]>): Promise<T[]> => {
     try {
@@ -229,90 +316,154 @@ export async function searchEverything(
     mailPeople,
     harmonic,
   ] = await Promise.all([
-    safe(
-      'deals',
-      () =>
-        store.list('deals', organizationId, like(['company_name']), {
-          limit: PER_SOURCE,
-        }) as Promise<Deal[]>,
+    safe('deals', () =>
+      wide(
+        (term, limit) =>
+          store.list('deals', organizationId, like(['company_name'], term), {
+            limit,
+          }) as Promise<Deal[]>,
+        (d) => d.company_name,
+      ),
     ),
-    safe(
-      'portfolio',
-      () =>
-        store.list('portfolio_companies', organizationId, like(['name']), {
-          limit: PER_SOURCE,
-        }) as Promise<PortfolioCompany[]>,
+    safe('portfolio', () =>
+      wide(
+        (term, limit) =>
+          store.list('portfolio_companies', organizationId, like(['name'], term), {
+            limit,
+          }) as Promise<PortfolioCompany[]>,
+        (p) => p.name,
+      ),
     ),
-    safe(
-      'people',
-      () =>
-        store.list('network_contacts', organizationId, like(['full_name', 'company', 'email']), {
-          limit: PER_SOURCE,
-        }) as Promise<NetworkContact[]>,
+    safe('people', () =>
+      wide(
+        (term, limit) =>
+          store.list(
+            'network_contacts',
+            organizationId,
+            like(['full_name', 'company', 'email'], term),
+            { limit },
+          ) as Promise<NetworkContact[]>,
+        (c) => `${c.full_name} ${c.company ?? ''} ${c.email ?? ''}`,
+      ),
     ),
     safe('meetings', async () => {
-      const titled = (term: string) =>
-        store.list(
-          'meeting_notes',
-          organizationId,
-          { textSearch: { columns: ['title'], query: term } },
-          { limit: PER_SOURCE, orderBy: [{ field: 'occurred_at', direction: 'desc' }] },
-        ) as Promise<MeetingNote[]>;
-      const rows = (await Promise.all([titled(query), joined ? titled(joined) : []])).flat();
-      const byId = new Map(rows.map((note) => [note.id, note]));
-      return [...byId.values()].filter((note) => isTeamVisibleNote(note)).slice(0, PER_SOURCE);
+      const titled = (term: string, limit = PER_SOURCE) =>
+        within(
+          store.list(
+            'meeting_notes',
+            organizationId,
+            { textSearch: { columns: ['title'], query: term } },
+            { limit, orderBy: [{ field: 'occurred_at', direction: 'desc' }] },
+          ) as Promise<MeetingNote[]>,
+          [] as MeetingNote[],
+        );
+      const rows = (
+        await Promise.all([
+          titled(query),
+          joined ? titled(joined) : [],
+          ...(multi ? words.map((w) => titled(w, PER_SOURCE * 2)) : []),
+        ])
+      ).flat();
+      const merged = multi
+        ? rank(
+            rows,
+            (n) => n.title,
+            (n) => n.id,
+          )
+        : [...new Map(rows.map((note) => [note.id, note])).values()];
+      return merged.filter((note) => isTeamVisibleNote(note)).slice(0, PER_SOURCE);
     }),
-    safe(
-      'tasks',
-      () =>
-        store.list('tasks', organizationId, like(['title']), { limit: PER_SOURCE }) as Promise<
-          Task[]
-        >,
+    safe('tasks', () =>
+      wide(
+        (term, limit) =>
+          store.list('tasks', organizationId, like(['title'], term), { limit }) as Promise<Task[]>,
+        (t) => t.title,
+      ),
     ),
-    safe(
-      'documents',
-      () =>
-        store.list('knowledge_documents', organizationId, like(['title', 'filename']), {
-          limit: PER_SOURCE,
-        }) as Promise<KnowledgeDocument[]>,
+    safe('documents', () =>
+      wide(
+        (term, limit) =>
+          store.list('knowledge_documents', organizationId, like(['title', 'filename'], term), {
+            limit,
+          }) as Promise<KnowledgeDocument[]>,
+        (doc) => `${doc.title} ${doc.filename}`,
+      ),
     ),
     readFollowUps(store, organizationId).catch(() => null),
-    safe(
-      'crm lists',
-      () =>
-        store.list('crm_lists', organizationId, like(['name']), {
-          limit: PER_SOURCE,
-          orderBy: [{ field: 'position', direction: 'asc' }],
-        }) as Promise<CrmList[]>,
+    safe('crm lists', () =>
+      wide(
+        (term, limit) =>
+          store.list('crm_lists', organizationId, like(['name'], term), {
+            limit,
+            orderBy: [{ field: 'position', direction: 'asc' }],
+          }) as Promise<CrmList[]>,
+        (list) => list.name,
+      ),
     ),
     // Ranked (exact name, then prefixes); a Result, so a missing table is an
-    // empty source rather than a throw.
+    // empty source rather than a throw. Several words: searched per word too,
+    // then ranked by words held, keeping searchRecords' order within a tier.
     safe('crm records', async () => {
-      const rows = (await Promise.all([records(query), joined ? records(joined) : []])).flat();
-      return [...new Map(rows.map((r) => [r.id, r])).values()].slice(0, PER_SOURCE);
+      const rows = (
+        await Promise.all([
+          within(records(query), []),
+          joined ? within(records(joined), []) : [],
+          ...(multi ? words.map((w) => within(records(w), [])) : []),
+        ])
+      ).flat();
+      const merged = multi
+        ? rank(
+            rows,
+            (r) => `${r.name} ${r.domain ?? ''} ${r.primary_email ?? ''}`,
+            (r) => r.id,
+          )
+        : [...new Map(rows.map((r) => [r.id, r])).values()];
+      return merged.slice(0, PER_SOURCE);
     }),
     // Notes by title or text, newest first: a small capped ILIKE like the rest.
-    safe(
-      'crm notes',
-      () =>
-        store.list('crm_notes', organizationId, like(['title', 'content']), {
-          limit: PER_SOURCE,
-          orderBy: [{ field: 'occurred_at', direction: 'desc' }],
-        }) as Promise<CrmNote[]>,
-    ),
+    // Several words: the text is scanned only for the phrase and the longest
+    // word; the other words are matched on titles.
+    safe('crm notes', async () => {
+      const notes = (columns: string[], term: string, limit = PER_SOURCE) =>
+        within(
+          store.list('crm_notes', organizationId, like(columns, term), {
+            limit,
+            orderBy: [{ field: 'occurred_at', direction: 'desc' }],
+          }) as Promise<CrmNote[]>,
+          [] as CrmNote[],
+        );
+      if (!multi) return notes(['title', 'content'], query);
+      const longest = words.reduce((a, b) => (b.length > a.length ? b : a));
+      const lists = await Promise.all([
+        notes(['title', 'content'], query),
+        ...words.map((w) =>
+          notes(w === longest ? ['title', 'content'] : ['title'], w, PER_SOURCE * 2),
+        ),
+      ]);
+      return rank(
+        lists.flat(),
+        (n) => `${n.title ?? ''} ${n.content}`,
+        (n) => n.id,
+      ).slice(0, PER_SOURCE);
+    }),
     viewer && viewer.organizationId === organizationId
       ? safe('transcripts', () => transcriptResults(store, viewer, query))
       : Promise.resolve([] as SearchResult[]),
     // Spaces are members only: just the ones this person is in or invited to.
     viewer
       ? listMySpaces(store, viewer)
-          .then((r) =>
-            r.ok
-              ? r.value
-                  .filter((a) => a.space.name.toLowerCase().includes(needle))
-                  .slice(0, PER_SOURCE)
-              : [],
-          )
+          .then((r) => {
+            if (!r.ok) return [];
+            if (!multi)
+              return r.value
+                .filter((a) => a.space.name.toLowerCase().includes(needle))
+                .slice(0, PER_SOURCE);
+            return rank(
+              r.value.filter((a) => scoreText(a.space.name, needle, words) > 0),
+              (a) => a.space.name,
+              (a) => a.space.id,
+            ).slice(0, PER_SOURCE);
+          })
           .catch(() => [])
       : Promise.resolve([]),
     // People from Nick's own mail and calendar, met or only emailed. The
@@ -333,6 +484,7 @@ export async function searchEverything(
       label: d.company_name,
       sub: d.product_summary ?? null,
       href: `/deals/${d.id}`,
+      domain: d.domain ?? null,
     });
   }
   for (const p of portfolio) {
@@ -341,12 +493,19 @@ export async function searchEverything(
       label: p.name,
       sub: 'Portfolio company',
       href: `/portfolio/${p.id}`,
+      domain: p.domain ?? null,
     });
   }
   const lps = followUps?.state === 'ok' ? (followUps.snapshot.lpPipeline?.lps ?? []) : [];
-  for (const lp of lps
-    .filter((l) => `${l.who} ${l.firm ?? ''}`.toLowerCase().includes(needle))
-    .slice(0, PER_SOURCE)) {
+  const lpText = (l: (typeof lps)[number]) => `${l.who} ${l.firm ?? ''}`;
+  const lpHits = multi
+    ? rank(
+        lps.filter((l) => scoreText(lpText(l), needle, words) > 0),
+        lpText,
+        (l) => `${l.who}|${l.firm ?? ''}|${l.stage}`,
+      )
+    : lps.filter((l) => lpText(l).toLowerCase().includes(needle));
+  for (const lp of lpHits.slice(0, PER_SOURCE)) {
     results.push({
       kind: 'lp',
       label: lp.who,
@@ -434,6 +593,7 @@ export async function searchEverything(
           .join(' • ') || null,
       href: `/lists/records/${record.id}`,
       recordId: record.id,
+      ...(company ? { domain: record.domain ?? null } : {}),
     });
   }
   for (const note of crmNotes) {
@@ -468,6 +628,11 @@ export async function searchEverything(
       sub: access.invited ? 'Space · invite waiting' : 'Space',
       href: `/spaces/${access.space.id}`,
     });
+  }
+  // Which query words each result shows, for the palette to bold.
+  for (const r of results) {
+    const hay = `${r.label} ${r.sub ?? ''}`.toLowerCase();
+    r.matched = words.filter((w) => hay.includes(w));
   }
   return results;
 }
