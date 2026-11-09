@@ -98,9 +98,16 @@ function notConnected() {
   });
 }
 
-async function http(url: string, init: RequestInit): Promise<Response> {
-  return fetch(url, { ...init, signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) });
+async function http(
+  url: string,
+  init: RequestInit,
+  timeoutMs = HTTP_TIMEOUT_MS,
+): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 }
+
+/** Harmonic's look-ups run a model on its side: a tool call can take a while. */
+const TOOL_TIMEOUT_MS = 30_000;
 
 /* ---------------------------------------------------------------- connect */
 
@@ -440,12 +447,12 @@ async function runTool(
     'content-type': 'application/json',
     accept: 'application/json, text/event-stream',
   };
-  const post = async (body: unknown) => {
-    const response = await http(HARMONIC_MCP_URL, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
+  const post = async (body: unknown, timeoutMs?: number) => {
+    const response = await http(
+      HARMONIC_MCP_URL,
+      { method: 'POST', headers, body: JSON.stringify(body) },
+      timeoutMs,
+    );
     if (!response.ok && response.status !== 202) throw new HttpStatusError(response.status);
     return response;
   };
@@ -464,24 +471,34 @@ async function runTool(
   if (session) headers['mcp-session-id'] = session;
   const initMessage = await readRpc(init, 1);
   if (initMessage?.error) {
-    return err('provider_unavailable', 'Harmonic did not start a session.');
+    return err('provider_unavailable', 'Harmonic did not start a session.', {
+      details: { stage: 'initialize', rpcCode: initMessage.error.code ?? null },
+    });
   }
   headers['mcp-protocol-version'] = PROTOCOL_VERSION;
 
   const notified = await post({ jsonrpc: '2.0', method: 'notifications/initialized' });
   await notified.text().catch(() => '');
 
-  const call = await post({
-    jsonrpc: '2.0',
-    id: 2,
-    method: 'tools/call',
-    params: { name, arguments: args },
-  });
+  const call = await post(
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } },
+    TOOL_TIMEOUT_MS,
+  );
   const message = await readRpc(call, 2);
-  if (!message) return err('provider_unavailable', 'Harmonic returned an unreadable answer.');
+  if (!message) {
+    return err('provider_unavailable', 'Harmonic returned an unreadable answer.', {
+      details: { stage: 'tools/call', contentType: call.headers.get('content-type') },
+    });
+  }
   if (message.error) {
     log.warn('Harmonic tool call error', { tool: name, code: message.error.code ?? null });
-    return err('provider_unavailable', 'Harmonic could not answer that right now.');
+    return err('provider_unavailable', 'Harmonic could not answer that right now.', {
+      details: {
+        stage: 'tools/call',
+        rpcCode: message.error.code ?? null,
+        rpcMessage: String(message.error.message ?? '').slice(0, 200),
+      },
+    });
   }
   const text = (message.result?.content ?? [])
     .filter((c) => c?.type === 'text' && typeof c.text === 'string')
@@ -491,7 +508,9 @@ async function runTool(
     if (/rate|limit|quota/i.test(text)) {
       return err('rate_limited', 'Harmonic’s daily limit is used up. Try again tomorrow.');
     }
-    return err('provider_unavailable', 'Harmonic could not answer that right now.');
+    return err('provider_unavailable', 'Harmonic could not answer that right now.', {
+      details: { stage: 'tool_error', text: text.slice(0, 200) },
+    });
   }
   return ok(text);
 }
@@ -538,6 +557,7 @@ export async function harmonicCallTool(
         log.warn('Harmonic MCP call failed', { tool: name, status: e.status });
         return err('provider_unavailable', 'Harmonic could not answer that right now.', {
           retryable: true,
+          details: { stage: 'http', status: e.status },
         });
       }
       const timedOut = e instanceof Error && e.name === 'TimeoutError';
