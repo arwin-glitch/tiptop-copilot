@@ -1611,6 +1611,27 @@ export interface InboxTemplate {
   updated_at: IsoDateTime;
 }
 
+/**
+ * The organization's Harmonic MCP connection
+ * (supabase/migrations/20261109000000_harmonic_connections.sql). One row per
+ * organization; the client secret and both tokens live only in the sealed
+ * blob (lib/integrations/harmonic-mcp.ts). Server-only, never sent to a browser.
+ */
+export interface HarmonicConnection {
+  id: Uuid;
+  organization_id: Uuid;
+  connected_by: Uuid | null;
+  harmonic_email: string | null;
+  client_id: string;
+  sealed_ciphertext: string;
+  sealed_iv: string;
+  sealed_auth_tag: string;
+  key_version: number;
+  access_expires_at: IsoDateTime | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
 export interface InboxScheduledSend {
   id: Uuid;
   organization_id: Uuid;

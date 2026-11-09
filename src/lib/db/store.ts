@@ -48,6 +48,7 @@ import type {
   GeneratedDraft,
   InboxScheduledSend,
   InboxTemplate,
+  HarmonicConnection,
   Space,
   SpaceHiddenItem,
   SpaceMember,
@@ -176,6 +177,8 @@ export interface TableMap {
   inbox_scheduled_sends: InboxScheduledSend;
   // Inbox compose templates (supabase/migrations/20261105000000_inbox_templates.sql).
   inbox_templates: InboxTemplate;
+  // Harmonic MCP OAuth connection (supabase/migrations/20261109000000_harmonic_connections.sql).
+  harmonic_connections: HarmonicConnection;
   // Spaces (supabase/migrations/20261106000000_spaces.sql).
   spaces: Space;
   space_rules: SpaceRule;

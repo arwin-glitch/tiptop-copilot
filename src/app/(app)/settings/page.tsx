@@ -36,6 +36,7 @@ import { desktopVersionHint } from '@/lib/desktop/server';
 import { updatesItself } from '@/lib/desktop/shared';
 import { iosAppHint } from '@/lib/ios/server';
 import { McpConnectCard } from '@/components/settings/mcp-connect';
+import { HarmonicSetting } from '@/components/settings/harmonic-card';
 import { readBookingSettings } from '@/lib/services/booking';
 import { log } from '@/lib/security/redact';
 import { formatDateTime } from '@/lib/util/time';
@@ -441,6 +442,11 @@ export default async function SettingsPage({
               )}
             </CardContent>
           </Card>
+
+          <HarmonicSetting
+            organizationId={auth.organizationId}
+            canManage={hasRole(auth, 'admin')}
+          />
 
           <Card className="mt-4">
             <CardHeader>
