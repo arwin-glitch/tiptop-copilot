@@ -43,11 +43,20 @@ const cache = new Map<string, { at: number; hits: HarmonicHit[] }>();
 /** For the tests. */
 export function resetHarmonicCache(): void {
   cache.clear();
+  pausedUntil = 0;
 }
+
+/**
+ * Harmonic answers 429 "no allocated API calls" when the plan has no API
+ * allowance. Then it is not asked again for an hour, so search does not wait
+ * on a refusal every keystroke.
+ */
+let pausedUntil = 0;
+const PAUSE_MS = 60 * 60_000;
 
 async function call(path: string, params: Record<string, string> = {}): Promise<unknown> {
   const key = env().harmonicApiKey;
-  if (!key) return null;
+  if (!key || Date.now() < pausedUntil) return null;
   const qs = new URLSearchParams(params).toString();
   const res = await fetch(`${HARMONIC_BASE}${path}${qs ? `?${qs}` : ''}`, {
     headers: { apikey: key, accept: 'application/json' },
@@ -55,6 +64,7 @@ async function call(path: string, params: Record<string, string> = {}): Promise<
     cache: 'no-store',
   });
   if (!res.ok) {
+    if (res.status === 429 || res.status === 402) pausedUntil = Date.now() + PAUSE_MS;
     log.warn('Harmonic call failed', { status: res.status, path });
     return null;
   }

@@ -98,6 +98,15 @@ describe('Harmonic search', () => {
     expect(await harmonicTypeahead('ren')).toEqual([]);
   });
 
+  it('stops asking for an hour once Harmonic says the plan has no API calls', async () => {
+    const refuse = vi.fn(async () => respond({ detail: 'API call limit exceeded' }, 429));
+    vi.stubGlobal('fetch', refuse);
+    expect(await harmonicTypeahead('ren')).toEqual([]);
+    const asked = refuse.mock.calls.length;
+    expect(await harmonicTypeahead('rena')).toEqual([]);
+    expect(refuse.mock.calls.length).toBe(asked);
+  });
+
   it('reads a person profile, current roles only', async () => {
     const p = await harmonicProfile('person', '41');
     expect(p).toMatchObject({

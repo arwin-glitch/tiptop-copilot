@@ -26,7 +26,8 @@ interface Result {
     | 'crm_note'
     | 'space'
     | 'harmonic_person'
-    | 'harmonic_company';
+    | 'harmonic_company'
+    | 'lookup';
   label: string;
   sub: string | null;
   href: string;
@@ -48,11 +49,43 @@ const KIND_LABEL: Record<Result['kind'], string> = {
   space: 'Space',
   harmonic_person: 'Person · Harmonic',
   harmonic_company: 'Company · Harmonic',
+  lookup: 'Look up',
 };
 
 /** The CRM's results, shown as a group of their own under a "Lists" heading. */
 function inListsGroup(result: Result): boolean {
   return result.kind.startsWith('crm_');
+}
+
+/**
+ * Someone nobody has met yet: what Harmonic's API found (when the plan allows
+ * it) and, always, rows that open the same name on LinkedIn and in Harmonic
+ * with the logins TipTop already has. Free; nothing is saved.
+ */
+function lookupRows(q: string): Result[] {
+  const term = q.trim();
+  if (term.length < 2) return [];
+  const words = encodeURIComponent(term);
+  return [
+    {
+      kind: 'lookup',
+      label: `Find "${term}" on LinkedIn`,
+      sub: 'People search, in a new tab',
+      href: `https://www.linkedin.com/search/results/people/?keywords=${words}`,
+    },
+    {
+      kind: 'lookup',
+      label: `Find "${term}" in Harmonic`,
+      sub: 'People search with TipTop’s Harmonic seat, in a new tab',
+      href: 'https://console.harmonic.ai/dashboard/people',
+    },
+    {
+      kind: 'lookup',
+      label: `Find "${term}" on Google`,
+      sub: 'In a new tab',
+      href: `https://www.google.com/search?q=${words}`,
+    },
+  ];
 }
 
 /** People and companies from Harmonic, met or not: a group of their own, last. */
@@ -204,12 +237,18 @@ export function CommandPalette({
   const shown = searching ? results : [];
   const general = shown.filter((r) => !inListsGroup(r) && !inHarmonicGroup(r));
   const lists = shown.filter(inListsGroup);
-  const harmonic = shown.filter(inHarmonicGroup);
+  const harmonic = searching ? [...shown.filter(inHarmonicGroup), ...lookupRows(q)] : [];
   const ordered = searching ? [...general, ...lists, ...harmonic] : recents;
   const current = ordered[Math.min(active, ordered.length - 1)];
 
   const go = (result: Result | undefined) => {
     if (!result) return;
+    // A look-up row opens LinkedIn, Harmonic or Google in a new tab and is
+    // not kept in recent searches.
+    if (result.kind === 'lookup') {
+      window.open(result.href, '_blank', 'noopener,noreferrer');
+      return;
+    }
     remember(result);
     setOpen(false);
     setQ('');
@@ -321,7 +360,7 @@ export function CommandPalette({
                         role="presentation"
                         className="text-micro px-2.5 pt-3 pb-1 font-medium tracking-wider text-[var(--fg-subtle)] uppercase"
                       >
-                        Harmonic · not met yet
+                        Not met yet
                       </p>
                       <ul role="none" className="space-y-0.5">
                         {harmonic.map((r, k) => (
