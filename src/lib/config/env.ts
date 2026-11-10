@@ -115,6 +115,9 @@ export interface AppEnv {
    * search shows only what Kraken already knows.
    */
   harmonicApiKey: string | undefined;
+  /** Voice Arwin speaks in a cloned ElevenLabs voice when both are set. */
+  elevenLabsApiKey: string | undefined;
+  elevenLabsVoiceId: string | undefined;
   /**
    * Full Pub/Sub topic name for Gmail push, e.g.
    * `projects/tiptop-copilot/topics/gmail-push`. Unset means no push
@@ -501,6 +504,8 @@ export function env(): AppEnv {
     granolaApiKey: str('GRANOLA_API_KEY'),
     affinityApiKey: str('AFFINITY_API_KEY'),
     harmonicApiKey: str('HARMONIC_API_KEY'),
+    elevenLabsApiKey: str('ELEVENLABS_API_KEY'),
+    elevenLabsVoiceId: str('ELEVENLABS_VOICE_ID'),
     gmailPushTopic: str('GMAIL_PUSH_TOPIC'),
     demoDataDir: str('DEMO_DATA_DIR') ?? '.demo-data',
     briefingBridgeToken: str('BRIEFING_BRIDGE_TOKEN'),
@@ -892,6 +897,18 @@ export function capabilityReport(
       ? 'Set. Ctrl+K also finds people and companies from Harmonic, met or not.'
       : 'Not set. Ctrl+K finds only people and companies Kraken already knows.',
     variables: ['HARMONIC_API_KEY'],
+    required: false,
+  });
+
+  checks.push({
+    key: 'elevenlabs',
+    label: 'Voice Arwin voice (ElevenLabs)',
+    status: has(e.elevenLabsApiKey) && has(e.elevenLabsVoiceId) ? 'ready' : 'optional-missing',
+    detail:
+      has(e.elevenLabsApiKey) && has(e.elevenLabsVoiceId)
+        ? 'Set. Voice Arwin answers out loud in the cloned ElevenLabs voice.'
+        : 'Not set. Voice Arwin uses the device’s built-in voice.',
+    variables: ['ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID'],
     required: false,
   });
 

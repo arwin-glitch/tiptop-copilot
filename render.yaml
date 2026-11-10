@@ -138,6 +138,14 @@ services:
       - key: PERKS_ASK_ANTHROPIC_KEY
         sync: false
 
+      # Voice Arwin speaks in a cloned ElevenLabs voice when both are set;
+      # without them it uses the device's built-in voice. Each spoken answer
+      # spends ElevenLabs characters (answers are capped near 320).
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_VOICE_ID
+        sync: false
+
       # The perks assistant routine (D-079, the FREE default path): the Ask
       # Arwin widget's questions go to a Claude routine on Arwin's own plan -
       # no API key, nothing billed. Its API trigger and its relay channel;

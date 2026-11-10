@@ -44,6 +44,15 @@ const TRAILING_FILLER = /(?:[\s,]+(?:for me|please|thanks|thank you|now|real qui
 const STOP =
   /^(?:stop|cancel|never ?mind|forget it|shut up|be quiet|quiet|that's all|thats all|that's it|thats it|nothing|bye|bye bye|goodbye|good bye|end|end chat|end voice chat|end the chat|i'm done|im done|we're done|all done|thanks|thank you|no thanks|no thank you|nope|no)$/;
 
+/** Clear "we're done" phrases inside a short sentence: "ok thanks, end chat". */
+const END_PHRASE =
+  /\b(?:end (?:the )?(?:voice )?(?:chat|call|conversation)|stop (?:the )?(?:voice )?chat|stop listening|bye(?: bye)?(?: arwin)?|goodbye|good bye|that's all|thats all|that's it for now|we're done|were done|i'm done|im done|all done|thanks arwin|thank you arwin|talk (?:to you )?later|see you)\b/;
+
+/** A short sentence that ends the voice chat ("ok thanks, end chat", "bye Arwin"). */
+export function endsChat(said: string): boolean {
+  return said.split(' ').length <= 7 && END_PHRASE.test(said);
+}
+
 const NAVIGATE =
   /^(?:open(?: up)?|go to|go back to|take me to|bring me to|show(?: me)?|pull up|bring up|switch to|jump to|navigate to|launch)\s+(.+)$/;
 
@@ -103,7 +112,7 @@ export function voiceIntent(text: string): VoiceIntent {
   const original = text.trim();
   const said = normalizeUtterance(original);
   if (!said) return { kind: 'empty' };
-  if (STOP.test(said)) return { kind: 'stop' };
+  if (STOP.test(said) || endsChat(said)) return { kind: 'stop' };
 
   // Names keep the capitals they were said or typed with ("Acme", not "acme").
   const asSaid = (words: string) => {
@@ -166,4 +175,64 @@ export function spokenText(text: string, maxChars = 320): string {
   }
   if (!out) out = `${plain.slice(0, maxChars).replace(/\s+\S*$/, '')}.`;
   return `${out.trim()} The rest is in the chat.`;
+}
+
+/* ------------------------------------------------------ "one sec" lines */
+
+const ACKS: { when: RegExp; lines: string[] }[] = [
+  {
+    when: /\b(calendar|meeting|meetings|schedule|today|tomorrow|this week|free|busy|call)\b/i,
+    lines: [
+      'Let me check your calendar, one sec.',
+      'Give me a second, pulling up your schedule.',
+      'Sure, let me look at what’s on the calendar.',
+    ],
+  },
+  {
+    when: /\b(email|emails|inbox|mail|reply|replied|wrote|sent|message)\b/i,
+    lines: [
+      'Give me a sec, I’ll dig through the inbox.',
+      'Let me check the emails on that, one moment.',
+      'Sure thing, looking through the mail now.',
+    ],
+  },
+  {
+    when: /\b(draft|write|compose|intro|introduce|follow up|follow-up)\b/i,
+    lines: [
+      'Sure, let me put that together for you.',
+      'Okay, I’ll draft that up, give me a sec.',
+      'Got it, working on the wording now.',
+    ],
+  },
+  {
+    when: /\b(deal|deals|company|startup|founder|portfolio|round|raise|investor|fund)\b/i,
+    lines: [
+      'Good question, let me look into that.',
+      'Let me pull up what we have on that, one sec.',
+      'Sure, I’ll check the notes on that for you.',
+    ],
+  },
+];
+
+const GENERAL_ACKS = [
+  'I’ll look into that, just give me a sec.',
+  'Good question, let me check.',
+  'Sure, one moment while I find that.',
+  'Let me take a look, be right back.',
+  'Okay, give me a second on that one.',
+];
+
+let lastAck = '';
+
+/**
+ * What Arwin says while the answer is on its way: short, warm and about
+ * the question when it can tell ("Let me check your calendar, one sec"),
+ * never the same line twice in a row.
+ */
+export function ackFor(question: string, random: () => number = Math.random): string {
+  const pool = ACKS.find((a) => a.when.test(question))?.lines ?? GENERAL_ACKS;
+  const choices = pool.filter((l) => l !== lastAck);
+  const line = choices[Math.floor(random() * choices.length)] ?? pool[0]!;
+  lastAck = line;
+  return line;
 }

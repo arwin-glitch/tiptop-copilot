@@ -10,6 +10,11 @@ throughout.
 
 ## [Unreleased]
 
+- **Voice Arwin in a cloned voice.** With `ELEVENLABS_API_KEY` and
+  `ELEVENLABS_VOICE_ID` set, spoken answers come from ElevenLabs
+  (`/api/voice/speak`, signed in only, key server-side); otherwise, or on any
+  failure, the device voice speaks as before. Settings shows its status.
+
 - **Voice Arwin, smarter.** "Hey Arwin" wakes it hands-free (the ear button
   in the voice card, per device, off by default; on-device Whisper checks each
   spoken turn and drops it unless it starts with "Hey Arwin"; paused while

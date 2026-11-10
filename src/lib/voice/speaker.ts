@@ -49,9 +49,69 @@ function pickVoice(): SpeechSynthesisVoice | null {
   return voices.find((v) => v.lang === 'en-US') ?? voices[0] ?? null;
 }
 
+/* ------------------------------------------------- the cloned voice */
+
+/** Whether the server has a cloned ElevenLabs voice (asked once per page). */
+let cloned: Promise<boolean> | null = null;
+let playing: HTMLAudioElement | null = null;
+let playingDone: (() => void) | null = null;
+
+function hasClonedVoice(): Promise<boolean> {
+  cloned ??= fetch('/api/voice/speak', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((b: { available?: boolean } | null) => b?.available === true)
+    .catch(() => false);
+  return cloned;
+}
+
+/** Plays the answer in the cloned voice; false when it could not (then the device voice speaks). */
+async function speakCloned(text: string): Promise<boolean> {
+  if (!(await hasClonedVoice())) return false;
+  let blob: Blob;
+  try {
+    const res = await fetch('/api/voice/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) return false;
+    blob = await res.blob();
+  } catch {
+    return false;
+  }
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  stopSpeaking();
+  playing = audio;
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      URL.revokeObjectURL(url);
+      if (playing === audio) {
+        playing = null;
+        playingDone = null;
+      }
+      resolve(ok);
+    };
+    playingDone = () => finish(true);
+    audio.onended = () => finish(true);
+    audio.onerror = () => finish(false);
+    // Blocked autoplay (no tap on the page yet): the device voice takes over.
+    audio.play().catch(() => finish(false));
+  });
+}
+
 /** Speak and resolve when done (or at once when speech is off or missing). */
-export function speak(text: string): Promise<void> {
-  if (!text || !canSpeak() || !speakingEnabled()) return Promise.resolve();
+export async function speak(text: string): Promise<void> {
+  if (!text || typeof window === 'undefined' || !speakingEnabled()) return;
+  if (await speakCloned(text)) return;
+  if (!canSpeak()) return;
+  return speakWithDevice(text);
+}
+
+function speakWithDevice(text: string): Promise<void> {
   const synth = window.speechSynthesis;
   synth.cancel();
   return new Promise((resolve) => {
@@ -76,6 +136,10 @@ export function speak(text: string): Promise<void> {
 }
 
 export function stopSpeaking(): void {
+  if (playing) {
+    playing.pause();
+    playingDone?.();
+  }
   if (canSpeak()) window.speechSynthesis.cancel();
 }
 

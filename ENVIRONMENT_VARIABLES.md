@@ -361,6 +361,16 @@ as `BRIEFING_BRIDGE_TOKEN`. The routine's prompt carries the same Ask Arwin
 persona block as the in-app prompt (`ASK_ARWIN_PERSONA`, D-059), so answers
 sound the same whichever path writes them.
 
+### `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`
+
+Optional. Voice Arwin reads its answers aloud in a cloned ElevenLabs voice
+when both are set (`/api/voice/speak`, model `eleven_flash_v2_5`, signed in
+only; the key stays on the server). Without them, or if ElevenLabs fails, it
+uses the device's built-in voice. The key comes from ElevenLabs → Developers
+→ API Keys (Text to Speech access is enough); the voice ID from My Voices →
+the voice → ⋯ → Copy voice ID. Each spoken answer spends ElevenLabs
+characters (answers are capped near 320).
+
 ### `HARMONIC_API_KEY`
 
 Harmonic's API key (TipTop's people and company data plan). With it, Ctrl+K

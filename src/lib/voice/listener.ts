@@ -5,6 +5,7 @@ import { DEFAULT_TUNING } from '@/lib/capture/types';
 import { WhisperEngine } from '@/lib/capture/whisper-engine';
 import { desktopAppVersion } from '@/lib/desktop/shared';
 import { baseSession } from '@/lib/transcribe/transcriber';
+import { matchWake } from './intent';
 
 /**
  * Hears one spoken command. Two engines, both free:
@@ -331,6 +332,82 @@ function whisperListener(handlers: ListenerHandlers): Listener {
     cancel() {
       cancelled = true;
       stopNow();
+    },
+  };
+}
+
+/* ------------------------------------------------------- interrupting */
+
+export interface WakeWatch {
+  stop(): void;
+}
+
+/**
+ * While Arwin talks or thinks: the browser's own recognition listens for
+ * "Hey Arwin" so it can be interrupted. `onHeard` fires the moment the words
+ * appear (stop talking at once); `onCommand` once the sentence is finished,
+ * with what followed ("" for nothing: then listen for it).
+ */
+export function watchForWakeInBrowser(handlers: {
+  onHeard(): void;
+  onCommand(rest: string): void;
+}): WakeWatch | null {
+  const Ctor = recognitionCtor();
+  if (!Ctor || inDesktopApp()) return null;
+  let active = true;
+  let heard = false;
+  let rec: BrowserRecognition | null = null;
+  const start = () => {
+    if (!active) return;
+    rec = new Ctor();
+    rec.lang = 'en-US';
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    rec.onresult = (e) => {
+      for (let i = 0; i < e.results.length; i++) {
+        const r = e.results[i]!;
+        const woke = matchWake(r[0]?.transcript ?? '');
+        if (!woke) continue;
+        if (!heard) {
+          heard = true;
+          handlers.onHeard();
+        }
+        if (r.isFinal) {
+          active = false;
+          rec?.abort();
+          handlers.onCommand(woke.rest);
+          return;
+        }
+      }
+    };
+    rec.onerror = () => undefined;
+    // Recognition ends by itself after a while: keep it going while needed.
+    rec.onend = () => {
+      if (active && heard) {
+        // Heard "Hey Arwin" but the sentence never finished: listen for it.
+        active = false;
+        handlers.onCommand('');
+        return;
+      }
+      if (active) setTimeout(start, 250);
+    };
+    try {
+      rec.start();
+    } catch {
+      active = false;
+    }
+  };
+  start();
+  return {
+    stop() {
+      active = false;
+      try {
+        rec?.abort();
+      } catch {
+        // Already stopped.
+      }
+      rec = null;
     },
   };
 }

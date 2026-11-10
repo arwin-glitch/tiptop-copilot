@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fixTranscript, prepareNames, soundKey } from '@/lib/voice/fix';
-import { matchWake, voiceIntent } from '@/lib/voice/intent';
+import { ackFor, matchWake, voiceIntent } from '@/lib/voice/intent';
 
 const names = prepareNames(['Ledgerly', 'Northwind Labs', 'Maya Chen', 'Girder AI', 'Vetrix']);
 
@@ -57,5 +57,35 @@ describe('matchWake', () => {
 describe('voiceIntent ends the chat', () => {
   it.each(['bye', 'Thank you.', "that's all", 'End voice chat', 'no thanks'])('%s', (said) => {
     expect(voiceIntent(said)).toEqual({ kind: 'stop' });
+  });
+});
+
+describe('ackFor', () => {
+  it('answers about the question when it can tell', () => {
+    expect(ackFor("What's on my calendar tomorrow?", () => 0)).toMatch(/calendar|schedule/i);
+    expect(ackFor('Did Maya reply to my email?', () => 0)).toMatch(/inbox|email|mail/i);
+  });
+
+  it('never says the same line twice in a row', () => {
+    const a = ackFor('Tell me something', () => 0);
+    const b = ackFor('Tell me something', () => 0);
+    expect(a).not.toBe(b);
+    expect(b).not.toBe('On it.');
+  });
+});
+
+describe('ending the voice chat', () => {
+  it.each(['Ok thanks, end chat.', 'bye Arwin', "that's all for now", 'end the call'])(
+    '%s ends it',
+    (said) => {
+      expect(voiceIntent(said)).toEqual({ kind: 'stop' });
+    },
+  );
+
+  it('does not end on longer requests that mention the words', () => {
+    expect(
+      voiceIntent('Draft a reply saying thanks and that we are done with diligence on Acme').kind,
+    ).toBe('ask');
+    expect(voiceIntent('when does the chat with Maya end tomorrow').kind).toBe('ask');
   });
 });

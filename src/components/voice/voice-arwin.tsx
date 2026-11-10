@@ -20,12 +20,13 @@ import { openAskWidget, watchAskReply } from '@/components/ask/ask-events';
 import { openSearch } from '@/components/shell/search-events';
 import type { ChatMessage } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
-import { spokenText, voiceIntent } from '@/lib/voice/intent';
+import { ackFor, spokenText, voiceIntent } from '@/lib/voice/intent';
 import {
   BrowserSpeechUnavailable,
   canListen,
   preferredListener,
   startListening,
+  watchForWakeInBrowser,
   type Heard,
   type Listener,
   type ListenerKind,
@@ -122,7 +123,9 @@ export function VoiceArwin({
     talkingRef.current = next;
     setTalkingState(next);
   }, []);
-  const listenRef = React.useRef<((using?: ListenerKind) => void) | null>(null);
+  const listenRef = React.useRef<
+    ((using?: ListenerKind, options?: { quiet?: boolean }) => void) | null
+  >(null);
   const actRef = React.useRef<((heard: Heard, typedIn?: boolean) => Promise<void>) | null>(null);
 
   React.useEffect(() => {
@@ -247,7 +250,7 @@ export function VoiceArwin({
       const waiting = { ...base, reply: '', threadId: data.threadId, waiting: true };
       setTurn(waiting);
       setPhase('speaking');
-      await speak('On it.');
+      await speak(ackFor(question));
       if (phaseRef.current === 'speaking') setPhase('thinking');
       await waitForAnswer(data.threadId, waiting);
     },
@@ -285,10 +288,10 @@ export function VoiceArwin({
       switch (intent.kind) {
         case 'empty':
           if (talkingRef.current && !typedIn) {
-            // A quiet moment in the chat: it ends by itself.
-            setTalking(false);
+            // A quiet moment never ends the chat: keep listening, quietly.
+            // It ends on "ok thanks, end chat", End voice chat, ✕ or Esc.
             setPhase('idle');
-            setStatus('Voice chat ended. Tap the mic to talk again.');
+            listenRef.current?.(undefined, { quiet: true });
             return;
           }
           setPhase('idle');
@@ -329,7 +332,7 @@ export function VoiceArwin({
   /* ---------------------------------------------------------- listening */
 
   const listen = React.useCallback(
-    (using: ListenerKind = kind.current) => {
+    (using: ListenerKind = kind.current, options: { quiet?: boolean } = {}) => {
       stopSpeaking();
       listener.current?.cancel();
       void loadVoiceNames();
@@ -340,7 +343,7 @@ export function VoiceArwin({
       setPartial('');
       setStatus(null);
       setPhase('listening');
-      chime();
+      if (!options.quiet) chime();
       const l = startListening(
         { onPartial: setPartial, onLevel: setLevel, onStatus: setStatus },
         using,
@@ -405,25 +408,46 @@ export function VoiceArwin({
 
   /* ----------------------------------------------------------- Hey Arwin */
 
+  /** "Hey Arwin" heard: start fresh, cutting Arwin off if he is talking or thinking. */
+  const lastWake = React.useRef(0);
+  const onWake = React.useCallback(
+    (rest: string) => {
+      if (phaseRef.current === 'listening') return;
+      // Two detectors can hear the same "Hey Arwin": act once.
+      const now = Date.now();
+      if (now - lastWake.current < 3_000) return;
+      lastWake.current = now;
+      stopSpeaking();
+      listener.current?.cancel();
+      listener.current = null;
+      pollToken.current++;
+      retries.current = 0;
+      setShow(true);
+      setTurn(null);
+      setPhase('idle');
+      void loadVoiceNames();
+      if (rest.replace(/[^\p{L}]/gu, '').length >= 3) {
+        // "Hey Arwin, open my inbox" in one breath: do it.
+        chime();
+        setTalking(true);
+        void actRef.current?.({ text: rest, confidence: null });
+      } else {
+        // Give the interrupt watcher a moment to let go of the microphone.
+        setTimeout(() => listenRef.current?.(), 200);
+      }
+    },
+    [setPhase, setTalking],
+  );
+  const onWakeRef = React.useRef(onWake);
+  React.useEffect(() => {
+    onWakeRef.current = onWake;
+  }, [onWake]);
+
+  // Always-on "Hey Arwin" (the ear button, per device).
   React.useEffect(() => {
     if (!supported || !wakeOn) return;
     const w = new WakeListener({
-      onWake: (rest) => {
-        if (phaseRef.current !== 'idle') return;
-        pollToken.current++;
-        retries.current = 0;
-        setShow(true);
-        setTurn(null);
-        void loadVoiceNames();
-        if (rest.replace(/[^\p{L}]/gu, '').length >= 3) {
-          // "Hey Arwin, open my inbox" in one breath: do it.
-          chime();
-          setTalking(true);
-          void actRef.current?.({ text: rest, confidence: null });
-        } else {
-          listenRef.current?.();
-        }
-      },
+      onWake: (rest) => onWakeRef.current(rest),
       onStatus: setWakeStatus,
     });
     wake.current = w;
@@ -434,13 +458,34 @@ export function VoiceArwin({
       w.stop();
       if (wake.current === w) wake.current = null;
     };
-  }, [supported, wakeOn, setTalking]);
+  }, [supported, wakeOn]);
 
-  // Not while Arwin is listening or talking himself.
+  // Paused only while Arwin is listening: it must hear "Hey Arwin" to be interrupted.
   React.useEffect(() => {
-    if (phase === 'idle' && !talking) wake.current?.resume();
-    else wake.current?.pause();
-  }, [phase, talking]);
+    if (phase === 'listening') wake.current?.pause();
+    else wake.current?.resume();
+  }, [phase]);
+
+  // While Arwin talks or thinks, "Hey Arwin" interrupts him even with the ear
+  // off: the browser's own recognition where it has one (fastest), otherwise
+  // a Whisper wake listener for the moment.
+  React.useEffect(() => {
+    if (!supported || (phase !== 'speaking' && phase !== 'thinking')) return;
+    if (kind.current === 'browser') {
+      const watch = watchForWakeInBrowser({
+        onHeard: () => stopSpeaking(),
+        onCommand: (rest) => onWakeRef.current(rest),
+      });
+      if (watch) return () => watch.stop();
+    }
+    if (wakeOn) return; // the always-on listener is already hearing it
+    const w = new WakeListener({
+      onWake: (rest) => onWakeRef.current(rest),
+      onStatus: () => undefined,
+    });
+    void w.start().catch(() => undefined);
+    return () => w.stop();
+  }, [supported, phase, wakeOn]);
 
   React.useEffect(
     () => () => {
@@ -566,7 +611,7 @@ export function VoiceArwin({
                     (status
                       ? ''
                       : turn
-                        ? 'Go ahead, or say “bye” to end.'
+                        ? 'Go ahead. Say “ok thanks, end chat” when you’re done.'
                         : 'Say something like “open my inbox” or “what’s on today?”')}
                 </p>
               </div>
