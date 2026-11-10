@@ -7,6 +7,7 @@ import { mailPeopleMatching } from '@/lib/services/search';
 import { getStore } from '@/lib/runtime';
 import { rateLimit } from '@/lib/security/limits';
 import { statusForError } from '@/lib/util/result';
+import { isCalendarNotice, pickPerson } from '@/lib/voice/who';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,19 +50,19 @@ export async function GET(request: NextRequest) {
   const hits = mailPeopleMatching(loaded.value, name, 3);
   const candidates = hits.map((h) => ({ email: h.email, name: h.name }));
   if (hits.length === 0) return NextResponse.json({ ok: true, match: null, candidates });
-  const [top, next] = hits;
-  // Two about equally strong ("Sarah" at two companies): ask, never guess.
-  if (next && next.threads + next.meetings >= (top!.threads + top!.meetings) * 0.6) {
-    return NextResponse.json({ ok: true, match: null, ambiguous: true, candidates });
-  }
-  const profile = await buildPersonProfile(store, auth.value, top!.email).catch(() => null);
-  const thread = profile?.ok ? profile.value.threads.find((t) => t.gmailId) : undefined;
+  const top = pickPerson(name, hits);
+  if (!top) return NextResponse.json({ ok: true, match: null, ambiguous: true, candidates });
+  const profile = await buildPersonProfile(store, auth.value, top.email).catch(() => null);
+  // A real conversation, not a calendar "Accepted:" or "Invitation:" notice.
+  const thread = profile?.ok
+    ? profile.value.threads.find((t) => t.gmailId && !isCalendarNotice(t.subject))
+    : undefined;
   return NextResponse.json(
     {
       ok: true,
       match: {
-        email: top!.email,
-        name: top!.name,
+        email: top.email,
+        name: top.name,
         thread: thread ? { id: thread.gmailId, subject: thread.subject } : null,
       },
       candidates,

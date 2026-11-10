@@ -114,3 +114,34 @@ describe('voice actions: the invite email', () => {
     expect(mail.text).toContain('https://app.example/meet/nick?meal=coffee');
   });
 });
+
+describe('voice actions: who is meant', () => {
+  const hit = (name: string, email: string, threads: number) => ({
+    name,
+    email,
+    threads,
+    meetings: 0,
+  });
+  it('lets a full name win over people who share the first name', async () => {
+    const { pickPerson } = await import('@/lib/voice/who');
+    const hits = [
+      hit('Dana Holt', 'dana@brightwave.example', 2),
+      hit('Dana Price', 'dprice@example.com', 9),
+    ];
+    expect(pickPerson('Dana Holt', hits)?.email).toBe('dana@brightwave.example');
+    // First name only and two strong matches: ask, never guess.
+    expect(pickPerson('Dana', hits)).toBeNull();
+    expect(
+      pickPerson('Dana', [hit('Dana Holt', 'dana@x.example', 9), hit('Dana P', 'd@y.example', 1)])
+        ?.name,
+    ).toBe('Dana Holt');
+  });
+
+  it('never replies to a calendar notice', async () => {
+    const { isCalendarNotice } = await import('@/lib/voice/who');
+    expect(isCalendarNotice('Accepted: Nick <> Dana @ Tue')).toBe(true);
+    expect(isCalendarNotice('Invitation: Coffee')).toBe(true);
+    expect(isCalendarNotice('Brightwave: model + data room')).toBe(false);
+    expect(isCalendarNotice('Invitational golf next week?')).toBe(false);
+  });
+});
