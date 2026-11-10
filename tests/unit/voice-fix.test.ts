@@ -51,6 +51,48 @@ describe('matchWake', () => {
     expect(matchWake('Arwin said the wire went out')).toBeNull();
     expect(matchWake('I told Erwin hey')).toBeNull();
     expect(matchWake('hang on a second')).toBeNull();
+    expect(matchWake('Okay so Arwin said the wire went out')).toBeNull();
+    expect(matchWake('Hi, I told Arwin about it')).toBeNull();
+    expect(matchWake('That was a win for us')).toBeNull();
+    expect(matchWake('Hey Erin, are you coming?')).toBeNull();
+    expect(matchWake('hey Ryan')).toBeNull();
+  });
+
+  it('finds the wake anywhere, with fillers between the greeting and the name', () => {
+    expect(matchWake('so yeah. Hey Arwin, open my inbox')).toEqual({ rest: 'open my inbox' });
+    expect(matchWake('hey, um, Arwin')).toEqual({ rest: '' });
+    expect(matchWake('hey uh um Arwin what is on today')).toEqual({ rest: 'what is on today' });
+    expect(matchWake('hey uh um er Arwin')).toBeNull();
+  });
+
+  it.each([
+    'Erwin',
+    'Irwin',
+    'Arwen',
+    'Arwyn',
+    'Aaron',
+    'Darwin',
+    'Marwin',
+    'Alvin',
+    'Edwin',
+    'our win',
+    'are win',
+    'a win',
+  ])('takes "hey %s" for Hey Arwin', (name) => {
+    expect(matchWake(`Hey ${name}, show my tasks.`)).toEqual({ rest: 'show my tasks.' });
+  });
+
+  it('collapses repeats and keeps what came after the last one', () => {
+    expect(matchWake('Hey Arwin. Hey Arwin.')).toEqual({ rest: '' });
+    expect(matchWake('Hey Arwin, hey Erwin, what is due today?')).toEqual({
+      rest: 'what is due today?',
+    });
+  });
+
+  it('accepts "okay" and "a" as greetings only at the start of a sentence', () => {
+    expect(matchWake('Okay Arwin, open notes')).toEqual({ rest: 'open notes' });
+    expect(matchWake('Right. Okay Arwin, open notes')).toEqual({ rest: 'open notes' });
+    expect(matchWake('it was okay Arwin said')).toBeNull();
   });
 });
 

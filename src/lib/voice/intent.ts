@@ -1,4 +1,5 @@
 import { judgeMatches, searchAppGuide, type AppGuideMatch } from '@/lib/help/app-guide';
+import { editDistance, soundKey } from './fix';
 
 /**
  * What a spoken sentence asks Voice Arwin to do. Pure: no React, no browser.
@@ -18,20 +19,107 @@ export type VoiceIntent =
 const ARWIN_LIKE =
   '(?:arwin|arwyn|arwen|erwin|irwin|erwan|aaron|edwin|darwin|our win|are win|ar win|r win)';
 
-/**
- * "Hey Arwin" at the start of what was heard, and what came after it. Only a
- * greeting plus the name counts, so "Arwin said…" in a conversation does not
- * wake it.
- */
-const WAKE = new RegExp(
-  `^[\\s"'(]*(?:hey|hay|hi|hiya|okay|ok|yo|a|hello)[\\s,]+${ARWIN_LIKE}\\b[\\s,.!?:;-]*(.*)$`,
-  'is',
-);
+/** Greetings that wake Arwin wherever they come in what was heard. */
+const GREETINGS = new Set(['hey', 'hay', 'hei', 'heya', 'hi', 'hiya', 'hello', 'yo']);
+/** Greetings that are everyday words too: only at the start of a sentence. */
+const SENTENCE_GREETINGS = new Set(['ok', 'okay', 'a']);
+/** Sounds people make between "hey" and the name ("hey, um, Arwin"). */
+const WAKE_FILLERS = new Set([
+  'um',
+  'umm',
+  'uh',
+  'uhh',
+  'uhm',
+  'er',
+  'erm',
+  'ah',
+  'oh',
+  'hmm',
+  'there',
+]);
+/** At most this many fillers between the greeting and the name. */
+const MAX_WAKE_FILLERS = 2;
+/** Mishearings of "Arwin" too far from it by spelling to be caught by sound. */
+const ARWIN_HEARD = new Set(['aaron', 'alvin', 'irvin', 'edwin', 'erwan']);
+/** Other people's names that sound close: never taken for Arwin. */
+const NOT_ARWIN = new Set(['erin', 'aron', 'ryan', 'owen', 'evan', 'ewan', 'iron', 'earn']);
+/** The second half of "Arwin" heard as two words ("our win", "are win", "a win"). */
+const WIN_HALF = /^(?:win|wyn|wynn|wen|when)$/;
+const ARWIN_KEY = soundKey('arwin');
 
-/** The rest of the sentence after "Hey Arwin", or null when it was not said. */
+/** Whether these letters sound like "Arwin" (Erwin, Irwin, Arwen, Darwin…). */
+export function soundsLikeArwin(word: string): boolean {
+  const w = word.toLowerCase().replace(/[^a-z]/g, '');
+  if (w.length < 4 || w.length > 7 || NOT_ARWIN.has(w)) return false;
+  if (ARWIN_HEARD.has(w)) return true;
+  const spelling = editDistance(w, 'arwin');
+  if (spelling <= 1) return true;
+  return spelling <= 2 && editDistance(soundKey(w), ARWIN_KEY) <= 1;
+}
+
+interface WakeWord {
+  word: string;
+  end: number;
+  /** A sentence ended just before this word (or it is the first). */
+  sentenceStart: boolean;
+}
+
+function wakeWords(text: string): WakeWord[] {
+  const out: WakeWord[] = [];
+  let last = 0;
+  for (const m of text.matchAll(/[\p{L}\p{N}']+/gu)) {
+    const at = m.index ?? 0;
+    const between = text.slice(last, at);
+    out.push({
+      word: m[0].toLowerCase().replace(/'s$/, ''),
+      end: at + m[0].length,
+      sentenceStart: out.length === 0 || /[.!?]/.test(between),
+    });
+    last = at + m[0].length;
+  }
+  return out;
+}
+
+/** How many words from `i` are the name (1, or 2 for "our win"), or 0. */
+function nameAt(words: readonly WakeWord[], i: number): number {
+  const first = words[i];
+  if (!first) return 0;
+  if (soundsLikeArwin(first.word)) return 1;
+  const second = words[i + 1];
+  if (second && first.word.length <= 4 && WIN_HALF.test(second.word)) {
+    return soundsLikeArwin(first.word + second.word) ? 2 : 0;
+  }
+  return 0;
+}
+
+/**
+ * "Hey Arwin" anywhere in what was heard, and what came after the last one.
+ * Only a greeting plus the name counts ("hey, um, Erwin" does; "Arwin
+ * said…" does not), so talk about Arwin never wakes him. Repeats collapse:
+ * "Hey Arwin. Hey Arwin." wakes once with nothing after it.
+ */
 export function matchWake(text: string): { rest: string } | null {
-  const m = WAKE.exec(text.replace(/[’]/g, "'").trim());
-  return m ? { rest: (m[1] ?? '').trim() } : null;
+  const clean = text.replace(/[’]/g, "'");
+  const words = wakeWords(clean);
+  let wakeEnd = -1;
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]!;
+    if (!GREETINGS.has(w.word) && !(w.sentenceStart && SENTENCE_GREETINGS.has(w.word))) continue;
+    let j = i + 1;
+    while (j - i - 1 < MAX_WAKE_FILLERS && WAKE_FILLERS.has(words[j]?.word ?? '')) j++;
+    const size = nameAt(words, j);
+    if (!size) continue;
+    const name = words[j + size - 1]!;
+    wakeEnd = name.end;
+    i = j + size - 1;
+  }
+  if (wakeEnd < 0) return null;
+  return {
+    rest: clean
+      .slice(wakeEnd)
+      .replace(/^[\s,.!?:;…-]+/, '')
+      .trim(),
+  };
 }
 
 /** Words people put around a command that carry no meaning for it. */

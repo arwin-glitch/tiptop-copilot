@@ -42,6 +42,7 @@ import {
   unlockAudio,
   warmVoices,
 } from '@/lib/voice/speaker';
+import { startBargeIn } from '@/lib/voice/barge-in';
 import { setWakeEnabled, subscribeWake, WakeListener, wakeSnapshot } from '@/lib/voice/wake';
 
 /**
@@ -437,8 +438,7 @@ export function VoiceArwin({
       setPhase('idle');
       void loadVoiceNames();
       if (rest.replace(/[^\p{L}]/gu, '').length >= 3) {
-        // "Hey Arwin, open my inbox" in one breath: do it.
-        chime();
+        // "Hey Arwin, open my inbox" in one breath: do it (onHeard chimed).
         setTalking(true);
         void actRef.current?.({ text: rest, confidence: null });
       } else {
@@ -453,10 +453,19 @@ export function VoiceArwin({
     onWakeRef.current = onWake;
   }, [onWake]);
 
+  /** The instant "Hey Arwin" is recognised: hush and chime, so nobody repeats it. */
+  const onHeard = React.useCallback(() => {
+    if (phaseRef.current === 'listening') return;
+    if (Date.now() - lastWake.current < 3_000) return;
+    stopSpeaking();
+    chime();
+  }, []);
+
   // Always-on "Hey Arwin" (the ear button, per device).
   React.useEffect(() => {
     if (!supported || !wakeOn) return;
     const w = new WakeListener({
+      onHeard,
       onWake: (rest) => onWakeRef.current(rest),
       onStatus: setWakeStatus,
     });
@@ -468,7 +477,7 @@ export function VoiceArwin({
       w.stop();
       if (wake.current === w) wake.current = null;
     };
-  }, [supported, wakeOn]);
+  }, [supported, wakeOn, onHeard]);
 
   // Paused only while Arwin is listening: it must hear "Hey Arwin" to be interrupted.
   React.useEffect(() => {
@@ -490,12 +499,32 @@ export function VoiceArwin({
     }
     if (wakeOn) return; // the always-on listener is already hearing it
     const w = new WakeListener({
+      onHeard,
       onWake: (rest) => onWakeRef.current(rest),
       onStatus: () => undefined,
     });
     void w.start().catch(() => undefined);
     return () => w.stop();
-  }, [supported, phase, wakeOn]);
+  }, [supported, phase, wakeOn, onHeard]);
+
+  // While Arwin is talking, just starting to speak cuts him off and he listens.
+  // Barge-in ignores his own voice (echo cancellation, and it learns the room
+  // only while he is audible), and shares the wake microphone when there is one.
+  React.useEffect(() => {
+    if (!supported || phase !== 'speaking') return;
+    const b = startBargeIn({
+      stream: wake.current?.microphone ?? null,
+      onSpeech: () => {
+        if (phaseRef.current !== 'speaking') return;
+        stopSpeaking();
+        // A new turn: an answer still on its way lands in the chat, not aloud.
+        pollToken.current++;
+        retries.current = 0;
+        listenRef.current?.(undefined, { quiet: true });
+      },
+    });
+    return () => b.stop();
+  }, [supported, phase]);
 
   React.useEffect(
     () => () => {

@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FAKE_VOICEPRINT_MODEL, FakeModelAdapter } from '@/lib/capture/fake-adapter';
-import { SpeechPipeline, type ModelAdapter } from '@/lib/capture/speech-pipeline';
+import {
+  SpeechPipeline,
+  type ModelAdapter,
+  type TranscribeOptions,
+} from '@/lib/capture/speech-pipeline';
 import type { FromWorker, ToWorker, WorkerConfig } from '@/lib/capture/speech-protocol';
 import {
   cosine,
@@ -35,12 +39,22 @@ function harness(adapter: ModelAdapter = new FakeModelAdapter()) {
     knownVoices: KnownVoice[] = [],
     vocabulary: string[] = [],
   ) => send({ type: 'start', streamId, track, diarize: track !== 'mic', knownVoices, vocabulary });
+  const startWake = (streamId: string) =>
+    send({
+      type: 'start',
+      streamId,
+      track: 'mic',
+      diarize: false,
+      knownVoices: [],
+      vocabulary: [],
+      mode: 'wake',
+    });
   const audio = (streamId: string, ...parts: Int16Array[]) => {
     for (const samples of pieces(...parts)) send({ type: 'audio', streamId, samples });
   };
   const events = (streamId: string): TranscriptEvent[] =>
     out.flatMap((m) => (m.type === 'event' && m.streamId === streamId ? [m.event] : []));
-  return { pipeline, out, send, start, audio, events };
+  return { pipeline, out, send, start, startWake, audio, events };
 }
 
 const settle = () => vi.advanceTimersByTimeAsync(50);
@@ -284,5 +298,103 @@ describe('the speech pipeline', () => {
     h.send({ type: 'close', streamId: 'mic' });
     await vi.advanceTimersByTimeAsync(5000);
     expect(adapter.calls).toBeLessThanOrEqual(1);
+  });
+});
+
+/** Records each Whisper call's length and options. */
+class RecordingAdapter extends FakeModelAdapter {
+  readonly seen: { seconds: number; options: TranscribeOptions | undefined }[] = [];
+  override async transcribe(audio: Float32Array, _language = 'en', options?: TranscribeOptions) {
+    this.seen.push({ seconds: audio.length / 16_000, options });
+    return super.transcribe(audio);
+  }
+}
+
+describe('the "Hey Arwin" stream', () => {
+  it('answers after a short pause, where a Notes stream still waits for the turn to end', async () => {
+    const h = harness();
+    h.startWake('wake');
+    h.start('mic', 'mic');
+    h.audio('wake', silence(500), speech(800), silence(500));
+    h.audio('mic', silence(500), speech(800), silence(500));
+    await settle();
+    expect(h.events('wake')).toHaveLength(1);
+    expect(h.events('mic')).toHaveLength(0);
+  });
+
+  it('asks Whisper for a few words without timestamps; Notes keep theirs', async () => {
+    const adapter = new RecordingAdapter();
+    const h = harness(adapter);
+    h.startWake('wake');
+    h.audio('wake', speech(800), silence(600));
+    await settle();
+    h.start('mic', 'mic');
+    h.audio('mic', speech(3000), silence(2000));
+    await settle();
+    expect(adapter.seen).toHaveLength(2);
+    expect(adapter.seen[0]!.options).toEqual({ timestamps: false, maxNewTokens: 32 });
+    expect(adapter.seen[1]!.options).toBeUndefined();
+  });
+
+  it('never runs long: a Whisper call is at most 3 s, however long the talking', async () => {
+    const adapter = new RecordingAdapter();
+    const h = harness(adapter);
+    h.startWake('wake');
+    h.audio('wake', speech(6000), silence(600));
+    await settle();
+    expect(adapter.seen.length).toBeGreaterThanOrEqual(1);
+    // Cut at about 2.5 s; a short stretch may join the one before, up to 3 s.
+    expect(Math.max(...adapter.seen.map((c) => c.seconds))).toBeLessThanOrEqual(3);
+  });
+
+  it('drops speech still waiting when newer speech comes, joining a short one to it', async () => {
+    const adapter = new RecordingAdapter({ delayMs: 2000 });
+    const h = harness(adapter);
+    h.startWake('wake');
+    for (let i = 0; i < 4; i += 1) h.audio('wake', speech(1000), silence(600));
+    await vi.advanceTimersByTimeAsync(10_000);
+    // Four short stretches arrived while the model was loading: only the
+    // newest speech (the last two, joined) is transcribed.
+    expect(adapter.seen).toHaveLength(1);
+    expect(adapter.seen[0]!.seconds).toBeGreaterThan(2);
+    expect(adapter.seen[0]!.seconds).toBeLessThanOrEqual(3);
+    const backlog = h.out.flatMap((m) =>
+      m.type === 'progress' && m.streamId === 'wake' ? [m.backlogMs] : [],
+    );
+    expect(backlog.at(-1)).toBe(0);
+  });
+
+  it('never drops a waiting "Hey Arwin" for the long question right after it', async () => {
+    const adapter = new RecordingAdapter({ delayMs: 2000 });
+    const h = harness(adapter);
+    h.startWake('wake');
+    // "Hey Arwin", a pause, then a question too long to join to it, all while
+    // the model is still loading.
+    h.audio('wake', speech(1000), silence(600), speech(4000), silence(600));
+    await vi.advanceTimersByTimeAsync(20_000);
+    // The first line heard starts with the wake, not part-way into the question.
+    expect(h.events('wake')[0]!.startMs).toBeLessThan(1000);
+    expect(Math.max(...adapter.seen.map((c) => c.seconds))).toBeLessThanOrEqual(3);
+  });
+
+  it('a warm-up runs as short as a wake call; a setup test keeps the full decode', async () => {
+    const adapter = new RecordingAdapter();
+    const h = harness(adapter);
+    h.send({ type: 'test', requestId: 1, samples: silence(500), warm: true });
+    h.send({ type: 'test', requestId: 2, samples: speech(1000) });
+    await settle();
+    expect(adapter.seen.map((c) => c.options)).toEqual([
+      { timestamps: false, maxNewTokens: 32 },
+      undefined,
+    ]);
+  });
+
+  it('a Notes stream keeps every chunk however far behind it falls', async () => {
+    const adapter = new RecordingAdapter({ delayMs: 2000 });
+    const h = harness(adapter);
+    h.start('mic', 'mic');
+    for (let i = 0; i < 3; i += 1) h.audio('mic', speech(3000), silence(2000));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(adapter.seen).toHaveLength(3);
   });
 });

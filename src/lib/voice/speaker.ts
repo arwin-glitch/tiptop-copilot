@@ -97,19 +97,45 @@ export function unlockAudio(): void {
   if (ctx && ctx.state !== 'running') void ctx.resume().catch(() => undefined);
 }
 
-async function playThroughContext(bytes: ArrayBuffer): Promise<boolean | null> {
+/**
+ * Each speak() gets a number; stopSpeaking() and the next speak() move it on.
+ * A cloned-voice fetch that comes back for an old number is thrown away, so
+ * nothing starts talking after the user cut Arwin off.
+ */
+let generation = 0;
+let fetching: AbortController | null = null;
+let deviceDone: (() => void) | null = null;
+/** Sound is coming out right now (not while the cloned voice is still downloading). */
+let audible = false;
+
+/**
+ * Whether Arwin's voice is actually coming out of the speakers now. Barge-in
+ * learns how loud his echo is only while this is true: learning during the
+ * silent download would take his own voice for the user talking over him.
+ */
+export function speechAudible(): boolean {
+  return audible;
+}
+
+/**
+ * Plays decoded audio through the shared context. null when the context is
+ * missing or asleep (then an <audio> element is tried); 'played' otherwise,
+ * including when it was stopped part way.
+ */
+async function playThroughContext(bytes: ArrayBuffer, gen: number): Promise<'played' | null> {
   const ctx = sharedContext();
   if (!ctx) return null;
   try {
     if (ctx.state !== 'running') await ctx.resume();
     if (ctx.state !== 'running') return null;
     const buffer = await ctx.decodeAudioData(bytes);
+    if (gen !== generation) return 'played';
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(ctx.destination);
-    stopSpeaking();
+    silence();
     playingSource = source;
-    return await new Promise<boolean>((resolve) => {
+    return await new Promise<'played'>((resolve) => {
       let settled = false;
       const finish = () => {
         if (settled) return;
@@ -117,40 +143,62 @@ async function playThroughContext(bytes: ArrayBuffer): Promise<boolean | null> {
         if (playingSource === source) {
           playingSource = null;
           playingDone = null;
+          audible = false;
         }
-        resolve(true);
+        resolve('played');
       };
       playingDone = finish;
       source.onended = finish;
       source.start();
+      audible = true;
     });
   } catch {
-    return null;
+    return gen !== generation ? 'played' : null;
   }
 }
 
-/** Plays the answer in the cloned voice; false when it could not (then the device voice speaks). */
-async function speakCloned(text: string): Promise<boolean> {
-  if (!(await hasClonedVoice())) return false;
+/**
+ * Plays the answer in the cloned voice. 'played' when it did (or was stopped,
+ * so nothing else should speak), 'fallback' when the device voice should.
+ */
+async function speakCloned(text: string, gen: number): Promise<'played' | 'fallback'> {
+  const available = await hasClonedVoice();
+  if (gen !== generation) return 'played';
+  if (!available) return 'fallback';
   let blob: Blob;
+  const abort = new AbortController();
+  fetching = abort;
   try {
     const res = await fetch('/api/voice/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
+      signal: abort.signal,
     });
-    if (!res.ok) return false;
+    if (gen !== generation) return 'played';
+    if (!res.ok) return 'fallback';
     blob = await res.blob();
   } catch {
-    return false;
+    return gen !== generation ? 'played' : 'fallback';
+  } finally {
+    if (fetching === abort) fetching = null;
   }
-  const viaContext = await playThroughContext(await blob.arrayBuffer());
+  // Stopped while the audio was downloading: never play it.
+  if (gen !== generation) return 'played';
+  let bytes: ArrayBuffer | null = null;
+  try {
+    bytes = await blob.arrayBuffer();
+  } catch {
+    // Unreadable here: the <audio> element below may still play it.
+  }
+  const viaContext = bytes ? await playThroughContext(bytes, gen) : null;
   if (viaContext !== null) return viaContext;
+  if (gen !== generation) return 'played';
   const url = URL.createObjectURL(blob);
   const audio = new Audio(url);
-  stopSpeaking();
+  silence();
   playing = audio;
-  return new Promise<boolean>((resolve) => {
+  return new Promise<'played' | 'fallback'>((resolve) => {
     let settled = false;
     const finish = (ok: boolean) => {
       if (settled) return;
@@ -159,10 +207,15 @@ async function speakCloned(text: string): Promise<boolean> {
       if (playing === audio) {
         playing = null;
         playingDone = null;
+        audible = false;
       }
-      resolve(ok);
+      // Stopped mid-play counts as done: the device voice must not take over.
+      resolve(ok || gen !== generation ? 'played' : 'fallback');
     };
     playingDone = () => finish(true);
+    audio.onplaying = () => {
+      if (playing === audio) audible = true;
+    };
     audio.onended = () => finish(true);
     audio.onerror = () => finish(false);
     // Blocked autoplay (no tap on the page yet): the device voice takes over.
@@ -170,11 +223,14 @@ async function speakCloned(text: string): Promise<boolean> {
   });
 }
 
-/** Speak and resolve when done (or at once when speech is off or missing). */
+/** Speak and resolve when done (or at once when speech is off, missing or stopped). */
 export async function speak(text: string): Promise<void> {
   if (!text || typeof window === 'undefined' || !speakingEnabled()) return;
-  if (await speakCloned(text)) return;
-  if (!canSpeak()) return;
+  // A new answer replaces whatever was still being said or fetched.
+  stopSpeaking();
+  const gen = generation;
+  if ((await speakCloned(text, gen)) === 'played') return;
+  if (gen !== generation || !canSpeak()) return;
   return speakWithDevice(text);
 }
 
@@ -192,30 +248,58 @@ function speakWithDevice(text: string): Promise<void> {
       if (done) return;
       done = true;
       clearTimeout(guard);
+      if (deviceDone === finish) {
+        deviceDone = null;
+        audible = false;
+      }
       resolve();
     };
     // Some engines never fire onend; never hang on it.
     const guard = setTimeout(finish, Math.max(4_000, text.length * 90));
+    u.onstart = () => {
+      if (deviceDone === finish) audible = true;
+    };
     u.onend = finish;
     u.onerror = finish;
+    deviceDone = finish;
     synth.speak(u);
   });
 }
 
-export function stopSpeaking(): void {
-  if (playingSource) {
+/** Quiet both voices now and let any waiting speak() finish. */
+function silence(): void {
+  const source = playingSource;
+  if (source) {
     try {
-      playingSource.stop();
+      source.stop();
     } catch {
       // Already stopped.
     }
     playingDone?.();
   }
-  if (playing) {
-    playing.pause();
-    playingDone?.();
+  const audio = playing;
+  const done = playingDone;
+  if (audio) {
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+    } catch {
+      // Already gone.
+    }
+    done?.();
   }
   if (canSpeak()) window.speechSynthesis.cancel();
+  // Some engines skip onend/onerror after cancel(): resolve it ourselves.
+  deviceDone?.();
+  audible = false;
+}
+
+/** Stop talking at once: the playing voice, the device voice and any fetch still on its way. */
+export function stopSpeaking(): void {
+  generation += 1;
+  fetching?.abort();
+  fetching = null;
+  silence();
 }
 
 /** A soft two-note "I'm listening" chime (it also wakes the shared audio). */

@@ -6,7 +6,13 @@ import type {
   SpeechEngineOptions,
 } from './speech-engine';
 import { readSpeechPreferences, type SpeechPreferences } from './speech-preferences';
-import type { AdapterKind, FromWorker, LoadStatus, WorkerConfig } from './speech-protocol';
+import type {
+  AdapterKind,
+  FromWorker,
+  LoadStatus,
+  StreamMode,
+  WorkerConfig,
+} from './speech-protocol';
 import { speechWorkerPool, type SpeechWorkerHost, type SpeechWorkerPool } from './speech-workers';
 
 /**
@@ -32,7 +38,25 @@ export interface WhisperEngineOptions extends SpeechEngineOptions {
   adapter?: AdapterKind;
   /** Override the stall window (tests). */
   stallMs?: number;
+  /**
+   * 'wake' for "Hey Arwin": its own worker (never behind the command
+   * listener or a Notes recording), always the Fast model, short pauses and
+   * short text (speech-pipeline.ts). Left out: 'notes'.
+   */
+  mode?: StreamMode;
+  /**
+   * The command listener (listener.ts): with the Fast model, use the wake
+   * worker, which "Hey Arwin" has already loaded and warmed, so the words
+   * after a wake are not held up by a second model starting cold. Never set
+   * by Notes, whose long chunks would hold "Hey Arwin" up.
+   */
+  shareWake?: boolean;
 }
+
+/** The worker slot "Hey Arwin" listens on, apart from 'mic' and the meeting tracks. */
+export const WAKE_SLOT = 'wake';
+/** Silence the wake worker transcribes once after it opens, so the first real call is quick. */
+const WARMUP_SAMPLES = 8000;
 
 let nextStream = 1;
 let nextRequest = 1;
@@ -80,15 +104,23 @@ export class WhisperEngine implements SpeechEngine {
 
   open(): Promise<void> {
     const prefs = this.options.preferences ?? readSpeechPreferences();
+    const wake = this.options.mode === 'wake';
     const config: WorkerConfig = {
-      choice: prefs.model,
+      // A wake word needs speed, not the Notes model's accuracy.
+      choice: wake ? 'fast' : prefs.model,
       device: prefs.device,
       language: this.session.language || 'en',
       adapter: this.options.adapter ?? 'transformers',
     };
     let host: SpeechWorkerHost;
     try {
-      host = this.pool.acquire(config, config.choice === 'best' ? 'shared' : this.session.track);
+      const slot =
+        wake || (this.options.shareWake && config.choice === 'fast')
+          ? WAKE_SLOT
+          : config.choice === 'best'
+            ? 'shared'
+            : this.session.track;
+      host = this.pool.acquire(config, slot);
     } catch {
       return Promise.reject(
         new EngineStartError(
@@ -127,8 +159,18 @@ export class WhisperEngine implements SpeechEngine {
         diarize: this.session.track !== 'mic',
         knownVoices: this.session.knownVoices,
         vocabulary: this.session.vocabulary,
+        ...(wake ? { mode: 'wake' as const } : {}),
       });
     });
+  }
+
+  /** Once per wake worker: run Whisper on a moment of silence so the model is warm. */
+  private warmUp(): void {
+    const host = this.host;
+    if (this.options.mode !== 'wake' || !host || host.warmed) return;
+    host.warmed = true;
+    const samples = new Int16Array(WARMUP_SAMPLES);
+    host.post({ type: 'test', requestId: nextRequest++, samples, warm: true }, [samples.buffer]);
   }
 
   private onMessage(message: FromWorker): void {
@@ -145,6 +187,7 @@ export class WhisperEngine implements SpeechEngine {
         this.lastActivity = Date.now();
         this.opening?.resolve();
         this.opening = null;
+        this.warmUp();
         return;
       case 'event':
         if (message.streamId !== this.streamId) return;

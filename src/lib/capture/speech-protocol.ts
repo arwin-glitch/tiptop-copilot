@@ -16,6 +16,13 @@ export type AdapterKind = 'transformers' | 'fake';
 /** 'auto': WebGPU when the browser has it, otherwise WebAssembly. */
 export type DevicePreference = 'auto' | SpeechDevice;
 
+/**
+ * How a stream is transcribed. 'notes' (the default): whole sentences with
+ * timestamps, nothing dropped. 'wake': "Hey Arwin" listening, cut at short
+ * pauses, short text without timestamps, and only the newest speech matters.
+ */
+export type StreamMode = 'notes' | 'wake';
+
 export interface WorkerConfig {
   choice: SpeechModelChoice;
   device: DevicePreference;
@@ -33,6 +40,8 @@ export type ToWorker =
       diarize: boolean;
       knownVoices: KnownVoice[];
       vocabulary: string[];
+      /** Left out for 'notes'. */
+      mode?: StreamMode;
     }
   | { type: 'audio'; streamId: string; samples: Int16Array }
   /** Transcribe what is left, then answer 'finished'. */
@@ -40,7 +49,8 @@ export type ToWorker =
   | { type: 'close'; streamId: string }
   | { type: 'voiceprint'; streamId: string; requestId: number; label: string }
   /** "Test my setup": transcribe one short sample and say how long it took. */
-  | { type: 'test'; requestId: number; samples: Int16Array };
+  /** `warm`: only to warm the model up (short decode, the result is ignored). */
+  | { type: 'test'; requestId: number; samples: Int16Array; warm?: boolean };
 
 export type LoadPhase = 'loading' | 'ready' | 'failed';
 

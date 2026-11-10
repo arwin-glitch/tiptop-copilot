@@ -59,6 +59,19 @@ export const DEFAULT_VAD_OPTIONS: VadOptions = {
   onsetFrames: 2,
 };
 
+/**
+ * "Hey Arwin" listening (wake.ts): a wake word is short and needs an answer
+ * now, so a stretch is cut at the first short pause and never runs long.
+ * The pre-roll stays, so the "h" of "hey" is not clipped.
+ */
+export const WAKE_VAD_OPTIONS: Partial<VadOptions> = {
+  minChunkMs: 0,
+  maxChunkMs: 2500,
+  pauseCutMs: 350,
+  endOfTurnMs: 450,
+  overlapMs: 500,
+};
+
 export interface SpeechChunk {
   /** Stream-clock sample where the chunk's audio starts. */
   startSample: number;

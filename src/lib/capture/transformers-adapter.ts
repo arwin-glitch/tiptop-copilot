@@ -29,6 +29,7 @@ import {
   type LoadedAsr,
   type ModelAdapter,
   type SpeakerTurn,
+  type TranscribeOptions,
 } from './speech-pipeline';
 
 /**
@@ -223,11 +224,17 @@ export class TransformersAdapter implements ModelAdapter {
     }
   }
 
-  async transcribe(audio: Float32Array, language: string): Promise<AsrResult> {
+  async transcribe(
+    audio: Float32Array,
+    language: string,
+    options: TranscribeOptions = {},
+  ): Promise<AsrResult> {
     if (!this.asr) throw new Error('The speech model is not loaded.');
     const lang = (language || 'en').slice(0, 2).toLowerCase();
     const output = (await this.asr(audio, {
-      return_timestamps: true,
+      // Timestamps cost decoding time; the wake listener only needs the words.
+      return_timestamps: options.timestamps ?? true,
+      ...(options.maxNewTokens ? { max_new_tokens: options.maxNewTokens } : {}),
       ...(this.multilingual ? { language: lang, task: 'transcribe' } : {}),
     })) as { text: string; chunks?: { timestamp: [number, number | null]; text: string }[] };
     const duration = audio.length / 16000;

@@ -12,7 +12,14 @@ import {
   rollingTail,
   stripNoiseMarkers,
 } from './text-dedupe';
-import { VAD_RATE, VadChunker, int16ToFloat, type SpeechChunk, type VadOptions } from './vad';
+import {
+  VAD_RATE,
+  VadChunker,
+  WAKE_VAD_OPTIONS,
+  int16ToFloat,
+  type SpeechChunk,
+  type VadOptions,
+} from './vad';
 
 /**
  * The speech worker's pipeline (D-076), framework-free so the tests run it
@@ -27,7 +34,8 @@ import { VAD_RATE, VadChunker, int16ToFloat, type SpeechChunk, type VadOptions }
  *   lines with a speaker label, on the stream's own clock.
  *
  * Keeping up: chunks wait in a queue when Whisper is slower than speech, and
- * nothing is ever dropped. On finish, everything left is transcribed before
+ * nothing is ever dropped (except on a 'wake' stream, where only the newest
+ * speech matters: see enqueueWake). On finish, everything left is transcribed before
  * 'finished' is sent (the page shows "Finishing transcript…"). Audio lives
  * only in memory and is let go once transcribed.
  */
@@ -37,6 +45,13 @@ export interface AsrSegment {
   startS: number;
   endS: number;
   text: string;
+}
+
+/** How one call to Whisper runs. Left out: timestamps on, no token limit. */
+export interface TranscribeOptions {
+  timestamps?: boolean;
+  /** Stop after this many words' worth of tokens (a wake phrase is short). */
+  maxNewTokens?: number;
 }
 
 export interface AsrResult {
@@ -78,7 +93,11 @@ export class ModelLoadError extends Error {
 export interface ModelAdapter {
   loadAsr(config: WorkerConfig, onProgress: (p: LoadProgress) => void): Promise<LoadedAsr>;
   loadSpeakers(onProgress: (p: LoadProgress) => void): Promise<void>;
-  transcribe(audio: Float32Array, language: string): Promise<AsrResult>;
+  transcribe(
+    audio: Float32Array,
+    language: string,
+    options?: TranscribeOptions,
+  ): Promise<AsrResult>;
   segment(audio: Float32Array): Promise<SpeakerTurn[]>;
   embed(audio: Float32Array): Promise<Float32Array>;
   /** The embedding model's version, stored with a voiceprint. */
@@ -99,6 +118,8 @@ interface StreamState {
   id: string;
   track: TranscriptTrack;
   diarize: boolean;
+  /** A "Hey Arwin" stream: fast cuts, short text, stale speech dropped. */
+  wake: boolean;
   vad: VadChunker;
   clusterer: OnlineClusterer | null;
   vocabulary: string[];
@@ -119,7 +140,7 @@ interface StreamState {
 type Job =
   | { kind: 'chunk'; streamId: string; chunk: SpeechChunk }
   | { kind: 'finish'; streamId: string }
-  | { kind: 'test'; requestId: number; audio: Float32Array };
+  | { kind: 'test'; requestId: number; audio: Float32Array; warm: boolean };
 
 /** Turns shorter than this are too unreliable to embed on their own. */
 const MIN_TURN_EMBED_S = 0.4;
@@ -129,6 +150,16 @@ const MAX_EMBED_S = 8;
 const LOW_SPEECH_MS = 800;
 /** Lines must end after the last one by this much, or the recorder takes them for repeats. */
 const MIN_ADVANCE_MS = 25;
+/**
+ * A wake stream's Whisper call: no timestamps and a sentence at most. The cap
+ * only bites when Whisper rambles on noise; a real "Hey Arwin, add a task…"
+ * ends well before it, so the words after the wake are never cut short.
+ */
+const WAKE_TRANSCRIBE: TranscribeOptions = { timestamps: false, maxNewTokens: 32 };
+/** A waiting wake chunk joins the next one while the two fit in this much audio. */
+const WAKE_JOIN_SAMPLES = VAD_RATE * 3;
+/** At most this much wake speech waits for Whisper; anything older is dropped. */
+const WAKE_KEEP_SAMPLES = VAD_RATE * 5;
 
 export class SpeechPipeline {
   private config: WorkerConfig | null = null;
@@ -187,6 +218,7 @@ export class SpeechPipeline {
           kind: 'test',
           requestId: message.requestId,
           audio: int16ToFloat(message.samples),
+          warm: message.warm === true,
         });
         void this.pump();
         return;
@@ -279,11 +311,13 @@ export class SpeechPipeline {
   private start(message: Extract<ToWorker, { type: 'start' }>): void {
     if (this.streams.has(message.streamId)) return;
     const known = message.diarize ? this.knownVectors(message.knownVoices) : [];
+    const wake = message.mode === 'wake';
     const state: StreamState = {
       id: message.streamId,
       track: message.track,
       diarize: message.diarize,
-      vad: new VadChunker(this.o.vad),
+      wake,
+      vad: new VadChunker(wake ? { ...this.o.vad, ...WAKE_VAD_OPTIONS } : this.o.vad),
       clusterer: message.diarize ? new OnlineClusterer(this.o.clusterer, known) : null,
       vocabulary: prepareVocabulary(message.vocabulary),
       queuedSamples: 0,
@@ -322,9 +356,61 @@ export class SpeechPipeline {
     void this.pump();
   }
 
-  private enqueue(s: StreamState, chunk: SpeechChunk): void {
-    s.queuedSamples += chunk.audio.length;
-    this.queue.push({ kind: 'chunk', streamId: s.id, chunk });
+  private enqueue(s: StreamState, heard: SpeechChunk): void {
+    const chunks = s.wake ? this.dropStale(s, heard) : [heard];
+    for (const chunk of chunks) {
+      s.queuedSamples += chunk.audio.length;
+      this.queue.push({ kind: 'chunk', streamId: s.id, chunk });
+    }
+  }
+
+  /**
+   * A wake stream only cares about what was just said: when Whisper falls
+   * behind, waiting speech older than the last few seconds is dropped, so
+   * "Hey Arwin" is never heard long after older chatter. The chunk just
+   * before the new one joins it when both are short ("Hey…" then "Arwin"),
+   * so a wake split by a pause still reads as one phrase. A short "Hey Arwin"
+   * followed by a long question stays queued, never thrown away for it.
+   */
+  private dropStale(s: StreamState, chunk: SpeechChunk): SpeechChunk[] {
+    const waiting: SpeechChunk[] = [];
+    this.queue = this.queue.filter((j) => {
+      if (j.kind !== 'chunk' || j.streamId !== s.id) return true;
+      waiting.push(j.chunk);
+      s.queuedSamples = Math.max(0, s.queuedSamples - j.chunk.audio.length);
+      return false;
+    });
+    const prev = waiting.pop();
+    if (!prev) return [chunk];
+    // The new chunk's overlap repeats the end of the one just before it.
+    const fresh = chunk.audio.subarray(Math.min(chunk.overlapSamples, chunk.audio.length));
+    let tail: SpeechChunk[];
+    if (prev.audio.length + fresh.length > WAKE_JOIN_SAMPLES) {
+      tail = [prev, chunk];
+    } else {
+      const audio = new Float32Array(prev.audio.length + fresh.length);
+      audio.set(prev.audio);
+      audio.set(fresh, prev.audio.length);
+      tail = [
+        {
+          startSample: prev.startSample,
+          audio,
+          speechMs: prev.speechMs + chunk.speechMs,
+          forced: chunk.forced,
+          overlapSamples: prev.overlapSamples,
+        },
+      ];
+    }
+    // Older speech stays only while everything waiting fits in the budget.
+    let total = tail.reduce((n, c) => n + c.audio.length, 0);
+    const kept: SpeechChunk[] = [];
+    for (let i = waiting.length - 1; i >= 0; i -= 1) {
+      const older = waiting[i]!;
+      if (total + older.audio.length > WAKE_KEEP_SAMPLES) break;
+      total += older.audio.length;
+      kept.unshift(older);
+    }
+    return [...kept, ...tail];
   }
 
   private finish(streamId: string): void {
@@ -385,7 +471,7 @@ export class SpeechPipeline {
         try {
           if (job.kind === 'chunk') await this.processChunk(job.streamId, job.chunk);
           else if (job.kind === 'finish') this.finished(job.streamId);
-          else await this.runTest(job.requestId, job.audio);
+          else await this.runTest(job.requestId, job.audio, job.warm);
         } catch (error) {
           this.die(error);
           return;
@@ -406,9 +492,13 @@ export class SpeechPipeline {
     this.post({ type: 'finished', streamId });
   }
 
-  private async runTest(requestId: number, audio: Float32Array): Promise<void> {
+  private async runTest(requestId: number, audio: Float32Array, warm: boolean): Promise<void> {
     const startedAt = this.o.now();
-    const result = await this.adapter.transcribe(audio, this.config?.language ?? 'en');
+    const language = this.config?.language ?? 'en';
+    // A warm-up runs on silence, where Whisper can ramble: keep it as short as a wake call.
+    const result = warm
+      ? await this.adapter.transcribe(audio, language, WAKE_TRANSCRIBE)
+      : await this.adapter.transcribe(audio, language);
     this.post({
       type: 'test-result',
       requestId,
@@ -424,7 +514,9 @@ export class SpeechPipeline {
     const s = this.streams.get(streamId);
     if (!s) return;
     const language = this.config?.language ?? 'en';
-    const result = await this.adapter.transcribe(chunk.audio, language);
+    const result = s.wake
+      ? await this.adapter.transcribe(chunk.audio, language, WAKE_TRANSCRIBE)
+      : await this.adapter.transcribe(chunk.audio, language);
     const durationS = chunk.audio.length / VAD_RATE;
     let segments = (
       result.segments.length ? result.segments : [{ startS: 0, endS: durationS, text: result.text }]
@@ -546,7 +638,13 @@ export class SpeechPipeline {
     if (this.loaded.device !== 'webgpu' && this.config?.adapter !== 'fake') return;
     const now = this.o.now();
     for (const s of this.streams.values()) {
-      if (s.finishing || s.partialRunning || now - s.lastPartialAt < this.o.partialEveryMs)
+      // A wake stream's chunks are short and final at once: no previews.
+      if (
+        s.wake ||
+        s.finishing ||
+        s.partialRunning ||
+        now - s.lastPartialAt < this.o.partialEveryMs
+      )
         continue;
       const current = s.vad.current();
       if (!current || current.speechMs < 1500) continue;

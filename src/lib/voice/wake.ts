@@ -50,7 +50,19 @@ export function wakeSnapshot(): boolean {
   return wakeOverride ?? wakeEnabled();
 }
 
+/** Shown while the browser keeps the page's audio paused until a tap or key press. */
+export const WAKE_TAP_MESSAGE = 'Tap anywhere to turn on “Hey Arwin”.';
+/** A wake split by a pause ("Hey…" then "Arwin") is still one wake within this. */
+const JOIN_MS = 2500;
+/** Events that count as a tap for starting audio, on a mouse, a touch screen or a keyboard. */
+const GESTURES = ['pointerup', 'touchend', 'click', 'keydown'] as const;
+
 export interface WakeHandlers {
+  /**
+   * "Hey Arwin" was matched, fired right before onWake: the moment to give a
+   * sound (a chime) so the speaker knows they were heard.
+   */
+  onHeard?(): void;
   /** "Hey Arwin" was heard; `rest` is what followed it in the same breath. */
   onWake(rest: string, heard: string): void;
   /** Model download or a problem, in plain words; null when all is well. */
@@ -64,8 +76,22 @@ export class WakeListener {
   private paused = false;
   private stopped = false;
   private resumeOnGesture: (() => void) | null = null;
+  private onStateChange: (() => void) | null = null;
+  private suspendTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The browser holds the audio paused: the tap message wins over "all is well". */
+  private suspended = false;
+  /** The last line heard, kept a moment so a wake split across two lines still counts. */
+  private recent: { text: string; at: number } | null = null;
 
   constructor(private readonly handlers: WakeHandlers) {}
+
+  /**
+   * The open microphone, for barge-in to listen on a copy of (barge-in.ts):
+   * a phone may silence this one if a second microphone is opened.
+   */
+  get microphone(): MediaStream | null {
+    return this.stopped ? null : this.media;
+  }
 
   get running(): boolean {
     return this.engine !== null && !this.stopped;
@@ -85,14 +111,7 @@ export class WakeListener {
       this.stop();
       throw new Error('The browser could not start its audio engine.');
     }
-    // A page that opened without a click starts its audio paused: the next tap
-    // or key press anywhere wakes it.
-    if (this.graph.context.state !== 'running') {
-      const resume = () => void this.graph?.context.resume().catch(() => undefined);
-      this.resumeOnGesture = resume;
-      window.addEventListener('pointerdown', resume, { once: true });
-      window.addEventListener('keydown', resume, { once: true });
-    }
+    this.watchSuspended(this.graph.context);
     this.engine = new WhisperEngine(
       baseSession(
         'browser-whisper',
@@ -102,8 +121,7 @@ export class WakeListener {
       {
         onEvent: (event) => {
           if (this.paused || event.type !== 'final') return;
-          const woke = matchWake(event.text);
-          if (woke) this.handlers.onWake(woke.rest, event.text.trim());
+          this.heard(event.text);
         },
         onClose: (info) => {
           if (!info.expected && !this.stopped) {
@@ -117,10 +135,11 @@ export class WakeListener {
             this.handlers.onStatus(
               `Getting “Hey Arwin” ready… ${Math.round(status.progress * 100)}%`,
             );
-          else this.handlers.onStatus(null);
+          else this.status(null);
         },
       },
-      { baseMs: 0 },
+      // Its own worker, the Fast model, short pauses: a wake within about a second.
+      { baseMs: 0, mode: 'wake' },
     );
     try {
       await this.engine.open();
@@ -132,6 +151,73 @@ export class WakeListener {
     this.attach();
   }
 
+  /** One finished line: wake on "Hey Arwin", even when a pause split it from the line before. */
+  private heard(text: string): void {
+    const now = Date.now();
+    const recent = this.recent && now - this.recent.at <= JOIN_MS ? this.recent.text : '';
+    let woke = matchWake(text);
+    let said = text.trim();
+    if (!woke && recent) {
+      said = `${recent} ${said}`;
+      woke = matchWake(said);
+    }
+    if (!woke) {
+      this.recent = { text: text.trim(), at: now };
+      return;
+    }
+    this.recent = null;
+    this.handlers.onHeard?.();
+    this.handlers.onWake(woke.rest, said);
+  }
+
+  /** A status from the engine; "all is well" still shows the tap message while audio is paused. */
+  private status(message: string | null): void {
+    this.handlers.onStatus(message ?? (this.suspended ? WAKE_TAP_MESSAGE : null));
+  }
+
+  /**
+   * A page that opened without a click starts its audio paused, and then
+   * hears nothing; phones also pause it after a call or a trip to the
+   * background. Say so, wake it on the next tap or key press anywhere, and
+   * clear the message once it runs.
+   */
+  private watchSuspended(context: AudioContext): void {
+    const resume = () => {
+      if (context.state !== 'running' && context.state !== 'closed' && !this.stopped)
+        void context.resume().catch(() => undefined);
+    };
+    this.resumeOnGesture = resume;
+    // Kept for the listener's life, not once: a touch's pointerdown does not
+    // count as a tap for audio (pointerup, touchend and click do), and a
+    // phone can pause the audio again later.
+    for (const type of GESTURES) window.addEventListener(type, resume, true);
+    const onChange = () => {
+      if (this.stopped) return;
+      if (context.state === 'running') {
+        if (this.suspendTimer) clearTimeout(this.suspendTimer);
+        this.suspendTimer = null;
+        if (this.suspended) {
+          this.suspended = false;
+          this.handlers.onStatus(null);
+        }
+        return;
+      }
+      if (context.state === 'closed') return;
+      // Allowed already when the page had a click before: then no message at all.
+      resume();
+      if (this.suspendTimer || this.suspended) return;
+      this.suspendTimer = setTimeout(() => {
+        this.suspendTimer = null;
+        if (context.state === 'running' || this.stopped) return;
+        this.suspended = true;
+        this.handlers.onStatus(WAKE_TAP_MESSAGE);
+      }, 300);
+    };
+    this.onStateChange = onChange;
+    context.addEventListener('statechange', onChange);
+    onChange();
+  }
+
   private attach(): void {
     if (!this.graph || !this.media || !this.engine) return;
     const engine = this.engine;
@@ -141,6 +227,7 @@ export class WakeListener {
   /** Stop listening for a moment (Arwin is listening or talking himself). */
   pause(): void {
     this.paused = true;
+    this.recent = null;
     this.graph?.detach('mic');
   }
 
@@ -153,10 +240,16 @@ export class WakeListener {
   stop(): void {
     this.stopped = true;
     if (this.resumeOnGesture) {
-      window.removeEventListener('pointerdown', this.resumeOnGesture);
-      window.removeEventListener('keydown', this.resumeOnGesture);
+      for (const type of GESTURES) window.removeEventListener(type, this.resumeOnGesture, true);
       this.resumeOnGesture = null;
     }
+    if (this.suspendTimer) clearTimeout(this.suspendTimer);
+    this.suspendTimer = null;
+    if (this.onStateChange)
+      this.graph?.context.removeEventListener('statechange', this.onStateChange);
+    this.onStateChange = null;
+    this.suspended = false;
+    this.recent = null;
     this.graph?.detach('mic');
     void this.graph?.context.close().catch(() => undefined);
     this.graph = null;

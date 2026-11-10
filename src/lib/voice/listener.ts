@@ -257,7 +257,8 @@ function whisperListener(handlers: ListenerHandlers): Listener {
         onClose: () => undefined,
         onStatus: (status) => handlers.onStatus(loadingMessage(status)),
       },
-      { baseMs: 0 },
+      // The worker "Hey Arwin" keeps warm, so the question after a wake starts at once.
+      { baseMs: 0, shareWake: true },
     );
     const cleanup = () => {
       graph.detach('mic');

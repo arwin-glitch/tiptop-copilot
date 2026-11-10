@@ -33,6 +33,8 @@ export class SpeechWorkerHost {
   status: LoadStatus | null = null;
   dead = false;
   refs = 0;
+  /** A first Whisper call has been made on silence, so a real one starts warm. */
+  warmed = false;
   idleTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(

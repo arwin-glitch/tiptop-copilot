@@ -194,6 +194,102 @@ describe('Whisper on this computer', () => {
   });
 });
 
+describe('"Hey Arwin" on its own worker', () => {
+  it('uses the Fast model in a wake slot, apart from the mic, and warms it up once', async () => {
+    const { factory, workers } = inProcessWorkers();
+    const pool = new SpeechWorkerPool(factory, 1000);
+    const best = { model: 'best' as const, device: 'auto' as const };
+    const listener = new WhisperEngine(session('mic'), collect().handlers, {
+      baseMs: 0,
+      pool,
+      preferences: { model: 'fast', device: 'auto' },
+      adapter: 'fake',
+    });
+    const wake = new WhisperEngine(session('mic'), collect().handlers, {
+      baseMs: 0,
+      pool,
+      preferences: best,
+      adapter: 'fake',
+      mode: 'wake',
+    });
+    const opening = Promise.all([listener.open(), wake.open()]);
+    await vi.advanceTimersByTimeAsync(20);
+    await opening;
+    // Two workers: the command listener's 'mic' and the wake word's own.
+    expect(workers).toHaveLength(2);
+    const wakeWorker = workers[1]!;
+    expect(wakeWorker.received.find((m) => m.type === 'init')).toMatchObject({
+      config: { choice: 'fast' },
+    });
+    expect(wakeWorker.received.find((m) => m.type === 'start')).toMatchObject({ mode: 'wake' });
+    expect(wakeWorker.received.filter((m) => m.type === 'test')).toHaveLength(1);
+    // The listener's start says nothing about a mode: its behaviour is unchanged.
+    expect(workers[0]!.received.find((m) => m.type === 'start')).not.toHaveProperty('mode');
+    // Opening again reuses the warm worker without another warm-up.
+    wake.close();
+    const again = new WhisperEngine(session('mic'), collect().handlers, {
+      baseMs: 0,
+      pool,
+      preferences: best,
+      adapter: 'fake',
+      mode: 'wake',
+    });
+    const reopening = again.open();
+    await vi.advanceTimersByTimeAsync(20);
+    await reopening;
+    expect(workers).toHaveLength(2);
+    expect(wakeWorker.received.filter((m) => m.type === 'test')).toHaveLength(1);
+    listener.close();
+    again.close();
+  });
+});
+
+describe('the command listener after a wake', () => {
+  it('shares the warm wake worker with Fast, and keeps its own worker with Best', async () => {
+    const { factory, workers } = inProcessWorkers();
+    const pool = new SpeechWorkerPool(factory, 1000);
+    const fast = { model: 'fast' as const, device: 'auto' as const };
+    const wake = new WhisperEngine(session('mic'), collect().handlers, {
+      baseMs: 0,
+      pool,
+      preferences: fast,
+      adapter: 'fake',
+      mode: 'wake',
+    });
+    const listener = new WhisperEngine(session('mic'), collect().handlers, {
+      baseMs: 0,
+      pool,
+      preferences: fast,
+      adapter: 'fake',
+      shareWake: true,
+    });
+    const opening = Promise.all([wake.open(), listener.open()]);
+    await vi.advanceTimersByTimeAsync(20);
+    await opening;
+    expect(workers).toHaveLength(1);
+    // The listener's own stream is a normal one: no wake mode, no second warm-up.
+    const starts = workers[0]!.received.filter((m) => m.type === 'start');
+    expect(starts).toHaveLength(2);
+    expect(starts[1]).not.toHaveProperty('mode');
+    expect(workers[0]!.received.filter((m) => m.type === 'test')).toHaveLength(1);
+    listener.close();
+
+    const best = new WhisperEngine(session('mic'), collect().handlers, {
+      baseMs: 0,
+      pool,
+      preferences: { model: 'best', device: 'auto' },
+      adapter: 'fake',
+      shareWake: true,
+    });
+    const bestOpening = best.open();
+    await vi.advanceTimersByTimeAsync(20);
+    await bestOpening;
+    expect(workers).toHaveLength(2);
+    wake.close();
+    best.close();
+  });
+});
+
 describe('the speech workers', () => {
   it('one per track for Fast and Better; one shared for Best, which is too big to load twice', () => {
     const { factory, workers } = inProcessWorkers();
