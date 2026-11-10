@@ -12,6 +12,7 @@ import {
   type ContactStatus,
 } from '@/lib/network/contact-status';
 import { evidenceFor, nameFor } from '@/lib/network/evidence';
+import { personPagePath } from '@/lib/network/person-path';
 import type { CrmRecord, CrmValue } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
 import { getRecord } from './crm';
@@ -495,7 +496,7 @@ async function mailCard(
     emails: [email],
   });
   const parts = relationshipParts(rel, auth.profile.timezone);
-  const href = `/network?tab=people&source=mail&q=${encodeURIComponent(email)}`;
+  const href = personPagePath(email);
   const next = rel.summary?.nextMeetingAt ?? null;
   return ok({
     kind: 'mail',
@@ -511,7 +512,7 @@ async function mailCard(
       ['Company', domain],
       ['Next meeting', next ? dateText(next, auth.profile.timezone) : null],
     ),
-    links: links(safeLink('Open in Network', href), safeLink('Website', website(null, domain))),
+    links: links(safeLink('Open profile', href), safeLink('Website', website(null, domain))),
     openHref: href,
     source: 'mail',
   });

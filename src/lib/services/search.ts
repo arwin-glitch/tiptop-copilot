@@ -26,6 +26,7 @@ import { canSeeMeeting } from './notes';
 import { getRelationshipIndex } from './relationships';
 import { harmonicTypeahead } from '@/lib/integrations/harmonic';
 import { isPerson, nameFor, type RelationshipIndex } from '@/lib/network/evidence';
+import { personPagePath } from '@/lib/network/person-path';
 
 /**
  * One search box across the app: deals, portfolio companies, Fund II LPs,
@@ -539,7 +540,7 @@ export async function searchEverything(
       sub: [p.name ? p.email : null, seen ? `From your mail · ${seen}` : 'From your mail']
         .filter(Boolean)
         .join(' · '),
-      href: `/network?tab=people&source=mail&q=${encodeURIComponent(p.email)}`,
+      href: personPagePath(p.email),
     });
   }
   for (const m of meetings) {

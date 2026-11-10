@@ -91,7 +91,7 @@ describe('previewCard', () => {
     expect(card.kind).toBe('mail');
     expect(card.source).toBe('mail');
     expect(card.subtitle).toBe(email);
-    expect(card.openHref).toBe(`/network?tab=people&source=mail&q=${encodeURIComponent(email)}`);
+    expect(card.openHref).toBe(`/network/person/${encodeURIComponent(email)}`);
     expect(card.status?.label).toMatch(/contacted|touch/i);
     expect(card.counts.map((c) => c.label)).toEqual(['Emails', 'Meetings', 'Connections']);
     expect(card.counts[0]?.value).toBeGreaterThan(0);

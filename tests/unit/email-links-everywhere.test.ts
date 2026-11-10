@@ -74,6 +74,7 @@ const DRAWS_THREAD_LINKS = [
   'app/(app)/deals/[id]/page.tsx',
   'app/(app)/follow-ups/page.tsx',
   'app/(app)/fund-ii/page.tsx',
+  'app/(app)/network/person/[email]/page.tsx',
   'app/(app)/portfolio/page.tsx',
   'app/(app)/portfolio/[id]/page.tsx',
   'app/(app)/spaces/[id]/page.tsx',

@@ -128,6 +128,10 @@ describe('previewKeyOf', () => {
     expect(
       previewKeyOf(row('person', { href: '/network?tab=people&source=mail&q=jane%40example.com' })),
     ).toEqual({ kind: 'mail', key: 'jane@example.com' });
+    expect(previewKeyOf(row('person', { href: '/network/person/jane%40example.com' }))).toEqual({
+      kind: 'mail',
+      key: 'jane@example.com',
+    });
     expect(previewKeyOf(row('portfolio', { href: '/portfolio/p-1' }))).toEqual({
       kind: 'portfolio',
       key: 'p-1',

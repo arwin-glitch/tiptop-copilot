@@ -23,6 +23,7 @@ import {
   type RelationshipSortKey,
   type SortDirection,
 } from '@/lib/network/relationship-view';
+import { personPagePath } from '@/lib/network/person-path';
 import { relativeTime } from '@/lib/util/time';
 
 /**
@@ -80,6 +81,18 @@ export function NetworkTable({
     [direction, params, router, sort],
   );
 
+  // A click anywhere on a row opens the person; the name is the real link,
+  // so the keyboard reaches it with Tab and opens it with Enter. A click on
+  // another link in the row (a deal, a company) keeps its own destination.
+  const openRow = React.useCallback(
+    (email: string) => (event: React.MouseEvent) => {
+      if ((event.target as HTMLElement).closest('a, button')) return;
+      if (window.getSelection()?.toString()) return;
+      router.push(personPagePath(email));
+    },
+    [router],
+  );
+
   const sortFor = (key: RelationshipSortKey) => ({
     direction: sort === key ? direction : null,
     onToggle: () => toggle(key),
@@ -113,11 +126,21 @@ export function NetworkTable({
           </TableHead>
           <TableBody>
             {rows.map((row) => (
-              <TableRow key={row.email} interactive>
+              <TableRow
+                key={row.email}
+                interactive
+                className="cursor-pointer"
+                onClick={openRow(row.email)}
+                data-person-row={row.email}
+              >
                 <TableRowHeader className="max-w-[22rem]">
-                  <span className="font-serif text-[15px] font-semibold">
+                  <Link
+                    href={personPagePath(row.email)}
+                    prefetch={false}
+                    className="font-serif text-[15px] font-semibold underline-offset-2 hover:underline"
+                  >
                     {row.name ?? row.email}
-                  </span>
+                  </Link>
                   {row.name ? (
                     <p className="text-mini truncate font-normal text-[var(--fg-subtle)]">
                       {row.email}
@@ -170,7 +193,13 @@ export function NetworkTable({
           <li key={row.email} className="px-4 py-3.5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-serif text-base font-semibold">{row.name ?? row.email}</p>
+                <Link
+                  href={personPagePath(row.email)}
+                  prefetch={false}
+                  className="block font-serif text-base font-semibold underline-offset-2 hover:underline"
+                >
+                  {row.name ?? row.email}
+                </Link>
                 {row.name ? (
                   <p className="text-mini truncate text-[var(--fg-subtle)]">{row.email}</p>
                 ) : null}

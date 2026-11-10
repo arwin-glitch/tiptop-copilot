@@ -5,6 +5,8 @@
  * they can be unit-tested without rendering.
  */
 
+import { parsePersonEmail } from '@/lib/network/person-path';
+
 export type ResultKind =
   | 'deal'
   | 'portfolio'
@@ -217,6 +219,11 @@ export function previewKeyOf(result: Result): PreviewKey | null {
   ) {
     const email = url.searchParams.get('q');
     return email && email.includes('@') ? { kind: 'mail', key: email } : null;
+  }
+  const person = /^\/network\/person\/([^/]+)$/.exec(url.pathname);
+  if (result.kind === 'person' && person) {
+    const email = parsePersonEmail(person[1]);
+    return email ? { kind: 'mail', key: email } : null;
   }
   const portfolio = /^\/portfolio\/([^/]+)$/.exec(url.pathname);
   if (result.kind === 'portfolio' && portfolio) {
