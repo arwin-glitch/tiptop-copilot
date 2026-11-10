@@ -42,6 +42,8 @@ describe('microphone and screen capture', () => {
     const csp = (await headersFor('/meetings/abc')).headers.get('content-security-policy') ?? '';
     expect(csp).toContain("'wasm-unsafe-eval'");
     expect(csp).toMatch(/worker-src 'self' blob:/);
+    // Voice Arwin plays the cloned voice from a blob: URL.
+    expect(csp).toMatch(/media-src 'self' blob:/);
     expect(csp).toContain('https://huggingface.co');
     expect(csp).toContain('https://*.hf.co');
     expect(csp).not.toMatch(/speechmatics|assemblyai|wss:/);

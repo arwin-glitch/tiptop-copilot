@@ -484,6 +484,10 @@ function withSecurityHeaders(
     "connect-src 'self' https://*.supabase.co https://*.supabase.in https://huggingface.co https://*.huggingface.co https://*.hf.co",
     // The speech worker: Kraken's own script (the bundler may start it from a blob).
     "worker-src 'self' blob:",
+    // Voice Arwin plays its spoken answers (the cloned voice from
+    // /api/voice/speak) from a blob: URL. Without this, default-src blocks it
+    // and the device voice speaks instead.
+    "media-src 'self' blob:",
     "frame-ancestors 'none'",
     "form-action 'self'",
     "base-uri 'self'",
