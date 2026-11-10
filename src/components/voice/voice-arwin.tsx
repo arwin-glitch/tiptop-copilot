@@ -16,6 +16,10 @@ import {
   X,
 } from 'lucide-react';
 import { askFromWidgetAction } from '@/app/actions/ask';
+import { createTaskAction, snoozeTaskUntilAction, updateTaskStatusAction } from '@/app/actions';
+import { copilotThreadHref } from '@/lib/email/thread-links';
+import { inviteEmail, voiceAction, type VoiceAction } from '@/lib/voice/actions';
+import { handOffCompose, handOffReply, ringHandoff } from '@/lib/voice/handoff';
 import { openAskWidget, watchAskReply } from '@/components/ask/ask-events';
 import { openSearch } from '@/components/shell/search-events';
 import type { ChatMessage } from '@/lib/types/domain';
@@ -80,6 +84,34 @@ const FOLLOW_UP_MS = 10 * 60_000;
 const POLL_MS = 3_000;
 const POLL_FOR_MS = 5 * 60_000;
 /** Below this the engine was guessing: ask again rather than act. */
+/** How long Arwin's "…?" waits for a yes. */
+const CONFIRM_MS = 30_000;
+const YES =
+  /^(?:yes|yeah|yep|yup|sure|do it|go ahead|confirm|confirmed|ok|okay|please|yes please|correct|right|absolutely|go for it)\b/;
+const NO = /^(?:no|nope|nah|cancel|don't|do not|never mind|nevermind|stop|wait)\b/;
+
+interface PersonMatch {
+  match: {
+    email: string;
+    name: string | null;
+    thread: { id: string | null; subject: string } | null;
+  } | null;
+  candidates: { email: string; name: string | null }[];
+}
+
+/** Who a spoken name means (/api/voice/who). */
+async function findPerson(name: string): Promise<PersonMatch> {
+  try {
+    const r = await fetch(`/api/voice/who?name=${encodeURIComponent(name)}`, {
+      cache: 'no-store',
+    });
+    const body = (await r.json().catch(() => null)) as PersonMatch | null;
+    return { match: body?.match ?? null, candidates: body?.candidates ?? [] };
+  } catch {
+    return { match: null, candidates: [] };
+  }
+}
+
 const MIN_CONFIDENCE = 0.4;
 const MAX_RETRIES = 2;
 
@@ -268,6 +300,128 @@ export function VoiceArwin({
     [aiAvailable, say, setPhase, waitForAnswer],
   );
 
+  /** Arwin's question waiting for a yes, and what a yes does. */
+  const pending = React.useRef<{ run: () => Promise<string>; expires: number } | null>(null);
+
+  /** Ask before changing anything; the next thing heard answers it. */
+  const confirmThen = React.useCallback(
+    async (base: Turn, question: string, run: () => Promise<string>) => {
+      pending.current = { run, expires: Date.now() + CONFIRM_MS };
+      setTurn({ ...base, reply: question });
+      await say(question, 'stop');
+      if (phaseRef.current === 'idle') listenRef.current?.();
+    },
+    [say],
+  );
+
+  /**
+   * Voice actions (lib/voice/actions.ts). Task changes wait for a yes. Email
+   * never goes: a reply or an invite opens in the Inbox filled in, to read
+   * and send by hand.
+   */
+  const doAction = React.useCallback(
+    async (action: VoiceAction, base: Turn) => {
+      const done = (message: string) => {
+        router.refresh();
+        return message;
+      };
+      switch (action.kind) {
+        case 'snooze': {
+          const what = action.target === 'task' ? 'this task' : 'this email';
+          await confirmThen(base, `Snooze ${what} until ${action.untilLabel}?`, async () => {
+            if (action.target === 'task') {
+              const r = await snoozeTaskUntilAction(action.id, action.until.toISOString());
+              if (!r.ok) return r.error?.message ?? 'I couldn’t snooze it.';
+            } else {
+              const r = await fetch('/api/inbox/snooze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'snooze',
+                  threadIds: [action.id],
+                  wakeAt: action.until.toISOString(),
+                }),
+              });
+              if (!r.ok) return 'I couldn’t snooze that email.';
+            }
+            return done(`Snoozed until ${action.untilLabel}.`);
+          });
+          return;
+        }
+        case 'done':
+          await confirmThen(base, 'Mark this task done?', async () => {
+            const r = await updateTaskStatusAction(action.taskId, 'complete');
+            return r.ok
+              ? done('Done. Marked complete.')
+              : (r.error?.message ?? 'That didn’t save.');
+          });
+          return;
+        case 'new_task': {
+          const due = action.dueLabel ? `, due ${action.dueLabel}` : '';
+          await confirmThen(base, `Add a task: ${action.title}${due}?`, async () => {
+            const r = await createTaskAction({
+              title: action.title,
+              dueAt: action.dueAt ? action.dueAt.toISOString() : undefined,
+            });
+            return r.ok ? done('Added to Tasks.') : (r.error?.message ?? 'That didn’t save.');
+          });
+          return;
+        }
+        case 'reply':
+        case 'invite': {
+          setTurn({ ...base, waiting: true });
+          setPhase('thinking');
+          const who = await findPerson(action.who);
+          if (!who.match) {
+            const reply = who.candidates.length
+              ? `I found a few people called ${action.who}: ${who.candidates
+                  .slice(0, 3)
+                  .map((c) => c.name ?? c.email)
+                  .join(', ')}. Say the full name?`
+              : `I couldn’t find ${action.who} in Nick’s mail.`;
+            setTurn({ ...base, reply });
+            await say(reply);
+            return;
+          }
+          const name = who.match.name ?? who.match.email;
+          if (action.kind === 'reply') {
+            const thread = who.match.thread;
+            if (!thread?.id) {
+              const reply = `I couldn’t find an email thread with ${name}.`;
+              setTurn({ ...base, reply });
+              await say(reply);
+              return;
+            }
+            handOffReply({ threadId: thread.id, text: action.text });
+            router.push(copilotThreadHref(thread.id) ?? '/inbox');
+            ringHandoff();
+            const reply = action.text
+              ? `Your reply to ${name} is ready in the Inbox. Check it and hit send.`
+              : `Opened ${name}’s last email with a reply box.`;
+            setTurn({ ...base, reply });
+            await say(reply);
+            return;
+          }
+          handOffCompose(
+            inviteEmail(
+              { name: who.match.name, email: who.match.email },
+              action.meeting,
+              window.location.origin,
+            ),
+          );
+          if (!window.location.pathname.startsWith('/inbox')) router.push('/inbox');
+          ringHandoff();
+          const link = action.meeting === 'call' ? 'calendar' : `${action.meeting} link`;
+          const reply = `An email to ${name} with Nick’s ${link} is ready. Check it and hit send.`;
+          setTurn({ ...base, reply });
+          await say(reply);
+          return;
+        }
+      }
+    },
+    [confirmThen, router, say, setPhase],
+  );
+
   const act = React.useCallback(
     async ({ text: raw, confidence }: Heard, typedIn = false) => {
       setError(null);
@@ -296,6 +450,40 @@ export function VoiceArwin({
         threadId: null,
         waiting: false,
       };
+      // A yes or no to the question Arwin just asked ("Snooze it until Monday?").
+      const waiting = pending.current;
+      if (waiting && intent.kind !== 'empty') {
+        pending.current = null;
+        const answer = fixed.text
+          .toLowerCase()
+          .replace(/[^a-z' ]/g, '')
+          .trim();
+        if (Date.now() < waiting.expires && YES.test(answer)) {
+          setTurn({ ...base, waiting: true });
+          setPhase('thinking');
+          const reply = await waiting
+            .run()
+            .catch(() => 'That didn’t go through. Try it on the page.');
+          setTurn({ ...base, reply });
+          await say(reply);
+          return;
+        }
+        if (Date.now() < waiting.expires && NO.test(answer)) {
+          setTurn({ ...base, reply: 'Okay, I left it as it was.' });
+          await say('Okay, I left it as it was.');
+          return;
+        }
+      }
+      if (intent.kind !== 'stop' && intent.kind !== 'empty') {
+        const action = voiceAction(fixed.text, {
+          pathname: window.location.pathname,
+          search: window.location.search,
+        });
+        if (action) {
+          await doAction(action, base);
+          return;
+        }
+      }
       switch (intent.kind) {
         case 'empty':
           if (talkingRef.current && !typedIn) {
@@ -334,7 +522,7 @@ export function VoiceArwin({
           return;
       }
     },
-    [ask, router, say, setPhase, setTalking],
+    [ask, doAction, router, say, setPhase, setTalking],
   );
   React.useEffect(() => {
     actRef.current = act;

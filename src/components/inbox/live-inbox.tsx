@@ -51,6 +51,7 @@ import type { VacationSettings } from '@/lib/email/vacation';
 import { useConfirm } from '@/components/ui/confirm';
 import { senderAddress } from '@/lib/email/inbox-filters';
 import { textToComposeHtml } from '@/lib/email/compose-html';
+import { takeCompose, VOICE_HANDOFF_EVENT } from '@/lib/voice/handoff';
 import { unsubscribeHow } from '@/lib/email/unsubscribe';
 import { InboxToolbar, type SelectWhich } from '@/components/inbox/inbox-toolbar';
 import { ContextMenu, type MenuItem } from '@/components/inbox/inbox-menus';
@@ -874,6 +875,28 @@ export function LiveInbox({
     });
   }, []);
   const openCompose = React.useCallback(() => addWindow(newEmail()), [addWindow]);
+
+  // Voice Arwin's "email Sarah about coffee": a compose window opens filled in, once.
+  React.useEffect(() => {
+    // Taken inside the timer, so a cancelled first run leaves it for the next.
+    const open = () => {
+      const handed = takeCompose();
+      if (!handed) return;
+      addWindow({
+        ...newEmail(),
+        to: handed.to,
+        subject: handed.subject,
+        html: handed.text ? textToComposeHtml(handed.text) : '',
+      });
+    };
+    const t = window.setTimeout(open, 0);
+    // Already on the Inbox: Voice Arwin rings instead of navigating.
+    window.addEventListener(VOICE_HANDOFF_EVENT, open);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener(VOICE_HANDOFF_EVENT, open);
+    };
+  }, [addWindow]);
   const closeWindow = (key: string) => setComposes((cur) => cur.filter((c) => c.key !== key));
 
   /** A Gmail draft, whole, into a compose window. */

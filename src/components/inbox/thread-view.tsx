@@ -56,6 +56,7 @@ import {
 import { readerZone, SnoozeMenu } from '@/components/inbox/snooze-menu';
 import { opensInline } from '@/lib/email/attachment-types';
 import { textToComposeHtml } from '@/lib/email/compose-html';
+import { takeReplyFor, VOICE_HANDOFF_EVENT } from '@/lib/voice/handoff';
 import { emlFileName } from '@/lib/email/raw-message';
 import { looksEnglish } from '@/lib/email/language';
 import {
@@ -891,6 +892,26 @@ export function ThreadView({
     },
     [thread, mailbox, timeZone, composeEnv.demo, setWrite],
   );
+
+  // Voice Arwin's "reply to Patrick: …": the reply box opens filled in, once.
+  React.useEffect(() => {
+    if (!thread) return;
+    const id = thread.id;
+    // Taken inside the timer, so a cancelled first run leaves it for the next.
+    const open = () => {
+      const handed = takeReplyFor(id);
+      if (!handed) return;
+      const html = handed.text ? textToComposeHtml(handed.text) : undefined;
+      void startWrite('reply', undefined, html ? { html } : {});
+    };
+    const t = window.setTimeout(open, 0);
+    // Already on this thread: Voice Arwin rings instead of navigating.
+    window.addEventListener(VOICE_HANDOFF_EVENT, open);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener(VOICE_HANDOFF_EVENT, open);
+    };
+  }, [thread, startWrite]);
 
   // A key asked for a composer (r, a, f): open it once the thread is here.
   React.useEffect(() => {

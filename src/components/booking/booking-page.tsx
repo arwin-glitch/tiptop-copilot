@@ -7,7 +7,12 @@ import { ThemeToggle } from '@/components/shell/theme-toggle';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/feedback';
 import { Input, Label, Select, Textarea } from '@/components/ui/form';
-import { KIND_LABEL, placesForKind } from '@/lib/booking/config';
+import {
+  KIND_LABEL,
+  placesForKind,
+  type MeetingKind,
+  type MeetingType,
+} from '@/lib/booking/config';
 import { PICK_GONE_MESSAGE, type PublicPick } from '@/lib/booking/picks';
 import {
   CLOSED_MESSAGE,
@@ -83,12 +88,15 @@ export function BookingPage({
   data,
   remembered = null,
   picked = null,
+  preset = null,
 }: {
   data: PublicBookingPage;
   /** The latest booking this device made on the link, while it is ahead (D-078). */
   remembered?: RememberedBooking | null;
   /** A pick's page (Pick times), or null for the booking link itself. */
   picked?: PickedMode | null;
+  /** A link that starts on one meeting ("?meal=coffee", "?type=call"). */
+  preset?: { type: MeetingType; kind: MeetingKind | null } | null;
 }) {
   const detected = React.useSyncExternalStore(noSubscribe, browserZone, serverNull);
   const [chosenZone, setChosenZone] = React.useState<string | null>(null);
@@ -119,6 +127,7 @@ export function BookingPage({
       data={data}
       picked={picked?.pick ? { token: picked.token, pick: picked.pick } : null}
       remembered={remembered}
+      preset={preset}
       visitorZone={zone}
       zonePicked={chosenZone !== null}
       onZone={setChosenZone}
@@ -261,6 +270,7 @@ function OpenPage({
   data,
   picked,
   remembered,
+  preset,
   visitorZone,
   zonePicked,
   onZone,
@@ -270,6 +280,7 @@ function OpenPage({
   /** A pick's page: the type is locked and the times come from the pick. */
   picked: { token: string; pick: PublicPick } | null;
   remembered: RememberedBooking | null;
+  preset: { type: MeetingType; kind: MeetingKind | null } | null;
   visitorZone: string;
   /** The visitor chose a zone in the picker: it wins everywhere. */
   zonePicked: boolean;
@@ -282,8 +293,13 @@ function OpenPage({
     ? `${pick.durationMinutes}-min ${data.callProvider || 'Google Meet'}`
     : callOptionLabel(data.callProvider);
   const startForm = React.useMemo(
-    () => (pick ? patchForm(EMPTY_FORM, { type: pick.type, kind: pick.kind }) : EMPTY_FORM),
-    [pick],
+    () =>
+      pick
+        ? patchForm(EMPTY_FORM, { type: pick.type, kind: pick.kind })
+        : preset
+          ? patchForm(EMPTY_FORM, { type: preset.type, kind: preset.kind })
+          : EMPTY_FORM,
+    [pick, preset],
   );
   const [form, setForm] = React.useState<BookingFormState>(startForm);
   // In person the visitor will be in the host's city, so its times read in
