@@ -343,7 +343,13 @@ export function harmonicHitToResult(hit: HarmonicHit): Result | null {
     sub: str(hit.headline) ?? (person ? null : cleanDomain(hit.website ?? null)),
     href: `/network/harmonic?q=${encodeURIComponent(hit.name)}`,
     domain: person ? null : cleanDomain(hit.website ?? null),
-    preview: { kind: person ? 'harmonic_person' : 'harmonic_company', key: String(hit.id) },
+    // An investor's details need Harmonic's paid Deal Data add-on, so it gets
+    // the simple card (no look-up spent) instead of a preview fetch.
+    ...(hit.kind === 'investor'
+      ? {}
+      : {
+          preview: { kind: person ? 'harmonic_person' : 'harmonic_company', key: String(hit.id) },
+        }),
     origin: 'harmonic',
   };
 }

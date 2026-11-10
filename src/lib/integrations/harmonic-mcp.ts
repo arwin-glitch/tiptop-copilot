@@ -813,7 +813,8 @@ const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && 
 
 function str(v: unknown): string | null {
   if (typeof v === 'string') {
-    const t = v.trim();
+    // Harmonic's text answers can carry escaped newlines ("\n- MURAL\n- …").
+    const t = v.replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim();
     return t ? t : null;
   }
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);

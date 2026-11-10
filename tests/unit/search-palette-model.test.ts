@@ -178,18 +178,24 @@ describe('normalizePreviewCard', () => {
 describe('Harmonic answers', () => {
   it('maps hits to in-app rows with a Harmonic preview key', () => {
     const r = harmonicHitToResult({
-      kind: 'investor',
+      kind: 'company',
       id: '42',
-      name: 'Example Capital',
-      website: 'https://example.vc',
+      name: 'Example Labs',
+      website: 'https://example.dev',
     });
     expect(r).toMatchObject({
       kind: 'harmonic_company',
-      href: '/network/harmonic?q=Example%20Capital',
-      domain: 'example.vc',
+      href: '/network/harmonic?q=Example%20Labs',
+      domain: 'example.dev',
       preview: { kind: 'harmonic_company', key: '42' },
       origin: 'harmonic',
     });
+  });
+
+  it('gives an investor no preview fetch (its details need a paid add-on)', () => {
+    const r = harmonicHitToResult({ kind: 'investor', id: '7', name: 'Example Capital' });
+    expect(r).toMatchObject({ kind: 'harmonic_company', origin: 'harmonic' });
+    expect(r?.preview).toBeUndefined();
   });
 
   it('turns itself off when not connected or used up', () => {
