@@ -8,7 +8,7 @@ import {
   BOOKING_HOURS_HINT,
   BOOKING_LATEST_END,
   DEFAULT_BOOKING_CONFIG,
-  DINNER_WINDOW,
+  IN_PERSON_DAY,
   inPersonOffered,
   KIND_START_BOUNDS,
   parseBookingConfig,
@@ -174,15 +174,24 @@ describe('Settings > Booking link', () => {
     expect(bad({ weekdays: [2, 4], callBufferMinutes: 30, noticeHours: 48 })).toBe(true);
   });
 
-  it('holds the hours to 8:00 to 18:00 Central, dinner 18:00 to 19:00 (hotfix)', () => {
+  it('holds calls to 8:00 to 18:00 Central; in person starts anywhere 6:00 to 21:00', () => {
     expect(BOOKING_EARLIEST_START).toBe('08:00');
     expect(BOOKING_LATEST_END).toBe('18:00');
-    expect(DINNER_WINDOW).toEqual({ from: '18:00', to: '19:00' });
-    // An hour in person: coffee and lunch start by 17:00, dinner starts at 18:00.
+    expect(IN_PERSON_DAY).toEqual({ from: '06:00', to: '22:00' });
+    // An hour in person, any kind: starts 6:00 to 21:00, so it ends by 22:00.
     expect(KIND_START_BOUNDS).toEqual({
-      coffee: { from: '08:00', to: '17:00' },
-      lunch: { from: '08:00', to: '17:00' },
-      dinner: { from: '18:00', to: '18:00' },
+      coffee: { from: '06:00', to: '21:00' },
+      lunch: { from: '06:00', to: '21:00' },
+      dinner: { from: '06:00', to: '21:00' },
+    });
+    // The defaults are unchanged.
+    expect(DEFAULT_BOOKING_CONFIG.kindWindows).toEqual({
+      coffee: [
+        { from: '08:00', to: '11:00' },
+        { from: '14:00', to: '17:00' },
+      ],
+      lunch: [{ from: '11:30', to: '13:00' }],
+      dinner: [{ from: '18:00', to: '18:00' }],
     });
     const ok = structuredClone(DEFAULT_BOOKING_CONFIG);
     const check = (over: Record<string, unknown>) =>
@@ -198,17 +207,55 @@ describe('Settings > Booking link', () => {
     const kinds = (over: Record<string, unknown>) => ({
       kindWindows: { ...ok.kindWindows, ...over },
     });
-    expect(message(kinds({ coffee: [{ from: '16:00', to: '17:30' }] }))).toBe(
-      'Coffee has to start between 8:00 AM and 5:00 PM Central, so it ends by 6:00 PM',
+    // Arwin's choices: all saved, not refused.
+    expect(check(kinds({ dinner: [{ from: '18:00', to: '19:30' }] })).success).toBe(true);
+    expect(check(kinds({ dinner: [{ from: '17:00', to: '19:00' }] })).success).toBe(true);
+    expect(
+      check(
+        kinds({
+          dinner: [
+            { from: '17:00', to: '17:30' },
+            { from: '19:00', to: '20:30' },
+          ],
+        }),
+      ).success,
+    ).toBe(true);
+    expect(check(kinds({ coffee: [{ from: '07:00', to: '17:00' }] })).success).toBe(true);
+    expect(check(kinds({ lunch: [{ from: '11:00', to: '14:00' }] })).success).toBe(true);
+    expect(check(kinds({ coffee: [{ from: '06:00', to: '21:00' }] })).success).toBe(true);
+    expect(check(kinds({ dinner: [{ from: '21:00', to: '21:00' }] })).success).toBe(true);
+    // Outside the in-person day, or a window ending before it starts.
+    expect(message(kinds({ dinner: [{ from: '18:00', to: '21:30' }] }))).toBe(
+      'Dinner can start between 6:00 AM and 9:00 PM Central, so it ends by 10:00 PM',
     );
-    expect(message(kinds({ lunch: [{ from: '07:00', to: '12:00' }] }))).toBe(
-      'Lunch has to start between 8:00 AM and 5:00 PM Central, so it ends by 6:00 PM',
+    expect(message(kinds({ coffee: [{ from: '05:30', to: '08:00' }] }))).toBe(
+      'Coffee can start between 6:00 AM and 9:00 PM Central, so it ends by 10:00 PM',
     );
-    expect(message(kinds({ dinner: [{ from: '18:00', to: '19:30' }] }))).toBe(
-      'Dinner is 6:00 to 7:00 PM Central, so it starts at 6:00 PM',
+    expect(message(kinds({ lunch: [{ from: '13:00', to: '12:00' }] }))).toBe(
+      'A window has to end after it starts.',
     );
-    expect(check(kinds({ dinner: [{ from: '17:00', to: '18:00' }] })).success).toBe(false);
-    expect(check(kinds({ coffee: [{ from: '16:00', to: '17:00' }] })).success).toBe(true);
+    // Two windows of one kind may not share a start; across kinds they may.
+    expect(
+      message(
+        kinds({
+          coffee: [
+            { from: '08:00', to: '11:00' },
+            { from: '10:30', to: '12:00' },
+          ],
+        }),
+      ),
+    ).toBe('Two coffee windows overlap. Join them or move one');
+    expect(
+      check(
+        kinds({
+          coffee: [
+            { from: '08:00', to: '11:00' },
+            { from: '11:00', to: '11:00' },
+          ],
+        }),
+      ).success,
+    ).toBe(false);
+    expect(check(kinds({ lunch: [{ from: '10:00', to: '13:00' }] })).success).toBe(true);
   });
 
   it('clamps stored hours into the bounds when it reads them (hotfix)', () => {
@@ -216,27 +263,27 @@ describe('Settings > Booking link', () => {
       callWindow: { from: '06:00', to: '20:00' },
       kindWindows: {
         coffee: [
-          { from: '07:00', to: '09:00' },
+          { from: '05:00', to: '09:00' },
           { from: '16:00', to: '19:00' },
-          { from: '19:00', to: '20:00' }, // wholly outside: dropped
+          { from: '22:00', to: '23:00' }, // wholly outside: dropped
         ],
         lunch: [{ from: '11:00', to: '12:00' }],
-        dinner: [{ from: '17:00', to: '20:00' }],
+        dinner: [{ from: '16:00', to: '23:00' }],
       },
     });
     expect(parsed.callWindow).toEqual({ from: '08:00', to: '18:00' });
     expect(parsed.kindWindows).toEqual({
       coffee: [
-        { from: '08:00', to: '09:00' },
-        { from: '16:00', to: '17:00' },
+        { from: '06:00', to: '09:00' },
+        { from: '16:00', to: '19:00' },
       ],
       lunch: [{ from: '11:00', to: '12:00' }],
-      dinner: [{ from: '18:00', to: '18:00' }],
+      dinner: [{ from: '16:00', to: '21:00' }],
     });
-    // A dinner window wholly off 18:00 is dropped; a call window wholly outside takes the default.
+    // A window wholly outside the in-person day is dropped; a call window wholly outside takes the default.
     const off = parseBookingConfig({
       callWindow: { from: '19:00', to: '21:00' },
-      kindWindows: { coffee: [], lunch: [], dinner: [{ from: '19:00', to: '20:00' }] },
+      kindWindows: { coffee: [], lunch: [], dinner: [{ from: '21:30', to: '22:00' }] },
     });
     expect(off.callWindow).toEqual({ from: '08:00', to: '18:00' });
     expect(off.kindWindows.dinner).toEqual([]);
@@ -252,8 +299,9 @@ describe('Settings > Booking link', () => {
   });
 
   it('reads hours saved as the earlier defaults as today’s defaults (hotfix)', () => {
-    // Saved with the rest of Settings before the bounds: 9 to 5 calls, coffee to 16:00,
-    // dinner to 19:30. Never chosen, so they follow the new defaults (last call 17:30).
+    // Saved with the rest of Settings before the bounds: 9 to 5 calls, coffee to 16:00.
+    // Never chosen, so they follow the new defaults (last call 17:30). Dinner 18:00 to
+    // 19:30 is kept as saved: a host may choose exactly that start window now.
     const parsed = parseBookingConfig({
       callWindow: { from: '09:00', to: '17:00' },
       kindWindows: {
@@ -266,11 +314,16 @@ describe('Settings > Booking link', () => {
       },
     });
     expect(parsed.callWindow).toEqual(DEFAULT_BOOKING_CONFIG.callWindow);
-    expect(parsed.kindWindows).toEqual(DEFAULT_BOOKING_CONFIG.kindWindows);
+    expect(parsed.kindWindows).toEqual({
+      ...DEFAULT_BOOKING_CONFIG.kindWindows,
+      dinner: [{ from: '18:00', to: '19:30' }],
+    });
   });
 
   it('says the bounds over the hours on the Booking tab (hotfix, moved by D-078)', () => {
-    expect(BOOKING_HOURS_HINT).toBe('8:00 AM to 6:00 PM Central; dinner 6-7 PM.');
+    expect(BOOKING_HOURS_HINT).toBe(
+      'Calls 8:00 AM to 6:00 PM Central; in person can start 6:00 AM to 9:00 PM.',
+    );
     const markup = renderToStaticMarkup(
       createElement(HoursFields, {
         hours: {
@@ -283,10 +336,11 @@ describe('Settings > Booking link', () => {
         onChange: () => {},
       }),
     );
-    expect(markup).toContain('8:00 AM to 6:00 PM Central; dinner 6-7 PM.');
-    // The time inputs carry the bounds too: calls 08:00 to 18:00, dinner 18:00.
+    // The hint says the dinner start actually set (18:00 by default), not a fixed 6-7 PM.
+    expect(markup).toContain('Calls 8:00 AM to 6:00 PM Central. Dinner starts at 6:00 PM.');
+    // The time inputs carry the bounds too: calls 08:00 to 18:00, in person 06:00 to 21:00.
     expect(markup).toContain('min="08:00" max="18:00"');
-    expect(markup).toContain('min="18:00" max="18:00"');
+    expect(markup).toContain('min="06:00" max="21:00"');
   });
 
   it('keeps link names short, plain and clear of the app’s own words', () => {

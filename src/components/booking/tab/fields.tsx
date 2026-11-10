@@ -7,6 +7,7 @@ import { Input, Label } from '@/components/ui/form';
 import {
   KIND_LABEL,
   KIND_START_BOUNDS,
+  windowsOverlap,
   type MeetingKind,
   type Place,
   type TimeWindow,
@@ -174,6 +175,26 @@ export function WindowRow({
   );
 }
 
+/** A new window that overlaps none already set (Settings refuses overlapping windows). */
+export function nextWindow(kind: MeetingKind, windows: readonly TimeWindow[]): TimeWindow {
+  const tries: TimeWindow[] =
+    kind === 'dinner'
+      ? [
+          { from: '18:00', to: '18:00' },
+          { from: '19:00', to: '20:00' },
+          { from: '17:00', to: '17:30' },
+          { from: '20:30', to: '21:00' },
+        ]
+      : [
+          { from: '09:00', to: '10:00' },
+          { from: '12:00', to: '13:00' },
+          { from: '15:00', to: '16:00' },
+          { from: '07:00', to: '07:30' },
+          { from: '17:30', to: '18:00' },
+        ];
+  return { ...(tries.find((t) => windows.every((w) => !windowsOverlap(t, w))) ?? tries[0]!) };
+}
+
 export function KindWindows({
   kind,
   windows,
@@ -205,12 +226,7 @@ export function KindWindows({
           size="sm"
           variant="ghost"
           disabled={disabled}
-          onClick={() =>
-            onChange([
-              ...windows,
-              kind === 'dinner' ? { ...KIND_START_BOUNDS.dinner } : { from: '09:00', to: '10:00' },
-            ])
-          }
+          onClick={() => onChange([...windows, nextWindow(kind, windows)])}
         >
           <Plus aria-hidden="true" />
           Add hours
@@ -286,6 +302,33 @@ export function PlaceRow({
           }
         />
       </div>
+      <fieldset className="flex flex-wrap items-center gap-3 sm:col-span-3">
+        <legend className="sr-only">Offered for</legend>
+        <span className="text-xs text-[var(--fg-muted)]">Offered for</span>
+        {(['coffee', 'lunch', 'dinner'] as const).map((k) => {
+          const kinds = place.kinds ?? [];
+          const on = kinds.length === 0 || kinds.includes(k);
+          return (
+            <label key={k} className="flex items-center gap-1.5 text-sm">
+              <input
+                type="checkbox"
+                checked={on}
+                disabled={disabled}
+                onChange={() => {
+                  const current = kinds.length === 0 ? ['coffee', 'lunch', 'dinner'] : kinds;
+                  const next = on ? current.filter((x) => x !== k) : [...current, k];
+                  // All three, or none left, is stored as "every meal".
+                  onChange({
+                    ...place,
+                    kinds: next.length === 3 || next.length === 0 ? [] : (next as Place['kinds']),
+                  });
+                }}
+              />
+              {k === 'coffee' ? 'Coffee' : k === 'lunch' ? 'Lunch' : 'Dinner'}
+            </label>
+          );
+        })}
+      </fieldset>
       <Button
         size="icon"
         variant="ghost"

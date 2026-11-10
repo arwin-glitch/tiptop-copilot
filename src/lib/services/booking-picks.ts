@@ -10,6 +10,8 @@ import {
 import {
   checkPickRanges,
   DEFAULT_PICK_KIND,
+  inferPickKind,
+  resolvePickKind,
   PICK_CREATE_INPUT,
   PICK_GONE_MESSAGE,
   PICK_TAKEN_MESSAGE,
@@ -189,7 +191,7 @@ async function newPickClearance(
   ranges: readonly PickRange[],
   durationMinutes: number,
   deps: { now: Date; source?: CalendarSource },
-): Promise<{ offered: number; heldAway: boolean }> {
+): Promise<{ offered: number; heldAway: boolean; hostZone: string | null }> {
   const through = lastDayOf(ranges, 'UTC');
   const prepared = await engineInputFor(store, link, {
     now: deps.now,
@@ -208,7 +210,11 @@ async function newPickClearance(
   const pick = { ranges, durationMinutes };
   const offered = pickOfferedStarts(pick, deps.now, clear).length;
   const withoutHolds = pickOfferedStarts(pick, deps.now, { ...clear, holds: [] }).length;
-  return { offered, heldAway: withoutHolds > offered };
+  return {
+    offered,
+    heldAway: withoutHolds > offered,
+    hostZone: prepared && prepared.ok ? prepared.value.hostZone : null,
+  };
 }
 
 /**
@@ -241,7 +247,6 @@ export async function createPick(
       'In person needs a home city and places on the Booking tab first. Pick Video call instead.',
     );
   }
-  const kind: MeetingKind | null = type === 'in_person' ? (input.kind ?? DEFAULT_PICK_KIND) : null;
   const clearance = await newPickClearance(
     ctx.store,
     { organizationId: ctx.organizationId, config },
@@ -249,6 +254,16 @@ export async function createPick(
     input.durationMinutes,
     { now, source: deps.source },
   );
+  // Not chosen: the meal its first time falls in (6 PM is dinner, not coffee).
+  const kind: MeetingKind | null =
+    type === 'in_person'
+      ? (input.kind ??
+        inferPickKind(
+          firstStartOf(checked.ranges),
+          config.kindWindows,
+          clearance.hostZone ?? input.recipientTimeZone ?? 'UTC',
+        ))
+      : null;
   if (clearance.offered === 0) return err('invalid_input', PICK_NONE_FREE);
   const id = newId();
   const { token, hash } = mintManageToken();
@@ -560,6 +575,16 @@ export async function loadPickPage(
     ...deps,
     link: linkOf(found),
   });
+  // A pick saved as coffee at 6 PM shows (and books) as dinner.
+  const shownKind =
+    pick.meeting_type === 'in_person'
+      ? resolvePickKind(
+          pick.kind,
+          firstStartOf(rangesOf(pick)),
+          found.config.kindWindows,
+          page.hostTimeZone || 'UTC',
+        )
+      : null;
   return {
     state: 'open',
     slug: found.settings.slug,
@@ -569,9 +594,9 @@ export async function loadPickPage(
       instant: true,
       chatbot: { enabled: false },
       offers: { call: pick.meeting_type === 'call', inPerson: pick.meeting_type === 'in_person' },
-      kinds: pick.kind ? [pick.kind] : [],
+      kinds: shownKind ? [shownKind] : [],
     },
-    pick: publicPick(pick),
+    pick: { ...publicPick(pick), kind: shownKind },
     publicPath,
     message: null,
   };
@@ -697,6 +722,16 @@ export async function pickSlots(
   const days = [...new Set(slots.map((s) => localDateKey(new Date(s.start), hostZone)))];
   return {
     ...base,
+    ...(type === 'in_person'
+      ? {
+          kind: resolvePickKind(
+            found.pick.kind,
+            firstStartOf(rangesOf(found.pick)),
+            found.config.kindWindows,
+            hostZone,
+          ),
+        }
+      : {}),
     ...extra,
     state: 'ok',
     hostTimeZone: hostZone,
@@ -740,7 +775,7 @@ export async function submitPickBooking(
   const { organizationId, config, pick } = found;
   const link = linkOf(found);
   const type: MeetingType = pick.meeting_type;
-  const kind = type === 'in_person' ? (pick.kind ?? DEFAULT_PICK_KIND) : null;
+  let kind: MeetingKind | null = type === 'in_person' ? (pick.kind ?? DEFAULT_PICK_KIND) : null;
 
   let guests: string[] = [];
   if (input.guests.length > 0) {
@@ -815,6 +850,14 @@ export async function submitPickBooking(
       if (limited) return limited;
 
       const { source: calendar, hostZone } = offered.value;
+      if (type === 'in_person') {
+        kind = resolvePickKind(
+          pick.kind,
+          firstStartOf(rangesOf(pick)),
+          config.kindWindows,
+          hostZone,
+        );
+      }
 
       // Booked at once, or held until the calendar can be written (never approve first).
       let primary: { id: string } | null = null;
@@ -954,4 +997,13 @@ export async function submitPickBooking(
     scheduleHeldRetry(store, organizationId, row, now, context.schedule);
   }
   return ok({ kind: 'saved', id: row.id, result });
+}
+
+/** The earliest start of a pick's ranges, ISO. */
+function firstStartOf(ranges: readonly PickRange[]): string | null {
+  const starts = ranges
+    .map((r) => r.start)
+    .filter(Boolean)
+    .sort();
+  return starts[0] ?? null;
 }

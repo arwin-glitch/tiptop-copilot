@@ -56,7 +56,7 @@ const CLOCK = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use a time like 09:
 
 /**
  * A window of host time. `from` may equal `to`: a start window that holds one
- * start (dinner starts at 18:00 and nowhere else).
+ * start (dinner starts at 18:00 and nowhere else, by default).
  */
 export const TIME_WINDOW = z
   .object({ from: CLOCK, to: CLOCK })
@@ -65,19 +65,51 @@ export type TimeWindow = z.infer<typeof TIME_WINDOW>;
 
 /**
  * The hard bounds on the hours, host time (Central, America/Chicago: CDT
- * until 1 November, CST after). Whatever Settings holds, nothing starts
- * before 8:00; calls, coffee and lunch end by 18:00 (the last call 17:30 to
- * 18:00, the last coffee 17:00 to 18:00); dinner is 18:00 to 19:00 and
- * nothing else. The engine checks them on every offer and on every re-check
- * of a stored time (lib/booking/engine.ts), Settings refuses a window
- * outside them, and a stored window is clamped into them.
+ * until 1 November, CST after). Whatever Settings holds, a call sits inside
+ * 8:00 to 18:00 (the last call 17:30 to 18:00). In person, coffee, lunch and
+ * dinner each start wherever the host's start windows say (several a kind,
+ * a single start allowed), inside the in-person day: starts 6:00 to 21:00,
+ * so the hour ends by 22:00. The defaults are unchanged (coffee 8-11 and
+ * 2-5, lunch 11:30-1, dinner at 6). The engine checks them on every offer
+ * and on every re-check of a stored time (lib/booking/engine.ts), Settings
+ * refuses a window outside them, and a stored window is clamped into them.
  */
 export const BOOKING_EARLIEST_START = '08:00';
 export const BOOKING_LATEST_END = '18:00';
-export const DINNER_WINDOW = { from: '18:00', to: '19:00' } as const;
+/** The whole of an in-person meeting sits inside this, host time. */
+export const IN_PERSON_DAY = { from: '06:00', to: '22:00' } as const;
 
-/** The hint over Settings > Booking link > Times. */
-export const BOOKING_HOURS_HINT = '8:00 AM to 6:00 PM Central; dinner 6-7 PM.';
+/** "18:30" as "6:30 PM". */
+export function clockLabel(clock: string): string {
+  const minutes = clockMinutes(clock);
+  const h = Math.floor(minutes / 60);
+  const m = String(minutes % 60).padStart(2, '0');
+  return `${h % 12 === 0 ? 12 : h % 12}:${m} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** "Dinner starts at 6:00 PM" / "Dinner starts between 6:00 PM and 7:30 PM", from the windows set. */
+export function dinnerHint(windows: readonly TimeWindow[]): string {
+  if (windows.length === 0) return 'Dinner is not offered';
+  const parts = windows.map((w) =>
+    w.from === w.to
+      ? `at ${clockLabel(w.from)}`
+      : `between ${clockLabel(w.from)} and ${clockLabel(w.to)}`,
+  );
+  return `Dinner starts ${parts.join(' or ')}`;
+}
+
+/**
+ * The hint over Settings > Booking link > Times: the hard bounds, and with
+ * the dinner windows set, when dinner really starts.
+ */
+export function bookingHoursHint(dinner?: readonly TimeWindow[]): string {
+  const base = 'Calls 8:00 AM to 6:00 PM Central';
+  if (!dinner) return `${base}; in person can start 6:00 AM to 9:00 PM.`;
+  return `${base}. ${dinnerHint(dinner)}.`;
+}
+
+/** The hint with no windows to hand: the bounds alone. */
+export const BOOKING_HOURS_HINT = bookingHoursHint();
 
 /** "09:30" as minutes after midnight. */
 export function clockMinutes(clock: string): number {
@@ -93,21 +125,23 @@ function clockOf(minutes: number): string {
 /** The window a whole call must sit inside. */
 export const CALL_BOUNDS: TimeWindow = { from: BOOKING_EARLIEST_START, to: BOOKING_LATEST_END };
 
-/** The latest start of an hour that ends by 18:00. */
-const LAST_HOUR_START = clockOf(clockMinutes(BOOKING_LATEST_END) - MEETING_MINUTES.in_person);
+/** The latest start of an hour that ends with the in-person day. */
+const LAST_HOUR_START = clockOf(clockMinutes(IN_PERSON_DAY.to) - MEETING_MINUTES.in_person);
 
-/**
- * The start windows each in-person kind is held to: an hour long, so coffee
- * and lunch start by 17:00 to end by 18:00, and dinner starts at 18:00.
- */
+/** Where any in-person start may be: 6:00 to 21:00, so the hour ends by 22:00. */
+const IN_PERSON_STARTS: TimeWindow = { from: IN_PERSON_DAY.from, to: LAST_HOUR_START };
+
+/** The start windows each in-person kind is held to: the same whole day for each. */
 export const KIND_START_BOUNDS: Record<MeetingKind, TimeWindow> = {
-  coffee: { from: BOOKING_EARLIEST_START, to: LAST_HOUR_START },
-  lunch: { from: BOOKING_EARLIEST_START, to: LAST_HOUR_START },
-  dinner: {
-    from: DINNER_WINDOW.from,
-    to: clockOf(clockMinutes(DINNER_WINDOW.to) - MEETING_MINUTES.in_person),
-  },
+  coffee: { ...IN_PERSON_STARTS },
+  lunch: { ...IN_PERSON_STARTS },
+  dinner: { ...IN_PERSON_STARTS },
 };
+
+/** Whether two start windows share a start. */
+export function windowsOverlap(a: TimeWindow, b: TimeWindow): boolean {
+  return a.from <= b.to && b.from <= a.to;
+}
 
 /** Whether a window lies inside its bounds. */
 export function windowWithin(window: TimeWindow, bounds: TimeWindow): boolean {
@@ -140,8 +174,29 @@ export const PLACE = z.object({
   name: z.string().trim().min(1).max(80),
   area: z.string().trim().max(80).default(''),
   mapUrl: HTTP_URL.nullable().default(null),
+  /**
+   * Which meals the place is offered for (coffee, lunch, dinner). Empty means
+   * every meal, so places saved before this field keep showing for all.
+   */
+  kinds: z
+    .array(z.enum(['coffee', 'lunch', 'dinner']))
+    .max(3)
+    .default([])
+    .transform((k) => [...new Set(k)]),
 });
-export type Place = z.infer<typeof PLACE>;
+/** A saved place; `kinds` may be missing on places saved before meal tags (every meal). */
+export type Place = Omit<z.infer<typeof PLACE>, 'kinds'> & {
+  kinds?: z.infer<typeof PLACE>['kinds'];
+};
+
+/** The places to offer for one meal: those tagged with it, or untagged. */
+export function placesForKind<T extends { kinds?: readonly string[] }>(
+  places: readonly T[],
+  kind: string | null | undefined,
+): T[] {
+  if (!kind) return [...places];
+  return places.filter((p) => !p.kinds?.length || p.kinds.includes(kind));
+}
 
 const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 type PhotoType = (typeof PHOTO_TYPES)[number];
@@ -357,12 +412,26 @@ export const DEFAULT_BOOKING_CONFIG: BookingConfig = {
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
 
-/** A coffee or lunch start window, held inside its bounds. */
-const kindWindow = (kind: 'coffee' | 'lunch', label: string) =>
-  TIME_WINDOW.refine(
-    (w) => windowWithin(w, KIND_START_BOUNDS[kind]),
-    `${label} has to start between 8:00 AM and 5:00 PM Central, so it ends by 6:00 PM`,
-  );
+/**
+ * One kind's start windows: each inside the in-person day, and no two
+ * sharing a start (one would say nothing the other does not).
+ */
+const kindWindows = (kind: MeetingKind) => {
+  const label = KIND_LABEL[kind];
+  const bounds = KIND_START_BOUNDS[kind];
+  return z
+    .array(
+      TIME_WINDOW.refine(
+        (w) => windowWithin(w, bounds),
+        `${label} can start between ${clockLabel(bounds.from)} and ${clockLabel(bounds.to)} Central, so it ends by ${clockLabel(IN_PERSON_DAY.to)}`,
+      ),
+    )
+    .max(4)
+    .refine(
+      (list) => list.every((w, i) => list.every((o, j) => j <= i || !windowsOverlap(w, o))),
+      `Two ${label.toLowerCase()} windows overlap. Join them or move one`,
+    );
+};
 
 function isHttpsLink(value: string): boolean {
   if (!/^https:\/\/[^\s"<>]+$/i.test(value)) return false;
@@ -406,16 +475,9 @@ export const BOOKING_CONFIG_SCHEMA = z
       'Calls have to be between 8:00 AM and 6:00 PM Central',
     ),
     kindWindows: z.object({
-      coffee: z.array(kindWindow('coffee', 'Coffee')).max(4),
-      lunch: z.array(kindWindow('lunch', 'Lunch')).max(4),
-      dinner: z
-        .array(
-          TIME_WINDOW.refine(
-            (w) => windowWithin(w, KIND_START_BOUNDS.dinner),
-            'Dinner is 6:00 to 7:00 PM Central, so it starts at 6:00 PM',
-          ),
-        )
-        .max(4),
+      coffee: kindWindows('coffee'),
+      lunch: kindWindows('lunch'),
+      dinner: kindWindows('dinner'),
     }),
     callBufferMinutes: int(15, 120),
     inPersonBufferMinutes: int(30, 180),
@@ -469,7 +531,8 @@ const EARLIER_DEFAULT_WINDOWS: Partial<Record<'callWindow' | MeetingKind, TimeWi
     { from: '08:30', to: '11:00' },
     { from: '14:00', to: '16:00' },
   ],
-  dinner: [{ from: '18:00', to: '19:30' }],
+  // Not dinner: 18:00 to 19:30 is a start window a host may choose now that
+  // dinner's start is his to set (it was refused, so no row saved it since).
 };
 
 function sameWindows(a: readonly TimeWindow[], b: readonly TimeWindow[] | undefined): boolean {
@@ -515,8 +578,8 @@ function readKindWindows(raw: unknown): Record<MeetingKind, TimeWindow[]> {
  * check takes its default, so one bad value never hides the rest. Buffers,
  * notice and the weekday list can only be tightened, never loosened, past
  * the standing rules (15 and 30 minutes, 24 hours, Tuesday to Thursday), and
- * the hours are clamped into their hard bounds (8:00 to 18:00, dinner 18:00
- * to 19:00).
+ * the hours are clamped into their hard bounds (calls 8:00 to 18:00, in
+ * person starting 6:00 to 21:00).
  */
 export function parseBookingConfig(raw: unknown, options: { today?: string } = {}): BookingConfig {
   const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
@@ -563,4 +626,56 @@ export function inPersonOffered(
   config: Pick<BookingConfig, 'homeCity' | 'places' | 'allowCustomPlace'>,
 ) {
   return Boolean(config.homeCity.trim()) && (config.places.length > 0 || config.allowCustomPlace);
+}
+
+/** What each setting is called on the Booking tab, for a refused save. */
+const SETTING_LABEL: Record<string, string> = {
+  displayName: 'the name',
+  title: 'the title',
+  bio: 'the bio',
+  firmName: 'the firm name',
+  homeCity: 'the home city',
+  homeAliases: 'the home city’s other names',
+  places: 'the places',
+  allowCustomPlace: 'the custom place setting',
+  weekdays: 'the days',
+  callWindow: 'the call hours',
+  callBufferMinutes: 'the call buffer',
+  inPersonBufferMinutes: 'the in-person buffer',
+  stackSize: 'the back-to-back count',
+  stackGapMinutes: 'the back-to-back gap',
+  stackCooldownMinutes: 'the time after back-to-back meetings',
+  stackLeadMinutes: 'the time before back-to-back meetings',
+  noticeHours: 'the notice',
+  openMonths: 'the open months',
+  closedDates: 'the closed days',
+  closedRanges: 'the closed runs of days',
+  dateHours: 'the shorter hours',
+  calendarChoices: 'the calendars',
+  maxLinkBookingsPerDay: 'the link bookings a day',
+  maxMeetingsPerDay: 'the meetings a day',
+  approveFirst: 'the approve-first setting',
+  allowGuests: 'the guests setting',
+  maxGuests: 'the most guests',
+  faq: 'the FAQ',
+  callLink: 'the video link',
+};
+
+/**
+ * A refused save in plain words, never a field path ("kindWindows dinner
+ * 0"): our own checks already say what is wrong in a sentence, so that
+ * sentence is shown; anything else names the setting in the tab's words.
+ */
+export function bookingIssueText(
+  issue: { code?: string; path: readonly PropertyKey[]; message: string } | undefined,
+): string {
+  if (!issue) return 'Check the settings.';
+  const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`);
+  if (issue.code === 'custom' || /^Use /.test(issue.message)) return sentence(issue.message);
+  const [first, second] = issue.path;
+  const label =
+    first === 'kindWindows' && typeof second === 'string' && second in KIND_LABEL
+      ? `the ${KIND_LABEL[second as MeetingKind].toLowerCase()} hours`
+      : (SETTING_LABEL[String(first)] ?? 'the settings');
+  return `Check ${label}.`;
 }

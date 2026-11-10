@@ -625,7 +625,7 @@ describe('the Kraken side', () => {
       },
     );
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.error.message).toMatch(/^Check callBufferMinutes/);
+    if (!bad.ok) expect(bad.error.message).toBe('Check the call buffer.');
     const badSlug = await saveBookingSettings(
       harness.store,
       harness.auth.organizationId,
@@ -1137,7 +1137,7 @@ describe('booking hotfix: the hard hours, Central', () => {
     return c.hour * 60 + c.minute;
   };
 
-  it('refuses to save hours outside 8:00 to 18:00, or a dinner off 18:00', async () => {
+  it('refuses calls outside 8:00 to 18:00 and in person outside 6:00 to 22:00, in plain words', async () => {
     const current = await readBookingSettings(harness.store, org());
     const early = await saveBookingSettings(harness.store, org(), harness.auth.userId, {
       enabled: true,
@@ -1146,11 +1146,10 @@ describe('booking hotfix: the hard hours, Central', () => {
     });
     expect(early.ok).toBe(false);
     if (!early.ok) {
-      expect(early.error.message).toBe(
-        'Check callWindow: Calls have to be between 8:00 AM and 6:00 PM Central.',
-      );
+      expect(early.error.message).toBe('Calls have to be between 8:00 AM and 6:00 PM Central.');
     }
-    const lateDinner = await saveBookingSettings(harness.store, org(), harness.auth.userId, {
+    // Dinner starting between 6:00 and 7:30 PM is the host's to choose.
+    const evening = await saveBookingSettings(harness.store, org(), harness.auth.userId, {
       enabled: true,
       slug: 'nick',
       config: {
@@ -1158,7 +1157,24 @@ describe('booking hotfix: the hard hours, Central', () => {
         kindWindows: { ...current.config.kindWindows, dinner: [{ from: '18:00', to: '19:30' }] },
       },
     });
+    expect(evening.ok).toBe(true);
+    if (evening.ok) {
+      expect(evening.value.config.kindWindows.dinner).toEqual([{ from: '18:00', to: '19:30' }]);
+    }
+    const lateDinner = await saveBookingSettings(harness.store, org(), harness.auth.userId, {
+      enabled: true,
+      slug: 'nick',
+      config: {
+        ...current.config,
+        kindWindows: { ...current.config.kindWindows, dinner: [{ from: '18:00', to: '21:30' }] },
+      },
+    });
     expect(lateDinner.ok).toBe(false);
+    if (!lateDinner.ok) {
+      expect(lateDinner.error.message).toBe(
+        'Dinner can start between 6:00 AM and 9:00 PM Central, so it ends by 10:00 PM.',
+      );
+    }
   });
 
   it('offers and takes nothing outside the hours, whatever the stored settings say', async () => {
@@ -1168,15 +1184,16 @@ describe('booking hotfix: the hard hours, Central', () => {
         ...current.config,
         callWindow: { from: '06:00', to: '21:00' },
         kindWindows: {
-          coffee: [{ from: '06:00', to: '20:00' }],
+          coffee: [{ from: '05:00', to: '20:00' }],
           lunch: [{ from: '11:30', to: '13:00' }],
-          dinner: [{ from: '17:00', to: '21:00' }],
+          dinner: [{ from: '17:00', to: '23:00' }],
         },
       },
     });
     const stored = await readBookingSettings(harness.store, org());
     expect(stored.config.callWindow).toEqual({ from: '08:00', to: '18:00' });
-    expect(stored.config.kindWindows.dinner).toEqual([{ from: '18:00', to: '18:00' }]);
+    expect(stored.config.kindWindows.coffee).toEqual([{ from: '06:00', to: '20:00' }]);
+    expect(stored.config.kindWindows.dinner).toEqual([{ from: '17:00', to: '21:00' }]);
 
     const calls = await slots('call');
     expect(calls.length).toBeGreaterThan(0);
@@ -1185,14 +1202,14 @@ describe('booking hotfix: the hard hours, Central', () => {
       expect(hostClock(s.end)).toBeLessThanOrEqual(18 * 60);
     }
     for (const s of await slots('in_person', 'coffee')) {
-      expect(hostClock(s.start)).toBeGreaterThanOrEqual(8 * 60);
-      expect(hostClock(s.end)).toBeLessThanOrEqual(18 * 60);
+      expect(hostClock(s.start)).toBeGreaterThanOrEqual(6 * 60);
+      expect(hostClock(s.end)).toBeLessThanOrEqual(22 * 60);
     }
     const dinners = await slots('in_person', 'dinner');
     expect(dinners.length).toBeGreaterThan(0);
     for (const s of dinners) {
-      expect(hostClock(s.start)).toBe(18 * 60);
-      expect(hostClock(s.end)).toBe(19 * 60);
+      expect(hostClock(s.start)).toBeGreaterThanOrEqual(17 * 60);
+      expect(hostClock(s.end)).toBeLessThanOrEqual(22 * 60);
     }
 
     // The booking-time re-check refuses the same times: the last call of a
@@ -1208,7 +1225,7 @@ describe('booking hotfix: the hard hours, Central', () => {
       email: 'late@dinner.example',
       type: 'in_person',
       kind: 'dinner',
-      start: at(dayKeyIn(dinners[0]!.start, TZ), 18, 30),
+      start: at(dayKeyIn(dinners[0]!.start, TZ), 21, 30),
       placeId: 'saltgrass-table',
     });
     expect(lateDinner.ok).toBe(false);

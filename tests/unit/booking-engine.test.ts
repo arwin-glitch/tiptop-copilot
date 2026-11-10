@@ -413,26 +413,29 @@ describe('the hard hours, Central, whatever Settings holds (hotfix)', () => {
     input(over, {
       callWindow: { from: '06:00', to: '21:00' },
       kindWindows: {
-        coffee: [{ from: '06:00', to: '20:00' }],
+        coffee: [{ from: '05:00', to: '20:00' }],
         lunch: [{ from: '10:00', to: '19:00' }],
-        dinner: [{ from: '16:00', to: '21:00' }],
+        dinner: [{ from: '16:00', to: '23:00' }],
       },
     });
 
-  it('starts nothing before 8:00 and ends calls, coffee and lunch by 18:00', () => {
+  it('holds calls to 8:00 to 18:00, and in person to starts 6:00 to 21:00 (as set)', () => {
     const calls = startsOn(openSlots(wide(), CALL), WED);
     expect(calls[0]).toBe('08:00');
     expect(calls.at(-1)).toBe('17:30');
     const coffee = startsOn(openSlots(wide(), COFFEE), WED);
-    expect(coffee[0]).toBe('08:00');
-    expect(coffee.at(-1)).toBe('17:00');
-    expect(startsOn(openSlots(wide(), LUNCH), WED).at(-1)).toBe('17:00');
+    expect(coffee[0]).toBe('06:00');
+    expect(coffee.at(-1)).toBe('20:00');
+    expect(startsOn(openSlots(wide(), LUNCH), WED).at(-1)).toBe('19:00');
   });
 
-  it('offers dinner only at 18:00, ending 19:00', () => {
+  it('offers dinner across its window, the last one starting 21:00 and ending 22:00', () => {
     const dinner = openSlots(wide(), DINNER).filter((s) => s.date === WED);
-    expect(dinner.map((s) => clock(s.start))).toEqual(['18:00']);
-    expect(clock(dinner[0]!.end)).toBe('19:00');
+    expect(clock(dinner[0]!.start)).toBe('16:00');
+    expect(clock(dinner.at(-1)!.start)).toBe('21:00');
+    expect(clock(dinner.at(-1)!.end)).toBe('22:00');
+    // The default is still the single 18:00 start.
+    expect(startsOn(openSlots(input(), DINNER), WED)).toEqual(['18:00']);
   });
 
   it('refuses the same times on the re-check of a stored time', () => {
@@ -443,13 +446,15 @@ describe('the hard hours, Central, whatever Settings holds (hotfix)', () => {
       'That time is outside the hours for calls.',
     );
     expect(slotProblem(wide(), CALL, iso(WED, 17, 30))).toBeNull();
-    expect(slotProblem(wide(), COFFEE, iso(WED, 17, 30))).toBe(
+    expect(slotProblem(wide(), COFFEE, iso(WED, 20, 30))).toBe(
       'That time is outside the hours for this kind of meeting.',
     );
+    expect(slotProblem(wide(), COFFEE, iso(WED, 5, 30))).toMatch(/outside the hours/);
     expect(slotProblem(wide(), COFFEE, iso(WED, 17, 0))).toBeNull();
-    expect(slotProblem(wide(), DINNER, iso(WED, 18, 30))).toMatch(/outside the hours/);
-    expect(slotProblem(wide(), DINNER, iso(WED, 17, 0))).toMatch(/outside the hours/);
-    expect(slotProblem(wide(), DINNER, iso(WED, 18, 0))).toBeNull();
+    expect(slotProblem(wide(), DINNER, iso(WED, 21, 30))).toMatch(/outside the hours/);
+    expect(slotProblem(wide(), DINNER, iso(WED, 15, 30))).toMatch(/outside the hours/);
+    expect(slotProblem(wide(), DINNER, iso(WED, 18, 30))).toBeNull();
+    expect(slotProblem(input(), DINNER, iso(WED, 18, 30))).toMatch(/outside the hours/);
     // Read off the instant itself, on the host's clock.
     expect(withinBookingHours(at(WED, 8), CALL, TZ)).toBe(true);
     expect(withinBookingHours(at(WED, 7, 59), CALL, TZ)).toBe(false);
@@ -466,7 +471,7 @@ describe('the hard hours, Central, whatever Settings holds (hotfix)', () => {
     // Wednesday 4 November, CST (UTC-6): 8:00 is 14:00 UTC, the last call 23:30 UTC.
     expect(day('2026-11-04')[0]!.start).toBe('2026-11-04T14:00:00.000Z');
     expect(day('2026-11-04').at(-1)!.start).toBe('2026-11-04T23:30:00.000Z');
-    const dinner = openSlots(wide(), DINNER);
+    const dinner = openSlots(input(), DINNER);
     expect(dinner.find((s) => s.date === '2026-11-04')?.start).toBe('2026-11-05T00:00:00.000Z');
     // 7:30 CST is refused though it is 8:30 on the October clock.
     expect(slotProblem(wide(), CALL, '2026-11-04T13:30:00.000Z')).toMatch(/outside the hours/);
@@ -479,7 +484,7 @@ describe('the hard hours, Central, whatever Settings holds (hotfix)', () => {
     // 8:00 Wednesday Central is 9:00 PM Wednesday in Manila; 17:30 is 6:30 AM Thursday.
     expect(slotLabel(slots[0]!.start, zone)).toBe('Wed, Oct 28, 9:00 PM');
     expect(slotLabel(slots.at(-1)!.start, zone)).toBe('Thu, Oct 29, 6:30 AM');
-    const dinner = openSlots(wide(), DINNER).find((s) => s.date === WED)!;
+    const dinner = openSlots(input(), DINNER).find((s) => s.date === WED)!;
     expect(slotLabel(dinner.start, zone)).toBe('Thu, Oct 29, 7:00 AM');
     // Every offer, wherever it is read, is inside the hours on the host's clock.
     for (const s of openSlots(wide(), CALL)) {

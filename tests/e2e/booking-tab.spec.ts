@@ -285,7 +285,7 @@ test('Availability: each month on its own switch, a day closed and opened, the l
 test('Availability: the hours keep to their bounds, the rules have a save', async ({ page }) => {
   await page.goto('/booking?tab=availability&view=hours');
   await expect(page.getByRole('tab', { name: 'Hours' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByText('8:00 AM to 6:00 PM Central; dinner 6-7 PM.')).toBeVisible();
+  await expect(page.getByText(/Calls 8:00 AM to 6:00 PM Central. Dinner starts/)).toBeVisible();
   await expect(page.getByLabel('Calls (30 minutes) between')).toHaveAttribute('min', '08:00');
   await page.screenshot({
     animations: 'disabled',

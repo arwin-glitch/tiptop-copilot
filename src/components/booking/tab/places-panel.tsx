@@ -110,6 +110,7 @@ export function PlacesPanel(props: PlacesPanelProps) {
                 name: '',
                 area: '',
                 mapUrl: null,
+                kinds: [],
               },
             ])
           }

@@ -236,6 +236,8 @@ export interface TravelInput {
   ownEntry: boolean;
   /** When it starts, for the time-zone check. */
   startsAt: string | null;
+  /** When it ends, to tell a half-hour drive across town from a trip. Absent: not known. */
+  endsAt?: string | null;
   /** Kraken's Meeting verdict: a meeting with other people. */
   meeting: boolean;
 }
@@ -259,11 +261,34 @@ export function inTransitSign(
   return !entry.meeting && FLIGHT_NUMBER.test(entry.title);
 }
 
+/** "Travel", "Travel time", "Commute", "Drive to Blue Bottle": getting across town. */
+const COMMUTE_TITLE =
+  /^\s*(?:travel(?:l?ing)?(?:\s+time)?|commute|commuting|drive|driving)(?:\s+to\s+(.+?))?\s*$/i;
+
+/** A commute block longer than this is a journey. */
+const COMMUTE_MAX_MS = 90 * 60_000;
+
+/**
+ * A short timed block that only says "Travel" (or "Travel to" a home place),
+ * as a host puts before a coffee across town: busy time, not a trip. Only
+ * when its length is known and short, with nothing else naming somewhere
+ * away (the location and zone checks still run).
+ */
+function commuteBlock(entry: TravelInput, home: HomePlace): boolean {
+  if (entry.allDay || !entry.startsAt || !entry.endsAt) return false;
+  const match = COMMUTE_TITLE.exec(entry.title);
+  if (!match) return false;
+  if (match[1] && !namesHome(match[1], home)) return false;
+  const length = Date.parse(entry.endsAt) - Date.parse(entry.startsAt);
+  return Number.isFinite(length) && length > 0 && length <= COMMUTE_MAX_MS;
+}
+
 /** Whether one entry says the host is away on the days it covers. */
 export function travelSign(entry: TravelInput, home: HomePlace, hostZone: string): boolean {
   if (inTransitSign(entry)) return true;
   if (!entry.meeting) {
-    if (WEAK_TRAVEL_TITLE.test(entry.title) || AIRPORT_ROUTE.test(entry.title)) return true;
+    if (AIRPORT_ROUTE.test(entry.title)) return true;
+    if (WEAK_TRAVEL_TITLE.test(entry.title) && !commuteBlock(entry, home)) return true;
   }
   if (entry.allDay) {
     if (AWAY_ALL_DAY.test(entry.title) && !someoneElsesTimeOff(entry.title, home.hostName)) {

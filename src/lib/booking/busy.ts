@@ -158,6 +158,7 @@ export function toBusyPicture(
       timeZone: event.timeZone,
       ownEntry,
       startsAt: event.startsAt,
+      endsAt: event.endsAt,
       meeting: event.verdict.meeting,
     };
     // A declined entry says nothing about where he will be; a free one still does.

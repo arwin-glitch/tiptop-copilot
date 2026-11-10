@@ -38,6 +38,69 @@ export const PICK_NAME_MAX = 80;
 /** In person picks need a kind for the event's title and place flow: coffee unless chosen. */
 export const DEFAULT_PICK_KIND: MeetingKind = 'coffee';
 
+/** "HH:MM" of an instant in a zone. */
+function clockAt(iso: string, zone: string): string | null {
+  const at = new Date(iso);
+  if (!Number.isFinite(at.getTime())) return null;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(at);
+    const h = parts.find((p) => p.type === 'hour')?.value ?? '00';
+    const m = parts.find((p) => p.type === 'minute')?.value ?? '00';
+    return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+  } catch {
+    return null;
+  }
+}
+
+type KindWindows = Partial<Record<MeetingKind, readonly { from: string; to: string }[]>>;
+
+/**
+ * Which meal a picked in-person time is, when the host did not choose one:
+ * the kind whose start windows hold the first start, else by time of day
+ * (before 11 coffee, 11 to 2 lunch, 2 to 5 coffee, 5 on dinner). So 6 PM is
+ * dinner, never coffee.
+ */
+export function inferPickKind(
+  firstStart: string | null | undefined,
+  windows: KindWindows,
+  zone: string,
+): MeetingKind {
+  const clock = firstStart ? clockAt(firstStart, zone) : null;
+  if (!clock) return DEFAULT_PICK_KIND;
+  for (const kind of ['dinner', 'lunch', 'coffee'] as const) {
+    if ((windows[kind] ?? []).some((w) => w.from <= clock && clock <= w.to)) return kind;
+  }
+  if (clock >= '17:00') return 'dinner';
+  if (clock >= '11:00' && clock < '14:00') return 'lunch';
+  return 'coffee';
+}
+
+/**
+ * The kind a pick is shown and booked as. A pick saved as coffee (the old
+ * default) at a lunch or dinner hour reads as that meal instead.
+ */
+export function resolvePickKind(
+  stored: MeetingKind | null,
+  firstStart: string | null | undefined,
+  windows: KindWindows,
+  zone: string,
+): MeetingKind {
+  const inferred = inferPickKind(firstStart, windows, zone);
+  if (!stored) return inferred;
+  if (stored === 'coffee' && inferred !== 'coffee') {
+    const clock = firstStart ? clockAt(firstStart, zone) : null;
+    const inCoffee =
+      clock !== null && (windows.coffee ?? []).some((w) => w.from <= clock && clock <= w.to);
+    if (!inCoffee) return inferred;
+  }
+  return stored;
+}
+
 export const PICK_HOLD_LABEL: Record<PickHoldHours, string> = {
   24: '24 hours',
   48: '48 hours',

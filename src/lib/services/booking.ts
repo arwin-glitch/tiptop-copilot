@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { busyPictureFor } from '@/lib/booking/availability';
 import {
   BOOKING_CONFIG_SCHEMA,
+  bookingIssueText,
   firstName,
   inPersonOffered,
   MEETING_KINDS,
@@ -284,11 +285,7 @@ export async function saveBookingSettings(
     return err('invalid_input', slug.error.issues[0]?.message ?? 'Check the link.');
   const config = BOOKING_CONFIG_SCHEMA.safeParse({ ...input.config, photo: null });
   if (!config.success) {
-    const issue = config.error.issues[0];
-    return err(
-      'invalid_input',
-      `Check ${issue?.path.join(' ') || 'the settings'}: ${issue?.message ?? 'not valid'}.`,
-    );
+    return err('invalid_input', bookingIssueText(config.error.issues[0]));
   }
   const found = await settingsRow(store, organizationId);
   if (!found.available) return err('not_configured', BOOKING_NOT_SET_UP);

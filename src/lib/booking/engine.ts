@@ -32,8 +32,8 @@ import { furthestMonth, hoursFor, lastOpenDay, monthOf, plannerClosure } from '.
  *     meeting starting inside one of its kind's windows; and, on a day with
  *     shorter hours, wholly inside those too. Host time, so a day the clocks
  *     change is right too (wallTimeToUtc). And inside the hard bounds
- *     whatever Settings holds (config.ts): nothing starts before 8:00,
- *     calls, coffee and lunch end by 18:00, dinner is 18:00 to 19:00.
+ *     whatever Settings holds (config.ts): a call sits inside 8:00 to 18:00;
+ *     in person starts 6:00 to 21:00 (ends by 22:00), as each kind's windows say.
  *  4. Notice: at least `noticeHours` ahead.
  *  5. In person only on a day the host is home: no travel signs that day,
  *     and not while his calendar shows another zone, through the day his
@@ -189,7 +189,7 @@ function toInstant(dateKey: string, minuteOfDay: number, zone: string): number |
 /**
  * The starts a day offers before any rule but the window: half-hour steps,
  * host time, each window first cut to the hard bounds (config.ts), so no
- * saved setting can open a time before 8:00, past 18:00 or a dinner off 18:00.
+ * saved setting can open a call outside 8:00 to 18:00 or an in-person hour outside 6:00 to 22:00.
  */
 export function candidateStarts(
   dateKey: string,

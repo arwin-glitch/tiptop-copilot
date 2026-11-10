@@ -21,6 +21,8 @@ import { filterChipClassName } from '@/components/ui/toolbar';
 import {
   ALLOWED_WEEKDAYS,
   BOOKING_HOURS_HINT,
+  bookingHoursHint,
+  IN_PERSON_DAY,
   CALL_BOUNDS,
   MEETING_KINDS,
   WEEKDAY_NAME,
@@ -682,7 +684,7 @@ function DayPanel({
             <WindowRow
               label="Between"
               window={hours}
-              bounds={{ from: '08:00', to: '19:00' }}
+              bounds={{ ...IN_PERSON_DAY }}
               disabled={disabled}
               onChange={setHours}
             />
@@ -874,7 +876,7 @@ function HoursForm(props: AvailabilityPanelProps) {
   );
 }
 
-/** The hours themselves, held to the hard bounds (8:00 to 18:00 Central, dinner 18:00). */
+/** The hours themselves, held to the hard bounds (calls 8:00 to 18:00 Central, in person 6:00 to 22:00). */
 export function HoursFields({
   hours,
   hostZone,
@@ -891,7 +893,8 @@ export function HoursFields({
   return (
     <>
       <p className="text-sm text-[var(--fg-muted)]">
-        {BOOKING_HOURS_HINT} All in the host&apos;s time zone, {zoneName(hostZone)}.
+        {bookingHoursHint(hours.kindWindows.dinner)} All in the host&apos;s time zone,{' '}
+        {zoneName(hostZone)}.
       </p>
       <WindowRow
         label="Calls (30 minutes) between"

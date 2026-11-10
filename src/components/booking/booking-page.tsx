@@ -7,7 +7,7 @@ import { ThemeToggle } from '@/components/shell/theme-toggle';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/feedback';
 import { Input, Label, Select, Textarea } from '@/components/ui/form';
-import { KIND_LABEL } from '@/lib/booking/config';
+import { KIND_LABEL, placesForKind } from '@/lib/booking/config';
 import { PICK_GONE_MESSAGE, type PublicPick } from '@/lib/booking/picks';
 import {
   CLOSED_MESSAGE,
@@ -716,7 +716,7 @@ function OpenPage({
                 <legend className="text-sm font-medium">Where?</legend>
                 <p className="text-xs text-[var(--fg-muted)]">Places near {host.displayName}.</p>
                 <div className="space-y-2">
-                  {data.places.map((p) => (
+                  {placesForKind(data.places, form.kind).map((p) => (
                     <label
                       key={p.id}
                       className={cn(
