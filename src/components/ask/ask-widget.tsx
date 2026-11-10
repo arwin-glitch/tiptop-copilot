@@ -53,6 +53,7 @@ import {
   type AskPanelDetail,
   type AskWatchDetail,
 } from './ask-events';
+import { VoiceArwin } from '@/components/voice/voice-arwin';
 import { ReplyNoticeCard } from './reply-notice';
 import { useReplyNotices } from './use-reply-notices';
 
@@ -894,6 +895,9 @@ export function AskWidget({
               </button>
             </div>
           ) : null}
+
+          {/* Talk to Arwin: the mic left of the launcher (Voice Arwin). */}
+          {!open ? <VoiceArwin aiAvailable={aiAvailable} /> : null}
 
           <DialogPrimitive.Trigger asChild>
             <button

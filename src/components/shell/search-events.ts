@@ -5,8 +5,15 @@
  */
 export const SEARCH_OPEN_EVENT = 'tiptop:search-open';
 
-export function openSearch(): void {
-  window.dispatchEvent(new CustomEvent(SEARCH_OPEN_EVENT));
+export interface SearchOpenDetail {
+  /** Typed into the box as it opens (Voice Arwin's "find Acme"). */
+  query?: string;
+}
+
+export function openSearch(query?: string): void {
+  window.dispatchEvent(
+    new CustomEvent<SearchOpenDetail>(SEARCH_OPEN_EVENT, { detail: query ? { query } : {} }),
+  );
 }
 
 /**

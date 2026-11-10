@@ -543,7 +543,7 @@ export function DesktopTitleBar() {
           aria-keyshortcuts={frame === 'mac' ? 'Meta+K' : 'Control+K'}
           aria-haspopup="dialog"
           aria-expanded={searchOpen}
-          onClick={openSearch}
+          onClick={() => openSearch()}
           className="text-note absolute top-1/2 left-1/2 hidden h-7 w-[min(36rem,40%)] -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--bg-hover)]/60 px-2.5 text-left text-[var(--fg-muted)] transition-colors duration-[var(--motion-instant)] hover:bg-[var(--bg-hover)] hover:text-[var(--fg)] aria-expanded:bg-[var(--bg-hover)] aria-expanded:text-[var(--fg)] [:root:has([data-app-shell])_&]:flex"
         >
           <Search className="size-3.5 shrink-0 text-[var(--fg-subtle)]" aria-hidden="true" />

@@ -1031,6 +1031,12 @@ export const HELP_PAGES: readonly HelpPage[] = [
         grand: true,
       },
       {
+        target: 'ask-voice',
+        title: 'Talk to Arwin',
+        body: 'Tap the mic or press Ctrl+Shift+Space. Say “open inbox” or “what’s on today?” and Arwin answers aloud.',
+        placement: 'left',
+      },
+      {
         target: 'ask-greeting',
         title: 'A quick hello',
         body: 'Tap the bubble to start a chat, or the X to hide it.',
@@ -1059,7 +1065,8 @@ export const HELP_PAGES: readonly HelpPage[] = [
       ...header(),
       ...lines(1, 4.5, 16, 4),
       { x: 1, y: 10, w: 13, h: 5.2, tone: 'card' },
-      { x: 13, y: 12.4, w: 6.5, h: 1.2, tone: 'card', pin: 'ask-greeting' },
+      { x: 12, y: 12.4, w: 5.4, h: 1.2, tone: 'card', pin: 'ask-greeting' },
+      { x: 17.8, y: 12.4, w: 2.2, h: 2, tone: 'card', pin: 'ask-voice' },
       { x: 20.4, y: 12, w: 2.4, h: 2.4, tone: 'action', pin: 'ask-launcher' },
     ],
   },

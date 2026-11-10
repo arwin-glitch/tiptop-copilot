@@ -206,7 +206,11 @@ export function CommandPalette({
         });
       }
     };
-    const onOpen = () => changeOpen(true);
+    const onOpen = (e: Event) => {
+      const query = (e as CustomEvent<{ query?: string } | null>).detail?.query;
+      if (typeof query === 'string' && query.trim()) setQ(query.trim().slice(0, 200));
+      changeOpen(true);
+    };
     window.addEventListener('keydown', onKey);
     window.addEventListener(SEARCH_OPEN_EVENT, onOpen);
     return () => {

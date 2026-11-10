@@ -10,6 +10,20 @@ throughout.
 
 ## [Unreleased]
 
+- **Voice Arwin: talk to Kraken.** A mic button sits left of the Ask Arwin
+  launcher on every page (or Ctrl+Shift+Space / ⌘⇧Space). Say it and Arwin
+  does it, then answers out loud: "open my inbox", "take me to snoozed tasks"
+  open the page at once (from the Help registry, `src/lib/voice/intent.ts`);
+  "find Acme" / "pull up Jane" open search with it typed in (`openSearch`
+  now takes a query); anything else is asked in the Ask chat exactly as
+  typed, and the answer is read aloud when it lands (follow-ups within ten
+  minutes continue the same chat; "Open in chat" shows it). Speech is free
+  and on the device: the browser's own recognition in Chrome, Edge and
+  Safari, Whisper (the Notes engine) in the desktop app, the phone app and
+  anywhere the browser has none; the voice is the browser's text-to-speech,
+  mutable from the card. "Type instead" covers no-mic cases. Help gains a
+  "Talk to Arwin" tour stop. No migration, no new keys.
+
 - **Spaces in Gmail (D-082).** Like Fyxer, every Space is also a label in the
   main mailbox, nested under one green "Kraken Spaces" parent
   ("Kraken Spaces/Athena Design"), on every message its rules match. Kept
