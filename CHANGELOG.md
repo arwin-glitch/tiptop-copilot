@@ -10,6 +10,19 @@ throughout.
 
 ## [Unreleased]
 
+- **Voice Arwin, smarter.** "Hey Arwin" wakes it hands-free (the ear button
+  in the voice card, per device, off by default; on-device Whisper checks each
+  spoken turn and drops it unless it starts with "Hey Arwin"; paused while
+  Arwin listens or talks; phones only while Kraken is open). It is now a
+  conversation: after each answer it listens again until "bye", End voice
+  chat or a quiet moment. What was heard is cleaned up first
+  (`src/lib/voice/fix.ts`): known mishearings ("Hang on, I hope my inbox" →
+  "Hey Arwin, open my inbox"), Kraken page names, and the team's companies and
+  people from the new `/api/voice/vocabulary` (signed in, names only), with
+  "Heard …, fixed to the above" on the card; low-confidence speech gets "say
+  that again?" instead of being acted on. The Ask chat box gains a mic that
+  writes the spoken question into the box (never sends it by itself).
+
 - **Voice Arwin: talk to Kraken.** A mic button sits left of the Ask Arwin
   launcher on every page (or Ctrl+Shift+Space / ⌘⇧Space). Say it and Arwin
   does it, then answers out loud: "open my inbox", "take me to snoozed tasks"

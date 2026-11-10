@@ -897,7 +897,7 @@ export function AskWidget({
           ) : null}
 
           {/* Talk to Arwin: the mic left of the launcher (Voice Arwin). */}
-          {!open ? <VoiceArwin aiAvailable={aiAvailable} /> : null}
+          <VoiceArwin aiAvailable={aiAvailable} hidden={open} />
 
           <DialogPrimitive.Trigger asChild>
             <button

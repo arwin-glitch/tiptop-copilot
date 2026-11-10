@@ -79,6 +79,33 @@ export function stopSpeaking(): void {
   if (canSpeak()) window.speechSynthesis.cancel();
 }
 
+let chimeContext: AudioContext | null = null;
+
+/** A soft two-note "I'm listening" chime. */
+export function chime(): void {
+  try {
+    chimeContext ??= new AudioContext();
+    const ctx = chimeContext;
+    void ctx.resume().catch(() => undefined);
+    const now = ctx.currentTime;
+    [660, 880].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      const t = now + i * 0.09;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.08, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.2);
+    });
+  } catch {
+    // No audio here: the card still shows it is listening.
+  }
+}
+
 /** Chrome loads its voice list late; ask early so the first answer has a good voice. */
 export function warmVoices(): void {
   if (canSpeak()) window.speechSynthesis.getVoices();

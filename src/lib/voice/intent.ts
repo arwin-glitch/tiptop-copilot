@@ -14,13 +14,35 @@ export type VoiceIntent =
   | { kind: 'ask'; question: string }
   | { kind: 'empty' };
 
+/** "Arwin" as speech-to-text often writes it. */
+const ARWIN_LIKE =
+  '(?:arwin|arwyn|arwen|erwin|irwin|erwan|aaron|edwin|darwin|our win|are win|ar win|r win)';
+
+/**
+ * "Hey Arwin" at the start of what was heard, and what came after it. Only a
+ * greeting plus the name counts, so "Arwin said…" in a conversation does not
+ * wake it.
+ */
+const WAKE = new RegExp(
+  `^[\\s"'(]*(?:hey|hay|hi|hiya|okay|ok|yo|a|hello)[\\s,]+${ARWIN_LIKE}\\b[\\s,.!?:;-]*(.*)$`,
+  'is',
+);
+
+/** The rest of the sentence after "Hey Arwin", or null when it was not said. */
+export function matchWake(text: string): { rest: string } | null {
+  const m = WAKE.exec(text.replace(/[’]/g, "'").trim());
+  return m ? { rest: (m[1] ?? '').trim() } : null;
+}
+
 /** Words people put around a command that carry no meaning for it. */
-const LEADING_FILLER =
-  /^(?:(?:hey|hi|ok|okay|yo|so|um+|uh+|and)\b[\s,]*)*(?:arwin\b[\s,]*)?(?:(?:please|can you|could you|would you|will you|can u|i want to|i wanna|i'd like to|let's|lets)\b[\s,]*)*/;
+const LEADING_FILLER = new RegExp(
+  `^(?:(?:hey|hi|ok|okay|yo|so|um+|uh+|and)\\b[\\s,]*)*(?:${ARWIN_LIKE}\\b[\\s,]*)?` +
+    "(?:(?:please|can you|could you|would you|will you|can u|i want to|i wanna|i'd like to|let's|lets)\\b[\\s,]*)*",
+);
 const TRAILING_FILLER = /(?:[\s,]+(?:for me|please|thanks|thank you|now|real quick|quickly))+$/;
 
 const STOP =
-  /^(?:stop|cancel|never ?mind|forget it|shut up|be quiet|quiet|that's all|thats all|nothing)$/;
+  /^(?:stop|cancel|never ?mind|forget it|shut up|be quiet|quiet|that's all|thats all|that's it|thats it|nothing|bye|bye bye|goodbye|good bye|end|end chat|end voice chat|end the chat|i'm done|im done|we're done|all done|thanks|thank you|no thanks|no thank you|nope|no)$/;
 
 const NAVIGATE =
   /^(?:open(?: up)?|go to|go back to|take me to|bring me to|show(?: me)?|pull up|bring up|switch to|jump to|navigate to|launch)\s+(.+)$/;
@@ -114,7 +136,8 @@ export function voiceIntent(text: string): VoiceIntent {
       return { kind: 'navigate', match, reply: `Opening ${where(match)}.` };
   }
 
-  return { kind: 'ask', question: original.replace(/^\s*(?:hey|ok|okay)?[\s,]*arwin[\s,]+/i, '') };
+  const woke = matchWake(original);
+  return { kind: 'ask', question: woke?.rest || original };
 }
 
 /**

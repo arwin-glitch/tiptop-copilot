@@ -29,10 +29,23 @@ export interface ListenerHandlers {
   onStatus(message: string | null): void;
 }
 
+/** What was said, and how sure the engine was (0..1; null when it does not say). */
+export interface Heard {
+  text: string;
+  confidence: number | null;
+}
+
+const NOTHING: Heard = { text: '', confidence: null };
+
+function average(values: number[]): number | null {
+  const ok = values.filter((v) => Number.isFinite(v) && v > 0);
+  return ok.length ? ok.reduce((a, b) => a + b, 0) / ok.length : null;
+}
+
 export interface Listener {
   readonly kind: ListenerKind;
   /** Resolves with what was said ('' for nothing), rejects with a plain-words Error. */
-  readonly result: Promise<string>;
+  readonly result: Promise<Heard>;
   /** Finish now and keep what was heard. */
   stop(): void;
   /** Throw it all away. */
@@ -53,7 +66,9 @@ interface BrowserRecognition {
   maxAlternatives: number;
   onresult:
     | ((e: {
-        results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }>;
+        results: ArrayLike<
+          ArrayLike<{ transcript: string; confidence?: number }> & { isFinal: boolean }
+        >;
       }) => void)
     | null;
   onerror: ((e: { error: string }) => void) | null;
@@ -106,11 +121,16 @@ function browserListener(handlers: ListenerHandlers): Listener {
   let rec: BrowserRecognition | null = Ctor ? new Ctor() : null;
   let finalText = '';
   let interim = '';
+  let confidences: number[] = [];
   let cancelled = false;
   let settled = false;
-  let resolve!: (t: string) => void;
+  let resolve!: (t: Heard) => void;
   let reject!: (e: Error) => void;
-  const result = new Promise<string>((res, rej) => {
+  const heard = (): Heard => ({
+    text: (finalText + interim).trim(),
+    confidence: average(confidences),
+  });
+  const result = new Promise<Heard>((res, rej) => {
     resolve = res;
     reject = rej;
   });
@@ -137,11 +157,14 @@ function browserListener(handlers: ListenerHandlers): Listener {
   rec.onresult = (e) => {
     finalText = '';
     interim = '';
+    confidences = [];
     for (let i = 0; i < e.results.length; i++) {
       const r = e.results[i]!;
       const t = r[0]?.transcript ?? '';
-      if (r.isFinal) finalText += t;
-      else interim += t;
+      if (r.isFinal) {
+        finalText += t;
+        if (typeof r[0]?.confidence === 'number') confidences.push(r[0].confidence);
+      } else interim += t;
     }
     handlers.onPartial((finalText + interim).trim());
     handlers.onLevel(0.4 + Math.random() * 0.5);
@@ -149,9 +172,8 @@ function browserListener(handlers: ListenerHandlers): Listener {
     silentTimer = setTimeout(() => rec?.stop(), PAUSE_MS + 1_200);
   };
   rec.onerror = (e) => {
-    if (cancelled) return done(() => resolve(''));
-    if (e.error === 'no-speech' || e.error === 'aborted')
-      return done(() => resolve((finalText + interim).trim()));
+    if (cancelled) return done(() => resolve(NOTHING));
+    if (e.error === 'no-speech' || e.error === 'aborted') return done(() => resolve(heard()));
     if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
       // Blocked mic, or a webview with no speech service: Whisper may still work.
       return done(() => reject(new BrowserSpeechUnavailable(e.error)));
@@ -165,7 +187,7 @@ function browserListener(handlers: ListenerHandlers): Listener {
     }
     done(() => reject(new Error('I couldn’t hear that. Try again?')));
   };
-  rec.onend = () => done(() => resolve(cancelled ? '' : (finalText + interim).trim()));
+  rec.onend = () => done(() => resolve(cancelled ? NOTHING : heard()));
   try {
     rec.start();
   } catch {
@@ -181,7 +203,7 @@ function browserListener(handlers: ListenerHandlers): Listener {
       cancelled = true;
       rec?.abort();
       rec = null;
-      done(() => resolve(''));
+      done(() => resolve(NOTHING));
     },
   };
 }
@@ -217,6 +239,7 @@ function whisperListener(handlers: ListenerHandlers): Listener {
       throw new Error('The browser could not start its audio engine.');
     }
     const lines: string[] = [];
+    const confidences: number[] = [];
     const engine = new WhisperEngine(
       baseSession(
         'browser-whisper',
@@ -225,7 +248,10 @@ function whisperListener(handlers: ListenerHandlers): Listener {
       ),
       {
         onEvent: (event) => {
-          if (event.type === 'final' && event.text.trim()) lines.push(event.text.trim());
+          if (event.type === 'final' && event.text.trim()) {
+            lines.push(event.text.trim());
+            if (event.confidence !== null) confidences.push(event.confidence);
+          }
         },
         onClose: () => undefined,
         onStatus: (status) => handlers.onStatus(loadingMessage(status)),
@@ -246,7 +272,7 @@ function whisperListener(handlers: ListenerHandlers): Listener {
     if (cancelled) {
       cleanup();
       engine.close();
-      return '';
+      return NOTHING;
     }
 
     await new Promise<void>((resolve) => {
@@ -280,7 +306,7 @@ function whisperListener(handlers: ListenerHandlers): Listener {
     cleanup();
     if (cancelled) {
       engine.close();
-      return '';
+      return NOTHING;
     }
     handlers.onStatus('Listening done, writing it down…');
     try {
@@ -290,7 +316,10 @@ function whisperListener(handlers: ListenerHandlers): Listener {
     }
     engine.close();
     handlers.onStatus(null);
-    return lines.join(' ').replace(/\s+/g, ' ').trim();
+    return {
+      text: lines.join(' ').replace(/\s+/g, ' ').trim(),
+      confidence: average(confidences),
+    };
   })();
 
   return {

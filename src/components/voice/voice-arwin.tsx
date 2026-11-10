@@ -3,10 +3,13 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  Ear,
+  EarOff,
   Keyboard,
   Loader2,
   Mic,
   MessageCircleMore,
+  PhoneOff,
   Square,
   Volume2,
   VolumeX,
@@ -23,36 +26,46 @@ import {
   canListen,
   preferredListener,
   startListening,
+  type Heard,
   type Listener,
   type ListenerKind,
 } from '@/lib/voice/listener';
+import { fixHeard, loadVoiceNames } from '@/lib/voice/names';
 import {
   canSpeak,
+  chime,
   setSpeakingEnabled,
   speak,
   speakingEnabled,
   stopSpeaking,
   warmVoices,
 } from '@/lib/voice/speaker';
+import { setWakeEnabled, subscribeWake, WakeListener, wakeSnapshot } from '@/lib/voice/wake';
 
 /**
- * Voice Arwin: talk to Kraken. Click the mic (or press Ctrl+Shift+Space),
- * say what you want, and Arwin does it and answers out loud:
+ * Voice Arwin: talk to Kraken. Click the mic, press Ctrl+Shift+Space, or say
+ * "Hey Arwin" (when switched on for this device), then say what you want:
  *
  * - "Open my inbox", "take me to Tasks, Snoozed": opens the page at once.
  * - "Find Acme", "pull up Jane Doe": opens search with it typed in.
- * - Anything else ("what's on today?", "draft a reply to Bob"): asked in the
- *   Ask Arwin chat, and the answer is read aloud when it lands.
+ * - Anything else ("what's on today?"): asked in the Ask Arwin chat, and the
+ *   answer is read aloud when it lands.
  *
- * Speech is heard and spoken on this computer for free (listener.ts,
- * speaker.ts); the only thing sent anywhere is the question text, the same
- * as typing it into the chat.
+ * It is a conversation: after each answer Arwin listens again, until "bye",
+ * End, or a few quiet seconds. What was heard is cleaned up first
+ * (lib/voice/fix.ts: Kraken's words and the team's names), and unclear
+ * speech gets "say that again?" rather than being acted on.
+ *
+ * Speech is heard and spoken on the device for free; the only thing sent
+ * anywhere is the question text, the same as typing it into the chat.
  */
 
 type Phase = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 interface Turn {
   heard: string;
+  /** What speech-to-text wrote, when the fix changed it. */
+  raw: string | null;
   reply: string;
   threadId: string | null;
   /** Still waiting on the answer from the Ask bridge. */
@@ -63,8 +76,18 @@ interface Turn {
 const FOLLOW_UP_MS = 10 * 60_000;
 const POLL_MS = 3_000;
 const POLL_FOR_MS = 5 * 60_000;
+/** Below this the engine was guessing: ask again rather than act. */
+const MIN_CONFIDENCE = 0.4;
+const MAX_RETRIES = 2;
 
-export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
+export function VoiceArwin({
+  aiAvailable,
+  hidden = false,
+}: {
+  aiAvailable: boolean;
+  /** Out of sight (the chat panel is open) but still listening for “Hey Arwin”. */
+  hidden?: boolean;
+}) {
   const router = useRouter();
   const supported = React.useSyncExternalStore(noSubscribe, canListen, serverFalse);
   const [phase, setPhaseState] = React.useState<Phase>('idle');
@@ -74,9 +97,12 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
   const [level, setLevel] = React.useState(0);
   const [turn, setTurn] = React.useState<Turn | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [talking, setTalkingState] = React.useState(false);
   const [voiceOn, setVoiceOn] = React.useState(() =>
     typeof window === 'undefined' ? true : speakingEnabled(),
   );
+  const wakeOn = React.useSyncExternalStore(subscribeWake, wakeSnapshot, serverFalse);
+  const [wakeStatus, setWakeStatus] = React.useState<string | null>(null);
   const [typing, setTyping] = React.useState(false);
   const [typed, setTyped] = React.useState('');
 
@@ -84,32 +110,63 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
   const kind = React.useRef<ListenerKind>('browser');
   const conversation = React.useRef<{ threadId: string; at: number } | null>(null);
   const pollToken = React.useRef(0);
+  const retries = React.useRef(0);
+  const wake = React.useRef<WakeListener | null>(null);
   const phaseRef = React.useRef<Phase>('idle');
+  const talkingRef = React.useRef(false);
   const setPhase = React.useCallback((next: Phase) => {
     phaseRef.current = next;
     setPhaseState(next);
   }, []);
-  const listenAgain = React.useRef<((using: ListenerKind) => void) | null>(null);
+  const setTalking = React.useCallback((next: boolean) => {
+    talkingRef.current = next;
+    setTalkingState(next);
+  }, []);
+  const listenRef = React.useRef<((using?: ListenerKind) => void) | null>(null);
+  const actRef = React.useRef<((heard: Heard, typedIn?: boolean) => Promise<void>) | null>(null);
 
   React.useEffect(() => {
     kind.current = preferredListener();
     warmVoices();
   }, []);
 
+  /** After Arwin answers: listen for the next thing, while the chat is on. */
+  const carryOn = React.useCallback(() => {
+    if (talkingRef.current && phaseRef.current === 'idle') listenRef.current?.();
+  }, []);
+
   const say = React.useCallback(
-    async (text: string) => {
+    async (text: string, then: 'carry-on' | 'stop' = 'carry-on') => {
       if (!text) return;
       setPhase('speaking');
       await speak(text);
-      if (phaseRef.current === 'speaking') setPhase('idle');
+      if (phaseRef.current !== 'speaking') return;
+      setPhase('idle');
+      if (then === 'carry-on') carryOn();
     },
-    [setPhase],
+    [carryOn, setPhase],
+  );
+
+  const endChat = React.useCallback(
+    (hide: boolean) => {
+      setTalking(false);
+      listener.current?.cancel();
+      listener.current = null;
+      stopSpeaking();
+      setPhase('idle');
+      if (hide) {
+        pollToken.current++;
+        setShow(false);
+        setTyping(false);
+      }
+    },
+    [setPhase, setTalking],
   );
 
   /* ------------------------------------------------------- the answer */
 
   const waitForAnswer = React.useCallback(
-    async (threadId: string, heard: string) => {
+    async (threadId: string, base: Turn) => {
       const token = ++pollToken.current;
       const started = Date.now();
       while (Date.now() - started < POLL_FOR_MS) {
@@ -127,7 +184,7 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
         if (token !== pollToken.current) return;
         const last = body?.messages?.[body.messages.length - 1];
         if (!last || last.role !== 'assistant' || last.status === 'pending') continue;
-        setTurn({ heard, reply: last.content, threadId, waiting: false });
+        setTurn({ ...base, reply: last.content, threadId, waiting: false });
         setShow(true);
         // Heard here, so the chat bubble need not announce it again.
         watchAskReply({ threadId, watching: false, answerId: last.id });
@@ -144,21 +201,18 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
               }
             : t,
         );
+        setTalking(false);
       }
     },
-    [say],
+    [say, setTalking],
   );
 
   const ask = React.useCallback(
-    async (question: string) => {
+    async (question: string, base: Turn) => {
       if (!aiAvailable) {
-        setTurn({
-          heard: question,
-          reply: 'Ask Arwin isn’t switched on for this account yet.',
-          threadId: null,
-          waiting: false,
-        });
-        await say('Ask Arwin isn’t switched on for this account yet.');
+        const message = 'Ask Arwin isn’t switched on for this account yet.';
+        setTurn({ ...base, reply: message, waiting: false });
+        await say(message, 'stop');
         return;
       }
       setPhase('thinking');
@@ -176,7 +230,7 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
       }
       if (!result.ok || !result.data) {
         const message = result.error?.message ?? 'That question could not be sent.';
-        setTurn({ heard: question, reply: message, threadId: null, waiting: false });
+        setTurn({ ...base, reply: message, waiting: false });
         await say(message);
         return;
       }
@@ -184,85 +238,122 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
       conversation.current = { threadId: data.threadId, at: Date.now() };
       const last = data.messages[data.messages.length - 1];
       if (last && last.role === 'assistant' && last.status !== 'pending') {
-        setTurn({ heard: question, reply: last.content, threadId: data.threadId, waiting: false });
+        setTurn({ ...base, reply: last.content, threadId: data.threadId, waiting: false });
         await say(spokenText(last.content));
         return;
       }
       // The answer comes from the Ask bridge in a moment: say so, then read it out.
       watchAskReply({ threadId: data.threadId, watching: true });
-      setTurn({ heard: question, reply: '', threadId: data.threadId, waiting: true });
-      await say('On it.');
-      void waitForAnswer(data.threadId, question);
+      const waiting = { ...base, reply: '', threadId: data.threadId, waiting: true };
+      setTurn(waiting);
+      setPhase('speaking');
+      await speak('On it.');
+      if (phaseRef.current === 'speaking') setPhase('thinking');
+      await waitForAnswer(data.threadId, waiting);
     },
     [aiAvailable, say, setPhase, waitForAnswer],
   );
 
   const act = React.useCallback(
-    async (heard: string) => {
+    async ({ text: raw, confidence }: Heard, typedIn = false) => {
       setError(null);
-      const intent = voiceIntent(heard);
+      const fixed = typedIn ? { text: raw.trim(), changed: false } : fixHeard(raw);
+      const unclear =
+        !typedIn &&
+        fixed.text.replace(/[^\p{L}]/gu, '').length > 0 &&
+        confidence !== null &&
+        confidence < MIN_CONFIDENCE;
+      if (unclear) {
+        if (retries.current < MAX_RETRIES) {
+          retries.current += 1;
+          setTurn({ heard: fixed.text, raw: null, reply: '', threadId: null, waiting: false });
+          setPhase('idle');
+          await say('Sorry, I didn’t quite catch that. Say it again?', 'stop');
+          if (phaseRef.current === 'idle') listenRef.current?.();
+          return;
+        }
+      }
+      retries.current = 0;
+      const intent = voiceIntent(fixed.text);
+      const base: Turn = {
+        heard: fixed.text,
+        raw: fixed.changed ? raw.trim() : null,
+        reply: '',
+        threadId: null,
+        waiting: false,
+      };
       switch (intent.kind) {
         case 'empty':
+          if (talkingRef.current && !typedIn) {
+            // A quiet moment in the chat: it ends by itself.
+            setTalking(false);
+            setPhase('idle');
+            setStatus('Voice chat ended. Tap the mic to talk again.');
+            return;
+          }
           setPhase('idle');
           setTurn(null);
-          setError('I didn’t catch anything. Click the mic and try again.');
+          setError('I didn’t catch anything. Tap the mic and try again.');
           return;
         case 'stop':
           pollToken.current++;
-          stopSpeaking();
-          setPhase('idle');
+          setTalking(false);
+          setTurn({ ...base, reply: 'Bye for now.' });
+          await say('Bye for now.', 'stop');
           setShow(false);
           return;
         case 'navigate':
-          setTurn({ heard, reply: intent.reply, threadId: null, waiting: false });
+          setTurn({ ...base, reply: intent.reply });
           if (intent.match.href) router.push(intent.match.href);
           await say(intent.reply);
           return;
         case 'search':
-          setTurn({ heard, reply: intent.reply, threadId: null, waiting: false });
+          setTurn({ ...base, reply: intent.reply });
           openSearch(intent.query);
-          await say(intent.reply);
+          // The search box takes the keyboard: the chat pauses here.
+          setTalking(false);
+          await say(intent.reply, 'stop');
           return;
         case 'ask':
-          setTurn({ heard, reply: '', threadId: null, waiting: true });
-          await ask(intent.question);
+          setTurn({ ...base, waiting: true });
+          await ask(intent.question, base);
           return;
       }
     },
-    [ask, router, say, setPhase],
+    [ask, router, say, setPhase, setTalking],
   );
+  React.useEffect(() => {
+    actRef.current = act;
+  }, [act]);
 
   /* ---------------------------------------------------------- listening */
 
   const listen = React.useCallback(
     (using: ListenerKind = kind.current) => {
       stopSpeaking();
-      pollToken.current++;
       listener.current?.cancel();
+      void loadVoiceNames();
       setShow(true);
+      setTalking(true);
       setTyping(false);
       setError(null);
       setPartial('');
       setStatus(null);
-      setTurn(null);
       setPhase('listening');
+      chime();
       const l = startListening(
-        {
-          onPartial: setPartial,
-          onLevel: setLevel,
-          onStatus: setStatus,
-        },
+        { onPartial: setPartial, onLevel: setLevel, onStatus: setStatus },
         using,
       );
       listener.current = l;
       l.result.then(
-        (text) => {
+        (heard) => {
           if (listener.current !== l) return;
           listener.current = null;
           setLevel(0);
           setStatus(null);
           if (phaseRef.current !== 'listening') return;
-          void act(text);
+          void actRef.current?.(heard);
         },
         (err: unknown) => {
           if (listener.current !== l) return;
@@ -272,38 +363,30 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
           // The browser's speech service is missing here: use Whisper from now on.
           if (err instanceof BrowserSpeechUnavailable && using === 'browser') {
             kind.current = 'whisper';
-            listenAgain.current?.('whisper');
+            listenRef.current?.('whisper');
             return;
           }
+          setTalking(false);
           setPhase('idle');
           setError(err instanceof Error ? err.message : 'The microphone could not start.');
         },
       );
     },
-    [act, setPhase],
+    [setPhase, setTalking],
   );
   React.useEffect(() => {
-    listenAgain.current = listen;
+    listenRef.current = listen;
   }, [listen]);
 
-  const stopListening = React.useCallback(() => {
-    listener.current?.stop();
-  }, []);
-
   const toggle = React.useCallback(() => {
-    if (phaseRef.current === 'listening') stopListening();
-    else listen();
-  }, [listen, stopListening]);
-
-  const close = React.useCallback(() => {
-    listener.current?.cancel();
-    listener.current = null;
-    pollToken.current++;
-    stopSpeaking();
-    setPhase('idle');
-    setShow(false);
-    setTyping(false);
-  }, [setPhase]);
+    if (phaseRef.current === 'listening') listener.current?.stop();
+    else {
+      pollToken.current++;
+      setTurn(null);
+      retries.current = 0;
+      listen();
+    }
+  }, [listen]);
 
   // Ctrl+Shift+Space (⌘⇧Space on a Mac) talks from anywhere; Escape closes.
   React.useEffect(() => {
@@ -312,13 +395,52 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.code === 'Space' || e.key === ' ')) {
         e.preventDefault();
         toggle();
-      } else if (e.key === 'Escape' && phaseRef.current !== 'idle') {
-        close();
+      } else if (e.key === 'Escape' && (phaseRef.current !== 'idle' || talkingRef.current)) {
+        endChat(true);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [supported, toggle, close]);
+  }, [supported, toggle, endChat]);
+
+  /* ----------------------------------------------------------- Hey Arwin */
+
+  React.useEffect(() => {
+    if (!supported || !wakeOn) return;
+    const w = new WakeListener({
+      onWake: (rest) => {
+        if (phaseRef.current !== 'idle') return;
+        pollToken.current++;
+        retries.current = 0;
+        setShow(true);
+        setTurn(null);
+        void loadVoiceNames();
+        if (rest.replace(/[^\p{L}]/gu, '').length >= 3) {
+          // "Hey Arwin, open my inbox" in one breath: do it.
+          chime();
+          setTalking(true);
+          void actRef.current?.({ text: rest, confidence: null });
+        } else {
+          listenRef.current?.();
+        }
+      },
+      onStatus: setWakeStatus,
+    });
+    wake.current = w;
+    w.start().catch((err: unknown) => {
+      setWakeStatus(err instanceof Error ? err.message : '“Hey Arwin” could not start.');
+    });
+    return () => {
+      w.stop();
+      if (wake.current === w) wake.current = null;
+    };
+  }, [supported, wakeOn, setTalking]);
+
+  // Not while Arwin is listening or talking himself.
+  React.useEffect(() => {
+    if (phase === 'idle' && !talking) wake.current?.resume();
+    else wake.current?.pause();
+  }, [phase, talking]);
 
   React.useEffect(
     () => () => {
@@ -337,7 +459,7 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
     setTyping(false);
     setTurn(null);
     setError(null);
-    void act(text);
+    void act({ text, confidence: null }, true);
   }
 
   function toggleVoice() {
@@ -345,6 +467,12 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
     setVoiceOn(next);
     setSpeakingEnabled(next);
     if (!next && phaseRef.current === 'speaking') setPhase('idle');
+  }
+
+  function toggleWake() {
+    const next = !wakeOn;
+    setWakeEnabled(next);
+    setWakeStatus(next ? 'Listening for “Hey Arwin” on this device.' : null);
   }
 
   if (!supported) return null;
@@ -368,7 +496,7 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
             : 'Voice Arwin';
 
   return (
-    <div className="pointer-events-auto relative" data-voice-arwin="">
+    <div className={cn('pointer-events-auto relative', hidden && 'hidden')} data-voice-arwin="">
       {show ? (
         <section
           aria-label="Voice Arwin"
@@ -386,6 +514,23 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
             <p className="min-w-0 flex-1 truncate text-sm font-medium" data-voice-status="">
               {headline}
             </p>
+            <button
+              type="button"
+              onClick={toggleWake}
+              aria-pressed={wakeOn}
+              aria-label={wakeOn ? 'Turn off “Hey Arwin”' : 'Turn on “Hey Arwin”'}
+              title={wakeOn ? '“Hey Arwin” is on' : '“Hey Arwin” is off'}
+              className={cn(
+                'rounded-md p-1 hover:text-[var(--fg)]',
+                wakeOn ? 'text-[var(--accent)]' : 'text-[var(--fg-muted)]',
+              )}
+            >
+              {wakeOn ? (
+                <Ear className="size-4" aria-hidden="true" />
+              ) : (
+                <EarOff className="size-4" aria-hidden="true" />
+              )}
+            </button>
             {canSpeak() ? (
               <button
                 type="button"
@@ -403,7 +548,7 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
             ) : null}
             <button
               type="button"
-              onClick={close}
+              onClick={() => endChat(true)}
               aria-label="Close Voice Arwin"
               title="Close"
               className="rounded-md p-1 text-[var(--fg-muted)] hover:text-[var(--fg)]"
@@ -418,16 +563,27 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
                 <LevelBars level={level} />
                 <p className="min-w-0 flex-1 text-[var(--fg-muted)] italic" data-voice-partial="">
                   {partial ||
-                    (status ? '' : 'Say something like “open my inbox” or “what’s on today?”')}
+                    (status
+                      ? ''
+                      : turn
+                        ? 'Go ahead, or say “bye” to end.'
+                        : 'Say something like “open my inbox” or “what’s on today?”')}
                 </p>
               </div>
             ) : null}
 
             {turn?.heard ? (
-              <p data-voice-heard="">
-                <span className="text-[var(--fg-muted)]">You: </span>
-                {turn.heard}
-              </p>
+              <div data-voice-heard="">
+                <p>
+                  <span className="text-[var(--fg-muted)]">You: </span>
+                  {turn.heard}
+                </p>
+                {turn.raw ? (
+                  <p className="text-xs text-[var(--fg-muted)]" data-voice-raw="">
+                    Heard “{turn.raw}”, fixed to the above.
+                  </p>
+                ) : null}
+              </div>
             ) : null}
 
             {turn && (turn.reply || turn.waiting) ? (
@@ -443,6 +599,11 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
                 )}
               </div>
             ) : null}
+
+            {phase !== 'listening' && status ? (
+              <p className="text-xs text-[var(--fg-muted)]">{status}</p>
+            ) : null}
+            {wakeStatus ? <p className="text-xs text-[var(--fg-muted)]">{wakeStatus}</p> : null}
 
             {error ? (
               <p role="alert" className="text-[var(--danger,#c0392b)]">
@@ -470,12 +631,34 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
             ) : null}
 
             <div className="flex flex-wrap items-center gap-2 pt-1">
+              {talking ? (
+                <button
+                  type="button"
+                  onClick={() => endChat(false)}
+                  className="inline-flex items-center gap-1 rounded-md border border-[var(--border-strong)] px-2 py-1 text-xs hover:bg-[var(--bg-hover)]"
+                >
+                  <PhoneOff className="size-3.5" aria-hidden="true" />
+                  End voice chat
+                </button>
+              ) : phase === 'idle' && turn ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    retries.current = 0;
+                    listen();
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md bg-[var(--primary)] px-2 py-1 text-xs text-[var(--primary-fg)] hover:bg-[var(--primary-hover)]"
+                >
+                  <Mic className="size-3.5" aria-hidden="true" />
+                  Keep talking
+                </button>
+              ) : null}
               {turn?.threadId ? (
                 <button
                   type="button"
                   onClick={() => {
                     openAskWidget({ threadId: turn.threadId! });
-                    close();
+                    endChat(true);
                   }}
                   className="inline-flex items-center gap-1 rounded-md border border-[var(--border-strong)] px-2 py-1 text-xs hover:bg-[var(--bg-hover)]"
                 >
@@ -493,9 +676,6 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
                   Type instead
                 </button>
               ) : null}
-              <span className="ml-auto text-[11px] text-[var(--fg-subtle,var(--fg-muted))]">
-                Ctrl+Shift+Space
-              </span>
             </div>
           </div>
         </section>
@@ -529,6 +709,13 @@ export function VoiceArwin({ aiAvailable }: { aiAvailable: boolean }) {
         ) : (
           <Mic className="size-5" aria-hidden="true" />
         )}
+        {wakeOn ? (
+          <span
+            aria-hidden="true"
+            title="“Hey Arwin” is on"
+            className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-[var(--accent)] ring-2 ring-[var(--bg)]"
+          />
+        ) : null}
       </button>
     </div>
   );

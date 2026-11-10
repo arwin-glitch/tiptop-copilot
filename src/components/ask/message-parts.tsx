@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { PlainText } from '@/components/ui/feedback';
 import { Textarea } from '@/components/ui/form';
 import { LinkedText } from '@/components/ask/linked-text';
+import { DictateButton } from '@/components/voice/dictate-button';
 import { CitationChip, SourceDrawer } from '@/components/evidence/source-drawer';
 import { helpActions } from '@/lib/chat/help-actions';
 import { APP_GUIDE_MODEL } from '@/lib/help/app-guide';
@@ -261,16 +262,19 @@ export function AskComposer({
         />
         <div className="flex items-center justify-between gap-2 px-2 pb-1">
           <span className="text-micro text-[var(--fg-subtle)]">{hint}</span>
-          <Button
-            type="submit"
-            size="sm"
-            variant="primary"
-            loading={pending}
-            disabled={!value.trim()}
-          >
-            Ask
-            <CornerDownLeft aria-hidden="true" />
-          </Button>
+          <span className="flex items-center gap-2">
+            <DictateButton value={value} onChange={onChange} disabled={pending} />
+            <Button
+              type="submit"
+              size="sm"
+              variant="primary"
+              loading={pending}
+              disabled={!value.trim()}
+            >
+              Ask
+              <CornerDownLeft aria-hidden="true" />
+            </Button>
+          </span>
         </div>
       </div>
     </form>

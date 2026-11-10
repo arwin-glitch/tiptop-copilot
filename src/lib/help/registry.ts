@@ -1033,7 +1033,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
       {
         target: 'ask-voice',
         title: 'Talk to Arwin',
-        body: 'Tap the mic or press Ctrl+Shift+Space. Say “open inbox” or “what’s on today?” and Arwin answers aloud.',
+        body: 'Tap the mic, press Ctrl+Shift+Space, or say “Hey Arwin” (turn on with the ear). Arwin answers aloud.',
         placement: 'left',
       },
       {
