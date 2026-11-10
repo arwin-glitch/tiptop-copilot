@@ -29,6 +29,32 @@ async function termsFor(org: string): Promise<string[]> {
   return terms;
 }
 
+/** A file name whose extension matches the recording, so the format is read right. */
+function fileName(type: string): string {
+  if (type.includes('mpeg') || type.includes('mp3')) return 'command.mp3';
+  if (type.includes('mp4') || type.includes('m4a')) return 'command.m4a';
+  if (type.includes('ogg')) return 'command.ogg';
+  if (type.includes('wav')) return 'command.wav';
+  return 'command.webm';
+}
+
+/** ElevenLabs' own words for a refusal (never the key), cut short. */
+async function refusal(res: Response): Promise<string> {
+  const body = (await res.json().catch(() => null)) as {
+    detail?: { message?: unknown; status?: unknown } | unknown;
+  } | null;
+  const detail = body?.detail as { message?: unknown; status?: unknown } | string | undefined;
+  const text =
+    typeof detail === 'string'
+      ? detail
+      : typeof detail?.message === 'string'
+        ? detail.message
+        : typeof detail?.status === 'string'
+          ? detail.status
+          : JSON.stringify(body?.detail ?? '').slice(0, 200);
+  return text.slice(0, 200);
+}
+
 function failed(code: string, message: string, status: number) {
   return NextResponse.json({ ok: false, error: { code, message } }, { status });
 }
@@ -66,23 +92,27 @@ export async function POST(request: NextRequest) {
     return failed('invalid_input', 'No usable recording.', 400);
   }
 
-  const form = new FormData();
-  form.append('model_id', MODEL);
-  form.append('language_code', 'en');
-  form.append('tag_audio_events', 'false');
-  form.append('file', audio, 'command.webm');
-  for (const term of await termsFor(auth.value.organizationId).catch(() => [])) {
-    form.append('keyterms', term);
-  }
-
-  let upstream: Response;
-  try {
-    upstream = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+  const terms = await termsFor(auth.value.organizationId).catch(() => []);
+  const send = (withTerms: boolean) => {
+    const form = new FormData();
+    form.append('model_id', MODEL);
+    form.append('language_code', 'en');
+    form.append('tag_audio_events', 'false');
+    form.append('file', audio, fileName(audio.type));
+    if (withTerms) for (const term of terms) form.append('keyterms', term);
+    return fetch('https://api.elevenlabs.io/v1/speech-to-text', {
       method: 'POST',
       headers: { 'xi-api-key': key },
       body: form,
       signal: AbortSignal.timeout(12_000),
     });
+  };
+
+  let upstream: Response;
+  try {
+    upstream = await send(terms.length > 0);
+    // Key terms refused (plan, a term it dislikes): plain transcription still helps.
+    if (!upstream.ok && upstream.status !== 401 && terms.length > 0) upstream = await send(false);
   } catch (error) {
     log.warn('Voice Arwin: speech-to-text could not be reached', {
       reason: error instanceof Error ? error.message : String(error),
@@ -90,8 +120,12 @@ export async function POST(request: NextRequest) {
     return failed('upstream', 'The speech service did not answer.', 502);
   }
   if (!upstream.ok) {
-    log.warn('Voice Arwin: speech-to-text refused the request', { status: upstream.status });
-    return failed('upstream', 'The speech service refused.', 502);
+    const reason = await refusal(upstream);
+    log.warn('Voice Arwin: speech-to-text refused the request', {
+      status: upstream.status,
+      reason,
+    });
+    return failed('upstream', `The speech service refused (${upstream.status}): ${reason}`, 502);
   }
   const body = (await upstream.json().catch(() => null)) as { text?: unknown } | null;
   const text = typeof body?.text === 'string' ? body.text.replace(/\s+/g, ' ').trim() : '';
