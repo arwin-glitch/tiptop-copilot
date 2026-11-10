@@ -39,6 +39,7 @@ import {
   speak,
   speakingEnabled,
   stopSpeaking,
+  unlockAudio,
   warmVoices,
 } from '@/lib/voice/speaker';
 import { setWakeEnabled, subscribeWake, WakeListener, wakeSnapshot } from '@/lib/voice/wake';
@@ -131,6 +132,15 @@ export function VoiceArwin({
   React.useEffect(() => {
     kind.current = preferredListener();
     warmVoices();
+    // The first tap or key anywhere wakes the audio, so spoken answers
+    // (wake word, follow-ups) play in the cloned voice, not the device one.
+    const wake = () => unlockAudio();
+    window.addEventListener('pointerdown', wake, { once: true });
+    window.addEventListener('keydown', wake, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', wake);
+      window.removeEventListener('keydown', wake);
+    };
   }, []);
 
   /** After Arwin answers: listen for the next thing, while the chat is on. */

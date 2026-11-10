@@ -51,17 +51,82 @@ function pickVoice(): SpeechSynthesisVoice | null {
 
 /* ------------------------------------------------- the cloned voice */
 
-/** Whether the server has a cloned ElevenLabs voice (asked once per page). */
+/**
+ * Whether the server has a cloned ElevenLabs voice. A yes is kept for the
+ * page; a no is asked again after a minute, so a voice set up while the page
+ * was open (or a blip) does not leave the device voice for good.
+ */
 let cloned: Promise<boolean> | null = null;
+let clonedNoAt = 0;
 let playing: HTMLAudioElement | null = null;
+let playingSource: AudioBufferSourceNode | null = null;
 let playingDone: (() => void) | null = null;
 
 function hasClonedVoice(): Promise<boolean> {
+  if (cloned && clonedNoAt && Date.now() - clonedNoAt > 60_000) cloned = null;
   cloned ??= fetch('/api/voice/speak', { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((b: { available?: boolean } | null) => b?.available === true)
-    .catch(() => false);
+    .catch(() => false)
+    .then((yes) => {
+      clonedNoAt = yes ? 0 : Date.now();
+      return yes;
+    });
   return cloned;
+}
+
+/**
+ * The page's one audio context, woken by a tap or the mic (chime). Audio
+ * played through it is not stopped by the autoplay rule the way a fresh
+ * <audio> element can be after a slow fetch, so the cloned voice keeps
+ * speaking on wake-word and follow-up answers too.
+ */
+let audioContext: AudioContext | null = null;
+function sharedContext(): AudioContext | null {
+  try {
+    audioContext ??= new AudioContext();
+    return audioContext;
+  } catch {
+    return null;
+  }
+}
+
+/** Wake the audio on the first tap or key anywhere, so later answers may play. */
+export function unlockAudio(): void {
+  const ctx = sharedContext();
+  if (ctx && ctx.state !== 'running') void ctx.resume().catch(() => undefined);
+}
+
+async function playThroughContext(bytes: ArrayBuffer): Promise<boolean | null> {
+  const ctx = sharedContext();
+  if (!ctx) return null;
+  try {
+    if (ctx.state !== 'running') await ctx.resume();
+    if (ctx.state !== 'running') return null;
+    const buffer = await ctx.decodeAudioData(bytes);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    stopSpeaking();
+    playingSource = source;
+    return await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (playingSource === source) {
+          playingSource = null;
+          playingDone = null;
+        }
+        resolve(true);
+      };
+      playingDone = finish;
+      source.onended = finish;
+      source.start();
+    });
+  } catch {
+    return null;
+  }
 }
 
 /** Plays the answer in the cloned voice; false when it could not (then the device voice speaks). */
@@ -79,6 +144,8 @@ async function speakCloned(text: string): Promise<boolean> {
   } catch {
     return false;
   }
+  const viaContext = await playThroughContext(await blob.arrayBuffer());
+  if (viaContext !== null) return viaContext;
   const url = URL.createObjectURL(blob);
   const audio = new Audio(url);
   stopSpeaking();
@@ -136,6 +203,14 @@ function speakWithDevice(text: string): Promise<void> {
 }
 
 export function stopSpeaking(): void {
+  if (playingSource) {
+    try {
+      playingSource.stop();
+    } catch {
+      // Already stopped.
+    }
+    playingDone?.();
+  }
   if (playing) {
     playing.pause();
     playingDone?.();
@@ -143,13 +218,11 @@ export function stopSpeaking(): void {
   if (canSpeak()) window.speechSynthesis.cancel();
 }
 
-let chimeContext: AudioContext | null = null;
-
-/** A soft two-note "I'm listening" chime. */
+/** A soft two-note "I'm listening" chime (it also wakes the shared audio). */
 export function chime(): void {
   try {
-    chimeContext ??= new AudioContext();
-    const ctx = chimeContext;
+    const ctx = sharedContext();
+    if (!ctx) return;
     void ctx.resume().catch(() => undefined);
     const now = ctx.currentTime;
     [660, 880].forEach((freq, i) => {
