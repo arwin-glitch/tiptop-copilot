@@ -281,13 +281,10 @@ export function voiceIntent(text: string): VoiceIntent {
 
 /**
  * An answer as it should be read aloud: no markdown, links or lists, and
- * short (the full answer stays in the chat).
+ * the whole of it (Arwin asked for full answers, Nov 10). Only a runaway
+ * answer past SPOKEN_MAX_CHARS is cut, at a sentence.
  */
-/**
- * Spoken answers stay short: every character read in the cloned voice costs
- * ElevenLabs credits, and the whole answer is in the chat anyway.
- */
-export const SPOKEN_MAX_CHARS = 180;
+export const SPOKEN_MAX_CHARS = 4_000;
 
 export function spokenText(text: string, maxChars = SPOKEN_MAX_CHARS): string {
   const plain = text
@@ -310,7 +307,7 @@ export function spokenText(text: string, maxChars = SPOKEN_MAX_CHARS): string {
     out += s;
   }
   if (!out) out = `${plain.slice(0, maxChars).replace(/\s+\S*$/, '')}.`;
-  return `${out.trim()} The rest is in the chat.`;
+  return `${out.trim()} That's the main part; the full answer is in the chat.`;
 }
 
 /* ------------------------------------------------------ "one sec" lines */

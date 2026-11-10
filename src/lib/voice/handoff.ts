@@ -89,3 +89,57 @@ export function takeCompose(): VoiceCompose | null {
     text: typeof value.text === 'string' ? value.text : '',
   };
 }
+
+/** The address parameters a hand-off link carries (the Ask chat's buttons). */
+export const HANDOFF_PARAMS = ['compose', 'to', 'subject', 'body', 'reply'] as const;
+
+/** An Inbox link that opens a new email filled in. */
+export function composeHref(compose: VoiceCompose): string {
+  const q = new URLSearchParams({
+    compose: '1',
+    to: compose.to,
+    subject: compose.subject,
+    body: compose.text,
+  });
+  return `/inbox?${q.toString()}`;
+}
+
+/** An Inbox link that opens a thread with the reply box filled in. */
+export function replyHref(threadId: string, text: string): string {
+  const q = new URLSearchParams({ thread: threadId, reply: text || ' ' });
+  return `/inbox?${q.toString()}`;
+}
+
+/**
+ * A hand-off carried in the address: stored as if Voice Arwin had handed it
+ * over, then taken out of the address so a reload does not open it again.
+ */
+export function takeHandoffFromUrl(): void {
+  let url: URL;
+  try {
+    url = new URL(window.location.href);
+  } catch {
+    return;
+  }
+  const q = url.searchParams;
+  if (q.get('compose') === '1') {
+    handOffCompose({
+      to: (q.get('to') ?? '').slice(0, 320),
+      subject: (q.get('subject') ?? '').slice(0, 300),
+      text: (q.get('body') ?? '').slice(0, 5_000),
+    });
+  } else if (q.has('reply') && q.get('thread')) {
+    handOffReply({
+      threadId: q.get('thread')!,
+      text: (q.get('reply') ?? '').trim().slice(0, 5_000),
+    });
+  } else {
+    return;
+  }
+  for (const name of HANDOFF_PARAMS) url.searchParams.delete(name);
+  try {
+    window.history.replaceState(window.history.state, '', url.toString());
+  } catch {
+    // The address keeps them; the hand-off is taken once anyway.
+  }
+}

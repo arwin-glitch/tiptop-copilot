@@ -145,3 +145,31 @@ describe('voice actions: who is meant', () => {
     expect(isCalendarNotice('Invitational golf next week?')).toBe(false);
   });
 });
+
+describe('voice actions: reminders said like people say them', () => {
+  it('takes the last day said, and the thing to do, in the host zone', async () => {
+    const { voiceAction } = await import('@/lib/voice/actions');
+    const tue = new Date('2026-11-10T20:00:00Z'); // Tue 2pm Central
+    const a = voiceAction(
+      "Can you remind me on Thursday that we're supposed to talk about Brightwave? Oh, sorry. Let's do it tomorrow",
+      { pathname: '', search: '' },
+      tue,
+      'America/Chicago',
+    );
+    expect(a).toMatchObject({ kind: 'new_task', title: 'Talk about Brightwave' });
+    // Tomorrow 9 AM Central, not Thursday and not 9 AM on the server's clock.
+    expect(a && 'dueAt' in a ? a.dueAt?.toISOString() : null).toBe('2026-11-11T15:00:00.000Z');
+    expect(
+      voiceAction(
+        'remind me to call Dana on Friday',
+        { pathname: '', search: '' },
+        tue,
+        'America/Chicago',
+      ),
+    ).toMatchObject({
+      kind: 'new_task',
+      title: 'Call Dana',
+      dueAt: new Date('2026-11-13T15:00:00Z'),
+    });
+  });
+});

@@ -33,9 +33,9 @@ describe('the paid second listen', () => {
     expect(unsure({ text: 'open inbox', confidence: null })).toBe(true);
   });
 
-  it('keeps spoken answers short', async () => {
+  it('reads spoken answers in full', async () => {
     const { spokenText } = await import('@/lib/voice/intent');
     const long = 'This is one sentence of the answer. '.repeat(20);
-    expect(spokenText(long).length).toBeLessThanOrEqual(180 + ' The rest is in the chat.'.length);
+    expect(spokenText(long)).toBe(long.trim());
   });
 });

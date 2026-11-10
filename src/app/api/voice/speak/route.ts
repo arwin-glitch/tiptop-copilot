@@ -7,8 +7,8 @@ import { statusForError } from '@/lib/util/result';
 
 export const dynamic = 'force-dynamic';
 
-/** Spoken answers are short (lib/voice/intent.ts spokenText caps them near 320). */
-const MAX_CHARS = 600;
+/** Spoken answers are read in full (lib/voice/intent.ts SPOKEN_MAX_CHARS). */
+const MAX_CHARS = 4_000;
 /** Flash: ElevenLabs' fastest, cheapest model, made for live replies. */
 const MODEL = 'eleven_flash_v2_5';
 
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
           Accept: 'audio/mpeg',
         },
         body: JSON.stringify({ text, model_id: MODEL }),
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(45_000),
       },
     );
   } catch (error) {

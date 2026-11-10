@@ -51,7 +51,7 @@ import type { VacationSettings } from '@/lib/email/vacation';
 import { useConfirm } from '@/components/ui/confirm';
 import { senderAddress } from '@/lib/email/inbox-filters';
 import { textToComposeHtml } from '@/lib/email/compose-html';
-import { takeCompose, VOICE_HANDOFF_EVENT } from '@/lib/voice/handoff';
+import { takeCompose, takeHandoffFromUrl, VOICE_HANDOFF_EVENT } from '@/lib/voice/handoff';
 import { unsubscribeHow } from '@/lib/email/unsubscribe';
 import { InboxToolbar, type SelectWhich } from '@/components/inbox/inbox-toolbar';
 import { ContextMenu, type MenuItem } from '@/components/inbox/inbox-menus';
@@ -878,6 +878,9 @@ export function LiveInbox({
 
   // Voice Arwin's "email Sarah about coffee": a compose window opens filled in, once.
   React.useEffect(() => {
+    // The Ask chat's buttons carry the same hand-off in the address
+    // (/inbox?compose=1&to=…&subject=…&body=…, /inbox?thread=…&reply=…).
+    takeHandoffFromUrl();
     // Taken inside the timer, so a cancelled first run leaves it for the next.
     const open = () => {
       const handed = takeCompose();

@@ -80,10 +80,11 @@ describe('spokenText', () => {
     );
   });
 
-  it('keeps long answers short and points at the chat', () => {
+  it('reads answers in full, cutting only a runaway one', () => {
     const long = 'This is one sentence about the deal. '.repeat(20);
+    expect(spokenText(long)).toBe(long.trim());
     const out = spokenText(long, 120);
-    expect(out.length).toBeLessThan(160);
-    expect(out).toMatch(/The rest is in the chat\.$/);
+    expect(out.length).toBeLessThan(200);
+    expect(out).toMatch(/the full answer is in the chat\.$/);
   });
 });

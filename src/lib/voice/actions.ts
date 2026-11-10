@@ -1,3 +1,5 @@
+import { addDaysToKey, localDateKey, wallTimeToUtc } from '@/lib/util/time';
+
 /**
  * Voice Arwin doing things, not just opening pages. Pure: no React, no
  * browser. Each command is read back and, when it changes something, waits
@@ -44,73 +46,148 @@ export function thisOnScreen(place: VoicePlace): { task?: string; thread?: strin
 
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-/** 9 AM on that day, in this browser's clock. */
-function atNine(d: Date): Date {
-  const out = new Date(d);
-  out.setHours(9, 0, 0, 0);
-  return out;
+/** This device's time zone, or Central (Nick's) when it cannot say. */
+function deviceZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago';
+  } catch {
+    return 'America/Chicago';
+  }
 }
 
-function addDays(d: Date, n: number): Date {
-  const out = new Date(d);
-  out.setDate(out.getDate() + n);
-  return out;
+/** 9 AM (or `hour`) on the day `days` from today, in `zone`. */
+function onDay(now: Date, zone: string, days: number, hour = 9): Date {
+  const key = addDaysToKey(localDateKey(now, zone), days);
+  return wallTimeToUtc(key, hour, 0, zone) ?? new Date(now.getTime() + days * 86_400_000);
 }
 
-function dayLabel(d: Date, now: Date): string {
-  const days = Math.round((atNine(d).getTime() - atNine(now).getTime()) / 86_400_000);
-  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  if (days === 0) return `today at ${time}`;
-  if (days === 1) return `tomorrow at ${time}`;
-  return `${d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} at ${time}`;
+function weekdayIn(now: Date, zone: string): number {
+  const key = localDateKey(now, zone);
+  return new Date(`${key}T12:00:00Z`).getUTCDay();
 }
+
+function dayLabel(d: Date, now: Date, zone: string): string {
+  const time = d.toLocaleTimeString('en-US', {
+    timeZone: zone,
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  const today = localDateKey(now, zone);
+  const key = localDateKey(d, zone);
+  if (key === today) return `today at ${time}`;
+  if (key === addDaysToKey(today, 1)) return `tomorrow at ${time}`;
+  const day = d.toLocaleDateString('en-US', {
+    timeZone: zone,
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
+  return `${day} at ${time}`;
+}
+
+const NUMBER_WORDS: Record<string, number> = {
+  a: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+};
 
 /**
- * When a spoken "until Monday", "for 3 days", "next week", "tonight" lands.
- * Null when nothing was said about when.
+ * When a spoken "until Monday", "for 3 days", "next week", "tonight" lands,
+ * read in `zone` (the device's own by default). When a sentence names more
+ * than one ("Thursday… oh sorry, let's do it tomorrow"), the last one said
+ * wins. Null when nothing was said about when.
  */
-export function whenSaid(text: string, now: Date): { at: Date; label: string } | null {
+export function whenSaid(
+  text: string,
+  now: Date,
+  zone: string = deviceZone(),
+): { at: Date; label: string } | null {
   const t = text.toLowerCase();
-  let at: Date | null = null;
-  const inDays = /\b(?:for|in)\s+(\d+|a|one|two|three|four|five|six|seven)\s+days?\b/.exec(t);
-  const words: Record<string, number> = {
-    a: 1,
-    one: 1,
-    two: 2,
-    three: 3,
-    four: 4,
-    five: 5,
-    six: 6,
-    seven: 7,
-  };
-  if (inDays) {
-    const n = Number(inDays[1]) || words[inDays[1]!] || 1;
-    at = atNine(addDays(now, n));
-  } else if (/\b(?:for|in)\s+(?:a|one)\s+week\b|\bnext week\b/.test(t)) {
-    const toMonday = (8 - now.getDay()) % 7 || 7;
-    at = atNine(addDays(now, toMonday));
-  } else if (/\btonight\b|\bthis evening\b/.test(t)) {
-    at = new Date(now);
-    at.setHours(18, 0, 0, 0);
-    if (at <= now) at = atNine(addDays(now, 1));
-  } else if (/\blater today\b|\bthis afternoon\b/.test(t)) {
-    at = new Date(now.getTime() + 3 * 3_600_000);
-  } else if (/\btomorrow\b/.test(t)) {
-    at = atNine(addDays(now, 1));
-  } else {
-    const day = WEEKDAYS.findIndex((d) => new RegExp(`\\b${d}\\b`).test(t));
-    if (day >= 0) {
-      const ahead = (day - now.getDay() + 7) % 7 || 7;
-      at = atNine(addDays(now, ahead));
+  const found: { index: number; at: () => Date }[] = [];
+  const each = (re: RegExp, at: (m: RegExpExecArray) => Date) => {
+    for (const m of t.matchAll(new RegExp(re.source, 'g'))) {
+      const match = m as unknown as RegExpExecArray;
+      found.push({ index: m.index ?? 0, at: () => at(match) });
     }
+  };
+  each(/\b(?:for|in)\s+(\d+|a|one|two|three|four|five|six|seven)\s+days?\b/, (m) =>
+    onDay(now, zone, Number(m[1]) || NUMBER_WORDS[m[1]!] || 1),
+  );
+  each(/\b(?:for|in)\s+(?:a|one)\s+week\b|\bnext week\b/, () =>
+    onDay(now, zone, (8 - weekdayIn(now, zone)) % 7 || 7),
+  );
+  each(/\btonight\b|\bthis evening\b/, () => {
+    const evening = onDay(now, zone, 0, 18);
+    return evening > now ? evening : onDay(now, zone, 1);
+  });
+  each(/\blater today\b|\bthis afternoon\b/, () => new Date(now.getTime() + 3 * 3_600_000));
+  each(/\btomorrow\b/, () => onDay(now, zone, 1));
+  WEEKDAYS.forEach((name, day) =>
+    each(new RegExp(`\\b${name}\\b`), () =>
+      onDay(now, zone, (day - weekdayIn(now, zone) + 7) % 7 || 7),
+    ),
+  );
+  if (!found.length) return null;
+  const last = found.reduce((a, b) => (b.index >= a.index ? b : a));
+  const at = last.at();
+  return { at, label: dayLabel(at, now, zone) };
+}
+
+const WHEN_WORDS =
+  '(?:tomorrow|tonight|today|next week|this evening|later today|this afternoon|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\\d+\\s+days?|a week)';
+
+/**
+ * "Remind me on Thursday that we're supposed to talk about Affinity. Oh,
+ * sorry, let's do it tomorrow", "remind me to send Dana the deck by Friday",
+ * "add a task to call Brightwave": a new task. The title is what is to be
+ * done; the due day is the last one said, so a correction wins.
+ */
+export function taskCommand(said: string, now: Date, zone?: string): VoiceAction | null {
+  const head =
+    /^(?:remind\s+(?:me|nick|us|him)|set\s+(?:a\s+)?reminder|add\s+(?:a\s+)?(?:task|to-?do|reminder)|create\s+(?:a\s+)?(?:task|reminder)|new\s+task|(?:i|nick|we)\s+needs?\s+to)\b[\s,:]*(.*)$/is.exec(
+      said,
+    );
+  if (!head) return null;
+  const when = whenSaid(said, now, zone);
+  // The first sentence holds the task; later ones are corrections ("let's do it tomorrow").
+  let title = (head[1] ?? '').split(/(?<=[.!?])\s+/)[0]!.replace(/[.!?]+$/, '');
+  const lead = new RegExp(`^(?:(?:on|by|this|next|before|for)\\s+)?${WHEN_WORDS}\\b[\\s,]*`, 'i');
+  for (let i = 0; i < 3; i++) {
+    title = title
+      .replace(lead, '')
+      .replace(/^(?:to|that|about|of|for|:)\s+/i, '')
+      .trim();
   }
-  return at ? { at, label: dayLabel(at, now) } : null;
+  title = title
+    .replace(
+      /^(?:we're|we are|i'm|i am|nick is|nick's)\s+(?:supposed|meant|going)\s+to\s+|^(?:we|i|nick)\s+(?:need|needs|should|have|has|must)\s+(?:to\s+)?/i,
+      '',
+    )
+    .replace(
+      new RegExp(`\\s+(?:by|on|before|until|for|in|due|this|next)\\s+${WHEN_WORDS}\\b.*$`, 'i'),
+      '',
+    )
+    .replace(new RegExp(`\\s+${WHEN_WORDS}$`, 'i'), '')
+    .trim();
+  if (title.replace(/[^\p{L}]/gu, '').length < 3) return null;
+  title = title[0]!.toUpperCase() + title.slice(1);
+  return { kind: 'new_task', title, dueAt: when?.at ?? null, dueLabel: when?.label ?? null };
 }
 
 const MEAL = /\b(coffee|lunch|dinner|call|zoom|meet(?:ing)?)\b/;
 
 /** The command in a spoken sentence, or null when it is not one of these. */
-export function voiceAction(raw: string, place: VoicePlace, now = new Date()): VoiceAction | null {
+export function voiceAction(
+  raw: string,
+  place: VoicePlace,
+  now = new Date(),
+  zone?: string,
+): VoiceAction | null {
   const said = raw
     .replace(/[’]/g, "'")
     .replace(/^(?:hey|hi|ok|okay|so)\b[\s,]*/i, '')
@@ -127,10 +204,7 @@ export function voiceAction(raw: string, place: VoicePlace, now = new Date()): V
       /\b(this|it|that|the task|this task|this email|this thread)\b|^snooze$/.test(t)) ||
     /^snooze(?:\s+(?:it|this|that))?(?:\s+(?:until|till|til|for|to)\b.*)?$/.test(t)
   ) {
-    const when = whenSaid(t, now) ?? {
-      at: atNine(addDays(now, 1)),
-      label: dayLabel(atNine(addDays(now, 1)), now),
-    };
+    const when = whenSaid(t, now, zone) ?? whenSaid('tomorrow', now, zone)!;
     if (here.task)
       return {
         kind: 'snooze',
@@ -160,25 +234,8 @@ export function voiceAction(raw: string, place: VoicePlace, now = new Date()): V
   }
 
   // New task.
-  const task =
-    /^(?:remind\s+(?:me|nick|us)\s+to|add\s+(?:a\s+)?(?:task|to-?do)(?:\s+to|:)?|create\s+(?:a\s+)?task(?:\s+to|:)?|new\s+task(?:\s+to|:)?|(?:i|nick)\s+need(?:s)?\s+to)\s+(.+)$/i.exec(
-      said,
-    );
-  if (task?.[1]) {
-    let title = task[1];
-    const when = whenSaid(title, now);
-    title = title
-      .replace(
-        /\s+(?:by|on|before|until|for|in|due)\s+(?:tomorrow|tonight|next week|this evening|later today|this afternoon|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d+\s+days?|a week)\b.*$/i,
-        '',
-      )
-      .replace(/\s+(?:tomorrow|tonight|next week)$/i, '')
-      .trim();
-    if (title.length >= 3) {
-      title = title[0]!.toUpperCase() + title.slice(1);
-      return { kind: 'new_task', title, dueAt: when?.at ?? null, dueLabel: when?.label ?? null };
-    }
-  }
+  const task = taskCommand(said, now, zone);
+  if (task) return task;
 
   // Reply.
   const reply =

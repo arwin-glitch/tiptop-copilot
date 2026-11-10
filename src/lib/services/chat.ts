@@ -17,6 +17,7 @@ import { err, ok, type Result } from '@/lib/util/result';
 import { fireAskRoutine, settleAnswersFromSlack } from './ask-routine';
 import { appGuideField, threadHistoryBefore } from './ask-bridge';
 import { getActiveThesis } from './thesis';
+import { actFromChat } from './chat-actions';
 import { answerInstantly } from './instant-answers';
 import { INSTANT_MODEL } from '@/lib/chat/instant-model';
 import { answerAppQuestion, APP_GUIDE_MODEL, helpCitation, refersBack } from '@/lib/help/app-guide';
@@ -303,10 +304,19 @@ export async function ask(
 
   // Everyday questions Kraken can answer from what it holds (today's
   // calendar, tasks, Follow-ups, last contact): about a second, no routine.
-  const instant =
-    dealScoped || (thread && refersBack(trimmed))
+  // Asked to do something Kraken can do ("remind me…", "reply to…", "book a
+  // coffee with…"): done or written at once, never sent. Then everyday
+  // questions answered from Kraken's own data.
+  // A command stands on its own ("…let's do it tomorrow" is still a
+  // reminder), so only a deal's chat skips it; a question that leans on the
+  // conversation goes to the full Arwin.
+  const action =
+    dealScoped || options.allowWrites === false
       ? null
-      : await answerInstantly(store, auth, trimmed).catch(() => null);
+      : await actFromChat(store, auth, trimmed).catch(() => null);
+  const plain = !dealScoped && !(thread && refersBack(trimmed));
+  const instant =
+    action ?? (plain ? await answerInstantly(store, auth, trimmed).catch(() => null) : null);
   if (instant) {
     const assistantMessage: ChatMessage = {
       id: newId(),
