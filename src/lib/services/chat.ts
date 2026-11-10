@@ -17,6 +17,8 @@ import { err, ok, type Result } from '@/lib/util/result';
 import { fireAskRoutine, settleAnswersFromSlack } from './ask-routine';
 import { appGuideField, threadHistoryBefore } from './ask-bridge';
 import { getActiveThesis } from './thesis';
+import { answerInstantly } from './instant-answers';
+import { INSTANT_MODEL } from '@/lib/chat/instant-model';
 import { answerAppQuestion, APP_GUIDE_MODEL, helpCitation, refersBack } from '@/lib/help/app-guide';
 
 /**
@@ -169,7 +171,19 @@ export interface AskOptions {
   /** Scopes every tool read to one deal. */
   dealId?: string | null;
   allowWrites?: boolean;
+  /** Asked out loud (Voice Arwin): the words may be misheard, and the answer is read aloud. */
+  spoken?: boolean;
 }
+
+/**
+ * Added for the answering routine only (never stored) when the question was
+ * spoken: speech-to-text can mishear, and the answer is read out loud.
+ */
+export const SPOKEN_NOTE =
+  '(Asked out loud through Voice Arwin. The words came from speech-to-text and may be misheard: ' +
+  'read them generously as the closest sensible request about Nick’s mail, calendar, deals or Kraken, ' +
+  'and do not ask what was meant unless it is truly unclear. Lead with the answer in one or two short ' +
+  'spoken sentences; details can follow below.)';
 
 export async function ask(
   auth: AuthContext,
@@ -287,6 +301,55 @@ export async function ask(
     return ok({ thread, userMessage, assistantMessage });
   }
 
+  // Everyday questions Kraken can answer from what it holds (today's
+  // calendar, tasks, Follow-ups, last contact): about a second, no routine.
+  const instant =
+    dealScoped || (thread && refersBack(trimmed))
+      ? null
+      : await answerInstantly(store, auth, trimmed).catch(() => null);
+  if (instant) {
+    const assistantMessage: ChatMessage = {
+      id: newId(),
+      organization_id: auth.organizationId,
+      thread_id: thread.id,
+      role: 'assistant',
+      content: instant.content,
+      // Kraken pages as help citations: the chat shows them as buttons.
+      citations: instant.links.map((l, i) => ({
+        id: `instant:${i}`,
+        kind: 'help' as const,
+        ref_id: l.href,
+        label: l.label,
+        page: null,
+        section: 'Kraken',
+        url: l.href,
+        occurred_at: null,
+        retrieved_at: null,
+        publisher: null,
+        excerpt: null,
+        tour_url: null,
+      })),
+      tool_calls: [],
+      model: INSTANT_MODEL,
+      prompt_version: null,
+      status: 'answered',
+      created_at: new Date().toISOString(),
+    };
+    await store.insert('chat_messages', assistantMessage);
+    await store.update('chat_threads', auth.organizationId, thread.id, {
+      updated_at: new Date().toISOString(),
+    });
+    await recordAudit(store, {
+      organizationId: auth.organizationId,
+      userId: auth.userId,
+      action: 'chat.question_asked',
+      entityType: 'chat_thread',
+      entityId: thread.id,
+      metadata: { routed_to: 'instant', kind: instant.kind, spoken: Boolean(options.spoken) },
+    });
+    return ok({ thread, userMessage, assistantMessage });
+  }
+
   if (bridgeToken) {
     const assistantMessage: ChatMessage = {
       id: newId(),
@@ -320,7 +383,7 @@ export async function ask(
       message_id: assistantMessage.id,
       thread_id: thread.id,
       deal_id: scopeDealId,
-      question: trimmed,
+      question: options.spoken ? `${trimmed}\n\n${SPOKEN_NOTE}` : trimmed,
       created_at: assistantMessage.created_at,
       history: await threadHistoryBefore(store, auth.organizationId, thread.id, userMessage.id),
       ...appGuideField(trimmed),

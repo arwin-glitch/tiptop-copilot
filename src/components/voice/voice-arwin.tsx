@@ -235,7 +235,7 @@ export function VoiceArwin({
         recent && Date.now() - recent.at < FOLLOW_UP_MS ? recent.threadId : undefined;
       let result: Awaited<ReturnType<typeof askFromWidgetAction>>;
       try {
-        result = await askFromWidgetAction(question, { threadId });
+        result = await askFromWidgetAction(question, { threadId, spoken: true });
       } catch {
         result = {
           ok: false,

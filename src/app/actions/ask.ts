@@ -33,7 +33,7 @@ export interface WidgetAskResult {
 
 export async function askFromWidgetAction(
   question: string,
-  options: { threadId?: string; dealId?: string } = {},
+  options: { threadId?: string; dealId?: string; spoken?: boolean } = {},
 ): Promise<ActionResult<WidgetAskResult>> {
   const auth = await requireAuth();
   // Called from the browser, so the shape is checked rather than trusted.
@@ -46,7 +46,8 @@ export async function askFromWidgetAction(
   const limited = rateLimit(`ask:${auth.userId}`, 30, 60_000);
   if (!limited.ok) return fail(limited.error);
 
-  const asked = await ask(auth, question, { threadId, dealId });
+  const spoken = options?.spoken === true;
+  const asked = await ask(auth, question, { threadId, dealId, spoken });
   if (!asked.ok) return fail(asked.error);
 
   // The conversation as stored, so the widget shows exactly what the Ask page

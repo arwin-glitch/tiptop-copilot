@@ -13,6 +13,7 @@ import { DictateButton } from '@/components/voice/dictate-button';
 import { CitationChip, SourceDrawer } from '@/components/evidence/source-drawer';
 import { helpActions } from '@/lib/chat/help-actions';
 import { APP_GUIDE_MODEL } from '@/lib/help/app-guide';
+import { INSTANT_MODEL } from '@/lib/chat/instant-model';
 import type { ChatMessage } from '@/lib/types/domain';
 import { cn } from '@/lib/util/cn';
 
@@ -83,6 +84,9 @@ export function AssistantMessage({
           {message.model === APP_GUIDE_MODEL ? (
             // Read straight from Kraken's Help, no model involved.
             <Badge tone="outline">From Help</Badge>
+          ) : message.model === INSTANT_MODEL ? (
+            // Read straight from Kraken's own data, no model involved.
+            <Badge tone="outline">Instant, from Kraken</Badge>
           ) : (
             <Badge tone="outline">
               <span aria-hidden="true">✦</span> AI-generated
