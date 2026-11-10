@@ -715,12 +715,12 @@ function OpenPage({
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium">Where?</legend>
                 <p className="text-xs text-[var(--fg-muted)]">Places near {host.displayName}.</p>
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                   {placesForKind(data.places, form.kind).map((p) => (
                     <label
                       key={p.id}
                       className={cn(
-                        'flex cursor-pointer items-start gap-3 rounded-[var(--radius-card)] border p-3 transition-colors',
+                        'flex min-w-0 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 transition-colors',
                         form.placeId === p.id
                           ? 'border-[var(--primary)] bg-[var(--accent-soft)]'
                           : 'border-[var(--border-strong)] hover:bg-[var(--bg-hover)]',
@@ -729,14 +729,16 @@ function OpenPage({
                       <input
                         type="radio"
                         name={`${uid}-place`}
-                        className="mt-1"
+                        className="shrink-0"
                         checked={form.placeId === p.id}
                         onChange={() => update({ placeId: p.id })}
                       />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-medium">{p.name}</span>
+                      <span className="min-w-0 flex-1 leading-tight">
+                        <span className="block truncate text-sm font-medium">{p.name}</span>
                         {p.area ? (
-                          <span className="block text-xs text-[var(--fg-muted)]">{p.area}</span>
+                          <span className="block truncate text-[11px] text-[var(--fg-muted)]">
+                            {p.area}
+                          </span>
                         ) : null}
                       </span>
                       {p.mapUrl ? (
@@ -744,10 +746,11 @@ function OpenPage({
                           href={p.mapUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="link-inline inline-flex shrink-0 items-center gap-1 text-xs"
+                          className="shrink-0 rounded p-1 text-[var(--accent)] hover:bg-[var(--bg-hover)]"
+                          title={`Map for ${p.name}`}
                         >
                           <MapPin className="size-3.5" aria-hidden="true" />
-                          Map<span className="sr-only"> for {p.name}</span>
+                          <span className="sr-only">Map for {p.name}</span>
                         </a>
                       ) : null}
                     </label>
@@ -755,7 +758,7 @@ function OpenPage({
                   {data.allowCustomPlace ? (
                     <label
                       className={cn(
-                        'flex cursor-pointer items-start gap-3 rounded-[var(--radius-card)] border p-3 transition-colors',
+                        'flex cursor-pointer items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 transition-colors',
                         form.placeId === 'custom'
                           ? 'border-[var(--primary)] bg-[var(--accent-soft)]'
                           : 'border-[var(--border-strong)] hover:bg-[var(--bg-hover)]',
@@ -764,26 +767,26 @@ function OpenPage({
                       <input
                         type="radio"
                         name={`${uid}-place`}
-                        className="mt-1"
+                        className="shrink-0"
                         checked={form.placeId === 'custom'}
                         onChange={() => update({ placeId: 'custom' })}
                       />
                       <span className="min-w-0 flex-1 text-sm font-medium">Suggest a place</span>
                     </label>
                   ) : null}
-                  {form.placeId === 'custom' ? (
-                    <div className="space-y-1.5">
-                      <Label htmlFor={`${uid}-custom`}>Your suggestion</Label>
-                      <Input
-                        id={`${uid}-custom`}
-                        value={form.customPlace}
-                        maxLength={LIMITS.customPlace}
-                        placeholder="A café or restaurant, and the area"
-                        onChange={(e) => update({ customPlace: e.target.value })}
-                      />
-                    </div>
-                  ) : null}
                 </div>
+                {form.placeId === 'custom' ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`${uid}-custom`}>Your suggestion</Label>
+                    <Input
+                      id={`${uid}-custom`}
+                      value={form.customPlace}
+                      maxLength={LIMITS.customPlace}
+                      placeholder="A café or restaurant, and the area"
+                      onChange={(e) => update({ customPlace: e.target.value })}
+                    />
+                  </div>
+                ) : null}
               </fieldset>
             ) : null}
 
