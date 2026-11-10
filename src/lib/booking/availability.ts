@@ -190,7 +190,12 @@ export async function busyPictureFor(
   const picture = toBusyPicture(range.events, {
     hostZone,
     ownEmails: source.ownEmails,
-    home: { city: config.homeCity, aliases: config.homeAliases, places: config.places },
+    home: {
+      city: config.homeCity,
+      aliases: config.homeAliases,
+      places: config.places,
+      hostName: config.displayName,
+    },
   });
   return ok({
     seen,

@@ -30,6 +30,11 @@ export interface HomePlace {
   aliases: readonly string[];
   /** Names and areas of the places on the host's list: always home. */
   places: readonly { name: string; area: string }[];
+  /**
+   * The host's name ("Nick Tippmann"), so an all-day "Arwin OOO" on his
+   * calendar reads as someone else's time off, not his.
+   */
+  hostName?: string;
 }
 
 /** In transit, whoever else is on it. */
@@ -49,6 +54,46 @@ const AIRPORT_ROUTE = /\b[A-Z]{3}\s*(?:→|->|–|—|-|to)\s*[A-Z]{3}\b/;
 
 const AWAY_ALL_DAY =
   /\b(stay|staying|trip|travel(?:l?ing)?|vacation|ooo|out of (?:the )?office|offsite|off-site|conference|summit|retreat|pto|away)\b/i;
+
+/** Time-off words only: they say someone is off, not that anyone travels. */
+const TIME_OFF = /\b(vacation|ooo|out of (?:the )?office|pto|away|off|holiday|leave|sick)\b/gi;
+/** Words that do say a trip, whoever's name is on it. */
+const TRIP_WORDS =
+  /\b(stay|staying|trip|travel(?:l?ing)?|offsite|off-site|conference|summit|retreat|flight|hotel)\b/i;
+const NOT_A_NAME = new Set([
+  'the',
+  'a',
+  'an',
+  'all',
+  'day',
+  'team',
+  'office',
+  'out',
+  'of',
+  'is',
+  'on',
+  'for',
+]);
+
+/**
+ * "Arwin OOO", "OOO - Maya", "Sam on PTO": an all-day entry about another
+ * person's time off. It sits on the host's calendar so he knows, but says
+ * nothing about where he is. Only when a name that is not the host's is
+ * there, no trip word is, and the host's own name is not.
+ */
+export function someoneElsesTimeOff(title: string, hostName: string | undefined): boolean {
+  if (!hostName?.trim()) return false;
+  if (TRIP_WORDS.test(title) || IN_PLACE.test(title)) return false;
+  if (!new RegExp(TIME_OFF.source, 'i').test(title)) return false;
+  const host = hostName.toLowerCase().split(/\s+/).filter(Boolean);
+  const names = title
+    .replace(TIME_OFF, ' ')
+    .split(/[^\p{L}'-]+/u)
+    .map((w) => w.replace(/'s$/i, ''))
+    .filter((w) => /^\p{Lu}/u.test(w) && !NOT_A_NAME.has(w.toLowerCase()));
+  if (names.some((n) => host.includes(n.toLowerCase()))) return false;
+  return names.length > 0;
+}
 
 /** "Nick in Denver": a capitalised place after "in". */
 const IN_PLACE = /\bin\s+([A-Z][\w.'&-]*(?:\s+[A-Z][\w.'&-]*){0,2})/;
@@ -221,7 +266,9 @@ export function travelSign(entry: TravelInput, home: HomePlace, hostZone: string
     if (WEAK_TRAVEL_TITLE.test(entry.title) || AIRPORT_ROUTE.test(entry.title)) return true;
   }
   if (entry.allDay) {
-    if (AWAY_ALL_DAY.test(entry.title)) return true;
+    if (AWAY_ALL_DAY.test(entry.title) && !someoneElsesTimeOff(entry.title, home.hostName)) {
+      return true;
+    }
     if (inSomewhereElse(entry.title, home)) return true;
   } else if (entry.ownEntry && !entry.meeting && inSomewhereElse(entry.title, home)) {
     return true;
