@@ -23,6 +23,20 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   return { title: UUID.test(id) ? 'Task' : 'Task not found' };
 }
 
+const FOUND_LABEL: Partial<Record<string, string>> = {
+  deal: 'Deal',
+  portfolio: 'Portfolio',
+  lp: 'LP',
+  person: 'Person',
+  meeting: 'Meeting',
+  task: 'Task',
+  document: 'Document',
+  crm_company: 'Company',
+  crm_person: 'Person',
+  crm_note: 'Note',
+  space: 'Space',
+};
+
 const linkClass = 'text-sm text-[var(--accent)] underline-offset-2 hover:underline';
 const listClass =
   'divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-raised)] px-4';
@@ -56,7 +70,12 @@ export default async function TaskPage({ params }: Params) {
   const due = t.due_at ? formatContactDate(t.due_at, timezone) : null;
   const overdue = c.overdue;
   const nothing =
-    !c.thread && c.links.length === 0 && !c.deal && !c.company && c.people.length === 0;
+    !c.thread &&
+    c.links.length === 0 &&
+    !c.deal &&
+    !c.company &&
+    c.people.length === 0 &&
+    c.found.length === 0;
 
   return (
     <PageShell>
@@ -115,9 +134,35 @@ export default async function TaskPage({ params }: Params) {
             </section>
           ))}
 
+          {c.found.length ? (
+            <section aria-labelledby="task-found">
+              <SectionHeading count={c.found.length}>
+                <span id="task-found">Elsewhere in Kraken</span>
+              </SectionHeading>
+              <ul className={listClass}>
+                {c.found.map((f) => (
+                  <li key={f.href} className="flex items-start gap-2.5 py-3">
+                    <div className="min-w-0 flex-1">
+                      <Link href={f.href} className={linkClass}>
+                        {f.label}
+                      </Link>
+                      {f.sub ? (
+                        <p className="text-mini truncate text-[var(--fg-subtle)]">{f.sub}</p>
+                      ) : null}
+                    </div>
+                    <span className="text-mini shrink-0 text-[var(--fg-subtle)]">
+                      {FOUND_LABEL[f.kind] ?? ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
           {nothing ? (
             <p className="text-sm text-[var(--fg-subtle)]">
-              Nothing in synced mail, meetings or records points at this task yet.
+              Nothing in synced mail, meetings or records points at this task yet. Older mail may
+              still be in Gmail: use Search Gmail under Links.
             </p>
           ) : null}
         </div>
@@ -174,6 +219,22 @@ function Sources({ context: c }: { context: TaskContext }) {
           <Building2 className="mr-1 inline size-3.5" aria-hidden="true" />
           Portfolio: {c.company.name}
         </Link>
+      </li>,
+    );
+  }
+  if (c.gmailSearch) {
+    items.push(
+      <li key="gmail-search">
+        <a
+          href={c.gmailSearch.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={linkClass}
+          title={c.gmailSearch.query}
+        >
+          <Mail className="mr-1 inline size-3.5" aria-hidden="true" />
+          Search Gmail for {c.gmailSearch.query}
+        </a>
       </li>,
     );
   }

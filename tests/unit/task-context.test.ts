@@ -32,3 +32,14 @@ describe('task page: links in a task', () => {
     ]);
   });
 });
+
+describe('task page: tools are not names', () => {
+  it('leaves out the tools a task was found with', () => {
+    expect(
+      namesIn(
+        'Reply to Dana Holt on Brightwave seed intro',
+        "Northpeak's Dana Holt forwarded Brightwave; Affinity flagged it, no reply in Gmail.",
+      ),
+    ).toEqual(['Dana Holt', 'Brightwave', 'Northpeak']);
+  });
+});

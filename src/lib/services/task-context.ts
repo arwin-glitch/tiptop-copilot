@@ -8,7 +8,7 @@ import { err, ok, type Result } from '@/lib/util/result';
 import { getPrimaryIntegration } from './inbox';
 import { buildPersonProfile, type PersonMeeting, type PersonThread } from './person-profile';
 import { getRelationshipIndex, relationshipScope } from './relationships';
-import { mailPeopleMatching } from './search';
+import { mailPeopleMatching, searchEverything, type SearchResult } from './search';
 
 /**
  * One task opened on a page of its own (/tasks/<id>): what it is, and every
@@ -45,6 +45,10 @@ export interface TaskContext {
   deal: { id: string; name: string } | null;
   company: { id: string; name: string } | null;
   people: TaskPerson[];
+  /** Deals, companies, meetings and more elsewhere in Kraken naming the same names. */
+  found: SearchResult[];
+  /** Gmail searched for the names, for mail Kraken has not synced. */
+  gmailSearch: { url: string; query: string } | null;
   mailbox: string | null;
   /** Open and past its due date. */
   overdue: boolean;
@@ -53,6 +57,20 @@ export interface TaskContext {
 const PEOPLE_MAX = 3;
 const THREADS_EACH = 4;
 const MEETINGS_EACH = 3;
+const FOUND_MAX = 8;
+const FOUND_KINDS: ReadonlySet<SearchResult['kind']> = new Set([
+  'deal',
+  'portfolio',
+  'lp',
+  'person',
+  'meeting',
+  'task',
+  'document',
+  'crm_company',
+  'crm_person',
+  'crm_note',
+  'space',
+]);
 
 const URL_RE = /\bhttps?:\/\/[^\s<>()"']+[^\s<>()"'.,;:!?]/gi;
 
@@ -136,6 +154,13 @@ const NOT_NAMES = new Set(
     'owed',
     'asked',
     'only',
+    // Tools named in how a task was found, not who it is about.
+    'affinity',
+    'granola',
+    'gmail',
+    'slack',
+    'zoom',
+    'google',
   ].map((w) => w.toLowerCase()),
 );
 
@@ -168,7 +193,8 @@ export function namesIn(title: string, detail: string | null): string[] {
         !/^\p{Lu}+\d/u.test(clean)
       ) {
         run.push(clean);
-        if (run.length === 3) flush();
+        // "Northpeak's Dana Holt": a possessive ends the name.
+        if (run.length === 3 || clean !== t) flush();
       } else flush();
     }
     flush();
@@ -286,8 +312,42 @@ export async function buildTaskContext(
     }
   }
 
+  /* ------------------------------- the same names elsewhere in Kraken */
+  const names = namesIn(task.title, task.detail).slice(0, 4);
+  const found: SearchResult[] = [];
+  const seenHref = new Set<string>([`/tasks/${task.id}`]);
+  const hits = await Promise.all(
+    names.map((name) => searchEverything(store, org, name, auth).catch(() => [])),
+  );
+  hits.forEach((list, i) => {
+    const want = names[i]!.toLowerCase().split(/\s+/).filter(Boolean);
+    for (const h of list) {
+      if (found.length >= FOUND_MAX) break;
+      if (!FOUND_KINDS.has(h.kind) || seenHref.has(h.href)) continue;
+      // Every word of the name, not just "Jon", must be in what was found.
+      const matched = new Set((h.matched ?? []).map((w) => w.toLowerCase()));
+      if (!want.every((w) => matched.has(w))) continue;
+      seenHref.add(h.href);
+      found.push(h);
+    }
+  });
+
+  const gmailNames = names.filter((n) => n.length >= 3).slice(0, 4);
+  const gmailQuery = gmailNames.map((n) => (n.includes(' ') ? `"${n}"` : n)).join(' OR ');
+  const gmailSearch = gmailQuery
+    ? {
+        query: gmailQuery,
+        url:
+          'https://mail.google.com/mail/' +
+          (mailbox ? `?authuser=${encodeURIComponent(mailbox)}` : '') +
+          `#search/${encodeURIComponent(gmailQuery)}`,
+      }
+    : null;
+
   return ok({
     task,
+    found,
+    gmailSearch,
     thread,
     links: linksIn(text),
     deal: deal ? { id: deal.id, name: deal.company_name } : null,
