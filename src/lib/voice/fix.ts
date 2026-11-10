@@ -37,6 +37,9 @@ const PHRASES: [RegExp, string][] = [
   [/\bfollow ups?\b/gi, 'follow-ups'],
   [/\bfund (?:to|too|two|2)\b/gi, 'Fund II'],
   [/\bcracking\b|\bcraken\b|\bkracken\b/gi, 'Kraken'],
+  // "the Events tab" heard as "the Event STAB".
+  [/\bs ?tab\b/gi, 'tab'],
+  [/^new open\b/gi, 'now open'],
 ];
 
 /** Everyday words never swapped for a name, however close they sound. */

@@ -53,6 +53,19 @@ describe('voiceIntent', () => {
     expect(voiceIntent("show me what's due today").kind).toBe('ask');
   });
 
+  it('opens a page named anywhere in a longer command, never asking chat', () => {
+    expect(nav('Now open Follow-ups tab').match.pageName).toMatch(/follow-ups/i);
+    expect(
+      nav('Okay, what I want for you is to open the tab here on Kraken which says Follow-ups.')
+        .match.pageName,
+    ).toMatch(/follow-ups/i);
+    expect(nav('Can you, sorry, can you check Events?').match.pageName).toMatch(/events/i);
+    expect(nav('What I mean is the Events tab.').match.pageName).toMatch(/events/i);
+    // Still questions: about data, not a page.
+    expect(voiceIntent('check my email from Sarah').kind).toBe('ask');
+    expect(voiceIntent("What's the most important email I have right now?").kind).toBe('ask');
+  });
+
   it('stops and ignores silence', () => {
     expect(voiceIntent('Never mind.')).toEqual({ kind: 'stop' });
     expect(voiceIntent('stop')).toEqual({ kind: 'stop' });

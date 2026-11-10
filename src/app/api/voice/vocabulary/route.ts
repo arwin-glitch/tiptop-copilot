@@ -3,7 +3,7 @@ import { authOrError } from '@/lib/auth/session';
 import { getStore } from '@/lib/runtime';
 import { rateLimit } from '@/lib/security/limits';
 import { statusForError } from '@/lib/util/result';
-import type { Deal, NetworkContact, PortfolioCompany } from '@/lib/types/domain';
+import { voiceTerms } from '@/lib/voice/vocabulary';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,22 +30,9 @@ export async function GET() {
       { status: statusForError(limited.error.code) },
     );
   }
-  const store = getStore();
-  const org = auth.value.organizationId;
-  const [portfolio, deals, contacts] = await Promise.all([
-    (store.list('portfolio_companies', org, {}) as Promise<PortfolioCompany[]>).catch(() => []),
-    (store.list('deals', org, { eq: { is_archived: false } }) as Promise<Deal[]>).catch(() => []),
-    (store.list('network_contacts', org, {}) as Promise<NetworkContact[]>).catch(() => []),
-  ]);
-  const terms = new Set<string>();
-  for (const p of portfolio) if (p.name?.trim()) terms.add(p.name.trim());
-  for (const d of deals) if (d.company_name?.trim()) terms.add(d.company_name.trim());
-  for (const c of contacts) {
-    if (c.full_name?.trim()) terms.add(c.full_name.trim());
-    if (c.company?.trim()) terms.add(c.company.trim());
-  }
+  const terms = await voiceTerms(getStore(), auth.value.organizationId);
   return NextResponse.json(
-    { ok: true, terms: [...terms].slice(0, MAX_TERMS) },
+    { ok: true, terms: terms.slice(0, MAX_TERMS) },
     { headers: { 'Cache-Control': 'private, no-store' } },
   );
 }

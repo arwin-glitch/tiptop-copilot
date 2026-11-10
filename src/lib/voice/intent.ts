@@ -148,6 +148,25 @@ const NAVIGATE =
 const ABOUT_DATA =
   /\b(what|what's|whats|who|who's|when|where|why|how|which|today|tonight|tomorrow|yesterday|this week|next week|last week|due|latest|new|unread|from|about)\b/;
 
+/** An open-the-page verb anywhere in a longer sentence ("now open Follow-ups"). */
+const NAVIGATE_ANYWHERE =
+  /\b(?:open(?: up)?|go to|go back to|take me to|bring me to|pull up|bring up|switch to|jump to|navigate to|check(?: out)?)\s+(.+)$/;
+
+/** "the tab which says Follow-ups", "the page called Events". */
+const NAMED_PLACE =
+  /\b(?:(?:which|that)\s+(?:says|is called|reads|is)|called|named|labell?ed)\s+(.+)$/;
+
+/** "the Events tab", "what I mean is the Follow-ups page": the words before tab or page. */
+const BEFORE_PAGE_WORD = /([a-z'-]+(?:\s+[a-z'-]+)?)\s+(?:tab|page|screen)\b/;
+
+/** "here", "on Kraken", "in the app" after a place say nothing about which one. */
+function trimPlace(target: string): string {
+  return target.replace(
+    /\s+(?:here|there|on kraken|in kraken|in the app|on the app|for me)\b.*$/,
+    '',
+  );
+}
+
 const SEARCH = /^(?:search(?: kraken)?(?: for)?|find(?: me)?|look up|lookup|look for)\s+(.+)$/;
 
 /** "the", "my", "our" and a trailing "page"/"tab" say nothing about where to go. */
@@ -226,6 +245,29 @@ export function voiceIntent(text: string): VoiceIntent {
     }
   }
 
+  // The page named somewhere in a longer command: "now open the Follow-ups
+  // tab", "open the tab here which says Follow-ups", "check Events", "what I
+  // mean is the Events tab". Chat Arwin cannot open pages, so these must
+  // never fall through to Ask.
+  const pageWord = /\b(?:tab|page|screen)\b/.test(said);
+  const named = NAMED_PLACE.exec(said);
+  if (named?.[1] && (pageWord || NAVIGATE_ANYWHERE.test(said))) {
+    const match = placeFor(trimPlace(named[1]));
+    if (match) return { kind: 'navigate', match, reply: `Opening ${where(match)}.` };
+  }
+  const anywhere = NAVIGATE_ANYWHERE.exec(said);
+  if (anywhere?.[1] && !ABOUT_DATA.test(anywhere[1])) {
+    const match = placeFor(trimPlace(anywhere[1]));
+    if (match && (match.strong || pageWord)) {
+      return { kind: 'navigate', match, reply: `Opening ${where(match)}.` };
+    }
+  }
+  if (pageWord && said.split(' ').length <= 9) {
+    const before = BEFORE_PAGE_WORD.exec(said);
+    const match = before?.[1] ? placeFor(before[1]) : null;
+    if (match) return { kind: 'navigate', match, reply: `Opening ${where(match)}.` };
+  }
+
   // A bare page name ("inbox", "tasks") is a request to open it.
   if (said.split(' ').length <= 3) {
     const match = placeFor(said);
@@ -241,7 +283,13 @@ export function voiceIntent(text: string): VoiceIntent {
  * An answer as it should be read aloud: no markdown, links or lists, and
  * short (the full answer stays in the chat).
  */
-export function spokenText(text: string, maxChars = 320): string {
+/**
+ * Spoken answers stay short: every character read in the cloned voice costs
+ * ElevenLabs credits, and the whole answer is in the chat anyway.
+ */
+export const SPOKEN_MAX_CHARS = 180;
+
+export function spokenText(text: string, maxChars = SPOKEN_MAX_CHARS): string {
   const plain = text
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')

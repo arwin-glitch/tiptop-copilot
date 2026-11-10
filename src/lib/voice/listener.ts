@@ -111,7 +111,150 @@ export function startListening(
   handlers: ListenerHandlers,
   kind: ListenerKind = preferredListener(),
 ): Listener {
-  return kind === 'browser' ? browserListener(handlers) : whisperListener(handlers);
+  const inner = kind === 'browser' ? browserListener(handlers) : whisperListener(handlers);
+  return sharpened(inner, handlers);
+}
+
+/* ------------------------------------------- the sharper second listen */
+
+/**
+ * Whether the server can write speech down with ElevenLabs (asked once per
+ * page; a no is asked again after a minute).
+ */
+let sharpAvailable: Promise<boolean> | null = null;
+let sharpNoAt = 0;
+function canSharpen(): Promise<boolean> {
+  if (sharpAvailable && sharpNoAt && Date.now() - sharpNoAt > 60_000) sharpAvailable = null;
+  sharpAvailable ??= fetch('/api/voice/transcribe', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((b: { available?: boolean } | null) => b?.available === true)
+    .catch(() => false)
+    .then((yes) => {
+      sharpNoAt = yes ? 0 : Date.now();
+      return yes;
+    });
+  return sharpAvailable;
+}
+
+/** Records the mic alongside the engine, so the whole command can be sent once it ends. */
+function recordAlongside(): { stop(): Promise<Blob | null>; cancel(): void } {
+  let recorder: MediaRecorder | null = null;
+  let media: MediaStream | null = null;
+  let cancelled = false;
+  const chunks: Blob[] = [];
+  const ready = (async () => {
+    if (!(await canSharpen()) || cancelled) return;
+    if (typeof MediaRecorder === 'undefined') return;
+    media = await acquireMicrophone();
+    if (cancelled) return stopStream(media);
+    const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find((t) =>
+      MediaRecorder.isTypeSupported(t),
+    );
+    recorder = new MediaRecorder(media, type ? { mimeType: type } : undefined);
+    recorder.ondataavailable = (e) => {
+      if (e.data.size) chunks.push(e.data);
+    };
+    recorder.start(250);
+  })().catch(() => undefined);
+  const release = () => {
+    if (media) stopStream(media);
+    media = null;
+  };
+  return {
+    async stop() {
+      await ready;
+      const rec = recorder;
+      if (!rec || cancelled) {
+        release();
+        return null;
+      }
+      await new Promise<void>((resolve) => {
+        rec.onstop = () => resolve();
+        try {
+          rec.stop();
+        } catch {
+          resolve();
+        }
+      });
+      release();
+      return chunks.length ? new Blob(chunks, { type: rec.mimeType || 'audio/webm' }) : null;
+    },
+    cancel() {
+      cancelled = true;
+      try {
+        recorder?.stop();
+      } catch {
+        // Already stopped.
+      }
+      release();
+    },
+  };
+}
+
+/** At or above this the engine's own words are trusted as they are. */
+export const SURE_CONFIDENCE = 0.85;
+
+/**
+ * Whether what the engine heard is worth a second, paid listen: it said it
+ * was unsure, or it gave no confidence at all.
+ */
+export function unsure(heard: Heard): boolean {
+  return heard.confidence === null || heard.confidence < SURE_CONFIDENCE;
+}
+
+/** What ElevenLabs heard in the recording, or null to keep the engine's words. */
+async function writeDown(audio: Blob): Promise<string | null> {
+  try {
+    const res = await fetch('/api/voice/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': audio.type || 'audio/webm' },
+      body: audio,
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { text?: unknown } | null;
+    const text = typeof body?.text === 'string' ? body.text.trim() : '';
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The engine hears live (words on screen as you speak); once you stop, and
+ * only when it was not sure, the same words are written down again by
+ * ElevenLabs Scribe, steered toward the
+ * team's names, and that sharper text is what Arwin acts on. If it is not set
+ * up, slow or fails, the engine's words stand.
+ */
+function sharpened(inner: Listener, handlers: ListenerHandlers): Listener {
+  const tape = recordAlongside();
+  const result = inner.result.then(
+    async (heard) => {
+      const audio = await tape.stop();
+      // Only when the engine was not sure: ElevenLabs costs credits.
+      if (!heard.text || !audio || !unsure(heard)) return heard;
+      handlers.onStatus('Getting every word right…');
+      const sharp = await writeDown(audio);
+      handlers.onStatus(null);
+      return sharp ? { text: sharp, confidence: 0.95 } : heard;
+    },
+    (error: unknown) => {
+      tape.cancel();
+      throw error;
+    },
+  );
+  return {
+    kind: inner.kind,
+    result,
+    stop() {
+      inner.stop();
+    },
+    cancel() {
+      tape.cancel();
+      inner.cancel();
+    },
+  };
 }
 
 /** Thrown when the browser engine cannot work here, so the caller can try Whisper. */
