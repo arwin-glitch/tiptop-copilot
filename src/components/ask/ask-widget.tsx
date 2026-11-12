@@ -860,7 +860,11 @@ export function AskWidget({
         // The wrapper lets clicks through its gaps; only the controls catch them.
         // It steps aside while any other dialog is open: the inbox composer
         // docks into this same corner, with Send at its bottom right.
-        <div className="pointer-events-none fixed right-4 bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.75rem)] z-[var(--z-nav)] flex items-center gap-2 lg:right-6 lg:bottom-6 [:root:has([role=dialog]:not([data-ask-panel]):not([data-tour-card]))_&]:hidden">
+        <div
+          data-chrome=""
+          data-ask-launcher=""
+          className="pointer-events-none fixed right-4 bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.75rem)] z-[var(--z-nav)] flex items-center gap-2 lg:right-6 lg:bottom-6 [:root:has([role=dialog]:not([data-ask-panel]):not([data-tour-card]))_&]:hidden"
+        >
           {/* Above the launcher, its right edge on the launcher's: never over
               the launcher itself, and above the phone tab bar with it. */}
           {replyNotice && !open ? (

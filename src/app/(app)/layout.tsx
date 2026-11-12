@@ -11,6 +11,7 @@ import { AskWidget } from '@/components/ask/ask-widget';
 import { GoldFiligree } from '@/components/brand/gold-filigree';
 import { KrakenMark, Wordmark } from '@/components/brand/wordmark';
 import { MobileNav, SidebarNav } from '@/components/shell/nav';
+import { SplitView, SplitViewButton } from '@/components/shell/split-view';
 import { CommandPalette } from '@/components/shell/command-palette';
 import { MobileSectionLabel } from '@/components/shell/mobile-header';
 import { TourHost } from '@/components/help/tour-host';
@@ -72,7 +73,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             Remove the class to give light mode a parchment rail instead. Its
             right edge is a gold hairline rather than a border, the line the
             reference draws between two emerald panels. */}
-        <aside className="dark sticky top-[var(--titlebar-h)] isolate hidden h-[calc(100dvh-var(--titlebar-h))] w-64 shrink-0 flex-col bg-[var(--bg-sidebar)] bg-[linear-gradient(180deg,rgb(31_90_70/0.25),transparent_40%,transparent_70%,rgb(0_0_0/0.18))] px-3 py-4 text-[var(--fg)] after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-[linear-gradient(180deg,rgb(212_175_55/0.25),var(--gold)_18%,var(--gold)_82%,rgb(212_175_55/0.25))] lg:flex">
+        <aside
+          data-chrome=""
+          className="dark sticky top-[var(--titlebar-h)] isolate hidden h-[calc(100dvh-var(--titlebar-h))] w-64 shrink-0 flex-col bg-[var(--bg-sidebar)] bg-[linear-gradient(180deg,rgb(31_90_70/0.25),transparent_40%,transparent_70%,rgb(0_0_0/0.18))] px-3 py-4 text-[var(--fg)] after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-[linear-gradient(180deg,rgb(212_175_55/0.25),var(--gold)_18%,var(--gold)_82%,rgb(212_175_55/0.25))] lg:flex"
+        >
           <GoldFiligree variant="sidebar" />
           <Link
             href="/today"
@@ -84,7 +88,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {/* In the desktop app the top bar holds Search, so this button
               hides there; the palette stays mounted, since it owns Ctrl+K,
               the dialog and the bar's openSearch(). */}
-          <CommandPalette className="mb-4 w-full [:root[data-desktop-frame]_&]:hidden" />
+          <CommandPalette className="mb-2 w-full [:root[data-desktop-frame]_&]:hidden" />
+          <SplitViewButton className="mb-4" />
 
           <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto">
             <SidebarNav desktopVersion={desktopVersion} />
@@ -130,7 +135,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               content still sits inside emerald chrome with a gold edge. A
               fixed height rather than padding: a page's subtab bar sticks
               just below it, at --app-header-h. */}
-          <header className="dark sticky top-[var(--titlebar-h)] z-[var(--z-header)] flex h-[var(--app-header-h)] items-center justify-between gap-3 bg-[var(--bg-sidebar)]/95 px-4 text-[var(--fg)] backdrop-blur after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-[linear-gradient(90deg,rgb(212_175_55/0.3),var(--gold)_30%,var(--gold)_70%,rgb(212_175_55/0.3))] lg:hidden">
+          <header
+            data-chrome=""
+            className="dark sticky top-[var(--titlebar-h)] z-[var(--z-header)] flex h-[var(--app-header-h)] items-center justify-between gap-3 bg-[var(--bg-sidebar)]/95 px-4 text-[var(--fg)] backdrop-blur after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-[linear-gradient(90deg,rgb(212_175_55/0.3),var(--gold)_30%,var(--gold)_70%,rgb(212_175_55/0.3))] lg:hidden"
+          >
             <div className="flex min-w-0 items-center gap-2">
               {/* Named just "TipTop Kraken", not "… — Today": Playwright
                   matches accessible names by substring unless told otherwise,
@@ -161,6 +169,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </div>
 
       <MobileNav desktopVersion={desktopVersion} />
+      {/* Two Kraken pages side by side (computers only, Ctrl+\). */}
+      <SplitView />
       {/* After the page in the DOM, so the skip link stays the first stop. */}
       <AskWidget
         aiAvailable={askAvailable}

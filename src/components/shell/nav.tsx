@@ -265,6 +265,7 @@ export function MobileNav({ desktopVersion = null }: { desktopVersion?: string |
       aria-label="Main"
       data-tour="main-nav"
       // Emerald in both themes, like the desktop rail, with a gold top edge.
+      data-chrome=""
       className="dark fixed inset-x-0 bottom-0 z-[var(--z-nav)] bg-[var(--bg-sidebar)] pb-[env(safe-area-inset-bottom)] text-[var(--fg)] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,rgb(212_175_55/0.3),var(--gold)_30%,var(--gold)_70%,rgb(212_175_55/0.3))] lg:hidden"
     >
       <ul

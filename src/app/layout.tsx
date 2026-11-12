@@ -53,6 +53,8 @@ export const viewport: Viewport = {
  * a flash of the light theme. It reads a display preference only — no
  * authoritative or sensitive state is kept in localStorage anywhere in this app.
  */
+/** A page shown in Kraken's split view (a frame of Kraken itself) hides its own chrome. */
+const EMBED_SCRIPT = `(function(){try{if(window.self!==window.top){document.documentElement.setAttribute('data-embedded','')}}catch(e){document.documentElement.setAttribute('data-embedded','')}})();`;
 const themeScript = `(function(){try{var t=localStorage.getItem('tiptop-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;if(t==='dark'||(t!=='light'&&d)){document.documentElement.classList.add('dark')}}catch(e){}})();`;
 
 /**
@@ -97,7 +99,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             dangerouslySetInnerHTML={{
               __html:
                 DOMAIN_MOVE_SCRIPT +
-                (surface === 'booking' ? themeScript : themeScript + FRAME_BOOT_SCRIPT),
+                (surface === 'booking'
+                  ? themeScript
+                  : themeScript + FRAME_BOOT_SCRIPT + EMBED_SCRIPT),
             }}
           />
         )}

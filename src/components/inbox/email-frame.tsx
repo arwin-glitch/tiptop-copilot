@@ -55,8 +55,9 @@ export function EmailFrame({
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: http: data: ${origin}; style-src 'unsafe-inline' https:; font-src https: data:;">
 <base target="_blank">
 <style>
-  html, body { margin: 0; padding: 0; background: #ffffff; color: #1f2328; }
-  body { padding: 14px 16px; font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; overflow-wrap: anywhere; }
+  /* Gmail's own defaults: small Arial, normal line spacing, no box. */
+  html, body { margin: 0; padding: 0; background: #ffffff; color: #222222; }
+  body { padding: 2px 4px 6px; font: small Arial, Helvetica, sans-serif; overflow-wrap: anywhere; }
   img { max-width: 100%; height: auto; }
   table { max-width: 100%; }
   a { color: #0b57d0; }
@@ -102,7 +103,7 @@ export function EmailFrame({
       // Kraken can read its height; links open in a new tab.
       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       referrerPolicy="no-referrer"
-      className="block w-full rounded-md border border-[var(--border)] bg-white"
+      className="block w-full rounded-sm bg-white"
       style={{ height }}
     />
   );

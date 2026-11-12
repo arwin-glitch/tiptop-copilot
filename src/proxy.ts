@@ -466,6 +466,9 @@ function withSecurityHeaders(
     camera?: boolean;
   } = {},
 ): NextResponse {
+  const path = options.pathname ?? '';
+  // Only signed-in pages may be framed (split view); public pages and every API route never.
+  const outsider = !path || OUTSIDER_PAGE.test(path) || path.startsWith('/api/');
   // 'unsafe-inline' on script-src is required for the Next.js bootstrap and the
   // pre-paint theme script. There is no user- or model-supplied HTML anywhere in
   // this app — every such string renders as text through <PlainText> — so the
@@ -488,7 +491,10 @@ function withSecurityHeaders(
     // /api/voice/speak) from a blob: URL. Without this, default-src blocks it
     // and the device voice speaks instead.
     "media-src 'self' blob:",
-    "frame-ancestors 'none'",
+    // Split view shows a second Kraken page beside the first, in a frame:
+    // signed-in pages may be framed by Kraken itself, never by another site.
+    // Public pages (booking link, events, shared notes) stay unframeable.
+    outsider ? "frame-ancestors 'none'" : "frame-ancestors 'self'",
     "form-action 'self'",
     "base-uri 'self'",
     "object-src 'none'",
@@ -496,7 +502,7 @@ function withSecurityHeaders(
 
   if (!options.ownCsp) response.headers.set('Content-Security-Policy', options.csp ?? csp);
   response.headers.set('X-Content-Type-Options', 'nosniff');
-  response.headers.set('X-Frame-Options', 'DENY');
+  response.headers.set('X-Frame-Options', outsider ? 'DENY' : 'SAMEORIGIN');
   response.headers.set('Referrer-Policy', options.referrer ?? 'strict-origin-when-cross-origin');
   response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
   const pathname = options.pathname ?? '';

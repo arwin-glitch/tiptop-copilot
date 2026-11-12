@@ -948,3 +948,19 @@
     padding-bottom: 0;
   }
 }
+
+/* Split view (components/shell/split-view.tsx). The page in the right-hand
+   pane is Kraken itself in a frame: it drops its own rail, bars and Ask
+   button, so only the page shows. The page on the left makes room. */
+:root[data-embedded] [data-chrome] {
+  display: none !important;
+}
+@media (min-width: 1024px) {
+  :root[data-split] [data-app-shell] {
+    padding-right: var(--split-w, 50vw);
+  }
+  /* Ask Arwin's launcher stays on the left page, clear of the pane. */
+  :root[data-split] [data-ask-launcher] {
+    right: calc(var(--split-w, 50vw) + 1.5rem);
+  }
+}
