@@ -56,7 +56,8 @@ export function EmailFrame({
 <base target="_blank">
 <style>
   /* Gmail's own defaults: small Arial, normal line spacing, no box. */
-  html, body { margin: 0; padding: 0; background: #ffffff; color: #222222; }
+  html, body { margin: 0; padding: 0; background: #ffffff; color: #222222; height: auto !important; min-height: 0 !important; }
+  html { overflow-y: hidden; }
   body { padding: 2px 4px 6px; font: small Arial, Helvetica, sans-serif; overflow-wrap: anywhere; }
   img { max-width: 100%; height: auto; }
   table { max-width: 100%; }
@@ -70,11 +71,28 @@ export function EmailFrame({
     const frame = ref.current;
     if (!frame) return;
     let observer: ResizeObserver | null = null;
+    // A hard stop: an email sized in viewport units could otherwise chase the frame.
+    let resizes = 0;
     const measure = () => {
+      if (resizes > 30) return;
       const d = frame.contentDocument;
       if (!d?.documentElement) return;
-      const h = Math.max(d.documentElement.scrollHeight, d.body?.scrollHeight ?? 0);
-      if (h > 0) setHeight(Math.min(h + 2, 20_000));
+      const body = d.body;
+      if (!body) return;
+      // The content's own height, never the frame's: measuring the page
+      // (which is at least as tall as the frame) and growing the frame to it
+      // would grow it again, for ever. Anything poking out of the body
+      // (a last child's margin, a wide table) counts too.
+      let bottom = body.getBoundingClientRect().bottom;
+      const last = body.lastElementChild;
+      if (last) bottom = Math.max(bottom, last.getBoundingClientRect().bottom);
+      const h = Math.ceil(bottom + (d.defaultView?.scrollY ?? 0)) + 4;
+      if (h <= 0) return;
+      setHeight((current) => {
+        if (Math.abs(current - h) <= 2) return current;
+        resizes += 1;
+        return Math.min(h, 20_000);
+      });
     };
     const onLoad = () => {
       measure();
