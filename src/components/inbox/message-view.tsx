@@ -188,20 +188,25 @@ export function MessageBody({
   const [fits, setFits] = React.useState(false);
   const [toOverflows, setToOverflows] = React.useState(false);
   const bodyRef = React.useRef<HTMLDivElement>(null);
+  const richRef = React.useRef<HTMLDivElement>(null);
+  const [richTall, setRichTall] = React.useState(false);
   const toRef = React.useRef<HTMLParagraphElement>(null);
   const collapsing = React.useRef(false);
   const bodyId = React.useId();
   const toId = React.useId();
   const { main, quoted } = React.useMemo(() => splitQuoted(reflow(m.text)), [m.text]);
   const showQuoted = quotedShown ?? ownQuoted;
-  // As the sender laid it out (logos, tables) in the Inbox; previews and a
-  // message flagged for injected instructions stay plain text.
-  const rich = Boolean(m.html) && !clampLines && !m.flagged;
+  // As the sender laid it out (logos, tables, signature images), the way
+  // Gmail shows it, everywhere: in a preview (Follow-ups) it is cut to the
+  // preview's height until "Show full email". A message flagged for injected
+  // instructions stays plain text.
+  const rich = Boolean(m.html) && !m.flagged;
+  const richCap = clampLines ? clampLines * 20 + 8 : 0;
   const richQuoted = rich && hasQuotedHtml(m.html!);
   const toggleQuoted = onToggleQuoted ?? (() => setOwnQuoted((q) => !q));
   // Long text that still fits in the lines (one long paragraph on a wide
   // screen) gets no clamp and no button that does nothing.
-  const clampable = Boolean(clampLines) && isLongText(main) && !fits;
+  const clampable = Boolean(clampLines) && (rich ? richTall : isLongText(main) && !fits);
   const clamped = clampable && !expanded;
   const foldTo = Boolean(clampLines) && !expanded;
   const recipients = `To ${m.to || '(hidden)'}${m.cc ? ` · Cc ${m.cc}` : ''}`;
@@ -219,6 +224,21 @@ export function MessageBody({
     observer.observe(el);
     return () => observer.disconnect();
   }, [clamped, main]);
+
+  // A preview of a laid-out email: is it taller than the preview's lines?
+  React.useLayoutEffect(() => {
+    const el = richRef.current;
+    if (!rich || !clampLines || !el) return;
+    const measure = () => {
+      const frame = el.firstElementChild as HTMLElement | null;
+      setRichTall((frame?.offsetHeight ?? 0) > richCap + 1);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => observer.disconnect();
+  }, [rich, clampLines, richCap]);
 
   // A To/Cc line cut short needs the button even when the text is short.
   React.useLayoutEffect(() => {
@@ -261,12 +281,18 @@ export function MessageBody({
         </Notice>
       ) : null}
       {rich ? (
-        <EmailFrame
-          messageId={m.id}
-          html={m.html!}
-          inline={m.inline ?? []}
-          showQuoted={showQuoted}
-        />
+        <div
+          ref={richRef}
+          id={clampable ? bodyId : undefined}
+          style={clampLines && !expanded ? { maxHeight: richCap, overflow: 'hidden' } : undefined}
+        >
+          <EmailFrame
+            messageId={m.id}
+            html={m.html!}
+            inline={m.inline ?? []}
+            showQuoted={showQuoted}
+          />
+        </div>
       ) : (
         <div
           ref={bodyRef}
