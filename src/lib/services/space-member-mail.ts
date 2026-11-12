@@ -35,6 +35,10 @@ import { getPrimaryIntegration } from './inbox';
  *     then the same local rule check the synced mail gets);
  *   - shown to that Space's members only (the Space pages check membership).
  *
+ * One more read, for the member themself only: their own Gmail signature
+ * (memberGmailSignature), so an email they send from Kraken is signed exactly
+ * as Gmail signs it. It is settings, not mail, and goes into their own sends.
+ *
  * Nothing is ever copied into email_threads, calendar_events or any other
  * table, so the Inbox, Today, Follow-ups, Tasks, Ask Arwin, digests, the
  * routines and search never see it. Every read here is a GET with the
@@ -316,20 +320,62 @@ interface Kept<T> {
 const cache = processWide('space-member-mail', () => ({
   threads: new Map<string, Kept<MemberThread>>(),
   events: new Map<string, Kept<RawMemberEvent>>(),
+  signatures: new Map<string, { at: number; html: string | null }>(),
 }));
 
 /** Test hook. */
 export function resetMemberMailCache(): void {
   cache.threads.clear();
   cache.events.clear();
+  cache.signatures.clear();
 }
 
 /** Forgets everything kept for one member: disconnecting, leaving, declining, being removed. */
 export function forgetMember(userId: string): void {
   const prefix = `${userId}|`;
-  for (const map of [cache.threads, cache.events] as Map<string, unknown>[]) {
+  for (const map of [cache.threads, cache.events, cache.signatures] as Map<string, unknown>[]) {
     for (const key of [...map.keys()]) if (key.startsWith(prefix)) map.delete(key);
   }
+}
+
+const SIGNATURE_TTL_MS = 10 * 60_000;
+
+/**
+ * The member's own Gmail signature (their default for new mail), read with
+ * their read-only grant, for an email that member sends from Kraken. Null
+ * when they have not connected their Google, Google does not answer, or the
+ * signature is empty: the caller then uses its own.
+ */
+export async function memberGmailSignature(
+  store: DataStore,
+  organizationId: string,
+  userId: string,
+  now: Date = new Date(),
+): Promise<string | null> {
+  if (isDemoMode()) return null;
+  const { rows } = await listMemberConnections(store, organizationId).catch(() => ({
+    ready: false,
+    rows: [] as Integration[],
+  }));
+  const row = rows.find((r) => r.user_id === userId && r.status === 'connected');
+  if (!row) return null;
+  const key = `${userId}|${row.id}`;
+  const hit = cache.signatures.get(key);
+  if (hit && now.getTime() - hit.at < SIGNATURE_TTL_MS && now.getTime() >= hit.at) return hit.html;
+  const list = await gmailGet<{
+    sendAs?: {
+      sendAsEmail: string;
+      isPrimary?: boolean;
+      isDefault?: boolean;
+      signature?: string;
+    }[];
+  }>(store, row, '/settings/sendAs');
+  if (!list.ok) return null;
+  const pick =
+    list.value.sendAs?.find((s) => s.isDefault) ?? list.value.sendAs?.find((s) => s.isPrimary);
+  const html = pick?.signature?.trim() ? pick.signature : null;
+  cache.signatures.set(key, { at: now.getTime(), html });
+  return html;
 }
 
 const keyFor = (c: Contributor, q: string) => `${c.userId}|${c.integration.id}|${q}`;

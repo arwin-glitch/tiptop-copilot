@@ -1,9 +1,9 @@
 import 'server-only';
 import type { AuthContext } from '@/lib/auth/session';
 import { env } from '@/lib/config/env';
-import { ARWIN_SIGNATURE_HTML } from '@/lib/email/signatures';
 import { canSend, readPrimarySignature, sendCampaignEmail } from '@/lib/google/gmail-send';
 import { getStore } from '@/lib/runtime';
+import { arwinSignature } from '@/lib/services/sender-signature';
 import type { Integration } from '@/lib/types/domain';
 import { err, ok, type Result } from '@/lib/util/result';
 import { DemoCampaignSender } from './demo-sender';
@@ -33,25 +33,30 @@ export function campaignSenderFor(
       'Sending is not turned on for this mailbox yet. Turn it on in Settings, then come back.',
     );
   }
-  return ok(new GmailCampaignSender(integration));
+  return ok(new GmailCampaignSender(integration, auth));
 }
 
 class GmailCampaignSender implements CampaignSender {
   readonly kind = 'gmail' as const;
   private readonly signatures = new Map<string, Promise<string | null>>();
 
-  constructor(private readonly integration: Integration) {}
+  constructor(
+    private readonly integration: Integration,
+    private readonly auth: AuthContext,
+  ) {}
 
   get fromAddress(): string {
     return this.integration.account_email ?? '';
   }
 
   signature(identity: 'nick' | 'arwin'): Promise<string | null> {
-    if (identity === 'arwin') return Promise.resolve(ARWIN_SIGNATURE_HTML);
     // Read once per sender (one request), not once per email.
     let pending = this.signatures.get(identity);
     if (!pending) {
-      pending = readPrimarySignature(getStore(), this.integration);
+      pending =
+        identity === 'arwin'
+          ? arwinSignature(getStore(), this.auth.organizationId, this.auth.userId)
+          : readPrimarySignature(getStore(), this.integration);
       this.signatures.set(identity, pending);
     }
     return pending;

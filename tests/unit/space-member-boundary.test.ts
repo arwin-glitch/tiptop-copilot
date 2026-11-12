@@ -53,6 +53,7 @@ describe("a member's own Google for Spaces", () => {
       'app/(app)/settings/page.tsx',
       'app/actions/spaces.ts',
       'app/api/integrations/google/callback/route.ts',
+      'lib/services/sender-signature.ts',
       'lib/services/space-content.ts',
       'lib/services/spaces.ts',
     ]);
@@ -67,6 +68,10 @@ describe("a member's own Google for Spaces", () => {
     expect(uses('app/(app)/settings/page.tsx')).toEqual(['myMemberConnection']);
     expect(uses('app/api/integrations/google/callback/route.ts')).toEqual(['saveMemberConnection']);
     expect(uses('app/actions/spaces.ts')).toEqual(['disconnectMemberConnection']);
+    // A member's own Gmail signature, for an email that member sends: settings, never mail.
+    expect(find('lib/services/sender-signature.ts')).toMatch(
+      /import \{ memberGmailSignature \} from '\.\/space-member-mail'/,
+    );
     expect(importing('space-member-fixtures')).toEqual([
       'lib/demo/fixtures.ts',
       'lib/services/space-member-mail.ts',
