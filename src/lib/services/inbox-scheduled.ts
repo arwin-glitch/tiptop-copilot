@@ -3,6 +3,7 @@ import { isMissingTableError } from '@/lib/db/missing-table';
 import type { DataStore } from '@/lib/db/store';
 import { displayName } from '@/lib/google/gmail-inbox';
 import { canSend, readPrimarySignature, sendComposed } from '@/lib/google/gmail-send';
+import { ARWIN_SIGNATURE_HTML } from '@/lib/email/signatures';
 import { MAX_COMPOSE_HTML, sanitizeComposeHtml } from '@/lib/email/compose-html';
 import { checkSendAt, SCHEDULE_NOT_SET_UP } from '@/lib/email/schedule-send';
 import { log } from '@/lib/security/redact';
@@ -11,7 +12,6 @@ import { newId } from '@/lib/util/hash';
 import { err, ok, type Result } from '@/lib/util/result';
 import { getPrimaryIntegration } from './inbox';
 import type { LiveThreadRow } from './inbox-live';
-import { arwinSignature } from './sender-signature';
 
 /**
  * Schedule send for the Inbox tab. Gmail's API has no scheduled send, so
@@ -266,7 +266,7 @@ export type Sender = (
 const gmailSender: Sender = async (store, integration, row) => {
   const signatureHtml =
     row.signature === 'arwin'
-      ? await arwinSignature(store, row.organization_id, row.created_by)
+      ? ARWIN_SIGNATURE_HTML
       : await readPrimarySignature(store, integration);
   if (!signatureHtml) {
     return err('provider_unavailable', "Couldn't read Nick's signature from Gmail.", {

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 import { getStore } from '@/lib/runtime';
 import { canSend, readPrimarySignature, sendReply } from '@/lib/google/gmail-send';
-import { arwinSignature } from '@/lib/services/sender-signature';
+import { ARWIN_SIGNATURE_HTML } from '@/lib/email/signatures';
 import { recordAnswer } from '@/lib/services/email-session';
 import { rateLimit } from '@/lib/security/limits';
 import { fail, personName, sessionAuth } from '@/lib/services/email-session-auth';
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
   const signatureHtml =
     parsed.data.signature === 'nick'
       ? await readPrimarySignature(store, s.integration)
-      : await arwinSignature(store, s.auth.organizationId, s.auth.userId);
+      : ARWIN_SIGNATURE_HTML;
   if (!signatureHtml) {
     // Never send as Nick without his real signature.
     return fail(

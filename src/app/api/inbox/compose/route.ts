@@ -10,7 +10,7 @@ import {
   type InlineImage,
   type MimeAttachment,
 } from '@/lib/google/gmail-send';
-import { arwinSignature } from '@/lib/services/sender-signature';
+import { ARWIN_SIGNATURE_HTML } from '@/lib/email/signatures';
 import { parseAddresses } from '@/lib/email/addresses';
 import { INLINE_CID, MAX_COMPOSE_HTML } from '@/lib/email/compose-html';
 import { rateLimit } from '@/lib/security/limits';
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
   const signatureHtml =
     data.signature === 'nick'
       ? await readPrimarySignature(store, s.integration)
-      : await arwinSignature(store, s.auth.organizationId, s.auth.userId);
+      : ARWIN_SIGNATURE_HTML;
   if (!signatureHtml) {
     return fail(
       {

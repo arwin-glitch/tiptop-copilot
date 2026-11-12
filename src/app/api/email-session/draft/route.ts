@@ -2,7 +2,6 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { getStore } from '@/lib/runtime';
 import { canSend, readLiveDraft, readPrimarySignature } from '@/lib/google/gmail-send';
 import { ARWIN_SIGNATURE_HTML } from '@/lib/email/signatures';
-import { arwinSignature } from '@/lib/services/sender-signature';
 import { fail, sessionAuth } from '@/lib/services/email-session-auth';
 import { htmlToPlainText } from '@/lib/util/text';
 
@@ -24,10 +23,9 @@ export async function GET(request: NextRequest) {
     });
   }
   const store = getStore();
-  const [draft, nickSignature, ownSignature] = await Promise.all([
+  const [draft, nickSignature] = await Promise.all([
     readLiveDraft(store, s.integration, id),
     readPrimarySignature(store, s.integration),
-    arwinSignature(store, s.auth.organizationId, s.auth.userId),
   ]);
   return NextResponse.json(
     {
@@ -38,7 +36,7 @@ export async function GET(request: NextRequest) {
       // Previews only, as plain text; the HTML is what actually sends.
       signatures: {
         nick: nickSignature ? htmlToPlainText(nickSignature) : null,
-        arwin: htmlToPlainText(ownSignature),
+        arwin: htmlToPlainText(ARWIN_SIGNATURE_HTML),
       },
     },
     { headers: { 'Cache-Control': 'no-store' } },
