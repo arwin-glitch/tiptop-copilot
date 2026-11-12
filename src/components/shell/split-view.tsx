@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeftRight, Columns2, ExternalLink, X } from 'lucide-react';
 import { cn } from '@/lib/util/cn';
+import { THREAD_DRAG_TYPE } from '@/lib/email/inbox-actions';
 
 /**
  * Split view: a second Kraken page beside the one you are on, like two tabs
@@ -11,6 +12,9 @@ import { cn } from '@/lib/util/cn';
  * right-hand pane is Kraken itself in a frame (same origin only, proxy.ts),
  * which drops its own rail and bars (`data-embedded`, set before paint in
  * the root layout). Links clicked inside it stay in it.
+ *
+ * Drag any Kraken link (a sidebar tab, a deal, a person, a URL from the
+ * address bar) and drop it on the left or right half to split.
  *
  * Computers only (lg and up). Ctrl+\ opens and closes it; the divider drags;
  * the page, width and open state are remembered on this device.
@@ -73,6 +77,35 @@ function save(state: SplitState) {
   }
 }
 
+/**
+ * A dropped link as a Kraken page path, or null when it is another site.
+ * Takes the drop's `text/uri-list` (first non-comment line).
+ */
+export function droppedPath(uriList: string, origin: string): string | null {
+  const first = uriList
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => l && !l.startsWith('#'));
+  if (!first) return null;
+  try {
+    const url = new URL(first, origin);
+    if (url.origin !== origin) return null;
+    const path = `${url.pathname}${url.search}`;
+    return safeSplitPath(path) === path ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A drag that carries a link (not files, not inbox rows going to a label). */
+export function isLinkDrag(types: readonly string[]): boolean {
+  return (
+    types.includes('text/uri-list') && !types.includes('Files') && !types.includes(THREAD_DRAG_TYPE)
+  );
+}
+
+const DRAG_EVENT = 'kraken:split-drag';
+const DRAG_END_EVENT = 'kraken:split-drag-end';
 const OPEN_EVENT = 'kraken:split-open';
 const TOGGLE_EVENT = 'kraken:split-toggle';
 
@@ -107,6 +140,8 @@ export function SplitView() {
   const [embedded, setEmbedded] = React.useState(false);
   const frame = React.useRef<HTMLIFrameElement>(null);
   const dragging = React.useRef(false);
+  const [linkDrag, setLinkDrag] = React.useState(false);
+  const [side, setSide] = React.useState<'left' | 'right' | null>(null);
 
   // After mount only: the saved state lives in this device's storage.
   React.useEffect(() => {
@@ -165,6 +200,85 @@ export function SplitView() {
     };
   }, [embedded]);
 
+  // Drag a link to split. Inside the pane, a link drag starts in the frame's
+  // own page, so it tells the outer page to show the drop zones.
+  React.useEffect(() => {
+    if (!ready) return;
+    if (embedded) {
+      const onStart = (e: DragEvent) => {
+        if (e.dataTransfer && isLinkDrag([...e.dataTransfer.types])) {
+          try {
+            window.parent.dispatchEvent(new Event(DRAG_EVENT));
+          } catch {
+            // Not Kraken around it: nothing to tell.
+          }
+        }
+      };
+      const onEnd = () => {
+        try {
+          window.parent.dispatchEvent(new Event(DRAG_END_EVENT));
+        } catch {
+          // Same as above.
+        }
+      };
+      window.addEventListener('dragstart', onStart);
+      window.addEventListener('dragend', onEnd);
+      return () => {
+        window.removeEventListener('dragstart', onStart);
+        window.removeEventListener('dragend', onEnd);
+      };
+    }
+    const wide = () => window.matchMedia('(min-width: 1024px)').matches;
+    const onEnter = (e: DragEvent) => {
+      if (wide() && e.dataTransfer && isLinkDrag([...e.dataTransfer.types])) setLinkDrag(true);
+    };
+    const show = () => wide() && setLinkDrag(true);
+    const hide = () => {
+      setLinkDrag(false);
+      setSide(null);
+    };
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragend', hide);
+    window.addEventListener('drop', hide);
+    window.addEventListener(DRAG_EVENT, show);
+    window.addEventListener(DRAG_END_EVENT, hide);
+    return () => {
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragend', hide);
+      window.removeEventListener('drop', hide);
+      window.removeEventListener(DRAG_EVENT, show);
+      window.removeEventListener(DRAG_END_EVENT, hide);
+    };
+  }, [ready, embedded]);
+
+  const onZoneOver = (where: 'left' | 'right') => (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'link';
+    if (side !== where) setSide(where);
+  };
+  const onZoneDrop = (where: 'left' | 'right') => (e: React.DragEvent) => {
+    e.preventDefault();
+    setLinkDrag(false);
+    setSide(null);
+    const path = droppedPath(e.dataTransfer.getData('text/uri-list'), window.location.origin);
+    if (!path) return;
+    if (where === 'right') {
+      update({ open: true, path });
+      return;
+    }
+    // Left: the dragged page takes the main side, this page moves to the pane.
+    const here = safeSplitPath(`${window.location.pathname}${window.location.search}`);
+    update({ open: true, path: here });
+    router.push(path);
+  };
+  const onOverlayLeave = (e: React.DragEvent) => {
+    // Left the window (no element under the pointer): put the zones away.
+    if (!e.relatedTarget) {
+      setLinkDrag(false);
+      setSide(null);
+    }
+  };
+
   /** Where the pane is now (its own links move it). */
   const currentPanePath = () => {
     try {
@@ -195,6 +309,32 @@ export function SplitView() {
 
   return (
     <>
+      {linkDrag ? (
+        <div
+          aria-hidden="true"
+          onDragLeave={onOverlayLeave}
+          className="fixed inset-x-0 top-[var(--titlebar-h)] bottom-0 z-[calc(var(--z-header)+1)] hidden gap-3 bg-black/25 p-3 backdrop-blur-[1px] lg:flex"
+        >
+          {(['left', 'right'] as const).map((where) => (
+            <div
+              key={where}
+              onDragOver={onZoneOver(where)}
+              onDrop={onZoneDrop(where)}
+              className={cn(
+                'flex flex-1 items-center justify-center rounded-xl border-2 border-dashed text-sm font-medium transition-colors',
+                side === where
+                  ? 'border-[var(--gold)] bg-[var(--bg)]/90 text-[var(--fg)]'
+                  : 'border-white/50 bg-[var(--bg)]/40 text-[var(--fg-muted)]',
+              )}
+            >
+              <span className="pointer-events-none flex items-center gap-2 rounded-md bg-[var(--bg-raised)] px-3 py-1.5 shadow">
+                <Columns2 className="size-4 text-[var(--gold)]" aria-hidden="true" />
+                {where === 'left' ? 'Open on the left' : 'Open on the right'}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {state.open ? (
         <section
           aria-label="Split view"
