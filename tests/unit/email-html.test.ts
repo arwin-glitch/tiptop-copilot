@@ -45,3 +45,13 @@ describe('email html: images inside the email', () => {
     expect(hasRichHtml('<div>Hi<br>there</div>')).toBe(true);
   });
 });
+
+describe('email html: Outlook styles', () => {
+  it('keeps CSS that Outlook wraps in comment markers', () => {
+    const out = sanitizeEmailHtml(
+      '<style><!-- p.MsoNormal { margin: 0in; } --></style><p class="MsoNormal">Hi</p><!-- note -->',
+    );
+    expect(out).toContain('p.MsoNormal { margin: 0in; }');
+    expect(out).not.toContain('note');
+  });
+});

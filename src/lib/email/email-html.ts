@@ -30,6 +30,12 @@ function safeDecode(s: string): string {
 export function sanitizeEmailHtml(html: string): string {
   if (!html) return '';
   let out = html
+    // Outlook hides its CSS (paragraph spacing) inside comment markers in <style>: keep the CSS.
+    .replace(
+      /(<style\b[^>]*>)([\s\S]*?)(<\/style\s*>)/gi,
+      (_w, open: string, css: string, close: string) =>
+        `${open}${css.replace(/<!--|-->/g, '')}${close}`,
+    )
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(DROP_WITH_CONTENT, '')
     .replace(DROP_TAG, '')
