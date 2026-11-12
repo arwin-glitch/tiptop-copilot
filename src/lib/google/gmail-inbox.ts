@@ -465,16 +465,32 @@ export interface AttachmentRef {
   id: string;
   mimeType: string;
   size: number;
+  /** An image the email's HTML shows in place (`cid:`), like a logo in a signature. */
+  cid?: string;
 }
+
+/** A part's Content-ID without its angle brackets, or null. */
+function contentIdOf(part: FullPart): string | null {
+  const raw = part.headers?.find((h) => h.name.toLowerCase() === 'content-id')?.value?.trim();
+  if (!raw) return null;
+  const id = raw.replace(/^<|>$/g, '').trim();
+  return id && id.length <= 200 ? id : null;
+}
+
+/** The longest HTML body Kraken shows as the sender laid it out; past it, the text. */
+const MAX_HTML = 400_000;
 
 function attachmentRefs(part: FullPart | undefined, out: AttachmentRef[] = []): AttachmentRef[] {
   if (!part) return out;
-  if (part.filename && part.body?.attachmentId) {
+  const cid = contentIdOf(part);
+  // An inline image may come without a file name; its Content-ID still names it.
+  if (part.body?.attachmentId && (part.filename || cid)) {
     out.push({
-      name: part.filename,
+      name: part.filename || `${cid ?? 'image'}`,
       id: part.body.attachmentId,
       mimeType: part.mimeType ?? 'application/octet-stream',
       size: part.body.size ?? 0,
+      ...(cid ? { cid } : {}),
     });
   }
   for (const child of part.parts ?? []) attachmentRefs(child, out);
@@ -536,6 +552,8 @@ export interface FullMessage {
   date: string | null;
   subject: string;
   text: string;
+  /** The HTML body as sent (unsanitized; inbox-live cleans it), '' when there is none or it is too long. */
+  html?: string;
   attachments: AttachmentRef[];
   labelIds: string[];
   /** The List-Unsubscribe and List-Unsubscribe-Post headers, when the sender gave them. */
@@ -566,7 +584,7 @@ export async function readThreadFull(
     .filter((m) => !m.labelIds?.includes('DRAFT'))
     .map((m) => {
       const plain = findText(m.payload, 'text/plain');
-      const html = plain ? '' : findText(m.payload, 'text/html');
+      const html = findText(m.payload, 'text/html');
       return {
         id: m.id,
         from: header(m, 'From'),
@@ -575,6 +593,7 @@ export async function readThreadFull(
         date: m.internalDate ? new Date(Number(m.internalDate)).toISOString() : null,
         subject: header(m, 'Subject'),
         text: (plain || htmlToPlainText(html)).replace(/\r\n/g, '\n').trim(),
+        html: html.length <= MAX_HTML ? html : '',
         attachments: attachmentRefs(m.payload),
         labelIds: m.labelIds ?? [],
         listUnsubscribe: header(m, 'List-Unsubscribe'),

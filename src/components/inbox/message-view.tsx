@@ -7,6 +7,7 @@ import { Notice } from '@/components/ui/feedback';
 import { opensInline } from '@/lib/email/attachment-types';
 import { cn } from '@/lib/util/cn';
 import type { LiveMessage } from '@/lib/services/inbox-live';
+import { EmailFrame, hasQuotedHtml } from './email-frame';
 
 /**
  * One email message as plain text, for the Inbox's reading pane and the full
@@ -193,6 +194,10 @@ export function MessageBody({
   const toId = React.useId();
   const { main, quoted } = React.useMemo(() => splitQuoted(reflow(m.text)), [m.text]);
   const showQuoted = quotedShown ?? ownQuoted;
+  // As the sender laid it out (logos, tables) in the Inbox; previews and a
+  // message flagged for injected instructions stay plain text.
+  const rich = Boolean(m.html) && !clampLines && !m.flagged;
+  const richQuoted = rich && hasQuotedHtml(m.html!);
   const toggleQuoted = onToggleQuoted ?? (() => setOwnQuoted((q) => !q));
   // Long text that still fits in the lines (one long paragraph on a wide
   // screen) gets no clamp and no button that does nothing.
@@ -255,24 +260,33 @@ export function MessageBody({
           </p>
         </Notice>
       ) : null}
-      <div
-        ref={bodyRef}
-        id={clampable ? bodyId : undefined}
-        className="text-sm leading-relaxed break-words whitespace-pre-wrap"
-        style={
-          clamped
-            ? {
-                display: '-webkit-box',
-                WebkitLineClamp: clampLines,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-              }
-            : undefined
-        }
-      >
-        <Linkified text={(clamped ? compactLines(main) : main) || '(no text)'} />
-      </div>
-      {quoted && !clamped ? (
+      {rich ? (
+        <EmailFrame
+          messageId={m.id}
+          html={m.html!}
+          inline={m.inline ?? []}
+          showQuoted={showQuoted}
+        />
+      ) : (
+        <div
+          ref={bodyRef}
+          id={clampable ? bodyId : undefined}
+          className="text-sm leading-relaxed break-words whitespace-pre-wrap"
+          style={
+            clamped
+              ? {
+                  display: '-webkit-box',
+                  WebkitLineClamp: clampLines,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }
+              : undefined
+          }
+        >
+          <Linkified text={(clamped ? compactLines(main) : main) || '(no text)'} />
+        </div>
+      )}
+      {(rich ? richQuoted : quoted && !clamped) ? (
         <div>
           {clampLines ? (
             // Follow-ups: the same kind of control as the others around it.
@@ -294,7 +308,7 @@ export function MessageBody({
               {showQuoted ? 'Hide quoted text' : 'Show quoted text'}
             </button>
           )}
-          {showQuoted ? (
+          {showQuoted && !rich ? (
             <div className="mt-1 border-l-2 border-[var(--border)] pl-3 text-xs break-words whitespace-pre-wrap text-[var(--fg-muted)]">
               <Linkified text={quoted} />
             </div>

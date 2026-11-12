@@ -1,4 +1,5 @@
 import 'server-only';
+import { cidsIn, hasRichHtml, sanitizeEmailHtml } from '@/lib/email/email-html';
 import { env, isDemoMode, type AppEnv } from '@/lib/config/env';
 import type { DataStore } from '@/lib/db/store';
 import { DEMO_USER } from '@/lib/demo/fixtures';
@@ -171,6 +172,13 @@ export interface LiveMessage {
   cc: string;
   at: string | null;
   text: string;
+  /**
+   * The body as the sender laid it out, cleaned (lib/email/email-html.ts),
+   * for the Inbox's sandboxed view; null when there is none or it is plain text.
+   */
+  html?: string | null;
+  /** Images the HTML shows in place (`cid:`), kept out of `attachments`. */
+  inline?: AttachmentRef[];
   attachments: AttachmentRef[];
   fromUs: boolean;
   flagged: boolean;
@@ -884,20 +892,27 @@ export function toLiveThread(
     ...systemFlags(thread.labelIds),
     labels: userLabels(thread.labelIds, names),
     labelIds: userLabelIds(thread.labelIds),
-    messages: thread.messages.map((m) => ({
-      id: m.id,
-      fromName: displayName(m.from),
-      from: m.from,
-      to: m.to,
-      cc: m.cc,
-      at: m.date,
-      text: m.text,
-      attachments: m.attachments,
-      // The address itself, never a substring of the header: a lookalike is not us.
-      fromUs: isFromMailbox(m.from, mailbox),
-      flagged: scanForInjection(m.text).flagged,
-      unsubscribe: parseUnsubscribe(m.listUnsubscribe, m.listUnsubscribePost),
-    })),
+    messages: thread.messages.map((m) => {
+      const html = m.html && hasRichHtml(m.html) ? sanitizeEmailHtml(m.html) : null;
+      const cids = html ? cidsIn(html) : new Set<string>();
+      const shownInside = (a: AttachmentRef) => Boolean(a.cid && cids.has(a.cid));
+      return {
+        id: m.id,
+        fromName: displayName(m.from),
+        from: m.from,
+        to: m.to,
+        cc: m.cc,
+        at: m.date,
+        text: m.text,
+        html,
+        inline: m.attachments.filter(shownInside),
+        attachments: m.attachments.filter((a) => !shownInside(a)),
+        // The address itself, never a substring of the header: a lookalike is not us.
+        fromUs: isFromMailbox(m.from, mailbox),
+        flagged: scanForInjection(m.text).flagged,
+        unsubscribe: parseUnsubscribe(m.listUnsubscribe, m.listUnsubscribePost),
+      };
+    }),
   };
 }
 

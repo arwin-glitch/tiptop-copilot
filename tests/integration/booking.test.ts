@@ -594,7 +594,9 @@ describe('the Kraken side', () => {
     expect(list.available).toBe(true);
     // The demo's three: a call, a coffee, a message.
     expect(list.requests.map((r) => r.meeting_type)).toEqual(['call', 'in_person', 'message']);
-    expect(await countPendingBookingRequests(harness.store, harness.auth.organizationId)).toBe(3);
+    expect(await countPendingBookingRequests(harness.store, harness.auth.organizationId, NOW)).toBe(
+      3,
+    );
   });
 
   it('saves Settings strictly, audits it, and keeps slugs unique', async () => {
