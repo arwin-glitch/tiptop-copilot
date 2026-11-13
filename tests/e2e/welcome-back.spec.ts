@@ -2,9 +2,15 @@ import { expect, test } from '@playwright/test';
 
 /** Nick's first visit after his leave: a one-time card on Today, and a small first session. */
 
+// The card retires itself after a fixed date (SHOW_UNTIL in
+// src/components/today/welcome-back.tsx), checked in the browser. Pin the
+// browser's clock inside the card's window so the spec doesn't expire with it.
+const INSIDE_SHOW_WINDOW = new Date('2026-10-20T15:00:00Z');
+
 test('Today shows the welcome-back card once, and the session starts at 10 minutes', async ({
   page,
 }) => {
+  await page.clock.install({ time: INSIDE_SHOW_WINDOW });
   await page.goto('/login');
   await page.getByRole('button', { name: 'Enter demo workspace' }).click();
   await page.waitForURL(/\/today/);
