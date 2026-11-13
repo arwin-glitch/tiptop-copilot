@@ -113,6 +113,7 @@ export function Composer({
       toast.error('Write the email first.');
       return;
     }
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     start();
   };
 

@@ -95,6 +95,8 @@ export interface LiveThreadRow {
   kind?: 'thread' | 'draft' | 'scheduled';
   /** Gmail's "Name, me" for a conversation; for a draft or scheduled send, who it goes to. */
   who: string;
+  /** The address whose picture the row's avatar shows (the other side's newest sender). */
+  avatarEmail?: string | null;
   /** Messages in the thread, shown after the names when more than one. */
   count?: number;
   subject: string;
@@ -415,6 +417,9 @@ function toRow(
     id: meta.id,
     kind: 'thread',
     who,
+    avatarEmail: meta.lastFromUs
+      ? (meta.firstFromAddress ?? null)
+      : (meta.latestFrom?.address ?? meta.firstFromAddress ?? null),
     count: line?.count ?? 0,
     subject: meta.subject,
     snippet,

@@ -67,12 +67,13 @@ import {
 } from '@/lib/calendar/inbox-prefill';
 import { unsubscribeHow } from '@/lib/email/unsubscribe';
 import type { LabelChange, MailLabel } from '@/lib/email/inbox-actions';
-import { initialOf, type FolderId } from '@/lib/email/inbox-folders';
+import { type FolderId } from '@/lib/email/inbox-folders';
 import type { SystemAction } from '@/lib/email/inbox-modify';
 import { formatWake } from '@/lib/email/snooze';
 import { cn } from '@/lib/util/cn';
 import { colorsByName } from '@/lib/email/label-tree';
 import { LabelChip } from '@/components/inbox/label-chip';
+import { SenderAvatar } from '@/components/inbox/sender-avatar';
 import type { LiveMessage, LiveThread, LiveThreadRow } from '@/lib/services/inbox-live';
 
 export type WriteKind = 'reply' | 'replyAll' | 'forward';
@@ -494,12 +495,7 @@ function MessageCard({
   };
   const preview = React.useMemo(() => splitQuoted(reflow(m.text)).main.slice(0, 200), [m.text]);
   const avatar = (
-    <span
-      aria-hidden
-      className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--nav-active)] text-sm font-semibold text-[var(--accent)]"
-    >
-      {initialOf(m.fromName)}
-    </span>
+    <SenderAvatar name={m.fromName} email={addressOf(m.from)} className="size-10 text-sm" />
   );
   if (!open) {
     return (
@@ -950,6 +946,8 @@ export function ThreadView({
     };
   }, [thread, composeEnv.demo, composeEnv.canSend, seed, startWrite]);
 
+  // Sent and in its undo window: the reply box is out of sight (Gmail).
+  const [replySending, setReplySending] = React.useState(false);
   const closeWrite = () => {
     setSeed(null);
     setWrite(null);
@@ -1365,7 +1363,10 @@ export function ThreadView({
       {thread ? (
         <div className="px-4 py-4 sm:pl-[4.25rem]">
           {seed ? (
-            <div className="shadow-raised relative overflow-hidden rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg)]">
+            <div
+              hidden={replySending}
+              className="shadow-raised relative overflow-hidden rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg)]"
+            >
               <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-1.5 text-xs text-[var(--fg-muted)]">
                 {seed.mode === 'forward' ? (
                   <Forward className="size-3.5" aria-hidden />
@@ -1409,6 +1410,7 @@ export function ThreadView({
                   }
                 }}
                 onClose={closeWrite}
+                onHiddenChange={setReplySending}
               />
             </div>
           ) : (

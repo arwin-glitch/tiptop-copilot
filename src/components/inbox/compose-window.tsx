@@ -797,7 +797,14 @@ export function ComposeForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const html = () => editor.current?.innerHTML ?? '';
+  // The last words read from the editor: a send that goes after the box is
+  // gone (the person moved to another conversation inside the undo window)
+  // still sends what they wrote.
+  const lastHtml = React.useRef('');
+  const html = () => {
+    if (editor.current) lastHtml.current = editor.current.innerHTML;
+    return lastHtml.current;
+  };
 
   const save = React.useCallback(async (): Promise<string | null> => {
     if (!canDraft || scheduled) return draftRef.current;
@@ -955,6 +962,9 @@ export function ComposeForm({
       toast.error(problem);
       return;
     }
+    html(); // keep the words for a send that outlives the box
+    // The box hides now: let go of the keyboard so j/k and the arrows move on.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     start();
   };
 

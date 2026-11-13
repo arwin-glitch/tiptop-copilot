@@ -18,11 +18,12 @@ import {
 import { LabelMenu } from '@/components/inbox/label-menu';
 import { readerZone, SnoozeMenu } from '@/components/inbox/snooze-menu';
 import type { LabelChange, MailLabel } from '@/lib/email/inbox-actions';
-import { fullDate, initialOf, smartDate, type Density } from '@/lib/email/inbox-folders';
+import { fullDate, smartDate, type Density } from '@/lib/email/inbox-folders';
 import { formatWake } from '@/lib/email/snooze';
 import type { LiveThreadRow } from '@/lib/services/inbox-live';
 import { colorsByName } from '@/lib/email/label-tree';
 import { LabelChip } from '@/components/inbox/label-chip';
+import { SenderAvatar } from '@/components/inbox/sender-avatar';
 import { cn } from '@/lib/util/cn';
 
 const PAD: Record<Density, string> = {
@@ -269,7 +270,11 @@ export function ThreadRow({
             : 'bg-[var(--nav-active)] text-[var(--accent)]',
         )}
       >
-        {checked ? <Check className="size-4" aria-hidden /> : initialOf(row.who)}
+        {checked ? (
+          <Check className="size-4" aria-hidden />
+        ) : (
+          <SenderAvatar name={row.who} email={row.avatarEmail} className="size-9 text-sm" />
+        )}
       </button>
       <input
         type="checkbox"
