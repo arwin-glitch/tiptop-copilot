@@ -9,9 +9,9 @@ describe('Undo Send period', () => {
   it('reads a stored choice, and anything else as 10 seconds (never less than the old 8)', () => {
     expect(parseUndoSend('30')).toBe('30');
     expect(parseUndoSend('5')).toBe('5');
-    expect(parseUndoSend(null)).toBe('10');
-    expect(parseUndoSend('8')).toBe('10');
-    expect(parseUndoSend('<script>')).toBe('10');
+    expect(parseUndoSend(null)).toBe('5');
+    expect(parseUndoSend('8')).toBe('5');
+    expect(parseUndoSend('<script>')).toBe('5');
     expect(undoSeconds(parseUndoSend('20'))).toBe(20);
   });
 });

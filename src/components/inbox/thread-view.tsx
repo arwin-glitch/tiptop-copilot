@@ -801,6 +801,15 @@ export function ThreadView({
   const router = useRouter();
   const [thread, setThread] = React.useState<LiveThread | null>(initialThread ?? null);
   const labelColors = React.useMemo(() => colorsByName(labelChoices), [labelChoices]);
+  // Every label on the conversation, as Gmail's header shows them (the row keeps a few).
+  const headerLabels = React.useMemo(() => {
+    const byId = new Map(labelChoices.map((l) => [l.id, l.name]));
+    const all = row.labelIds.flatMap((id) => {
+      const name = byId.get(id);
+      return name ? [{ id: id as string | null, name }] : [];
+    });
+    return all.length ? all : row.labels.map((name) => ({ id: null as string | null, name }));
+  }, [labelChoices, row.labelIds, row.labels]);
   const [error, setError] = React.useState<string | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
   const [openIds, setOpenIds] = React.useState<Set<string>>(new Set());
@@ -1248,9 +1257,13 @@ export function ThreadView({
           {/* The row's chips, so a change made here shows at once. */}
           <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
             {row.inInbox && !inTrash && !inSpam ? (
-              <span className="rounded bg-[var(--neutral-soft)] px-1.5 text-xs text-[var(--fg-muted)]">
-                Inbox
-              </span>
+              // Gmail: the Inbox chip's × archives the conversation.
+              <LabelChip
+                name="Inbox"
+                color={undefined}
+                className="border-0"
+                onRemove={canModify ? () => void onAct('archive') : undefined}
+              />
             ) : null}
             {inSpam ? (
               <span className="rounded bg-[var(--danger-soft)] px-1.5 text-xs text-[var(--danger)]">
@@ -1262,8 +1275,13 @@ export function ThreadView({
                 Trash
               </span>
             ) : null}
-            {row.labels.map((l) => (
-              <LabelChip key={l} name={l} color={labelColors.get(l)} />
+            {headerLabels.map((l) => (
+              <LabelChip
+                key={l.id ?? l.name}
+                name={l.name}
+                color={labelColors.get(l.name)}
+                onRemove={onLabel && l.id ? () => onLabel({ add: [], remove: [l.id!] }) : undefined}
+              />
             ))}
           </span>
           {snoozedUntil ? (

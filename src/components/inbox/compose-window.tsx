@@ -45,6 +45,7 @@ import {
 } from '@/lib/email/schedule-send';
 import { formatWake, pickedWakeAt, toDateTimeLocal } from '@/lib/email/snooze';
 import { useUndoSeconds } from '@/components/inbox/use-stored';
+import { useUndoableSend } from '@/components/inbox/use-undoable-send';
 import { cn } from '@/lib/util/cn';
 
 type Signature = 'nick' | 'arwin';
@@ -733,9 +734,12 @@ export function ComposeForm({
   onClose,
   onDraftSaved,
   onPopOut,
+  onHiddenChange,
 }: {
   seed: ComposeSeed;
   env: ComposeEnv;
+  /** Sent from view: the box is out of sight while the undo window runs (its window hides too). */
+  onHiddenChange?: (hidden: boolean) => void;
   /**
    * Gmail's "Pop out reply": the inline reply moves to a floating compose
    * window with what is written so far, its draft and its thread. Inline only.
@@ -765,13 +769,10 @@ export function ComposeForm({
   const [saveState, setSaveState] = React.useState<'idle' | 'saving' | 'saved' | 'failed'>(
     seed.draftId ? 'saved' : 'idle',
   );
-  const [countdown, setCountdown] = React.useState(0);
-  const [pending, setPending] = React.useState(false);
   const [sending, setSending] = React.useState(false);
   const editor = React.useRef<HTMLDivElement>(null);
   const fileInput = React.useRef<HTMLInputElement>(null);
   const photoInput = React.useRef<HTMLInputElement>(null);
-  const timer = React.useRef<number | null>(null);
   const saveTimer = React.useRef<number | null>(null);
   const dirty = React.useRef(false);
   const savingNow = React.useRef<Promise<string | null> | null>(null);
@@ -859,7 +860,6 @@ export function ComposeForm({
 
   React.useEffect(
     () => () => {
-      if (timer.current) window.clearInterval(timer.current);
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
     },
     [],
@@ -942,11 +942,12 @@ export function ComposeForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [to, cc, bcc, subject, signature, files, scheduled, seed]);
 
-  // The send fires from the last tick itself; the ref always holds the newest send.
-  const sendRef = React.useRef(send);
+  // Gmail: the box goes at once, a toast keeps Undo for the undo window, then it sends.
+  const { pending, start, undo } = useUndoableSend(send, undoFor);
+  const outOfSight = pending || sending;
   React.useEffect(() => {
-    sendRef.current = send;
-  }, [send]);
+    onHiddenChange?.(outOfSight);
+  }, [outOfSight, onHiddenChange]);
 
   const startSend = () => {
     const problem = check();
@@ -954,26 +955,7 @@ export function ComposeForm({
       toast.error(problem);
       return;
     }
-    let left = undoFor;
-    setCountdown(left);
-    setPending(true);
-    timer.current = window.setInterval(() => {
-      left -= 1;
-      setCountdown(left);
-      if (left <= 0) {
-        if (timer.current) window.clearInterval(timer.current);
-        timer.current = null;
-        setPending(false);
-        void sendRef.current();
-      }
-    }, 1000);
-  };
-
-  const undo = () => {
-    if (timer.current) window.clearInterval(timer.current);
-    timer.current = null;
-    setPending(false);
-    setCountdown(0);
+    start();
   };
 
   /** A person picked a time: that pick is the send decision, made once. */
@@ -1191,6 +1173,7 @@ export function ComposeForm({
 
   return (
     <div
+      hidden={outOfSight}
       className="flex min-h-0 flex-1 flex-col"
       onKeyDown={(e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -1368,7 +1351,7 @@ export function ComposeForm({
         ) : pending ? (
           <>
             <span className="text-sm text-[var(--fg-muted)]" aria-live="polite">
-              Sending in {countdown}s…
+              Sending…
             </span>
             <Button size="sm" variant="secondary" onClick={undo}>
               <Undo2 className="size-4" aria-hidden /> Undo
@@ -1552,6 +1535,7 @@ export function ComposeWindow({
   onDraftSaved?: () => void;
 }) {
   const [mode, setMode] = React.useState<'open' | 'min' | 'full'>('open');
+  const [hidden, setHidden] = React.useState(false);
   const [subject, setSubject] = React.useState(seed.subject);
   const closeRef = React.useRef<(() => void) | null>(null);
   const title =
@@ -1567,7 +1551,7 @@ export function ComposeWindow({
   const right = `calc(1.5rem + ${slot} * (min(34rem, 100vw - 3rem) + 1rem))`;
   return (
     <>
-      {mode === 'full' ? (
+      {mode === 'full' && !hidden ? (
         <div
           className="fixed inset-0 z-[var(--z-header)] bg-[var(--scrim)]"
           aria-hidden
@@ -1580,6 +1564,7 @@ export function ComposeWindow({
         style={mode === 'full' ? undefined : ({ '--compose-right': right } as React.CSSProperties)}
         className={cn(
           'fixed z-[var(--z-header)] flex flex-col border border-[var(--border-strong)] bg-[var(--bg-overlay)] shadow-2xl',
+          hidden && 'hidden',
           mode === 'full'
             ? 'inset-4 rounded-[var(--radius-card)] sm:inset-x-[8vw] sm:inset-y-[6vh]'
             : mode === 'min'
@@ -1641,6 +1626,7 @@ export function ComposeWindow({
             onDraftSaved={onDraftSaved}
             closeRef={closeRef}
             onSubject={setSubject}
+            onHiddenChange={setHidden}
           />
         </div>
       </div>

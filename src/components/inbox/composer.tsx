@@ -8,6 +8,7 @@ import { Input, Textarea } from '@/components/ui/form';
 import { Notice } from '@/components/ui/feedback';
 import { swapSignOff } from '@/components/followups/email-session-client';
 import { useUndoSeconds } from '@/components/inbox/use-stored';
+import { useUndoableSend } from '@/components/inbox/use-undoable-send';
 import { parseAddresses } from '@/lib/email/addresses';
 import { lineWithLinksToHtml, textWithLinks } from '@/lib/email/name-links';
 
@@ -66,10 +67,7 @@ export function Composer({
   const [subject, setSubject] = React.useState(initial.subject);
   const [body, setBody] = React.useState(initial.body);
   const [signature, setSignature] = React.useState<Signature>(initial.signature ?? 'nick');
-  const [countdown, setCountdown] = React.useState(0);
-  const [pending, setPending] = React.useState(false);
   const [sending, setSending] = React.useState(false);
-  const timer = React.useRef<number | null>(null);
   const uid = React.useId();
   const undoFor = useUndoSeconds();
 
@@ -99,16 +97,7 @@ export function Composer({
     }
   }, [to, cc, subject, body, signature, initial.forwardOf, initial.links, onSent, onClose]);
 
-  const sendRef = React.useRef(send);
-  React.useEffect(() => {
-    sendRef.current = send;
-  }, [send]);
-  React.useEffect(
-    () => () => {
-      if (timer.current) window.clearInterval(timer.current);
-    },
-    [],
-  );
+  const { pending, start, undo } = useUndoableSend(send, undoFor);
 
   const startSend = () => {
     const toList = parseAddresses(to);
@@ -124,26 +113,7 @@ export function Composer({
       toast.error('Write the email first.');
       return;
     }
-    let left = undoFor;
-    setCountdown(left);
-    setPending(true);
-    timer.current = window.setInterval(() => {
-      left -= 1;
-      setCountdown(left);
-      if (left <= 0) {
-        if (timer.current) window.clearInterval(timer.current);
-        timer.current = null;
-        setPending(false);
-        void sendRef.current();
-      }
-    }, 1000);
-  };
-
-  const undo = () => {
-    if (timer.current) window.clearInterval(timer.current);
-    timer.current = null;
-    setPending(false);
-    setCountdown(0);
+    start();
   };
 
   const copy = async () => {
@@ -180,6 +150,8 @@ export function Composer({
     <div
       role="dialog"
       aria-label={title}
+      // Sent from the person's view at once (Gmail): Undo in the toast brings it back.
+      hidden={pending || sending}
       className="fixed inset-x-0 bottom-0 z-[var(--z-header)] flex max-h-[92dvh] flex-col rounded-t-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--bg-overlay)] shadow-2xl sm:right-6 sm:left-auto sm:w-[560px]"
     >
       <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-2">
@@ -315,7 +287,7 @@ export function Composer({
           </>
         ) : pending ? (
           <>
-            <span className="text-sm text-[var(--fg-muted)]">Sending in {countdown}s…</span>
+            <span className="text-sm text-[var(--fg-muted)]">Sending…</span>
             <Button size="sm" variant="secondary" onClick={undo}>
               <Undo2 className="size-4" aria-hidden /> Undo
             </Button>
