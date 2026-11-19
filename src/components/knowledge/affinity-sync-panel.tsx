@@ -189,7 +189,8 @@ export function AffinitySyncPanel({
                       `Synced ${relativeTime(last.finishedAt)}`,
                       `${NUMBER.format(last.lists)} lists`,
                       `${NUMBER.format(last.rows)} rows`,
-                      `${NUMBER.format(last.notes)} notes`,
+                      // A run reads only notes made or changed since the last one.
+                      `${NUMBER.format(last.notes)} new or changed ${last.notes === 1 ? 'note' : 'notes'}`,
                       last.skipped
                         ? `${NUMBER.format(last.skipped)} ${last.skipped === 1 ? 'page' : 'pages'} skipped, read again next run`
                         : null,
